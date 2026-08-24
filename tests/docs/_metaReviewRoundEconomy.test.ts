@@ -6,6 +6,12 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
 import { checkCorpus, readArcs, type Problem } from "../../lib/reviewRounds/corpus";
+import { parseFiling } from "../../lib/reviewRounds/filing";
+import {
+  ARC_SUM_FREEZE,
+  ARC_SUM_GRANDFATHERED,
+} from "../../lib/reviewRounds/arcSumGrandfather";
+import { arcCountedRounds } from "../../lib/reviewRounds/count";
 import { MECHANIZABLE_GRANDFATHERED } from "../../lib/reviewRounds/mechanizableGrandfather";
 import { premiseHolds } from "../_shared/premise";
 import { ledgerIds, type ExtractOpts } from "./_ledgerMdast";
@@ -1013,6 +1019,149 @@ describe("liveLedgerIds resolves against the real ledgers", () => {
       [],
     );
     expect(problems.map((p) => p.kind)).toEqual(["unresolved_id"]);
+  });
+});
+
+describe("clause B - the arc sum across merge bases (spec §3.1)", () => {
+  // HALF the threshold in each of two bases: neither base obliges under clause
+  // A, and the arc has still burned the full threshold. Derived from
+  // ROUND_THRESHOLD so a raised threshold cannot make this vacuous.
+  const HALF = ROUND_THRESHOLD / 2;
+  const half = (baseSha: string) =>
+    rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha })));
+
+  // THE defect this whole arc exists for. Four diff rounds were burned; the
+  // per-base reader sees two and two, obliges nothing, and every other
+  // assertion in this suite passes while a real filing duty goes unreported.
+  it("reports a stage that reaches the threshold only by summing across bases", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+  });
+
+  // V2 and V3. A message that names the total but not WHERE the rounds were
+  // burned sends a reader to the wrong file; a breakdown blind to stage is
+  // wrong on 7 of the 11 live newly-owing pairs while the total stays right.
+  it("names the total and the per-(baseSha, stage) breakdown BY VALUE", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ]);
+    const message = problems.find((p) => p.kind === "missing_arc_filing")?.message ?? "";
+    expect(message).toContain(`burned ${ROUND_THRESHOLD} counted rounds`);
+    expect(message).toContain(`aaaaaaaaaaaa ${HALF}`);
+    expect(message).toContain(`bbbbbbbbbbbb ${HALF}`);
+    expect(message).toContain("feat/foo");
+    expect(message).toContain("diff");
+  });
+
+  // K2a/`directory`. Excludes an accumulator keyed on stage alone, where each
+  // directory overwrites the last and only the final one can ever report.
+  // Every other two-directory fixture here gives both directories the same
+  // obligation state, so none of them discriminates this.
+  it("keeps directories independent, so a later clean one cannot mask an owing one", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+      // Sorts AFTER feat/foo and is nowhere near the threshold.
+      { path: "feat/zzz/cccccccccccc.jsonl", body: rows({ branch: "feat/zzz", baseSha: "cccccccccccc" }) },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("feat/foo");
+  });
+
+  // K2a/`stage`. A stage-blind clause B sums two diff rounds and two spec
+  // rounds to the threshold and reports an arc that owes nothing.
+  // K2a/`stage`. HALF the threshold of `diff` in one base and HALF of `spec`
+  // in the other: neither stage reaches the threshold, and the ROWS sum to it
+  // exactly. A stage-blind clause B reports an arc that owes nothing.
+  it("keeps stages independent, so two half-stages do not sum into an obligation", () => {
+    const problems = check([
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1 }))),
+      },
+      {
+        path: "feat/foo/bbbbbbbbbbbb.jsonl",
+        body: rows(
+          ...Array.from({ length: HALF }, (_, i) => ({
+            round: i + 1,
+            baseSha: "bbbbbbbbbbbb",
+            stage: "spec",
+          })),
+        ),
+      },
+    ]);
+    expect(problems).toEqual([]);
+  });
+
+  // Clause B is RESIDUAL: when a base already reaches the threshold on its
+  // own, clause A reports it and clause B must stay quiet, or one duty is
+  // announced twice and a reader files twice.
+  it("stays silent when clause A already reports the same stage", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: rows(...OBLIGING) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_filing"]);
+  });
+});
+
+describe("the arc-sum grandfather set can only shrink (spec §3.3)", () => {
+  // Every assertion here reads the LIVE corpus, so the set is policed against
+  // the thing it exempts rather than against a fixture that agrees with it.
+  const live = readArcs(ROOT);
+  const byBranch = new Map<string, typeof live>();
+  for (const arc of live) {
+    const group = byBranch.get(arc.branch);
+    if (group) group.push(arc);
+    else byBranch.set(arc.branch, [arc]);
+  }
+
+  it("holds exactly the dated count, as a second lock against a silent edit", () => {
+    expect(ARC_SUM_GRANDFATHERED.length).toBe(11);
+  });
+
+  // This is the STRUCTURAL rejection of additions, not a convention. Every row
+  // written from now on postdates the freeze, so no future arc can join the
+  // set at all. A row with a null startedAt cannot be proven older and fails -
+  // conservative and loud.
+  it("carries only rows that predate ARC_SUM_FREEZE", () => {
+    premiseHolds(
+      "the live corpus still holds rows for every grandfathered pair",
+      ARC_SUM_GRANDFATHERED.every(({ branch }) => (byBranch.get(branch) ?? []).length > 0),
+    );
+    const offenders = ARC_SUM_GRANDFATHERED.flatMap(({ branch, stage }) =>
+      (byBranch.get(branch) ?? [])
+        .flatMap((arc) => arc.rows)
+        .filter((r) => r.stage === stage)
+        .filter((r) => r.startedAt === null || !(r.startedAt < ARC_SUM_FREEZE))
+        .map((r) => `${branch} ${stage} round ${r.round} startedAt=${r.startedAt}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  // The set can only SHRINK. An entry whose arc has since gained a filing, or
+  // whose rows were deleted, is stale: it would silently exempt nothing while
+  // reading as a live exemption.
+  it("holds no entry that has stopped owing under clause B", () => {
+    premiseHolds(
+      "the live corpus holds at least one multi-base branch directory, so clause B can bind at all",
+      [...byBranch.values()].some((group) => group.length > 1),
+    );
+    const stale = ARC_SUM_GRANDFATHERED.filter(({ branch, stage }) => {
+      const group = byBranch.get(branch) ?? [];
+      const arcSum = arcCountedRounds(group.flatMap((arc) => arc.rows)).get(stage) ?? 0;
+      if (arcSum < ROUND_THRESHOLD) return true;
+      return group.some(
+        (arc) =>
+          arc.filingText !== null &&
+          parseFiling(arc.filingText).some((section) => section.stage === stage),
+      );
+    }).map(({ branch, stage }) => `${branch} ${stage}`);
+    expect(stale).toEqual([]);
   });
 });
 

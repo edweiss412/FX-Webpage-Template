@@ -2,8 +2,9 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 import { CORPUS_DIR } from "./arc";
+import { ARC_SUM_FREEZE, isArcSumGrandfathered } from "./arcSumGrandfather";
 import { COUNTED_STAGES, isCountedStage, ROUND_THRESHOLD, type Stage } from "./constants";
-import { countedRounds, recordedRounds, roundGaps } from "./count";
+import { arcCountedRounds, countedRounds, recordedRounds, roundGaps } from "./count";
 import { parseFiling, type FilingSection } from "./filing";
 import { MECHANIZABLE_GRANDFATHERED } from "./mechanizableGrandfather";
 import { parseRow, type ReviewRoundRow } from "./row";
@@ -21,7 +22,8 @@ export type ProblemKind =
   | "duplicate_section"
   | "orphan_filing"
   | "unrecognized_corpus_file"
-  | "mechanizable_untracked";
+  | "mechanizable_untracked"
+  | "missing_arc_filing";
 
 export type Problem = { kind: ProblemKind; message: string };
 
@@ -184,7 +186,18 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
     });
   }
 
-  for (const arc of readArcs(root)) {
+  // Bound once: clause A walks each arc alone, clause B groups the SAME arcs
+  // by branch directory. Re-reading would let the two clauses disagree about
+  // what the corpus holds.
+  const arcs = readArcs(root);
+  // `(branch, stage)` pairs clause A has already reported, so clause B stays
+  // RESIDUAL - one duty is announced once, never twice.
+  const clauseAReported = new Set<string>();
+  // Stages already discharged by a filing SOMEWHERE in each branch directory,
+  // gathered from the sections clause A has parsed anyway.
+  const filedByBranch = new Map<string, Set<string>>();
+
+  for (const arc of arcs) {
     for (const bad of arc.malformed) {
       // A malformed row swallowed as an empty corpus reads as "this arc ran no
       // rounds", which reports an obliged arc as compliant.
@@ -227,6 +240,13 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
       else byStage.set(section.stage, [section]);
     }
 
+    let filedHere = filedByBranch.get(arc.branch);
+    if (!filedHere) {
+      filedHere = new Set<string>();
+      filedByBranch.set(arc.branch, filedHere);
+    }
+    for (const section of sections) filedHere.add(section.stage);
+
     const filingPath = `${arc.corpusPath.slice(0, -".jsonl".length)}.md`;
     // The Mechanizable-parity rule binds NEW filings only (enforcement-pair
     // spec §3.3): filings are immutable evidence, so paths frozen in the
@@ -237,6 +257,7 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
       if ((byStage.get(stage) ?? []).length > 0) continue;
       // The baseSha is in the message so a reused branch name cannot leave a
       // reader guessing WHICH arc owes the filing.
+      clauseAReported.add(`${arc.branch}\u0000${stage}`);
       problems.push({
         kind: "missing_filing",
         message: `${arc.branch} ${arc.baseSha}: stage ${stage} burned ${n} counted rounds and has no filing section (expected ${filingPath})`,
@@ -383,6 +404,54 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
           message: `${arc.filingPath}:${section.line}: cited id ${id} resolves against no ledger entry`,
         });
       }
+    }
+  }
+
+  // Clause B (spec §3.1): the RESIDUAL obligation. Clause A counts inside one
+  // `<baseSha12>.jsonl`, so a re-merge moves the merge base, the numbering
+  // restarts at 1, and four rounds burned across two bases oblige nothing.
+  // This sums distinct `(baseSha, round)` pairs over every base of one branch
+  // directory, and reports only what clause A did not.
+  const byBranch = new Map<string, Arc[]>();
+  for (const arc of arcs) {
+    const group = byBranch.get(arc.branch);
+    if (group) group.push(arc);
+    else byBranch.set(arc.branch, [arc]);
+  }
+
+  for (const [branch, group] of byBranch) {
+    // Satisfaction is DIRECTORY-WIDE and per stage: the obligation is not
+    // attached to any one base, so any one filing section for that stage
+    // discharges it (spec §4 limit 2). Scoped by stage, because a `## spec`
+    // section cannot discharge a `diff` duty. Gathered above from the sections
+    // clause A already parsed - parsing every filing a second time here made
+    // the live-corpus check cross its timeout under load.
+    const filedStages = filedByBranch.get(branch) ?? new Set<string>();
+
+    const arcSums = arcCountedRounds(group.flatMap((arc) => arc.rows));
+    for (const [stage, arcSum] of arcSums) {
+      // Deliberately NOT the `n < ROUND_THRESHOLD` phrasing clause A uses: that
+      // exact line is a mutation control string (`tests/mutation/source/registry.ts:1775`)
+      // and must stay a unique substring of this file.
+      if (arcSum < ROUND_THRESHOLD) continue;
+      if (clauseAReported.has(`${branch}\u0000${stage}`)) continue;
+      if (filedStages.has(stage)) continue;
+      // Frozen at ARC_SUM_FREEZE (spec §3.3). The eleven pairs are merged with
+      // their branches deleted, so they can never gain a filing; the set only
+      // ever shrinks, and no arc written after the freeze can join it.
+      if (isArcSumGrandfathered(branch, stage)) continue;
+      const perBase = group
+        .map((arc) => [arc.baseSha, countedRounds(arc.rows).get(stage) ?? 0] as const)
+        .filter(([, n]) => n > 0)
+        .map(([baseSha, n]) => `${baseSha} ${n}`)
+        .join(", ");
+      problems.push({
+        kind: "missing_arc_filing",
+        message:
+          `${branch}: stage ${stage} burned ${arcSum} counted rounds across ` +
+          `${group.length} merge bases and has no filing section for it in ` +
+          `${group[0]?.dir ?? branch} (${perBase})`,
+      });
     }
   }
   return problems;
