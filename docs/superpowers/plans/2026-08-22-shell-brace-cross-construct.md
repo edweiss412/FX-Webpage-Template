@@ -573,17 +573,33 @@ movement(s)`.
 
 ## Task 6: score the surface (the re-key is Task 3's)
 
-<!-- task: red=`pnpm exec vitest run tests/mutation/_metaSourceShardIntegrity.test.ts` red-state=authored red-target=`tests/mutation/_metaSourceShardIntegrity.test.ts:67` why=`RUN AT PLAN TIME AND IT EXITS 0 on the untouched tree, so this is an AUTHORED red. The failing case is created by THIS task and by no other: scoping the mutation gate to one surface requires a temporary guardSurfaces.shardTmp*.test.ts, because -t does NOT bound the gate (runSurface executes at module scope during collection), and the target line above is the source-shards entry whose stem and glob pin the shard FILE SET byte-for-byte - so the moment the temp shard exists this guard is red. Step 2 creates the shard and observes exactly that. Step 3 runs the scoped gate FOREGROUND under pnpm heavy and reads the score and the unaccepted-survivor set, which is AC-7. Step 4 deletes the temp shard and runs the SAME command green. The cycle is entirely inside this task, which round 1 finding 2 is why it matters: the previous marker claimed pnpm mutation:sites, a red that Task 3 s edit creates and that would therefore have stood red across Task 3 s own commit and Tasks 4 and 5, against this plan s global constraint that it runs after EVERY scan.ts edit. That re-key now lives in Task 3 step 6, where the edit that invalidates it lives` ac=AC-7 -->
+<!-- task: red=`pnpm exec vitest run tests/mutation/_metaSourceShardIntegrity.test.ts` red-state=authored red-target=`tests/mutation/_metaSourceShardIntegrity.test.ts:67` why=`RUN AT PLAN TIME AND IT EXITS 0 on the untouched tree, so this is an AUTHORED red. The failing case is created by THIS task and by no other: scoping the mutation gate to one surface requires a temporary guardSurfaces.shardTmp*.test.ts, because -t does NOT bound the gate (runSurface executes at module scope during collection), and the target line above is the source-shards entry whose stem and glob pin the shard FILE SET byte-for-byte - so the moment the temp shard exists this guard is red. Step 2 creates the shard and observes exactly that. Step 3 runs the SCOPED gate FOREGROUND under pnpm heavy, for ITERATION only - it is where a survivor gets killed cheaply, and it is NOT AC-7. Step 4 deletes the temp shard and runs the SAME command green, closing this marker's cycle. Step 5 then runs the FULL pnpm heavy pnpm mutation:guards, and THAT is AC-7: the scoped script never matches a shardTmp file, so the scoped run and the acceptance channel are different commands, and round 3 finding 1 plus round 4 finding 1 are the two halves of that same mismatch. The cycle is entirely inside this task, which round 1 finding 2 is why it matters: the previous marker claimed pnpm mutation:sites, a red that Task 3 s edit creates and that would therefore have stood red across Task 3 s own commit and Tasks 4 and 5, against this plan s global constraint that it runs after EVERY scan.ts edit. That re-key now lives in Task 3 step 6, where the edit that invalidates it lives` ac=AC-7 -->
 
 The re-key is NOT here — Task 3 step 6 owns it, because Task 3 is the edit that invalidates it. What
 is here is the SCORE.
 
 Step 2 creates the temporary `guardSurfaces.shardTmp*.test.ts` filtering `GUARD_SURFACES` to
 `psqlStartupScan` alone, and observes `_metaSourceShardIntegrity` go red on the shard set it pins.
-Step 3 executes the scoped gate FOREGROUND under `pnpm heavy` — a slot held by a backgrounded run is a
-slot nobody can account for — and records the score and the unaccepted-survivor set. Step 4 DELETES
-the temp shard and re-runs the same guard green; a shard left behind is a permanent red on a guard
-nobody edited, and it is the reason the deletion is a numbered step rather than a note.
+Step 3 executes the SCOPED gate FOREGROUND under `pnpm heavy` — a slot held by a backgrounded run is
+a slot nobody can account for. **This run is ITERATION, not acceptance**: it is where a survivor gets
+killed without paying for four shards each time. Step 4 DELETES the temp shard and re-runs the same
+guard green; a shard left behind is a permanent red on a guard nobody edited, and it is the reason
+the deletion is a numbered step rather than a note.
+
+**Step 5 runs the FULL gate, and that step is AC-7:**
+
+```
+pnpm heavy pnpm mutation:guards
+```
+
+Round 4 finding 1, which is the second half of round 3 finding 1 and the last instance of that class:
+round 3 repaired the global constraint and the acceptance table to say AC-7 is the full gate, and left
+THIS task's marker and body still calling the scoped result AC-7. A good-faith implementer could
+complete every numbered step and leave AC-7 unproved. The scoped script matches no `shardTmp` file
+and the scoped shard is not in `pnpm mutation:guards`, so these are two different commands and only
+the full one discharges the criterion — a scoped local run on a sibling arc missed twelve survivors
+that the PR's own harness job then found. The score and the empty unaccepted-survivor set that the
+round-1 diff brief's `GUARD SURFACE:` line carries come from THIS run, not from step 3's.
 
 **Blob-hash before re-scoring.** The score is a pure function of (source, operators, deciding
 suites), so `git hash-object` settles whether a re-run is needed more cheaply than the re-run does.
