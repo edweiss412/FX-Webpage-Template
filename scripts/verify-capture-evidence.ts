@@ -122,7 +122,11 @@ export function absentRecordProblem(path: string): string[] | null {
   if (existsSync(path)) return null;
   return [
     `no capture evidence record at ${path}`,
-    "the record is written by a capture run; produce one with `pnpm screenshot:help`",
+    // Deliberately does NOT assume the operator forgot to run the capture. In
+    // CI this step is `if: always()`, so it also runs when something upstream
+    // failed before the capture started, and an unconditional "produce one
+    // with ..." is then a second red step blaming a person for a build fault.
+    "the capture writes this record. If an earlier step failed, that failure is the cause and this is a symptom; if you are running locally, produce one with `pnpm screenshot:help`",
   ];
 }
 

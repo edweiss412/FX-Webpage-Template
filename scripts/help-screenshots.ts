@@ -170,19 +170,33 @@ export async function captureAll(): Promise<void> {
 
   if (refusal !== null) throw refusal;
 
-  // Only a clean run publishes. The byte gate reads OUTPUT_DIR, unchanged.
-  mkdirSync(OUTPUT_DIR, { recursive: true });
-  for (const name of readdirSync(stagingDir)) {
-    copyFileSync(join(stagingDir, name), join(OUTPUT_DIR, name));
-  }
-
+  // The oracle runs BEFORE the publish, which is what makes "only a clean run
+  // publishes" true rather than aspirational. It reads the staging directory, so
+  // the order is free: with the copy first, a run that produced 13 of 14
+  // identities had already overwritten the committed baselines IN PLACE by the
+  // time it threw. The throw still reddened the run, so nothing shipped, but the
+  // operator was left diagnosing a half-republished baseline set -- and "the
+  // capture overwrites in place" is exactly why a was-a-file-created check
+  // cannot see this class.
   const produced = completedIdentities(stagingDir).sort();
   const expected = expectedIdentities().sort();
   if (produced.join("|") !== expected.join("|")) {
+    const missing = expected.filter((id) => !produced.includes(id));
+    const unexpected = produced.filter((id) => !expected.includes(id));
     throw new Error(
       `capture produced ${produced.length} identities, expected ${expected.length}: ` +
-        `missing ${expected.filter((id) => !produced.includes(id)).join(", ") || "none"}`,
+        `missing ${missing.join(", ") || "none"}` +
+        // Without this arm a count mismatch with nothing missing reports
+        // "missing none", which reads as a contradiction. Two manifest entries
+        // sharing key+theme collide in staging and land exactly there.
+        (unexpected.length > 0 ? `; unexpected ${unexpected.join(", ")}` : ""),
     );
+  }
+
+  // The byte gate reads OUTPUT_DIR, unchanged.
+  mkdirSync(OUTPUT_DIR, { recursive: true });
+  for (const name of readdirSync(stagingDir)) {
+    copyFileSync(join(stagingDir, name), join(OUTPUT_DIR, name));
   }
 }
 
