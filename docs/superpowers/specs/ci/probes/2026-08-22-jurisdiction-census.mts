@@ -1,10 +1,10 @@
-// probe/jurisdiction-census.mts
+// docs/superpowers/specs/ci/probes/2026-08-22-jurisdiction-census.mts
 //
 // Census for docs/superpowers/specs/ci/2026-08-22-mutation-score-jurisdiction-gap.md §1.0
 // and §1.3. Generation-only: enumerates sites and computes shard weights through the
 // SHIPPED functions; spawns no child and runs no mutant, so it is not a heavy phase.
 //
-//   pnpm exec tsx probe/jurisdiction-census.mts
+//   pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-jurisdiction-census.mts
 //
 // Prints, for `psqlStartupScan`: each operator's file-wide site count and whether it
 // reaches either `$((` arm (a per-arm predicate over the arm's statement extent, NOT an
@@ -17,13 +17,13 @@ import {
   enumerateSites,
   OPERATOR_NAMES,
   type OperatorName,
-} from "../tests/mutation/source/operators";
-import { GUARD_SURFACES, type GuardSurface } from "../tests/mutation/source/registry";
+} from "../../../../../tests/mutation/source/operators";
+import { GUARD_SURFACES, type GuardSurface } from "../../../../../tests/mutation/source/registry";
 import {
   SOURCE_SHARD_COUNT,
   sourceShardAssignment,
   weightOf,
-} from "../tests/mutation/source/shardPartition";
+} from "../../../../../tests/mutation/source/shardPartition";
 
 const SURFACE_ID = "psqlStartupScan";
 const ANCHORS = [
