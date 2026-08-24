@@ -113,15 +113,20 @@ test.describe("Sign-In Page — redirect-loop guard (already signed in)", () => 
     expect(url.pathname).toBe("/admin");
   });
 
-  test("already signed in (non-admin crew) + valid `next=/show/<slug>` → 302/redirect to the show page", async ({
+  test("already signed in (non-admin crew) + slug-only `next=/show/<slug>` is rejected → 302/redirect to /me", async ({
     page,
     request,
   }) => {
-    // Seed a crew row so getShowForViewer can resolve the non-admin
-    // viewer at /show/<slug>. Without a crew row the chain would
-    // bounce back to /auth/sign-in, masking the redirect-loop guard's
-    // intent (the test's purpose is "did the sign-in page bounce out
-    // of the way?", NOT "does the show page render?").
+    // Since the M11.5 picker pivot the crew route is /show/<slug>/<64-hex
+    // token> (lib/auth/validateNextParam.ts:25) and the validator rejects a
+    // slug-only /show/<slug> (line 16). The sign-in page then routes a
+    // confirmed non-admin to /me (app/auth/sign-in/page.tsx:128), so the
+    // contract this case proves is: an unusable `next` does not strand a
+    // signed-in viewer on the sign-in page.
+    //
+    // The crew row is still seeded: /me resolves the viewer's shows through
+    // it, and the case's purpose is unchanged ("did the sign-in page bounce
+    // out of the way?", NOT "does the destination render?").
     const crewId = randomUUID();
     const insertCrew = await admin.from("crew_members").insert({
       id: crewId,
@@ -152,17 +157,17 @@ test.describe("Sign-In Page — redirect-loop guard (already signed in)", () => 
       const location = firstHop.headers()["location"];
       expect(location).toBeTruthy();
       const url = new URL(location ?? "", TEST_BASE_URL);
-      expect(url.pathname).toBe(`/show/${slug}`);
+      expect(url.pathname).toBe("/me");
 
-      // Sanity check via page-mode follow-the-redirect: the sign-in
-      // CTA must not be rendered on the destination. Catches a
-      // regression where the redirect target somehow reverses back to
-      // /auth/sign-in (would render the CTA).
+      // Sanity check via page-mode follow-the-redirect: the destination is
+      // /me, which renders no sign-in CTA, so the count assertion below still
+      // catches a regression where the redirect target reverses back to
+      // /auth/sign-in (which would render the CTA).
       const followed = await page.goto(
         `${TEST_BASE_URL}/auth/sign-in?next=${encodeURIComponent(`/show/${slug}`)}`,
       );
       expect(followed?.status()).toBe(200);
-      expect(new URL(page.url()).pathname).toBe(`/show/${slug}`);
+      expect(new URL(page.url()).pathname).toBe("/me");
       await expect(page.getByTestId("sign-in-with-google")).toHaveCount(0);
     } finally {
       await admin.from("crew_members").delete().eq("id", crewId);

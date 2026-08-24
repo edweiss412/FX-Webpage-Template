@@ -81,9 +81,16 @@ function resolvedByCommand(argv: string[], specBase: string): number {
   }
   const parsed = JSON.parse(out.slice(out.indexOf("{"))) as { suites?: unknown[] };
   const identities = new Set<string>();
-  const walk = (suites: unknown[]): void => {
+  // The identity MUST match scripts/check-app-e2e-executed.mjs's, describe path
+  // included. Whole-diff review round 2 (scope B) probed the mismatch that opened
+  // when only the oracle was repaired: this walk counted two same-line, same-title
+  // cases under different describes as ONE, so the floor it pins stayed at the old
+  // value while resolution had grown, and the oracle then met that stale floor with
+  // one of the two cases runtime-skipped. Two identity functions, one contract.
+  const walk = (suites: unknown[], suitePath: string[] = []): void => {
     for (const suite of suites) {
       const s = suite as {
+        title?: string;
         suites?: unknown[];
         specs?: {
           file?: string;
@@ -92,14 +99,17 @@ function resolvedByCommand(argv: string[], specBase: string): number {
           tests?: { expectedStatus?: string; projectId?: string }[];
         }[];
       };
+      const here = s.title ? [...suitePath, String(s.title)] : suitePath;
       for (const sp of s.specs ?? []) {
         if (!(sp.file ?? "").endsWith(specBase)) continue;
         for (const t of sp.tests ?? []) {
           if (t.expectedStatus === "skipped") continue;
-          identities.add(`${sp.file}:${sp.line}:${sp.title}|${t.projectId ?? "?"}`);
+          identities.add(
+            `${here.join(" > ")}::${sp.file}:${sp.line}:${sp.title}|${t.projectId ?? "?"}`,
+          );
         }
       }
-      walk(s.suites ?? []);
+      walk(s.suites ?? [], here);
     }
   };
   walk(parsed.suites ?? []);

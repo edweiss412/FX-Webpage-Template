@@ -32,6 +32,7 @@ import { admin } from "./helpers/supabaseAdmin";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { openShowReviewModal } from "./helpers/openShowReviewModal";
+import { awaitModalHydrated } from "./helpers/awaitModalHydrated";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 
 // admin-show-modal: the per-show surface is the /admin?show= review modal. Its
@@ -55,6 +56,9 @@ async function lookupSeed(): Promise<{ slug: string; driveFileId: string }> {
     .select("slug, drive_file_id")
     .eq("published", true)
     .eq("archived", false)
+    // Same scope as admin-route-boundaries: order alone does not keep a foreign
+    // published show out of the pick on a shared local database.
+    .like("drive_file_id", "seed-fixture:%")
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -246,6 +250,10 @@ test.describe("admin staged-review card — /admin/show/staged/[stagedId] (first
     await signInAs(page, ADMIN_FIXTURE);
     // admin-show-modal: the per-show surface is now the dashboard modal.
     const modal = await openShowReviewModal(page, seed.slug, { timeoutMs: 30_000 });
+    // The Re-sync control this case clicks is a client island; gate on the
+    // modal's hydration so the click cannot land before React attaches it
+    // (batch-2 R7's measured class).
+    await awaitModalHydrated(page);
 
     const responses: { url: string; status: number }[] = [];
     page.on("response", (res) => {
