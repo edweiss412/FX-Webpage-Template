@@ -67,6 +67,26 @@ const yamlBindings = (text, label) => {
   return pairs;
 };
 
+// DOCUMENTED LIMIT, probed rather than reasoned about: a BRAND-NEW import
+// declaration whose bound name is not already imported passes this check, and
+// deliberately so. Probed both ways on 2026-08-24 —
+// `import { readdirSync as plantedImport } from "node:fs"` is DENIED, but only
+// because `readdirSync` is already imported and the re-alias breaks the
+// name-for-name rule; `import { EOL as plantedEol } from "node:os"` PASSES.
+//
+// That is not a hole in the gate, because an import is inert on its own. Any
+// USE of the new binding is a changed line inside some declaration, and the
+// allowlist judges that line on its own merits: inside a permitted declaration
+// it is this arc's own code, and anywhere else it is denied. Importing `isSeq`
+// for the `args:` sequence spelling is exactly that permitted case.
+//
+// The one shape this does not cover is a SIDE-EFFECTING import (`import
+// "./x"`), which changes behaviour with no other line changed. It is left
+// uncovered on purpose. The threat fence here is accidental authoring mistakes,
+// not adversarial edits, and widening the recognizer to chase it is the ratchet
+// the three denylists above already died of. A side-effect import also cannot
+// rewrite the delimiter walk, which is the seam this gate exists to protect.
+
 /** True when HEAD's imports are a pure SUPERSET of base's, name-for-name. */
 const importsOnlyGrew = (baseText, headText) => {
   const base = yamlBindings(baseText, "base");
