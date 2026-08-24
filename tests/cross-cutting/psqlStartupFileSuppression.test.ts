@@ -36,6 +36,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ts from "typescript";
+import { Scalar, parseDocument, visit } from "yaml";
 import { describe, expect, test } from "vitest";
 
 import { premise, premiseHolds } from "../_shared/premise";
@@ -53,6 +54,8 @@ import {
   scanBinaryIndirection,
   scanSource,
   scanWorkflowIndirection,
+  scanWorkflowSource,
+  RAW_IS_SHELL_TEXT_STYLES,
   tokenSuppressesStartupFiles,
 } from "./psqlStartupFiles/scan";
 
@@ -7111,6 +7114,209 @@ describe("an ATTACHED target the accept-set cannot delimit is REPORTED on the sp
       count: 1,
       line: 3,
       candidates: { firstLine: 1, eofLine: 6 },
+    });
+  });
+});
+
+describe("YAML scalar style — a QUOTED `run:` scalar's delimiters are YAML, not shell", () => {
+  // BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE. The workflow reader hands the RAW
+  // source slice of a `run:` scalar to the shell lexer. For a PLAIN or BLOCK
+  // scalar that slice IS the shell text and the pass is correct. For a QUOTED
+  // one the delimiters belong to YAML, and reading them as shell is wrong in
+  // both forbidden directions at once: the leading `"` opens a double-quoted
+  // shell span, the `$(` inside it consumes the YAML CLOSING quote, and a psql
+  // command word is recovered from a substitution body that exists only because
+  // two YAML delimiters were read as shell. bash never runs that command.
+  //
+  // The decoded pass below the raw one already scans the scalar's VALUE, which
+  // is the shell text a quoted scalar actually carries, so the repair is to
+  // stop running the raw pass on the styles where the raw slice is not shell
+  // text — not to add a second decoder.
+  const WORKFLOW_FILE = ".github/workflows/x.yml";
+
+  /** The spec's canonical body: an unclosed `$(` inside a redirection target. */
+  const CANONICAL_BODY = "echo >$(psql -qAt mydb";
+
+  const workflowWith = (runScalar: string): string =>
+    [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      `      - run: ${runScalar}`,
+      "",
+    ].join("\n");
+
+  /**
+   * DERIVED from the fixture, never written down. A hardcoded 7 passes for a
+   * reader that anchors on any line as long as the fixture happens to put the
+   * key there; deriving it means moving a fixture line moves the expectation
+   * with it.
+   */
+  const runKeyLineOf = (source: string): number =>
+    source.split("\n").findIndex((line) => line.includes("- run:")) + 1;
+
+  // AC-1 — the defect itself. A double-quoted scalar carrying the canonical
+  // body yields NO site, because bash, handed the value that scalar decodes to
+  // (`echo >$(psql -qAt mydb`), runs no psql: the substitution never closes.
+  test("AC-1: a DOUBLE-QUOTED `run:` scalar fabricates no site", () => {
+    const source = workflowWith(`"${CANONICAL_BODY}"`);
+    expect(scanWorkflowSource(source, WORKFLOW_FILE)).toEqual([]);
+  });
+
+  // AC-3 — the styles whose raw slice IS shell text keep the behaviour they
+  // have. This is the regression half of AC-1: an implementation that
+  // suppressed the raw pass for EVERY style would satisfy AC-1 and break both
+  // of these.
+  test("AC-3: a PLAIN scalar with the same body still yields no site and one advisory at the key's line", () => {
+    const source = workflowWith(CANONICAL_BODY);
+    const keyLine = runKeyLineOf(source);
+    premiseHolds(
+      "the fixture's `run:` key is not on line 1, so an advisory pinned there is not a positional default",
+      keyLine !== 1,
+    );
+    expect(scanWorkflowSource(source, WORKFLOW_FILE)).toEqual([]);
+    expect(
+      scanShellIndirection(source, WORKFLOW_FILE).map((hit) => ({
+        line: hit.line,
+        text: hit.text,
+      })),
+    ).toEqual([{ line: keyLine, text: "$(psql -qAt mydb" }]);
+  });
+
+  test("AC-3: a BLOCK_LITERAL scalar still reports its site at the PHYSICAL line, not the key's", () => {
+    const source = [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: |",
+      "          psql -qAt mydb",
+      "",
+    ].join("\n");
+    const keyLine = runKeyLineOf(source);
+    const bodyLine = source.split("\n").findIndex((line) => line.includes("psql -qAt")) + 1;
+    premiseHolds(
+      "the block body is on a DIFFERENT line from its key, which is the only shape that can tell the two anchors apart",
+      bodyLine !== keyLine,
+    );
+    expect(
+      scanWorkflowSource(source, WORKFLOW_FILE).map((site) => ({
+        line: site.line,
+        suppresses: site.suppressesStartupFiles,
+      })),
+    ).toEqual([{ line: bodyLine, suppresses: false }]);
+  });
+
+  // AC-4 — the anti-tautology arm, and the reason AC-1 is not a licence to go
+  // quiet. AC-1 asserts an EMPTY result, which a scanner broken in the other
+  // direction satisfies for free. These six rows are what a gate that
+  // suppressed quoted scalars ENTIRELY would fail, and they assert the VERDICT
+  // field (`suppressesStartupFiles`), not mere presence, so a site recovered
+  // with the wrong verdict is a failure too.
+  test.each([
+    ["a benign SINGLE-quoted PROTECTED command", "'psql -X mydb'", true],
+    ["a benign SINGLE-quoted UNPROTECTED command", "'psql -qAt mydb'", false],
+    ["a benign DOUBLE-quoted UNPROTECTED command", '"psql -qAt mydb"', false],
+    ["a DOUBLE-quoted escape spelling of the command word", '"\\x70sql -qAt mydb"', false],
+    ["a PLAIN UNPROTECTED command", "psql -qAt mydb", false],
+  ])("AC-4: %s is still a site, with its verdict intact", (_label, runScalar, suppresses) => {
+    const source = workflowWith(runScalar);
+    expect(
+      scanWorkflowSource(source, WORKFLOW_FILE).map((site) => site.suppressesStartupFiles),
+    ).toEqual([suppresses]);
+  });
+
+  // The `\x70sql` row above is the single most load-bearing case in this task:
+  // its RAW slice holds no literal `psql`, so it is reachable ONLY through the
+  // decoded pass. If the repair had suppressed both passes for quoted scalars,
+  // this row is the one that catches it — and `bash -n` accepts the command, so
+  // losing it would be silent corruption rather than a visible break.
+  test("AC-4: the escape-spelled command word is decoded-only, so its raw slice cannot supply it", () => {
+    const source = workflowWith('"\\x70sql -qAt mydb"');
+    premiseHolds(
+      "the fixture's raw source really holds no literal `psql`, so the passing row above cannot come from the raw pass",
+      !source.includes("psql"),
+    );
+    expect(scanWorkflowSource(source, WORKFLOW_FILE)).toHaveLength(1);
+  });
+
+  test("AC-4: a benign non-psql DOUBLE-quoted scalar draws nothing", () => {
+    expect(scanWorkflowSource(workflowWith('"echo hello"'), WORKFLOW_FILE)).toEqual([]);
+  });
+
+  // AC-9 — the accept-set is a PARTITION of the installed library's style
+  // vocabulary, not a list someone hopes is complete.
+  //
+  // EQUALITY in both directions, and the weaker form is worth naming because
+  // the first draft shipped it: asserting only that the union COVERS what the
+  // library emits still admits an arbitrary extra member. A constant holding
+  // `NOT_A_YAML_STYLE` is disjoint from the quoted pair AND covers everything
+  // emitted, so both assertions pass while default-deny has quietly been
+  // weakened. Under equality an added member breaks the union one way and a
+  // dropped one breaks it the other.
+  //
+  // This pin is GREEN from birth and carries no red-then-green marker, which is
+  // deliberate: the installed library already emits exactly these five, so the
+  // assertion is true before any of this arc's code exists. Dressing a
+  // structural pin in a cycle it can never be observed completing is the marker
+  // shape the task contract rejects. It ships in the commit that introduces the
+  // constant it pins.
+  test("AC-9: the raw-is-shell-text accept-set partitions the styles `yaml` emits", () => {
+    const QUOTED_STYLES = new Set(["QUOTE_SINGLE", "QUOTE_DOUBLE"]);
+
+    // DERIVED from the library's own vocabulary — the complete set of `type`
+    // values a `Scalar` can carry — rather than written down here. A new style
+    // in a `yaml` upgrade fails this pin instead of silently defaulting into
+    // whichever branch the reader happens to take.
+    const declaredByLibrary = new Set(
+      Object.getOwnPropertyNames(Scalar)
+        .filter(
+          (key) =>
+            key !== "name" &&
+            typeof (Scalar as unknown as Record<string, unknown>)[key] === "string",
+        )
+        .map((key) => (Scalar as unknown as Record<string, string>)[key]!),
+    );
+
+    // Cross-derivation, so the pin above cannot pass by reading a vocabulary the
+    // parser never actually produces: parse one real spelling of each style and
+    // collect the `type` the parser hands back.
+    const emittedByParser = new Set(
+      [
+        "psql -qAt mydb",
+        "'psql -qAt mydb'",
+        '"psql -qAt mydb"',
+        "|\n          psql -qAt mydb",
+        ">\n          psql -qAt mydb",
+      ].map((spelling) => {
+        const document = parseDocument(workflowWith(spelling), { keepSourceTokens: true });
+        let observed: string | undefined;
+        visit(document, {
+          Pair(_key: unknown, pair: unknown) {
+            const node = pair as { key?: { value?: unknown }; value?: unknown };
+            if (node.key?.value !== "run") return;
+            observed = (node.value as { type?: string } | undefined)?.type;
+          },
+        });
+        return observed!;
+      }),
+    );
+    premiseHolds(
+      "the two derivations agree, so the library's declared vocabulary is the one its parser actually emits",
+      [...declaredByLibrary].sort().join(",") === [...emittedByParser].sort().join(","),
+    );
+
+    expect({
+      overlapWithQuoted: [...RAW_IS_SHELL_TEXT_STYLES].filter((style) => QUOTED_STYLES.has(style)),
+      union: [...new Set([...RAW_IS_SHELL_TEXT_STYLES, ...QUOTED_STYLES])].sort(),
+    }).toEqual({
+      overlapWithQuoted: [],
+      union: [...declaredByLibrary].sort(),
     });
   });
 });

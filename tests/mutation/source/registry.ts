@@ -2611,16 +2611,16 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "The alias-resolution loop cannot approach its bound: the yaml parser refuses to register an anchor on an alias node - probed on this tree, `a: &x one` / `b: &y *x` / `c: *y` throws 'Unresolved alias (the anchor must be set before the alias): y' - so an Alias always resolves to a NON-alias node and resolveNode returns on its second pass with `depth` never exceeding 1. A bound of 32 versus 33 is unreachable in either direction (scan.ts, symbol resolveRunShells, helper resolveNode). Boundary pin: 'an aliased run body resolves, and its site is pinned to the run key'.",
       },
       {
-        siteId: "relational-boundary:3965:35:<><=",
+        siteId: "relational-boundary:3999:35:<><=",
         kind: "equivalent",
         reason:
           "The depth guard in the YAML alias walk's `resolved` helper: `depth < 32` widened to `depth <= 32` grants ONE extra iteration of a loop that returns as soon as `asAlias?.resolve` is not a function, so a document whose alias chain is shorter than 32 -- which every document in the corpus is -- reaches the same fixed point either way. RESTORED after being briefly removed on diff round 3. This site is the arc's own instance of BL-MUTATION-SCORE-NONDETERMINISM and the evidence is recorded rather than smoothed over: across FOUR observations with byte-identical scan.ts (a1f9db0c) and deciding suite (cb45f9ea) it reported SURVIVOR (discovery), then KILLED (26-row run), then SURVIVOR again (25-row run), while a hand-applied mutant survives the suite 3/3. Three of four say it survives, so the row stands; the one that disagreed is why the row was wrongly dropped for one round. Do NOT remove this row on a single stale-row report -- re-run first.",
       },
       {
-        siteId: "relational-boundary:4075:32:<><=",
+        siteId: "relational-boundary:4109:32:<><=",
         kind: "equivalent",
         reason:
-          "`range` is the run VALUE node's range and `keyRange` its own key's, and equality between them is unreachable: in a block mapping the key's characters and the ':' separator occupy the offsets before the value, so a non-alias value starts strictly after its key, while an alias resolves to an anchor defined elsewhere in the document - never at the byte offset this pair's key scalar occupies. The `?? 0` fallback cannot produce equality either, because a pair produced by parseDocument always carries a key range; it is defensive against the optional chain, not a reachable state (scan.ts, symbol scanWorkflowIndirection, the alias anchor comparison). Boundary pin: 'an aliased run body resolves, and its site is pinned to the run key'.",
+          "`range` is the run VALUE node's range and `keyRange` its own key's, and equality between them is unreachable: in a block mapping the key's characters and the ':' separator occupy the offsets before the value, so a non-alias value starts strictly after its key, while an alias resolves to an anchor defined elsewhere in the document - never at the byte offset this pair's key scalar occupies. The `?? 0` fallback cannot produce equality either, because a pair produced by parseDocument always carries a key range; it is defensive against the optional chain, not a reachable state (scan.ts, symbol scanWorkflowSource, the alias anchor comparison). Boundary pin: 'an aliased run body resolves, and its site is pinned to the run key'.",
       },
       // ---- equivalent: the 2026-08-17 lexer-routing repair's own four -------
       //

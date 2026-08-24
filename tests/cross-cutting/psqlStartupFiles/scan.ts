@@ -3922,6 +3922,40 @@ function resolveRunShells(document: ReturnType<typeof parseDocument>): Map<unkno
   return runShell;
 }
 
+/**
+ * The scalar styles whose RAW SOURCE SLICE is the shell text itself.
+ *
+ * A PLAIN scalar carries no delimiters, and a BLOCK scalar's delimiters are its
+ * header line, which the reader blanks below. For those three, slicing the
+ * source and handing it to the shell lexer is correct.
+ *
+ * The two QUOTED styles are deliberately absent, and that absence is the whole
+ * of BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE. Their delimiters belong to YAML,
+ * and feeding them to the shell lexer is wrong in both forbidden directions at
+ * once. A double-quoted `run: "echo >$(psql -qAt mydb"` opens a SHELL
+ * double-quoted span on the YAML delimiter, and the `$(` inside it then
+ * consumes the YAML CLOSING quote, so the lexer recovers a psql command word
+ * out of a substitution body that exists only because two YAML delimiters were
+ * read as shell — bash runs no psql there, and the site is fabricated. The
+ * single-quoted spelling collapses to one literal word and goes silent instead.
+ * Neither raw reading tells the truth about the command.
+ *
+ * The repair is a SUBTRACTION, not a second decoder: the decoded pass further
+ * down already scans the scalar's VALUE, which is exactly the shell text a
+ * quoted scalar carries, so declining the raw pass leaves the decoded one as
+ * the only pass and every verdict stays intact. The escape-spelled command word
+ * (`"\\x70sql -qAt mydb"`) is reachable ONLY that way and is pinned as such.
+ *
+ * A NAMED constant rather than an inline disjunction, so the accept-set is one
+ * declaration a reader, a reviewer, and a mutant can each find, and so the
+ * partition pin in the deciding suite has a single thing to assert against.
+ */
+export const RAW_IS_SHELL_TEXT_STYLES: ReadonlySet<string> = new Set([
+  "PLAIN",
+  "BLOCK_LITERAL",
+  "BLOCK_FOLDED",
+]);
+
 export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
   const sites: PsqlSite[] = [];
   let document;
@@ -4073,9 +4107,17 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       // workflow reported its site on line 10. Pin every site from an alias to
       // the key itself, which is the documented anchoring contract.
       const aliased = range[0] < (keyRange?.[0] ?? 0);
-      const found = scanShellText(substituteScriptPath(raw), file, offset).map((site) =>
-        aliased ? { ...site, line: offset + 1 } : site,
-      );
+      // The raw pass runs only where the raw slice IS shell text. For a QUOTED
+      // scalar the delimiters are YAML's, and lexing them as shell fabricates a
+      // site on one spelling and goes silent on the other; the decoded pass
+      // below is then the only pass, which is the correct one for that style.
+      const style = (value as { type?: string }).type;
+      const rawIsShellText = style !== undefined && RAW_IS_SHELL_TEXT_STYLES.has(style);
+      const found = rawIsShellText
+        ? scanShellText(substituteScriptPath(raw), file, offset).map((site) =>
+            aliased ? { ...site, line: offset + 1 } : site,
+          )
+        : [];
       // A double-quoted scalar can DECODE to a psql command whose raw slice
       // holds no recognizable word (`\\x70sql`, `\\u0070sql`, an escaped
       // newline). Scan the decoded value too and keep whatever the raw pass
