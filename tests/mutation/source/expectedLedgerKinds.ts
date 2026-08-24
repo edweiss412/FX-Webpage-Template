@@ -189,15 +189,19 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // Counted from the surface: SIX reachability arguments -- the three two-field
   // parses at ledger-git.ts:66, :142 and :232, the twice-tested regex group at :259,
   // the `+++ b/` fallthrough at :320, and headRepo's three-way collapse at :365
-  // -- and NO accepted-gap rows at all. The one former family of six (the spawn
-  // timeouts at :32-34 and MAX_GIT_STDOUT's three literals at :62) is CLOSED:
-  // the injectable spawn seam makes every bound observable and
+  // -- plus ONE accepted-gap. The former family of six (the spawn timeouts at
+  // :32-34 and MAX_GIT_STDOUT's three literals at :62) is CLOSED: the injectable
+  // spawn seam makes every bound observable and
   // tests/scripts/ledgerGitSpawnSeam.test.ts kills all six
   // (chore/guard-completeness-wave, BL-LEDGER-GIT-TIMEOUT-CONSTANTS).
-  // "accepted-gap" is absent rather than 0 because the reducer omits kinds with
-  // no rows. A new accepted-gap row means a new family, which needs its own
-  // backlog entry rather than a bumped number here.
-  ledgerGit: { equivalent: 6 },
+  // The accepted-gap is `logical-connector:259:20:&&>||`, and it is a new family
+  // carrying its own backlog entry as this line has always required:
+  // BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT. It is the surface's first row
+  // whose verdict is environment-DEPENDENT, which the row above it claims none
+  // are, so it is also the falsifier for that claim. It is killed on a full
+  // clone and survives CI's zero-ref checkout, and it closes by construction
+  // rather than by a bumped number: give a case an origin ref and delete the row.
+  ledgerGit: { equivalent: 6, "accepted-gap": 1 },
   // Counted from the surface: count.ts carries NO blessed survivor at all. Its
   // floor is 1, so any row appearing here is a coverage regression to repair
   // rather than a number to update.

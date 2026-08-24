@@ -1006,6 +1006,14 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason:
           "headRepo's three inputs all end at the same answer under `&&`: an unset GITHUB_EVENT_PATH still returns null (existsSync(undefined) is false, not a throw), a set-but-missing path falls through to readFileSync, which throws into the function's own catch and returns null, and a readable path takes the identical branch either way",
       },
+      // ---- accepted-gap: killable, but not from CI's checkout ------------
+      {
+        siteId: "logical-connector:259:20:&&>||",
+        kind: "accepted-gap",
+        ref: "BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT",
+        reason:
+          "NOT equivalent, and killed locally: the regex has two mandatory groups, so the forms agree whenever `m` is non-null and diverge only when it is NULL, where the mutant evaluates `m[2]` on null and throws. `m` is null on every call, because splitting on a trailing newline always yields an empty final line the regex rejects. PREMISE, which is what makes this a gap rather than a kill: the only reader of this line in either registered suite is ledgerClaimsCheck.test.ts:570, which calls `resolveClaims(realGitSurface(), { fetch: false })` against the AMBIENT checkout, and `fileOids` runs once per `refs/remotes/origin/*` ref. CI checks out with none, so the function never executes there. Measured 2026-08-24 by instrumenting `fileOids` with one variable changed: 14 calls and a kill against the live worktree, 0 calls and a survivor against a constructed zero-ref repo. The other three `realGitSurface()` reads in these suites (:443, :487, and :811 inside `atRepo`) all run under a constructed LEDGER_GIT_ROOT, so :570 is the sole ambient reader and this is the sole site the surface's environment-independence claim fails at. FALSIFIER: give any case a constructed repository carrying one `refs/remotes/origin/*` ref and drive `resolveClaims` through it. One call is enough, and the mutant is then killable in every environment, at which point this row is wrong and must be deleted rather than re-reasoned",
+      },
     ],
   },
   /**
