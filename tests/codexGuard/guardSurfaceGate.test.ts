@@ -130,6 +130,53 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
     expect(readCalls(run)).toHaveLength(0);
   });
 
+  // Diff review round 4: `\\S` accepts ANY non-whitespace, so a marker whose
+  // value is empty but which is FOLLOWED by another token passed - the next
+  // arm's own punctuation became the "operator set". An empty tail at
+  // end-of-line was covered; the whole suffix-followed class was not. Narrowed
+  // to "the tail begins with an identifier character", optionally backticked,
+  // which is what every real tail in the corpus does.
+  it.each([
+    ["semicolon before the next arm", "; OPERATORS: ; CANNOT-EXPRESS: spawn-only"],
+    ["comma-only value", "; OPERATORS: , relational-boundary"],
+    ["dash-only value", "; OPERATORS: - relational-boundary"],
+  ])("EXITS 2 on an OPERATORS: value that is empty but suffix-followed (%s)", async (_n, tail) => {
+    const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
+    briefWith(
+      run,
+      `GUARD SURFACE: psqlStartupScan - MUTATION SCORE: 49/49, 0 unaccepted survivors${tail}`,
+    );
+    const res = await dispatch(run);
+    expect(res.code).toBe(2);
+    expect(readCalls(run)).toHaveLength(0);
+  });
+
+  // The same shape on the SIBLING arm, which predates this spec: one defect,
+  // both instances, repaired together rather than left for the next round.
+  it("EXITS 2 on a CANNOT-EXPRESS: value that is empty but suffix-followed", async () => {
+    const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
+    briefWith(run, "GUARD SURFACE: lib/foo.ts - CANNOT-EXPRESS: ; see below");
+    const res = await dispatch(run);
+    expect(res.code).toBe(2);
+    expect(readCalls(run)).toHaveLength(0);
+  });
+
+  // The narrowing's positive twin: a backticked tail is what the live corpus
+  // writes, so it must keep dispatching or the narrowing has gone too far.
+  it("PASSES a backtick-quoted OPERATORS: tail", async () => {
+    const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
+    briefWith(
+      run,
+      "GUARD SURFACE: psqlStartupScan - MUTATION SCORE: 49/49, 0 unaccepted survivors; OPERATORS: `all`",
+    );
+    const res = await dispatch(run);
+    expect(res.code).toBe(0);
+    expect(readCalls(run)).toHaveLength(1);
+  });
+
   // Spec review round 1: the corpus writes the declaration as a Markdown
   // heading and the shipped trigger never read it. Structure-keyed: one to six
   // `#` then whitespace, nothing else (spec §4 L-E).

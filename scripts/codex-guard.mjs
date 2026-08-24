@@ -551,7 +551,15 @@ function checkGuardSurfaceDeclarations(cfg) {
         // over its DECLARED OPERATORS applied to code that exists, so the line
         // names the set it ranges over. Presence, not membership (spec §4 L-A),
         // the same posture as the floor (§5.8) and the cannot-express citation.
-        if (/\bOPERATORS:\s*\S/.test(remainder)) continue;
+        //
+        // The tail must BEGIN with an identifier character, optionally
+        // backticked - not merely be followed by something non-blank. `\S`
+        // accepted the next arm's own punctuation as the operator set, so
+        // `OPERATORS: ; CANNOT-EXPRESS: x` dispatched with nothing disclosed
+        // (diff R4). An empty tail at end-of-line was already rejected; the
+        // suffix-followed half of that class was not. Every real tail in the
+        // live corpus starts with a letter or a backtick.
+        if (/\bOPERATORS:\s*`?[A-Za-z0-9]/.test(remainder)) continue;
       }
     }
     // Marker precedence (spec §2.2 matrix): a line that carries MUTATION SCORE:
@@ -562,7 +570,9 @@ function checkGuardSurfaceDeclarations(cfg) {
       bad.push(`  line ${i + 1}: ${line.trim().slice(0, 80)}`);
       continue;
     }
-    if (/CANNOT-EXPRESS:\s*\S/.test(remainder)) continue;
+    // Same shape, same narrowing, one defect repaired at both instances
+    // rather than only where review happened to point (diff R4).
+    if (/CANNOT-EXPRESS:\s*`?[A-Za-z0-9]/.test(remainder)) continue;
     bad.push(`  line ${i + 1}: ${line.trim().slice(0, 80)}`);
   }
   if (bad.length > 0) {
