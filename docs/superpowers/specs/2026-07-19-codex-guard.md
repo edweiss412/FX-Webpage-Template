@@ -282,8 +282,9 @@ No zombie flags: every row has all four columns live.
 ## 14. Guard-surface dispatch gate (2026-08-15 amendment — cross-reference only)
 
 The input-guard family (§7) gained a pre-dispatch check: a round-1 `--stage diff`
-brief that declares a `GUARD SURFACE:` line must carry, on that same line, a
-canonical `MUTATION SCORE:` declaration with an empty unaccepted-survivor set or
+brief that declares a `GUARD SURFACE:` line (plain or ATX-heading form) must
+carry, on that same line, a canonical `MUTATION SCORE:` declaration with an empty
+unaccepted-survivor set and its `OPERATORS:` tail (2026-08-22), or
 a `CANNOT-EXPRESS:` probe citation — else exit 2 before lock, dispatch, result
 artifact, or corpus row. Canonical text, grammar, accept-set, and documented
 limits live in `docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md`

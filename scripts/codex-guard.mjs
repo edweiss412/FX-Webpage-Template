@@ -499,9 +499,14 @@ const MUTATION_SCORE_ARM =
 
 /**
  * Enrolment precedes review (enforcement-pair spec §2.1): a round-1 diff brief
- * that declares a `GUARD SURFACE:` line must carry, on that same line, either a
- * canonical mutation score with an empty unaccepted-survivor set or a
- * `CANNOT-EXPRESS:` probe citation. Per line, never brief-global — probed on
+ * that declares a `GUARD SURFACE:` line — plain, or written as a CommonMark
+ * ATX heading, the form 24 corpus declarations use and the shipped trigger
+ * never read (jurisdiction spec §2.2) — must carry, on that same line,
+ * either a canonical mutation score with an empty unaccepted-survivor set AND
+ * the `OPERATORS:` tail naming the operator set that score ranges over, or a
+ * `CANNOT-EXPRESS:` probe citation. A line carrying `MUTATION SCORE:` in any
+ * shape is decided by the score arm and is never rescued by a cannot-express
+ * tail. Per line, never brief-global — probed on
  * this rule's own arc, a global check let one surface's CANNOT-EXPRESS absorb a
  * deleted score line and one surface's score cover a second enrolled surface.
  *
@@ -513,8 +518,10 @@ const MUTATION_SCORE_ARM =
  *
  * The gate checks the declaration EXISTS in canonical form; it does not judge
  * the declared value against the registry floor (documented limit §5.8 — a
- * below-floor "0/1" is loud in the brief the reviewer reads) and does not
- * infer undeclared guard surfaces (documented limit §5.1).
+ * below-floor "0/1" is loud in the brief the reviewer reads), does not judge
+ * the declared operator names against the registry row (presence, not
+ * membership: jurisdiction spec §4 L-A), and does not infer undeclared guard
+ * surfaces (documented limit §5.1).
  */
 function checkGuardSurfaceDeclarations(cfg) {
   if (cfg.stage !== "diff" || cfg.round !== 1) return;
@@ -522,7 +529,7 @@ function checkGuardSurfaceDeclarations(cfg) {
   const bad = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const m = /^\s*GUARD SURFACE:(.*)$/.exec(line);
+    const m = /^\s*(?:#{1,6}\s+)?GUARD SURFACE:(.*)$/.exec(line);
     if (m === null) continue;
     const remainder = m[1];
     const score = MUTATION_SCORE_ARM.exec(remainder);
@@ -539,8 +546,21 @@ function checkGuardSurfaceDeclarations(cfg) {
         Number.isSafeInteger(total) &&
         total >= 1 &&
         killed <= total
-      )
-        continue;
+      ) {
+        // Jurisdiction disclosure (2026-08-22 spec §2.2): a score is complete
+        // over its DECLARED OPERATORS applied to code that exists, so the line
+        // names the set it ranges over. Presence, not membership (spec §4 L-A),
+        // the same posture as the floor (§5.8) and the cannot-express citation.
+        if (/\bOPERATORS:\s*\S/.test(remainder)) continue;
+      }
+    }
+    // Marker precedence (spec §2.2 matrix): a line that carries MUTATION SCORE:
+    // in any shape is a score declaration and is never rescued by the
+    // cannot-express arm, valid or not. Without this, `0/0 ...; CANNOT-EXPRESS: x`
+    // dispatched on the second arm, and so did a valid score with no tail.
+    if (/MUTATION SCORE:/i.test(remainder)) {
+      bad.push(`  line ${i + 1}: ${line.trim().slice(0, 80)}`);
+      continue;
     }
     if (/CANNOT-EXPRESS:\s*\S/.test(remainder)) continue;
     bad.push(`  line ${i + 1}: ${line.trim().slice(0, 80)}`);
@@ -549,8 +569,8 @@ function checkGuardSurfaceDeclarations(cfg) {
     usageError(
       `round-1 diff brief declares guard surfaces without dispatchable evidence:\n${bad.join("\n")}\n` +
         `each GUARD SURFACE: line in a round-1 diff brief must carry its own MUTATION SCORE ` +
-        `(<killed>/<total> plus "0 unaccepted survivors") or CANNOT-EXPRESS: <probe citation> — ` +
-        `see AGENTS.md convergence-criterion bullet 4`,
+        `(<killed>/<total> plus "0 unaccepted survivors" plus OPERATORS: <declared names, or all>) ` +
+        `or CANNOT-EXPRESS: <probe citation> — see AGENTS.md convergence-criterion bullet 4`,
     );
   }
 }
