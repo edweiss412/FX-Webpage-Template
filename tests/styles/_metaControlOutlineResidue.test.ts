@@ -153,6 +153,25 @@ function novelFiles(keys: Map<string, number>): string[] {
   ];
 }
 
+/**
+ * True inside a per-mutant child run (`mutantOverlay.config.ts` requires this variable).
+ *
+ * ONE case is excluded under mutation: the thirty-two-form case below. It builds thirty-two
+ * scratch roots at ~11 MB and cannot share them, so it costs ~15s of this file's ~45s, and EVERY
+ * mutant pays it. Three mutants on the tie-break at `controlOutlineResidue.ts:343` ground for 25,
+ * 57 and 125 minutes -- 207 of one run's 335 -- because this late case kept running under mutants
+ * the suite had already rejected. `bail: 1` reclaims that for the 236 KILLED mutants, which stop at
+ * their first failure; it cannot help the SURVIVORS, which fail nothing and so pay every case. This
+ * exclusion is the other half, and the two together are what bring the surface under the
+ * `source-shards` job cap of 125 minutes.
+ *
+ * The case is NOT lost to CI: it runs on every normal `unit-suite` run, which is where its
+ * assertions are checked. What it stops doing is contributing KILLS to the mutation score, so the
+ * score under-counts by exactly the mutants this case alone would have killed. That set is measured
+ * rather than assumed -- see the documented limit in the design's §, with its re-file trigger.
+ */
+const UNDER_MUTATION = process.env["MUTATION_MUTANT"] !== undefined;
+
 /** Append an `Extra` control at one class string, the §1.4.3 new-control shape. */
 const extraControl = (cls: string) =>
   `\nexport function Extra() { return <button className="rounded-md border ${cls} bg-surface px-3">x</button>; }\n`;
@@ -1061,7 +1080,12 @@ describe("the grammar the module does not model (AC-13)", () => {
   });
 
   // covers: AC-13, W16, W22
-  it("classifies all thirty-two forms as the spec's tables state, one scratch root each", () => {
+  it("classifies all thirty-two forms as the spec's tables state, one scratch root each", (ctx) => {
+    // Skipped from INSIDE the body, not with `it.skipIf`, and the difference is load-bearing: the
+    // coverage-map totality case below matches lines starting with `it(`, so `it.skipIf(...)(` would
+    // drop this case out of the map entirely and the suite would stop requiring it to carry a
+    // `// covers:` line. Reported as skipped either way.
+    if (UNDER_MUTATION) ctx.skip();
     // 120s rather than the default 30s, declared at the end of this call. The case builds
     // THIRTY-TWO scratch roots at ~11 MB each and they cannot be shared: the scanner caches parsed
     // files by absolute path and never invalidates (spec §5.6), so a second form read under a
