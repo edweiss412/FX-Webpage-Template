@@ -39,7 +39,7 @@ Under the prototype, against the spec's canonical body `echo >$(psql -qAt mydb`:
 
 ```
 plain   ADVISORY {"line":7,"text":"$(psql -qAt mydb"}     (unchanged)
-single  (nothing)                                          (still silent — Task 2's job)
+single  (nothing)                                          (still silent - Task 2's job)
 double  (nothing)                                          (fabricated site GONE)
 ```
 
