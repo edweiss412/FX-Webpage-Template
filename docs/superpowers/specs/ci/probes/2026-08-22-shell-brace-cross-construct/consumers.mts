@@ -62,6 +62,7 @@ const base = (await import(pathToFileURL(baselinePath).href)) as Scanner;
 const candidate = (await import(pathToFileURL(candidatePath).href)) as Scanner;
 console.log(`merge-base: ${TRACKED} at ${baseSha.slice(0, 12)}`);
 console.log(`candidate:  ${candidatePath}`);
+const expectRepaired = process.argv.slice(2).includes("--expect-repaired");
 const vacuous = readFileSync(candidatePath, "utf8") === baselineSource;
 if (vacuous)
   console.log("NOTE: candidate is byte-identical to the merge-base — this comparison is VACUOUS.");
@@ -126,6 +127,17 @@ console.log(
 );
 if (vacuous) {
   console.log("(vacuous: nothing was actually compared)");
+  // Exit 0 is correct BEFORE the repair lands and a false pass after it, which
+  // is the same three-state reading `shapes.mts` gives its limit tally. Plan
+  // review round 1 finding 7: no task pointed this probe at the implemented
+  // walk, and without the flag a task that ran it too early would still be
+  // green. `--expect-repaired` asserts the comparison actually happened.
+  if (expectRepaired) {
+    console.error(
+      "FAIL under --expect-repaired: the candidate is byte-identical to the merge-base, so no consumer route was compared. Run this AFTER the repair lands.",
+    );
+    process.exit(1);
+  }
   process.exit(0);
 }
 // ASSERTED. Round 3 finding 4's point is that these consumers are not covered by
