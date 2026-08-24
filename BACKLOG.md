@@ -106,36 +106,6 @@ Close condition: `mutation:sites` runs unconditionally after any edit to a file 
 
 One implementation trap worth inheriting: parse the key with a NON-GREEDY `from`. Both halves may contain `>` — `relational-boundary:...:>>>=` is `>` becoming `>=` — and a greedy split reported 28 healthy rows as MOVED on the first run. A verifier's false positive is worse than its silence, because it is acted on.
 
-## BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH — a guard surface's declared operators produce ZERO sites over a whole branch, so the score cannot see code it is reported against
-
-**Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 3) · **Severity:** MEDIUM (the score is reported as the surface's convergence criterion while a branch of that surface is outside it; the number is honest and its jurisdiction is not stated) · **Class:** mutation harness fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — closing it means widening a registry operator set file-wide, which is a measurement-scope decision about the harness rather than a repair to this arc's code. · **Reachability:** PROBED — the numbers below were measured, not estimated. · **Incident:** diff round 3 of this arc found a REGRESSION the arc itself introduced — `$((...))` arithmetic read as a `$()` command substitution, yielding a resolved site for a command bash never runs — after FOUR earlier review rounds and a `49/49` score with zero unaccepted survivors had all passed over it. A reviewer probing bash found it; the score structurally could not.
-
-`psqlStartupScan` declares `relational-boundary` and `regex-quantifier-bound`. The arithmetic branch added in diff round 3 uses equality tests and `Math.max`, so those operators enumerate **zero sites over it**: the surface holds 79 sites with the branch present and held 79 without it.
-
-**Measured cost of closing it as-is.** The first version of this row said `integer-literal` is the ONLY operator reaching the branch, at +375. **That was wrong and diff round 5 caught it:** the measurement behind it was a FILE-WIDE delta, which answers "what does adding this operator cost" and not "does this operator reach the branch". Two different questions, and I reported one as the other.
-
-Re-censused per operator. **The file-wide column is the load-bearing one and the only one stated as a count:**
-
-| operator                            | file-wide | reaches the `$((` branches? |
-| ----------------------------------- | --------: | --------------------------- |
-| `relational-boundary` (declared)    |        71 | **no**                      |
-| `regex-quantifier-bound` (declared) |         8 | **no**                      |
-| `logical-connector`                 |       195 | yes                         |
-| `equality-flip`                     |       278 | yes                         |
-| `integer-literal`                   |       375 | yes                         |
-| `statement-removal`                 |       414 | yes                         |
-| `arithmetic-operator`               |         0 | no                          |
-
-An earlier version of this row gave exact in-branch COUNTS. They are deliberately gone: diff round 6 enumerated the same branches and got different numbers, and both enumerations were honest — the count depends entirely on where you cut the branch, and a neighbouring ordinary `$()` arm sits immediately after it. A number whose value depends on an arbitrary boundary is not a measurement, so what remains is the predicate that does not: **which operators reach the branch at all**, and what each costs file-wide.
-
-FOUR operators reach it, not the one this row first named, and the cheapest is `logical-connector` at +195 file-wide rather than `integer-literal` at +375. What survives every correction is the finding: both DECLARED operators reach it ZERO times, so the branch is outside the score's jurisdiction as configured, and every operator that would reach it is file-wide on a surface that already runs ~24 minutes.
-
-**Why it was NOT enrolled in the arc that found it.** Enrolling buys mutants weaker than the verifier already built: the branch's terminal check is a bash-oracle matrix that derives every expectation from whether the shell actually executed the command, promoted into the deciding suite so it is a standing gate rather than a session artifact. Enrolment would add hundreds of mutants over unrelated integer literals to reach one branch a stronger instrument already covers, and it would land that decision under review pressure at diff round 4.
-
-**The general shape, which is worth more than the instance.** A mutation score answers "does the suite pin what is WRITTEN". It cannot answer "is what is written the whole domain", because a construct the code never distinguished is invisible to every mutant of that code. This row is the first measured instance on this repo of a surface being scored against operators that cannot reach part of it.
-
-Close condition: either a per-branch enrolment mechanism (operators scoped to a region rather than a file), or a ratified decision that file-wide widening is worth its runtime, taken outside a review round with these numbers in hand.
-
 ## BL-SENDAUTH-BINDING-IDENTITY-NAME-KEYED — the binding set is a Set of NAMES, so every consumer asks "is something called X in scope" rather than "is this identifier that binding"
 
 **Status:** OPEN · **Filed:** 2026-08-21 (`fix/sendauth-arm-classifier-unification`, promised as a peer by that arc's spec §4.2 and filed on its diff-r1 reviewer noticing the promise had not been kept) · **Severity:** LOW-MEDIUM (a false advisory, which is the survivable direction; the silent direction is closed) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — resolving an identifier to its DECLARATION is a redesign of the binding-discovery layer the unification arc does not otherwise touch, and it needs the `ts.TypeChecker` that predecessor limits 5 and 8(b) both decline. · **Reachability:** PROBED — the false advisory below was measured in that arc's spec §3.6 against source blob `412cadd3`. · **Incident:** the measured false advisory at §3.6 — a name shadowing a surface binding was classified as the surface, because the consumer asks only whether SOME binding carries that name. That is a cost event that already happened, not a constructed hypothetical.
