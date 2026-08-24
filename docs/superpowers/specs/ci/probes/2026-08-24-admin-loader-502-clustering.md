@@ -1,12 +1,14 @@
+<!-- spec-lint: not-ui — dated probe record (measurements quoted from run artifacts), not a design; it carries no scope to resolve. impeccable-gate: N/A — no UI surface. -->
+
 # Where the app-e2e upstream 502s actually cluster (2026-08-24)
 
 Evidence pass for `BL-ADMIN-LOADER-CI-TRANSIENT`, run before the row's first scheduled step (the
 threshold decision) so that decision is made on measurements rather than on the row's framing.
 
-The row's ten occurrences all quote the same server-log signature and read it as an admin-gate fault:
+Every occurrence on the row quotes the same server-log signature and reads it as an admin-gate fault:
 `AdminInfraError: requireAdmin: is_admin RPC failed: An invalid response was received from the
 upstream server`, `code: 'ADMIN_SESSION_LOOKUP_FAILED'`. This probe went looking for where those
-502s sit in a run, and found that three of the four beliefs the signature invites are wrong.
+502s sit in a run, and found that the beliefs the signature invites do not survive the measurement.
 
 ## Method
 
@@ -119,7 +121,7 @@ The row reads its two `notify-toggles` occurrences as a server action plus `rout
 to settle inside a 10 second poll, and that reading is what put a targeted wait on the options list.
 Both runs were pulled and checked directly rather than inferred from the family:
 
-| run | `is_admin` 502 | `notify-toggles.spec.ts:168:7` fails | gap |
+| run | `is_admin` 502 | `notify-toggles.spec.ts line 168` fails | gap |
 | --- | --- | --- | --- |
 | [32572200250](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32572200250) | 12:15:16 | 12:15:26 | 10 s |
 | [32587470121](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32587470121) | 17:27:35 | 17:27:45 | 10 s |
@@ -153,3 +155,47 @@ to argue, under invariant 9 at every boundary it touches. It also needs a second
 capture nothing from inside the containers, so the cause of the reset is inferred rather than
 observed. A failure-path step that dumps gateway and PostgREST logs plus container restart counts
 would make the next occurrence attributable instead of re-inferred.
+
+## Manifest: the 22 jobs, so every number above is auditable
+
+Round 1 of review noted the commands above carry placeholders and the sample was not reproducible from
+the record. The sample is enumerated here, and the extraction rule is stated exactly.
+
+**Extraction rule.** A genuine 502 is a log line containing `An invalid response was received from the
+upstream server`. Events are keyed by (timestamp-second, consumer), so one fault printing several lines
+counts once. The consumer is read from the same line when it names an RPC, otherwise from the most
+recent preceding log-object header (`ADMIN_SHOW_VERSION_TOKEN_READ_FAILED`,
+`get_admin_show_review_snapshot returned error`), otherwise `unattributed`.
+
+| run         | job         | att | result  | 502 events | consumers |
+| ----------- | ----------- | --- | ------- | ---------- | --------- |
+| 32749796531 | 97503793379 |  1  | success |     0      | - |
+| 32749829642 | 97503904546 |  1  | success |     2      | get_admin_show_review_snapshot |
+| 32750177170 | 97505019928 |  1  | success |     0      | - |
+| 32750502356 | 97506068192 |  1  | success |     0      | - |
+| 32750934289 | 97507467985 |  1  | success |     1      | viewer_version_token |
+| 32751632853 | 97509703077 |  1  | success |     1      | is_session_live |
+| 32752530027 | 97512852012 |  1  | success |     1      | unattributed |
+| 32753100409 | 97514394967 |  1  | success |     0      | - |
+| 32753120324 | 97514455692 |  1  | success |     1      | is_admin |
+| 32754053570 | 97517397569 |  1  | success |     0      | - |
+| 32755234463 | 97521127513 |  1  | success |     2      | admin_read_share_token,viewer_version_token |
+| 32756454356 | 97525015497 |  1  | success |     0      | - |
+| 32759879402 | 97535958992 |  1  | success |     0      | - |
+| 32760376691 | 97537537930 |  1  | success |     2      | admin_read_share_token,viewer_version_token |
+| 32762826838 | 97545410926 |  1  | success |     0      | - |
+| 32763990640 | 97549163746 |  1  | failure |     2      | is_admin,is_session_live |
+| 32763990640 | 97555256925 |  2  | failure |     6      | get_admin_show_review_snapshot,is_session_live,viewer_version_token |
+| 32783358574 | 97610007361 |  1  | success |     2      | get_admin_show_review_snapshot |
+| 32784327532 | 97612966810 |  1  | success |     2      | is_session_live,viewer_version_token |
+| 32785024967 | 97615055880 |  1  | success |     3      | admin_read_share_token,viewer_version_token |
+| 32786399563 | 97619109685 |  1  | failure |     2      | admin_read_share_token,is_admin |
+| 32786399563 | 97621880363 |  2  | success |     2      | is_developer,viewer_version_token |
+
+Totals: 22 jobs, 14 carrying at least one event, 29 events.
+
+Gate-level consumers are `is_admin`, `is_session_live` and `is_developer`. Seven jobs carry one, and
+the three failures are all among those seven, which is the row-level claim in Finding 2.
+
+The two `notify-toggles` runs in Finding 6 are outside this sample and were pulled separately:
+`32572200250` (job `97029175982`) and `32587470121` (job `97065938118`).
