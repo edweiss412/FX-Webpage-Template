@@ -451,7 +451,8 @@ flag-shaped residue would need the dataflow analysis §4.2 declines; §8.5 recor
   failures are `pull_request`: occurrence A is run 32528532727 on `be5d3d810db2`, occurrence B is run
   31930558546 on `b5aa6ef7`, and each is the only screenshots-drift run its sha ever had — one run
   returned per `head_sha`, `run_attempt` 1. The nine non-reproducing probes are every one
-  `workflow_dispatch`, and every one on `119895a7c756`: seven at 2026-08-16T11:32Z and two at 11:06Z.
+  `workflow_dispatch`, and every one on `119895a7c756`: seven in a 23-second burst spanning
+  2026-08-16T11:32:38Z to 11:33:01Z, and two at 11:06:08Z and 11:06:28Z.
   Six further dispatches on that sha were cancelled and are not among the nine.
 
   So the probes never sampled the population either failure came from. The baseline is not the difference:
