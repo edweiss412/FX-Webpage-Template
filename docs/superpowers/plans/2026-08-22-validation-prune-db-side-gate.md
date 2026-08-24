@@ -60,7 +60,8 @@ is repaired on:
 | --- | --- | --- |
 | `sed -n '158,621p' … \| grep -c '^    table: "'` | §1, Task 4 | runs, prints `34` |
 | `psql … -1 -f supabase/migrations/20260822000000_prune_posture_gate.sql` | Task 1 | applies inside a rolled-back transaction; both functions become `plpgsql`, `prosecdef` and `proconfig` unchanged, `pg_get_function_arguments` still matches `retain interval DEFAULT '60 days'` |
-| `env -u TEST_DATABASE_URL pnpm vitest run tests/db/validation-schema-parity.test.ts` | Task 2 | runs; `8 passed (8)` clean, `2 failed \| 6 passed (8)` perturbed |
+| `env -u TEST_DATABASE_URL pnpm vitest run tests/db/validation-schema-parity.test.ts` | Task 2 red | runs; `8 passed (8)` clean, `2 failed \| 6 passed (8)` perturbed |
+| `pnpm vitest run tests/db/validation-schema-parity.test.ts` (ambient env) | Task 2 step 4, AC-7 | runs; `8 passed (8)`. A SEPARATE command from the row above with a separate claim — this one must pass WITH `TEST_DATABASE_URL` set, reaching validation, where the `env -u` form deliberately does not |
 | the manifest perturbation and restore | Task 2 | repaired above and RUN; the transcript is that run |
 | `pnpm gen:schema-manifest` | Task 2 | resolves to `tsx scripts/generate-schema-manifest.ts` |
 | `pnpm vitest run tests/db/pruneGate.db.test.ts` | Task 1 red | `pnpm vitest --version` prints vitest 4.1.5; the file is created by the task |
@@ -71,6 +72,14 @@ is repaired on:
 
 The AC-6 script against `vzakgrxqwcalbmagufjh` is the one command not run here: it is Task 2's own
 deliverable and it runs against validation after the surgical apply, which has not happened yet.
+
+**Where this sweep can still go wrong, stated because it is the failure it is most prone to:** the
+extraction is mechanical but the table is written by hand, so a command can be extracted and then not
+carried into a row. That is exactly what happened on the first draft of this section — the parity suite
+appears in the plan in two forms, `env -u TEST_DATABASE_URL …` and ambient, and the table had only the
+first. They are different commands proving different halves of Task 2, and the second is AC-7's own
+gate. Re-running the two extraction commands above and checking each result against a row is therefore
+part of the sweep, not a nicety.
 
 ## 1. Meta-test inventory
 
