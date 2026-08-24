@@ -1222,6 +1222,85 @@ describe("clause B scoping - satisfaction and suppression (spec §3.1)", () => {
   });
 });
 
+describe("the arc-sum addition guard (spec §3.3)", () => {
+  // Exemption is the CONJUNCTION of list membership and an all-pre-freeze
+  // arc. Either half alone would let the set grow: membership alone makes the
+  // list the whole mechanism, and the timestamp alone exempts every old arc in
+  // the corpus. Both directions are cases here for exactly that reason.
+  const HALF = ROUND_THRESHOLD / 2;
+  const GF = ARC_SUM_GRANDFATHERED[0]!; // a real listed pair, never invented
+  const half = (baseSha: string, over: Record<string, unknown> = {}) =>
+    rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha, ...over })));
+  const twoBase = (branch: string, over: Record<string, unknown> = {}): Fixture[] => [
+    { path: `${branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", { branch, ...over }) },
+    { path: `${branch}/bbbbbbbbbbbb.jsonl`, body: half("bbbbbbbbbbbb", { branch, ...over }) },
+  ];
+
+  it("exempts a listed pair whose rows all predate the freeze", () => {
+    premiseHolds(
+      "the harness default row predates ARC_SUM_FREEZE, so the accepting case is not passing on an override",
+      JSON.parse(row()).startedAt < ARC_SUM_FREEZE,
+    );
+    expect(check(twoBase(GF.branch, { stage: GF.stage }))).toEqual([]);
+  });
+
+  // K3/`branch`. Timestamp without list membership: every row predates the
+  // freeze, and the branch is not among the eleven. A predicate that exempted
+  // on age alone would silence most of the corpus.
+  it("reports a pre-freeze arc whose branch is not listed", () => {
+    const problems = check(twoBase("feat/foo"));
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+  });
+
+  // List membership without the timestamp. One post-freeze row is enough:
+  // the pair has kept burning rounds since the freeze, so it is no longer the
+  // frozen historical arc the list describes.
+  it("reports a listed pair carrying a row started after the freeze", () => {
+    const problems = check([
+      { path: `${GF.branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage }) },
+      {
+        path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+        body: half("bbbbbbbbbbbb", {
+          branch: GF.branch,
+          stage: GF.stage,
+          startedAt: "2026-08-23T00:00:00.000Z",
+        }),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("freeze");
+  });
+
+  // A null startedAt cannot be PROVEN older than the freeze, so it fails the
+  // same way. Conservative and loud beats a silent exemption.
+  it("reports a listed pair carrying a row with no startedAt at all", () => {
+    const problems = check([
+      { path: `${GF.branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage }) },
+      {
+        path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+        body: half("bbbbbbbbbbbb", { branch: GF.branch, stage: GF.stage, startedAt: null }),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("freeze");
+  });
+
+  // K3/`stage`. Without this, a predicate keyed on `branch` alone passes every
+  // case above and silently exempts every OTHER counted stage on those eleven
+  // branches. No declared mutation operator can drop a key coordinate
+  // (spec §4 limit 8), so this control is the only thing that catches it.
+  it("reports a DIFFERENT stage on a grandfathered branch", () => {
+    const other = GF.stage === "diff" ? "spec" : "diff";
+    premiseHolds(
+      "the chosen stage is genuinely not the grandfathered one for this branch",
+      !ARC_SUM_GRANDFATHERED.some((g) => g.branch === GF.branch && g.stage === other),
+    );
+    const problems = check(twoBase(GF.branch, { stage: other }));
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain(other);
+  });
+});
+
 describe("clause B only ADDS (spec §3.2 monotonicity)", () => {
   // The risk clause B carries is not a wrong new report - the scoping controls
   // above cover that - it is SILENCING an old one. Suppression and satisfaction

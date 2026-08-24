@@ -436,10 +436,26 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
       if (arcSum < ROUND_THRESHOLD) continue;
       if (clauseAReported.has(`${branch}\u0000${stage}`)) continue;
       if (filedStages.has(stage)) continue;
-      // Frozen at ARC_SUM_FREEZE (spec §3.3). The eleven pairs are merged with
-      // their branches deleted, so they can never gain a filing; the set only
-      // ever shrinks, and no arc written after the freeze can join it.
-      if (isArcSumGrandfathered(branch, stage)) continue;
+      // Frozen at ARC_SUM_FREEZE (spec §3.3). Exemption is the CONJUNCTION of
+      // list membership AND an arc whose counted rounds all predate the
+      // freeze. Either half alone would let the set grow: membership alone
+      // makes the list the whole mechanism, and age alone exempts most of the
+      // corpus. Since every row written from now on postdates the freeze, a
+      // listed pair that keeps burning rounds stops being the frozen
+      // historical arc the list describes, and reports again.
+      let freezeViolation: string | null = null;
+      if (isArcSumGrandfathered(branch, stage)) {
+        // A null startedAt cannot be PROVEN older than the freeze, so it
+        // counts against the exemption - conservative and loud.
+        const notProvenOld = group
+          .flatMap((arc) => arc.rows)
+          .filter((r) => r.stage === stage && r.status === "verdict")
+          .filter((r) => r.startedAt === null || !(r.startedAt < ARC_SUM_FREEZE));
+        if (notProvenOld.length === 0) continue;
+        freezeViolation =
+          `; listed in the grandfather set, but ${notProvenOld.length} counted ` +
+          `round(s) do not predate the freeze at ${ARC_SUM_FREEZE}`;
+      }
       const perBase = group
         .map((arc) => [arc.baseSha, countedRounds(arc.rows).get(stage) ?? 0] as const)
         .filter(([, n]) => n > 0)
@@ -450,7 +466,7 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
         message:
           `${branch}: stage ${stage} burned ${arcSum} counted rounds across ` +
           `${group.length} merge bases and has no filing section for it in ` +
-          `${group[0]?.dir ?? branch} (${perBase})`,
+          `${group[0]?.dir ?? branch} (${perBase})${freezeViolation ?? ""}`,
       });
     }
   }
