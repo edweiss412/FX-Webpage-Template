@@ -42,6 +42,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 import { afterAll, describe, expect, test } from "vitest";
 import postgres, { type Sql } from "postgres";
 import { assertLocalDbUrl } from "./_localDbUrl";
@@ -445,33 +446,62 @@ describe("rollback discipline", () => {
   // COMMITS — silently, against a database this suite has deliberately put into a
   // deleting posture. So the guarantee is asserted rather than assumed.
   //
-  // The needles are assembled from pieces so that this test's own source does not
-  // count as an occurrence of what it is counting.
+  // Parsed, not counted. The first version of this compared raw substring totals of
+  // `sql.begin(` against `throw new RollbackSignal();`, and diff review r4 defeated it
+  // with one ordinary edit: COMMENTING OUT the throw in AC-3's body leaves the text in
+  // place, so the totals still matched while that callback resolved normally — and
+  // postgres commits a transaction whose callback resolves. AC-3 is the case that runs
+  // the prune for real, so the pin would have stayed green while both targets committed
+  // a global delete. A comment is not a statement; only the parser knows the difference.
   test("every transaction in this file ends by throwing, so none can commit", () => {
-    const BEGIN = "sql." + "begin(";
-    const THROW = "throw new " + "RollbackSignal();";
-    const src = readFileSync(join(process.cwd(), "tests/db/pruneGate.db.test.ts"), "utf8");
+    const file = join(process.cwd(), "tests/db/pruneGate.db.test.ts");
+    const sf = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
 
-    const segments = src.split(BEGIN);
+    const lineOf = (n: ts.Node) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+    const transactions: { line: number; endsWithThrow: boolean }[] = [];
+
+    const visit = (n: ts.Node): void => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        n.expression.name.text === "begin" &&
+        ts.isIdentifier(n.expression.expression) &&
+        n.expression.expression.text === "sql"
+      ) {
+        const cb = n.arguments[0];
+        // The LAST statement, not merely a contained one: a throw that is present but
+        // not last leaves whatever follows it unreachable, which is its own defect.
+        const last =
+          cb !== undefined &&
+          (ts.isArrowFunction(cb) || ts.isFunctionExpression(cb)) &&
+          ts.isBlock(cb.body)
+            ? cb.body.statements[cb.body.statements.length - 1]
+            : undefined;
+        transactions.push({
+          line: lineOf(n),
+          endsWithThrow:
+            last !== undefined &&
+            ts.isThrowStatement(last) &&
+            last.expression !== undefined &&
+            ts.isNewExpression(last.expression) &&
+            ts.isIdentifier(last.expression.expression) &&
+            last.expression.expression.text === "RollbackSignal",
+        });
+      }
+      ts.forEachChild(n, visit);
+    };
+    ts.forEachChild(sf, visit);
+
     expect(
-      segments.length - 1,
-      "no transactions found — this test is scanning the wrong file, or the shape changed",
+      transactions.length,
+      "no sql.begin transactions found — this test is scanning the wrong file, or the shape changed",
     ).toBeGreaterThan(0);
 
-    // segments[0] is everything before the first `begin`; each later segment is one
-    // transaction body plus whatever follows it up to the next `begin`.
-    const missing = segments
-      .slice(1)
-      .map((seg, i) => (seg.includes(THROW) ? null : i + 1))
-      .filter((i): i is number => i !== null);
+    const committing = transactions.filter((t) => !t.endsWithThrow).map((t) => t.line);
     expect(
-      missing,
-      `transaction(s) at position ${missing.join(", ")} never throw ${THROW}`,
+      committing,
+      `transaction(s) opened at line ${committing.join(", ")} do not END with ` +
+        "throw new RollbackSignal(), so they COMMIT",
     ).toEqual([]);
-
-    expect(
-      src.split(THROW).length - 1,
-      "a transaction is missing its closing throw, or one body throws twice",
-    ).toBe(segments.length - 1);
   });
 });
