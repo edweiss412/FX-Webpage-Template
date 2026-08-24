@@ -112,6 +112,45 @@ async function cleanupFixtures(): Promise<void> {
 }
 
 /**
+ * The badge's own count, read from the server the badge renders from: GET
+ * /api/admin/needs-attention-count (app/api/admin/needs-attention-count/route.ts),
+ * which returns loadNeedsAttentionCount()'s value.
+ *
+ * Not re-derived from the tables here, because the badge is FOUR streams and not
+ * the two the pending fixtures touch (lib/admin/needsAttentionCount.ts): the two
+ * pending head-counts filtered `wizard_session_id is null` (:29, :33), unresolved
+ * inbox-routed admin_alerts on non-archived shows (:65), and one entry per show
+ * holding an open MI-11 identity hold (:88, via lib/admin/identityHolds.ts:84).
+ * This spec's own history is the measurement: with 5 foreign pending rows on top
+ * of the seeded 3, a two-stream oracle expected "8" while the badge rendered
+ * "9+", because the other two streams were non-empty. A local database is not
+ * the only place that happens; one CI job runs 23 specs against one database, and
+ * published-show-attention seeds admin_alerts in the same job.
+ *
+ * What each flow asserts is therefore a chain with no step reading its own
+ * output: a fixture insert moves THIS count by exactly the number of rows
+ * inserted, and the rendered badge equals what THIS count says. A badge fed by a
+ * stale layout prop fails the second link; a count that ignored the insert fails
+ * the first.
+ */
+async function serverBadgeCount(page: Page): Promise<number> {
+  const res = await page.request.get("/api/admin/needs-attention-count");
+  if (!res.ok()) {
+    throw new Error(`needs-attention-count read failed: HTTP ${res.status()} ${res.statusText()}`);
+  }
+  const body = (await res.json()) as { count?: unknown };
+  if (typeof body.count !== "number") {
+    throw new Error(`needs-attention-count returned a non-number: ${JSON.stringify(body)}`);
+  }
+  return body.count;
+}
+
+/** The nav's own cap rule (components/admin/nav/AdminNav.tsx:230). */
+function fmtBadge(count: number): string {
+  return count > 9 ? "9+" : String(count);
+}
+
+/**
  * Plant a window marker that survives ONLY client-side (soft) navigation —
  * a full document load wipes it. The freshness flows assert it afterward so
  * the badge update cannot be satisfied by an accidental hard reload.
@@ -185,13 +224,16 @@ test.describe("needs-attention page: navigation flows + badge freshness", () => 
     await page.setViewportSize(MOBILE);
 
     await seedSyncRows(3);
+    const before = await serverBadgeCount(page);
     await page.goto("/admin");
-    await expect(page.getByTestId("admin-attention-badge")).toHaveText("3");
+    await expect(page.getByTestId("admin-attention-badge")).toHaveText(fmtBadge(before));
 
-    // Grow the seed to 12 (9 more rows) → the badge caps at "9+".
+    // Grow the seed by 9 → the badge follows the live count and caps at "9+".
     await seedSyncRows(9, 4);
+    const after = await serverBadgeCount(page);
+    expect(after).toBe(before + 9);
     await page.reload();
-    await expect(page.getByTestId("admin-attention-badge")).toHaveText("9+");
+    await expect(page.getByTestId("admin-attention-badge")).toHaveText(fmtBadge(after));
   });
 
   test("flow 4 (spec test 11): soft-nav tab tap refetches the badge count — no reload", async ({
@@ -199,11 +241,14 @@ test.describe("needs-attention page: navigation flows + badge freshness", () => 
   }) => {
     await seedSyncRows(2);
     await page.setViewportSize(MOBILE);
+    const before = await serverBadgeCount(page);
     await page.goto("/admin");
-    await expect(page.getByTestId("admin-attention-badge")).toHaveText("2");
+    await expect(page.getByTestId("admin-attention-badge")).toHaveText(fmtBadge(before));
 
-    // Server-side mutation AFTER first paint: the layout prop still says 2.
+    // Server-side mutation AFTER first paint: the layout prop still says `before`.
     await seedSyncRows(1, 3);
+    const after = await serverBadgeCount(page);
+    expect(after).toBe(before + 1);
     await plantSoftNavMarker(page);
 
     // Client-side navigate via the settings tab (Next <Link> soft nav).
@@ -212,7 +257,9 @@ test.describe("needs-attention page: navigation flows + badge freshness", () => 
 
     // Pathname change → useNeedsAttentionBadge refetches
     // /api/admin/needs-attention-count → badge shows the NEW count.
-    await expect(page.getByTestId("admin-attention-badge")).toHaveText("3", { timeout: 10_000 });
+    await expect(page.getByTestId("admin-attention-badge")).toHaveText(fmtBadge(after), {
+      timeout: 10_000,
+    });
     // The marker survived → this was a soft navigation, not a full reload
     // (a reload would also deliver a fresh layout prop, making the
     // assertion above tautological).
@@ -224,15 +271,17 @@ test.describe("needs-attention page: navigation flows + badge freshness", () => 
   test("flow 5 (spec test 11b): Discard on the page decrements the badge without navigation", async ({
     page,
   }) => {
-    // 1 pending_ingestion + 1 pending_sync → badge "2"; discarding the
-    // ingestion leaves "1" (decrement stays VISIBLE instead of vanishing
-    // at 0, which would also pass for a badge that merely unmounted).
+    // 1 pending_ingestion + 1 pending_sync on top of whatever the table holds;
+    // discarding the ingestion decrements by one and the badge stays VISIBLE
+    // (vanishing at 0 would also pass for a badge that merely unmounted, which
+    // is why the fixtures never take the count to zero).
     await seedIngestionRow();
     await seedSyncRows(1);
     await page.setViewportSize(MOBILE);
+    const before = await serverBadgeCount(page);
     await page.goto("/admin/needs-attention");
 
-    await expect(page.getByTestId("admin-attention-badge")).toHaveText("2");
+    await expect(page.getByTestId("admin-attention-badge")).toHaveText(fmtBadge(before));
     const pendingCard = page.getByTestId(`needs-attention-item-pending-${INGESTION_ID}`);
     await expect(pendingCard).toBeVisible();
     const urlBefore = page.url();
@@ -254,7 +303,11 @@ test.describe("needs-attention page: navigation flows + badge freshness", () => 
     // router.refresh() path: same route, layout re-render delivers the new
     // count as a prop (useNeedsAttentionBadge prop-sync source).
     await expect(pendingCard).toHaveCount(0, { timeout: 10_000 });
-    await expect(page.getByTestId("admin-attention-badge")).toHaveText("1", { timeout: 10_000 });
+    const after = await serverBadgeCount(page);
+    expect(after).toBe(before - 1);
+    await expect(page.getByTestId("admin-attention-badge")).toHaveText(fmtBadge(after), {
+      timeout: 10_000,
+    });
     // No navigation happened: URL unchanged AND the window marker survived
     // (router.refresh() preserves client state; a redirect/reload would not).
     expect(page.url(), "URL must be unchanged after discard").toBe(urlBefore);

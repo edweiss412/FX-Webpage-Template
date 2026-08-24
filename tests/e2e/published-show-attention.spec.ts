@@ -22,6 +22,7 @@ import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { openShowReviewModal } from "./helpers/openShowReviewModal";
+import { awaitModalHydrated } from "./helpers/awaitModalHydrated";
 
 const BASE = "published-show-review";
 const MODAL_ANY = `[data-testid="${BASE}-modal"]`;
@@ -70,6 +71,11 @@ async function seedAlert(code: string, context: Record<string, unknown>): Promis
 async function openModal(page: Page) {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openShowReviewModal(page, show.slug, { timeoutMs: 30_000 });
+  // Every case below clicks a resolve control, which is a client island: the
+  // same pre-hydration click loss batch-2 R7 measured in warning-panel-polish
+  // (a completed click with no request behind it). openShowReviewModal awaits
+  // the mount only, so gate on the shell's initial-focus effect.
+  await awaitModalHydrated(page);
 }
 
 test.describe.configure({ mode: "serial" });

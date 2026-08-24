@@ -1,0 +1,20 @@
+surface psqlStartupScan declared [ 'relational-boundary', 'regex-quantifier-bound' ] floor 1
+arm [ 1599, 1614 ] if (character === "$" && text[i + 1] === "(" && text[i + 2] === "(")
+arm [ 1727, 1742 ] if (text[i] === "$" && text[i + 1] === "(" && text[i + 2] === "(")
+
+operator                  declared  file-wide  reaches arm 1  reaches arm 2
+relational-boundary        true             71          false          false
+equality-flip              false           279           true           true
+logical-connector          false           195           true           true
+integer-literal            false           376           true           true
+regex-quantifier-bound     true              8          false          false
+statement-removal          false           417           true           true
+declared-set sites 79
+
+today: surfaces=42 totalBoots=4725 loads=[1186, 1183, 1179, 1177] psqlStartupScan weight=80 shard=1
+
+widen +logical-connector: surfaces=42 totalBoots=4920 loads=[1235, 1232, 1227, 1226] psqlStartupScan weight=275 shard=2
+  surfaces changing shard: 20
+
+widen +logical-connector,equality-flip,integer-literal,statement-removal: surfaces=42 totalBoots=5992 loads=[1499, 1498, 1496, 1499] psqlStartupScan weight=1347 shard=0
+  surfaces changing shard: 33
