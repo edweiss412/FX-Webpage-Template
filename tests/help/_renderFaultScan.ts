@@ -314,10 +314,54 @@ function componentRendersMarker(file: SourceFile, name: string): boolean {
         : declaration.getInitializer();
       if (body === undefined) continue;
       const returned = firstReturnedJsx(body);
-      if (returned !== null && MARKER.test(returned.getText())) return true;
+      if (returned !== null && MARKER.test(returned.getText()) && marksUnconditionally(returned)) {
+        return true;
+      }
     }
   }
   return false;
+}
+
+/**
+ * Does this component's marker appear on EVERY render, or only when a call site
+ * passes it?
+ *
+ * The hop into a shared component is only sound for a component that marks
+ * unconditionally. `SectionTileError` does: its value is a template literal, and
+ * a template literal always produces a string, so the attribute is always in the
+ * DOM. `FailureSurface` does not: it spreads an optional prop
+ * (`data-render-fault={renderFault}`), and React omits an attribute whose value
+ * is `undefined`, so a call site that passes no prop renders NO marker.
+ *
+ * Without this distinction the hop reported every `<FailureSurface />` as marked
+ * whatever props it carried, which is a false NEGATIVE in the enforcement: an
+ * unmarked fault branch would satisfy the meta-test while the capture saw
+ * nothing. That also contradicted this module's own stated contract, that the
+ * prop spelling is "pinned at the call site, so only the fault branches count
+ * rather than every use of the component".
+ *
+ * The test is deliberately narrow: a BARE identifier is the only shape that can
+ * arrive `undefined` from a call site. Any literal, template literal, or
+ * computed expression always yields a value, so those still count.
+ */
+export function marksUnconditionally(returned: Node): boolean {
+  const opening = Node.isJsxElement(returned) ? returned.getOpeningElement() : returned;
+  if (!Node.isJsxOpeningElement(opening) && !Node.isJsxSelfClosingElement(opening)) return true;
+
+  for (const attribute of opening.getAttributes()) {
+    if (!Node.isJsxAttribute(attribute)) continue;
+    const attributeName = attribute.getNameNode().getText();
+    if (attributeName !== "data-render-fault" && attributeName !== "renderFault") continue;
+
+    const initializer = attribute.getInitializer();
+    if (initializer === undefined) return true;
+    if (!Node.isJsxExpression(initializer)) return true;
+
+    const expression = initializer.getExpression();
+    if (expression !== undefined && Node.isIdentifier(expression)) return false;
+    return true;
+  }
+  return true;
 }
 
 function firstReturnedJsx(body: Node): Node | null {
