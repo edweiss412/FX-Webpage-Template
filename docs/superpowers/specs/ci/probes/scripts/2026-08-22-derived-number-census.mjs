@@ -68,7 +68,8 @@ const TREE_BINDING = /\b(?:at|on|base|blob|sha|commit|revision|branch point)\b[^
 const MUTABLE_REF = /`?\b(?:origin|upstream)\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\b`?/g;
 // A hex object id needs BOTH a digit and a hex letter. Requiring only a digit
 // matches millisecond timestamps and CI run ids — 43 of one record's 87 reported
-// anchors were epoch-ms values before this condition was added. Requiring only a
+// anchors were all-digit before this condition was added, 40 of them epoch-ms
+// values and three run-id shaped (20260821, 56438591, 19119308). Requiring only a
 // letter matches ordinary words spelled from a-f. Documented limit: a genuinely
 // all-digit short sha is not recognized; at 7 hex chars that is about 3.7% of ids
 // and falls off fast with length, and the classification it costs is a record
