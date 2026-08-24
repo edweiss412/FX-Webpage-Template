@@ -284,6 +284,16 @@ wrong, and each files here rather than as a review round.
    obligation discharged.
 6. **Shell text embedded in JS remains documented limit 1 of the predecessor design.** Unchanged
    here (`docs/superpowers/specs/ci/2026-08-21-shell-attached-redirection-target-design.md:457`).
+7. **`docs/superpowers/specs/ci/probes/` is not index-checked, so the three script probes this arc
+   adds are discoverable only by the rows added to its README by hand.**
+   `tests/docs/specsReadmeIndexParity.test.ts` treats a directory as an indexed subsystem only when
+   its README carries the literal `| Entry | Date |` header
+   (`tests/docs/specsReadmeIndexParity.test.ts:42`, `INDEX_HEADER`); `docs/superpowers/specs/ci/probes/README.md` heads its table
+   `| Probe | Question | Feeds |` instead, so no test ranges over that directory and an unlisted
+   probe fails nothing. Surfaced by sweeping the parity failure that DID fire, on the sibling
+   `docs/superpowers/specs/ci/README.md`. Recorded here rather than filed: the repair is a README header convention
+   spanning every probe directory in the corpus, no incident has been measured against it, and the
+   process-facing mint bar wants one.
 
 ---
 
