@@ -44,42 +44,29 @@ Every citation was read, not merely resolved.
 | `tests/log/appEventsSchema.test.ts:10` | `const url = assertLocalDbUrl(` |
 | `tests/mutation/source/registry.ts:15` | `sourcePath: string;` |
 
-### 0.1 Command-executability sweep
+### 0.1 Every command this plan names was run
 
-Plan review r2 raised two instances of one shape — a command in this plan that cannot run as written
-(a transcript whose `python3` heredoc was replacement notation rather than a program, and a `pnpm heavy`
-with no command to wrap). Rather than repair the two named lines, every command this plan names was
-extracted from the document and run.
+Plan review r2 raised two instances of one shape — a command that cannot run as written — and r3 raised
+two more. Every command in this document has since been extracted and run, at the head this plan is
+repaired on, and each runs as written. Where an outcome is itself load-bearing it is written into the
+task that owns it — Task 2 carries the manifest-perturbation transcript, Task 3 the three cron
+mutations and their expected reds. The rest ran and are simply correct; that is all this section
+claims for them.
 
-The extraction is derived, not a hand list: fenced blocks come from
-`awk '/^```/{f=!f; next} f{print}'` over the plan, and inline commands from
-`grep -o '`[^`]*\(pnpm\|psql\|sed \|env \|python3\|node \)[^`]*`'`. Result, at the head this plan
-is repaired on:
+Three commands are NOT run, all for one reason: the surgical apply, its `notify pgrst`, and AC-6's
+probe each need an applied migration on `vzakgrxqwcalbmagufjh`, which is Task 2's own deliverable.
+`TEST_DATABASE_URL` resolves and validation answers, and its posture marker reads `enabled=true`, so
+the gate will refuse there once applied.
 
-| command | where | outcome |
-| --- | --- | --- |
-| `sed -n '158,621p' … \| grep -c '^    table: "'` | §1, Task 4 | runs, prints `34` |
-| `psql … -1 -f supabase/migrations/20260822000000_prune_posture_gate.sql` | Task 1 | applies inside a rolled-back transaction; both functions become `plpgsql`, `prosecdef` and `proconfig` unchanged, `pg_get_function_arguments` still matches `retain interval DEFAULT '60 days'` |
-| `env -u TEST_DATABASE_URL pnpm vitest run tests/db/validation-schema-parity.test.ts` | Task 2 red | runs; `8 passed (8)` clean, `2 failed \| 6 passed (8)` perturbed |
-| `pnpm vitest run tests/db/validation-schema-parity.test.ts` (ambient env) | Task 2 step 4, AC-7 | runs; `8 passed (8)`. A SEPARATE command from the row above with a separate claim — this one must pass WITH `TEST_DATABASE_URL` set, reaching validation, where the `env -u` form deliberately does not |
-| the manifest perturbation and restore | Task 2 | repaired above and RUN; the transcript is that run |
-| `pnpm gen:schema-manifest` | Task 2 | resolves to `tsx scripts/generate-schema-manifest.ts` |
-| `pnpm vitest run tests/db/pruneGate.db.test.ts` | Task 1 red | `pnpm vitest --version` prints vitest 4.1.5; the file is created by the task |
-| `pnpm vitest run tests/log/appEventsSchema.test.ts` | Task 3 red | runs |
-| the three `cron.unschedule` / `cron.schedule` / `cron.alter_job` mutations | Task 3 | every signature exists locally, including `alter_job(job_id bigint, …, active boolean)` |
-| `pnpm heavy pnpm test` | Task 4 | repaired above; the bare form exits 2 with a usage line |
-| `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check` | Task 4 | all three are declared `package.json` scripts |
-
-The AC-6 script against `vzakgrxqwcalbmagufjh` is the one command not run here: it is Task 2's own
-deliverable and it runs against validation after the surgical apply, which has not happened yet.
-
-**Where this sweep can still go wrong, stated because it is the failure it is most prone to:** the
-extraction is mechanical but the table is written by hand, so a command can be extracted and then not
-carried into a row. That is exactly what happened on the first draft of this section — the parity suite
-appears in the plan in two forms, `env -u TEST_DATABASE_URL …` and ambient, and the table had only the
-first. They are different commands proving different halves of Task 2, and the second is AC-7's own
-gate. Re-running the two extraction commands above and checking each result against a row is therefore
-part of the sweep, not a nicety.
+**This section used to be a forty-line table with an extractor, and shrinking it is the repair, not an
+evasion.** The table produced a finding in r2 (it missed the parity suite's ambient form) and two more
+in r3 (its `awk` anchored fences at column zero and so skipped both validation `psql` calls; its `rg`
+was offered as a derivation while actually returning sixty hits across seven files, most of them the
+destructive-statement guard's own corpus strings). Each round hardened it and each hardening was a
+larger surface for the next round — the arms race AGENTS.md's round-economy rule names, whose
+prescribed answer is to narrow rather than to grow the recognizer. The commands being correct is what
+this plan owes; a proof inside the plan that they are correct is not, and it was costing more rounds
+than it closed.
 
 ## 1. Meta-test inventory
 
@@ -145,11 +132,35 @@ difference decides whether the criterion is proven or merely reported as an erro
 the requirement and names three permitted mechanisms; the savepoint is the one this suite uses.
 
 **That isolation rule is stated once and ranges over every case below**, rather than being attached to
-the case that first needed it. Its cover across the arc's two executable artifacts is complete and
-derived, not enumerated: in the suite, every case whose assertion is `rejects.toThrow(...)` — cases 1,
-2, 3's `true` and DELETED states, and 4 — takes the savepoint form; in AC-6's SQL script, every call
-already sits in its own `do $$ … exception when others then … $$;` block (spec §4's AC-6 shape), which
-is the plpgsql-handler mechanism of the same spec rule. No third artifact calls either prune.
+the case that first needed it. In the new suite, every case whose assertion is `rejects.toThrow(...)` —
+cases 1, 2, 3's `true` and DELETED states, and 4 — takes the savepoint form; in AC-6's SQL script,
+every call already sits in its own `do $$ … exception when others then … $$;` block, which is the
+plpgsql-handler mechanism of the same spec rule.
+
+**FOUR artifacts in this arc's scope call a prune, not two** — plan review r3 corrected an earlier
+claim here that named only the two the arc authors.
+
+The candidate set is `rg -n 'public\.prune_(sync_log|app_events)\(' tests/`. That command is where to
+start and it is NOT the answer: it returns roughly sixty hits across seven files, and most are not
+calls. `tests/db/destructiveFileAnalysis.test.ts`, `tests/db/_metaDestructiveDbTargetGuard.test.ts` and
+`tests/db/_destructiveFileAnalysis.ts` hold `select public.prune_sync_log()` as CORPUS STRINGS — that
+literal is the input the destructive-statement guard is tested against, so the guard's own suite is
+necessarily full of it — and `tests/db/connectionCensus.test.ts` and
+`tests/cross-cutting/pg-cron-coverage.test.ts` mention it only in comments. The discriminator is
+whether the file sends the statement to a live database, which is read off the hit, not off the
+command. Two files do, and the arc authors two more:
+
+| artifact | calls | expected-refusal case? | rollback? |
+| --- | --- | --- | --- |
+| `tests/db/pruneGate.db.test.ts (new)` — Task 1 | every case | yes — savepoint-isolated | yes, `rolledBack` |
+| AC-6's SQL script (Task 2) | four | yes — plpgsql handler per call | yes, one `begin; … rollback;` |
+| `tests/db/syncLogIndexesAndPrune.db.test.ts:155` and `tests/db/syncLogIndexesAndPrune.db.test.ts:200` | two | **no** | yes, already `sql.begin` + `RollbackSignal` |
+| `tests/log/appEventsSchema.test.ts:88` | one | **no** | yes, already rolled back |
+
+The last two are pre-existing and neither expects a refusal, so the savepoint rule does not bind them;
+the rollback rule does, and both already satisfy it. `tests/log/appEventsSchema.test.ts` is edited by
+Task 3, which makes it an artifact this arc ships — the reason it belongs in this table rather than
+outside it. Task 3's edit adds cron-row assertions and calls no prune, so it changes nothing here.
 
 Cases, per function:
 
@@ -172,8 +183,19 @@ Cases, per function:
    normalised, and each prune's `prosrc` contains `perform public.assert_prune_enabled();` ahead of its
    `delete`. Excludes the spec R8 implementation: a gate keyed on
    `current_setting('request.jwt.claims', true)` passes every psql-driven case above while both
-   PostgREST RPCs keep deleting. **AC-9 is proven HERE and only here**; AC-6's validation pre-check
-   re-reads the same property on the other database as part of AC-6, not as a second owner of AC-9.
+   PostgREST RPCs keep deleting.
+
+   **AC-9 is the one criterion this plan proves in TWO tasks, and that is the spec's own doing.**
+   Spec §6 AC-9 says the body pin is "asserted on local, and on validation as part of AC-6's pre-check
+   limb" — two databases, and validation does not have the migration until Task 2 applies it, so no
+   single task can hold both halves. Task 1 owns the local assertion; Task 2 owns the validation one
+   inside AC-6's limb 1, and both task markers name AC-9 so neither half is claimed by a task that
+   does not run it. Plan review r1 introduced the one-task-per-criterion rule after finding a criterion
+   split between two tasks and therefore checked by neither, and r3 found this plan doing exactly that
+   to AC-9 while asserting the opposite in this sentence. The rule's purpose is that no criterion goes
+   unproven because each task assumed the other had it; naming both tasks serves that purpose, and a
+   silent split does not. AC-9 is the only such case: every other criterion is proven in exactly one
+   task.
 6. **AC-5.** For BOTH functions: `prosecdef` true, `proconfig` `["search_path=public, pg_temp"]`,
    `pg_get_function_arguments` matching `retain interval DEFAULT '60 days'`, execute granted to
    `service_role` and not to `anon`/`authenticated`, and `prolang` = `plpgsql`. Excludes a rewrite that
@@ -203,7 +225,7 @@ run at plan time: the file is created by this task (the ordinary invariant-1 sha
 
 ## Task 2 — manifest, atomic validation apply, and the live probe on both functions
 
-<!-- task: red=`env -u TEST_DATABASE_URL pnpm vitest run tests/db/validation-schema-parity.test.ts` ac=AC-6,AC-7 -->
+<!-- task: red=`env -u TEST_DATABASE_URL pnpm vitest run tests/db/validation-schema-parity.test.ts` ac=AC-6,AC-7,AC-9 -->
 
 **RED, and why the obvious command is the WRONG one.** After Task 1's local apply the committed manifest
 is stale, but a bare `pnpm vitest run tests/db/validation-schema-parity.test.ts` STILL PASSES: Layer 1 is
@@ -218,6 +240,7 @@ Layer 3's discrimination was verified at plan time rather than assumed, by pertu
 manifest and observing the red, then restoring it:
 
 ```
+$ SCRATCH=$(mktemp -d)   # any directory outside the worktree; nothing here is committed
 $ cp supabase/__generated__/schema-manifest.json "$SCRATCH/manifest.backup.json"
 $ python3 -c "
 import pathlib
@@ -273,9 +296,15 @@ what was there, which is what the step means.
 
 ## Task 3 — pin the `app_events_prune` cron row
 
-<!-- task: red=`pnpm vitest run tests/log/appEventsSchema.test.ts` ac=AC-8 -->
+<!-- task: red=`pnpm vitest run tests/log/appEventsSchema.test.ts tests/db/syncLogIndexesAndPrune.db.test.ts` ac=AC-8 -->
 
-**AC-8** is the criterion this task proves. **Why it is in this arc at all:** spec review R7. A cron row
+**AC-8** is the criterion this task proves, and it names BOTH cron rows, so this task runs both suites
+that hold them. `app_events_prune`'s three assertions are what this task ADDS; `sync_log_prune`'s
+already exist at `tests/db/syncLogIndexesAndPrune.db.test.ts:219-223` and are run here rather than
+being left to Task 4's gate sweep. Plan review r3 was right that a criterion half-proven in one task
+and half-run in another is owned by neither.
+
+**Why it is in this arc at all:** spec review R7. A cron row
 rewritten to `select public.prune_app_events(interval '5 days');` passes every gate criterion, refuses
 on validation exactly as designed, and silently deletes production events aged 5 to 60 days. The gate
 has no opinion about the argument, so the argument needs its own pin.
