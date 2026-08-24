@@ -633,8 +633,38 @@ shard exists. `git status --short` before believing any red this task produces.
 **The ledger archive in Task 7 cannot perturb any of this**, because `SCANNED_EXTENSIONS` has no
 `.md` — checked rather than assumed, since it is the same ordering question round 2 finding 3 asked.
 
-The `GUARD SURFACE:` line of the round-1 diff brief carries the score and the empty
-unaccepted-survivor set, measured BEFORE the first dispatch.
+**The round-1 diff brief's `GUARD SURFACE:` line, in the grammar the wrapper now enforces.** #878
+(jurarith) tightened this on 2026-08-24, AFTER this plan's own review stages closed; the arc's diff
+stage has not opened, so the round-1 brief the implementer writes is bound by the NEW form. The
+wrapper exits 2 before dispatching and names the missing element, so getting it wrong costs a
+round-trip rather than a silent skip.
+
+One line, plain or as a Markdown heading — a heading is held to the SAME grammar, separator included
+— carrying all three parts:
+
+```
+GUARD SURFACE: psqlStartupScan · MUTATION SCORE: <killed>/<total> · 0 unaccepted survivors · OPERATORS: relational-boundary, regex-quantifier-bound
+```
+
+- `MUTATION SCORE: <killed>/<total>` and the literal `0 unaccepted survivors`, both from Task 6
+  step 5's FULL-gate run, measured BEFORE the first dispatch.
+- `OPERATORS:` is the part that is new and the part this plan previously did not mention at all. Name
+  the declared families — for this surface `relational-boundary` and `regex-quantifier-bound`, the
+  two the global constraints above fix — or the literal `all`.
+- Both arms require their tail to BEGIN with an identifier character, optionally backticked. A tail
+  that opens with anything else is nonconforming.
+
+**`CANNOT-EXPRESS: <probe citation>` is the other arm and it is NOT an escape hatch here.** A
+score-shaped line is never rescued by it — declaring a score commits you to the whole grammar. It
+applies only to a surface the registry genuinely cannot express, and `psqlStartupScan` is enrolled,
+so this arc uses the score arm.
+
+The gate checks SHAPE only: it never judges the declared score against the registry floor, nor the
+declared operator set against the registry row. A conforming line with wrong numbers passes the
+wrapper and fails review, which is the worse outcome — read both off the actual run.
+
+Fenced quotations neither trigger the gate nor satisfy it, so the block above is an example and not a
+declaration.
 
 ## Task 7: the prose sweep VERIFIED, and the ledger closeout
 
