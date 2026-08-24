@@ -1109,6 +1109,186 @@ describe("clause B - the arc sum across merge bases (spec §3.1)", () => {
   });
 });
 
+describe("clause B scoping - satisfaction and suppression (spec §3.1)", () => {
+  const HALF = ROUND_THRESHOLD / 2;
+  const half = (baseSha: string, over: Record<string, unknown> = {}) =>
+    rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha, ...over })));
+  // The owing shape every case below is one ordinary edit from: HALF the
+  // threshold in each of two bases, so clause A never fires and clause B must.
+  const OWING: Fixture[] = [
+    { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+    { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+  ];
+  // The declared count is PER BASE (count_mismatch is ratified per-base), so
+  // it is a parameter: a section declaring the arc sum beside a base holding
+  // half of it is a count_mismatch, not a satisfaction.
+  const section = (stage: string, n: number) =>
+    [`## ${stage} — ${n} rounds`, "", `**Examined:** R1-R${n}.`, "", "**Infra:** none.", ""].join("\n");
+
+  // One filing section anywhere in the directory discharges the duty, because
+  // the duty is attached to no single base (spec §4 limit 2). Both bases are
+  // asserted so nothing can pass by privileging the first file enumerated.
+  it("is discharged by a section at EITHER base", () => {
+    for (const at of ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]) {
+      expect(check([...OWING, { path: `feat/foo/${at}.md`, body: section("diff", HALF) }])).toEqual([]);
+    }
+  });
+
+  // AC-17. readArcs recognizes only ^[0-9a-f]{12}\.md$, so a stray prose file
+  // is invisible to the canonical reader. A satisfaction lookup reading "any
+  // .md under the directory" would let it discharge a real obligation while
+  // the reader sees no filing at all - an obliged arc reported compliant.
+  // Deliberately BELOW the per-base threshold in every base: the existing
+  // stray-filing case reaches it in one base and asserts clause A, which a
+  // loose clause B still emits, so that case passes either way.
+  it("is NOT discharged by a stray non-arc .md carrying a parseable section", () => {
+    const problems = check([...OWING, { path: "feat/foo/notes.md", body: section("diff", HALF) }]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+  });
+
+  // K2b/`directory`. Excludes a satisfaction lookup that collects sections
+  // globally, under which any filed directory anywhere silences every owing
+  // directory in the corpus.
+  it("does not let a DIFFERENT directory's filing discharge this one", () => {
+    const problems = check([
+      ...OWING,
+      { path: "feat/zzz/cccccccccccc.jsonl", body: half("cccccccccccc", { branch: "feat/zzz" }) },
+      { path: "feat/zzz/cccccccccccc.md", body: section("diff", HALF) },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("feat/foo");
+  });
+
+  // K2b/`stage`. Excludes a lookup that ignores the filing's stage, under
+  // which a spec section discharges a diff duty.
+  it("does not let a spec section discharge a diff duty", () => {
+    const problems = check([
+      // Base A carries the spec rounds the spec section describes, so the
+      // section is well-formed and the ONLY thing left to observe is whether
+      // clause B lets it discharge the unrelated diff duty.
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: half("aaaaaaaaaaaa") + half("aaaaaaaaaaaa", { stage: "spec" }),
+      },
+      { path: "feat/foo/aaaaaaaaaaaa.md", body: section("spec", HALF) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("diff");
+  });
+
+  // K2c/`directory`. Excludes suppression that is global rather than
+  // per-directory: one clause-A report anywhere would silence every clause-B
+  // duty in the corpus.
+  it("suppresses per directory, so a clause-A report elsewhere does not silence this one", () => {
+    const problems = check([
+      ...OWING,
+      { path: "feat/zzz/cccccccccccc.jsonl", body: rows(...OBLIGING.map((o) => ({ ...o, branch: "feat/zzz", baseSha: "cccccccccccc" }))) },
+    ]);
+    expect(problems.map((p) => p.kind).sort()).toEqual(["missing_arc_filing", "missing_filing"]);
+  });
+
+  // K2c/`stage`. Excludes suppression that silences every stage in a
+  // directory once any stage is suppressed.
+  it("suppresses per stage, so a clause-A diff report does not silence a spec duty", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: rows(...OBLIGING) + half("aaaaaaaaaaaa", { stage: "spec" }) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb", { stage: "spec" }) },
+    ]);
+    expect(problems.map((p) => p.kind).sort()).toEqual(["missing_arc_filing", "missing_filing"]);
+    expect(problems.find((p) => p.kind === "missing_arc_filing")?.message).toContain("spec");
+  });
+
+  // Clause B is residual: a base already at the threshold is clause A's to
+  // report, and announcing one duty twice sends a reader to file twice.
+  it("reports only clause A when a base is at the threshold alone", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: rows(...OBLIGING) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_filing"]);
+  });
+
+  // The spec §3.1 equivalence fixture: clause A satisfied at its own base,
+  // and the remaining bases carry the rest of the arc's rounds.
+  it("is clean when the at-threshold base carries its own section", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: rows(...OBLIGING) },
+      { path: "feat/foo/aaaaaaaaaaaa.md", body: section("diff", ROUND_THRESHOLD) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+      { path: "feat/foo/cccccccccccc.jsonl", body: half("cccccccccccc") },
+    ]);
+    expect(problems).toEqual([]);
+  });
+});
+
+describe("clause B only ADDS (spec §3.2 monotonicity)", () => {
+  // The risk clause B carries is not a wrong new report - the scoping controls
+  // above cover that - it is SILENCING an old one. Suppression and satisfaction
+  // both `continue`, and a mis-scoped one would swallow a per-base problem the
+  // gate has always reported. So the battery asserts the per-base kinds that
+  // survive, by value, over one fixture per problem shape.
+  const HALF = ROUND_THRESHOLD / 2;
+  const half = (baseSha: string, over: Record<string, unknown> = {}) =>
+    rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha, ...over })));
+
+  // Each fixture is ALSO owing under clause B, which is what makes the case
+  // discriminating: a clause B that swallowed the per-base problem would
+  // report only its own kind and still look busy.
+  const BATTERY: { what: string; files: Fixture[]; perBase: string[] }[] = [
+    {
+      what: "a malformed row",
+      files: [
+        { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") + "{not json\n" },
+        { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+      ],
+      perBase: ["malformed_row"],
+    },
+    {
+      what: "a row whose declared identity contradicts its path",
+      files: [
+        { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+        {
+          path: "feat/foo/bbbbbbbbbbbb.jsonl",
+          body: half("bbbbbbbbbbbb", { branch: "feat/other" }),
+        },
+      ],
+      perBase: ["identity_mismatch", "identity_mismatch"],
+    },
+    {
+      what: "rounds that are not contiguous",
+      files: [
+        {
+          path: "feat/foo/aaaaaaaaaaaa.jsonl",
+          body: rows({ round: 1 }, { round: 3 }),
+        },
+        { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+      ],
+      perBase: ["round_gap"],
+    },
+    {
+      what: "a .jsonl not named for any arc",
+      files: [
+        { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+        { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+        { path: "feat/foo/scratch.jsonl", body: half("aaaaaaaaaaaa") },
+      ],
+      perBase: ["unrecognized_corpus_file"],
+    },
+  ];
+
+  it.each(BATTERY)("still reports the per-base problem when $what", ({ files, perBase }) => {
+    const problems = check(files);
+    premiseHolds(
+      "the fixture also owes under clause B, so a swallowed per-base problem cannot hide behind an empty result",
+      problems.some((p) => p.kind === "missing_arc_filing"),
+    );
+    expect(problems.filter((p) => p.kind !== "missing_arc_filing").map((p) => p.kind)).toEqual(
+      perBase,
+    );
+  });
+});
+
 describe("the arc-sum grandfather set can only shrink (spec §3.3)", () => {
   // Every assertion here reads the LIVE corpus, so the set is policed against
   // the thing it exempts rather than against a fixture that agrees with it.
