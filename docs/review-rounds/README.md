@@ -21,6 +21,15 @@ docs/review-rounds/<branch>/<baseSha12>.md      the filing — written by hand, 
 
 A stage owes a filing once it reaches `ROUND_THRESHOLD` counted rounds (`4`, `lib/reviewRounds/constants.ts`). **Counted** means distinct `round` values among rows with `status: "verdict"` whose `stage` is `spec`, `plan`, or `diff` — `no_verdict` rows and `stage: "task"` rows are recorded for completeness and never count (spec §5.4).
 
+A stage reaches the threshold **either way**: by one base's rounds, or by the arc's rounds summed across every base of that branch directory, counting distinct `(base, round)` pairs (spec `docs/superpowers/specs/ci/2026-08-22-review-round-arc-sum.md`, 2026-08-22). The second clause exists because re-merging `origin/main` moves the merge base, so the next dispatch writes into a new file and the counter restarts at 1 — four rounds burned across two bases used to oblige nothing at all.
+
+Four consequences worth knowing before you file:
+
+- **A re-merge restarts `--round` at 1 by design.** That is not a mistake to correct, and it does not affect the arc sum, which counts pairs rather than numbers.
+- **The first row at a new base should carry `_roundAtPreviousBase`**, so a reader can follow one review thread across the move. It is traceability only: nothing validates it and no gate outcome depends on it.
+- **A filing owed by the arc sum goes at the LATEST base holding rows for that stage.** Any one section for that stage discharges the whole directory, so a second is never required.
+- **Its heading declares THAT FILE's count; its `**Examined:**` line names the cross-base total.** `## diff — 1 rounds` on a five-base arc is legal and reads oddly. The heading answers to `count_mismatch`, which is per base; the span belongs in the prose beneath it.
+
 The filing is one `##` section per triggered stage:
 
 ```markdown
