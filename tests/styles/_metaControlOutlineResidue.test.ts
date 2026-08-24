@@ -1086,6 +1086,11 @@ describe("the grammar the module does not model (AC-13)", () => {
     // drop this case out of the map entirely and the suite would stop requiring it to carry a
     // `// covers:` line. Reported as skipped either way.
     if (UNDER_MUTATION) ctx.skip();
+    // Reading `MUTATION_MUTANT` above makes this case environment-touching to the premise
+    // classifier, and the contract for such a case is that it proves its input arrived. The honest
+    // premise is non-vacuity of the table it is named for: a FORMS that shrank to nothing would
+    // otherwise let this case pass by asserting two empty lists against each other.
+    premise("the thirty-two forms are present to classify", FORMS.length, 31);
     // 120s rather than the default 30s, declared at the end of this call. The case builds
     // THIRTY-TWO scratch roots at ~11 MB each and they cannot be shared: the scanner caches parsed
     // files by absolute path and never invalidates (spec §5.6), so a second form read under a

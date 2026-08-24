@@ -325,7 +325,11 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // `premiseHolds` calls are about tree content and the compiled oracle -- the
   // Tailwind major, the scanner's universe, and the canonical weak token
   // compiling -- none of which is environment.
-  "tests/styles/_metaControlOutlineResidue.test.ts": 0,
+  // 0 until 2026-08-24, now 1: the thirty-two-form case reads `MUTATION_MUTANT` to skip itself in
+  // a per-mutant child (it costs ~15s of the file's ~45s and every mutant paid it), and reading the
+  // environment is what the classifier keys on. The case carries a premise on `FORMS.length`, so it
+  // satisfies the contract rather than being exempted from it.
+  "tests/styles/_metaControlOutlineResidue.test.ts": 1,
   // The browser mode's two deciding suites (2026-08-15). Both declare 0, and the
   // declaration is honest rather than convenient: each builds the scratch trees it
   // reads under mkdtempSync and drives pure functions, touching no member of
