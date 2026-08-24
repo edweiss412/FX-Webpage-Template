@@ -1,6 +1,7 @@
 // @vitest-environment node
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { verifyEvidence } from "@/scripts/verify-capture-evidence";
+import { absentRecordProblem, verifyEvidence } from "@/scripts/verify-capture-evidence";
 
 const HEADER = {
   eventName: "pull_request",
@@ -145,5 +146,27 @@ describe("on a REFUSED run a short record is the CORRECT shape", () => {
     expect(verifyEvidence({ ...HEADER, entries: nameless }, EXPECTED, {}).join(" ")).toContain(
       "refusedReason",
     );
+  });
+});
+
+describe("an absent record is distinguished from a malformed one", () => {
+  it("names the path it looked at and how to produce one", () => {
+    // The failure this catches: an operator running the parser before any
+    // capture has run gets a raw ENOENT stack, which reads as a broken script
+    // rather than a missing input, and says nothing about WHERE it looked.
+    const problems = absentRecordProblem("/nonexistent/public/help/screenshots/evidence.json");
+
+    expect(problems).not.toBeNull();
+    expect(problems?.[0]).toContain("/nonexistent/public/help/screenshots/evidence.json");
+    expect(problems?.[1]).toContain("pnpm screenshot:help");
+  });
+
+  it("stands down for a record that is present, whatever its contents", () => {
+    // Scoped to THIS file, which exists by construction while the test runs.
+    // Asserting against a fixture the suite writes would test the fixture; the
+    // branch under test reads existence and nothing else, so a file that is
+    // certainly present and certainly not an evidence record is the input that
+    // proves it does not also validate.
+    expect(absentRecordProblem(fileURLToPath(import.meta.url))).toBeNull();
   });
 });

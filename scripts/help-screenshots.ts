@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { chromium, type BrowserContext, type Page } from "@playwright/test";
+import { join } from "node:path";
+import { chromium, type BrowserContext } from "@playwright/test";
 import { CAPTURE_LAUNCH_ARGS } from "./capture-launch-args";
 import { type CaptureTheme, disableAnimations, installDeterminism } from "./capture-core";
 import {

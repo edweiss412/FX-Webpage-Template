@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expectedIdentities } from "./capture-evidence";
 import { EVIDENCE_FILENAME } from "./help-screenshots";
@@ -108,9 +108,34 @@ export function verifyEvidence(
   return problems;
 }
 
+/**
+ * The absent-record branch, as its own exported decision.
+ *
+ * An absent record is not a malformed one, and a raw ENOENT stack tells an
+ * operator nothing about which of the two they are looking at. It is exported
+ * rather than inlined into `main` because `main` is reachable only by running
+ * the script, so an inlined branch could only be tested by spawning a process
+ * -- and an untestable branch is how a message like this rots into a stale path
+ * nobody notices. The caller owns the exit; this owns only the verdict.
+ */
+export function absentRecordProblem(path: string): string[] | null {
+  if (existsSync(path)) return null;
+  return [
+    `no capture evidence record at ${path}`,
+    "the record is written by a capture run; produce one with `pnpm screenshot:help`",
+  ];
+}
+
 function main(): void {
   const local = process.argv.includes("--local");
   const path = join(process.cwd(), "public/help/screenshots", EVIDENCE_FILENAME);
+
+  const absent = absentRecordProblem(path);
+  if (absent !== null) {
+    for (const line of absent) console.error(line);
+    process.exit(1);
+  }
+
   const problems = verifyEvidence(
     JSON.parse(readFileSync(path, "utf8")),
     expectedIdentities(),
