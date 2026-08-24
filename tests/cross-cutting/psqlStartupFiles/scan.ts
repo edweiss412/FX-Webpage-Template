@@ -229,10 +229,17 @@
  *    another program (`alias p'sql'='pgcli -F'`) escapes.
  *  - A multiword assignment value whose psql command carries no flag-shaped
  *    token, which is the deliberate line between a command binding and prose
- *    (`MSG="psql failed to connect"`). This covers a quoted YAML `run:` scalar
- *    read as one word — a binding there is one indirection deeper than the
- *    shell layer reads — and a quoted DIRECTORY component carrying IFS
- *    whitespace (`PG='/tmp/x y/psql'`).
+ *    (`MSG="psql failed to connect"`), and a quoted DIRECTORY component
+ *    carrying IFS whitespace (`PG='/tmp/x y/psql'`).
+ *
+ *    RETIRED 2026-08-22 (`BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE`): this
+ *    bullet used to cover a quoted YAML `run:` scalar too, and the reason it
+ *    gave was wrong. The flag criterion never declined those — it never saw
+ *    them. `scanShellIndirection` lexed the whole YAML file, so the scalar's
+ *    YAML quotes were read as SHELL quotes and the body collapsed to one
+ *    literal word with no assignment in it. Quoted executable scalars are now
+ *    blanked out of that lex and rescanned from their decoded value, so the
+ *    binding reads normally. The flag criterion is untouched.
  *  - A WRAPPER-prefixed multiword value whose psql path itself needs the
  *    word-split reading (`CMD="sudo /tmp/O'Reilly/psql -X mydb"`): the split
  *    reading requires psql at ARGV[0] and the eval reading takes the pathname

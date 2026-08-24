@@ -295,6 +295,9 @@ token, and the flag criterion (deliberately unchanged; it is what keeps
 `MSG="psql failed to connect"` out) declines it. The 0→1 the first draft claimed for this row
 was wrong: the flag in the fixture belongs to the `$PG` command, not to psql.
 
+**Superseded in part, 2026-08-22 — see the note on §6 item 2, which is the canonical record.**
+That row no longer stays zero, and the cause given above is not the one that held.
+
 ## 5. Class-sweep disposition (peers of the shape, each probed)
 
 The defect shape: "a value grammar admitting one delimiter form where the shell admits a
@@ -327,6 +330,10 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
   (`MSG="psql failed to connect"`). Recall here needs YAML-aware value extraction, a different
   surface (`resolveRunShells` family).
 
+  **Superseded in part, 2026-08-22 — see the note on §6 item 2, which is the canonical record.**
+  Both spellings now report. The prediction in the last sentence held: it did take YAML-aware
+  value extraction, on `scanShellIndirection` rather than on `resolveRunShells`.
+
 ## 6. Documented limits (module-header additions, shipped with the diff)
 
 1. A quote-concatenated spelling of a rule KEYWORD or non-assignment operand — `alias p'sql'=…`,
@@ -345,6 +352,22 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
    the flag criterion — the deliberate line between a command binding and prose. This covers
    quoted YAML `run:` scalars read as one word (`- run: "PG=psql; $PG -qAt mydb"`, plain or
    mixed): a binding there is one indirection deeper than the shell layer reads.
+
+   **Superseded in part, 2026-08-22** by `docs/superpowers/specs/ci/2026-08-22-workflow-run-scalar-yaml-decode-design.md`
+   (`BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE`): the quoted YAML `run:` scalar clause no longer
+   holds. Both spellings of `- run: "PG=psql; $PG -qAt mydb"` now REPORT, and the two suite rows
+   that pinned their zero are re-pinned as hits.
+
+   **The reason recorded here was wrong, and correcting it is the point of this note.** The flag
+   criterion never declined those rows, because it never saw them: `scanShellIndirection` lexed
+   the whole YAML file as one shell text, so the scalar's YAML quotes were read as SHELL quotes
+   and the entire body collapsed into a single literal word containing no assignment at all.
+   The flag criterion is not what declined them. It is itself UNTOUCHED, and the rest of this
+   item stands — a quoted DIRECTORY component carrying IFS whitespace (`PG='/tmp/x y/psql'`) is
+   still declined, and `MSG="psql failed to connect"` is still prose.
+
+   This is the YAML-aware value extraction the bullet at lines 322-328 predicted would be needed;
+   it landed on `scanShellIndirection` rather than the `resolveRunShells` family named there.
 3. `PG=$(x)psql`-shaped values (expansion-prefixed psql suffix) report as bindings — a
    conservative over-report, matching the trailing-path reading of `isPsqlCommandWord`.
 4. Unterminated quotes at end of input keep their current conservative readings; escape decoding

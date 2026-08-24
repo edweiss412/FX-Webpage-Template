@@ -85,12 +85,12 @@ for (const file of files) {
  *  locators; the marker search is windowed, so a small drift is tolerated. */
 const DECLARED: [file: string, nearLine: number, what: string][] = [
   ["tests/cross-cutting/psqlStartupFileSuppression.test.ts", 5156, "the declared-limit pin itself"],
-  ["tests/cross-cutting/psqlStartupFiles/scan.ts", 232, "the scanner's own module header"],
-  ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 292, "the recall-table note"],
-  ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 322, "the documented-limit bullet"],
-  ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 346, "§6 item 2, the canonical record"],
+  ["tests/cross-cutting/psqlStartupFiles/scan.ts", 236, "the scanner's own module header"],
+  ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 293, "the recall-table note"],
+  ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 325, "the documented-limit bullet"],
+  ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 353, "§6 item 2, the canonical record"],
   ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 566, "disposition rows 6-8"],
-  ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 615, "the limits list"],
+  ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 623, "the limits list"],
 ];
 const MARKER = /BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE|Superseded in part, 2026-08-22/;
 const MARKER_WINDOW = 12;
@@ -104,21 +104,46 @@ const linesOf = (f: string) => {
 
 // SELF-TEST: the discovery arm must reach every declared site it CAN reach.
 //
-// One declared site is exempt from this arm and says so: the documented-limit
-// bullet at lines 322-328 of the predecessor spec wraps "quoted `run:`" and
-// "documented limit" across three lines, and the matcher's window is two. It is
-// gated like every other declared site — the GATE reads the file directly and
-// does not consult the matcher — and it is listed here so the omission is a
-// recorded limit rather than a silent one. Widening the window to catch it is
-// the ratchet this sweep already stopped climbing once.
-const MATCHER_CANNOT_REACH = new Set([
-  "docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md:322",
+// Two declared sites are exempt from this arm, each with its reason recorded
+// rather than left silent. BOTH are still GATED — the gate reads the file
+// directly and never consults the matcher — so the exemption costs coverage of
+// the discovery arm alone.
+//
+// The two reasons are different in kind, and the second one generalises. A
+// window limit is an accident of this matcher; a site whose repair DELETES the
+// shape the matcher discovers is structural, and every executable claim site
+// will hit it. The prose sites keep their claim and gain a note beneath it, so
+// they stay discoverable. The executable site's claim WAS its zero-assertion,
+// and replacing that zero with a hit is precisely what repairing it means — so
+// the arm cannot see it afterwards, and no widening would change that.
+//
+// Widening the window to reach the first is the ratchet this sweep already
+// stopped climbing once.
+const MATCHER_CANNOT_REACH = new Map([
+  [
+    "docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md:325",
+    "the documented-limit bullet wraps \"quoted `run:`\" and \"documented limit\" across three lines; the matcher's window is two",
+  ],
+  [
+    "tests/cross-cutting/psqlStartupFileSuppression.test.ts:5156",
+    "the EXECUTABLE arm discovers a zero-assertion beside a quoted fixture, and this site's repair replaced that zero with a hit assertion — the claim shape is gone because removing it is the repair",
+  ],
 ]);
 const unfound = DECLARED.filter(
   ([file, near]) =>
     !MATCHER_CANNOT_REACH.has(`${file}:${near}`) &&
     !hits.some((h) => h.file === file && Math.abs(h.line - near) <= FIND_WINDOW),
 );
+// An exemption that no longer names a DECLARED site is a stale exemption, and a
+// stale exemption is how a real blindness gets waved through. Fail on it.
+const orphanExemptions = [...MATCHER_CANNOT_REACH.keys()].filter(
+  (key) => !DECLARED.some(([file, near]) => `${file}:${near}` === key),
+);
+if (orphanExemptions.length > 0) {
+  console.error(`\nABORT: ${orphanExemptions.length} matcher exemption(s) name no DECLARED site:`);
+  for (const key of orphanExemptions) console.error(`  ${key}`);
+  process.exit(2);
+}
 if (unfound.length > 0) {
   console.error(
     `\nABORT: the matcher missed ${unfound.length} of ${DECLARED.length} DECLARED claim sites, so it ` +
@@ -147,7 +172,10 @@ const unmarked = DECLARED.filter(([file, near]) => {
   return !lines.slice(from, to).some((l) => MARKER.test(l));
 });
 
-console.log(`\nself-test: all ${DECLARED.length} declared sites found by the matcher.`);
+console.log(
+  `\nself-test: all ${DECLARED.length - MATCHER_CANNOT_REACH.size} reachable declared sites found by the matcher ` +
+    `(${MATCHER_CANNOT_REACH.size} exempt, each with a recorded reason).`,
+);
 if (unmarked.length > 0) {
   console.error(`\nFAIL: ${unmarked.length} of ${DECLARED.length} declared claim sites carry no supersession marker:`);
   for (const [file, near, what] of unmarked) console.error(`  ${file}:~${near}  (${what})`);
