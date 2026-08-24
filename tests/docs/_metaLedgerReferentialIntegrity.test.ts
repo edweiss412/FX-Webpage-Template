@@ -137,8 +137,6 @@ const KNOWN_DANGLING: Record<string, string> = {
   // is debt that #875's merge repays: once it is on main and this branch merges
   // main, the id resolves and the ratchet FAILS this row as stale, which is
   // what forces its deletion rather than anyone remembering to look.
-  "BL-CLOSEOUT-COUNT-PROSE-DRIFT":
-    "cited by BL-LEDGER-FIGURE-PROVENANCE's boundary sentence and by the 2026-08-22 derived-number spec and probe record — filed on ci/app-e2e-batch2 (PR #875), unmerged as of 2026-08-22",
   // L-wave forward references (spec 2026-08-06-l-wave-design.md + its plan): ids the
   // wave's W-LDOCS branch FILES as part of its ratified decompositions/filings. Each
   // row is debt that the filing commit repays — the stale-row ratchet forces removal

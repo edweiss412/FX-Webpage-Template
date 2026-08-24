@@ -36,16 +36,22 @@
  * wrapper) /admin/dev EXISTS, so a normal admin is denied by the page gate; the
  * true-404 arm only occurs under a flag-UNSET prod build (admin-dev.spec.ts).
  *
- * Note on the Developer-tools ROW: DevToolsRow is ANDed with the build-time
- * DEV_PANEL_PRESENT constant (committed false), so on this `next dev` server it
- * never renders even for a developer — the assertion is conditional on the
- * imported constant (spec §6 row 4 "only if DEV_PANEL_PRESENT").
+ * Note on the Developer-tools ROW: DevToolsRow is ANDed with the BUILD-TIME
+ * DEV_PANEL_PRESENT constant, and this project's server posture decides it
+ * (playwright.config.ts:263). Under `pnpm dev` nothing rewrites the generated
+ * constant, so the committed `false` is what the server renders from and the row
+ * is absent. In CI the same webServer runs `ADMIN_DEV_PANEL_ENABLED=true pnpm
+ * build`, which routes through scripts/with-admin-dev-flag.mjs: the flag is baked
+ * into the BUILT artifact and the source file is restored to `false` on exit. So
+ * the importable constant describes the repo, never the running server, and the
+ * expectation below is derived from the posture instead (spec §6 row 4, "only if
+ * DEV_PANEL_PRESENT"). Measured on app-e2e run 32558218336, the first CI run of
+ * this spec: the row rendered while the imported constant said false.
  */
 import { test, expect } from "@playwright/test";
 import { admin } from "./helpers/supabaseAdmin";
 import { NORMAL_ADMIN_FIXTURE, type TestAuthFixture } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
-import { DEV_PANEL_PRESENT } from "@/lib/admin/__generated__/devPanelPresent";
 
 const DEVELOPER_FIXTURE: TestAuthFixture = {
   email: "fxav-developer@example.com",
@@ -171,10 +177,13 @@ test.describe("developer-tier gating — table-backed developer sees all four su
     // The Developer toggle renders next to admin rows in Administrators when the
     // viewer is a developer.
     await expect(page.getByTestId("developer-toggle").first()).toBeVisible();
-    // Developer-tools row only when the build-time DEV_PANEL_PRESENT is true
-    // (spec §6 row 4). On this `next dev` server DEV_PANEL_PRESENT is false, so
-    // the row is absent even for a developer.
-    if (DEV_PANEL_PRESENT) {
+    // Developer-tools row only when the built server carries DEV_PANEL_PRESENT
+    // (spec §6 row 4). The header note above has the mechanism: CI builds this
+    // project's server with the flag, `pnpm dev` does not, and process.env.CI is
+    // the same discriminator playwright.config.ts:263 uses to choose between
+    // them, so the two cannot disagree.
+    const devToolsRowOnServer = Boolean(process.env.CI);
+    if (devToolsRowOnServer) {
       await expect(page.getByTestId("admin-dev-tools-row")).toBeVisible();
     } else {
       await expect(page.getByTestId("admin-dev-tools-row")).toHaveCount(0);
