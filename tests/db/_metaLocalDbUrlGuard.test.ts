@@ -428,8 +428,11 @@ describe(
           "project's history on a plain `pnpm test`) " +
           "+ tests/db/resetValidationDataPostgrest.test.ts (the fifth whole-DB-wipe suite, swept " +
           "2026-08-10; it wipes over PostgREST rather than a postgres connection, so its REST " +
-          "endpoint is asserted loopback too)",
-      ).toBe(72);
+          "endpoint is asserted loopback too) " +
+          "+ tests/db/pruneGate.db.test.ts (the database-side prune posture gate, 2026-08-22; it " +
+          "flips destructive_reset_gate and calls both global prune functions, every call inside " +
+          "a transaction that is always rolled back, local-only)",
+      ).toBe(73);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {
