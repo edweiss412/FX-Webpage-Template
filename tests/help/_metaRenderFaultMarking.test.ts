@@ -75,8 +75,14 @@ describe("the flag-shaped residue is named, since no scan can reach it", () => {
       join(process.cwd(), "components/admin/telemetry/TelemetryOverviewStrip.tsx"),
       "utf8",
     );
-    expect(strip).toContain('renderFault={unavailable ? "telemetry-system-health" : undefined}');
-    expect(strip).toContain('renderFault={isInfra ? "telemetry-events" : undefined}');
+    // Whitespace-normalized before matching. The assertion is about the marking,
+    // not its column: pinning the exact source text makes a Prettier reflow of
+    // that attribute a red CI run with no behavior change, and the line-pinned
+    // residue registry in this same file has already moved twice for exactly
+    // that reason.
+    const flat = strip.replace(/\s+/g, " ");
+    expect(flat).toContain('renderFault={unavailable ? "telemetry-system-health" : undefined}');
+    expect(flat).toContain('renderFault={isInfra ? "telemetry-events" : undefined}');
   });
 });
 

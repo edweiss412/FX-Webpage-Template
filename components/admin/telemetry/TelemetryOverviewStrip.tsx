@@ -118,12 +118,28 @@ function SystemHealthCard({ summary }: { summary: AlertSummary }) {
       word = "Degraded";
       sub = `${summary.degraded} issue${summary.degraded === 1 ? "" : "s"} need action`;
       break;
-    default:
+    case "infra_error":
       dot = "idle";
       word = "Unavailable";
       sub = "Health check failed";
       unavailable = true;
       break;
+    default: {
+      // `AlertSummary` is closed (lib/admin/telemetryTypes.ts:63-66), so this
+      // arm is unreachable today and the assignment below is a compile-time
+      // exhaustiveness check: a new kind becomes a type error here rather than
+      // inheriting the fault arm silently. That inheritance is the reason this
+      // is not just a `default:` -- a kind nobody classified would have both
+      // rendered "Unavailable" AND blocked the byte gate. The runtime render is
+      // unchanged and deliberately does NOT set `unavailable`: refusing a
+      // capture is a claim, and an unclassified kind is not evidence for it.
+      const unhandled: never = summary;
+      void unhandled;
+      dot = "idle";
+      word = "Unavailable";
+      sub = "Health check failed";
+      break;
+    }
   }
   return (
     <StatCard
