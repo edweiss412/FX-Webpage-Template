@@ -1042,6 +1042,57 @@ First scheduled step: decide whether the ratified open-time recovery (the change
 extended to a page-segment boundary at all, or whether the runner's Supabase bootstrap is what needs
 hardening. Both are fleet decisions; neither belongs to a wiring arc. **`notify-toggles` now carries the second red on one spec that is batch 1's drop threshold, and it is wired on `main`,** so that step now also has to say what the threshold means for a member no batch owns: the choices are the recovery above, a targeted wait on that one server-action settle, or accepting a known-flaky required check on `main`. A wiring arc can record the occurrence, which is what this row is; it cannot choose between those three.
 
+## BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE — a 0.5px equality on a webkit text-derived box flakes, and the job that would notice is dark on `main`
+
+**Status:** OPEN · **Filed:** 2026-08-24 (`ci/app-e2e-batch2`, from that arc's own CI) · **Facing:** product · **Severity:** MEDIUM (the assertion guards the 44px tap-target floor, a crew-facing a11y contract; a guard that reds on identical bytes gets rerun by habit, and a guard rerun by habit stops being read) · **Class:** e2e flake / a11y guard fidelity · **Effort:** M · **Reachability:** PROBED — the byte diff below, taken across the two consecutive heads that disagree. · **Incident:** run 32760376685 on head `4be690393` red on an arc whose diff contains no rendering code at all, costing a diagnosis cycle and a rerun during a deep-queue window.
+
+`tests/e2e/tap-target-inline-controls.layout.spec.ts:440` asserts cell bottom padding as an exact
+equality with a half-pixel tolerance:
+
+```
+expect(driverCell.y + driverCell.height - (mailto.y + mailto.height),
+  `cell bottom padding must be ${CELL_PAD_Y_PX}px (py-2)`).toBeCloseTo(CELL_PAD_Y_PX, 0);
+```
+
+On `mobile-safari` it measured `9.5096435546875` against an expected `8` — a 1.5px miss on a 0.5px
+tolerance, with the file's other four cases green in the same run.
+
+**It is a flake, and the proof is byte-level rather than a signature match.** The same job was GREEN on
+head `e403da690` and RED on `4be690393`, which are consecutive heads on one branch. Everything that
+test can load is identical between them:
+
+```
+$ git diff --name-only e403da690..4be690393 | grep -vE '^docs/|\.md$'
+tests/docs/_metaLedgerReferentialIntegrity.test.ts
+tests/docs/_retiredIdentifiers.ts
+```
+
+Two Vitest meta-tests, neither reachable from a Playwright browser context and neither on any render
+path. The spec is not in that arc's diff, the arc never touched it, and the arc changes zero files
+under `app/`, `components/` or `lib/`. Identical application bytes, identical spec, identical config,
+opposite outcomes one run apart. The rerun cleared it.
+
+**Why the tolerance is the suspect.** The measured box is derived from webkit text metrics, so its
+height depends on font rasterisation that is not pixel-stable across runner load. `f816d2ca8`
+recently TIGHTENED this file ("decompose the dead-space budget so the distribution is pinned too"),
+which is the right direction for a guard and also what leaves it sitting on a half-pixel edge. The
+question this row asks is not "loosen it": it is whether the invariant that actually matters — the
+44px floor and disjointness — can be asserted without an exact-equality claim about padding, so the
+guard keeps its teeth and stops reporting on rasterisation.
+
+**The second half, and the reason this is filed rather than shrugged at: `main` cannot see its own
+version of this.** `lifecycle-layout-e2e` is path-filtered, and `main`'s recent merges have been
+docs-only, so the job has not run there — no `lifecycle` run appears in `main`'s last 30. A tightened
+assertion can therefore sit latent on `main` and first surface on whichever unrelated PR next touches
+a matching path, which is precisely how it surfaced here: on a wiring arc that changes no rendering
+code. Whatever is decided about the tolerance, the dark-on-main window is its own finding.
+
+**First scheduled step.** Re-run the case N times on one head under CI posture to size the flake rate
+before touching the assertion — the tolerance may be one of several on that file's measurements, and
+a per-assertion patch on a guard that just got tightened is the widening this project's round-economy
+rules warn about. Sibling: `BL-ADMIN-LOADER-CI-TRANSIENT`, a different mechanism (loader faults) with
+the same cost shape (a red indistinguishable from a spec defect).
+
 ## BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE — the empty-state catalog's only real-browser proof navigates a route the picker pivot retired
 
 **Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, deferred out of batch 2 by that spec's section 10) · **Facing:** product · **Severity:** MEDIUM (the §8.3 empty-state catalog has no live proof; the spec runs nowhere and would fail everywhere) · **Class:** e2e coverage · **Effort:** M · **Class-sweep exception:** (c) — re-targeting the route and replacing its four `toHaveScreenshot` assertions with behaviour assertions is a rewrite of a spec batch 2 does not otherwise touch. · **Reachability:** PROBED — the run line below.
