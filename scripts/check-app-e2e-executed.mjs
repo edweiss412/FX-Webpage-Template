@@ -32,6 +32,16 @@ import { collectInfraRecoveries, printInfraRecoveries } from "./lib/infraRecover
 // docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md), adding a fourth
 // case, so it returns at 8 rather than its old 6 — NINE wired specs, 77 executions.
 //
+// BATCH 2 joins 2026-08-22 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md).
+// Fourteen specs were measured green on one post-fix run of all 23 with both projects and
+// --retries=0 (181 executed identities, zero skipped, zero flaky, every per-spec count equal to
+// Playwright's own --list resolution). Some then left under AC-4 during the five-green loop, each to
+// a CI environment class rather than to a defect of its own; the restored rows in
+// tests/ci/_metaE2eWorkflowCoverage.test.ts name which spec left, on which runs, and to which class,
+// and are the authority for all three. The rows below are the ones that ride, and the count of rows
+// in this table is the authority for "how many joined" — this comment restates neither, because a
+// narrative copy of a machine-held fact is exactly what goes stale.
+//
 // Each count is the spec's FULL executable set, not a floor of 1: a floor of 1 would let a nested
 // `beforeEach(() => test.skip())` runtime-skip every case but one while the job stayed green, and a
 // partially dark suite is the same defect as a wholly dark one, just quieter.
@@ -43,6 +53,19 @@ export const REQUIRED = {
   // 4 cases x 1 project — admin-phase2-surfaces resolves under mobile-safari only
   // (playwright.config.ts testMatch), so 4 is the whole suite, not half of it.
   "admin-phase2-surfaces.spec.ts": 4,
+  // 5 cases x 1 project — it resolves under desktop-chromium only
+  // (playwright.config.ts testMatch). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "admin-route-boundaries.spec.ts": 5,
+  // 1 case x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "admin-settings-admins-refresh.spec.ts": 1,
+  // 4 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "dev-capture.spec.ts": 4,
+  // 7 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "developer-tier.spec.ts": 7,
   // 14 NAV routes + the NAV-parity guard, x 1 project — help-pages resolves under mobile-safari
   // only (playwright.config.ts testMatch), and the route list derives from app/help/_nav.ts, so a
   // NAV row added without a HELP_ROUTES row fails the parity guard rather than quietly lowering
@@ -50,14 +73,32 @@ export const REQUIRED = {
   "help-pages.spec.ts": 15,
   // 7 cases x 2 projects.
   "me-page.spec.ts": 14,
+  // 6 flows x 2 projects. Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "needs-attention-page.spec.ts": 12,
+  // 10 cases x 1 project — it resolves under mobile-safari only. Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "no-raw-codes.spec.ts": 10,
   // 6 width bands + the dispatch case, x 2 projects.
   "notify-toggles.spec.ts": 14,
   // 4 cases x 2 projects.
   "report-modal.spec.ts": 8,
+  // 5 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "roles-settings-layout.spec.ts": 5,
   // 4 cases x 2 projects.
   "root-landing.spec.ts": 8,
   // 1 case x 2 projects.
   "sample.spec.ts": 2,
+  // 12 cases x 2 projects. Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "sign-in-page.spec.ts": 24,
+  // 5 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "source-link-dimensional.spec.ts": 5,
+  // 8 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "staged-preview.spec.ts": 8,
 };
 
 // Importable table, runnable script — no side effects on import, so a guard can pin these
@@ -81,7 +122,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   /**
    * file basename -> set of UNIQUE (case x project) identities that passed ON THEIR FIRST ATTEMPT.
    *
-   * The identity is `file:line:title|projectId`, NOT `spec.id`. Whole-diff review round 1
+   * The identity is `<describe path>::file:line:title|projectId`, NOT `spec.id`. Whole-diff review round 1
    * (finding 3) probed the id-based form this script first shipped with and it does not hold:
    * repeating seven mobile-safari cases produced FOURTEEN distinct ids while only SEVEN logical
    * cases ran, so `--grep` selecting half the cases plus `--repeat-each=2` kept the count at its
@@ -105,8 +146,15 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
    * quarantined suite that looks executed. A test that proves something ends green.
    */
   const executed = new Map();
-  const walk = (suites) => {
+  const walk = (suites, suitePath = []) => {
     for (const suite of suites ?? []) {
+      // The enclosing describe titles are part of the identity. Whole-diff review
+      // round 1 (batch 2, scope B finding 1) probed the unqualified form: two cases
+      // sharing a file, a line and a leaf title under DIFFERENT describes collapse
+      // into one key, so a member can gain a case, have it runtime-skip, and still
+      // meet its floor — the partially-dark run this oracle exists to refuse. The
+      // reporter preserves the nesting; this walk now carries it.
+      const here = suite.title ? [...suitePath, String(suite.title)] : suitePath;
       for (const spec of suite.specs ?? []) {
         const base = String(spec.file ?? "")
           .split("/")
@@ -118,10 +166,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
           if (!executed.has(base)) executed.set(base, new Set());
           executed
             .get(base)
-            .add(`${spec.file}:${spec.line}:${spec.title}|${test.projectId ?? "?"}`);
+            .add(
+              `${here.join(" > ")}::${spec.file}:${spec.line}:${spec.title}|${test.projectId ?? "?"}`,
+            );
         }
       }
-      walk(suite.suites);
+      walk(suite.suites, here);
     }
   };
   walk(report.suites);

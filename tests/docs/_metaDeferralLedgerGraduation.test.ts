@@ -629,6 +629,15 @@ const BACKLOG_GRADUATED = [
     id: "BL-PG-CRON-HOST-ASSERTION",
     provenance: "chore/guard-completeness-wave",
   },
+  // docs/mutation-score-jurisdiction-gap (2026-08-24): re-scoped 2026-08-22 by
+  // orchestrator ruling to admit a documented-limit close, then closed as one -
+  // harness spec §7 L-11 plus the OPERATORS: disclosure arm on the dispatch gate.
+  // Neither outcome the row's original close condition named was taken; both were
+  // priced and declined in the archive entry.
+  {
+    id: "BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH",
+    provenance: "docs/mutation-score-jurisdiction-gap",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */

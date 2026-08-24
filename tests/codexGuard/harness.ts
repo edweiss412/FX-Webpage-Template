@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -229,6 +230,18 @@ export function readResult(run: Run): GuardResult {
 }
 
 export function readCalls(run: Run): CallRecord[] {
+  // The derived cover for a whole class of vacuous assertions. The fake codex
+  // reads its scenario BEFORE recording a call and exits without one, so on a
+  // scenario-less run `readCalls` returns [] whether or not the wrapper
+  // dispatched, and every `toHaveLength(0)` on such a run holds for the wrong
+  // reason. Throwing here fails the next one loudly instead of passing it
+  // (jurisdiction plan Task 1, plan review round 3).
+  if (!existsSync(run.scenarioPath)) {
+    throw new Error(
+      "readCalls: no scenario was written for this run, so an empty call list proves nothing " +
+        "(the fake codex exits before recording). Call writeScenario(run, [APPROVE_STEP]) first.",
+    );
+  }
   return readdirSync(run.recordDir)
     .filter((f) => /^call-\d+\.json$/.test(f))
     .sort((a, b) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0]))
