@@ -219,9 +219,11 @@ Cases, per function:
    state is the killer for a `coalesce(..., false)` read — spec R1's P0 hole 3.
 4. **AC-4.** `prune_sync_log(interval '5 days')` and `prune_app_events(interval '5 days')` reject under
    the validation posture. Excludes a gate on the default-argument path only.
-5. **AC-9.** `prosrc` of `assert_prune_enabled()` equals the migration's body with whitespace
-   normalised, and each prune's `prosrc` contains `perform public.assert_prune_enabled();` ahead of its
-   `delete`. Excludes the spec R8 implementation: a gate keyed on
+5. **AC-9.** The `prosrc` of all three functions equals a literal held IN THIS TEST FILE, whitespace
+   normalised, plus an assertion that no shipped body mentions `request.jwt.claims` or
+   `current_setting`. **Amended after whole-diff review r1** — see spec §6 AC-9's dated note. Pinning
+   against the migration's own body was circular (both sides move together), and the companion
+   `perform`-before-`delete` check was a substring-ORDER oracle a conditional wrapper satisfies. Excludes the spec R8 implementation: a gate keyed on
    `current_setting('request.jwt.claims', true)` passes every psql-driven case above while both
    PostgREST RPCs keep deleting.
 

@@ -19,7 +19,6 @@
  * Every refusal assertion fails when the call SUCCEEDS, not merely when it errors
  * wrongly: `rejects.toThrow(...)` fails on a resolved promise by construction.
  */
-import { readFileSync } from "node:fs";
 import { afterAll, describe, expect, test } from "vitest";
 import postgres, { type Sql, type TransactionSql } from "postgres";
 import { assertLocalDbUrl } from "./_localDbUrl";
@@ -31,8 +30,6 @@ const DB_URL = assertLocalDbUrl(
   process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
 );
 const sql: Sql = postgres(DB_URL, { max: 2, prepare: false });
-
-const MIGRATION_PATH = "supabase/migrations/20260822000000_prune_posture_gate.sql";
 
 afterAll(async () => {
   await sql.end({ timeout: 5 });
@@ -254,29 +251,93 @@ for (const t of TARGETS) {
   });
 }
 
-// AC-9 (the other half) — the assert's body is pinned to one exact program, so an
-// accept-set of exactly one excludes the R8 implementation: a gate keyed on
-// current_setting('request.jwt.claims', true) passes every psql-driven criterion
-// above while both PostgREST RPCs keep deleting.
-describe("assert_prune_enabled — the shipped body is the migration's body", () => {
+// AC-9 (the other half) — the shipped bodies are pinned to LITERALS HELD HERE, not
+// to whatever the migration currently says.
+//
+// The first version of this pinned prosrc against the body read out of the migration
+// file, which is circular: adding channel-dependent logic to the migration moves BOTH
+// sides of the comparison and the assertion still passes. Whole-diff review r1 found
+// it, with a mutant that put the assert behind `current_setting('request.jwt.claims',
+// true) is null` — textually still ahead of the delete, so the ordering check below
+// passed too, every psql-driven refusal above kept passing, and both PostgREST RPCs
+// would have gone on deleting. That is exactly the implementation spec R8 named and
+// AC-9 exists to exclude.
+//
+// Pinning to a literal here gives the accept-set of exactly one the spec asked for: a
+// change to any of these three bodies fails this file, and re-pinning is a deliberate
+// edit someone has to make and justify.
+const SHIPPED_BODIES = {
+  assert_prune_enabled: `
+declare
+  v_validation boolean;
+begin
+  select enabled into v_validation from public.destructive_reset_gate where id = 'default';
+  -- true => this database declares the validation posture (D4) => refuse
+  -- null => no posture marker at all                           => refuse
+  if v_validation is not false then
+    raise exception 'prune not enabled for this database';
+  end if;
+end;
+`,
+  prune_sync_log: `
+declare
+  v_deleted integer;
+begin
+  perform public.assert_prune_enabled();
+  with deleted as (
+    delete from public.sync_log where occurred_at < now() - retain returning 1
+  )
+  select count(*)::int into v_deleted from deleted;
+  return v_deleted;
+end;
+`,
+  prune_app_events: `
+declare
+  v_deleted integer;
+begin
+  perform public.assert_prune_enabled();
+  with deleted as (
+    delete from public.app_events where occurred_at < now() - retain returning 1
+  )
+  select count(*)::int into v_deleted from deleted;
+  return v_deleted;
+end;
+`,
+} as const;
+
+describe("the three shipped bodies are pinned to one exact program each", () => {
   const normalise = (s: string) => s.replace(/\s+/g, " ").trim();
 
-  test("prosrc equals the migration body, whitespace normalised", async () => {
-    const migration = readFileSync(MIGRATION_PATH, "utf8");
-    const start = migration.indexOf("$$");
-    const end = migration.indexOf("$$", start + 2);
-    expect(start, `no $$ body found in ${MIGRATION_PATH}`).toBeGreaterThanOrEqual(0);
-    expect(end, `unterminated $$ body in ${MIGRATION_PATH}`).toBeGreaterThan(start);
-    const authored = migration.slice(start + 2, end);
+  for (const [name, expected] of Object.entries(SHIPPED_BODIES)) {
+    test(`${name} prosrc equals its pinned body`, async () => {
+      const [fn] = await sql<{ prosrc: string }[]>`
+        select p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = ${name}
+      `;
+      expect(fn, `${name} does not exist`).toBeDefined();
+      expect(normalise(fn!.prosrc)).toBe(normalise(expected));
+    });
+  }
 
-    const [fn] = await sql<{ prosrc: string }[]>`
-      select p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public' and p.proname = 'assert_prune_enabled'
+  // A literal pin has one weakness: a maintainer who breaks it can "fix" it by
+  // pasting the new body over the old one, which would silently accept a channel
+  // gate. This assertion survives that, because it names the thing being excluded
+  // rather than comparing to an expectation someone just rewrote.
+  test("no shipped body reads the request claims, on any channel", async () => {
+    const rows = await sql<{ proname: string; prosrc: string }[]>`
+      select p.proname, p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname in ('assert_prune_enabled', 'prune_sync_log', 'prune_app_events')
     `;
-    expect(fn, "assert_prune_enabled does not exist").toBeDefined();
-    expect(normalise(fn!.prosrc)).toBe(normalise(authored));
+    expect(rows.length).toBe(3);
+    for (const r of rows) {
+      expect(r.prosrc, `${r.proname} reads request.jwt.claims`).not.toMatch(/request\.jwt\.claims/);
+      expect(r.prosrc, `${r.proname} calls current_setting`).not.toMatch(/current_setting/);
+    }
   });
+});
 
+describe("assert_prune_enabled — posture", () => {
   test("is service_role-only, security definer, with the pinned search_path", async () => {
     const [fn] = await sql<{ prosecdef: boolean; config: string[] | null; lang: string }[]>`
       select p.prosecdef, p.proconfig as config, l.lanname as lang

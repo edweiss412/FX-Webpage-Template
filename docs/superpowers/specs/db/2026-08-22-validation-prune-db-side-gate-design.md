@@ -686,9 +686,22 @@ exact failure the arc exists to prevent, committed by its own acceptance test. S
   signatures, not bodies, so only a live behavioural probe distinguishes an applied migration from a
   half-applied one. The R1 P1 finding is why both limbs name BOTH functions.
 - **AC-9 — the gate cannot discriminate by channel, proven by pinning the body rather than by calling
-  over REST.** The shipped `prosrc` of `assert_prune_enabled()` equals the migration's body (whitespace
-  normalised), and each prune's `prosrc` contains `perform public.assert_prune_enabled();` before any
-  `delete`. Asserted on local, and on validation as part of AC-6's pre-check limb.
+  over REST.** The shipped `prosrc` of all three functions equals a literal held IN THE TEST FILE
+  (whitespace normalised), plus an assertion that no shipped body mentions `request.jwt.claims` or
+  `current_setting` on any channel.
+
+  **Amended 2026-08-24, whole-diff review r1.** This criterion originally read "equals the MIGRATION's
+  body", and that mechanism is circular: adding channel-dependent logic to the migration moves both
+  sides of the comparison, so the assertion still passes. The companion check — that each prune's
+  `prosrc` contains the `perform` before any `delete` — was a substring-ORDER oracle, which a
+  conditional wrapper also satisfies. The reviewer demonstrated all three instances with mutants that
+  kept every psql-driven refusal green while both PostgREST RPCs would have kept deleting, which is
+  precisely the R8 implementation this criterion exists to exclude. Pinning to a literal in the test
+  gives the accept-set of exactly one the criterion always claimed; the `request.jwt.claims` assertion
+  is there because a literal pin can be defeated by a maintainer who re-pins it to the mutated body.
+  Each of the three mutants was applied to a real database and observed to fail BOTH assertions, and
+  the shipped state restored to green after each. The intent is unchanged; only the mechanism that
+  serves it is. Asserted on local, and on validation as part of AC-6's pre-check limb.
 
   **The wrong implementation this excludes** is the one R8 named: a gate that raises only when
   `current_setting('request.jwt.claims', true)` is absent would pass every psql-driven criterion while
