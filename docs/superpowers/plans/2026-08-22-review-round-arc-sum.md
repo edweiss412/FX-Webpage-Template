@@ -138,7 +138,7 @@ Both of the spec's derived artifacts are reproduced below, **verbatim and once**
 
 ### Task 1 — `arcCountedRounds`, K1 and V1
 
-<!-- task: red=`pnpm vitest run tests/reviewRounds/count.test.ts` red-state=authored red-target=`lib/reviewRounds/count.ts:28` why=`count.ts exports countedRounds and nothing that keys on baseSha, so the new import does not resolve, the suite cannot collect, and the colliding-rounds case never runs` ac=AC-1,AC-15,AC-16 -->
+<!-- task: red=`pnpm vitest run tests/reviewRounds/count.test.ts` red-state=authored red-target=`lib/reviewRounds/count.ts:28` why=`count.ts exports countedRounds and nothing that keys on baseSha, so arcCountedRounds is undefined at the call site and every new case throws on invoking it. OBSERVED 2026-08-24: 6 failed, 7 passed. The suite DOES collect - under the TS transform a missing named export is undefined rather than a collection error - so the RED is six failing assertions on the production surface, not an import crash` ac=AC-1,AC-15,AC-16 -->
 
 Owns matrix rows K1/`baseSha`, K1/`round`, K1/`stage`, and inventory row V1. Its command runs the one suite those four live in.
 
