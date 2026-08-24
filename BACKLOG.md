@@ -31,6 +31,29 @@ The suite agrees: run against a green baseline, the mutant reds `ledgerClaimsChe
 
 **One thing this row does NOT claim, stated so nobody reads it as settled.** Why `main`'s nightly passed the same day is open. The file is byte-identical on both trees, the `ledgerGit` registry row is untouched by PR #877, and neither run recorded a `TIMEOUT-KILL` for this site, so a spurious wall-clock kill is not the explanation on the evidence in hand. The leading hypothesis is that the two runs differ in ambient refs: a nightly on `main` may populate `refs/remotes/origin/*` where a PR-branch checkout does not, which would make the verdict depend on the trigger as well as the clone. **The probe that settles it:** print `git for-each-ref refs/remotes/origin | wc -l` from inside the shard job on both trigger types and compare. Until that runs, the environment-dependence above is measured and the cross-run explanation is not.
 
+## BL-MUTATION-CEILING-KILL-FALSE-VERDICT — a mutant that outran the clock is scored KILLED, so a suite gap and a slow machine are recorded as the same result
+
+**Status:** OPEN · **Filed:** 2026-08-24 (`docs/control-outline-forward-guard`, from two false kills probed on its own surface) · **Facing:** process · **Severity:** MEDIUM (the score is inflated by an amount nobody measures, and the gate turns correct ledger rows into `stale-ledger-row` failures that invite deleting them; no shipped-behavior defect) · **Class:** mutation harness fidelity · **Effort:** M · **Incident:** the scored run on this branch recorded `logical-connector:291:30:&&>||` and `integer-literal:294:41:0>1` as KILLED, contradicting the equivalence rows filed for both. Re-probed against a GREEN baseline, both SURVIVE. The rows were right and the record was wrong, and the gate's response was to report them stale, which invites the one repair that makes the ledger less true. Two cases on the same surface were separately caught red on UNMUTATED source within one session, one timing out at 30s under load 27 and running 11.4s at load 13. · **Reachability:** PROBED — the counts below are read from CI logs, not estimated.
+
+**The harness already knows, and says so in the same line it records the kill.** `gate.ts` emits `TIMEOUT-KILL <site>: the child running <suite> hit the wall-clock ceiling after <n>ms and was killed. It scores KILLED, which is the standard verdict, but it is NOT evidence the suite rejected the mutant.` The disclaimer is printed and then discarded: the verdict stored is KILLED, indistinguishable from a rejection.
+
+**This is not rare, and it is not confined to one surface.** Counted on run [32703467609](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32703467609), the nightly on `main` from 2026-08-24, which **passed all four source shards**:
+
+| shard | timeout-kills | suites                                                                              |
+| ----- | ------------: | ----------------------------------------------------------------------------------- |
+| 0     |             0 | none                                                                                |
+| 1     |             9 | `tests/db/connectionCensus.test.ts`, `tests/log/mutationSurface/enumerate.test.ts`  |
+| 2     |             2 | `tests/ci/_metaModalWaitHelper.test.ts`, `tests/styles/interactiveScanCore.test.ts` |
+| 3     |             4 | `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`                              |
+
+Fifteen mutants across five suites, on a green run, scored KILLED on evidence the harness disclaims. How many of those a green baseline would show SURVIVING is exactly the unmeasured quantity, and it is subtracted from every score those surfaces report.
+
+**Why it matters beyond the number.** A score is offered as a convergence criterion in review briefs, under a rule that a "the guard does not pin what it claims" finding is refuted unless a surviving mutant demonstrates it. A ceiling kill removes a mutant from the surviving set without the suite having pinned anything, so it refutes findings that are true. The failure direction is the dangerous one: it reports more coverage than exists.
+
+**Close condition, and what would NOT close it.** Raising budgets does not close it, because the ceiling is a function of machine load and the load is not bounded; it moves the threshold and leaves the conflation. What closes it is making the two outcomes distinguishable in the record: score a ceiling-terminated child as its own verdict (`indeterminate`), and either re-run it once against a green baseline before scoring or fail the surface until a human dispositions it. Either way the ledger stops being told that a clock is a suite.
+
+**A cheap first step, if the full change is too large:** the disclaimer is already emitted per site, so a run could fail its shard when any timeout-kill lands on a site that carries an `equivalent` or `accepted-gap` row. That is the exact case where the false verdict does active harm, and it is a filter over output the harness already produces.
+
 ## BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM — the byte gate fails on a diff that changes no render input, and the same branch passed an hour earlier
 
 **Status:** OPEN · **Filed:** 2026-08-21 (reported by the `fix/shell-attached-redirection-target` arc; probed further here) · **Facing:** process · **Severity:** MEDIUM (a merge-blocking gate firing on arcs that touch nothing it measures; no shipped-behavior defect) · **Class:** CI gate fidelity · **Effort:** M · **Incident:** run [32528532727](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32528532727) FAILED screenshots-drift on 2026-08-21 at 21:26Z while the nightly backstop on `main`, run [32472312764](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32472312764), PASSED the same day at 10:22Z. · **Reachability:** PROBED — see the same-branch pair below.
