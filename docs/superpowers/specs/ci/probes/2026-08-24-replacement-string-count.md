@@ -150,12 +150,14 @@ unless `b` already held a `$` substitution sequence. One shape inverts that: a c
 author DELIBERATELY wrote with a `$n` capture reference. Wrapping one of those turns a
 live capture into literal text, so they have to be found before the sweep, not after.
 
-`count-dollar-consts.mts` resolves every offender whose replacement is a bare identifier
-back to its same-file `const NAME = "literal"` and reports whether the literal matches
-`$(&|` + "`" + `|'|\d|<name>|$)`.
+`count-capture-cover.mts` runs three passes: (A) a `$` sequence in the call's own replacement
+text, any node kind; (B) the replacement is an identifier bound in the same file to a
+`$`-bearing string literal; (C) every identifier B could not resolve, intersected against every
+`$`-bearing string const in the repository. A and B are the finding set; C is the completeness
+argument, and the script exits non-zero if C is ever non-empty.
 
 ```
-$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count/count-dollar-consts.mts | sort
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count/count-capture-cover.mts
 DOLLAR-BEARING  lib/observe/scrubSentryEvent.ts:18   TOKEN_PLACEHOLDER = "$1[shareToken-redacted]"
 plain           lib/log/sanitize.ts:6                REDACTED = "[email-redacted]"
 plain           lib/test/serialAudit.ts:19           DEEP = "\u0000DEEP\u0000"
@@ -179,3 +181,40 @@ property access, template expression, or call holds a RUNTIME value — that is 
 the wrap fixes, not a capture reference to preserve — so the absence of those from this
 list is the expected reading, not a gap. The spec records that boundary as documented
 limit 6.
+
+## 7. Argument shapes the judge cannot classify positionally
+
+Spec round 1 raised this: `node.arguments[1]` means "the replacement" only while positional
+indexing holds, and a spread breaks it. `s.replace(...[find, repl])` has ONE AST argument, so
+`arguments[1]` is `undefined` and a judge that buckets on argument COUNT files a corrupting call
+as not-in-population — an acceptance path wearing an out-of-population label.
+
+The reviewer's one-edit probe, applied to the live `scripts/share-link-flash-adversary-matrix.mjs:876`
+call:
+
+```
+source: src.replace(...[find, replace])
+AST arguments: 1     node.arguments[1]: undefined     bucket: NOT IN POPULATION
+intended literal: feat/$&     runtime output: feat/BRANCH     silent corruption: true
+```
+
+The class sweep, over every `replace`/`replaceAll` call in the tracked population:
+
+```
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count/count-unclassifiable-shapes.mts
+replace/replaceAll calls: 1204
+  spread at index 0 or 1 (UNCLASSIFIABLE):     0
+  spread only at index >1 (indexing intact):   0
+  zero arguments:                              0
+  exactly one non-spread argument:             0
+  replace.call / replace.apply:                0
+```
+
+Every unclassifiable shape is at zero today, which is why the spec's repair is a NARROWING
+rather than a grammar: rule 1 of §3.1 declines to classify a spread-bearing call and reports it,
+instead of teaching the judge to resolve spreads. It reds nothing now and closes the path.
+
+The sweep also retires an assumption. §2's "the single-argument bucket is empty" was checked
+against `history.replaceState` and router usage; this pass shows the whole sub-two-argument
+bucket is empty — zero zero-argument calls and zero one-argument calls — so bucket 2 of §3.1 is
+unoccupied rather than merely small.

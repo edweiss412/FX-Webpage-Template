@@ -89,9 +89,24 @@ Everything else is REPORTED. This is an accept-set, not a denylist: an argument 
 nobody has thought of yet is reported rather than accepted, which is the direction a
 static guard must fail in.
 
-A call with fewer than two arguments has no replacement position and is NOT IN THE
-POPULATION. The judge counts those separately and the suite asserts the count, so the
-bucket cannot quietly absorb real sites.
+Positional indexing is what makes `node.arguments[1]` mean "the replacement", and a SPREAD
+breaks that equivalence: in `s.replace(...[find, repl])` the AST has ONE argument, so
+`arguments[1]` is `undefined` while the call receives two. The judge therefore classifies in
+this order:
+
+1. **Any argument at index 0 or 1 is a `SpreadElement` — REPORTED.** The call has a
+   replacement position the judge cannot see, so it is unclassifiable, and §2's consequence
+   bound says an unclassifiable site is reported rather than accepted.
+2. **Fewer than two arguments and no spread — NOT IN THE POPULATION.** There is genuinely no
+   replacement position. The judge counts these separately and the suite asserts the count, so
+   the bucket cannot quietly absorb real sites.
+3. Otherwise `arguments[1]` is classified against the accept-set above.
+
+Rule 1 exists because rule 2 without it is an ACCEPTANCE path wearing the not-in-population
+label — the one direction §2 forbids. It is a narrowing, not a new grammar: the judge learns to
+decline a shape, not to understand it. Measured at `8bf870991`, no live call has a spread at
+either position, and neither bucket 1 nor bucket 2 is currently occupied at all (probe record
+§7), so the rule reds nothing today and closes the path before someone writes it.
 
 ### 3.2 Population, derived from disk
 
@@ -181,6 +196,29 @@ operator-authored text straight from the Google Sheets:
 | `lib/parser/personalization.ts`, the stage-word rebuild | `STAGE_CANONICAL[cand] ?? cand` — the `?? cand` arm is sheet text | A role cell whose stage word is not in the canonical map is inserted as grammar. |
 | `components/admin/roleRecognizeCopy.ts`, `scopeLine` / `savedSummary` | the raw role-cell word | Rendered in the admin role-recognize card. |
 
+The third row is not a reading of the code, it is a run of it. Against the live tree at
+`8bf870991`:
+
+```
+scopeLine("A$'B")
+  -> "Applies to anyone whose role says A, on this show and every show after.B, on this
+      show and every show after."
+savedSummary("T$'Z", [])
+  -> "People with T now see the standard show page.Z now see <SUMMARY>."
+```
+
+The first splices the sentence tail into the middle of itself. The second does that AND leaks a
+raw `<SUMMARY>` placeholder into admin copy, because the splice moved the text that the NEXT
+`.replace("<SUMMARY>", …)` in the chain was going to match. A defect that ends in an unreplaced
+template marker on screen is not a subtle one.
+
+The class also recurred on a sibling arc the same day this spec was written: a plan-rewriting
+script substituted a block containing the shell predicate `grep -vE '^docs/|\.md$'`, whose `$'`
+expanded to "everything after the match" and spliced the rest of the document into the block.
+`prettier --check` passed on the corrupted file and so did the script's own
+`next !== previous` write-assert; only a diff against the original caught it. Two independent
+occurrences in one day is the argument for a repo-wide judge rather than a third repair.
+
 Two more `lib/` sites are redaction paths rather than sheet text, and one of them is the
 sharpest finding in the sweep. `lib/log/sanitize.ts:6` substitutes the const
 `REDACTED = "[email-redacted]"`, which carries no `$` and takes the ordinary wrap.
@@ -211,19 +249,27 @@ Repairs take one of two forms:
   the wrap, not after it.
 
 The capture-preserving sites are identified by derivation rather than by reading 56 lines.
-`count-dollar-consts.mts` resolves every offender whose replacement is a bare identifier
-back to its same-file `const` string literal and reports which of those literals carry a
-`$` substitution sequence. Eleven offenders resolve that way; **exactly one is
-`$`-bearing**:
+`count-capture-cover.mts` runs three complementary passes, because no single one covers the
+class: (A) the call's own replacement text carries a `$` sequence, which catches any node kind;
+(B) the replacement is an identifier bound in the same file to a `$`-bearing literal, which pass
+A cannot see because the `$` is in the declaration; and (C) every identifier pass B could not
+resolve, intersected against every `$`-bearing string const in the repository. A and B are the
+finding set. **C is the completeness argument** — 12 unresolved names against 12 `$`-bearing
+consts repo-wide, intersection EMPTY — and it is what lets the union of A and B be called a
+cover rather than a list of what happened to be noticed. The script exits non-zero if C is ever
+non-empty, so the claim re-checks itself.
+
+Pass A finds one site, the `docs/**` one already excepted. Pass B finds **exactly one
+in-population site**:
 
 | Site | Const | Repair |
 | --- | --- | --- |
 | `lib/observe/scrubSentryEvent.ts:18` | `TOKEN_PLACEHOLDER = "$1[shareToken-redacted]"` | `value.replace(SHOW_TOKEN_RE, (_m, prefix: string) => `${prefix}[shareToken-redacted]`)` |
 
-The other ten resolve to plain literals and take the ordinary wrap. The derivation covers
-the const-identifier subclass only; an offender whose replacement is a property access, a
-template expression, or a call is a RUNTIME value, which is the defect the wrap exists to
-fix rather than a capture reference to preserve. §8 limit 6 states that boundary.
+The other ten same-file consts resolve to plain literals and take the ordinary wrap. An
+offender whose replacement is a property access, template expression, or call holds a RUNTIME
+value — the defect the wrap exists to fix, not a capture reference to preserve — so their
+absence from the finding set is the expected reading. §8 limit 6 states that boundary.
 
 The four exceptions, each naming its clause:
 
@@ -271,8 +317,10 @@ deleting it to avoid a redundant check would drop that pin.
 Each of these is a known non-detection, stated so a probe that finds it files here rather
 than as a round.
 
-1. **Aliased or element-access spellings.** `const r = s.replace; r(a, b)` and
-   `s["replace"](a, b)` are not matched. Outside the threat fence (§2).
+1. **Aliased or element-access spellings.** `const r = s.replace; r(a, b)`,
+   `s["replace"](a, b)`, and `String.prototype.replace.call(s, a, b)` are not matched. Outside
+   the threat fence (§2), and measured at zero live instances (probe record §7) rather than
+   assumed rare.
 2. **Non-string receivers.** The judge matches on method NAME, so a `.replace` on a
    non-string object would be reported if it took a non-literal second argument. Measured
    at `8bf870991`: zero such sites, and the empty single-argument bucket is checked
@@ -282,12 +330,14 @@ than as a round.
 4. **`docs/**` is unscanned** beyond a reported site count (§3.2).
 5. **The judge does not evaluate values.** It cannot tell a runtime value that can contain
    `$` from one that provably cannot; it reports both and the repair is identical.
-6. **The capture-preserving derivation resolves same-file const identifiers only.**
-   `count-dollar-consts.mts` (§6) settles which const-bound replacements carry a `$`
-   sequence. It says nothing about an offender whose replacement is a property access,
-   template expression, or call — by construction, since those hold runtime values and the
-   wrap is their repair. This is a limit on the AUDIT that classifies repairs, not on the
-   shipped judge, which reports every non-accepted form regardless.
+6. **The capture-preserving cover reads declarations, not values.** `count-capture-cover.mts`
+   (§6) settles which replacements carry a `$` sequence WRITTEN somewhere a static pass can
+   read: at the call, or in a string-literal const binding. It cannot see a `$` that only
+   exists at runtime — one read from a file, built by a template, or returned by a call. Those
+   are runtime values, which is the defect the wrap fixes rather than a capture to preserve, so
+   the limit costs nothing here; it is stated because the cover's pass C is a completeness
+   claim and a completeness claim needs its boundary written down. This limits the AUDIT that
+   classifies repairs, not the shipped judge, which reports every non-accepted form regardless.
 
 ## 9. Acceptance criteria
 
@@ -295,7 +345,8 @@ than as a round.
 | --- | --- |
 | AC-1 | `judgeSource` accepts exactly the four node kinds in §3.1 and reports every other second-argument form, with one fixture case per accepted kind and per reported kind. |
 | AC-2 | Transparent wrappers resolve: `("x" as string)`, `("x")`, `(fn!)` and a `satisfies` form each classify as their inner expression. |
-| AC-3 | A call with fewer than two arguments is not-in-population, counted, and never reported. |
+| AC-3 | A call with fewer than two arguments and no spread is not-in-population, counted, and never reported. |
+| AC-3b | A call with a `SpreadElement` at argument index 0 or 1 is REPORTED, not bucketed as not-in-population — asserted for `s.replace(...args)`, `s.replace(...args, b)` where `b` is an accepted literal, and `s.replace(a, ...rest)`. |
 | AC-4 | The population is derived from disk and excludes `node_modules/**` and `docs/**`; a file added under a new top-level directory is scanned without any edit to the scanner. |
 | AC-5 | The repo-wide assertion reports zero offenders at the PR's head. |
 | AC-6 | The guard's premise is executable: the suite fails loudly if the walk finds no call sites at all, so a broken walker cannot read as a clean bill. |
