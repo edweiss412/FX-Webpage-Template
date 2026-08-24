@@ -195,7 +195,6 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
   const clauseAReported = new Set<string>();
   // Stages already discharged by a filing SOMEWHERE in each branch directory,
   // gathered from the sections clause A has parsed anyway.
-  const filedByBranch = new Map<string, Set<string>>();
   // Parsed once here and handed to clause B: parsing every filing a second
   // time pushed the live-corpus check from 2.5s past its 30s timeout.
   const sectionsByArc = new Map<Arc, FilingSection[]>();
@@ -243,12 +242,6 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
       else byStage.set(section.stage, [section]);
     }
 
-    let filedHere = filedByBranch.get(arc.branch);
-    if (!filedHere) {
-      filedHere = new Set<string>();
-      filedByBranch.set(arc.branch, filedHere);
-    }
-    for (const section of sections) filedHere.add(section.stage);
     sectionsByArc.set(arc, sections);
 
     const filingPath = `${arc.corpusPath.slice(0, -".jsonl".length)}.md`;

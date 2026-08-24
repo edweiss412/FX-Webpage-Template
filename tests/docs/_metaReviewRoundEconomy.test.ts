@@ -1199,6 +1199,22 @@ describe("clause B scoping - satisfaction and suppression (spec §3.1)", () => {
     expect(problems.find((p) => p.kind === "missing_arc_filing")?.message).toContain("spec");
   });
 
+  // An ORPHAN filing - a recognized <baseSha12>.md with no .jsonl beside it -
+  // still carries a section for the directory, so it discharges. That is the
+  // ratified rule (any one section for the stage, spec §4 limit 2) and the
+  // arc is not silently clean either way: `orphan_filing` is reported beside
+  // it. Pinned because it works through arcSumTotals' per-arc fallback rather
+  // than through the map the gate hands in - clause A `continue`s on an
+  // orphan before recording its sections - so a future caller passing a
+  // deliberately complete map would change this answer without meaning to.
+  it("is discharged by an orphan filing, and the orphan is still reported", () => {
+    const problems = check([
+      ...OWING,
+      { path: "feat/foo/cccccccccccc.md", body: section("diff", HALF) },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["orphan_filing"]);
+  });
+
   // Clause B is residual: a base already at the threshold is clause A's to
   // report, and announcing one duty twice sends a reader to file twice.
   it("reports only clause A when a base is at the threshold alone", () => {
