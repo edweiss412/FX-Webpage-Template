@@ -18,9 +18,32 @@
  *
  * Every refusal assertion fails when the call SUCCEEDS, not merely when it errors
  * wrongly: `rejects.toThrow(...)` fails on a resolved promise by construction.
+ *
+ * ── Why `sql.begin` is written out at every site ────────────────────────────────
+ * An earlier shape put the transaction behind a `rolledBack(async (tx) => …)` helper
+ * and hoisted each target's statements into lambdas taking `tx`. That is unverifiable
+ * to `tests/db/_destructiveFileAnalysis.ts`, which is the guard standing between this
+ * repo and a prune executed against the validation project. It traces a client only
+ * through `.begin`'s own callback parameter (Rule 1), rejects a destructive literal
+ * that sits outside a checked execution (Rule 2), and rejects a checked client passed
+ * as an ARGUMENT (Rule 3) — so a `tx` handed across a helper boundary is exactly the
+ * value it cannot vouch for. Widening the analyzer to trust a `TransactionSql`-typed
+ * parameter would trade that guard away for terser tests. So: `begin` inline, every
+ * statement written literally where it runs, and `tx` never passed anywhere.
+ *
+ * Savepoint callbacks take NO parameter and execute on the enclosing `tx`. Probed
+ * against postgres@3.4.9: the inner work still rolls back on error, the outer
+ * transaction is still usable afterwards (which is what keeps AC-2's read-back a real
+ * assertion), and the outer rollback still discards everything. `tx.begin` does not
+ * exist on a transaction in this driver, so savepoints are the only nested form.
+ *
+ * The "every transaction rolls back" test at the bottom pins that no body below
+ * forgets its closing `throw`, which is the one thing inlining `begin` could lose.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
-import postgres, { type Sql, type TransactionSql } from "postgres";
+import postgres, { type Sql } from "postgres";
 import { assertLocalDbUrl } from "./_localDbUrl";
 
 // SAFETY: this suite flips destructive_reset_gate and calls two global DELETE
@@ -43,18 +66,15 @@ class RollbackSignal extends Error {
 }
 
 /**
- * Runs `body` in a transaction that is ALWAYS rolled back (spec §6 rule 1).
- * The RollbackSignal is thrown after the body and swallowed here.
+ * Swallows the RollbackSignal thrown as the last act of every transaction below
+ * (spec §6 rule 1). Takes the `sql.begin` PROMISE rather than a callback: keeping
+ * `begin` at the call site is what leaves every statement on a client the
+ * destructive-target guard can verify. See the header.
  */
-async function rolledBack(body: (tx: TransactionSql) => Promise<void>): Promise<void> {
-  await sql
-    .begin(async (tx) => {
-      await body(tx);
-      throw new RollbackSignal();
-    })
-    .catch((e: unknown) => {
-      if (!(e instanceof RollbackSignal)) throw e;
-    });
+async function rolledBack(worked: Promise<unknown>): Promise<void> {
+  await worked.catch((e: unknown) => {
+    if (!(e instanceof RollbackSignal)) throw e;
+  });
 }
 
 /**
@@ -71,59 +91,36 @@ async function withPosture<T>(enabled: boolean, body: () => Promise<T>): Promise
   }
 }
 
-type Target = {
-  fn: "prune_sync_log" | "prune_app_events";
-  table: "sync_log" | "app_events";
-  seedOld: (tx: TransactionSql, marker: string) => Promise<unknown>;
-  countMarker: (tx: TransactionSql, marker: string) => Promise<{ n: number }[]>;
-  callDefault: (tx: TransactionSql) => Promise<Record<string, number>[]>;
-  callExplicit: (tx: TransactionSql) => Promise<unknown>;
-  countPastDefaultCutoff: (tx: TransactionSql) => Promise<{ n: number }[]>;
-};
+const REFUSES = /prune not enabled for this database/i;
 
-const TARGETS: Target[] = [
-  {
-    fn: "prune_sync_log",
-    table: "sync_log",
-    seedOld: (tx, marker) =>
-      tx`insert into public.sync_log (drive_file_id, status, message, occurred_at)
-         values (${marker}, 'x', 'old', now() - interval '90 days')`,
-    countMarker: (tx, marker) =>
-      tx<{ n: number }[]>`select count(*)::int as n from public.sync_log
-                          where drive_file_id = ${marker}`,
-    callDefault: (tx) => tx<Record<string, number>[]>`select public.prune_sync_log()`,
-    callExplicit: (tx) => tx`select public.prune_sync_log(interval '5 days')`,
-    countPastDefaultCutoff: (tx) =>
-      tx<{ n: number }[]>`select count(*)::int as n from public.sync_log
-                          where occurred_at < now() - interval '60 days'`,
-  },
-  {
-    fn: "prune_app_events",
-    table: "app_events",
-    seedOld: (tx, marker) =>
-      tx`insert into public.app_events (level, source, message, occurred_at)
-         values ('info', ${marker}, 'old', now() - interval '90 days')`,
-    countMarker: (tx, marker) =>
-      tx<{ n: number }[]>`select count(*)::int as n from public.app_events
-                          where source = ${marker}`,
-    callDefault: (tx) => tx<Record<string, number>[]>`select public.prune_app_events()`,
-    callExplicit: (tx) => tx`select public.prune_app_events(interval '5 days')`,
-    countPastDefaultCutoff: (tx) =>
-      tx<{ n: number }[]>`select count(*)::int as n from public.app_events
-                          where occurred_at < now() - interval '60 days'`,
-  },
-];
+/**
+ * Names only. The statements themselves are written out at each execution site —
+ * a target that carried its own SQL would put those literals outside a checked
+ * execution, which is Rule 2's rejection.
+ */
+const TARGETS = [
+  { fn: "prune_sync_log", table: "sync_log" },
+  { fn: "prune_app_events", table: "app_events" },
+] as const;
 
 for (const t of TARGETS) {
+  const isSyncLog = t.fn === "prune_sync_log";
+
   describe(`${t.fn} — posture gate (spec §6)`, () => {
     // AC-1
     test("rejects under the validation posture", async () => {
       await withPosture(true, async () => {
-        await rolledBack(async (tx) => {
-          await expect(tx.savepoint((sp: TransactionSql) => t.callDefault(sp))).rejects.toThrow(
-            /prune not enabled for this database/i,
-          );
-        });
+        await rolledBack(
+          sql.begin(async (tx) => {
+            await expect(
+              tx.savepoint(async () => {
+                if (isSyncLog) await tx`select public.prune_sync_log()`;
+                else await tx`select public.prune_app_events()`;
+              }),
+            ).rejects.toThrow(REFUSES);
+            throw new RollbackSignal();
+          }),
+        );
       });
     });
 
@@ -131,17 +128,33 @@ for (const t of TARGETS) {
     test("refusing leaves a row past the cutoff in place", async () => {
       const MARKER = `prune-gate-${t.table}-${process.pid}`;
       await withPosture(true, async () => {
-        await rolledBack(async (tx) => {
-          await t.seedOld(tx, MARKER);
-          // The savepoint is load-bearing: without it the raise aborts the
-          // enclosing transaction and the read-back below cannot run at all,
-          // which would report as an error rather than as the non-deletion claim.
-          await expect(tx.savepoint((sp: TransactionSql) => t.callDefault(sp))).rejects.toThrow(
-            /prune not enabled for this database/i,
-          );
-          const [after] = await t.countMarker(tx, MARKER);
-          expect(after!.n).toBe(1);
-        });
+        await rolledBack(
+          sql.begin(async (tx) => {
+            if (isSyncLog) {
+              await tx`insert into public.sync_log (drive_file_id, status, message, occurred_at)
+                       values (${MARKER}, 'x', 'old', now() - interval '90 days')`;
+            } else {
+              await tx`insert into public.app_events (level, source, message, occurred_at)
+                       values ('info', ${MARKER}, 'old', now() - interval '90 days')`;
+            }
+            // The savepoint is load-bearing: without it the raise aborts the
+            // enclosing transaction and the read-back below cannot run at all,
+            // which would report as an error rather than as the non-deletion claim.
+            await expect(
+              tx.savepoint(async () => {
+                if (isSyncLog) await tx`select public.prune_sync_log()`;
+                else await tx`select public.prune_app_events()`;
+              }),
+            ).rejects.toThrow(REFUSES);
+            const [after] = isSyncLog
+              ? await tx<{ n: number }[]>`select count(*)::int as n from public.sync_log
+                                          where drive_file_id = ${MARKER}`
+              : await tx<{ n: number }[]>`select count(*)::int as n from public.app_events
+                                          where source = ${MARKER}`;
+            expect(after!.n).toBe(1);
+            throw new RollbackSignal();
+          }),
+        );
       });
     });
 
@@ -149,57 +162,96 @@ for (const t of TARGETS) {
     test("marker false runs and returns the global count measured in the same transaction", async () => {
       const MARKER = `prune-gate-runs-${t.table}-${process.pid}`;
       await withPosture(false, async () => {
-        await rolledBack(async (tx) => {
-          // Seeding is load-bearing, not scene-setting. The local database holds
-          // ZERO rows past the 60-day cutoff, so without a seeded row this case
-          // compares 0 to 0 and passes against a prune that deletes nothing at
-          // all — the tautology this suite exists to avoid.
-          await t.seedOld(tx, MARKER);
-          const [due] = await t.countPastDefaultCutoff(tx);
-          expect(due!.n, "no row past the cutoff, so this case proves nothing").toBeGreaterThan(0);
-          const [returned] = await t.callDefault(tx);
-          expect(returned![t.fn]).toBe(due!.n);
-          // and the seeded row is the one that went
-          const [gone] = await t.countMarker(tx, MARKER);
-          expect(gone!.n).toBe(0);
-        });
+        await rolledBack(
+          sql.begin(async (tx) => {
+            // Seeding is load-bearing, not scene-setting. The local database holds
+            // ZERO rows past the 60-day cutoff, so without a seeded row this case
+            // compares 0 to 0 and passes against a prune that deletes nothing at
+            // all — the tautology this suite exists to avoid.
+            if (isSyncLog) {
+              await tx`insert into public.sync_log (drive_file_id, status, message, occurred_at)
+                       values (${MARKER}, 'x', 'old', now() - interval '90 days')`;
+            } else {
+              await tx`insert into public.app_events (level, source, message, occurred_at)
+                       values ('info', ${MARKER}, 'old', now() - interval '90 days')`;
+            }
+            const [due] = isSyncLog
+              ? await tx<{ n: number }[]>`select count(*)::int as n from public.sync_log
+                                          where occurred_at < now() - interval '60 days'`
+              : await tx<{ n: number }[]>`select count(*)::int as n from public.app_events
+                                          where occurred_at < now() - interval '60 days'`;
+            expect(due!.n, "no row past the cutoff, so this case proves nothing").toBeGreaterThan(
+              0,
+            );
+            const [returned] = isSyncLog
+              ? await tx<Record<string, number>[]>`select public.prune_sync_log()`
+              : await tx<Record<string, number>[]>`select public.prune_app_events()`;
+            expect(returned![t.fn]).toBe(due!.n);
+            // and the seeded row is the one that went
+            const [gone] = isSyncLog
+              ? await tx<{ n: number }[]>`select count(*)::int as n from public.sync_log
+                                          where drive_file_id = ${MARKER}`
+              : await tx<{ n: number }[]>`select count(*)::int as n from public.app_events
+                                          where source = ${MARKER}`;
+            expect(gone!.n).toBe(0);
+            throw new RollbackSignal();
+          }),
+        );
       });
     });
 
     test("marker true rejects", async () => {
       await withPosture(true, async () => {
-        await rolledBack(async (tx) => {
-          await expect(tx.savepoint((sp: TransactionSql) => t.callDefault(sp))).rejects.toThrow(
-            /prune not enabled for this database/i,
-          );
-        });
+        await rolledBack(
+          sql.begin(async (tx) => {
+            await expect(
+              tx.savepoint(async () => {
+                if (isSyncLog) await tx`select public.prune_sync_log()`;
+                else await tx`select public.prune_app_events()`;
+              }),
+            ).rejects.toThrow(REFUSES);
+            throw new RollbackSignal();
+          }),
+        );
       });
     });
 
     test("an ABSENT marker row rejects, which a coalesce(..., false) read would wave through", async () => {
       await withPosture(false, async () => {
-        await rolledBack(async (tx) => {
-          // Deleted INSIDE the rolled-back transaction, so the rollback restores
-          // the row as surely as withPosture's finally does.
-          await tx`delete from public.destructive_reset_gate where id = 'default'`;
-          const [gone] = await tx<{ n: number }[]>`
-            select count(*)::int as n from public.destructive_reset_gate where id = 'default'`;
-          expect(gone!.n, "the marker row was not actually deleted").toBe(0);
-          await expect(tx.savepoint((sp: TransactionSql) => t.callDefault(sp))).rejects.toThrow(
-            /prune not enabled for this database/i,
-          );
-        });
+        await rolledBack(
+          sql.begin(async (tx) => {
+            // Deleted INSIDE the rolled-back transaction, so the rollback restores
+            // the row as surely as withPosture's finally does.
+            await tx`delete from public.destructive_reset_gate where id = 'default'`;
+            const [gone] = await tx<{ n: number }[]>`
+              select count(*)::int as n from public.destructive_reset_gate where id = 'default'`;
+            expect(gone!.n, "the marker row was not actually deleted").toBe(0);
+            await expect(
+              tx.savepoint(async () => {
+                if (isSyncLog) await tx`select public.prune_sync_log()`;
+                else await tx`select public.prune_app_events()`;
+              }),
+            ).rejects.toThrow(REFUSES);
+            throw new RollbackSignal();
+          }),
+        );
       });
     });
 
     // AC-4 — the explicit-cutoff form is gated too.
     test("the explicit-cutoff form rejects under the validation posture", async () => {
       await withPosture(true, async () => {
-        await rolledBack(async (tx) => {
-          await expect(tx.savepoint((sp: TransactionSql) => t.callExplicit(sp))).rejects.toThrow(
-            /prune not enabled for this database/i,
-          );
-        });
+        await rolledBack(
+          sql.begin(async (tx) => {
+            await expect(
+              tx.savepoint(async () => {
+                if (isSyncLog) await tx`select public.prune_sync_log(interval '5 days')`;
+                else await tx`select public.prune_app_events(interval '5 days')`;
+              }),
+            ).rejects.toThrow(REFUSES);
+            throw new RollbackSignal();
+          }),
+        );
       });
     });
 
@@ -258,7 +310,7 @@ for (const t of TARGETS) {
 // file, which is circular: adding channel-dependent logic to the migration moves BOTH
 // sides of the comparison and the assertion still passes. Whole-diff review r1 found
 // it, with a mutant that put the assert behind `current_setting('request.jwt.claims',
-// true) is null` — textually still ahead of the delete, so the ordering check below
+// true) is null` — textually still ahead of the delete, so the ordering check above
 // passed too, every psql-driven refusal above kept passing, and both PostgREST RPCs
 // would have gone on deleting. That is exactly the implementation spec R8 named and
 // AC-9 exists to exclude.
@@ -371,15 +423,55 @@ describe("assert_prune_enabled — posture", () => {
 describe("rollback discipline", () => {
   test("a seeded row is gone outside the transaction that seeded it", async () => {
     const MARKER = `prune-gate-rollback-${process.pid}`;
-    await rolledBack(async (tx) => {
-      await tx`insert into public.sync_log (drive_file_id, status, message, occurred_at)
-               values (${MARKER}, 'x', 'old', now() - interval '90 days')`;
-      const [inside] = await tx<{ n: number }[]>`
-        select count(*)::int as n from public.sync_log where drive_file_id = ${MARKER}`;
-      expect(inside!.n).toBe(1);
-    });
+    await rolledBack(
+      sql.begin(async (tx) => {
+        await tx`insert into public.sync_log (drive_file_id, status, message, occurred_at)
+                 values (${MARKER}, 'x', 'old', now() - interval '90 days')`;
+        const [inside] = await tx<{ n: number }[]>`
+          select count(*)::int as n from public.sync_log where drive_file_id = ${MARKER}`;
+        expect(inside!.n).toBe(1);
+        throw new RollbackSignal();
+      }),
+    );
     const [outside] = await sql<{ n: number }[]>`
       select count(*)::int as n from public.sync_log where drive_file_id = ${MARKER}`;
     expect(outside!.n).toBe(0);
+  });
+
+  // Inlining `begin` at every site is what keeps this file verifiable to the
+  // destructive-target guard (see the header), and the one thing it could lose is
+  // the guarantee the old helper enforced by construction: that every transaction
+  // ends by throwing, and so always rolls back. A body that forgets the throw
+  // COMMITS — silently, against a database this suite has deliberately put into a
+  // deleting posture. So the guarantee is asserted rather than assumed.
+  //
+  // The needles are assembled from pieces so that this test's own source does not
+  // count as an occurrence of what it is counting.
+  test("every transaction in this file ends by throwing, so none can commit", () => {
+    const BEGIN = "sql." + "begin(";
+    const THROW = "throw new " + "RollbackSignal();";
+    const src = readFileSync(join(process.cwd(), "tests/db/pruneGate.db.test.ts"), "utf8");
+
+    const segments = src.split(BEGIN);
+    expect(
+      segments.length - 1,
+      "no transactions found — this test is scanning the wrong file, or the shape changed",
+    ).toBeGreaterThan(0);
+
+    // segments[0] is everything before the first `begin`; each later segment is one
+    // transaction body plus whatever follows it up to the next `begin`.
+    const missing = segments
+      .slice(1)
+      .map((seg, i) => (seg.includes(THROW) ? null : i + 1))
+      .filter((i): i is number => i !== null);
+    expect(
+      missing,
+      `transaction(s) at position ${missing.join(", ")} never throw ${THROW}`,
+    ).toEqual([]);
+
+    expect(
+      src.split(THROW).length - 1,
+      "a transaction is missing its closing throw, or one body throws twice",
+    ).toBe(segments.length - 1);
   });
 });
