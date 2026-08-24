@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
@@ -44,6 +45,57 @@ describe("the per-mutant config is at parity with the root config", () => {
 });
 
 /**
+ * `bail: 1` on the per-mutant child, and the contract that makes it safe.
+ *
+ * The exit code is the ENTIRE signal the harness consumes (`childRun` returns it
+ * and nothing else). `bail` changes WHEN a failing run stops, never WHETHER it
+ * failed, so a killed mutant is still killed. A surviving mutant fails nothing,
+ * so bail never fires and it still pays for its whole suite.
+ *
+ * Why it is here at all: a killed mutant currently runs every case in its suite
+ * after the case that killed it has already failed. On `controlOutlineResidue`
+ * that is 236 of 250 mutants each paying ~39s to learn something the first
+ * failure already established, and three mutants on one line ground for 25, 57
+ * and 125 minutes -- 207 of that run's 335 -- because a late, expensive case kept
+ * running under a mutant that had already been rejected.
+ *
+ * These cases are BEHAVIORAL rather than a pin on the literal. A test asserting
+ * `cfg.test.bail === 1` passes whether or not vitest honours it, which is the
+ * failure mode worth catching: the marker file is what separates "stopped at the
+ * failure" from "ran everything and failed".
+ */
+describe("the per-mutant child bails on the first failure, and only on a failure", () => {
+  const marker = join(tmpdir(), "fx-bail-contract.marker");
+  const runWithMarker = (fixture: string): number => {
+    rmSync(marker, { force: true });
+    process.env["FX_BAIL_MARKER"] = marker;
+    try {
+      return childRun(ROOT, fixture, INERT_TARGET);
+    } finally {
+      delete process.env["FX_BAIL_MARKER"];
+    }
+  };
+
+  it("stops at the first failing case, and still reports the failure", () => {
+    const code = runWithMarker("tests/mutation/source/fixtures/bailStopsAfterFailure.fixture.ts");
+    expect(code, "a bailed run still exits non-zero: the verdict is unchanged").not.toBe(0);
+    expect(
+      existsSync(marker),
+      "the case after the failure must not have run -- that is what bail:1 buys",
+    ).toBe(false);
+  });
+
+  it("runs every case when nothing fails, so a surviving mutant is unaffected", () => {
+    const code = runWithMarker("tests/mutation/source/fixtures/bailNeverFiresWhenGreen.fixture.ts");
+    expect(code, "premise: this fixture is green, so bail has nothing to fire on").toBe(0);
+    expect(
+      existsSync(marker),
+      "a green run still reaches its last case: bail changes nothing for a survivor",
+    ).toBe(true);
+  });
+});
+
+/**
  * Fixtures are invisible to discovery and each one has a live owner.
  *
  * Both halves matter and neither is checked by anything else. A fixture named
@@ -74,6 +126,8 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
   /** Declared per spec §3.3.2.3. Rows land as their tasks land. */
   const OWNERS: Record<string, string> = {
     "aliasImport.fixture.ts": "tests/mutation/_metaOverlayConfigParity.test.ts",
+    "bailStopsAfterFailure.fixture.ts": "tests/mutation/_metaOverlayConfigParity.test.ts",
+    "bailNeverFiresWhenGreen.fixture.ts": "tests/mutation/_metaOverlayConfigParity.test.ts",
     "slowTest.fixture.ts": "tests/mutation/guardSurfaces.gates.test.ts",
     "emptyItEach.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
     "emptyTestEach.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
