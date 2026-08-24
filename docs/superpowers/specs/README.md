@@ -71,6 +71,7 @@ the root of this directory alongside the dated product specs.
 | [`2026-08-17-spec-lint-red-verdict-capability.md`](./2026-08-17-spec-lint-red-verdict-capability.md) | A `red=` must be CAPABLE of a verdict: `sh -nc` parse checks on every plan-kind invocation, and `vitest list` collection probes under `--exec-red`. |
 | [`2026-08-18-planlint-fixture-satisfiability.md`](./2026-08-18-planlint-fixture-satisfiability.md) | A plan's embedded test block declares itself with ``<!-- fixture: why=`…` -->`` and `--exec-red` RUNS it: a stated premise that did not hold is reported, a block the report carries no test case for is surfaced, and nothing is ever certified. |
 | [`2026-08-21-pane-compaction-send-authorization.md`](./2026-08-21-pane-compaction-send-authorization.md) | Unfences `--checkpoint`/`--compact`/`--resume`: one read-once pass per authorization (a literally atomic snapshot is unobtainable, and the spec says so), addressed payloads, the six probe chains as the acceptance floor. |
+| [`2026-08-24-replacement-string-class-sweep.md`](./2026-08-24-replacement-string-class-sweep.md) | A repo-wide AST judge for `String.replace`'s second argument: a runtime value there is parsed as a substitution grammar, not inserted. 56 offender sites swept, the gate ships `fail`. |
 
 ## Conventions
 

@@ -89,15 +89,39 @@ resolver is planned.
 
 Either number reds the repository, so the tier decision does not turn on this.
 
+### The population moves with the branch; the offender count does not
+
+Both blocks above were run at the base `8bf870991`. Re-run on this branch they report
+**1204 sites across 498 files, 1123 literal** — the two probe scripts in this directory
+each substitute a string literal and joined the population they measure. Offenders are
+unmoved at **56 across 32 files**, so every decision in this record stands. The spec's
+probe domain is stated as the derivation rather than as the pair of numbers for exactly
+this reason.
+
 ## 4. The 56, by directory
 
+Sites and files are separate columns because chained calls put several offender sites on
+one line — `shapeHoldEntry.ts` contributes three sites at a single line 29.
+
+| Directory | Offender sites | Offender files |
+| --- | --- | --- |
+| `tests/` | 35 | 18 |
+| `lib/` | 9 | 5 |
+| `scripts/` | 5 | 4 |
+| `docs/` | 4 | 4 |
+| `components/` | 3 | 1 |
+| **Total** | **56** | **32** |
+
+Derived, not transcribed:
+
 ```
-tests        32
-lib           4
-docs          4
-components    3
-scripts       2
+$ pnpm exec tsx …/count-conservative.mts --list | sed -n '9,$p' | awk -F/ '{print $1}' | sort | uniq -c | sort -rn
+$ pnpm exec tsx …/count-conservative.mts --list | sed -n '9,$p' | awk -F: '{print $1}' | sort -u | awk -F/ '{print $1}' | sort | uniq -c | sort -rn
 ```
+
+An earlier revision of this section printed `tests 32 / lib 4 / docs 4 / components 3 /
+scripts 2`, which sums to 45 — the const-FOLDED offender total from §3, not the 56. The
+table above is the conservative judge's own output.
 
 Full list at `count-conservative.mts --list`; reproduced in the spec's work list.
 
@@ -118,3 +142,40 @@ Two site classes complicate that and are resolved in the spec, not here:
 - **Frozen records.** Four sites live under `docs/**`, in dated probe and spike
   artifacts whose value is that they are what was run. Editing them falsifies the
   record.
+
+## 6. Which const-bound replacements carry a `$`
+
+The wrap repair (`X.replace(a, b)` to `X.replace(a, () => b)`) is behaviour-identical
+unless `b` already held a `$` substitution sequence. One shape inverts that: a const the
+author DELIBERATELY wrote with a `$n` capture reference. Wrapping one of those turns a
+live capture into literal text, so they have to be found before the sweep, not after.
+
+`count-dollar-consts.mts` resolves every offender whose replacement is a bare identifier
+back to its same-file `const NAME = "literal"` and reports whether the literal matches
+`$(&|` + "`" + `|'|\d|<name>|$)`.
+
+```
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count/count-dollar-consts.mts | sort
+DOLLAR-BEARING  lib/observe/scrubSentryEvent.ts:18   TOKEN_PLACEHOLDER = "$1[shareToken-redacted]"
+plain           lib/log/sanitize.ts:6                REDACTED = "[email-redacted]"
+plain           lib/test/serialAudit.ts:19           DEEP = "\u0000DEEP\u0000"
+plain           lib/test/serialAudit.ts:19           DEEP_SUFFIX = "\u0000DEEPSUF\u0000"
+plain           lib/test/serialAudit.ts:19           STAR = "\u0000STAR\u0000"
+plain           scripts/audit-cn-operand-kinds.mjs:1019   other = "active ? \"bg-on\" : \"bg-off\""
+plain           scripts/audit-cn-operand-kinds.mjs:1019   sanctioned = "tone === \"show\" ? …"
+plain           scripts/extract-admin-log-only-codes.ts:38  ESCAPED_PIPE_SENTINEL = "<<ESCAPED-PIPE>>"
+plain           tests/admin/needsAttention.test.ts:163      driveFileName = "Validation — Normal day"
+plain           tests/paneCompaction/driver.test.ts:40      NONCE = "0123456789abcdef0123456789abcdef"
+plain           tests/styles/_metaNewTabAnnouncement.test.ts:3697  hid = "<span aria-hidden=\"true\">Go</span>"
+```
+
+**Eleven of the 56 resolve to a same-file const literal, and exactly one is
+`$`-bearing:** `lib/observe/scrubSentryEvent.ts:18`, where `$1` carries the
+`/show/<slug>/` prefix through the Sentry URL scrub. Its repair is the capture-preserving
+form, not the wrap. The other ten take the wrap unchanged.
+
+The derivation resolves const identifiers only. An offender whose replacement is a
+property access, template expression, or call holds a RUNTIME value — that is the defect
+the wrap fixes, not a capture reference to preserve — so the absence of those from this
+list is the expected reading, not a gap. The spec records that boundary as documented
+limit 6.
