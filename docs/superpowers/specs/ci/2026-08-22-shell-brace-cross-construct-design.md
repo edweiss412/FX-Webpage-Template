@@ -271,29 +271,55 @@ A probe that only prints cannot be an acceptance criterion, so each gate was run
 defect and against a no-defect baseline. Two defects, chosen so that each targets one population and
 neither targets both:
 
-| candidate walk | accept-set | limits | bash-rejected | exit |
-|---|---|---|---|---|
-| **the §3 design** | 22/22 | 5/5 | 4/4 | 0 |
-| `w1` — quotes are not openers | **18/22** | 5/5 | **2/4** | 1 |
-| `w2` — ONE recognizer for both contexts | **18/22** | 5/5 | **2/4** | 1 |
-| `w3` — backticks are not openers | **18/22** | 5/5 | **1/4** | 1 |
-| `w4` — an unclosed foreign construct keeps counting | **20/22** | 5/5 | **1/4** | 1 |
-| `w6` — `$$` taught to the walk but NOT to `attachedTargetEnd` | **20/22** | 5/5 | **3/4** | 1 |
-| `w7` — `$$` taught nowhere | **20/22** | 5/5 | **2/4** | 1 |
-| the `#`-comment rule (parser growth) | **20/22** | **4/5** — `L2` moves | 4/4 | 1 |
-| the SHIPPED scanner, under `--expect-repaired` | **11/22** | VACUOUS | **2/4** | 1 |
+**Every walk below differs from the §3 design by EXACTLY ONE weakening, and the table was re-measured
+after that stopped being true.** An earlier cut built each walk from whatever the prototype was when
+that round wrote it, so the walks predating round 4 also lacked its guard — two weakenings, not one.
+Every score was depressed and every attribution wrong: all seven appeared to die to `P4`/`P5`, which
+tests only the round-4 guard.
 
-**An acceptance set bounds what someone has thought of, and this table measured exactly that.**
-Before round 4, `w4`, `w6`, `w7` and the `#` widening each scored a clean **20/20** on the
-accept-set — four distinct wrong implementations, all passing that population, three of them
-UNDER-repairs of the very rule under design. Round 4 added two rows and the same four now score
-**20/22**. Nothing about those implementations changed; the set caught up.
+**The table is no longer written down; it is produced.** A table nobody can re-run cannot be caught
+being wrong, which is how the contamination survived four rounds. `weaker-walks.mts` rebuilds all
+eight walks FROM THE CANDIDATE by anchored substitution, one weakening each, and runs the fixture set
+against every one:
+
+```
+SCAN_MODULE=<candidate> pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/weaker-walks.mts
+```
+
+It gates on ATTRIBUTION rather than counts — each walk must die to exactly the rows named below, so a
+walk that survives and a walk that dies for the wrong reason both fail. A hunk that matches zero or
+many times ABORTS rather than silently producing a clone of the candidate, which would pass every row
+and read as "no impostor here".
+
+| candidate walk | accept-set | limits | bash-rejected | rows it fails |
+|---|---|---|---|---|
+| **the §3 design** | 22/22 | 5/5 | 4/4 | — (exit 0) |
+| `w1` — quotes are not openers in the bare walk | **20/22** | 5/5 | 4/4 | `Q1`, `C4` |
+| `w2` — ONE recognizer for both lexical contexts | **20/22** | 5/5 | 4/4 | both `W2k-*` |
+| `w3` — backticks are not openers | **20/22** | 5/5 | **3/4** | `Q2`, `Q3`, `W4k` |
+| `w4` — an unclosed foreign construct keeps counting | 22/22 | 5/5 | **3/4** | `W4k` |
+| `w6` — `$$` missing from `attachedTargetEnd` | 22/22 | 5/5 | **3/4** | `P2` |
+| `w7` — `$$` missing from BOTH delimiter recognizers | 22/22 | 5/5 | **2/4** | `P1`, `P2` |
+| `w8` — `$$` missing from `lexShellWords` (round 4's defect, isolated) | **20/22** | 5/5 | 4/4 | `P4`, `P5` |
+| the `#`-comment rule (parser growth) | 22/22 | **4/5** | 4/4 | `L2` |
+| the SHIPPED scanner, under `--expect-repaired` | **11/22** | VACUOUS | **2/4** | eleven, incl. all four `R*` |
+
+**An acceptance set bounds what someone has thought of, and `w8` measures exactly that.** `w8` is the
+§3 design with round 4's guard removed and nothing else — which is what ANY implementation written
+before round 4 would have been. Against the accept-set as it stood then it scored a clean **20/20**.
+Two rows were added and it scores **20/22**. Nothing about the implementation changed; the set caught
+up.
 
 The rows were not clever. `P4` is round 1's own spelling with its inner `}` deleted, and `P5` is that
 one lexical context deeper — both one ordinary edit from an input already in the set, both inside the
 threat fence, and both fabricating on the MERGE-BASE scanner, so they were live defects before this
-arc opened. Four candidate implementations were clean on that population purely because nobody had
-written the input down.
+arc opened.
+
+**An earlier draft of this paragraph said FOUR implementations were clean at 20/20, and that was an
+artifact of the contamination described above the table.** The other three failed `P4`/`P5` because
+they too predated the guard, not because of the weakening each was built to model. Isolated, they
+score 22/22 and die elsewhere. One walk carries this claim, and one is enough: a wrong implementation
+scored full marks on the population that decides whether the repair landed.
 
 **This is the arc's most transferable measurement, and it cuts against the instrument this design
 leans on hardest.** The accept-set is where AC-1 lives; it is the population that decides whether the
@@ -302,12 +328,12 @@ round 4 is the receipt for how far that is from meaning correct. The two populat
 the merge-base comparison and the recorded bash-rejected movements — exist because they are keyed to
 something OTHER than the author's imagination: an immutable prior revision, and the shell itself.
 
-**Four of the eight candidates are invisible to the accept-set.** `w4`, `w6` and `w7` pass every
-accept-set row and die only in the bash-rejected population; the `#` widening passes both of those
-and dies only to the merge-base limit comparison. Three are UNDER-repairs and one is an OVER-repair,
-which is why the populations are separate: the accept-set measures whether the repair landed, the
-limit rows whether it stayed in scope, and the bash-rejected rows whether it moved anything on input
-the shell refuses to parse.
+**Four of the nine candidates score a CLEAN 22/22 on the accept-set.** `w4`, `w6` and `w7` die only
+in the bash-rejected population; the `#` widening dies only to the merge-base limit comparison. Three
+are UNDER-repairs and one is an OVER-repair, and each is a wrong implementation that the population
+carrying AC-1 cannot see. That is why the populations are separate: the accept-set measures whether
+the repair landed, the limit rows whether it stayed in scope, and the bash-rejected rows whether it
+moved anything on input the shell refuses to parse.
 
 **The `#`-comment row is the one worth dwelling on.** It is not a bug in the ordinary sense — it
 makes the walk agree with bash where today it does not — and it is still refused, because it is the
