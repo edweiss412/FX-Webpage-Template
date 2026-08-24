@@ -139,9 +139,19 @@ to `origin/fix/scanner-scope-totality` and prints the `git show` that materialis
 No sha anywhere in the record. That branch is gone:
 
 ```
-$ git ls-remote origin 'refs/heads/fix/scanner-scope-totality' | wc -l
+$ git ls-remote --exit-code origin 'refs/heads/fix/scanner-scope-totality' >/dev/null; echo $?
+2
+$ git ls-remote --exit-code origin 'refs/heads/docs/derived-numbers-provenance' >/dev/null; echo $?
 0
 ```
+
+The second line is a control, and it is there because the first draft of this block piped `git
+ls-remote` into `wc -l` and read the `0` as absence. That producer cannot carry the claim: a DNS or
+transport failure exits 128 upstream while `wc -l` prints `0` and exits `0`, so a dead branch and an
+unreachable remote render identically. `--exit-code` separates them — `2` is a successful lookup that
+matched nothing, `0` matched, `128` never reached the remote — and the control shows the command
+answering differently for a branch that does exist. Diff review round 2 raised this, and it is not the
+first time this arc has asserted more than its own producer supported.
 
 The record names nothing a reader can fetch. A first draft of this section called all 16 records bound
 and described this one as "pinned"; it is not pinned, and the census now decides the question

@@ -56,12 +56,17 @@ The index row closes it, and it still reproduces on demand: strip that row and t
 that message, restore it and 21 pass.
 
 **It was not the only red, and the first draft of this paragraph said it was.** Plan review round 1
-found the second: `8d9462fa4` added six citations of `BL-CLOSEOUT-COUNT-PROSE-DRIFT` across three
-files — one in `BACKLOG.md`, four in the spec, one in the probe record — and no `KNOWN_DANGLING` row,
-so `_metaLedgerReferentialIntegrity` was red across that commit and was closed one commit later at
-`573c72abc`. (Plan review round 2 caught this count too: a first draft said two in `BACKLOG.md`, from a grep
-that counted diff LINES rather than added occurrences. Produced by
-`git show 8d9462fa4 | grep '^+' | grep -o BL-CLOSEOUT-COUNT-PROSE-DRIFT | wc -l`.) That is a real gate red on this arc's own work, and the
+found the second: `8d9462fa4` took the citation count of `BL-CLOSEOUT-COUNT-PROSE-DRIFT` from one to
+six — one in `BACKLOG.md`, four in the spec, one in the probe record — with no `KNOWN_DANGLING` row.
+But the first citation was already there: `a7648f34b` introduced it in the probe record, also with no
+row. So `_metaLedgerReferentialIntegrity` was red from `a7648f34b`, stayed red across `8d9462fa4`, and
+closed at `573c72abc` — two commits red, not one. (Two rounds went at this count and both were the
+same defect. The first draft said two in `BACKLOG.md`, from a grep counting diff LINES. Its
+replacement said `8d9462fa4` ADDED six, which is still the diff-line number:
+`git show 8d9462fa4 | grep '^+' | grep -o BL-CLOSEOUT-COUNT-PROSE-DRIFT | wc -l` reports `6` because
+one of those added lines replaces an existing one, so the added-occurrence count is five. Occurrences
+at a commit are `git grep -c BL-CLOSEOUT-COUNT-PROSE-DRIFT <sha> -- | awk -F: '{s+=$NF} END{print s+0}'`,
+which gives `1` at `a7648f34b` and `6` at `8d9462fa4`.) That is a real gate red on this arc's own work, and the
 "same change that broke them" claim below holds for the retired-identifier registry only.
 
 Steps:
@@ -76,8 +81,8 @@ Steps:
    `tests/docs/_retiredIdentifiers.ts:143` — `ANY task that edits, moves, or deletes an exempted line
    owns its row in the same commit`. **Only one of the two met it.** The retired-identifier exemption
    was re-keyed in `573c72abc`, the same commit whose reconciliation segment rewrote the line it keys
-   on. The `KNOWN_DANGLING` row did NOT: its citations landed in `8d9462fa4` and the row followed in
-   `573c72abc`, leaving one commit red. Recorded rather than smoothed over, because a plan that
+   on. The `KNOWN_DANGLING` row did NOT: its first citation landed in `a7648f34b`, the rest in
+   `8d9462fa4`, and the row followed only in `573c72abc`, leaving two commits red. Recorded rather than smoothed over, because a plan that
    describes its own discipline more tidily than it practised it is the defect this arc is about.
    Prepending a reconciliation segment rewrites `BACKLOG.md`'s line 7, which carries a
    `RETIRED_IDENTIFIER_EXEMPTIONS` row keyed on its exact content; the row now carries the new line.
