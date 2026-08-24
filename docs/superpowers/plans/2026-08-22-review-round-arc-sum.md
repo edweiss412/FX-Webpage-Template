@@ -238,9 +238,22 @@ Each is asserted VERBATIM as rendered. That catches a struct-versus-rendering di
 
 ### Task 6 — mutation re-run and siteId re-derivation
 
-<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.shard3.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:1783` why=`the accepted siteIds are line-keyed and Tasks 2-4 shift corpus.ts, so each accepted row names a site the run no longer produces and the shard reports unaccepted survivors` ac=AC-11 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.shard0.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:1783` why=`the accepted siteIds are line-keyed and Tasks 2-4 shift corpus.ts, so each accepted row names a site the run no longer produces and the shard reports unaccepted survivors` ac=AC-11 -->
 
-**The command is the SHARD, not the gates file.** `tests/mutation/guardSurfaces.gates.test.ts` asserts registry keys, shard-partition integrity and the timeout premise; `registerSurfaceCases`, which generates mutants and compares survivors against accepted `siteId`s, runs only in the shard files. Both enrolled surfaces resolve to **shard 3**, confirmed at plan time by running `surfacesForShard` over the live registry. A command naming the gates file would stay green after the siteIds drift and could not produce the output this task re-derives them from.
+**The command is the SHARD, not the gates file.** `tests/mutation/guardSurfaces.gates.test.ts` asserts registry keys, shard-partition integrity and the timeout premise; `registerSurfaceCases`, which generates mutants and compares survivors against accepted `siteId`s, runs only in the shard files. A command naming the gates file would stay green after the siteIds drift and could not produce the output this task re-derives them from.
+
+**DERIVE the shard number; never carry one.** The partition is weight-balanced over the whole registry, so every surface anyone else enrols re-partitions it. This plan originally said shard 3, "confirmed at plan time by running `surfacesForShard` over the live registry" — and by implementation time the registry had grown to 42 surfaces and both of ours had moved to **shard 0**. A run against the stale number is the worst available outcome: it completes, it passes, and it never touches the surfaces this task exists to score. Measured cost here: two full heavy-queue waits behind other arcs' 45-to-80-minute mutation runs.
+
+So the shard is derived immediately before the run, not read from this sentence:
+
+```
+pnpm exec tsx -e 'import {surfacesForShard} from "./tests/mutation/source/shardPartition";
+for (let i=0;i<4;i++) { const m = surfacesForShard(i).map(s=>s.id)
+  .filter(id=>["reviewRoundCount","reviewRoundCorpus"].includes(id));
+  if (m.length) console.log(i, m.join(", ")); }'
+```
+
+The `red=` marker names shard 0 because that is where they sit today. If the derivation disagrees with the marker when this task is executed, the derivation wins and the marker is corrected in the same commit — which is the same rule this arc applies to every other enumeration it touches.
 
 `pnpm heavy` is in the marker as well as the body, because RED and GREEN must be the SAME command and a mutation run wraps at its outermost entry.
 
