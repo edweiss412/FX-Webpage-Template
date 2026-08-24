@@ -1,3 +1,43 @@
+## BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH — a guard surface's declared operators produce ZERO sites over a whole branch, so the score cannot see code it is reported against — CLOSED 2026-08-24
+
+**Status:** CLOSED · **Resolution:** re-scoped 2026-08-22 (orchestrator ruling, wave-6 arc brief) to admit a documented-limit close, then closed as documented limit (harness spec §7 L-11) plus the OPERATORS: disclosure arm on the GUARD SURFACE score line, the heading-form trigger, and the bullet-4 admissibility correction · **Shipped by:** `docs/mutation-score-jurisdiction-gap` · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 3) · **Severity:** MEDIUM (the score is reported as the surface's convergence criterion while a branch of that surface is outside it; the number is honest and its jurisdiction is not stated) · **Class:** mutation harness fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — closing it means widening a registry operator set file-wide, which is a measurement-scope decision about the harness rather than a repair to this arc's code. · **Reachability:** PROBED — the numbers below were measured, not estimated. · **Incident:** diff round 3 of this arc found a REGRESSION the arc itself introduced — `$((...))` arithmetic read as a `$()` command substitution, yielding a resolved site for a command bash never runs — after FOUR earlier review rounds and a `49/49` score with zero unaccepted survivors had all passed over it. A reviewer probing bash found it; the score structurally could not.
+
+`psqlStartupScan` declares `relational-boundary` and `regex-quantifier-bound`. The arithmetic branch added in diff round 3 uses equality tests and `Math.max`, so those operators enumerate **zero sites over it**: the surface holds 79 sites with the branch present and held 79 without it.
+
+**Measured cost of closing it as-is.** The first version of this row said `integer-literal` is the ONLY operator reaching the branch, at +375. **That was wrong and diff round 5 caught it:** the measurement behind it was a FILE-WIDE delta, which answers "what does adding this operator cost" and not "does this operator reach the branch". Two different questions, and I reported one as the other.
+
+Re-censused per operator. **The file-wide column is the load-bearing one and the only one stated as a count:**
+
+| operator                            | file-wide | reaches the `$((` branches? |
+| ----------------------------------- | --------: | --------------------------- |
+| `relational-boundary` (declared)    |        71 | **no**                      |
+| `regex-quantifier-bound` (declared) |         8 | **no**                      |
+| `logical-connector`                 |       195 | yes                         |
+| `equality-flip`                     |       278 | yes                         |
+| `integer-literal`                   |       375 | yes                         |
+| `statement-removal`                 |       414 | yes                         |
+| `arithmetic-operator`               |         0 | no                          |
+
+An earlier version of this row gave exact in-branch COUNTS. They are deliberately gone: diff round 6 enumerated the same branches and got different numbers, and both enumerations were honest — the count depends entirely on where you cut the branch, and a neighbouring ordinary `$()` arm sits immediately after it. A number whose value depends on an arbitrary boundary is not a measurement, so what remains is the predicate that does not: **which operators reach the branch at all**, and what each costs file-wide.
+
+FOUR operators reach it, not the one this row first named, and the cheapest is `logical-connector` at +195 file-wide rather than `integer-literal` at +375. What survives every correction is the finding: both DECLARED operators reach it ZERO times, so the branch is outside the score's jurisdiction as configured, and every operator that would reach it is file-wide on a surface that already runs ~24 minutes.
+
+**Why it was NOT enrolled in the arc that found it.** Enrolling buys mutants weaker than the verifier already built: the branch's terminal check is a bash-oracle matrix that derives every expectation from whether the shell actually executed the command, promoted into the deciding suite so it is a standing gate rather than a session artifact. Enrolment would add hundreds of mutants over unrelated integer literals to reach one branch a stronger instrument already covers, and it would land that decision under review pressure at diff round 4.
+
+**The general shape, which is worth more than the instance.** A mutation score answers "does the suite pin what is WRITTEN". It cannot answer "is what is written the whole domain", because a construct the code never distinguished is invisible to every mutant of that code. This row is the first measured instance on this repo of a surface being scored against operators that cannot reach part of it.
+
+Close condition: either a per-branch enrolment mechanism (operators scoped to a region rather than a file), or a ratified decision that file-wide widening is worth its runtime, taken outside a review round with these numbers in hand.
+
+**Closed as a documented limit, not as the mechanism the close condition first named.** The close condition above admitted only (a) a per-region enrolment mechanism or (b) a ratified file-wide widening. The orchestrator's wave-6 arc brief of 2026-08-22 added (c) a documented-limit close carrying a REQUIRED disclosure, as a first-class outcome, on this row's own finding that the general shape is worth more than the instance: a score answers "does the suite pin what is written" and can never answer "is what is written the whole domain". Where the three-way decision is argued: `docs/superpowers/specs/ci/2026-08-22-mutation-score-jurisdiction-gap.md` §1.
+
+Re-censused at `50ca72a56`: FOUR undeclared operators reach the `$((` branch, the cheapest `logical-connector` at 195 file-wide sites; widening moves `psqlStartupScan` from 80 to 275 modelled boots and repartitions 20 surfaces. (a) was declined because per-region operator scoping is a new addressing scheme for the registry, priced against one branch a stronger instrument already covers (that spec §1.2). (b) was declined because the runtime is paid by every arc that touches the surface, forever, to reach a branch whose terminal check is already a bash-oracle matrix in the deciding suite (§1.3).
+
+What shipped instead. The score's jurisdiction is DISCLOSED at the dispatch boundary: every round-1 `GUARD SURFACE:` score arm carries an `OPERATORS:` tail naming the set the score ranges over, and `AGENTS.md` bullet 4 now binds the surviving-mutant admissibility requirement to code a declared operator actually REACHES, so a finding about unreached code is admissible on a domain probe instead of being refuted by a number that cannot see it. Two defects surfaced by the arc's own reviews came in with it: round 1 found the shipped trigger never read the ATX heading form, leaving 24 heading-form declarations across ten round-1 briefs dark to the gate; round 2 found a score-shaped line rescued by a `CANNOT-EXPRESS:` tail beside it, closed by the marker-precedence matrix (spec §2.2) under which a line carrying `MUTATION SCORE:` in any shape is decided by the score arm and never by the other one.
+
+**RE-FILE TRIGGER (L-11, harness spec §7, verbatim):** a second measured incident in which a diff adds declared-operator-unreached code to an enrolled surface and a regression in it passes review behind a quoted score that CARRIED its `OPERATORS:` tail; that is the evidence that disclosure is insufficient and a reach instrument is owed.
+
+**RE-FILE TRIGGER (L-E, jurisdiction spec §4, verbatim):** a declaration form that the structure-keyed trigger does not read, found in the live briefs corpus; the repair is another CommonMark structure, never a prose recognizer.
+
 ## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc — CLOSED 2026-08-21
 
 **Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** the six probe chains below each exited 0 and SENT bytes before their repair · **Class:** authorization model · **Facing:** product · **Shipped by:** `feat/pane-compaction-send-auth`
