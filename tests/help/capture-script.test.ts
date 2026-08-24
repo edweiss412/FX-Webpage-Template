@@ -108,16 +108,40 @@ describe("help screenshot capture script (Task F.3)", () => {
   // does not guarantee fonts are rasterized or the last paint has flushed.
   // Failure mode caught: waitForQuiescence loses its fonts.ready / paint-settle
   // barrier and the drift gate regresses to runner-load-dependent bytes.
-  it("waitForQuiescence awaits document.fonts.ready and a double-rAF paint settle", () => {
+  // The barrier moved into waitForPaintQuiescence when layer 0 split the
+  // selector wait out, so the catch could be narrowed to that one await. The
+  // assertion follows the code and gains a REACHABILITY half: a barrier that
+  // still exists in a function nothing calls protects nothing, which is the
+  // failure a body-only scan would have missed after the split.
+  it("the paint barrier survives the split, and waitForQuiescence still reaches it", () => {
     const source = readFileSync(corePath, "utf8");
-    const quiesceFn = source.match(/async function waitForQuiescence[\s\S]*?\n}/)?.[0];
-    expect(quiesceFn, "waitForQuiescence() should exist").toBeTruthy();
-    expect(quiesceFn).toContain("document.fonts.ready");
-    expect(quiesceFn).toContain("requestAnimationFrame");
+    const barrierFn = source.match(/async function waitForPaintQuiescence[\s\S]*?\n}/)?.[0];
+    expect(barrierFn, "waitForPaintQuiescence() should exist").toBeTruthy();
+    expect(barrierFn).toContain("document.fonts.ready");
+    expect(barrierFn).toContain("requestAnimationFrame");
     // Barrier order: fonts/paint settle AFTER networkidle, BEFORE the stable wait.
-    const idleIdx = quiesceFn!.indexOf("networkidle");
-    const fontsIdx = quiesceFn!.indexOf("document.fonts.ready");
+    const idleIdx = barrierFn!.indexOf("networkidle");
+    const fontsIdx = barrierFn!.indexOf("document.fonts.ready");
+    const stableIdx = barrierFn!.indexOf("waitForTimeout");
     expect(idleIdx).toBeGreaterThan(-1);
     expect(fontsIdx, "fonts.ready must come after networkidle").toBeGreaterThan(idleIdx);
+    expect(stableIdx, "the stable wait must come after fonts.ready").toBeGreaterThan(fontsIdx);
+
+    const quiesceFn = source.match(/async function waitForQuiescence[\s\S]*?\n}/)?.[0];
+    expect(quiesceFn, "waitForQuiescence() should exist").toBeTruthy();
+    expect(quiesceFn, "waitForQuiescence must still reach the barrier").toContain(
+      "waitForPaintQuiescence",
+    );
+  });
+
+  // Layer 0's narrowed catch depends on the selector wait being separable from
+  // the barrier. If they merge back, a catch around the wait silently starts
+  // covering networkidle and the paint settle too, and every later failure gets
+  // attributed to a missing selector.
+  it("waitForQuiescence does not inline the barrier back into itself", () => {
+    const source = readFileSync(corePath, "utf8");
+    const quiesceFn = source.match(/async function waitForQuiescence[\s\S]*?\n}/)?.[0];
+    expect(quiesceFn).not.toContain("document.fonts.ready");
+    expect(quiesceFn).not.toContain("networkidle");
   });
 });
