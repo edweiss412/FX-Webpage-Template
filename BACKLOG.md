@@ -1035,6 +1035,17 @@ which is why reading it per-spec drops members that are not defective and emptie
 nothing. Same family as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`, which measured the transient gateway
 502 reaching the `/admin` error boundary on this same job.
 
+**RATIFIED 2026-08-24 — the per-spec red counter advances only on a red that REPRODUCES on the
+same bytes.** A non-reproducing red is an environment observation, not a spec earning a strike, which
+is already what the amended AC-3 says about signature reds; this states the same thing for the
+per-spec threshold that DROPS members, where it had been left implicit. The evidence is the
+attempt-1/attempt-2 pair above: `needs-attention-page` had reached the batch-1 second-red threshold
+with AC-4 fully applicable, and the replay of identical bytes cleared it while failing a different
+spec. Applying the threshold to the unreproduced red would have removed a passing member, shipped
+nine instead of ten, and restarted a five-green count on an artefact. The four drops recorded above
+are unaffected: each was taken on evidence this rule does not disturb, and `telemetry-layout`'s two
+reds were the same case in two separate runs rather than one run's replay.
+
 **`admin-parse-panel`, `warning-panel-polish`, `telemetry-layout` and `published-show-attention` stay dropped for batch 2.** Each drop was
 procedurally valid when it was made — the first two on a first red with no attribution, the last two
 on a SECOND red for one spec, which is batch 1's threshold and the ruling's boundary (d) — and
