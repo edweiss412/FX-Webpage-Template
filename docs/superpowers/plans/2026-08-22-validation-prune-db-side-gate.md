@@ -55,12 +55,32 @@ establishes: `pnpm install`, `pnpm worktree:link-env`, `pnpm preflight`. `psql` 
 Supabase stack is up, which Task 1's hardcoded loopback DSN needs; if it is not, `psql` refuses the
 connection loudly, so that assumption fails safe and is not the r4 shape.
 
-**The one that does NOT follow from invariant 11, and is the reason §0.2 exists:** `pnpm preflight`
-verifies `.env.local` is present and readable, and it does that by PARSING the file itself
-(`scripts/preflight-env.mjs:12`, whose comment says vitest does not auto-load it either). A green
-preflight therefore says the validation DSN is on disk. It does not put it in your environment, and no
-later step inherits it. Task 2 step 0 is where it enters the shell, and every validation command in
-this plan runs from that shell.
+**Two environment variables do NOT follow from invariant 11, and they are the reason §0.2 exists.**
+
+`TEST_DATABASE_URL` — `pnpm preflight` parses `.env.local` itself (`scripts/preflight-env.mjs:12`,
+whose comment notes vitest does not auto-load it either) and it does NOT require this key: its `HARD`
+set is `HASH_FOR_LOG_PEPPER`, `PICKER_COOKIE_SIGNING_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`,
+`GOOGLE_SERVICE_ACCOUNT_JSON` (`scripts/preflight-env.mjs:53-61`). So a green preflight does not even
+promise the validation DSN is on disk, let alone in your environment. Task 2 step 0 is where it enters
+the shell, and it checks the value rather than assuming it.
+
+`SCHEMA_MANIFEST_DB_URL` — **must be UNSET, and nothing in this repo's setup unsets it for you.** When
+present it overrides the local default in `localManifestDbUrl()`
+(`scripts/generate-schema-manifest.ts:41-46`), so `pnpm gen:schema-manifest` would introspect whatever
+it names and commit THAT as the manifest. The same variable also selects parity's Layer 3 target
+(`tests/db/validation-schema-parity.test.ts:105-106`), and Layer 3 RETURNS EARLY rather than failing
+when its target is unreachable (`tests/db/validation-schema-parity.test.ts:238-239`) — so a stale
+value silently removes the local-freshness comparison from every parity run in this plan, including
+Task 2's red, Task 2 step 4, and the full suite in Task 4. Plan review r5 found this; it is the same
+shape as `TEST_DATABASE_URL`'s, one variable over.
+
+Check both before Task 2, and treat a set `SCHEMA_MANIFEST_DB_URL` as a stop rather than a curiosity:
+
+```
+$ echo "TEST_DATABASE_URL=${TEST_DATABASE_URL:+set} SCHEMA_MANIFEST_DB_URL=${SCHEMA_MANIFEST_DB_URL:+SET-UNSET-IT}"
+TEST_DATABASE_URL= SCHEMA_MANIFEST_DB_URL=
+```
 
 ### 0.1 Every command this plan names was run
 
@@ -292,25 +312,46 @@ what was there, which is what the step means.
 
 **GREEN.**
 
-0. **Put the validation DSN in the shell, and prove it is validation.** `TEST_DATABASE_URL` lives in
+0. **Put the validation DSN in the shell, and prove it is VALIDATION.** `TEST_DATABASE_URL` lives in
    `.env.local`, and NOTHING in a worktree shell loads that file: not the shell, and not vitest —
-   `tests/setup.ts` sets several test defaults and reads no dotenv file, which is why
+   `tests/setup.ts` sets test defaults and reads no dotenv file, which is why
    `scripts/preflight-env.mjs:12` says so in a comment and parses `.env.local` itself. Every step below
-   that names validation therefore begins from this, once per shell:
+   that names validation begins from this, once per shell:
 
    ```
    $ set -a; . ./.env.local; set +a
+   $ case "$TEST_DATABASE_URL" in
+       *vzakgrxqwcalbmagufjh*) : ;;
+       *) echo "REFUSING: TEST_DATABASE_URL does not name the validation project" >&2; exit 1 ;;
+     esac
    $ psql "$TEST_DATABASE_URL" -tAc \
-       "select current_database(), inet_server_addr() is not null as over_tcp"
-   postgres|t
+       "select current_database(),
+               inet_server_addr()::text,
+               (inet_server_addr() <<= inet '10.0.0.0/8'
+                or inet_server_addr() <<= inet '172.16.0.0/12'
+                or inet_server_addr() <<= inet '192.168.0.0/16'
+                or inet_server_addr() <<= inet '127.0.0.0/8') as is_private"
+   postgres|2600:1f16:15be:6700:…|f
    ```
 
-   **The `over_tcp` column is the point, not decoration.** With `TEST_DATABASE_URL` unset, `psql ""`
-   silently falls back to the local Unix socket and every command below would run against LOCAL while
-   reporting success — the gate applied to the wrong database, AC-6 refusing for the wrong reason, and
-   AC-7 proving nothing. That is the one shape this arc's consequence bound calls silently wrong, and
-   plan review r4 found the plan committing it. A one-line check that the connection is a TCP one to
-   the pooler is what makes the rest of this task's claims mean what they say.
+   **Both guards are here because plan review r5 killed the single weaker one.** This step used to
+   check `current_database()` and that the connection was over TCP, and LOCAL SATISFIES BOTH: its
+   database is also named `postgres` and the local stack answers on `172.18.0.2`, so the old check
+   returned `postgres|t` against exactly the database it was meant to exclude. A guard that passes on
+   the value it exists to reject is worse than no guard, because it reads as one.
+
+   The first guard is the authoritative one: `vzakgrxqwcalbmagufjh` is the validation project ref
+   (AGENTS.md names it), and the session pooler routes by it — it appears in the DSN's username as
+   `postgres.vzakgrxqwcalbmagufjh`. A DSN that does not carry it cannot reach validation. The second is
+   a cross-check on the answering server: validation reports a public address and `is_private = f`,
+   local reports a private one and `is_private = t`, so a DSN pointed somewhere unexpected is caught
+   even if it spells the ref. Verified in both directions against both databases before this step was
+   written.
+
+   **What is at stake if this step is wrong**, and it is the reason it is step 0 rather than a note:
+   the next step applies a migration, and `psql ""` does not error on an empty DSN — it falls back to
+   the local socket. Getting this wrong applies the gate to the wrong database, makes AC-6 refuse for
+   the wrong reason, and lets AC-7 pass comparing local to local. Every one of those reports success.
 
 1. `pnpm gen:schema-manifest`; commit the regenerated `supabase/__generated__/schema-manifest.json`.
    The named red command now passes.
