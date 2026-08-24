@@ -7685,6 +7685,75 @@ describe("YAML quoted scalar advisory — the channel that lexes the whole file"
     expect(scanShellIndirection(source, WORKFLOW_FILE)).toEqual([]);
   });
 
+  // A CYCLIC document must not take the collector down with it.
+  //
+  // The scalar collector walks sequence items recursively and resolves aliases,
+  // so `args: &c [ …, *c ]` is a cycle: resolving the alias yields the sequence
+  // that contains it. Without a guard the walk re-enters forever and the whole
+  // call dies with `Maximum call stack size exceeded`.
+  //
+  // That is worse than it first looks, and it is why this is a fix rather than a
+  // documented limit. `scanShellIndirection` is called per file by the census
+  // walk, so a throw here does not merely lose THIS file's findings — it aborts
+  // the walk and loses every other file's too. "Correct or signalled, never
+  // silently wrong" is not satisfied by a stack overflow that discards unrelated
+  // results on its way out.
+  //
+  // Introduced by this arc, and the isolation says so: `scanWorkflowSource`
+  // parsed YAML before this arc and returns cleanly on the same input; the
+  // channel that throws is the one whose YAML parse this arc added.
+  test("AC-2: a self-referential sequence does not overflow the collector", () => {
+    const source = [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - uses: docker://alpine",
+      "        with:",
+      "          args: &cycle",
+      '            - "echo hi"',
+      "            - *cycle",
+      "",
+    ].join("\n");
+    premiseHolds(
+      "the fixture really does alias its own sequence, which is the only shape that can re-enter the walk",
+      /&cycle/.test(source) && /\*cycle/.test(source),
+    );
+    // The SITE channel already survives this and is the control: if it started
+    // throwing too, the fixture would be wrong rather than the collector.
+    expect(() => scanWorkflowSource(source, WORKFLOW_FILE)).not.toThrow();
+    expect(() => scanShellIndirection(source, WORKFLOW_FILE)).not.toThrow();
+  });
+
+  // The cycle guard is scoped to SEQUENCES, and this is the property that scoping
+  // buys. One quoted scalar aliased from two `run:` keys is two real call sites,
+  // so it must report at BOTH anchor lines. A node-wide dedupe would terminate
+  // just as well and silently drop the second — a tempting "simplification" that
+  // nothing else here would catch.
+  test("AC-2: one scalar aliased from two keys reports at BOTH anchors", () => {
+    const source = [
+      "anchors:",
+      '  cmd: &c "echo >$(psql -qAt mydb"',
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: *c",
+      "      - run: *c",
+      "",
+    ].join("\n");
+    const runLines = source
+      .split("\n")
+      .map((line, at) => (line.includes("- run: *c") ? at + 1 : 0))
+      .filter(Boolean);
+    premiseHolds(
+      "the fixture really aliases ONE scalar from TWO distinct run: keys on different lines",
+      runLines.length === 2 && runLines[0] !== runLines[1],
+    );
+    expect(scanShellIndirection(source, WORKFLOW_FILE).map((hit) => hit.line)).toEqual(runLines);
+  });
+
   // The new code is gated on the YAML extension — the same predicate that
   // already selects the continuation transform — so a `.sh` file never reaches
   // it. Verified against the tree BEFORE the change and re-verified after,

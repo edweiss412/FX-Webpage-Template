@@ -3445,6 +3445,17 @@ function quotedExecutableScalars(source: string): QuotedExecutableScalar[] {
   const found: QuotedExecutableScalar[] = [];
   const lineAt = (offset: number): number => source.slice(0, offset).split("\n").length;
   const QUOTED_STYLES = new Set(["QUOTE_SINGLE", "QUOTE_DOUBLE"]);
+  // A SEQUENCE is expanded at most once. `args: &c [ …, *c ]` aliases its own
+  // sequence, so resolving the alias yields the sequence that contains it and
+  // the walk re-enters forever — `Maximum call stack size exceeded`, thrown out
+  // of a function the census walk calls PER FILE, which loses every other
+  // file's findings on the way out rather than just this one's.
+  //
+  // Scoped to sequences on purpose. Scalars do not recurse, and the same scalar
+  // legitimately reached through two different aliases must still be collected
+  // twice — once per anchor line — so a node-wide dedupe would silently drop
+  // the second report.
+  const expandedSeqs = new Set<unknown>();
   // An ALIAS resolves to a scalar defined elsewhere; resolving is required
   // rather than generous, because workflow reuse via anchors is documented.
   const resolve = (node: unknown): unknown => {
@@ -3456,6 +3467,8 @@ function quotedExecutableScalars(source: string): QuotedExecutableScalar[] {
   const take = (node: unknown, anchorLine: number | null): void => {
     const value = resolve(node);
     if (isSeq(value as never)) {
+      if (expandedSeqs.has(value)) return;
+      expandedSeqs.add(value);
       for (const item of (value as { items?: unknown[] }).items ?? []) {
         const itemRange = (resolve(item) as { range?: [number, number, number] }).range;
         take(item, itemRange ? lineAt(itemRange[0]) : anchorLine);
