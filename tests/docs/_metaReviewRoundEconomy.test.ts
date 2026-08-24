@@ -1511,6 +1511,67 @@ describe("clause B only ADDS (spec §3.2 monotonicity)", () => {
   });
 });
 
+describe("the shape a split arc is relabelled into (live incident, 2026-08-24)", () => {
+  // feat/validation-prune-db-side-gate is the FIRST live instance of the defect
+  // this arc repairs, and it arrived as a merge blocker rather than a probe:
+  // it merged main mid-arc, codex-guard split its diff rounds across two corpus
+  // files ([1] at the old base, [2,3,4] at the new one), and the new file's
+  // start-at-2 red the required unit-suite under roundGaps - unavoidable by
+  // construction, since `round` is declared within one file and nothing at the
+  // dispatch site told the arc to restart.
+  //
+  // The ruled unblock relabels the new base to a per-base [1,2,3] and keeps the
+  // filing at the arc-wide count. This pins that clause B accepts that shape,
+  // because a repair that reds the very arcs it exists to serve is worse than
+  // the gap it closes.
+  const seq = (baseSha: string, n: number) =>
+    rows(...Array.from({ length: n }, (_, i) => ({ round: i + 1, baseSha })));
+  const section = (stage: string, n: number) =>
+    [`## ${stage} — ${n} rounds`, "", `**Examined:** R1-R${n} across two merge bases, ${ROUND_THRESHOLD} arc-wide.`, "", "**Infra:** none.", ""].join("\n");
+
+  it("accepts a relabelled split arc: contiguous per base, and filed once arc-wide", () => {
+    const problems = check([
+      // The old base keeps its single round.
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: seq("aaaaaaaaaaaa", 1) },
+      // The new base is relabelled 1..3 rather than carrying 2..4 forward.
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: seq("bbbbbbbbbbbb", ROUND_THRESHOLD - 1) },
+      // One filing, at the latest base holding rows for the stage. Its HEADING
+      // declares that file's own count (count_mismatch stays per base) while
+      // the Examined line carries the arc-wide span.
+      { path: "feat/foo/bbbbbbbbbbbb.md", body: section("diff", ROUND_THRESHOLD - 1) },
+    ]);
+    expect(problems).toEqual([]);
+  });
+
+  // The half that makes the case above worth anything: the same split arc with
+  // NO filing must still be caught. Otherwise "clean" above would prove only
+  // that clause B is asleep on this shape.
+  it("still reports that same split arc when nothing filed for it", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: seq("aaaaaaaaaaaa", 1) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: seq("bbbbbbbbbbbb", ROUND_THRESHOLD - 1) },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain(`burned ${ROUND_THRESHOLD} counted rounds`);
+  });
+
+  // And the per-base contiguity rule the incident tripped is UNTOUCHED by this
+  // arc: carrying 2..4 forward instead of relabelling still reds, which is why
+  // the convention had to be written at the dispatch site rather than relaxed.
+  it("leaves the per-base contiguity rule that caused the incident intact", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: seq("aaaaaaaaaaaa", 1) },
+      {
+        path: "feat/foo/bbbbbbbbbbbb.jsonl",
+        body: rows(
+          ...Array.from({ length: ROUND_THRESHOLD - 1 }, (_, i) => ({ round: i + 2, baseSha: "bbbbbbbbbbbb" })),
+        ),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toContain("round_gap");
+  });
+});
+
 describe("the arc-sum grandfather set can only shrink (spec §3.3)", () => {
   // Every assertion here reads the LIVE corpus, so the set is policed against
   // the thing it exempts rather than against a fixture that agrees with it.
