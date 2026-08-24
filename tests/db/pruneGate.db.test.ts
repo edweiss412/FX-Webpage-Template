@@ -315,7 +315,20 @@ end;
 } as const;
 
 describe("the three shipped bodies are pinned to one exact program each", () => {
-  const normalise = (s: string) => s.replace(/\s+/g, " ").trim();
+  // Line structure is SIGNIFICANT and must survive normalisation. Collapsing
+  // newlines was diff review r3's finding: `--` runs to end of line, so pulling
+  // the `if` block up onto a comment line comments the whole refusal out while
+  // normalising to a byte-identical string. The pin accepted a body that only
+  // read the marker and returned. So: trim each line's trailing whitespace and
+  // drop leading/blank edges, and keep every newline.
+  const normalise = (s: string) =>
+    s
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .join("\n")
+      .replace(/^\n+/, "")
+      .replace(/\n+$/, "");
 
   for (const [name, expected] of Object.entries(SHIPPED_BODIES)) {
     test(`${name} prosrc equals its pinned body`, async () => {
