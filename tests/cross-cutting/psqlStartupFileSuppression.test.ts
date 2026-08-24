@@ -7632,6 +7632,59 @@ describe("YAML quoted scalar advisory — the channel that lexes the whole file"
     });
   });
 
+  // SCOPE BOUNDARY: only EXECUTABLE keys are blanked, and a non-executable key
+  // is left exactly as it was.
+  //
+  // Found by mutating the key set rather than by reading the code: widening it
+  // to every key passed all 1040 tests. That mutant is not equivalent, and its
+  // difference is the reason this test exists — under it a quoted value beneath
+  // a NON-executable key starts reporting its DECODED text instead of the raw
+  // line it appears on, and one shape that reports nothing today starts
+  // reporting. `text` is a field the AC-5 finding-set digest covers, so a silent
+  // change there moves the corpus digest.
+  //
+  // Whether decoding those values would be BETTER recall is a separate question
+  // and a much larger change: this channel runs over every tracked `.yml`, not
+  // only workflows, so widening the key set reaches ordinary configuration
+  // files. That is out of this arc's fence, and pinning the boundary is what
+  // keeps it from drifting there one commit at a time.
+  test("a quoted value under a NON-executable key is not blanked and not decoded", () => {
+    const body = "echo PSQL=psql >> $GITHUB_ENV";
+    const quotedLine = `note: "${body}"`;
+    const plainLine = `note: ${body}`;
+    const textsFor = (line: string) =>
+      scanShellIndirection(`${line}\n`, WORKFLOW_FILE).map((hit) => hit.text);
+
+    premiseHolds(
+      "the plain spelling reports, so the quoted row below is not asserting against a channel that is silent here",
+      textsFor(plainLine).length === 1,
+    );
+    // The RAW line, quotes and key included — the same shape the plain spelling
+    // reports, which is what "untouched" means for this channel. Under the
+    // widened key set this is the decoded `echo PSQL=psql >> $GITHUB_ENV`
+    // instead, with the key and the quotes gone.
+    expect(textsFor(quotedLine)).toEqual([quotedLine]);
+  });
+
+  test("a quoted value under a non-executable key gains no NEW reading", () => {
+    // The other direction of the same boundary. This shape reports nothing
+    // today; the widened key set makes it report, which is a behaviour change
+    // to keys this arc does not own.
+    const source = [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - uses: a/b",
+      "        with:",
+      '          cmd: "read -r PG <<< psql"',
+      "",
+    ].join("\n");
+    expect(scanShellIndirection(source, WORKFLOW_FILE)).toEqual([]);
+  });
+
   // The new code is gated on the YAML extension — the same predicate that
   // already selects the continuation transform — so a `.sh` file never reaches
   // it. Verified against the tree BEFORE the change and re-verified after,
