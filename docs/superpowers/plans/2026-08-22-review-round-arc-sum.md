@@ -72,11 +72,25 @@ AGENTS.md:190                     "counted = distinct `round` values on rows wit
 …/2026-08-04-review-round-economy.md:159   "§5.4 The threshold counts distinct `round` values among rows with status === verdict"
 ```
 
-Four hits, each dispositioned in Task 7: README.md:22 and AGENTS.md:190 gain the arc sum; spec §4.3 and §5.4 gain a dated cross-reference, not a restatement. §8.3 limit 3 gains one too — it currently ratifies the under-obligation this arc repairs, so leaving it would put two live contracts in the corpus.
+Four hits, each dispositioned in Task 7: `docs/review-rounds/README.md:22` and `AGENTS.md:190` gain the arc sum; spec §4.3 and §5.4 gain a dated cross-reference, not a restatement. §8.3 limit 3 gains one too — it currently ratifies the under-obligation this arc repairs, so leaving it would put two live contracts in the corpus.
 
 **Sweep 2 — every `ROUND_THRESHOLD` consumer**, so no reader is left counting per base while the gate sums. Run 2026-08-22; the consumers outside `constants.ts` are `lib/reviewRounds/corpus.ts:236` (clause A, unchanged), `scripts/review-economy.ts:196` (the trigger-rate bucket, which counts `new Set(rows.map(r => r.round)).size` **per base** and is dispositioned in Task 5), `scripts/review-economy.ts:395` (the prose line "filing threshold: 4 counted rounds in one stage", reworded in Task 5), `tests/mutation/source/registry.ts:1775` (the control string, constraint 1 above), plus test fixtures that derive from the constant and need no edit.
 
 **Sweep 4 — is there a third reader?** Spec review R1 found both of its findings in the report, which raises the question the sweep-2 cover cannot answer: does anything ELSE read the corpus and reason about the threshold? Derived cover, run 2026-08-22 — `grep -rn 'readArcs\|checkCorpus\|countedRounds' --include='*.ts' --include='*.mjs' lib scripts tests`, excluding the two modules that define them. Production consumers: `scripts/review-economy.ts:137` and `scripts/review-economy.ts:146` (the report) and `tests/docs/_metaReviewRoundEconomy.test.ts` (the gate). **Two, and no third.** Everything else in the output is a test assertion or a comment. The reader class is therefore closed, and Task 5 covers all of it.
+
+**Sweep 5 — every `file:line` this plan asserts, resolved against the live tree.** Added 2026-08-24 after plan review round 4, because three defects had accumulated in one class: a `lib/reviewRounds/corpus.ts:124` citation justifying a separator that line does not use, a V11 figure the growing corpus had moved under, and four stale self-references review round 2 had already repaired once. Three instances of one shape is the point at which the repair stops being a fix and becomes a cover.
+
+The cover derives its input from the DOCUMENT rather than from a list somebody maintains: scan the plan for `path:line`, resolve each against the tree, echo the line it lands on. A stale citation then shows as a mismatch a reader can see, instead of as an absence nobody looks for. Final run 2026-08-24 at `50ca72a56`:
+
+```
+26 citations, 0 unresolvable
+```
+
+Getting there took two repairs to the SCANNER and one to the prose, and the scanner's two are the ones worth carrying forward, because in both cases its false positive was indistinguishable from the defect it hunts. The first version omitted a lookbehind and matched the TAIL of every longer path, reporting phantom misses on the suffix. The second flagged a citation sitting inside a quoted command output — a use-versus-mention error, and the same one the review convergence gate had to repair in its own scanner; both now strip fenced spans, because a citation the document QUOTES is not a claim the document MAKES. Probe the checker before believing it about the document.
+
+The one genuine document miss was ambiguity rather than staleness: sweep 1's prose used a bare `README.md` shorthand, line 22, for a path it had spelled in full four lines above. `lib/specLint/redContract.ts:164` rejects exactly that shorthand in a marker for the same reason, so the prose now spells it too.
+
+And the defect that motivated the whole sweep is one no resolver can catch: a citation can resolve perfectly and still be wrong, as `lib/reviewRounds/corpus.ts:124` was — the line exists, and it contradicts the sentence citing it. That is why the sweep ECHOES every line rather than reporting a bare pass. The mechanism narrows the reader's job to comparing 26 echoed lines against 26 claims; it does not do the comparing. Generalising this into a committed lint over every spec and plan is deliberately NOT done here — it is a new process-facing surface on an arc about arc sums, and it would need its own incident evidence under the mint bar.
 
 **Sweep 3 — registry count reconciliation.** `tests/mutation/source/expectedLedgerKinds.ts:204` declares `reviewRoundCount: {}` and `tests/mutation/source/expectedLedgerKinds.ts:210` declares `reviewRoundCorpus: { equivalent: 2 }`, matching the two accepted rows at `tests/mutation/source/registry.ts:1783` and `tests/mutation/source/registry.ts:1789`. Task 6 re-runs the harness and pastes the re-derived set; any delta lands in the same commit as the code that caused it.
 
@@ -118,7 +132,7 @@ Both of the spec's derived artifacts are reproduced below, **verbatim and once**
 | V8 | the trigger-rate triggered count | the report test | Task 5 |
 | V9 | the trigger-rate month bucket - the directory-wide EARLIEST counted row, never the first base enumerated | the report test | Task 5 |
 | V10 | the trigger-rate `rate` - a THIRD stored field on the bucket (`scripts/review-economy.ts:197`), rendered independently of the fraction beside it | the report test | Task 5 |
-| V11 | the rate line as RENDERED, verbatim (`  2026-08  213/282  75.5%`) | the report test | Task 5 |
+| V11 | the rate line as RENDERED, verbatim — asserted against the FIXTURE corpus's own derived figures, never a live one. The live rate at authoring was `  2026-08  213/282  75.5%` and by 2026-08-24 was `  2026-08  200/347  57.6%`; it is quoted only to show the line's SHAPE, and a test hardcoding either number is the anti-tautology defect | the report test | Task 5 |
 
 <!-- tasks: depth=3 red-contract -->
 
@@ -139,7 +153,7 @@ Owns matrix rows K1/`baseSha`, K1/`round`, K1/`stage`, and inventory row V1. Its
 
 Every count above is asserted BY VALUE, which is V1.
 
-**GREEN.** `export function arcCountedRounds(rows: ReviewRoundRow[]): Map<Stage, number>` beside `countedRounds`, sharing its two counting conjuncts and keying its per-stage set on `` `${r.baseSha} ${r.round}` `` — the separator `readArcs` already uses (`lib/reviewRounds/corpus.ts:124`), because it cannot occur in either field.
+**GREEN.** `export function arcCountedRounds(rows: ReviewRoundRow[]): Map<Stage, number>` beside `countedRounds`, sharing its two counting conjuncts and keying its per-stage set on `` `${r.baseSha}\u0000${r.round}` `` — the separator `readArcs` already uses (`lib/reviewRounds/corpus.ts:124`), because it cannot occur in either field. Use that escape and not a space: a space would in fact be safe here, since `baseSha` is `^[0-9a-f]{12}$` and `round` is a number, but it would make the cited precedent false, and two key-building sites in one module disagreeing is how the next reader loses an hour. `bucket` (`lib/reviewRounds/count.ts:13`) buckets into `Set<number>` and cannot be reused unchanged for a string key — share the PREDICATE, generalise the set's element type.
 
 ### Task 2 — clause B, the grandfather literal, K2, V2 and V3
 
