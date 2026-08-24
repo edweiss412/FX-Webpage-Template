@@ -319,7 +319,7 @@ what was there, which is what the step means.
    that names validation begins from this, once per shell:
 
    ```
-   $ set -a; . ./.env.local; set +a
+   $ export TEST_DATABASE_URL="$(grep -m1 '^TEST_DATABASE_URL=' .env.local | cut -d= -f2-)"
    $ case "$TEST_DATABASE_URL" in
        *vzakgrxqwcalbmagufjh*) : ;;
        *) echo "REFUSING: TEST_DATABASE_URL does not name the validation project" >&2; exit 1 ;;
@@ -339,6 +339,14 @@ what was there, which is what the step means.
    database is also named `postgres` and the local stack answers on `172.18.0.2`, so the old check
    returned `postgres|t` against exactly the database it was meant to exclude. A guard that passes on
    the value it exists to reject is worse than no guard, because it reads as one.
+
+   **One variable is extracted rather than the file being sourced, and that is not fastidiousness.**
+   `set -a; . ./.env.local; set +a` is the obvious form and it FAILS: `.env.local` holds values a shell
+   cannot parse, and under zsh it aborts with `parse error near '\n'` partway through. It appears to
+   work today only because `TEST_DATABASE_URL` sits at line 50 and the parse error is at line 61 — the
+   assignment happens before the abort. Reorder the file and the variable silently stops being set,
+   which lands straight back in the failure this step exists to prevent. Extracting the one key needed
+   has no such ordering dependency.
 
    The first guard is the authoritative one: `vzakgrxqwcalbmagufjh` is the validation project ref
    (AGENTS.md names it), and the session pooler routes by it — it appears in the DSN's username as
@@ -466,4 +474,49 @@ impeccable-gate: N/A — no UI surface
   off in the PR's LAST commit, before the merge.
 - Review-round record: filed if any stage reaches four counted rounds
   (the sibling `.md` of the arc's round corpus, `docs/review-rounds/feat/validation-prune-db-side-gate/50ca72a566b0.md`, filed at the cap).
-- Gate transcripts (Task 4) and the AC-6 validation probe transcript (Task 2) land here.
+- Gate transcripts (Task 4) land here.
+
+### AC-6 — the live validation probe, run 2026-08-24
+
+Run after the atomic surgical apply to `vzakgrxqwcalbmagufjh`, from the Task 2 step 0 shell. The
+project's posture marker reads `enabled=true`, which is what makes this the real test rather than a
+rehearsal.
+
+```
+$ psql "$TEST_DATABASE_URL" -tAc "select id||' enabled='||coalesce(enabled::text,'NULL')
+                                  from public.destructive_reset_gate"
+default enabled=true
+
+$ psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f ac6-validation-probe.sql
+── limb 1: pre-check. Reads only, calls nothing, and is NOT the oracle. ──
+NOTICE:  limb 1 ok: prune_app_events is plpgsql and calls the assert
+NOTICE:  limb 1 ok: prune_sync_log is plpgsql and calls the assert
+DO
+── limb 2: behavioural. FOUR calls, ONE transaction, ONE rollback. ──
+BEGIN
+NOTICE:  limb 2 ok: prune_sync_log() refused
+NOTICE:  limb 2 ok: prune_sync_log(interval '5 days') refused
+NOTICE:  limb 2 ok: prune_app_events() refused
+NOTICE:  limb 2 ok: prune_app_events(interval '5 days') refused
+ROLLBACK
+── AC-6 passed: both functions, both argument forms, all four refused. ──
+exit=0
+```
+
+**Every `refused` line above is an exception that was RAISED and matched `prune not enabled%`.** Had any
+call succeeded, the `raise exception 'GATE MISSING: …'` on its success path would have fired, failed to
+match the handler's filter, been re-raised, and stopped the script under `ON_ERROR_STOP` — a successful
+prune fails this probe, which is the property spec R5 found missing from the SQL half.
+
+This is the measurement that closes the ledger row's `Reachability: INFERRED, NOT PROBED` field. The
+2026-08-22 probe measured a default `prune_sync_log()` deleting 2,488 live rows on this project; the
+same call now refuses.
+
+### AC-7 — parity, both forms, run 2026-08-24
+
+```
+$ pnpm vitest run tests/db/validation-schema-parity.test.ts                      # Layer 2 → validation
+  Tests  8 passed (8)
+$ env -u TEST_DATABASE_URL pnpm vitest run …/validation-schema-parity.test.ts    # Layer 3 → local freshness
+  Tests  8 passed (8)
+```
