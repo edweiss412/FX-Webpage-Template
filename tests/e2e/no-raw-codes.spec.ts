@@ -43,6 +43,23 @@ async function renderMdxFixtureToHtml(name: string): Promise<string> {
   return renderToStaticMarkup(mdxModule.default({ components: {} }));
 }
 
+/**
+ * The telemetry event log renders each event's raw `code` as its payload, by
+ * design and by spec G7 (`components/admin/telemetry/EventRow.tsx:73`), so the
+ * route's leak count is a function of whatever rows `app_events` happens to
+ * hold: 45 catalog codes over the shared local stack, and on CI whatever the
+ * specs ahead of this one emitted. The route itself stays in scope, because it
+ * is prod-available and developer-gated rather than build-gated (the doc block
+ * above `discoverStaticAppRoutePaths`). Crawl it under a filter that matches no
+ * event, so the page chrome is audited against an empty log.
+ */
+const TELEMETRY_ROUTE = "/admin/dev/telemetry";
+const TELEMETRY_EMPTY_LOG_QUERY = "?code=FXAV_NO_SUCH_EVENT_CODE&since=all";
+
+function crawlTargetFor(routePath: string): string {
+  return routePath === TELEMETRY_ROUTE ? `${routePath}${TELEMETRY_EMPTY_LOG_QUERY}` : routePath;
+}
+
 test.describe("AC-X.2 no raw codes runtime crawl", () => {
   test("runtime fixture discovery is directory-driven", () => {
     const names = walkSourceFiles([RUNTIME_FIXTURE_ROOT], { extensions: [".html"] }).map((file) =>
@@ -93,15 +110,20 @@ test.describe("AC-X.2 no raw codes runtime crawl", () => {
   }) => {
     await signOut(page);
     const routePaths = discoverStaticAppRoutePaths();
-    expect(routePaths).toContain("/");
+    // "/" is a next.config.ts redirect to /auth/sign-in?next=/admin (next.config.ts:66), asserted by
+    // root-landing.spec.ts; it has no page.tsx, so the static-route walk must not list it.
+    expect(routePaths).not.toContain("/");
     expect(routePaths).toContain("/admin");
     expect(routePaths).not.toContain("/admin/dev");
+    // Premise for the empty-log crawl target below: the special case is dead
+    // code if discovery ever stops re-including the telemetry route.
+    expect(routePaths).toContain(TELEMETRY_ROUTE);
 
     for (const routePath of routePaths) {
       if (routePath.startsWith("/admin") || routePath === "/me") {
         await signInAs(page, ADMIN_FIXTURE);
       }
-      const response = await page.goto(routePath);
+      const response = await page.goto(crawlTargetFor(routePath));
       expect(
         response?.status(),
         `route ${routePath} should be reachable enough for the raw-code crawl`,
