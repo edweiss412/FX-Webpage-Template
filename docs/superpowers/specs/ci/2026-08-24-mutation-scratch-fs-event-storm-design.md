@@ -20,7 +20,7 @@ On 2026-08-24 between roughly 13:30 and 17:00 CDT, two concurrent mutation-score
 
 The runner creates ONE scratch root per surface (`tests/mutation/source/runner.ts:229`, removed in a `finally` at `tests/mutation/source/runner.ts:269`) and one per control run (`tests/mutation/source/runner.ts:284`, removed at `tests/mutation/source/runner.ts:300`). That is modest and is not the problem.
 
-The multiplication is elsewhere: the harness runs the surface's whole deciding suite as a fresh child process once per mutant (`tests/mutation/source/childRun.ts:30`, `cwd: root`). Every root that suite creates for its own fixtures is therefore re-created once per mutant.
+The multiplication is elsewhere: the harness runs the surface's whole deciding suite as a fresh child process once per mutant. The scoring spawn is `tests/mutation/source/runner.ts:166` (`spawnBounded` inside `runSuiteRecorded`); `tests/mutation/source/childRun.ts:30` is a DIFFERENT path used by the premise and meta fixtures and is not the scorer. Every root that suite creates for its own fixtures is therefore re-created once per mutant.
 
 **A correction the filed row needs, stated here because it changes the target.** Root reuse is a saving WITHIN one suite run, not across mutants. Separate mutants are separate processes and never shared a root, so a suite creating N roots per run drops to one — about 4x on `controlOutlineScan` and about 32x on the case `67471884a` excluded, not the ~250x a per-mutant reading suggests. The row's original "~250x" was a per-mutant reading and is wrong; BACKLOG.md carries the correction as of `710230abd`.
 
@@ -35,22 +35,22 @@ Every claim below is a command that was run, not an inference. Probe scripts liv
 - An exit-handler version lost every vitest WORKER's counts, because a killed worker never runs an exit handler. It reported 3 where the call-time version reports 1,151.
 - A naive logger recursed: `appendFileSync` calls `writeFileSync` internally, so patching both made the logger call itself. Self-test showed 60,776 spurious `writeFileSync` calls for three real ones. A reentrancy guard fixes it.
 
-Measured (`fsops/run` x mutants = per scored pass):
+Measured. **Per scored pass is `fsops/run` x (mutants + 1)**, not x mutants: `runSurface` runs every deciding suite once on CLEAN source before the mutant loop and asserts the baseline is green (`tests/mutation/source/runner.ts:236`), so each pass pays for one extra full suite run.
 
 | surface | fsops/run | mutants | per scored pass |
 | --- | ---: | ---: | ---: |
-| premiseScan | 1,896 | 193 | 365,928 |
-| mutationSurfaceEnumerate | 468 | 249 | 116,532 |
-| ledgerGit | 1,151 | 99 | 113,949 |
-| interactiveScanCore | 274 | 272 | 74,528 |
-| claimSweep | 62 | 106 | 6,572 |
-| specLintNumerics | 6 | 520 | 3,120 |
-| connectionCensus | 6 | 333 | 1,998 |
-| sendAuthScan | 6 | 291 | 1,746 |
-| redContract | 6 | 246 | 1,476 |
-| destructiveFileAnalysis | 6 | 237 | 1,422 |
+| premiseScan | 1,896 | 193 | 367,824 |
+| mutationSurfaceEnumerate | 468 | 249 | 117,000 |
+| ledgerGit | 1,151 | 99 | 115,100 |
+| interactiveScanCore | 274 | 272 | 74,802 |
+| claimSweep | 62 | 106 | 6,634 |
+| specLintNumerics | 6 | 520 | 3,126 |
+| connectionCensus | 6 | 333 | 2,004 |
+| sendAuthScan | 6 | 291 | 1,752 |
+| redContract | 6 | 246 | 1,482 |
+| destructiveFileAnalysis | 6 | 237 | 1,428 |
 
-Six is the vitest floor, not suite activity. **The top four carry 670,937 of the 687,271 calls measured across these ten, or 97.6%** — that is the prioritization evidence, and it says this is not a uniform tax and a uniform fix would be misdirected. The other 32 surfaces are unmeasured; the claim is scoped to the ten in the table.
+Six is the vitest floor, not suite activity. **The top four carry 674,726 of the 691,152 calls measured across these ten, or 97.6%** — that is the prioritization evidence, and it says this is not a uniform tax and a uniform fix would be misdirected. The other 32 surfaces are unmeasured; the claim is scoped to the ten in the table.
 
 **P3 — Tailwind is not the cache (a negative result, and it matters).** `__unstable__loadDesignSystem` re-reads the same absolute path fresh: writing a `@theme` token, loading, then REMOVING the token and loading the same path again returns `[null]` for the candidate. The CSS side is exonerated.
 
@@ -67,15 +67,23 @@ The second half is the negative control. Without it the first half cannot distin
 
 The incident was read as transient churn during runs. It is also permanent accumulation, and that limb is larger.
 
-Four of five sampled scratch-creating suites create a root per case and never remove it:
+The scope is DERIVED rather than sampled: a file is in scope if it creates a scratch root, registers no removal, and is named in some enrolled surface's `suitePaths` — so the mutant loop multiplies its leak. Re-running the derivation is how a reader checks it, and a newly-enrolled surface joins automatically instead of being silently exempt.
 
-| producer | `mkdtempSync` | `rmSync` |
-| --- | ---: | ---: |
-| `tests/log/mutationSurface/enumerate.test.ts` | 3 | **0** |
-| `tests/styles/interactiveScanCore.test.ts` | 3 | **0** |
-| `tests/ci/_metaModalWaitHelper.test.ts` | 4 | **0** |
-| `tests/styles/_metaControlOutlineFill.test.ts` | 2 | **0** |
-| `tests/mutation/source/premiseScan.test.ts` | 2 | 2 |
+Over `git ls-files tests/`: **108 files create scratch directories, 62 register no `rmSync` anywhere** (117 call sites). Intersecting with the registry and weighting by mutant count gives the in-scope six:
+
+| leaked dirs / pass | calls x mutants | file | surfaces |
+| ---: | --- | --- | --- |
+| 544 | 2 x 272 | `tests/styles/interactiveScanCore.test.ts` | interactiveScanCore |
+| 538 | 2 x 269 | `tests/log/mutationSurface/enumerate.test.ts` | mutationSurfaceEnumerate, mutationSurfaceTotality |
+| 538 | 2 x 269 | `tests/log/mutationSurface/totality.test.ts` | mutationSurfaceEnumerate, mutationSurfaceTotality |
+| 489 | 3 x 163 | `tests/ci/_metaModalWaitHelper.test.ts` | modal-wait-helper-scan, modal-wait-disposition |
+| 163 | 1 x 163 | `tests/ci/_metaModalWaitCandidateV2.test.ts` | modal-wait-helper-scan, modal-wait-disposition |
+| 65 | 1 x 65 | `tests/styles/_metaControlOutlineFill.test.ts` | controlOutlineScan |
+| **2,337** | | **total** | |
+
+An earlier draft of this section named a five-file SAMPLE and missed two of these (`totality.test.ts`, `_metaModalWaitCandidateV2.test.ts`). That is the argument for deriving the set rather than sampling it, and it is why AC-1 ranges over all six surfaces these files decide.
+
+The remaining **56 files (106 call sites)** leak linearly with ordinary runs rather than multiplied by a mutant loop; the largest is `tests/reviewRounds/report.test.ts` at 34 call sites with zero cleanup. They are filed as peers in §9.
 
 `premiseScan.test.ts` is the counterexample and the model: one root for the whole file (`tests/mutation/source/premiseScan.test.ts:23`), removed in `afterAll` (`tests/mutation/source/premiseScan.test.ts:24`), with per-case uniqueness carried by FILENAME rather than by a new directory. Its high `fsops/run` is `writeFileSync` per case inside one reused root, which is the correct shape already.
 
@@ -100,7 +108,7 @@ This explains something the transient reading does not: why the box degraded pro
 
 Two closed criteria, both machine-settled, neither a matter of opinion.
 
-1. **Verdict neutrality.** On one cheap enrolled surface, the same mutant set produces the same verdicts with root reuse ON and OFF. The comparison is the acceptance, and §8 states it as a command with an expected equality.
+1. **Verdict neutrality, across every surface this change can reach.** For all six surfaces whose deciding suites are touched, the same mutant set produces the same per-mutant verdicts before and after — compared as SETS, with each arm first proving it actually ran its own layout (§8 AC-1, AC-1b). The enrolled source this design EDITS, `tests/styles/interactiveScanCore.ts`, is additionally re-scored on its own mutants (AC-1c), because a neighbour's unchanged verdict map cannot speak for a predicate added inside a different file.
 2. **Admission.** The mutation class admits exactly one score run at a time, and total heavy concurrency never exceeds the ordinary slot count. Provable by a test that takes the class lock and asserts the second acquirer waits.
 
 Every input is handled correctly or signaled, never silently wrong. A conservative outcome plus a surfaced warning — a run that waits longer than expected, a cleanup that finds nothing to remove — is a DOCUMENTED LIMIT under §7, not a finding.
@@ -157,7 +165,11 @@ Preferred: key on `(path, mtimeMs, size)`. A fixture rewritten within the same m
 
 **Lock ordering is load-bearing.** The class lock is acquired FIRST, then the ordinary slot. The reverse deadlocks: run A holds a slot and waits for the class while run B holds the class and waits for a slot. Class-first gives a global order, and ordinary runs never want the class lock, so no cycle exists.
 
-**Reentrancy.** `FX_HEAVY_SLOT_HELD` names one slot as `path:pid` and is validated three ways before it is trusted (`with-heavy-slot.py:380-418`). Nested invocations pass through under the outermost holder, which stays correct: the class lock is held by the same process for the same lifetime, so a nested phase that passes through the slot also passes through the class.
+**Reentrancy, and the hole in the obvious version of it.** `FX_HEAVY_SLOT_HELD` names one slot as `path:pid` and is validated three ways before it is trusted (`scripts/with-heavy-slot.py:381`). Nested invocations pass through under the outermost holder (`scripts/with-heavy-slot.py:683`).
+
+That marker proves an ORDINARY SLOT is held. It does not prove the class is held, and an earlier draft of this section asserted it did. The two come apart in a reachable case: an ordinary `pnpm heavy` command that invokes a nested mutation run passes through on the slot marker and acquires NO class lock, so it runs concurrently with a top-level mutation run holding the class. The stated ceiling is exceeded while both AC-2 and AC-3 still pass, because AC-2 watches two direct class acquirers and AC-3 counts only ordinary slots.
+
+**The class therefore carries its OWN marker.** `FX_HEAVY_CLASS_HELD=<class-lock-path>:<pid>`, validated by the same three checks as the slot marker. Pass-through becomes per-resource rather than global: a nested invocation passes through the SLOT whenever the slot marker validates, and passes through the CLASS only when the class marker validates AND names the same class. A nested `--class mutation` under an ordinary holder acquires the class lock rather than inheriting a claim nobody made. It cannot self-deadlock against its own ancestor, because the one case that would — an ancestor already holding this class — is exactly the case the class marker makes it pass through.
 
 **Precedent for a non-slot file in the slot directory.** `recreate.lock` already lives there (`scripts/with-heavy-slot.py:434`), and slot enumeration filters on `^slot-(\d+)$` (`scripts/with-heavy-slot.py:47`), so a class lock file is ignored by the recreate path without changing it.
 
@@ -192,7 +204,7 @@ The kickoff brief assumed this work collides with `tests/mutation/source/**`, wh
 - `origin/fix/yaml-run-scalar-quoting-decode` (#879) changes `tests/mutation/source/registry.ts`.
 - This design touches `tests/styles/interactiveScanCore.ts`, the four leaking suites in §1.4, `scripts/with-heavy-slot.py` and `package.json`.
 
-The intersection is empty. The only shared file either branch would contend for is `registry.ts`, and no tier here needs it — nothing is enrolled, de-enrolled or re-scored. **The orchestrator rules on whether implementation opens early; this section supplies the evidence, not the decision.**
+The intersection is empty. The only shared file either branch would contend for is `registry.ts`, and no tier here needs it: nothing is enrolled or de-enrolled and no registry row changes. That is a statement about ENROLMENT, not about scores — AC-1c re-scores `interactiveScanCore` precisely because this design edits its enrolled source. **The orchestrator rules on whether implementation opens early; this section supplies the evidence, not the decision.**
 
 ---
 
@@ -209,12 +221,23 @@ The intersection is empty. The only shared file either branch would contend for 
 
 ## 8. Acceptance criteria
 
-- **AC-1 (verdict neutrality, the closed criterion).** On `controlOutlineScan` — 65 mutants, 4 roots per run, about 1.1 s per run, and deliberately NOT `controlOutlineResidue` — a full scored run with root reuse OFF and one with it ON produce the identical mutant set and identical per-mutant verdicts. Compared as sets, not as counts, so a coincidental equal total cannot pass.
+- **AC-1 (verdict neutrality, the closed criterion).** For **every surface whose deciding suite this change touches** — `controlOutlineScan`, `interactiveScanCore`, `modal-wait-helper-scan`, `modal-wait-disposition`, `mutationSurfaceEnumerate` and `mutationSurfaceTotality` — the pre-change and post-change runs produce the identical mutant set and identical per-mutant verdicts, compared as SETS so an equal total with two verdicts swapped fails. One surface is not enough: root reuse can leave the control-outline map untouched while moving a verdict in any of the other five.
+
+- **AC-1b (the arms must actually differ).** AC-1 is vacuous unless the two arms select different layouts, and a verdict comparison cannot show that they did. Each arm therefore asserts its own root count as an executable premise before any verdict is compared: the OFF arm creates the surface's documented N roots per suite run, the ON arm creates exactly one. If both arms silently ran the same layout, AC-1b fails and AC-1's equality is never credited. This separates "the change is verdict-neutral" from "the switch did nothing".
+
+- **AC-1c (the changed enrolled source is re-scored).** `tests/styles/interactiveScanCore.ts` is itself an enrolled surface (`tests/mutation/source/registry.ts:2237`, 272 mutants) and this design adds decision logic inside it, so scoring an unchanged neighbour cannot speak for it: a defective cache predicate can survive while every control-outline verdict stays identical. Its own score is re-run after the change and reported with its unaccepted-survivor set and the operator set the score ranges over, and any new survivor is triaged before merge.
+
 - **AC-2 (admission).** With the class lock held, a second `--class mutation` acquirer waits and does not proceed; an ordinary `pnpm heavy` acquirer still proceeds while a slot is free. Asserted against the wrapper's own code path.
-- **AC-3 (concurrency ceiling unchanged).** Total simultaneous heavy phases never exceeds the configured slot count with the class in use. This is the assertion that would have failed on the second-directory design in §4.2.
+
+- **AC-2b (nested class admission).** A `--class mutation` invocation nested under an ORDINARY heavy holder does NOT bypass the class: with a top-level mutation run holding the class lock, the nested one waits. This is the case §4.2's earlier draft got wrong, and it is why the class carries its own marker.
+
+- **AC-3 (concurrency ceiling unchanged).** Total simultaneous heavy phases never exceeds the configured slot count with the class in use. Run at `FX_HEAVY_SLOTS=2` with one class holder and two ordinary acquirers: at most two run at once. Under the rejected second-directory design that count is three, so the case discriminates the two designs rather than merely exercising the shipped one.
+
 - **AC-4 (cleanup completeness).** After running each repaired suite, the count of its temp-root family in TMPDIR is unchanged from before the run. Measured by family prefix, before and after, in the same command.
+
 - **AC-5 (cleanup survives failure).** A deliberately failing case in a repaired suite still removes its root.
-- **AC-6 (churn reduction, measured not assumed).** The P2 probe re-run on a repaired surface reports fewer filesystem-mutating calls per run than the §1.3 table records, with both numbers produced by the same probe.
+
+- **AC-6 (churn reduction, measured not assumed).** The P2 probe is re-run **on each of the six surfaces named in AC-1**, and each reports fewer filesystem-mutating calls per run than the §1.3 table records, both numbers produced by the same probe. Naming the surfaces closes the gap where AC-6 could be satisfied by measuring some other repaired suite.
 
 AC-1 is the criterion the design closes on. AC-2 through AC-6 are the supporting guarantees.
 
@@ -224,7 +247,7 @@ AC-1 is the criterion the design closes on. AC-2 through AC-6 are the supporting
 
 Per the class-sweep disposition rule, every peer this design does not repair names which exception applies.
 
-- **A structural guard requiring cleanup at every `mkdtempSync` site in `tests/`.** Reason (c): it is a new guard surface over the whole test tree, spanning far more sites than this arc's review scope, and it would need its own enrolment and convergence criterion. Filed with the §1.4 census as its incident evidence.
+- **The 56 non-amplified files (106 call sites) that also never clean up.** Reason (c): the repair spans enough sites to blow this arc's review scope, and a guard over the whole test tree is a new surface needing its own enrolment and convergence criterion. Explicitly NOT filed under "same defect, different file", which the disposition rule says is never sufficient on its own — the boundary is that these leak linearly with ordinary runs while the in-scope six are multiplied by a mutant loop. Filed with the §1.4 census as its incident evidence.
 - **Re-including the thirty-two-form case.** Reason (b): fenced by §1.1 as the ctloutline arc's ratified scope.
 - **Reclaiming the existing 781,949 directories.** Reason (a): whether to reclaim automatically, and where, is an operator decision this PR cannot settle.
 
