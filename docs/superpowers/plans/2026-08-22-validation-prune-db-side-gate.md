@@ -44,6 +44,34 @@ Every citation was read, not merely resolved.
 | `tests/log/appEventsSchema.test.ts:10` | `const url = assertLocalDbUrl(` |
 | `tests/mutation/source/registry.ts:15` | `sourcePath: string;` |
 
+### 0.1 Command-executability sweep
+
+Plan review r2 raised two instances of one shape — a command in this plan that cannot run as written
+(a transcript whose `python3` heredoc was replacement notation rather than a program, and a `pnpm heavy`
+with no command to wrap). Rather than repair the two named lines, every command this plan names was
+extracted from the document and run.
+
+The extraction is derived, not a hand list: fenced blocks come from
+`awk '/^```/{f=!f; next} f{print}'` over the plan, and inline commands from
+`grep -o '`[^`]*\(pnpm\|psql\|sed \|env \|python3\|node \)[^`]*`'`. Result, at the head this plan
+is repaired on:
+
+| command | where | outcome |
+| --- | --- | --- |
+| `sed -n '158,621p' … \| grep -c '^    table: "'` | §1, Task 4 | runs, prints `34` |
+| `psql … -1 -f supabase/migrations/20260822000000_prune_posture_gate.sql` | Task 1 | applies inside a rolled-back transaction; both functions become `plpgsql`, `prosecdef` and `proconfig` unchanged, `pg_get_function_arguments` still matches `retain interval DEFAULT '60 days'` |
+| `env -u TEST_DATABASE_URL pnpm vitest run tests/db/validation-schema-parity.test.ts` | Task 2 | runs; `8 passed (8)` clean, `2 failed \| 6 passed (8)` perturbed |
+| the manifest perturbation and restore | Task 2 | repaired above and RUN; the transcript is that run |
+| `pnpm gen:schema-manifest` | Task 2 | resolves to `tsx scripts/generate-schema-manifest.ts` |
+| `pnpm vitest run tests/db/pruneGate.db.test.ts` | Task 1 red | `pnpm vitest --version` prints vitest 4.1.5; the file is created by the task |
+| `pnpm vitest run tests/log/appEventsSchema.test.ts` | Task 3 red | runs |
+| the three `cron.unschedule` / `cron.schedule` / `cron.alter_job` mutations | Task 3 | every signature exists locally, including `alter_job(job_id bigint, …, active boolean)` |
+| `pnpm heavy pnpm test` | Task 4 | repaired above; the bare form exits 2 with a usage line |
+| `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check` | Task 4 | all three are declared `package.json` scripts |
+
+The AC-6 script against `vzakgrxqwcalbmagufjh` is the one command not run here: it is Task 2's own
+deliverable and it runs against validation after the surgical apply, which has not happened yet.
+
 ## 1. Meta-test inventory
 
 - **CREATES:** none.
@@ -95,8 +123,24 @@ marker and restores it in a `finally` — so this suite composes two helpers rat
   end, which the caller swallows. EVERY `select public.prune_*` in this suite is inside it, including
   the marker-`false` cases that are supposed to delete, and including AC-3's marker-row DELETE so the
   rollback restores the row as well as `withPosture` does.
-- One case asserts the rollback ACTUALLY happened by re-reading its fixture rows outside the
-  transaction and expecting zero, the shape at `tests/db/syncLogIndexesAndPrune.db.test.ts:180-186`.
+
+One case then asserts the rollback ACTUALLY happened, by re-reading its fixture rows outside the
+transaction and expecting zero — the shape at `tests/db/syncLogIndexesAndPrune.db.test.ts:180-186`.
+
+**Every call that is EXPECTED to raise is additionally isolated in a SAVEPOINT.** The `postgres`
+client (`postgres` 3.4.9, `package.json`) exposes `savepoint` on the transaction handle
+`sql.begin` yields, so the form is `tx.savepoint((sp) => sp`select public.prune_*()`)`. Postgres aborts
+a transaction at its first uncaught error, so a refusal sharing the enclosing transaction with any
+later statement makes that statement UNRUNNABLE rather than failing — AC-2's read-back is where that
+difference decides whether the criterion is proven or merely reported as an error. Spec §6 rule 2 is
+the requirement and names three permitted mechanisms; the savepoint is the one this suite uses.
+
+**That isolation rule is stated once and ranges over every case below**, rather than being attached to
+the case that first needed it. Its cover across the arc's two executable artifacts is complete and
+derived, not enumerated: in the suite, every case whose assertion is `rejects.toThrow(...)` — cases 1,
+2, 3's `true` and DELETED states, and 4 — takes the savepoint form; in AC-6's SQL script, every call
+already sits in its own `do $$ … exception when others then … $$;` block (spec §4's AC-6 shape), which
+is the plpgsql-handler mechanism of the same spec rule. No third artifact calls either prune.
 
 Cases, per function:
 
@@ -105,8 +149,11 @@ Cases, per function:
    suite that only caught the wrong error would pass against an ungated function, which is what spec R5
    found in the SQL half of AC-6.
 2. **AC-2.** Marker `true`, a row seeded past the default cutoff inside the transaction → the call
-   rejects and the row is still present when read back inside that same transaction. Excludes a gate
-   wired into one call path only, and a "gate" that never reaches the database.
+   rejects and the row is still present when read back inside that same transaction. The prune call is
+   the savepoint-isolated one described above; without that isolation the rejection aborts the
+   transaction and the read-back — the statement that carries the whole non-deletion claim — cannot
+   execute at all. Excludes a gate wired into one call path only, and a "gate" that never reaches the
+   database.
 3. **AC-3.** Three posture states per function: `false` → runs, returning a count equal to a global
    count measured in the same transaction; `true` → rejects; marker row DELETED → rejects. The third
    state is the killer for a `coalesce(..., false)` read — spec R1's P0 hole 3.
@@ -162,16 +209,34 @@ Layer 3's discrimination was verified at plan time rather than assumed, by pertu
 manifest and observing the red, then restoring it:
 
 ```
-$ python3 - <<'EOF'   # rewrite one function signature in the committed manifest
-   "prune_sync_log(retain interval) -> integer [DEFINER]"
-     -> "prune_sync_log_PERTURBED(retain interval) -> integer [DEFINER]"
-EOF
+$ cp supabase/__generated__/schema-manifest.json "$SCRATCH/manifest.backup.json"
+$ python3 -c "
+import pathlib
+p = pathlib.Path('supabase/__generated__/schema-manifest.json')
+s = p.read_text()
+a = 'prune_sync_log(retain interval) -> integer [DEFINER]'
+b = 'prune_sync_log_PERTURBED(retain interval) -> integer [DEFINER]'
+assert s.count(a) == 1, f'expected exactly one occurrence, found {s.count(a)}'
+p.write_text(s.replace(a, b, 1))
+"
 $ env -u TEST_DATABASE_URL pnpm vitest run tests/db/validation-schema-parity.test.ts
+  AssertionError: ... does not match a fresh introspection of the local DB
+  -     "prune_sync_log_PERTURBED(retain interval) -> integer [DEFINER]",
+  +     "prune_sync_log(retain interval) -> integer [DEFINER]",
+  ❯ tests/db/validation-schema-parity.test.ts:247:7
   Tests  2 failed | 6 passed (8)
-$ git checkout -- supabase/__generated__/schema-manifest.json
+$ cp "$SCRATCH/manifest.backup.json" supabase/__generated__/schema-manifest.json
 $ env -u TEST_DATABASE_URL pnpm vitest run tests/db/validation-schema-parity.test.ts
   Tests  8 passed (8)
 ```
+
+Two details of that transcript are load-bearing rather than incidental. The `assert s.count(a) == 1`
+is what makes the perturbation a known one-site edit instead of a silent no-op that would report the
+same green twice. And the restore is a **copy back from a backup taken first**, not
+`git checkout -- supabase/__generated__/schema-manifest.json`: `git checkout --` restores the file to
+HEAD, so on the Task 2 sequence — where the manifest has been REGENERATED and not yet committed — it
+would discard the regenerated manifest that is the task's actual deliverable. The backup copy restores
+what was there, which is what the step means.
 
 **GREEN.**
 
@@ -259,7 +324,9 @@ Run, in order, recording each transcript in §12:
    because this arc adds no table.
 4. `tests/docs/specsReadmeIndexParity.test.ts`, `tests/docs/_metaReviewRoundEconomy.test.ts`,
    `tests/docs/_metaLedgerMintBar.test.ts`, `tests/docs/_metaLedgerInProgress.test.ts`.
-5. The full suite under `pnpm heavy`, then `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
+5. `pnpm heavy pnpm test` — the wrapper takes the command as its argument and exits 2 with a usage
+   line when given none (`scripts/with-heavy-slot.py`), so the command it wraps is named here rather
+   than implied. Then `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
 
 
 ---
