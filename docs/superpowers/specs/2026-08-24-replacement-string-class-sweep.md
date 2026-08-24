@@ -151,6 +151,25 @@ that in the general instrument rather than in a second copy.
 them as `file:line  text` and asserts the list is empty. A finding is a name and a
 location; the gate proposes no repair.
 
+**The visitor descends through a matched call's receiver.** In `a.replace(x, y).replace(z, w)`
+the inner call is nested inside the outer call's callee, so a visitor that stops recursing once
+it has classified a call silently drops every link but the last. This is not hypothetical: it is
+the defect the round-2 repair of `count-capture-cover.mts` introduced in this very arc, and
+neither AC-1 (node kinds) nor AC-6 (a completely empty walk) would have caught it — a
+return-after-any-match variant of the shipped classifier reports 44 of 56 and passes both.
+
+**Twelve current sites are reachable only through a matched receiver**, and they are the
+regression corpus AC-1b pins, derived by
+`docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count/count-chained-receiver.mts`:
+
+```
+components/admin/roleRecognizeCopy.ts:127          tests/cross-cutting/psqlStartupFileSuppression.test.ts:2697
+lib/sync/feed/shapeHoldEntry.ts:29  (x2)           tests/docs/agentsHeavyPhaseRule.test.ts:914
+lib/test/serialAudit.ts:19          (x2)           tests/e2e/_pendingDiscardHarness.tsx:175
+scripts/audit-cn-operand-kinds.mjs:1019            tests/e2e/helpers/liveEntryToolchain.ts:191
+                                                   tests/e2e/helpers/walkerRoutes.ts:40  (x2)
+```
+
 ## 4. The count, and why the gate ships hard
 
 The probe record is the authority; the figures are quoted here at authoring time.
@@ -190,21 +209,20 @@ $ pnpm exec tsx …/count-capture-cover.mts            # which replacements carr
 
 So the gate reds nothing on its first run and ships `fail`.
 
-Shipping advisory would take the opposite trade: a 4-line diff now, three live product
-defects left in main, and a second full pipeline — worktree, two adversarial reviews, CI,
+Shipping advisory would take the opposite trade: a 4-line diff now, two live product defect
+sites left in main — six call sites, both of them reproduced by running the shipped code (§5) — and a second full pipeline — worktree, two adversarial reviews, CI,
 merge — to re-earn context this PR already holds. AGENTS.md's disposition rule names that
 as the default to avoid.
 
 ## 5. What the sweep actually found
 
 The row is filed `**Facing:** process`, and the count contradicts it in the useful
-direction. **Seven of the 52 sites, in three files**, are on live product paths carrying
+direction. **Six of the 52 sites, in two files**, are on live product paths carrying
 operator-authored text straight from the Google Sheets:
 
 | Site | The runtime value | Reachability |
 | --- | --- | --- |
 | `lib/sync/feed/shapeHoldEntry.ts`, `fill()` | `hold.entity_key`, held and proposed crew names and emails | A crew member named `A$'B` splices the rest of the summary into the middle of Doug's admin feed line. Names are free text in the sheet. |
-| `lib/parser/personalization.ts`, the stage-word rebuild | `STAGE_CANONICAL[cand] ?? cand` — the `?? cand` arm is sheet text | A role cell whose stage word is not in the canonical map is inserted as grammar. |
 | `components/admin/roleRecognizeCopy.ts`, `scopeLine` / `savedSummary` | the raw role-cell word | Rendered in the admin role-recognize card. |
 
 The third row is not a reading of the code, it is a run of it. Against the live tree at
@@ -229,6 +247,21 @@ expanded to "everything after the match" and spliced the rest of the document in
 `prettier --check` passed on the corrupted file and so did the script's own
 `next !== previous` write-assert; only a diff against the original caught it. Two independent
 occurrences in one day is the argument for a repo-wide judge rather than a third repair.
+
+A third product file, `lib/parser/personalization.ts:248`, was listed here in the first draft of
+this spec and does NOT belong. Its replacement is `STAGE_CANONICAL[cand] ?? cand`, and `cand`
+comes from `closedVocabMatch(cmp, STAGE_VOCAB, 1)` (`lib/parser/personalization.ts:229`), which
+returns a member of the vocab it was passed (`lib/parser/fuzzyMatch.ts:58`). `STAGE_VOCAB` is the
+four-element constant `["LOAD IN", "SET", "STRIKE", "LOAD OUT"]`
+(`lib/parser/personalization.ts:179`) and `STAGE_CANONICAL`
+(`lib/parser/personalization.ts:182`) is keyed by exactly those four, so the `?? cand` arm is
+dead and `corrected` is one of four fixed display strings. Provably `$`-free. The free-text value at that call is `detected`, which is the PATTERN
+argument, where a string matches literally and carries no grammar.
+
+It gets the wrap for hygiene and no behavioural test, because there is no behaviour to change —
+and AC-8 is written to exclude it deliberately. A "prove a `$`-bearing input round-trips
+literally" test there could only pass by feeding an input the function cannot receive, which is
+the premise-on-the-case's-own-inputs defect rather than coverage.
 
 Two more `lib/` sites are redaction paths rather than sheet text, and one of them is the
 sharpest finding in the sweep. `lib/log/sanitize.ts:6` substitutes the const
@@ -297,10 +330,35 @@ in-population site**:
 | --- | --- | --- |
 | `lib/observe/scrubSentryEvent.ts:18` | `TOKEN_PLACEHOLDER = "$1[shareToken-redacted]"` | `value.replace(SHOW_TOKEN_RE, (_m, prefix: string) => `${prefix}[shareToken-redacted]`)` |
 
-The other ten same-file consts resolve to plain literals and take the ordinary wrap. An
-offender whose replacement is a property access, template expression, or call holds a RUNTIME
-value — the defect the wrap exists to fix, not a capture reference to preserve — so their
-absence from the finding set is the expected reading. §8 limit 6 states that boundary.
+**The cover has three outcomes, and only two of them are answers.** Counted at the reviewed head,
+over all 56 offenders — the `docs/**` four included, since the cover does not know about §3.2's
+population subtraction:
+
+| Outcome | Sites | What it means |
+| --- | --- | --- |
+| Capture found | 2 | A `$` sequence is visible at the call or in a single same-file binding. Repair is capture-preserving. |
+| Vouched `$`-free | 9 | The replacement resolves to exactly ONE plain same-file string literal. The wrap provably cannot change behaviour. |
+| **Silent** | **45** | The cover can say nothing either way. |
+
+The silent bucket is the honest name for what used to be folded into "takes the ordinary wrap".
+A replacement that is a property access, a template expression, a call, or an identifier with no
+single literal binding holds a RUNTIME value, and a static pass that reads declarations cannot
+know whether that value will contain a `$` sequence — nor, more importantly, whether the author
+INTENDED one. For nearly all 45 the wrap is exactly right, because the runtime value reaching a
+replacement position IS the defect. But "nearly all" is not "all", and the cover's silence about
+a site is not a certificate about it.
+
+`tests/styles/_metaNewTabAnnouncement.test.ts:3697` is why the vouched count is nine rather than
+ten: its `hid` has EIGHT same-file bindings, so the repaired pass calls it ambiguous instead of
+guessing which one the call sees. That is the R6 rule doing its job, and it moved a site out of
+the vouched column rather than into it.
+
+So the repair rule for a silent site is READ IT, one line each, and the reading is what the
+commit records. §8 limit 6 states the boundary and the one-edit shape that makes it bite.
+
+Against §4's in-population arithmetic: of the two captures one is the excepted `docs/**` site, so
+the 52 repaired here divide as **1 capture-preserving + 9 vouched `$`-free + 42 silent**, and the
+51 wraps of §4 are those 9 plus those 42.
 
 The four exceptions, each naming its clause:
 
@@ -361,20 +419,37 @@ than as a round.
 4. **`docs/**` is unscanned** beyond a reported site count (§3.2).
 5. **The judge does not evaluate values.** It cannot tell a runtime value that can contain
    `$` from one that provably cannot; it reports both and the repair is identical.
-6. **The capture-preserving cover reads declarations, not values.** `count-capture-cover.mts`
-   (§6) settles which replacements carry a `$` sequence WRITTEN somewhere a static pass can
-   read: at the call, or in a string-literal const binding. It cannot see a `$` that only
-   exists at runtime — one read from a file, built by a template, or returned by a call. Those
-   are runtime values, which is the defect the wrap fixes rather than a capture to preserve, so
-   the limit costs nothing here; it is stated because the cover's pass C is a completeness
-   claim and a completeness claim needs its boundary written down. This limits the AUDIT that
-   classifies repairs, not the shipped judge, which reports every non-accepted form regardless.
+6. **The capture-preserving cover reads declarations, not values, and its silence is not a
+   certificate.** `count-capture-cover.mts` (§6) settles which replacements carry a `$` sequence
+   WRITTEN somewhere a static pass can read: at the call, or in a single same-file string-literal
+   binding. It positively finds 2 and positively vouches 9. About the other 45 it is SILENT, and
+   an earlier draft of this section wrongly called that boundary free on the grounds that a
+   runtime `$` is the defect rather than an intent.
+
+   That is not true, and one ordinary edit shows it: rewrite
+   `lib/observe/scrubSentryEvent.ts:15` as
+   `const TOKEN_PLACEHOLDER = ["$1", "[shareToken-redacted]"].join("")` and the value is
+   unchanged, the capture is still deliberate, and the cover drops from "capture found" to
+   silent with an empty residual — after which §6's rule would assign the ordinary wrap and
+   break the redaction:
+
+   ```
+   cover:      {"textual":false,"sameFile":false,"unresolved":true,"residual":false}
+   original:   https://example.test/show/rpas-central/[shareToken-redacted]?x=1
+   blind-wrap: https://example.test$1[shareToken-redacted]?x=1
+   ```
+
+   The mitigation is not a better resolver — that is the widening this arc keeps declining — but
+   the repair rule in §6: a silent site is READ before it is wrapped. This limits the AUDIT that
+   classifies repairs; the shipped judge is unaffected, because it reports every non-accepted
+   form regardless of what the cover can say about it.
 
 ## 9. Acceptance criteria
 
 | ID | Criterion |
 | --- | --- |
 | AC-1 | `judgeSource` accepts exactly the four node kinds in §3.1 and reports every other second-argument form, with one fixture case per accepted kind and per reported kind. |
+| AC-1b | A CHAINED call reports every offender in the chain, not only the outermost: `s.replace(a, v).replace(b, w)` yields two findings, and a three-link chain yields three. The repo-wide assertion additionally reconciles its total against `count-conservative.mts`, so a visitor that stops descending cannot pass by agreeing with itself. |
 | AC-2 | Transparent wrappers resolve: `("x" as string)`, `("x")`, `(fn!)` and a `satisfies` form each classify as their inner expression. |
 | AC-3 | A call with fewer than two arguments and no spread is not-in-population, counted, and never reported. |
 | AC-3b | A call with a `SpreadElement` at argument index 0 or 1 is REPORTED, not bucketed as not-in-population — asserted for `s.replace(...args)`, `s.replace(...args, b)` where `b` is an accepted literal, and `s.replace(a, ...rest)`. |
@@ -382,7 +457,7 @@ than as a round.
 | AC-5 | The repo-wide assertion reports zero offenders at the PR's head. |
 | AC-6 | The guard's premise is executable: the suite fails loudly if the walk finds no call sites at all, so a broken walker cannot read as a clean bill. |
 | AC-7 | All 52 in-population offenders are repaired; the four `docs/**` sites are outside the population by rule, not by an enumerated exemption. |
-| AC-8 | Each of the three product-path files in §5 carries a behavioural test proving a `$`-bearing input now round-trips literally. |
+| AC-8 | Each of the two live product-path files in §5 carries a behavioural test proving a `$`-bearing input now round-trips literally, in the `$'`, `$&` and `` $` `` spellings. `lib/parser/personalization.ts` is deliberately excluded: its replacement is a four-value closed vocabulary, so no input can exercise the claim and a test there would assert on a fixture the function cannot receive. |
 | AC-8b | `scrubSentryEvent` keeps its `$1` capture semantics through the repair: a test asserts a scrubbed `/show/<slug>/<token>` URL still carries the slug, and fails against the blind-wrap form. |
 | AC-9 | The scanner is enrolled in `tests/mutation/source/registry.ts` with a score at or above its floor and an empty unaccepted-survivor set. |
 

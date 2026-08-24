@@ -175,25 +175,20 @@ unsoundness §3 declines for the judge. Pass B now records EVERY binding per nam
 than one as unresolved rather than guessing, and the script mirrors the judge's wrapper and
 spread rules explicitly. Removing that duplication is the spec's structural repair; see spec §6.
 
-```
-$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count/count-capture-cover.mts
-DOLLAR-BEARING  lib/observe/scrubSentryEvent.ts:18   TOKEN_PLACEHOLDER = "$1[shareToken-redacted]"
-plain           lib/log/sanitize.ts:6                REDACTED = "[email-redacted]"
-plain           lib/test/serialAudit.ts:19           DEEP = "\u0000DEEP\u0000"
-plain           lib/test/serialAudit.ts:19           DEEP_SUFFIX = "\u0000DEEPSUF\u0000"
-plain           lib/test/serialAudit.ts:19           STAR = "\u0000STAR\u0000"
-plain           scripts/audit-cn-operand-kinds.mjs:1019   other = "active ? \"bg-on\" : \"bg-off\""
-plain           scripts/audit-cn-operand-kinds.mjs:1019   sanctioned = "tone === \"show\" ? …"
-plain           scripts/extract-admin-log-only-codes.ts:38  ESCAPED_PIPE_SENTINEL = "<<ESCAPED-PIPE>>"
-plain           tests/admin/needsAttention.test.ts:163      driveFileName = "Validation — Normal day"
-plain           tests/paneCompaction/driver.test.ts:40      NONCE = "0123456789abcdef0123456789abcdef"
-plain           tests/styles/_metaNewTabAnnouncement.test.ts:3697  hid = "<span aria-hidden=\"true\">Go</span>"
-```
+The block that stood here was `count-dollar-consts.mts`'s row-per-binding output, left in place
+under the surviving script's name when that script was superseded — it does not reproduce from
+`count-capture-cover.mts`, which emits summary counts. Spec round 3 caught it. The current
+output is in §8, stamped.
 
-**Eleven of the 56 resolve to a same-file const literal, and exactly one is
-`$`-bearing:** `lib/observe/scrubSentryEvent.ts:18`, where `$1` carries the
-`/show/<slug>/` prefix through the Sentry URL scrub. Its repair is the capture-preserving
-form, not the wrap. The other ten take the wrap unchanged.
+**What the cover establishes, at the reviewed head:** two capture-preserving sites found
+positively — `lib/observe/scrubSentryEvent.ts:18`, where `$1` carries the `/show/<slug>/` prefix
+through the Sentry URL scrub, and the already-excepted `docs/**` one. Nine sites vouched
+`$`-free, each resolving to exactly one plain same-file literal. And **45 about which the cover
+is silent**, which is not a clean bill: see spec §6 and its documented limit 6.
+
+`tests/styles/_metaNewTabAnnouncement.test.ts:3697` moved from vouched to silent when pass B
+stopped guessing — its `hid` has eight same-file bindings — which is why the vouched count is
+nine and not the ten an earlier revision claimed.
 
 The derivation resolves const identifiers only. An offender whose replacement is a
 property access, template expression, or call holds a RUNTIME value — that is the defect
@@ -220,8 +215,8 @@ intended literal: feat/$&     runtime output: feat/BRANCH     silent corruption:
 The class sweep, over every `replace`/`replaceAll` call in the tracked population:
 
 ```
-$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count/count-unclassifiable-shapes.mts
-replace/replaceAll calls: 1204
+$ pnpm exec tsx …/count-unclassifiable-shapes.mts            @ 1af34932f
+replace/replaceAll calls: 1206
   spread at index 0 or 1 (UNCLASSIFIABLE):     0
   spread only at index >1 (indexing intact):   0
   zero arguments:                              0
