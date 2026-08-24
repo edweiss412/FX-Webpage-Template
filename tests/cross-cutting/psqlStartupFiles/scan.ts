@@ -3512,7 +3512,20 @@ function blankRanges(source: string, ranges: Array<[number, number]>): string {
   if (ranges.length === 0) return source;
   const out = source.split("");
   for (const [start, end] of ranges) {
-    for (let at = start; at < end && at < out.length; at++) {
+    // No clamp against `out.length`: every range here comes from the YAML parser
+    // reading the SAME string this blanks, and `split("")` preserves length, so
+    // `end <= out.length` holds and `at < end` already bounds the write. The clamp
+    // that stood here was dead in shipped code and existed only as a mutation site.
+    //
+    // FALSIFIER: a caller passing ranges derived from a DIFFERENT string than the
+    // one it blanks. That is the only shape that leaves `end` unbounded.
+    //
+    // Flush (`end === out.length`) IS reachable — a quoted scalar ending a file with
+    // no trailing newline. Measured there, a one-past-the-end bound appends and
+    // returns 42 characters for a 41-character source, breaching the byte count this
+    // function documents. No FINDING moves on that input, though, so the deciding
+    // case for that bound is the flow-mapping fixture in the suite, not this one.
+    for (let at = start; at < end; at++) {
       if (out[at] !== "\n") out[at] = " ";
     }
   }

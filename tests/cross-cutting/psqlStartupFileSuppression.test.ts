@@ -7765,4 +7765,29 @@ describe("YAML quoted scalar advisory — the channel that lexes the whole file"
       scanShellIndirection(source, "x.sh").map((hit) => ({ line: hit.line, text: hit.text })),
     ).toEqual([{ line: 1, text: CANONICAL_TARGET }]);
   });
+
+  // The blanker writes over [start, end), and `end` is EXCLUSIVE. Every other
+  // fixture here ends its quoted scalar at a line break, and the blanker refuses
+  // to overwrite a newline, so a one-past-the-end bound is invisible to all of
+  // them — they would pass unchanged if the bound were wrong. This is the shape
+  // that separates: a flow mapping, where the byte at `end` is the comma, and a
+  // shell assignment flush against it. Blank that comma and `PSQL=/opt/psql`
+  // becomes a word of its own, which the lexer then reads as an indirection —
+  // a FABRICATED hit, the forbidden direction this arc exists to close.
+  test("AC-2: the blank stops before `end`, so a flush separator is not consumed", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      '      - {run: "echo hi",PSQL=/opt/psql}',
+      "",
+    ].join("\n");
+    const marker = '"echo hi"';
+    const afterClosingQuote = source[source.indexOf(marker) + marker.length];
+    premiseHolds(
+      "the quoted scalar is followed by a NON-newline byte — the only shape a one-past-the-end blank can be seen through",
+      afterClosingQuote !== "\n" && afterClosingQuote !== undefined,
+    );
+    expect(scanShellIndirection(source, WORKFLOW_FILE)).toEqual([]);
+  });
 });

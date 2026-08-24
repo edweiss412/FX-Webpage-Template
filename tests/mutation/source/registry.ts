@@ -2467,6 +2467,47 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // snapshot: the ratchet against silent regression is the empty unaccepted
     // set plus the declared kind counts, and at 1 a future accepted gap must
     // move this number rather than hide under headroom.
+    // RE-DERIVED AGAIN 2026-08-24 for the YAML run-scalar quoting arc
+    // (BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE). The vector went 74 -> 81 mutants
+    // and 26 -> 30 rows as the decode path landed, and then 81 -> 80 because this
+    // arc's own gate run found TWO UNACCEPTED SURVIVORS and one of them was
+    // repaired by DELETING its site rather than covering it.
+    //
+    // Both survivors were `relational-boundary` on one line this arc introduced,
+    // the blanking loop in `blankRanges`:
+    //
+    //     for (let at = start; at < end && at < out.length; at++)
+    //
+    // `at < out.length` was DEAD. Every range reaching that loop comes from the
+    // YAML parser reading the SAME string being blanked, and `split("")` preserves
+    // length, so `end <= out.length` holds and `at < end` already bounds the write.
+    // Probed over 9 ranges across 6 sources including multi-byte, astral and a file
+    // with no trailing newline: `end === out.length` is REACHABLE (a quoted scalar
+    // ending the file) and never exceeded. Deleted per the standing narrowing rule,
+    // matching the `depth > 8` precedent above — which is why this surface carries
+    // NO equivalence row for it. There is no row because there is no site.
+    // FALSIFIER, if anyone reinstates a clamp: a caller passing ranges derived from
+    // a DIFFERENT string than the one it blanks.
+    //
+    // Worth recording beside that deletion, because the next reader cannot re-derive
+    // it cheaply and the loose version of it is wrong: flush is exactly where a
+    // one-past-the-end bound appends, returning 42 characters for a 41-character
+    // source and breaching the byte count `blankRanges` documents — but NO FINDING
+    // moves on that input. So dropping the clamp makes the surviving `at <= end`
+    // mutation more observable at the INVARIANT level only, not at the finding
+    // level, and flush is a documented consequence rather than a second killer.
+    //
+    // `at <= end` is the other survivor and is NOT equivalent, so it took a deciding
+    // case instead of a row. Every fixture in the suite ended its quoted scalar at a
+    // line break, and the blanker refuses to overwrite a newline, so all of them
+    // passed the wrong bound unchanged. The separating input is a flow mapping,
+    // where the byte at `end` is a comma with a shell assignment flush against it:
+    // blank that comma and `PSQL=/opt/psql` becomes a word of its own, which the
+    // lexer reads as an indirection — a FABRICATED hit, the forbidden direction this
+    // arc exists to close. Pinned at `psqlStartupFileSuppression.test.ts` by
+    // "AC-2: the blank stops before `end`", whose premise asserts the byte after the
+    // closing quote is not a newline, so a reformat that moves the scalar to the end
+    // of a line fails the premise instead of silently ceasing to discriminate.
     scoreFloor: 1,
     // `--no-psqlrc` recognition: the suite pins [["--no-psqlrc"], true]
     // directly, so a flipped verdict is unmissable. The bare string occurs four
@@ -2598,26 +2639,26 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "The dash run in INTERPRETER_POSITIONAL_BINDING is followed by [A-Za-z-]*, a character class that ALREADY contains a dash, so -{1,2}[A-Za-z-]* and -{1,3}[A-Za-z-]* denote the same language: one dash followed by any run of letters and dashes. Every extra dash the widened quantifier could consume is a dash the class consumes instead, so no input matches one and not the other, and the pattern is only ever consulted through .test (scan.ts, symbol INTERPRETER_POSITIONAL_BINDING, used in scanShellIndirection). Its twin at 2372:38 has the follower class [A-Za-z0-9], which contains no dash - that one is killed by a test rather than blessed here. Boundary pin: 'an extra dash in the -c spelling still reports the positional binding'.",
       },
       {
-        siteId: "relational-boundary:3737:54:<><=",
+        siteId: "relational-boundary:3750:54:<><=",
         kind: "equivalent",
         reason:
           "The `logical` continuation loop can take the extra iteration only when the accumulated text still ends with a backslash at k + 1 === lines.length - that is, when the final element of `lines` ends with one. That iteration appends lines[k+1] ?? '' (the empty string) and replaces the trailing backslash with a SPACE, after which the loop's own trailing-backslash test fails and it exits, so the mutant's `logical` differs from the original's in exactly its last character. Neither consumer can tell those apart: the quoted-binding pattern requires a closing quote, which neither a backslash nor a space supplies, and every whitespace run in INTERPRETER_POSITIONAL_BINDING is followed by required content that the extra iteration adds nothing to. Both characters are non-word, so a trailing word boundary holds identically (scan.ts, symbol scanShellIndirection). Boundary pin: 'a quoted binding split by a backslash continuation is one assignment'.",
       },
       // ---- equivalent: bounds a parsed YAML document cannot reach ---------
       {
-        siteId: "relational-boundary:4039:31:<><=",
+        siteId: "relational-boundary:4052:31:<><=",
         kind: "equivalent",
         reason:
           "The alias-resolution loop cannot approach its bound: the yaml parser refuses to register an anchor on an alias node - probed on this tree, `a: &x one` / `b: &y *x` / `c: *y` throws 'Unresolved alias (the anchor must be set before the alias): y' - so an Alias always resolves to a NON-alias node and resolveNode returns on its second pass with `depth` never exceeding 1. A bound of 32 versus 33 is unreachable in either direction (scan.ts, symbol resolveRunShells, helper resolveNode). Boundary pin: 'an aliased run body resolves, and its site is pinned to the run key'.",
       },
       {
-        siteId: "relational-boundary:4205:35:<><=",
+        siteId: "relational-boundary:4218:35:<><=",
         kind: "equivalent",
         reason:
           "The depth guard in the YAML alias walk's `resolved` helper: `depth < 32` widened to `depth <= 32` grants ONE extra iteration of a loop that returns as soon as `asAlias?.resolve` is not a function, so a document whose alias chain is shorter than 32 -- which every document in the corpus is -- reaches the same fixed point either way. RESTORED after being briefly removed on diff round 3. This site is the arc's own instance of BL-MUTATION-SCORE-NONDETERMINISM and the evidence is recorded rather than smoothed over: across FOUR observations with byte-identical scan.ts (a1f9db0c) and deciding suite (cb45f9ea) it reported SURVIVOR (discovery), then KILLED (26-row run), then SURVIVOR again (25-row run), while a hand-applied mutant survives the suite 3/3. Three of four say it survives, so the row stands; the one that disagreed is why the row was wrongly dropped for one round. Do NOT remove this row on a single stale-row report -- re-run first.",
       },
       {
-        siteId: "relational-boundary:4315:32:<><=",
+        siteId: "relational-boundary:4328:32:<><=",
         kind: "equivalent",
         reason:
           "`range` is the run VALUE node's range and `keyRange` its own key's, and equality between them is unreachable: in a block mapping the key's characters and the ':' separator occupy the offsets before the value, so a non-alias value starts strictly after its key, while an alias resolves to an anchor defined elsewhere in the document - never at the byte offset this pair's key scalar occupies. The `?? 0` fallback cannot produce equality either, because a pair produced by parseDocument always carries a key range; it is defensive against the optional chain, not a reachable state (scan.ts, symbol scanWorkflowSource, the alias anchor comparison). Boundary pin: 'an aliased run body resolves, and its site is pinned to the run key'.",
