@@ -18,8 +18,41 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { premise, premiseHolds } from "../_shared/premise";
+
+/**
+ * FILE-LEVEL budget, because the cost driver is file-wide and enumerating which cases carry it
+ * proved unreliable three times.
+ *
+ * WHAT GOES WRONG WITHOUT IT. Cases here build scratch corpora at ~11 MB each -- the module's own
+ * §5.6 hazard means they cannot be shared, since the scanner caches parsed files by absolute path
+ * and never invalidates. On a quiet box the heaviest run in a few seconds. Under contention they do
+ * not: measured on one machine on 2026-08-24, `key membership is by compiled declaration` ran 11.4s
+ * at load 13 and BLEW the 30s default at load 27, while `the key and the oracle read ONE selector
+ * rule` measured 56.3s outright. Both reds were on UNMUTATED source.
+ *
+ * That costs twice. `unit-suite` is a REQUIRED context, so it is a latent red on a required check --
+ * the same hazard commit 6aa429064 raised the thirty-two-form case to 120s to remove, which fixed
+ * the instance and left the class. And under the mutation harness a suite that reds for ANY reason
+ * records the mutant as KILLED, so a contended run manufactures FALSE KILLS: the 2026-08-24 scored
+ * run recorded `logical-connector:291:30:&&>||` and `integer-literal:294:41:0>1` as killed, and both
+ * were re-probed against a green baseline and SURVIVE.
+ *
+ * WHY FILE-LEVEL RATHER THAN PER-CASE. Three attempts to enumerate the at-risk cases mechanically
+ * disagreed with each other: counting call sites returned zero (the helper is written once inside a
+ * `.map` over an N-element literal), a map-aware count missed two cases that measurement caught, and
+ * measurement missed one the structural count caught. A budget that must be attached to the right
+ * subset is one refactor away from missing a case. This attaches to all of them, and it is inert on
+ * a passing test -- it can only ever prevent a spurious failure, never mask a real one, because a
+ * failing assertion still fails immediately. The thirty-two-form case keeps its own explicit 120s
+ * below: it is now subsumed by this, but its comment documents a reason worth keeping at the call.
+ *
+ * `vi.setConfig` beats the config file, which is what makes this work under BOTH the root config and
+ * `mutantOverlay.config.ts`. Precedent for a file raising its own budget: the 90s doc-scan noted in
+ * `tests/cross-cutting/db-test-timeout-floor.test.ts`.
+ */
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 import { normalizeToken } from "./_childlessGrowableScan";
 import {
   CATEGORY_BARS,
