@@ -33,6 +33,17 @@ on:
       # until the nightly cron). They are the comparison target, not just an input.
       - "public/help/screenshots/**"
       - "scripts/capture-core.ts"
+      # The instrument's own modules. Without these entries a PR editing only
+      # the detector or only the evidence parser changes what the gate DOES
+      # while the gate never runs -- the defect this filter's own comment
+      # records against public/fonts/**.
+      - "scripts/capture-render-fault.ts"
+      - "scripts/capture-layer0.ts"
+      - "scripts/capture-refusal.ts"
+      - "scripts/capture-geometry.ts"
+      - "scripts/capture-evidence.ts"
+      - "scripts/help-screenshots-routes.ts"
+      - "scripts/verify-capture-evidence.ts"
       - "scripts/help-screenshots.ts"
       - "scripts/help-screenshots.manifest.ts"
       - "scripts/help-screenshots-fixture-range.ts"
@@ -107,13 +118,14 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .next-screenshots-help/cache
-          key: ${{ runner.os }}-nextcache-screenshots-v2-${{ hashFiles('app/**', 'components/**', 'lib/data/**', 'lib/audit/**', 'lib/admin/**', 'lib/messages/**', 'lib/parser/**', 'fixtures/shows/**', 'supabase/seed.ts', 'supabase/seedWalkerFixtures.ts', 'supabase/migrations/**', 'public/fonts/**', 'scripts/capture-core.ts', 'scripts/help-screenshots.ts', 'scripts/help-screenshots.manifest.ts', 'scripts/help-screenshots-fixture-range.ts', 'scripts/capture-launch-args.ts', 'scripts/ci/**', 'playwright.screenshots.config.ts', 'tests/e2e/helpers/**', '.github/workflows/screenshots-drift.yml', 'pnpm-lock.yaml', 'next.config.ts', 'package.json') }}
+          key: ${{ runner.os }}-nextcache-screenshots-v2-${{ hashFiles('app/**', 'components/**', 'lib/data/**', 'lib/audit/**', 'lib/admin/**', 'lib/messages/**', 'lib/parser/**', 'fixtures/shows/**', 'supabase/seed.ts', 'supabase/seedWalkerFixtures.ts', 'supabase/migrations/**', 'public/fonts/**', 'scripts/capture-core.ts', 'scripts/capture-render-fault.ts', 'scripts/capture-layer0.ts', 'scripts/capture-refusal.ts', 'scripts/capture-geometry.ts', 'scripts/capture-evidence.ts', 'scripts/help-screenshots-routes.ts', 'scripts/verify-capture-evidence.ts', 'scripts/help-screenshots.ts', 'scripts/help-screenshots.manifest.ts', 'scripts/help-screenshots-fixture-range.ts', 'scripts/capture-launch-args.ts', 'scripts/ci/**', 'playwright.screenshots.config.ts', 'tests/e2e/helpers/**', '.github/workflows/screenshots-drift.yml', 'pnpm-lock.yaml', 'next.config.ts', 'package.json') }}
       - name: Capture screenshots in pinned Playwright image
         run: |
           docker run --rm --platform linux/amd64 --network host \
             -v "$PWD:/work" \
             -w /work \
             -e CI=true \
+            -e RUNNER_NAME -e RUNNER_ARCH -e RUNNER_OS -e GITHUB_EVENT_NAME \
             mcr.microsoft.com/playwright:v1.59.1-jammy \
             bash -lc "apt-get update && apt-get install -y postgresql-client && corepack enable && pnpm screenshot:help"
       # The Docker build ran as root, so .next-screenshots-help/cache is now
@@ -169,8 +181,20 @@ jobs:
           key: ${{ steps.nextcache-restore.outputs.cache-primary-key }}
       # On drift, upload the freshly-captured bytes so the diff is inspectable
       # (PR #22 burned multiple round-trips diagnosing a one-file drift blind).
-      - name: Upload drifted captures (diagnosis artifact)
-        if: failure()
+      # Parse the evidence record, branching on the run's OUTCOME. `if: always()`
+      # because the capture step's default success condition skips every later
+      # step on a refusal -- exactly when a record describing that refusal is
+      # what matters. The flagless invocation is deliberate: --local waives the
+      # four runner/trigger fields and would silently satisfy AC-5 in CI.
+      - name: Verify capture evidence record
+        if: always()
+        run: pnpm tsx scripts/verify-capture-evidence.ts
+
+      # Uploaded on BOTH outcomes. A passing run must leave a record or the
+      # comparison population can never be built, which is the defect that made
+      # occurrence B nearly unrecoverable.
+      - name: Upload captures and evidence record (diagnosis artifact)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: drifted-screenshots

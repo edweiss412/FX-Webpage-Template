@@ -84,6 +84,61 @@ describe("CI speedup — concurrency cancel-in-progress on every PR-firing workf
 describe("CI speedup — screenshots-drift runs per-PR only on render-affecting paths", () => {
   const yaml = readWorkflow("screenshots-drift.yml");
 
+  // Failure mode: the capture runs inside `docker run` forwarding only
+  // `-e CI=true`, so neither the three runner variables nor GITHUB_EVENT_NAME
+  // reaches the process writing the evidence record. The instrument would
+  // record those four fields empty forever, and the cross-trigger row of the
+  // discrimination table could never fire at all.
+  it("forwards all four identity variables into the capture container", () => {
+    for (const name of ["RUNNER_NAME", "RUNNER_ARCH", "RUNNER_OS", "GITHUB_EVENT_NAME"]) {
+      expect(
+        new RegExp(`-e ${name}(?![=\\w])`).test(yaml),
+        `screenshots-drift.yml must forward ${name} with the value-less \`-e ${name}\` form, ` +
+          "which passes the HOST value through; `-e NAME=value` sets a literal instead.",
+      ).toBe(true);
+    }
+    // Both forms must be present: CI is set as a literal, the four are forwarded.
+    expect(yaml).toContain("-e CI=true");
+  });
+
+  it("runs the evidence parser without --local, and on both outcomes", () => {
+    expect(yaml).toContain("scripts/verify-capture-evidence.ts");
+    expect(
+      /verify-capture-evidence\.ts(?!.*--local)/.test(yaml),
+      "the CI invocation must be flagless: --local waives the four passthrough " +
+        "fields and would silently satisfy AC-5 in CI.",
+    ).toBe(true);
+    const parserBlock = yaml.slice(yaml.indexOf("Verify capture evidence record"));
+    expect(parserBlock.slice(0, 200)).toContain("if: always()");
+  });
+
+  it("uploads the evidence artifact on BOTH outcomes, not only on failure", () => {
+    const uploadBlock = yaml.slice(yaml.indexOf("Upload captures and evidence record"));
+    expect(uploadBlock.slice(0, 200)).toContain("if: always()");
+    expect(
+      uploadBlock.slice(0, 200).includes("if: failure()"),
+      "a passing run must leave a record, or the comparison population can never be built",
+    ).toBe(false);
+  });
+
+  // Without these entries a PR editing only the detector or only the parser
+  // changes what the gate DOES while the gate never runs.
+  it("enrols every instrument module in the paths allow-list", () => {
+    for (const script of [
+      "scripts/capture-render-fault.ts",
+      "scripts/capture-layer0.ts",
+      "scripts/capture-refusal.ts",
+      "scripts/capture-geometry.ts",
+      "scripts/capture-evidence.ts",
+      "scripts/help-screenshots-routes.ts",
+      "scripts/verify-capture-evidence.ts",
+    ]) {
+      expect(yaml, `${script} must be in the screenshots-drift paths allow-list`).toContain(
+        `"${script}"`,
+      );
+    }
+  });
+
   it("scopes the pull_request trigger to a paths allow-list (not a bare trigger)", () => {
     expect(
       /\n {2}pull_request:\s*\n {4}paths:/.test(yaml),
