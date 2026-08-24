@@ -3532,8 +3532,34 @@ function scanShellIndirectionIn(
   yamlAware: boolean,
 ): IndirectionHit[] {
   const hits: IndirectionHit[] = [];
-  const lines = source.split("\n");
-  const commentAt = commentIndexPerLine(source, "hash");
+  const isYaml = yamlAware && YAML_EXTENSIONS.includes(extensionOf(file));
+  // A QUOTED executable scalar's delimiters belong to YAML, not to the shell,
+  // so the scalar is blanked out of the text this function reads AS SHELL and
+  // rescanned below from its DECODED value instead.
+  //
+  // ONE BLANKED VIEW, FEEDING EVERY READING. This function reads the file's
+  // text three ways — the lexer, the per-LINE routes (`githubEnvWrite`, the
+  // here-string text route, interpreter positionals), and the here-string
+  // binding pass — and blanking only the lexer's input was not enough. The line
+  // routes went on reading the raw quoted scalar, so a scalar the rescan
+  // already reported was reported a SECOND time by a line route: same line,
+  // same scalar, two hits, where the plain spelling of the identical body
+  // yields one. Loud rather than silent, so not the dangerous direction, but a
+  // duplicate is still a finding a reader must reconcile, and `line` and `text`
+  // are both fields the AC-5 digest covers.
+  //
+  // Blanking preserves byte count AND line count, so `shellText` is coordinate
+  // identical to `source`: every offset and every line index still names the
+  // same position, which is what lets one view serve all three readings.
+  const quotedExecutables = isYaml ? quotedExecutableScalars(source) : [];
+  const shellText = isYaml
+    ? blankRanges(
+        source,
+        quotedExecutables.map((scalar) => scalar.range),
+      )
+    : source;
+  const lines = shellText.split("\n");
+  const commentAt = commentIndexPerLine(shellText, "hash");
 
   // STRUCTURAL, not spelling-by-spelling. A command SUBSTITUTION whose body
   // mentions psql but yields no psql SITE is executable discovery — the reader
@@ -3555,26 +3581,14 @@ function scanShellIndirectionIn(
   // that leading whitespace for EVERY file type; this keeps the strip only
   // where it is the document's own semantics. Newlines are preserved, so every
   // word's `line` still names its physical line.
-  const isYaml = yamlAware && YAML_EXTENSIONS.includes(extensionOf(file));
-  // A QUOTED executable scalar's delimiters belong to YAML, not to the shell,
-  // so the scalar is blanked out of the text this lexer sees and rescanned
-  // below from its DECODED value instead.
-  //
-  // ORDERING IS LOAD-BEARING, and it is the reason blanking happens HERE rather
-  // than one line down. Parser ranges are offsets into the ORIGINAL source, and
-  // the continuation transform on the next line REMOVES BYTES. Blank after it
-  // and the blanking overruns by exactly the bytes it removed, straight into
-  // the following line: on a flow scalar carrying one physical continuation the
-  // transform removes ten bytes and the next step's `- run:` key is destroyed,
-  // so that step stops being a run scalar and its finding is silently erased —
-  // in the very channel this repair exists to un-silence.
-  const quotedExecutables = isYaml ? quotedExecutableScalars(source) : [];
-  const lexedSource = isYaml
-    ? blankRanges(
-        source,
-        quotedExecutables.map((scalar) => scalar.range),
-      ).replace(/\\\n[ \t]+/g, "\\\n")
-    : source;
+  // ORDERING IS LOAD-BEARING: the blank above happens in SOURCE coordinates,
+  // and the continuation transform here REMOVES BYTES. Blank after it and the
+  // blanking overruns by exactly the bytes it removed, straight into the
+  // following line — on a flow scalar carrying one physical continuation the
+  // next step's `- run:` key is destroyed, so that step stops being a run
+  // scalar and its finding is silently erased, in the very channel this repair
+  // exists to un-silence.
+  const lexedSource = isYaml ? shellText.replace(/\\\n[ \t]+/g, "\\\n") : shellText;
   const targets: RedirectionTarget[] = [];
   const redirections: Redirection[] = [];
   const words = lexShellWords(lexedSource, nested, targets, redirections);
@@ -3638,7 +3652,7 @@ function scanShellIndirectionIn(
   // Arm 1's word route, kept as its OWN set rather than merged into
   // `bindingLines`, so the two routes stay distinguishable to a reader and to a
   // mutant even though both collapse to the same emission below.
-  const hereStringLines = hereStringBindingLines(source, targets, words, redirections, file);
+  const hereStringLines = hereStringBindingLines(shellText, targets, words, redirections, file);
   const visitBody = (body: NestedShell): void => {
     if (body.backtick && backticksAreMarkdown) return;
     const inner: NestedShell[] = [];

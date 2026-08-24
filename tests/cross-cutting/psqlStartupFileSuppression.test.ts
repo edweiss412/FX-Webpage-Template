@@ -7550,6 +7550,38 @@ describe("YAML quoted scalar advisory — the channel that lexes the whole file"
     expect(scanShellIndirection(stepScalar("run", '"echo hello"'), WORKFLOW_FILE)).toEqual([]);
   });
 
+  // ONE SCALAR, ONE READING. This channel has arms that read the raw source
+  // LINES (the `githubEnvWrite` route, the here-string text route, interpreter
+  // positionals) alongside arms that read the LEXED words. Blanking only the
+  // lexer's input leaves the raw-line arms still looking at the quoted scalar,
+  // so a scalar the re-entry already reported gets reported a second time by a
+  // line arm — same line, same scalar, two hits, where the plain spelling of
+  // the identical body yields one.
+  //
+  // Loud rather than silent, so not the dangerous direction, but wrong twice
+  // over: a duplicate is a finding a reader has to reconcile, and `line` and
+  // `text` are both fields the AC-5 digest covers, so it would move the
+  // corpus finding set if any such scalar existed in it.
+  //
+  // The expectation is DERIVED from the plain spelling rather than written
+  // down: whatever the channel reports for the unquoted body is what it must
+  // report for the quoted ones, since quoting is not supposed to change what
+  // the scanner sees.
+  test.each([
+    ["SINGLE-quoted", (body: string) => `'${body}'`],
+    ["DOUBLE-quoted", (body: string) => `"${body}"`],
+  ])("AC-2: a %s scalar is reported ONCE, not once per reading route", (_label, quote) => {
+    const body = "echo PSQL=psql >> $GITHUB_ENV";
+    const plainCount = scanShellIndirection(stepScalar("run", body), WORKFLOW_FILE).length;
+    premiseHolds(
+      "the plain spelling of this body really is reported, so the parity assertion is not comparing two zeros",
+      plainCount === 1,
+    );
+    expect(scanShellIndirection(stepScalar("run", quote(body)), WORKFLOW_FILE)).toHaveLength(
+      plainCount,
+    );
+  });
+
   // The new code is gated on the YAML extension — the same predicate that
   // already selects the continuation transform — so a `.sh` file never reaches
   // it. Verified against the tree BEFORE the change and re-verified after,
