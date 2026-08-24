@@ -4,6 +4,7 @@ import { join } from "node:path";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GeometryMismatchError, checkGeometry } from "@/scripts/capture-geometry";
+import { rejectionFrom } from "./_expectRejection";
 
 let dir: string;
 
@@ -40,8 +41,9 @@ describe("the geometry layer fires on occurrence A's real shape", () => {
   // returned no marked JSX.
   it("throws naming BOTH dimensions on 320x164 against 320x291", async () => {
     await baseline("strip", 320, 164);
-    const error = await checkGeometry(await png(320, 291), join(dir, "strip.webp")).catch(
-      (e: unknown) => e as GeometryMismatchError,
+    const error = await rejectionFrom<GeometryMismatchError>(
+      checkGeometry(await png(320, 291), join(dir, "strip.webp")),
+      "checkGeometry on a dimension change",
     );
 
     expect(error).toBeInstanceOf(GeometryMismatchError);

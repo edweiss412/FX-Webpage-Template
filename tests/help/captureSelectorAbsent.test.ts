@@ -1,6 +1,7 @@
 import { chromium, type Browser, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SELECTOR_ABSENT, SelectorAbsentError, quiesceWithLayer0 } from "@/scripts/capture-layer0";
+import { rejectionFrom } from "./_expectRejection";
 
 let browser: Browser;
 
@@ -20,23 +21,6 @@ async function pageWith(html: string): Promise<Page> {
 
 const FAST = { selectorTimeoutMs: 700, stableMs: 1 };
 
-/**
- * Await a call expected to REFUSE, and return the refusal.
- *
- * `.catch(e => e as SelectorAbsentError)` types as `void | SelectorAbsentError`
- * — and worse, a call that wrongly RESOLVED would flow through it as
- * `undefined` and fail later on a property read rather than on the thing that
- * went wrong. This fails on the resolve itself.
- */
-async function refusalFrom(call: Promise<void>): Promise<SelectorAbsentError> {
-  try {
-    await call;
-  } catch (error: unknown) {
-    return error as SelectorAbsentError;
-  }
-  throw new Error("expected a refusal, but the call resolved");
-}
-
 describe("trigger 1 — the capture selector never appears, so quiescence times out", () => {
   it("throws SelectorAbsentError naming the missing selector", async () => {
     const page = await pageWith(`<main><p>replaced</p></main>`);
@@ -51,12 +35,13 @@ describe("trigger 1 — the capture selector never appears, so quiescence times 
   // leaves none.
   it("carries refusedReason selector-absent and the selector", async () => {
     const page = await pageWith(`<main><p>replaced</p></main>`);
-    const error = await refusalFrom(
+    const error = await rejectionFrom<SelectorAbsentError>(
       quiesceWithLayer0(page, {
         waitForSelector: "#never",
         captureSelector: "#never",
         ...FAST,
       }),
+      "quiesceWithLayer0 on an absent capture selector",
     );
 
     expect(error).toBeInstanceOf(SelectorAbsentError);
@@ -69,12 +54,13 @@ describe("trigger 1 — the capture selector never appears, so quiescence times 
     const page = await pageWith(
       `<main><div data-render-fault="admin-preview-infra-error">Unavailable</div></main>`,
     );
-    const error = await refusalFrom(
+    const error = await rejectionFrom<SelectorAbsentError>(
       quiesceWithLayer0(page, {
         waitForSelector: "#never",
         captureSelector: "#never",
         ...FAST,
       }),
+      "quiesceWithLayer0 on an absent capture selector",
     );
 
     expect(error.markers).toEqual(["admin-preview-infra-error"]);
@@ -83,12 +69,13 @@ describe("trigger 1 — the capture selector never appears, so quiescence times 
 
   it("still attributes an UNMARKED replacement as selector-absent", async () => {
     const page = await pageWith(`<main><p>an unmarked replacement</p></main>`);
-    const error = await refusalFrom(
+    const error = await rejectionFrom<SelectorAbsentError>(
       quiesceWithLayer0(page, {
         waitForSelector: "#never",
         captureSelector: "#never",
         ...FAST,
       }),
+      "quiesceWithLayer0 on an absent capture selector",
     );
 
     expect(error.refusedReason).toBe(SELECTOR_ABSENT);
@@ -105,12 +92,13 @@ describe("trigger 2 — waitFor succeeds while the capture selector is still abs
   // nothing. Every other test in this file passes without this trigger.
   it("throws SelectorAbsentError even though quiescence succeeded", async () => {
     const page = await pageWith(`<body><main><p>replaced</p></main></body>`);
-    const error = await refusalFrom(
+    const error = await rejectionFrom<SelectorAbsentError>(
       quiesceWithLayer0(page, {
         waitForSelector: "body",
         captureSelector: '[data-testid="admin-preview-banner"]',
         ...FAST,
       }),
+      "quiesceWithLayer0 on an absent capture selector",
     );
 
     expect(error).toBeInstanceOf(SelectorAbsentError);
@@ -123,12 +111,13 @@ describe("trigger 2 — waitFor succeeds while the capture selector is still abs
     const page = await pageWith(
       `<body><main><div data-render-fault="admin-layout-blank"></div></main></body>`,
     );
-    const error = await refusalFrom(
+    const error = await rejectionFrom<SelectorAbsentError>(
       quiesceWithLayer0(page, {
         waitForSelector: "body",
         captureSelector: "#gone",
         ...FAST,
       }),
+      "quiesceWithLayer0 on an absent capture selector",
     );
 
     expect(error.markers).toEqual(["admin-layout-blank"]);

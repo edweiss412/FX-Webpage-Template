@@ -1,15 +1,17 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { chromium, type BrowserContext, type Page } from "@playwright/test";
 import { CAPTURE_LAUNCH_ARGS } from "./capture-launch-args";
+import { type CaptureTheme, disableAnimations, installDeterminism } from "./capture-core";
 import {
-  type CaptureTheme,
-  disableAnimations,
-  encodeWebp,
-  installDeterminism,
-  waitForQuiescence,
-} from "./capture-core";
+  buildRunHeader,
+  completedIdentities,
+  createStagingDir,
+  expectedIdentities,
+} from "./capture-evidence";
+import { quiesceWithLayer0, SelectorAbsentError } from "./capture-layer0";
+import { captureOrRefuse, type CapturedEntry } from "./capture-refusal";
 import { MANIFEST, type ManifestEntry } from "./help-screenshots.manifest";
 import { parseFixtureDateRangeFromPath } from "./help-screenshots-fixture-range";
 import { ADMIN_FIXTURE } from "@/tests/e2e/helpers/fixtures";
@@ -18,6 +20,7 @@ import { signInAs } from "@/tests/e2e/helpers/signInAs";
 const DEFAULT_BASE_URL = "http://localhost:3004";
 const OUTPUT_DIR = join(process.cwd(), "public/help/screenshots");
 const REQUIRED_TEST_AUTH = "true";
+export const EVIDENCE_FILENAME = "capture-evidence.json";
 
 function requireCaptureEnv(): { baseUrl: string; testAuthSecret: string } {
   if (process.env.ENABLE_TEST_AUTH !== REQUIRED_TEST_AUTH) {
@@ -73,20 +76,14 @@ function themesFor(entry: ManifestEntry): CaptureTheme[] {
   return ["light", "dark"];
 }
 
-async function screenshotPng(page: Page, entry: ManifestEntry): Promise<Buffer> {
-  if (entry.captureSelector) {
-    return await page.locator(entry.captureSelector).first().screenshot({ type: "png" });
-  }
-  return await page.screenshot({ type: "png", fullPage: true });
-}
-
 async function captureEntryTheme(
   context: BrowserContext,
   entry: ManifestEntry,
   theme: CaptureTheme,
   baseUrl: string,
   testAuthSecret: string,
-): Promise<void> {
+  stagingDir: string,
+): Promise<CapturedEntry> {
   await context.clock.install({ time: new Date(entry.frozenClockInstant) });
 
   const page = await context.newPage();
@@ -99,16 +96,22 @@ async function captureEntryTheme(
       Authorization: `Bearer ${testAuthSecret}`,
     });
     await page.goto(new URL(entry.route, baseUrl).toString(), { waitUntil: "domcontentloaded" });
-    await waitForQuiescence(page, {
+
+    // Layer 0 owns the wait, so a capture selector that never resolves is an
+    // attributed refusal rather than a bare timeout naming nothing.
+    await quiesceWithLayer0(page, {
       waitForSelector: entry.waitFor ?? entry.captureSelector ?? "body",
+      ...(entry.captureSelector !== undefined ? { captureSelector: entry.captureSelector } : {}),
       ...(entry.expectStableMs !== undefined ? { stableMs: entry.expectStableMs } : {}),
     });
 
-    const pngBuffer = await screenshotPng(page, entry);
-    const webpBuffer = await encodeWebp(pngBuffer);
-    const outPath = join(OUTPUT_DIR, `${entry.key}-${theme}.webp`);
-    mkdirSync(dirname(outPath), { recursive: true });
-    await writeFile(outPath, webpBuffer);
+    return await captureOrRefuse(
+      page,
+      entry,
+      theme,
+      stagingDir,
+      join(OUTPUT_DIR, `${entry.key}-${theme}.webp`),
+    );
   } finally {
     await page.close();
   }
@@ -127,8 +130,15 @@ export async function captureAll(): Promise<void> {
     args: CAPTURE_LAUNCH_ARGS,
   });
 
+  // Created EMPTY, which is what makes "this file exists" mean "this run wrote
+  // it". The oracle reads this directory, never public/help/screenshots/, where
+  // the committed baselines are already on disk before capture begins.
+  const stagingDir = createStagingDir(process.cwd());
+  const entries: CapturedEntry[] = [];
+  let refusal: unknown = null;
+
   try {
-    for (const entry of MANIFEST) {
+    outer: for (const entry of MANIFEST) {
       for (const theme of themesFor(entry)) {
         const context = await browser.newContext({
           baseURL: baseUrl,
@@ -139,7 +149,15 @@ export async function captureAll(): Promise<void> {
           viewport: entry.viewport,
         });
         try {
-          await captureEntryTheme(context, entry, theme, baseUrl, testAuthSecret);
+          entries.push(
+            await captureEntryTheme(context, entry, theme, baseUrl, testAuthSecret, stagingDir),
+          );
+        } catch (error: unknown) {
+          // A refusal still records an entry — the outcome most in need of
+          // evidence is the one that would otherwise leave none — then aborts.
+          entries.push(refusedEntry(entry.key, theme, error));
+          refusal = error;
+          break outer;
         } finally {
           await context.close();
         }
@@ -147,7 +165,52 @@ export async function captureAll(): Promise<void> {
     }
   } finally {
     await browser.close();
+    await writeEvidence(stagingDir, entries);
   }
+
+  if (refusal !== null) throw refusal;
+
+  // Only a clean run publishes. The byte gate reads OUTPUT_DIR, unchanged.
+  mkdirSync(OUTPUT_DIR, { recursive: true });
+  for (const name of readdirSync(stagingDir)) {
+    copyFileSync(join(stagingDir, name), join(OUTPUT_DIR, name));
+  }
+
+  const produced = completedIdentities(stagingDir).sort();
+  const expected = expectedIdentities().sort();
+  if (produced.join("|") !== expected.join("|")) {
+    throw new Error(
+      `capture produced ${produced.length} identities, expected ${expected.length}: ` +
+        `missing ${expected.filter((id) => !produced.includes(id)).join(", ") || "none"}`,
+    );
+  }
+}
+
+function refusedEntry(key: string, theme: CaptureTheme, error: unknown): CapturedEntry {
+  const selectorAbsent = error instanceof SelectorAbsentError;
+  return {
+    key,
+    theme,
+    capturedAtUtc: new Date().toISOString(),
+    pixelWidth: null,
+    pixelHeight: null,
+    pixelSha256: null,
+    webpBytes: null,
+    webpSha256: null,
+    faultHits: selectorAbsent ? error.markers : ((error as { reasons?: string[] }).reasons ?? []),
+    refusedReason: selectorAbsent
+      ? error.refusedReason
+      : error instanceof Error
+        ? error.name
+        : "unknown",
+  };
+}
+
+async function writeEvidence(stagingDir: string, entries: CapturedEntry[]): Promise<void> {
+  const record = { ...buildRunHeader(process.env), entries };
+  await writeFile(join(stagingDir, EVIDENCE_FILENAME), `${JSON.stringify(record, null, 2)}\n`);
+  mkdirSync(OUTPUT_DIR, { recursive: true });
+  copyFileSync(join(stagingDir, EVIDENCE_FILENAME), join(OUTPUT_DIR, EVIDENCE_FILENAME));
 }
 
 async function main(): Promise<void> {

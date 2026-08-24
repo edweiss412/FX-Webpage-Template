@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "@playwright/test";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { RenderFaultError, captureOrRefuse } from "@/scripts/capture-refusal";
+import { rejectionFrom } from "./_expectRejection";
 
 let browser: Browser;
 let out: string;
@@ -70,8 +71,9 @@ describe("a marked fault refuses BEFORE anything is written", () => {
         <div data-render-fault="ignored-sheets-read"></div>
       </main>`,
     );
-    const error = await captureOrRefuse(page, ENTRY, "dark", out).catch(
-      (e: unknown) => e as RenderFaultError,
+    const error = await rejectionFrom<RenderFaultError>(
+      captureOrRefuse(page, ENTRY, "dark", out),
+      "captureOrRefuse on a marked fault",
     );
 
     expect(error.message).toContain("dashboard-overview");
