@@ -400,6 +400,8 @@ Every id below is claimed by a task marker above.
   entry complete and none after it. **It must NOT reject a short record unconditionally** — the capture
   aborts on the first refusal, so a short record is the correct shape for a genuine refusal, and an
   always-reject-short parser would fail every one of them while satisfying a carelessly worded AC.
+  **Proven across the outcome-by-trigger matrix in the verification section**, not on the PR run alone: an
+  `eventName` that is correct only for `pull_request` passes every other check this AC states.
 - **AC-6** `pixelSha256` is computed over decoded RGB, not the PNG container.
 - **AC-7** `data-degraded` does not trigger a refusal.
 - **AC-8** A guard form outside the accept-set is reported by name rather than discarded.
@@ -473,9 +475,53 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
 The `git restore` is sequenced with `;` and not `&&` so it runs whether or not the capture succeeded — a
 failed capture is exactly when dirty baselines are most likely.
 
+### AC-5 is a MATRIX, and the ordinary PR run covers one cell of it
+
 Real CI green is a separate gate from local green. This branch edits
 `.github/workflows/screenshots-drift.yml`, which is in that job's own path filter, so the job fires on this
 PR and the run is a live capture of the instrument under test.
+
+**That run is one cell.** Spec AC-5 obliges the record on both OUTCOMES and under each TRIGGER this arc can
+produce, which is a two-by-two, and the PR run is `pull_request` x passing. Naming only it would let an
+ordinary implementation defect finish the task green. The concrete one: `eventName` computed as
+`GITHUB_EVENT_NAME === "pull_request" ? GITHUB_EVENT_NAME : ""` satisfies the by-name passthrough
+assertion, is waived by `--local`, and passes the PR run while recording an empty field on every dispatch
+forever. The same hole exists on the outcome axis — nothing in a green PR run exercises the refusal
+branch whose whole purpose is to leave evidence.
+
+| | passing | refused |
+| --- | --- | --- |
+| `pull_request` | the ordinary PR run | — see the argument below |
+| `workflow_dispatch` | observation 1 | observation 2 |
+
+**Observation 1 — dispatch, passing.** The workflow already declares `workflow_dispatch`
+(`.github/workflows/screenshots-drift.yml:46`; probed: 46 dispatch runs in its history), so no workflow
+edit is needed to reach it. The record rides in the existing artifact, whose name is `drifted-screenshots`
+and whose path is `public/help/screenshots/` (`.github/workflows/screenshots-drift.yml:176-177`) — the
+same directory the record is written into, which is why Task 7 moves that upload to `if: always()` rather
+than adding a second artifact.
+
+```
+gh workflow run screenshots-drift.yml --ref fix/screenshots-drift-instrument
+gh run download <id> -n drifted-screenshots && jq -r '.eventName' capture-evidence.json
+```
+
+The assertion is `eventName == "workflow_dispatch"` on a record produced by a run this branch did not
+author specially. That is what the defect above cannot satisfy.
+
+**Observation 2 — refused.** Push a scratch branch carrying ONE temporary commit that forces a refusal on a
+captured surface, dispatch the workflow against it, download the artifact, then delete the branch. Nothing
+merges and the PR is untouched. The assertions are the refusal shape AC-5 names: the record ends with
+exactly one entry carrying a `refusedReason`, its post-encode fields are `null`, every earlier entry is
+complete, and `eventName` is still populated — a refusal must not cost the record its identity fields.
+
+**Why three cells and not four, stated rather than skipped.** `eventName` is read once from the
+environment and written into the record header; the refusal branch is in the per-entry capture loop and
+reads nothing about the trigger. The two axes touch no shared state, so the missing `pull_request` x
+refused cell is the product of two independently observed behaviors rather than an untested path. Forcing
+it would mean deliberately reddening the PR's own required check, which buys a cell the other three
+already imply. If a future change makes the refusal branch read the trigger, this argument lapses and the
+fourth cell becomes mandatory — recorded here so the lapse is visible rather than inherited.
 
 ## A trap checked and deliberately avoided: no new Playwright spec
 
