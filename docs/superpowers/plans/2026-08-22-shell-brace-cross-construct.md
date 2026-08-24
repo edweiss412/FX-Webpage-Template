@@ -331,14 +331,32 @@ number in the design was measured before `arc-yamlquote` merged.
 
 ## Task 2: pin the base (executed at plan time, re-executed by Task 1)
 
-Outputs, not intentions, at `50ca72a56`:
+Outputs, not intentions, at `50ca72a56`. **Every figure carries the command that produced it**, per
+the derived-numbers provenance convention now on main (`BL-...`-archived with #876): a stated number
+either names its producing command or is script-assembled. Re-verified 2026-08-24 except where noted.
 
-- Deciding suite: **1009 passed (1009)**.
-- Live census: **76 sites, 0 indirections, 0 unreadable**, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238`.
-- Median CPU over the live corpus: **14222 ms** shipped, **14132 ms** for the prototype.
-- Registry: `psqlStartupScan`, thirty `equivalent` rows, no accepted gap, `scoreFloor: 1`.
-- `shapes.mts` against the shipped walk: **11/22 accept-set**, limits VACUOUS (the shipped walk IS
+- **Deciding suite: 1009 passed (1009).**
+  `pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts`
+- **Live census: 76 sites, 0 indirections, 0 unreadable**, digest
+  `8ebe8b08d43e6308aa471112d9f086d0118e6238`.
+  `pnpm exec tsx …/probes/2026-08-22-shell-brace-cross-construct/corpus-time.mts --runs 1`
+  (reads `TOTAL ROWS` and `DIGEST`), or the AC-5 instrument
+  `pnpm exec tsx …/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts`.
+- **Registry: `psqlStartupScan`, thirty `equivalent` rows, no accepted-gap ROW, `scoreFloor: 1`.**
+  Derived by slicing `tests/mutation/source/registry.ts` from the `id: "psqlStartupScan"` line to the
+  next `id: "` and counting within that slice — a bare grep spans neighbouring surfaces and reports
+  three. The two `accepted-gap` matches inside the slice are both PROSE in comments, not rows.
+- **`shapes.mts` against the shipped walk: 11/22 accept-set**, limits VACUOUS (the shipped walk IS
   the merge-base, so that population certifies nothing until Task 3 lands), **2/4 bash-rejected**.
+  `pnpm exec tsx …/probes/2026-08-22-shell-brace-cross-construct/shapes.mts` with no `SCAN_MODULE`.
+  The eleven unmet rows are the seven `R*` spellings, `Q2`, `Q3`, `P4`, `P5`.
+- **Median CPU over the live corpus: NOT PINNED HERE, deliberately.** An earlier draft carried
+  `14222 ms` shipped and `14132 ms` for the prototype; re-running the same instrument on 2026-08-24
+  read a merge-base median between 16898 ms and 17720 ms across three sessions. Those absolutes are a
+  property of a contended machine, not of the scanner, and §2.4 already says so. **AC-6's bound is a
+  same-session RATIO**, which is why `corpus-time.mts --baseline-from-merge-base` measures both
+  figures in one process. Task 5 produces the number that matters; nothing should be compared against
+  a wall-clock absolute recorded on a different day.
 
 <!-- tasks: depth=2 red-contract -->
 
