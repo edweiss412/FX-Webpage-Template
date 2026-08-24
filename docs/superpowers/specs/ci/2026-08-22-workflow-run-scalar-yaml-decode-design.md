@@ -301,10 +301,35 @@ wrong, and each files here rather than as a review round.
    `scanWorkflowSource` DOES resolve aliases, so such a scalar is affected by this repair. Unlike
    the other limits here the failure direction is a MISCOUNT rather than a conservative demote, and
    the census underwrites AC-5's digest-neutrality argument, so it is recorded rather than left
-   implicit. UNREACHABLE on the live corpus, probed rather than assumed: across all 23 tracked YAML
-   files there are **0 alias nodes, 0 aliased executable keys, and 0 non-scalar executable values**
-   (the two files matching `&`-ish syntax carry shell `&&`, not anchors). Re-file trigger: the first
-   anchor/alias to appear under an executable key in a tracked workflow.
+   implicit. UNREACHABLE on the live corpus, probed rather than assumed. Run on
+   `fix/yaml-run-scalar-quoting-decode` at `4bc399012`:
+
+   ```
+   pnpm exec tsx -e '
+   import { execFileSync } from "node:child_process";
+   import { readFileSync } from "node:fs";
+   import { parseDocument, visit, isPair, isAlias, isScalar } from "yaml";
+   const EXEC = new Set(["run", "shell", "entrypoint", "args"]);
+   const files = execFileSync("git", ["ls-files", "*.yml", "*.yaml"], { encoding: "utf8" })
+     .split("\n").filter(Boolean);
+   let alias = 0, execAlias = 0, nonScalar = 0;
+   for (const f of files) {
+     let d; try { d = parseDocument(readFileSync(f, "utf8")); } catch { continue; }
+     visit(d, { Alias() { alias++; }, Pair(_k, p) {
+       if (!isPair(p) || !EXEC.has(p.key?.value)) return;
+       if (isAlias(p.value)) execAlias++; else if (!isScalar(p.value)) nonScalar++;
+     } });
+   }
+   console.log(`files=${files.length} aliasNodes=${alias} execKeyAliases=${execAlias} nonScalarExecValues=${nonScalar}`);
+   '
+   ```
+
+   ```
+   files=23 aliasNodes=0 execKeyAliases=0 nonScalarExecValues=0
+   ```
+
+   The two files whose text matches `&`-ish syntax carry shell `&&`, not anchors. Re-file trigger:
+   the first anchor/alias to appear under an executable key in a tracked workflow.
 
 ---
 
