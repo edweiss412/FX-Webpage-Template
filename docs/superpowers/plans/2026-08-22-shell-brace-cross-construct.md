@@ -44,10 +44,24 @@ row by grepping it.
   This cost the sibling arc two review rounds in two disguises.
 - **Heavy phases wrap at the outermost entry**: `pnpm heavy pnpm mutation:guards`, `pnpm heavy pnpm test`.
   Slots are two, machine-wide, contended.
-- **Scoping the mutation gate**: `-t` does NOT bound it (`runSurface` executes at module scope during
-  collection). Write a temporary `guardSurfaces.shardTmp*.test.ts` filtering `GUARD_SURFACES` to the
-  one id, run it FOREGROUND under `pnpm heavy`, then DELETE it —
+- **Scoping the mutation gate, and why the scoped run is NOT the acceptance channel.** `-t` does NOT
+  bound the gate (`runSurface` executes at module scope during collection). Write a temporary
+  `guardSurfaces.shardTmp*.test.ts` filtering `GUARD_SURFACES` to the one id, then DELETE it —
   `tests/mutation/_metaSourceShardIntegrity.test.ts` pins the shard set byte-for-byte.
+  **`pnpm mutation:guards` will not run it.** That script hard-codes `guardSurfaces.shard0..3` plus
+  `guardSurfaces.gates` and matches no `shardTmp` file (verify with
+  `rg -n 'mutation:guards' package.json`), so the scoped shard needs
+  its own invocation:
+
+  ```
+  pnpm heavy env VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.shardTmp.test.ts
+  ```
+
+  Round 3 finding 1: naming `pnpm mutation:guards` as AC-7's channel while the task body ran the
+  scoped shard meant the mapped command and the executed command were different things. **The scoped
+  run is for ITERATION only.** AC-7 is discharged by the full `pnpm heavy pnpm mutation:guards`,
+  because a scoped substitute cannot establish that the gate is green — a scoped local run on a
+  sibling arc missed twelve survivors that the PR's own harness job then found.
 - **Blob-hash before any re-measure.** The score is a pure function of (source, operators, deciding
   suites); verify with `git hash-object` rather than re-running on faith.
 - **A scratch `.ts` in the worktree root is walked like source.** A probe file containing psql
@@ -125,9 +139,9 @@ pins from disk knows the set, and a hand-built list is the enumeration this repo
 | `documented limits - quote-concatenated spellings outside the assignment family` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6165`) | **HELD.** Unrelated family (assignment values); named because it is a declared-limit block on the same suite. |
 | `R40 — hypothetical gaps closed cheaply; the rest are documented limits` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:4151`) | **HELD.** |
 | `each quote-concatenated keyword/operand spelling is a declared miss` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6173`) | **HELD.** Named because `spec:lint`'s own arm named it and my hand-built table had guessed the enclosing block heading instead — which is exactly why this table is reconciled against `DECLARED_LIMIT_PIN_UNNAMED` output rather than assembled from a reading of the suite. Unrelated family (quote-concatenated assignment spellings); the crossing repair does not reach it. |
-| the five NEW limits of design §7 (`L1`–`L5`) | **AUTHORED** in Task 4 as `shapes.mts` limit rows. ONE named widening mutant proves the population discriminates: under the `#`-comment rule `L2` reports `MOVED` and the run exits 1. The other four are pinned but NOT individually mutant-proved — they share one instrument, so a mutant that moves any row proves the channel for all five, and claiming five separate proofs was round 1 finding 5. Design §7's items 6 and 7 are deliberately NOT in this population: item 6 is asserted by `syntax-error-class.mts` and item 7 by the AC-5 digest. |
+| the five NEW limits of design §7 (`L1`–`L5`) | **ALREADY TRACKED** as `shapes.mts` limit rows (`L1-ansi-c-inside-subst` through `L5-squote-in-brace-in-dquote`); what Task 4 authors is the temporary MUTANT that proves they discriminate, not the rows (round 3 finding 3). ONE named widening mutant proves the population discriminates: under the `#`-comment rule `L2` reports `MOVED` and the run exits 1. The other four are pinned but NOT individually mutant-proved — they share one instrument, so a mutant that moves any row proves the channel for all five, and claiming five separate proofs was round 1 finding 5. Design §7's items 6 and 7 are deliberately NOT in this population: item 6 is asserted by `syntax-error-class.mts` and item 7 by the AC-5 digest. |
 
-## Strictly weaker implementations, and the fixture that kills each
+## Wrong implementations, and the fixture that kills each
 
 **This table is produced, not written down.** The previous one contradicted
 itself (round 1, finding 4) — `w1` scored 18/22 while naming two fixtures, `w4` and the `#` candidate scored 20/22 while
@@ -139,8 +153,9 @@ nobody can re-run cannot be caught being wrong, which is how that survived four 
 SCAN_MODULE=<candidate> pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/weaker-walks.mts
 ```
 
-Every walk is rebuilt FROM THE CANDIDATE by anchored substitution, ONE weakening each, and run
-against the fixture set. The probe gates on ATTRIBUTION rather than counts: a walk must die to
+Every walk is rebuilt FROM THE CANDIDATE by anchored substitution, ONE DEVIATION each — seven
+weakenings and one OVER-repair, the `#`-comment widening, which is why this section is not headed
+"strictly weaker" (round 3 finding 3) — and run against the fixture set. The probe gates on ATTRIBUTION rather than counts: a walk must die to
 exactly the rows named below. A walk that SURVIVES is a wrong implementation the fixtures cannot see;
 a walk that dies to the WRONG rows is a coincidence being read as proof. Both fail. A hunk that
 matches zero or many times ABORTS rather than yielding a clone of the candidate that would pass
@@ -196,7 +211,7 @@ assembled from the ledger row's own shapes saw none of them:
 **An implementer weakening any of these fixtures is removing the only thing that catches its
 impostor** — and `weaker-walks.mts` is what says so out loud rather than leaving it to a reader.
 
-## Every assertion about a scanner outcome asserts ATTRIBUTION, never counts alone
+## Every assertion this plan AUTHORS asserts ATTRIBUTION, never counts alone
 
 **This is a hard constraint on every case this plan authors, and it is the fourth arrival of the same
 lesson on this file family.** State it as a rule the implementer applies mechanically, because the
@@ -214,6 +229,16 @@ passed the ENTIRE probe, because their defect flips `nested` from `false` to `tr
 site and zero advisories exactly where they were. The probe built to teach presence-versus-attribution
 was itself defeated by presence. The candidate half now carries the full attribution check
 (design §2.1c) and both walks die again.
+
+**Two count-based assertions are deliberately outside this rule, named so the heading is not read
+wider than it is** (round 3 finding 3). The two nearest declared-limit pin blocks
+(`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6674` and
+`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6700`) are PRE-EXISTING and
+count-shaped; this plan asserts them UNMOVED rather than rewriting them, and rewriting them would be
+scope creep on a surface the repair does not otherwise touch. And `syntax-error-class.mts` asserts a
+POPULATION count — five of five ordinary syntax errors still fabricate — which is the right shape for
+a claim about how many members of a class behave one way, as opposed to a claim about which span a
+single site belongs to. The rule governs the rows this plan AUTHORS.
 
 Applied to this plan's tasks:
 
@@ -242,7 +267,7 @@ now written from the task bodies rather than from which task the criterion feels
 | AC-4 | 3 | `pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts`, with the two nearest pin blocks asserted unmoved. Task 4 does NOT run this suite and no longer claims it |
 | AC-5 | 5 | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08…` — Task 5 runs this command by name. `corpus-time.mts` PRINTS a digest and never compares one, so it does not discharge AC-5 (round 2 finding 2) |
 | AC-6 | 5 | `corpus-time.mts --runs 3 --max-cpu-ratio 1.5 --baseline-from-merge-base` |
-| AC-7 | 6 | `pnpm heavy pnpm mutation:guards`, counts pasted into close-out |
+| AC-7 | 6 | `pnpm heavy pnpm mutation:guards` — the FULL gate, counts pasted into close-out. Task 6's temporary single-surface shard is for ITERATION and is not this channel: `pnpm mutation:guards` hard-codes `shard0..3` + `gates` and never matches a `shardTmp` file — `rg -n 'mutation:guards' package.json` (round 3 finding 1) |
 | AC-8 | 7 | the §6 prose sweep, run and pasted |
 
 **AC-3's tally line has three states, not two, and only one of them is a pass.** `UNCHANGED` means
@@ -250,10 +275,13 @@ the limit rows compared against the merge-base scanner and agreed. `MOVED` names
 `VACUOUS` means candidate and baseline were byte-identical — which is correct before Task 3 lands and
 is a FALSE PASS after it, so Task 4 asserts the line is not VACUOUS as well as not MOVED.
 
-## Every `red=` was RUN at plan time, and two claims did not survive it
+## Every LIVE-claiming `red=` was RUN at plan time, and none of the three survived unchanged
 
 The task-marker contract is red-then-green on the SAME command, and a `red-state=live` marker asserts
-the command fails on the CURRENT tree. Run, at plan-authoring time, in this worktree:
+the command fails on the CURRENT tree. **Only markers that CLAIMED to be live are runnable at plan
+time**, which is what this table covers — Tasks 3 and 4 are `authored` by construction, their failing
+cases are written inside the arc, and there is nothing to run today (round 3 finding 3: the previous
+heading said "every `red=`" and meant a subset). Run, at plan-authoring time, in this worktree:
 
 | marker | command | observed | disposition |
 | --- | --- | --- | --- |
@@ -451,17 +479,64 @@ sweeping for "and THIS task creates the failing case".
   no live row exercises the changed path. AC-5 is a non-regression pin whose value is catching a
   movement nobody predicted, and a pin like that is structurally un-reddable by a correct-scope
   change.
-- **AC-6's ratio does not breach on a plausible slowdown.** A span-quadratic variant of the §3
-  prototype — recomputing the quote context across the span so far on every counted character,
-  the shape a naive implementation actually takes — measures 20456 ms against a 17720 ms same-session
-  baseline: **1.15×**, inside the 1.5× bound. The live corpus's spans are too short for
-  span-quadratic cost to show up. Manufacturing a red by making the walk absurdly slow would prove
-  the gate arithmetic works and nothing about this repair, which is the theatre this repo retires.
+- **AC-6's ratio does not breach on a plausible slowdown**, and round 3 finding 2 is why the number
+  below comes with the command that produced it rather than on its own word. Build a span-quadratic
+  variant of the candidate — recomputing across the span so far on every counted character, the shape
+  a naive implementation actually takes — by anchored substitution, the same way `weaker-walks.mts`
+  builds its eight:
+
+  ```
+  node -e 'import("node:fs").then(({readFileSync:r,writeFileSync:w})=>{
+    const SRC="node_modules/.cache/bracecross/scan-proto.ts";
+    const B="    const foreign = foreignConstructEnd(text, i);";
+    const A="    let recomputed = 0;\n    for (let z = start; z < i; z++) recomputed += text.charCodeAt(z);\n    if (recomputed < 0) return { index: -1, closed: false };\n"+B;
+    const s=r(SRC,"utf8");
+    if(s.split(B).length-1!==1){console.error("ABORT: anchor not unique");process.exit(2);}
+    w("node_modules/.cache/bracecross/wslow.ts",s.replace(B,A));})'
+
+  SCAN_MODULE=node_modules/.cache/bracecross/wslow.ts pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/corpus-time.mts \
+    --runs 3 --max-cpu-ratio 1.5 --baseline-from-merge-base
+  ```
+
+  Output, 2026-08-24, measured against the §3 prototype in the untracked build cache; substitute the
+  shipped scanner once Task 3 lands:
+
+  ```
+  merge-base median cpu: 16898 ms (50ca72a566b0, same session)
+  MEDIAN CPU MS: 20457
+  PASS: median cpu within 1.5 x baseline 16898 ms
+  ```
+
+  **1.21×**, inside the 1.5× bound. The figure is contention-sensitive — an earlier run of the same
+  recipe on a busier machine read 1.15× — so what the measurement establishes is the SIGN, not the
+  digit: the live corpus's spans are too short for span-quadratic cost to approach the bound.
+  Manufacturing a red by making the walk absurdly slow would prove the gate's arithmetic and nothing
+  about this repair, which is the theatre this repo retires.
 
 So the honest form is a measurement task that runs both gates and asserts their outputs, with no red
-to author. **Both gates were already PROVED TO FIRE at design time** (§2.1b) — that is the evidence a
-gate can fail at all, and it does not need re-staging here. Tasks 1 and 2 are non-TDD for the same
-kind of reason and sit outside the region the same way.
+to author. Tasks 1 and 2 are non-TDD for the same kind of reason and sit outside the region the same
+way.
+
+**Each gate is separately proved to fire, and round 3 finding 3 caught that claim being made too
+broadly.** Design §2.1b proves `shapes.mts` and `corpus-time.mts`'s RATIO gate; it says nothing about
+`baseline-corpus.mts`, which AC-5 only started naming in this round's repair. So that one is proved
+here, in both directions, run 2026-08-24:
+
+```
+$ pnpm exec tsx …/baseline-corpus.mts --expect 0000000000000000000000000000000000000000
+FAIL: finding set MOVED.
+  expected 0000000000000000000000000000000000000000
+  actual   8ebe8b08d43e6308aa471112d9f086d0118e6238
+$ echo $?
+1
+$ pnpm exec tsx …/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238
+PASS: finding set matches the pinned digest over 76 rows.
+$ echo $?
+0
+```
+
+A gate that cannot fail is not a check, and until this run nothing in either arc had demonstrated
+that this one can.
 
 **AC-5 — run the command the mapping names.** Round 2 finding 2: the mapping promised
 `baseline-corpus.mts --expect …` and no task ran it, while `corpus-time.mts` only PRINTS its digest

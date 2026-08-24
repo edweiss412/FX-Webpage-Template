@@ -36,7 +36,9 @@ const SHAPES = join(
 type Hunk = { before: string; after: string };
 type Walk = {
   id: string;
-  /** The single weakening, in the words the plan's table uses. */
+  /** The single deviation, in the words the plan's table uses. Seven are
+   *  weakenings; the `#`-comment row is an OVER-repair, which is why neither
+   *  this file nor the plan's section is headed "strictly weaker". */
   weakening: string;
   /** The fixtures that MUST be the ones that kill it. A walk dying to some
    *  other row is not this walk's proof — it is an unexplained result, and the
@@ -238,7 +240,9 @@ for (const walk of WALKS) {
   }
 }
 
-console.log(`\nWALKS: ${WALKS.length} built from the candidate, one weakening each`);
+console.log(
+  `\nWALKS: ${WALKS.length} built from the candidate, one deviation each (seven weakenings and one over-repair)`,
+);
 if (violations > 0) {
   console.error(`\nFAIL: ${violations} walk(s) either survived the fixture set or died to rows other than their declared killers.`);
   process.exit(1);
