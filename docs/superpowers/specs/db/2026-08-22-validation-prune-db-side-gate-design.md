@@ -553,6 +553,40 @@ Out of scope, no action.
 
 ---
 
+### §4.8 AC-9's pin does not survive a maintainer who re-pins it, and no denylist is shipped
+
+**Added 2026-08-24 after whole-diff review r2, and FENCED IN BOTH DIRECTIONS so neither side is
+relitigated.**
+
+AC-9 pins all three shipped bodies to literals held in `tests/db/pruneGate.db.test.ts`. That gives the
+accept-set of exactly one the criterion always claimed, and it excludes every channel-dependent
+implementation — including the R8 one — because any of them changes a body.
+
+**The residue.** Someone who edits a body AND updates its literal in the same change defeats the pin.
+That is true of every pinned assertion in any codebase and no assertion inside the file can prevent it:
+the author is editing both the claim and its evidence. What the pin does buy is that the edit is
+*visible* — a security-critical body cannot change without its expectation changing in the same diff,
+where review looks. This is a code-review boundary, and it sits outside the threat fence in §0, which
+covers accidental deletion by a caller holding legitimate service-role reach, not an author
+deliberately weakening a gate.
+
+**Why there is no denylist, stated so it is not re-added.** Diff review r1 forced a companion
+assertion rejecting `request.jwt.claims` and `current_setting`, on the argument that it covers the
+re-pinning case. Diff review r2 then defeated exactly that assertion with `session_user = 'postgres'`:
+direct psql connects as `postgres` while PostgREST connects as `authenticator`, and a `security
+definer` call changes neither, so every psql-driven refusal stays green while PostgREST skips the gate.
+The reviewer was right, and the correct reading is not that the denylist needs `session_user` added —
+it is that **the class is open**. `current_user`, `inet_client_addr()`, `application_name`,
+`pg_backend_pid()` and others discriminate the same way, and a denylist grown one construct per review
+round is precisely the recognizer arms race AGENTS.md's round-economy rule names, whose prescribed
+answer is to narrow rather than widen. The assertion was therefore REMOVED rather than extended.
+
+**Both directions of the fence.** Re-adding a denylist over channel-discriminating constructs is
+relitigating this decision and needs a live escaping mutant against the SHIPPED pin, not a new
+construct name. Equally, arguing that the literal pin is sufficient against a determined re-pinner is
+relitigating it from the other side: it is not, and this section says so rather than pretending
+otherwise.
+
 ## §5 DB completeness matrix
 
 Every affected domain × layer. Every cell is an action or an `N/A — reason`.
@@ -687,8 +721,11 @@ exact failure the arc exists to prevent, committed by its own acceptance test. S
   half-applied one. The R1 P1 finding is why both limbs name BOTH functions.
 - **AC-9 — the gate cannot discriminate by channel, proven by pinning the body rather than by calling
   over REST.** The shipped `prosrc` of all three functions equals a literal held IN THE TEST FILE
-  (whitespace normalised), plus an assertion that no shipped body mentions `request.jwt.claims` or
-  `current_setting` on any channel.
+  (whitespace normalised).
+
+  **Amended twice on 2026-08-24.** The companion `request.jwt.claims` / `current_setting` assertion
+  that r1's repair introduced was REMOVED after r2 defeated it with `session_user`; see §4.8, which
+  fences that decision in both directions. The literal pin is the whole mechanism.
 
   **Amended 2026-08-24, whole-diff review r1.** This criterion originally read "equals the MIGRATION's
   body", and that mechanism is circular: adding channel-dependent logic to the migration moves both

@@ -265,7 +265,16 @@ for (const t of TARGETS) {
 //
 // Pinning to a literal here gives the accept-set of exactly one the spec asked for: a
 // change to any of these three bodies fails this file, and re-pinning is a deliberate
-// edit someone has to make and justify.
+// edit someone has to make, in the diff, where review can see it.
+//
+// There is deliberately NO companion denylist over channel-discriminating constructs.
+// One shipped briefly, rejecting `request.jwt.claims` and `current_setting`, and diff
+// review r2 defeated it with `session_user = 'postgres'` — psql connects as postgres,
+// PostgREST as authenticator, and security definer changes neither. That is an OPEN
+// class (`current_user`, `inet_client_addr()`, `application_name`, and so on), and
+// growing a denylist one construct per review round is the arms race this repo's
+// round-economy rule exists to stop. The residue is recorded in spec §4.8 rather than
+// chased here: it is a code-review boundary, not one a test file can hold.
 const SHIPPED_BODIES = {
   assert_prune_enabled: `
 declare
@@ -318,23 +327,6 @@ describe("the three shipped bodies are pinned to one exact program each", () => 
       expect(normalise(fn!.prosrc)).toBe(normalise(expected));
     });
   }
-
-  // A literal pin has one weakness: a maintainer who breaks it can "fix" it by
-  // pasting the new body over the old one, which would silently accept a channel
-  // gate. This assertion survives that, because it names the thing being excluded
-  // rather than comparing to an expectation someone just rewrote.
-  test("no shipped body reads the request claims, on any channel", async () => {
-    const rows = await sql<{ proname: string; prosrc: string }[]>`
-      select p.proname, p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public'
-        and p.proname in ('assert_prune_enabled', 'prune_sync_log', 'prune_app_events')
-    `;
-    expect(rows.length).toBe(3);
-    for (const r of rows) {
-      expect(r.prosrc, `${r.proname} reads request.jwt.claims`).not.toMatch(/request\.jwt\.claims/);
-      expect(r.prosrc, `${r.proname} calls current_setting`).not.toMatch(/current_setting/);
-    }
-  });
 });
 
 describe("assert_prune_enabled — posture", () => {

@@ -220,10 +220,12 @@ Cases, per function:
 4. **AC-4.** `prune_sync_log(interval '5 days')` and `prune_app_events(interval '5 days')` reject under
    the validation posture. Excludes a gate on the default-argument path only.
 5. **AC-9.** The `prosrc` of all three functions equals a literal held IN THIS TEST FILE, whitespace
-   normalised, plus an assertion that no shipped body mentions `request.jwt.claims` or
-   `current_setting`. **Amended after whole-diff review r1** — see spec §6 AC-9's dated note. Pinning
-   against the migration's own body was circular (both sides move together), and the companion
-   `perform`-before-`delete` check was a substring-ORDER oracle a conditional wrapper satisfies. Excludes the spec R8 implementation: a gate keyed on
+   normalised. That is the whole mechanism. **Amended twice after whole-diff review** — see spec §6
+   AC-9 and §4.8. r1: pinning against the migration's own body was circular, since both sides move
+   together, and the companion `perform`-before-`delete` check was a substring-ORDER oracle a
+   conditional wrapper satisfies. r2: the denylist r1's repair added (`request.jwt.claims`,
+   `current_setting`) was defeated by `session_user` and REMOVED rather than extended — the class of
+   channel-discriminating constructs is open, and §4.8 fences that in both directions. Excludes the spec R8 implementation: a gate keyed on
    `current_setting('request.jwt.claims', true)` passes every psql-driven case above while both
    PostgREST RPCs keep deleting.
 
