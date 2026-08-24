@@ -5147,17 +5147,39 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
     expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
   });
 
-  // Documented limit, spec §6 item 2 (round-1 finding 1): a quoted YAML `run:`
-  // scalar lexes to ONE assignment word whose multiword value's psql command
-  // carries no flag token - the -qAt below belongs to the $PG command - and
-  // the flag criterion (deliberately unchanged) is the line between a command
-  // binding and prose. Plain and mixed spellings alike are declared misses.
+  // RETIRED LIMIT, 2026-08-22 (BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE). These
+  // two rows pinned a ZERO and now pin a HIT. Re-pinned rather than deleted: a
+  // retired limit stays visible as a pin, so the improvement is asserted rather
+  // than merely no longer contradicted.
+  //
+  // The old comment here named the FLAG CRITERION as the cause, and that was
+  // wrong in a way worth recording, because a true-looking explanation of a
+  // behaviour that no longer exists is worse than none. The flag criterion is
+  // untouched and still stands. What actually caused the miss is this arc's
+  // defect: `scanShellIndirection` lexed the whole YAML file, so the scalar's
+  // YAML quotes were read as SHELL quotes and the entire body collapsed into
+  // one literal word with no assignment in it. Nothing about flags ever came
+  // into it. The reader now blanks the quoted scalar and rescans its DECODED
+  // value, where the binding is an ordinary assignment and reads normally.
+  //
+  // Predicted by the predecessor arc, which said recall here needed YAML-aware
+  // value extraction on a different surface
+  // (docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md
+  // lines 322-328). This is that extraction.
   test.each([
-    ["the plain spelling", '- run: "PG=psql; $PG -qAt mydb"\n'],
-    ["the mixed spelling", "- run: \"PG=p'sql'; $PG -qAt mydb\"\n"],
-  ])("multiword binding value: a quoted run: scalar (%s) stays a limit", (_label, source) => {
-    expect(scanShellIndirection(source, ".github/workflows/x.yml")).toHaveLength(0);
-  });
+    ["the plain spelling", '- run: "PG=psql; $PG -qAt mydb"\n', "PG=psql; $PG -qAt mydb"],
+    ["the mixed spelling", "- run: \"PG=p'sql'; $PG -qAt mydb\"\n", "PG=p'sql'; $PG -qAt mydb"],
+  ])(
+    "multiword binding value: a quoted run: scalar (%s) is READ, not a limit",
+    (_label, source, text) => {
+      expect(
+        scanShellIndirection(source, ".github/workflows/x.yml").map((hit) => ({
+          line: hit.line,
+          text: hit.text,
+        })),
+      ).toEqual([{ line: 1, text }]);
+    },
+  );
 });
 
 describe("arm 1 - a DETACHED here-string target is read from the lexer's retained word", () => {
@@ -7318,5 +7340,225 @@ describe("YAML scalar style — a QUOTED `run:` scalar's delimiters are YAML, no
       overlapWithQuoted: [],
       union: [...declaredByLibrary].sort(),
     });
+  });
+});
+
+describe("YAML quoted scalar advisory — the channel that lexes the whole file", () => {
+  // The other half of BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE. This channel
+  // hands the WHOLE YAML file to the shell lexer and never parses YAML at all,
+  // so a quoted executable scalar's YAML delimiters are read as SHELL quotes:
+  // the body collapses into one literal word, the `$(` inside it is quoted
+  // rather than opening a substitution, and the unlexable-target report never
+  // fires. The plain spelling of the same body reports; the quoted spellings go
+  // silent. Silence is the other forbidden direction.
+  //
+  // The repair blanks each quoted executable scalar out of the file and rescans
+  // its DECODED value, pinning what it finds to the key's line — the same
+  // anchoring contract the site channel's decoded pass already states.
+  const WORKFLOW_FILE = ".github/workflows/x.yml";
+  const CANONICAL_BODY = "echo >$(psql -qAt mydb";
+  const CANONICAL_TARGET = "$(psql -qAt mydb";
+
+  const stepScalar = (key: string, scalar: string): string =>
+    [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      `      - ${key}: ${scalar}`,
+      "",
+    ].join("\n");
+
+  const withScalar = (key: string, scalar: string): string =>
+    [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - uses: docker://alpine",
+      "        with:",
+      `          ${key}: ${scalar}`,
+      "",
+    ].join("\n");
+
+  /** DERIVED from the fixture. A hardcoded line number passes for a reader that
+   * anchors anywhere the fixture happens to put the key. */
+  const keyLineOf = (source: string, key: string): number =>
+    source
+      .split("\n")
+      .findIndex((line) => line.trimStart().replace(/^- /, "").startsWith(`${key}:`)) + 1;
+
+  // AC-2, the full key x style matrix. Round-3 plan review found the first
+  // draft covered only `run`, which a `run`-only implementation passes while
+  // still violating AC-2 on the other three. Probed at base, all four keys
+  // behave identically — plain=1, single=0, double=0 — so all eight quoted
+  // cells are red and none is redundant.
+  //
+  // `entrypoint` and `args` are in scope for THIS channel precisely because it
+  // lexes the whole file: their YAML delimiters reach the shell lexer exactly
+  // as a `run:` scalar's do. Their SITE channel is already correct and is not
+  // touched. The repair is a set union, so the class-sweep default applies —
+  // the marginal cost of the other three keys is one identifier each while
+  // holding the context.
+  const EXECUTABLE_KEYS: Array<[string, (key: string, scalar: string) => string]> = [
+    ["run", stepScalar],
+    ["shell", stepScalar],
+    ["entrypoint", withScalar],
+    ["args", withScalar],
+  ];
+  const QUOTED_SPELLINGS: Array<[string, (body: string) => string]> = [
+    ["SINGLE-quoted", (body) => `'${body}'`],
+    ["DOUBLE-quoted", (body) => `"${body}"`],
+  ];
+
+  const matrix = EXECUTABLE_KEYS.flatMap(([key, build]) =>
+    QUOTED_SPELLINGS.map(
+      ([styleLabel, quote]) => [key, styleLabel, build(key, quote(CANONICAL_BODY))] as const,
+    ),
+  );
+
+  test.each(matrix)("AC-2: a %s: scalar, %s, reports at the key's line", (key, _style, source) => {
+    const keyLine = keyLineOf(source, key);
+    premiseHolds(
+      "the fixture's key is not on line 1, so an advisory pinned there is not a positional default",
+      keyLine !== 1,
+    );
+    expect(
+      scanShellIndirection(source, WORKFLOW_FILE).map((hit) => ({
+        line: hit.line,
+        text: hit.text,
+      })),
+    ).toEqual([{ line: keyLine, text: CANONICAL_TARGET }]);
+  });
+
+  // The PLAIN spelling of every one of those keys already reports. These are
+  // the regression half: an implementation that blanked the plain styles too
+  // would satisfy every quoted assertion above and silence all four of these.
+  test.each(EXECUTABLE_KEYS)(
+    "AC-2 regression: a PLAIN %s: scalar still reports at the key's line",
+    (key, build) => {
+      const source = build(key, CANONICAL_BODY);
+      expect(
+        scanShellIndirection(source, WORKFLOW_FILE).map((hit) => ({
+          line: hit.line,
+          text: hit.text,
+        })),
+      ).toEqual([{ line: keyLineOf(source, key), text: CANONICAL_TARGET }]);
+    },
+  );
+
+  // YAML lets the key and its scalar sit on DIFFERENT lines, and this is the
+  // only fixture shape that can tell the two anchors apart. Every fixture in
+  // the first draft put them on one line, so an implementation anchoring on the
+  // VALUE's range passed every line assertion in the plan. The spec's contract
+  // says the KEY's line.
+  test("AC-2: the advisory names the KEY's line even when the scalar starts on the next one", () => {
+    const source = [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run:",
+      `          "${CANONICAL_BODY}"`,
+      "",
+    ].join("\n");
+    const keyLine = keyLineOf(source, "run");
+    const valueLine = source.split("\n").findIndex((line) => line.includes(CANONICAL_BODY)) + 1;
+    premiseHolds(
+      "the key and its scalar really are on different lines, which is what makes the two anchors distinguishable",
+      keyLine !== valueLine,
+    );
+    expect(scanShellIndirection(source, WORKFLOW_FILE).map((hit) => hit.line)).toEqual([keyLine]);
+  });
+
+  // COORDINATE SPACE. This channel already rewrites its input once — the YAML
+  // continuation transform, which REMOVES BYTES — and parser ranges are offsets
+  // into the ORIGINAL source. Blank after the transform and the blanking
+  // overruns by exactly the bytes the transform removed, straight into the
+  // following line:
+  //
+  //   RIGHT (blank, then transform):  "      - run: PG=psql; $PG -qAt mydb"
+  //   WRONG (transform, then blank):  "         un: PG=psql; $PG -qAt mydb"
+  //
+  // The `run:` key itself is destroyed, so the NEXT step stops being a run
+  // scalar and its finding is silently erased — in the channel this task exists
+  // to un-silence. The fixture below is that exact shape.
+  test("AC-2: blanking a multiline flow scalar does not erase the step that follows it", () => {
+    // The continuation's indent is DERIVED, not decorative. The overrun's width
+    // is exactly the whitespace the transform strips, so the fixture is only
+    // discriminating when that width carries past the following line's `>$(`.
+    // Measured at ten spaces, the overrun eats `- r` and leaves `un: echo
+    // >$(psql …` — still a redirection with an unreadable target, so the
+    // advisory survives and the fixture passes under BOTH orderings. That is
+    // the vacuity this suite exists to refuse, and it was caught by running the
+    // wrong ordering as a mutant rather than by reading the code.
+    const SURVIVOR_BODY = "echo >$(psql -qAt other";
+    const survivorStep = `      - run: ${SURVIVOR_BODY}`;
+    const continuationIndent = " ".repeat(survivorStep.indexOf(">$(") + 4);
+    const source = [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      '      - run: "PG=psql; \\',
+      `${continuationIndent}$PG -qAt mydb"`,
+      survivorStep,
+      "",
+    ].join("\n");
+    const survivorLine = source.split("\n").indexOf(survivorStep) + 1;
+    premiseHolds(
+      "the flow scalar carries a physical continuation, which is the only shape whose transform removes bytes",
+      /\\\n[ \t]+/.test(source),
+    );
+    premiseHolds(
+      "the stripped width reaches PAST the following step's substitution opener, so a mis-ordered blank destroys the finding rather than merely nicking the line",
+      continuationIndent.length > survivorStep.indexOf(">$("),
+    );
+    // The WHOLE hit set, not just the survivor. The flow scalar itself now
+    // reports too — its binding is read through the decoded value, which is the
+    // declared limit this arc retires — and asserting only the survivor would
+    // let that finding appear, vanish, or move without the test noticing.
+    // Under the mis-ordered blank the survivor is the hit that disappears,
+    // which is what makes the full-set assertion discriminating rather than
+    // merely stricter.
+    expect(
+      scanShellIndirection(source, WORKFLOW_FILE).map((hit) => ({
+        line: hit.line,
+        text: hit.text,
+      })),
+    ).toEqual([
+      { line: survivorLine, text: "$(psql -qAt other" },
+      {
+        line: source.split("\n").findIndex((line) => line.includes('- run: "PG=')) + 1,
+        text: "PG=psql; $PG -qAt mydb",
+      },
+    ]);
+  });
+
+  // The channel fires on CONTENT, never on quoting. This is what keeps correct
+  // authoring quiet, and it is the assertion that stops the repair from turning
+  // every quoted scalar in the corpus into an advisory.
+  test("AC-2: a benign quoted scalar draws no advisory", () => {
+    expect(scanShellIndirection(stepScalar("run", '"echo hello"'), WORKFLOW_FILE)).toEqual([]);
+  });
+
+  // The new code is gated on the YAML extension — the same predicate that
+  // already selects the continuation transform — so a `.sh` file never reaches
+  // it. Verified against the tree BEFORE the change and re-verified after,
+  // rather than argued from the gate's source. This is what pins the declared
+  // limit at the quote-concatenated block as out of reach of this change.
+  test("AC-2: a `.sh` file is untouched by the YAML path", () => {
+    const source = `${CANONICAL_BODY}\n`;
+    expect(
+      scanShellIndirection(source, "x.sh").map((hit) => ({ line: hit.line, text: hit.text })),
+    ).toEqual([{ line: 1, text: CANONICAL_TARGET }]);
   });
 });

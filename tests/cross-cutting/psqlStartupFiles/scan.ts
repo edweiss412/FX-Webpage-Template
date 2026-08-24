@@ -404,7 +404,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import ts from "typescript";
-import { parseDocument, visit, isPair, isScalar, type Node as YamlNode } from "yaml";
+import { parseDocument, visit, isPair, isScalar, isSeq, type Node as YamlNode } from "yaml";
 
 export const EXEMPTION_MARKER = "psql-startup-files-ok:";
 
@@ -3388,7 +3388,142 @@ function hereStringBindingLines(
   return found;
 }
 
+/**
+ * A QUOTED executable scalar, located in the ORIGINAL source coordinates.
+ *
+ * `scanShellIndirection` lexes the WHOLE YAML file as one shell text and never
+ * parses YAML, so a quoted executable scalar's YAML delimiters arrive at the
+ * shell lexer as SHELL quotes: the body collapses to one literal word, the `$(`
+ * inside it is quoted rather than opening a substitution, and the
+ * unlexable-target report never fires. Probed at base, all four executable keys
+ * behave identically — the PLAIN spelling reports one advisory and both quoted
+ * spellings report none — so the quoted spellings are silently unreadable in a
+ * channel whose entire job is to say "something here I cannot read".
+ *
+ * Both key families are collected, and the reason is that this channel lexes
+ * the whole FILE: a `with.args` scalar's YAML delimiters reach the lexer
+ * exactly as a `run:` scalar's do, so the defect does not distinguish them even
+ * though the SITE channel does. The sequence spelling of `args:` is collected
+ * for the same reason — probed at base, a block-sequence item reports when
+ * plain and goes silent when quoted, which is the same defect in a different
+ * spelling rather than a new one.
+ */
+type QuotedExecutableScalar = {
+  /** Byte range in the ORIGINAL source. */
+  range: [number, number];
+  /** The scalar's DECODED value: the shell text it actually carries. */
+  value: string;
+  /** 1-based line a finding from this scalar is pinned to. */
+  line: number;
+};
+
+/**
+ * Where a finding from a quoted scalar is ANCHORED.
+ *
+ * A decoded line number is an offset into the decoded value and does not
+ * correspond to a physical line — an escaped `\n` consumes none — so it cannot
+ * be reported. For a MAPPING VALUE the anchor is the key's line, which is the
+ * contract the site channel's decoded pass already states. For a SEQUENCE ITEM
+ * there is no key of its own, and anchoring to the containing `args:` key would
+ * put the quoted spelling on a different line from the plain spelling of the
+ * same item; the item's own starting line is where both agree.
+ */
+function quotedExecutableScalars(source: string): QuotedExecutableScalar[] {
+  let document;
+  try {
+    document = parseDocument(source, { keepSourceTokens: true });
+  } catch {
+    return [];
+  }
+  const found: QuotedExecutableScalar[] = [];
+  const lineAt = (offset: number): number => source.slice(0, offset).split("\n").length;
+  const QUOTED_STYLES = new Set(["QUOTE_SINGLE", "QUOTE_DOUBLE"]);
+  // An ALIAS resolves to a scalar defined elsewhere; resolving is required
+  // rather than generous, because workflow reuse via anchors is documented.
+  const resolve = (node: unknown): unknown => {
+    const asAlias = node as { resolve?: unknown };
+    return asAlias && typeof asAlias.resolve === "function"
+      ? ((asAlias as { resolve: (d: unknown) => unknown }).resolve(document) ?? node)
+      : node;
+  };
+  const take = (node: unknown, anchorLine: number | null): void => {
+    const value = resolve(node);
+    if (isSeq(value as never)) {
+      for (const item of (value as { items?: unknown[] }).items ?? []) {
+        const itemRange = (resolve(item) as { range?: [number, number, number] }).range;
+        take(item, itemRange ? lineAt(itemRange[0]) : anchorLine);
+      }
+      return;
+    }
+    if (!isScalar(value as never)) return;
+    const style = (value as { type?: string }).type;
+    if (style === undefined || !QUOTED_STYLES.has(style)) return;
+    const range = (value as { range?: [number, number, number] }).range;
+    const decoded = (value as { value?: unknown }).value;
+    if (!range || typeof decoded !== "string") return;
+    found.push({
+      range: [range[0], range[1]],
+      value: decoded,
+      line: anchorLine ?? lineAt(range[0]),
+    });
+  };
+  visit(document, {
+    Pair(_key: unknown, pair: unknown) {
+      if (!isPair(pair as YamlNode as never)) return;
+      const node = pair as { key?: unknown; value?: unknown };
+      const name = (node.key as { value?: unknown } | undefined)?.value as string;
+      if (!EXECUTABLE_WORKFLOW_KEYS.has(name) && !CONTAINER_ARGV_KEYS.has(name)) return;
+      const keyRange = (node.key as { range?: [number, number, number] } | undefined)?.range;
+      take(node.value, keyRange ? lineAt(keyRange[0]) : null);
+    },
+  });
+  return found;
+}
+
+/**
+ * Blank every range to spaces, PRESERVING newlines.
+ *
+ * Byte count and line count both survive, so every offset and every line number
+ * downstream still names the same position it did in the original source. That
+ * is what lets the blanked text be handed to the lexer while the untouched
+ * `source` is still handed to the arms that read it directly.
+ */
+function blankRanges(source: string, ranges: Array<[number, number]>): string {
+  if (ranges.length === 0) return source;
+  const out = source.split("");
+  for (const [start, end] of ranges) {
+    for (let at = start; at < end && at < out.length; at++) {
+      if (out[at] !== "\n") out[at] = " ";
+    }
+  }
+  return out.join("");
+}
+
 export function scanShellIndirection(source: string, file: string): IndirectionHit[] {
+  return scanShellIndirectionIn(source, file, true);
+}
+
+/**
+ * `yamlAware` is false for ONE caller: the rescan of a quoted executable
+ * scalar's DECODED value, below.
+ *
+ * That value is post-YAML text — the parser has already removed the delimiters,
+ * applied the escape grammar, and joined the continuations — so re-running the
+ * YAML pre-processing over it would decode an already-decoded string. Turning
+ * the flag off also terminates the recursion by construction rather than by a
+ * depth counter: with no YAML pass there are no quoted scalars to collect, so
+ * the rescan can never rescan.
+ *
+ * `file` stays the REAL path in both modes. Every other reading in this
+ * function keys on it — whether a backtick is markdown or a substitution, how a
+ * binding value is judged — and those readings are about the file the text came
+ * from, which does not change just because one pre-processing step is skipped.
+ */
+function scanShellIndirectionIn(
+  source: string,
+  file: string,
+  yamlAware: boolean,
+): IndirectionHit[] {
   const hits: IndirectionHit[] = [];
   const lines = source.split("\n");
   const commentAt = commentIndexPerLine(source, "hash");
@@ -3413,8 +3548,25 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   // that leading whitespace for EVERY file type; this keeps the strip only
   // where it is the document's own semantics. Newlines are preserved, so every
   // word's `line` still names its physical line.
-  const lexedSource = YAML_EXTENSIONS.includes(extensionOf(file))
-    ? source.replace(/\\\n[ \t]+/g, "\\\n")
+  const isYaml = yamlAware && YAML_EXTENSIONS.includes(extensionOf(file));
+  // A QUOTED executable scalar's delimiters belong to YAML, not to the shell,
+  // so the scalar is blanked out of the text this lexer sees and rescanned
+  // below from its DECODED value instead.
+  //
+  // ORDERING IS LOAD-BEARING, and it is the reason blanking happens HERE rather
+  // than one line down. Parser ranges are offsets into the ORIGINAL source, and
+  // the continuation transform on the next line REMOVES BYTES. Blank after it
+  // and the blanking overruns by exactly the bytes it removed, straight into
+  // the following line: on a flow scalar carrying one physical continuation the
+  // transform removes ten bytes and the next step's `- run:` key is destroyed,
+  // so that step stops being a run scalar and its finding is silently erased —
+  // in the very channel this repair exists to un-silence.
+  const quotedExecutables = isYaml ? quotedExecutableScalars(source) : [];
+  const lexedSource = isYaml
+    ? blankRanges(
+        source,
+        quotedExecutables.map((scalar) => scalar.range),
+      ).replace(/\\\n[ \t]+/g, "\\\n")
     : source;
   const targets: RedirectionTarget[] = [];
   const redirections: Redirection[] = [];
@@ -3455,6 +3607,26 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
       // opening line names where the target is.
       hits.push({ file, line: target.line + 1, text: target.unlexable.trim() });
     }
+  // Each blanked scalar, rescanned from its DECODED value — the shell text it
+  // actually carries — through THIS WHOLE FUNCTION rather than through one of
+  // its arms.
+  //
+  // Re-entering is the point, and a partial rescan is what it replaced. The
+  // first cut re-lexed each scalar and re-applied only the unlexable-target
+  // predicate, which fixed the advisory this repair is named for and silently
+  // broke a different arm: blanking removes the scalar from the whole-file lex
+  // for EVERY reading, so the executable-DISCOVERY arm stopped seeing
+  // `run: "PSQL=$(command -v psql); $PSQL -qAt mydb"` at all. The deciding
+  // suite caught it as a hard red rather than a review round. Re-entry cannot
+  // develop that gap, because there is no second list of arms to keep in step.
+  //
+  // Every hit is re-anchored: a line inside the decoded value is an offset into
+  // a string, not a physical line — an escaped `\n` consumes none — so it names
+  // nothing a reader could open. The anchor is the key's line, which is the
+  // contract the site channel's decoded pass already states.
+  for (const scalar of quotedExecutables)
+    for (const hit of scanShellIndirectionIn(scalar.value, file, false))
+      hits.push({ ...hit, line: scalar.line });
   const bindingLines = assignmentBindingLines(words, file);
   // Arm 1's word route, kept as its OWN set rather than merged into
   // `bindingLines`, so the two routes stay distinguishable to a reader and to a
