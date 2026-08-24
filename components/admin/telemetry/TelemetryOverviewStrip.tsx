@@ -37,15 +37,21 @@ function StatDot({ status }: { status: StatDotStatus }) {
 function StatCard({
   label,
   testId,
+  renderFault,
   children,
 }: {
   label: string;
   testId: string;
+  // Layer 1's marker, threaded as a prop because a DOM attribute cannot cross a
+  // component boundary. Passed only by the fault branches, so an unmarked one
+  // still fails the meta-test rather than inheriting a marker every card has.
+  renderFault?: string;
   children: React.ReactNode;
 }) {
   return (
     <div
       data-testid={testId}
+      data-render-fault={renderFault}
       className="flex h-full flex-col gap-2 rounded-md border border-border bg-surface p-4 shadow-tile"
     >
       <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle">
@@ -124,7 +130,7 @@ function SystemHealthCard({ summary }: { summary: AlertSummary }) {
 function OpenAlertsCard({ summary }: { summary: AlertSummary }) {
   if (summary.kind === "infra_error") {
     return (
-      <StatCard label="Open alerts" testId="stat-open-alerts">
+      <StatCard label="Open alerts" testId="stat-open-alerts" renderFault="telemetry-open-alerts">
         <Unavailable />
         <SubLine>Unavailable</SubLine>
       </StatCard>
@@ -169,7 +175,7 @@ function OpenAlertsCard({ summary }: { summary: AlertSummary }) {
 function CronCard({ cron, now }: { cron: LoadCronHealthResult; now: Date }) {
   if (cron.kind === "infra_error") {
     return (
-      <StatCard label="Scheduled jobs" testId="stat-cron">
+      <StatCard label="Scheduled jobs" testId="stat-cron" renderFault="telemetry-cron-health">
         <Unavailable />
         <SubLine>Health unavailable</SubLine>
       </StatCard>

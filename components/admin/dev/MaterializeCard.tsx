@@ -261,7 +261,10 @@ export function MaterializeCard(props: MaterializeCardProps) {
               </p>
             ) : null}
             {result.kind === "infra_error" ? (
-              <p className="mt-1 font-mono text-xs wrap-break-word text-text-subtle">
+              <p
+                data-render-fault="materialize-result"
+                className="mt-1 font-mono text-xs wrap-break-word text-text-subtle"
+              >
                 {result.message}
               </p>
             ) : null}

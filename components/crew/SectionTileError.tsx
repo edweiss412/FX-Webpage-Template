@@ -57,6 +57,11 @@ export function SectionTileError({ domain }: { domain: string }): JSX.Element {
   return (
     <div
       data-testid={`section-tile-error-${domain}`}
+      // Layer 1 marker. Written here rather than at the fourteen branches that
+      // render this component: the capture reads the DOM, which cannot tell
+      // where the attribute was authored, and one marker for one behavior beats
+      // the same string in fourteen places.
+      data-render-fault={`tile-${domain}`}
       data-variant="degraded"
       className="rounded-sm border border-border-strong bg-warning-bg px-3 py-2 text-sm text-warning-text"
     >

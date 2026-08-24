@@ -595,6 +595,7 @@ async function Step3Container({
     const degradedNote = (
       <section
         data-testid="wizard-step3-infra-error"
+        data-render-fault="wizard-step3-sheet-read"
         className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
       >
         <p className="font-semibold">We could not load your sheets.</p>

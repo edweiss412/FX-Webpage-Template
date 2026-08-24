@@ -80,6 +80,7 @@ export default async function NeedsAttentionPage() {
         {"kind" in result ? (
           <p
             data-testid="needs-attention-page-degraded"
+            data-render-fault="needs-attention-load"
             className="rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
           >
             We could not load this list right now. This is usually temporary. Refresh in a moment.

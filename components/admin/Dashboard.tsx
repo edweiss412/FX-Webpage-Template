@@ -596,6 +596,7 @@ export async function Dashboard(
     return (
       <main
         data-testid="admin-dashboard-infra-error"
+        data-render-fault="dashboard-load"
         className="mx-auto flex max-w-4xl flex-col gap-section-gap"
       >
         {/* B1-D3: no eyebrow here — this branch renders BELOW the shared

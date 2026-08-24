@@ -52,6 +52,7 @@ function FailureSurface({ testId, copy }: { testId: string; copy: string }) {
   return (
     <main
       data-testid={testId}
+      data-render-fault={testId}
       className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
     >
       <p className="text-base text-text-subtle">{copy}</p>

@@ -142,6 +142,7 @@ export default async function AdminPreviewAsPage({ params, searchParams }: PageP
     return (
       <main
         data-testid="admin-preview-infra-error"
+        data-render-fault="admin-preview-show-lookup"
         className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
       >
         <h1 className="text-2xl font-bold text-text-strong">We could not load this preview</h1>
@@ -178,6 +179,7 @@ export default async function AdminPreviewAsPage({ params, searchParams }: PageP
     return (
       <main
         data-testid="admin-preview-crew-infra-error"
+        data-render-fault="admin-preview-crew-lookup"
         className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
       >
         <h1 className="text-2xl font-bold text-text-strong">We could not load this preview</h1>
@@ -207,6 +209,7 @@ export default async function AdminPreviewAsPage({ params, searchParams }: PageP
     return (
       <main
         data-testid="admin-preview-data-failure"
+        data-render-fault="admin-preview-loader-threw"
         className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
       >
         <h1 className="text-2xl font-bold text-text-strong">We could not load this preview</h1>
