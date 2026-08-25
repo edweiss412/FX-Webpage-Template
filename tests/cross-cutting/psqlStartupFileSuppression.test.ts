@@ -36,7 +36,8 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ts from "typescript";
-import { describe, expect, test } from "vitest";
+import { Scalar, parseDocument, visit } from "yaml";
+import { afterAll, describe, expect, test } from "vitest";
 
 import { premise, premiseHolds } from "../_shared/premise";
 import { stripCommentsForFile } from "../_shared/stripComments";
@@ -53,8 +54,31 @@ import {
   scanBinaryIndirection,
   scanSource,
   scanWorkflowIndirection,
+  scanWorkflowSource,
+  RAW_IS_SHELL_TEXT_STYLES,
   tokenSuppressesStartupFiles,
 } from "./psqlStartupFiles/scan";
+
+/**
+ * Scratch roots this file creates, removed together in `afterAll`.
+ *
+ * The per-case `finally` blocks below stay and are still the primary cleanup;
+ * this is the backstop for the gap they cannot cover. Each root is created
+ * BEFORE the `try` that removes it, so a failure between those two lines leaks
+ * it — which is exactly what the failure arm of
+ * `tests/mutation/_metaScratchRootCleanup.test.ts` found here. `rmSync` with
+ * `force` is idempotent, so removing an already-removed root is a no-op.
+ * Row: BL-MUTATION-SCRATCH-FS-EVENT-STORM.
+ */
+const scratchRoots: string[] = [];
+function trackScratch(root: string): string {
+  scratchRoots.push(root);
+  return root;
+}
+afterAll(() => {
+  for (const root of scratchRoots) rmSync(root, { recursive: true, force: true });
+  scratchRoots.length = 0;
+});
 
 const REPO_ROOT = join(__dirname, "..", "..");
 
@@ -1652,7 +1676,7 @@ describe("an unreadable directory is reported, never skipped", () => {
   // list is empty. Root bypasses directory permissions, so the probe cannot run
   // there — the live assertion above still holds either way.
   test.skipIf(isRoot)("chmod 000 on a directory holding a psql site fails the census", () => {
-    const root = mkdtempSync(join(tmpdir(), "psql-unreadable-"));
+    const root = trackScratch(mkdtempSync(join(tmpdir(), "psql-unreadable-")));
     const blocked = join(root, "scripts");
     mkdirSync(blocked, { recursive: true });
     writeFileSync(join(blocked, "probe.sh"), 'psql "$DSN" -qAt -c "select 1"\n', "utf8");
@@ -1735,7 +1759,7 @@ describe("the walk skips gitignore-declared roots and names what it cannot parse
   const PSQL_SITE = 'execFileSync("psql", ["-qAt", dsn]);\n';
 
   function buildTree(gitignoreText: string | null): string {
-    const root = mkdtempSync(join(tmpdir(), "psql-gitignore-"));
+    const root = trackScratch(mkdtempSync(join(tmpdir(), "psql-gitignore-")));
     if (gitignoreText !== null) writeFileSync(join(root, ".gitignore"), gitignoreText, "utf8");
     mkdirSync(join(root, "genout"), { recursive: true });
     writeFileSync(join(root, "genout", "bundle.js"), DEEP_BUNDLE, "utf8");
@@ -1775,7 +1799,7 @@ describe("the walk skips gitignore-declared roots and names what it cannot parse
   });
 
   test("an ABSENT .gitignore yields an empty derived set, not a fallback to literals", () => {
-    const root = mkdtempSync(join(tmpdir(), "psql-nogitignore-"));
+    const root = trackScratch(mkdtempSync(join(tmpdir(), "psql-nogitignore-")));
     try {
       mkdirSync(join(root, "out"), { recursive: true });
       writeFileSync(join(root, "out", "probe.sh"), 'psql "$DSN" -qAt -c "select 1"\n', "utf8");
@@ -1788,7 +1812,7 @@ describe("the walk skips gitignore-declared roots and names what it cannot parse
   });
 
   test("the ratified root-relative `docs` skip survives the derivation", () => {
-    const root = mkdtempSync(join(tmpdir(), "psql-docs-skip-"));
+    const root = trackScratch(mkdtempSync(join(tmpdir(), "psql-docs-skip-")));
     try {
       mkdirSync(join(root, "docs"), { recursive: true });
       writeFileSync(join(root, "docs", "quoted.sh"), 'psql "$DSN" -qAt -c "select 1"\n', "utf8");
@@ -5144,17 +5168,39 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
     expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
   });
 
-  // Documented limit, spec §6 item 2 (round-1 finding 1): a quoted YAML `run:`
-  // scalar lexes to ONE assignment word whose multiword value's psql command
-  // carries no flag token - the -qAt below belongs to the $PG command - and
-  // the flag criterion (deliberately unchanged) is the line between a command
-  // binding and prose. Plain and mixed spellings alike are declared misses.
+  // RETIRED LIMIT, 2026-08-22 (BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE). These
+  // two rows pinned a ZERO and now pin a HIT. Re-pinned rather than deleted: a
+  // retired limit stays visible as a pin, so the improvement is asserted rather
+  // than merely no longer contradicted.
+  //
+  // The old comment here named the FLAG CRITERION as the cause, and that was
+  // wrong in a way worth recording, because a true-looking explanation of a
+  // behaviour that no longer exists is worse than none. The flag criterion is
+  // untouched and still stands. What actually caused the miss is this arc's
+  // defect: `scanShellIndirection` lexed the whole YAML file, so the scalar's
+  // YAML quotes were read as SHELL quotes and the entire body collapsed into
+  // one literal word with no assignment in it. Nothing about flags ever came
+  // into it. The reader now blanks the quoted scalar and rescans its DECODED
+  // value, where the binding is an ordinary assignment and reads normally.
+  //
+  // Predicted by the predecessor arc, which said recall here needed YAML-aware
+  // value extraction on a different surface
+  // (docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md
+  // lines 322-328). This is that extraction.
   test.each([
-    ["the plain spelling", '- run: "PG=psql; $PG -qAt mydb"\n'],
-    ["the mixed spelling", "- run: \"PG=p'sql'; $PG -qAt mydb\"\n"],
-  ])("multiword binding value: a quoted run: scalar (%s) stays a limit", (_label, source) => {
-    expect(scanShellIndirection(source, ".github/workflows/x.yml")).toHaveLength(0);
-  });
+    ["the plain spelling", '- run: "PG=psql; $PG -qAt mydb"\n', "PG=psql; $PG -qAt mydb"],
+    ["the mixed spelling", "- run: \"PG=p'sql'; $PG -qAt mydb\"\n", "PG=p'sql'; $PG -qAt mydb"],
+  ])(
+    "multiword binding value: a quoted run: scalar (%s) is READ, not a limit",
+    (_label, source, text) => {
+      expect(
+        scanShellIndirection(source, ".github/workflows/x.yml").map((hit) => ({
+          line: hit.line,
+          text: hit.text,
+        })),
+      ).toEqual([{ line: 1, text }]);
+    },
+  );
 });
 
 describe("arm 1 - a DETACHED here-string target is read from the lexer's retained word", () => {
@@ -6739,7 +6785,7 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
   // actually executed it. A row that stops executing changes its own
   // expectation, so the test cannot rot into asserting a stale belief.
   test("the scanner agrees with BASH on every arithmetic-versus-substitution spelling", () => {
-    const dir = mkdtempSync(join(tmpdir(), "arith-oracle-"));
+    const dir = trackScratch(mkdtempSync(join(tmpdir(), "arith-oracle-")));
     const bin = join(dir, "bin");
     mkdirSync(bin);
     const fake = join(bin, "psql");
@@ -7112,5 +7158,660 @@ describe("an ATTACHED target the accept-set cannot delimit is REPORTED on the sp
       line: 3,
       candidates: { firstLine: 1, eofLine: 6 },
     });
+  });
+});
+
+describe("YAML scalar style — a QUOTED `run:` scalar's delimiters are YAML, not shell", () => {
+  // BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE, stated as the defect these cases
+  // DECIDE rather than as current behaviour. The workflow reader USED TO hand the
+  // RAW source slice of every `run:` scalar to the shell lexer. For a PLAIN or
+  // BLOCK scalar that slice IS the shell text and the pass is correct, and that
+  // half is unchanged. For a QUOTED one the delimiters belong to YAML, and
+  // reading them as shell was wrong in
+  // both forbidden directions at once: the leading `"` opens a double-quoted
+  // shell span, the `$(` inside it consumes the YAML CLOSING quote, and a psql
+  // command word is recovered from a substitution body that exists only because
+  // two YAML delimiters were read as shell. bash never runs that command.
+  //
+  // The decoded pass below the raw one already scans the scalar's VALUE, which
+  // is the shell text a quoted scalar actually carries, so the repair is to
+  // stop running the raw pass on the styles where the raw slice is not shell
+  // text — not to add a second decoder.
+  const WORKFLOW_FILE = ".github/workflows/x.yml";
+
+  /** The spec's canonical body: an unclosed `$(` inside a redirection target. */
+  const CANONICAL_BODY = "echo >$(psql -qAt mydb";
+
+  const workflowWith = (runScalar: string): string =>
+    [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      `      - run: ${runScalar}`,
+      "",
+    ].join("\n");
+
+  /**
+   * DERIVED from the fixture, never written down. A hardcoded 7 passes for a
+   * reader that anchors on any line as long as the fixture happens to put the
+   * key there; deriving it means moving a fixture line moves the expectation
+   * with it.
+   */
+  const runKeyLineOf = (source: string): number =>
+    source.split("\n").findIndex((line) => line.includes("- run:")) + 1;
+
+  // AC-1 — the defect itself. A double-quoted scalar carrying the canonical
+  // body yields NO site, because bash, handed the value that scalar decodes to
+  // (`echo >$(psql -qAt mydb`), runs no psql: the substitution never closes.
+  test("AC-1: a DOUBLE-QUOTED `run:` scalar fabricates no site", () => {
+    const source = workflowWith(`"${CANONICAL_BODY}"`);
+    expect(scanWorkflowSource(source, WORKFLOW_FILE)).toEqual([]);
+  });
+
+  // AC-3 — the styles whose raw slice IS shell text keep the behaviour they
+  // have. This is the regression half of AC-1: an implementation that
+  // suppressed the raw pass for EVERY style would satisfy AC-1 and break both
+  // of these.
+  test("AC-3: a PLAIN scalar with the same body still yields no site and one advisory at the key's line", () => {
+    const source = workflowWith(CANONICAL_BODY);
+    const keyLine = runKeyLineOf(source);
+    premiseHolds(
+      "the fixture's `run:` key is not on line 1, so an advisory pinned there is not a positional default",
+      keyLine !== 1,
+    );
+    expect(scanWorkflowSource(source, WORKFLOW_FILE)).toEqual([]);
+    expect(
+      scanShellIndirection(source, WORKFLOW_FILE).map((hit) => ({
+        line: hit.line,
+        text: hit.text,
+      })),
+    ).toEqual([{ line: keyLine, text: "$(psql -qAt mydb" }]);
+  });
+
+  test("AC-3: a BLOCK_LITERAL scalar still reports its site at the PHYSICAL line, not the key's", () => {
+    const source = [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: |",
+      "          psql -qAt mydb",
+      "",
+    ].join("\n");
+    const keyLine = runKeyLineOf(source);
+    const bodyLine = source.split("\n").findIndex((line) => line.includes("psql -qAt")) + 1;
+    premiseHolds(
+      "the block body is on a DIFFERENT line from its key, which is the only shape that can tell the two anchors apart",
+      bodyLine !== keyLine,
+    );
+    expect(
+      scanWorkflowSource(source, WORKFLOW_FILE).map((site) => ({
+        line: site.line,
+        suppresses: site.suppressesStartupFiles,
+      })),
+    ).toEqual([{ line: bodyLine, suppresses: false }]);
+  });
+
+  // AC-4 — the anti-tautology arm, and the reason AC-1 is not a licence to go
+  // quiet. AC-1 asserts an EMPTY result, which a scanner broken in the other
+  // direction satisfies for free. These six rows are what a gate that
+  // suppressed quoted scalars ENTIRELY would fail, and they assert the VERDICT
+  // field (`suppressesStartupFiles`), not mere presence, so a site recovered
+  // with the wrong verdict is a failure too.
+  test.each([
+    ["a benign SINGLE-quoted PROTECTED command", "'psql -X mydb'", true],
+    ["a benign SINGLE-quoted UNPROTECTED command", "'psql -qAt mydb'", false],
+    ["a benign DOUBLE-quoted UNPROTECTED command", '"psql -qAt mydb"', false],
+    ["a DOUBLE-quoted escape spelling of the command word", '"\\x70sql -qAt mydb"', false],
+    ["a PLAIN UNPROTECTED command", "psql -qAt mydb", false],
+  ])("AC-4: %s is still a site, with its verdict intact", (_label, runScalar, suppresses) => {
+    const source = workflowWith(runScalar);
+    expect(
+      scanWorkflowSource(source, WORKFLOW_FILE).map((site) => site.suppressesStartupFiles),
+    ).toEqual([suppresses]);
+  });
+
+  // The `\x70sql` row above is the single most load-bearing case in this task:
+  // its RAW slice holds no literal `psql`, so it is reachable ONLY through the
+  // decoded pass. If the repair had suppressed both passes for quoted scalars,
+  // this row is the one that catches it — and `bash -n` accepts the command, so
+  // losing it would be silent corruption rather than a visible break.
+  test("AC-4: the escape-spelled command word is decoded-only, so its raw slice cannot supply it", () => {
+    const source = workflowWith('"\\x70sql -qAt mydb"');
+    premiseHolds(
+      "the fixture's raw source really holds no literal `psql`, so the passing row above cannot come from the raw pass",
+      !source.includes("psql"),
+    );
+    expect(scanWorkflowSource(source, WORKFLOW_FILE)).toHaveLength(1);
+  });
+
+  test("AC-4: a benign non-psql DOUBLE-quoted scalar draws nothing", () => {
+    expect(scanWorkflowSource(workflowWith('"echo hello"'), WORKFLOW_FILE)).toEqual([]);
+  });
+
+  // AC-9 — the accept-set is a PARTITION of the installed library's style
+  // vocabulary, not a list someone hopes is complete.
+  //
+  // EQUALITY in both directions, and the weaker form is worth naming because
+  // the first draft shipped it: asserting only that the union COVERS what the
+  // library emits still admits an arbitrary extra member. A constant holding
+  // `NOT_A_YAML_STYLE` is disjoint from the quoted pair AND covers everything
+  // emitted, so both assertions pass while default-deny has quietly been
+  // weakened. Under equality an added member breaks the union one way and a
+  // dropped one breaks it the other.
+  //
+  // This pin is GREEN from birth and carries no red-then-green marker, which is
+  // deliberate: the installed library already emits exactly these five, so the
+  // assertion is true before any of this arc's code exists. Dressing a
+  // structural pin in a cycle it can never be observed completing is the marker
+  // shape the task contract rejects. It ships in the commit that introduces the
+  // constant it pins.
+  test("AC-9: the raw-is-shell-text accept-set partitions the styles `yaml` emits", () => {
+    const QUOTED_STYLES = new Set(["QUOTE_SINGLE", "QUOTE_DOUBLE"]);
+
+    // DERIVED from the library's own vocabulary — the complete set of `type`
+    // values a `Scalar` can carry — rather than written down here. A new style
+    // in a `yaml` upgrade fails this pin instead of silently defaulting into
+    // whichever branch the reader happens to take.
+    const declaredByLibrary = new Set(
+      Object.getOwnPropertyNames(Scalar)
+        .filter(
+          (key) =>
+            key !== "name" &&
+            typeof (Scalar as unknown as Record<string, unknown>)[key] === "string",
+        )
+        .map((key) => (Scalar as unknown as Record<string, string>)[key]!),
+    );
+
+    // Cross-derivation, so the pin above cannot pass by reading a vocabulary the
+    // parser never actually produces: parse one real spelling of each style and
+    // collect the `type` the parser hands back.
+    const emittedByParser = new Set(
+      [
+        "psql -qAt mydb",
+        "'psql -qAt mydb'",
+        '"psql -qAt mydb"',
+        "|\n          psql -qAt mydb",
+        ">\n          psql -qAt mydb",
+      ].map((spelling) => {
+        const document = parseDocument(workflowWith(spelling), { keepSourceTokens: true });
+        let observed: string | undefined;
+        visit(document, {
+          Pair(_key: unknown, pair: unknown) {
+            const node = pair as { key?: { value?: unknown }; value?: unknown };
+            if (node.key?.value !== "run") return;
+            observed = (node.value as { type?: string } | undefined)?.type;
+          },
+        });
+        return observed!;
+      }),
+    );
+    premiseHolds(
+      "the two derivations agree, so the library's declared vocabulary is the one its parser actually emits",
+      [...declaredByLibrary].sort().join(",") === [...emittedByParser].sort().join(","),
+    );
+
+    expect({
+      overlapWithQuoted: [...RAW_IS_SHELL_TEXT_STYLES].filter((style) => QUOTED_STYLES.has(style)),
+      union: [...new Set([...RAW_IS_SHELL_TEXT_STYLES, ...QUOTED_STYLES])].sort(),
+    }).toEqual({
+      overlapWithQuoted: [],
+      union: [...declaredByLibrary].sort(),
+    });
+  });
+});
+
+describe("YAML quoted scalar advisory — the channel that lexes the whole file", () => {
+  // The other half of BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE, in the past tense
+  // because HEAD no longer behaves this way. This channel HANDED the WHOLE YAML
+  // file to the shell lexer and did NOT parse YAML at all, so a quoted executable
+  // scalar's YAML delimiters were read as SHELL quotes: the body collapsed into
+  // one literal word, the `$(` inside it was quoted rather than opening a
+  // substitution, and the unlexable-target report never fired. HEAD blanks those
+  // scalars out of the lexed view and rescans their decoded value. The plain spelling of the same body reports; the quoted spellings go
+  // silent. Silence is the other forbidden direction.
+  //
+  // The repair blanks each quoted executable scalar out of the file and rescans
+  // its DECODED value, pinning what it finds to the key's line — the same
+  // anchoring contract the site channel's decoded pass already states.
+  const WORKFLOW_FILE = ".github/workflows/x.yml";
+  const CANONICAL_BODY = "echo >$(psql -qAt mydb";
+  const CANONICAL_TARGET = "$(psql -qAt mydb";
+
+  const stepScalar = (key: string, scalar: string): string =>
+    [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      `      - ${key}: ${scalar}`,
+      "",
+    ].join("\n");
+
+  const withScalar = (key: string, scalar: string): string =>
+    [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - uses: docker://alpine",
+      "        with:",
+      `          ${key}: ${scalar}`,
+      "",
+    ].join("\n");
+
+  /** DERIVED from the fixture. A hardcoded line number passes for a reader that
+   * anchors anywhere the fixture happens to put the key. */
+  const keyLineOf = (source: string, key: string): number =>
+    source
+      .split("\n")
+      .findIndex((line) => line.trimStart().replace(/^- /, "").startsWith(`${key}:`)) + 1;
+
+  // AC-2, the full key x style matrix. Round-3 plan review found the first
+  // draft covered only `run`, which a `run`-only implementation passes while
+  // still violating AC-2 on the other three. Probed at base, all four keys
+  // behave identically — plain=1, single=0, double=0 — so all eight quoted
+  // cells are red and none is redundant.
+  //
+  // `entrypoint` and `args` are in scope for THIS channel precisely because it
+  // lexes the whole file: their YAML delimiters reach the shell lexer exactly
+  // as a `run:` scalar's do. Their SITE channel is already correct and is not
+  // touched. The repair is a set union, so the class-sweep default applies —
+  // the marginal cost of the other three keys is one identifier each while
+  // holding the context.
+  const EXECUTABLE_KEYS: Array<[string, (key: string, scalar: string) => string]> = [
+    ["run", stepScalar],
+    ["shell", stepScalar],
+    ["entrypoint", withScalar],
+    ["args", withScalar],
+  ];
+  const QUOTED_SPELLINGS: Array<[string, (body: string) => string]> = [
+    ["SINGLE-quoted", (body) => `'${body}'`],
+    ["DOUBLE-quoted", (body) => `"${body}"`],
+  ];
+
+  const matrix = EXECUTABLE_KEYS.flatMap(([key, build]) =>
+    QUOTED_SPELLINGS.map(
+      ([styleLabel, quote]) => [key, styleLabel, build(key, quote(CANONICAL_BODY))] as const,
+    ),
+  );
+
+  test.each(matrix)("AC-2: a %s: scalar, %s, reports at the key's line", (key, _style, source) => {
+    const keyLine = keyLineOf(source, key);
+    premiseHolds(
+      "the fixture's key is not on line 1, so an advisory pinned there is not a positional default",
+      keyLine !== 1,
+    );
+    expect(
+      scanShellIndirection(source, WORKFLOW_FILE).map((hit) => ({
+        line: hit.line,
+        text: hit.text,
+      })),
+    ).toEqual([{ line: keyLine, text: CANONICAL_TARGET }]);
+  });
+
+  // The PLAIN spelling of every one of those keys already reports. These are
+  // the regression half: an implementation that blanked the plain styles too
+  // would satisfy every quoted assertion above and silence all four of these.
+  test.each(EXECUTABLE_KEYS)(
+    "AC-2 regression: a PLAIN %s: scalar still reports at the key's line",
+    (key, build) => {
+      const source = build(key, CANONICAL_BODY);
+      expect(
+        scanShellIndirection(source, WORKFLOW_FILE).map((hit) => ({
+          line: hit.line,
+          text: hit.text,
+        })),
+      ).toEqual([{ line: keyLineOf(source, key), text: CANONICAL_TARGET }]);
+    },
+  );
+
+  // YAML lets the key and its scalar sit on DIFFERENT lines, and this is the
+  // only fixture shape that can tell the two anchors apart. Every fixture in
+  // the first draft put them on one line, so an implementation anchoring on the
+  // VALUE's range passed every line assertion in the plan. The spec's contract
+  // says the KEY's line.
+  test("AC-2: the advisory names the KEY's line even when the scalar starts on the next one", () => {
+    const source = [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run:",
+      `          "${CANONICAL_BODY}"`,
+      "",
+    ].join("\n");
+    const keyLine = keyLineOf(source, "run");
+    const valueLine = source.split("\n").findIndex((line) => line.includes(CANONICAL_BODY)) + 1;
+    premiseHolds(
+      "the key and its scalar really are on different lines, which is what makes the two anchors distinguishable",
+      keyLine !== valueLine,
+    );
+    expect(scanShellIndirection(source, WORKFLOW_FILE).map((hit) => hit.line)).toEqual([keyLine]);
+  });
+
+  // COORDINATE SPACE. This channel already rewrites its input once — the YAML
+  // continuation transform, which REMOVES BYTES — and parser ranges are offsets
+  // into the ORIGINAL source. Blank after the transform and the blanking
+  // overruns by exactly the bytes the transform removed, straight into the
+  // following line:
+  //
+  //   RIGHT (blank, then transform):  "      - run: PG=psql; $PG -qAt mydb"
+  //   WRONG (transform, then blank):  "         un: PG=psql; $PG -qAt mydb"
+  //
+  // The `run:` key itself is destroyed, so the NEXT step stops being a run
+  // scalar and its finding is silently erased — in the channel this task exists
+  // to un-silence. The fixture below is that exact shape.
+  test("AC-2: blanking a multiline flow scalar does not erase the step that follows it", () => {
+    // The continuation's indent is DERIVED, not decorative. The overrun's width
+    // is exactly the whitespace the transform strips, so the fixture is only
+    // discriminating when that width carries past the following line's `>$(`.
+    // Measured at ten spaces, the overrun eats `- r` and leaves `un: echo
+    // >$(psql …` — still a redirection with an unreadable target, so the
+    // advisory survives and the fixture passes under BOTH orderings. That is
+    // the vacuity this suite exists to refuse, and it was caught by running the
+    // wrong ordering as a mutant rather than by reading the code.
+    const SURVIVOR_BODY = "echo >$(psql -qAt other";
+    const survivorStep = `      - run: ${SURVIVOR_BODY}`;
+    const continuationIndent = " ".repeat(survivorStep.indexOf(">$(") + 4);
+    const source = [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      '      - run: "PG=psql; \\',
+      `${continuationIndent}$PG -qAt mydb"`,
+      survivorStep,
+      "",
+    ].join("\n");
+    const survivorLine = source.split("\n").indexOf(survivorStep) + 1;
+    premiseHolds(
+      "the flow scalar carries a physical continuation, which is the only shape whose transform removes bytes",
+      /\\\n[ \t]+/.test(source),
+    );
+    premiseHolds(
+      "the stripped width reaches PAST the following step's substitution opener, so a mis-ordered blank destroys the finding rather than merely nicking the line",
+      continuationIndent.length > survivorStep.indexOf(">$("),
+    );
+    // The WHOLE hit set, not just the survivor. The flow scalar itself now
+    // reports too — its binding is read through the decoded value, which is the
+    // declared limit this arc retires — and asserting only the survivor would
+    // let that finding appear, vanish, or move without the test noticing.
+    // Under the mis-ordered blank the survivor is the hit that disappears,
+    // which is what makes the full-set assertion discriminating rather than
+    // merely stricter.
+    expect(
+      scanShellIndirection(source, WORKFLOW_FILE).map((hit) => ({
+        line: hit.line,
+        text: hit.text,
+      })),
+    ).toEqual([
+      { line: survivorLine, text: "$(psql -qAt other" },
+      {
+        line: source.split("\n").findIndex((line) => line.includes('- run: "PG=')) + 1,
+        text: "PG=psql; $PG -qAt mydb",
+      },
+    ]);
+  });
+
+  // The channel fires on CONTENT, never on quoting. This is what keeps correct
+  // authoring quiet, and it is the assertion that stops the repair from turning
+  // every quoted scalar in the corpus into an advisory.
+  test("AC-2: a benign quoted scalar draws no advisory", () => {
+    expect(scanShellIndirection(stepScalar("run", '"echo hello"'), WORKFLOW_FILE)).toEqual([]);
+  });
+
+  // ONE SCALAR, ONE READING. This channel has arms that read the raw source
+  // LINES (the `githubEnvWrite` route, the here-string text route, interpreter
+  // positionals) alongside arms that read the LEXED words. Blanking only the
+  // lexer's input leaves the raw-line arms still looking at the quoted scalar,
+  // so a scalar the re-entry already reported gets reported a second time by a
+  // line arm — same line, same scalar, two hits, where the plain spelling of
+  // the identical body yields one.
+  //
+  // Loud rather than silent, so not the dangerous direction, but wrong twice
+  // over: a duplicate is a finding a reader has to reconcile, and `line` and
+  // `text` are both fields the AC-5 digest covers, so it would move the
+  // corpus finding set if any such scalar existed in it.
+  //
+  // The expectation is DERIVED from the plain spelling rather than written
+  // down: whatever the channel reports for the unquoted body is what it must
+  // report for the quoted ones, since quoting is not supposed to change what
+  // the scanner sees.
+  test.each([
+    ["SINGLE-quoted", (body: string) => `'${body}'`],
+    ["DOUBLE-quoted", (body: string) => `"${body}"`],
+  ])("AC-2: a %s scalar is reported ONCE, not once per reading route", (_label, quote) => {
+    const body = "echo PSQL=psql >> $GITHUB_ENV";
+    const plainCount = scanShellIndirection(stepScalar("run", body), WORKFLOW_FILE).length;
+    premiseHolds(
+      "the plain spelling of this body really is reported, so the parity assertion is not comparing two zeros",
+      plainCount === 1,
+    );
+    expect(scanShellIndirection(stepScalar("run", quote(body)), WORKFLOW_FILE)).toHaveLength(
+      plainCount,
+    );
+  });
+
+  // ANCHOR PARITY. A quoted scalar and the plain spelling of the same body must
+  // report on the SAME line, because quoting is not supposed to change where the
+  // scanner thinks the command is.
+  //
+  // Two anchor rules meet here and could disagree. A MAPPING VALUE anchors to
+  // its key's line; a SEQUENCE ITEM has no key of its own, so it anchors to its
+  // own starting line — and anchoring a sequence item to the containing `args:`
+  // key would put the quoted spelling one line above the plain spelling of the
+  // identical item. The `args:` block-sequence shape is the fixture that can
+  // tell them apart, because its key and its item are on different lines.
+  //
+  // The expectation is DERIVED from the plain spelling in every row, so this
+  // asserts agreement rather than a remembered line number.
+  test.each([
+    [
+      "a block-SEQUENCE item, where the key and the item are on different lines",
+      (scalar: string) =>
+        [
+          "name: x",
+          "on:",
+          "  push:",
+          "jobs:",
+          "  x:",
+          "    steps:",
+          "      - uses: docker://alpine",
+          "        with:",
+          "          args:",
+          `            - ${scalar}`,
+          "",
+        ].join("\n"),
+    ],
+    [
+      "a MAPPING value, where the key and the scalar share a line",
+      (scalar: string) => withScalar("args", scalar),
+    ],
+  ])("AC-2: quoting does not move the reported line — %s", (_label, build) => {
+    const body = CANONICAL_BODY;
+    const lineFor = (scalar: string) =>
+      scanShellIndirection(build(scalar), WORKFLOW_FILE).map((hit) => hit.line);
+    const plain = lineFor(body);
+    premiseHolds(
+      "the plain spelling reports exactly one advisory, so the parity rows below are not all comparing empties",
+      plain.length === 1,
+    );
+    expect({ single: lineFor(`'${body}'`), double: lineFor(`"${body}"`) }).toEqual({
+      single: plain,
+      double: plain,
+    });
+  });
+
+  // SCOPE BOUNDARY: only EXECUTABLE keys are blanked, and a non-executable key
+  // is left exactly as it was.
+  //
+  // Found by mutating the key set rather than by reading the code: widening it
+  // to every key passed all 1040 tests. That mutant is not equivalent, and its
+  // difference is the reason this test exists — under it a quoted value beneath
+  // a NON-executable key starts reporting its DECODED text instead of the raw
+  // line it appears on, and one shape that reports nothing today starts
+  // reporting. `text` is a field the AC-5 finding-set digest covers, so a silent
+  // change there moves the corpus digest.
+  //
+  // Whether decoding those values would be BETTER recall is a separate question
+  // and a much larger change: this channel runs over every tracked `.yml`, not
+  // only workflows, so widening the key set reaches ordinary configuration
+  // files. That is out of this arc's fence, and pinning the boundary is what
+  // keeps it from drifting there one commit at a time.
+  test("a quoted value under a NON-executable key is not blanked and not decoded", () => {
+    const body = "echo PSQL=psql >> $GITHUB_ENV";
+    const quotedLine = `note: "${body}"`;
+    const plainLine = `note: ${body}`;
+    const textsFor = (line: string) =>
+      scanShellIndirection(`${line}\n`, WORKFLOW_FILE).map((hit) => hit.text);
+
+    premiseHolds(
+      "the plain spelling reports, so the quoted row below is not asserting against a channel that is silent here",
+      textsFor(plainLine).length === 1,
+    );
+    // The RAW line, quotes and key included — the same shape the plain spelling
+    // reports, which is what "untouched" means for this channel. Under the
+    // widened key set this is the decoded `echo PSQL=psql >> $GITHUB_ENV`
+    // instead, with the key and the quotes gone.
+    expect(textsFor(quotedLine)).toEqual([quotedLine]);
+  });
+
+  test("a quoted value under a non-executable key gains no NEW reading", () => {
+    // The other direction of the same boundary. This shape reports nothing
+    // today; the widened key set makes it report, which is a behaviour change
+    // to keys this arc does not own.
+    const source = [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - uses: a/b",
+      "        with:",
+      '          cmd: "read -r PG <<< psql"',
+      "",
+    ].join("\n");
+    expect(scanShellIndirection(source, WORKFLOW_FILE)).toEqual([]);
+  });
+
+  // A CYCLIC document must not take the collector down with it.
+  //
+  // The scalar collector walks sequence items recursively and resolves aliases,
+  // so `args: &c [ …, *c ]` is a cycle: resolving the alias yields the sequence
+  // that contains it. Without a guard the walk re-enters forever and the whole
+  // call dies with `Maximum call stack size exceeded`.
+  //
+  // That is worse than it first looks, and it is why this is a fix rather than a
+  // documented limit. `scanShellIndirection` is called per file by the census
+  // walk, so a throw here does not merely lose THIS file's findings — it aborts
+  // the walk and loses every other file's too. "Correct or signalled, never
+  // silently wrong" is not satisfied by a stack overflow that discards unrelated
+  // results on its way out.
+  //
+  // Introduced by this arc, and the isolation says so: `scanWorkflowSource`
+  // parsed YAML before this arc and returns cleanly on the same input; the
+  // channel that throws is the one whose YAML parse this arc added.
+  test("AC-2: a self-referential sequence does not overflow the collector", () => {
+    const source = [
+      "name: x",
+      "on:",
+      "  push:",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - uses: docker://alpine",
+      "        with:",
+      "          args: &cycle",
+      '            - "echo hi"',
+      "            - *cycle",
+      "",
+    ].join("\n");
+    premiseHolds(
+      "the fixture really does alias its own sequence, which is the only shape that can re-enter the walk",
+      /&cycle/.test(source) && /\*cycle/.test(source),
+    );
+    // The SITE channel already survives this and is the control: if it started
+    // throwing too, the fixture would be wrong rather than the collector.
+    expect(() => scanWorkflowSource(source, WORKFLOW_FILE)).not.toThrow();
+    expect(() => scanShellIndirection(source, WORKFLOW_FILE)).not.toThrow();
+  });
+
+  // The cycle guard is scoped to SEQUENCES, and this is the property that scoping
+  // buys. One quoted scalar aliased from two `run:` keys is two real call sites,
+  // so it must report at BOTH anchor lines. A node-wide dedupe would terminate
+  // just as well and silently drop the second — a tempting "simplification" that
+  // nothing else here would catch.
+  test("AC-2: one scalar aliased from two keys reports at BOTH anchors", () => {
+    const source = [
+      "anchors:",
+      '  cmd: &c "echo >$(psql -qAt mydb"',
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: *c",
+      "      - run: *c",
+      "",
+    ].join("\n");
+    const runLines = source
+      .split("\n")
+      .map((line, at) => (line.includes("- run: *c") ? at + 1 : 0))
+      .filter(Boolean);
+    premiseHolds(
+      "the fixture really aliases ONE scalar from TWO distinct run: keys on different lines",
+      runLines.length === 2 && runLines[0] !== runLines[1],
+    );
+    expect(scanShellIndirection(source, WORKFLOW_FILE).map((hit) => hit.line)).toEqual(runLines);
+  });
+
+  // The new code is gated on the YAML extension — the same predicate that
+  // already selects the continuation transform — so a `.sh` file never reaches
+  // it. Verified against the tree BEFORE the change and re-verified after,
+  // rather than argued from the gate's source. This is what pins the declared
+  // limit at the quote-concatenated block as out of reach of this change.
+  test("AC-2: a `.sh` file is untouched by the YAML path", () => {
+    const source = `${CANONICAL_BODY}\n`;
+    expect(
+      scanShellIndirection(source, "x.sh").map((hit) => ({ line: hit.line, text: hit.text })),
+    ).toEqual([{ line: 1, text: CANONICAL_TARGET }]);
+  });
+
+  // The blanker writes over [start, end), and `end` is EXCLUSIVE. Every other
+  // fixture here ends its quoted scalar at a line break, and the blanker refuses
+  // to overwrite a newline, so a one-past-the-end bound is invisible to all of
+  // them — they would pass unchanged if the bound were wrong. This is the shape
+  // that separates: a flow mapping, where the byte at `end` is the comma, and a
+  // shell assignment flush against it. Blank that comma and `PSQL=/opt/psql`
+  // becomes a word of its own, which the lexer then reads as an indirection —
+  // a FABRICATED hit, the forbidden direction this arc exists to close.
+  test("AC-2: the blank stops before `end`, so a flush separator is not consumed", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      '      - {run: "echo hi",PSQL=/opt/psql}',
+      "",
+    ].join("\n");
+    const marker = '"echo hi"';
+    const afterClosingQuote = source[source.indexOf(marker) + marker.length];
+    premiseHolds(
+      "the quoted scalar is followed by a NON-newline byte — the only shape a one-past-the-end blank can be seen through",
+      afterClosingQuote !== "\n" && afterClosingQuote !== undefined,
+    );
+    expect(scanShellIndirection(source, WORKFLOW_FILE)).toEqual([]);
   });
 });

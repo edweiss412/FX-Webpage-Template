@@ -117,6 +117,7 @@ const CEILING_NAMES = [
   "BROWSER_MUTANT_TIMEOUT_MS",
   "WIRING_CHILD_TIMEOUT_MS",
   "PROBE_CHILD_TIMEOUT_MS",
+  "SUBJECT_RUN_TIMEOUT_MS",
 ] as const;
 
 /**
@@ -132,6 +133,7 @@ const CEILING_HOME: Record<(typeof CEILING_NAMES)[number], string> = {
   BROWSER_MUTANT_TIMEOUT_MS: "tests/mutation/browser/runner.ts",
   WIRING_CHILD_TIMEOUT_MS: "tests/mutation/browser/overlayWiring.test.ts",
   PROBE_CHILD_TIMEOUT_MS: "tests/mutation/source/processProbe.ts",
+  SUBJECT_RUN_TIMEOUT_MS: "tests/mutation/_scratchRootCleanupHarness.ts",
 };
 
 /**
@@ -248,6 +250,20 @@ type Disposition =
   | { kind: "site"; file: string; line: number; member: boolean; reason: string };
 
 const DISPOSITIONS: readonly Disposition[] = [
+  {
+    // The cleanup guard's subject child. A member: this really is an executed
+    // harness child, one vitest run per subject suite-set, and the row's ceiling
+    // claim is satisfied by `SUBJECT_RUN_TIMEOUT_MS` at the call site. Deleting
+    // that ceiling re-reds this row rather than passing quietly.
+    kind: "file",
+    file: "tests/mutation/_scratchRootCleanupHarness.ts",
+    member: true,
+    reason:
+      "MEMBER — the subject child of the scratch-root cleanup guard, spawned once per " +
+      "subject suite-set to observe what that suite creates and what it leaves behind. " +
+      "Bounded by `SUBJECT_RUN_TIMEOUT_MS` (600 s), so a hung subject suite cannot hang " +
+      "the guard, which runs inside the unit suite.",
+  },
   {
     // The across-process probe's ONE child spawn. A member: this really is an
     // executed harness child, and the row's ceiling claim is checked per hit —

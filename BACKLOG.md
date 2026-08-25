@@ -315,23 +315,55 @@ Two observable shapes, both with bash confirming the command really runs:
 
 Close condition: a construct-aware delimiter walk that (a) resolves all four shapes above, (b) completes the live-corpus scan within the shipped walk's order of magnitude, and (c) leaves the AC-5 finding-set digest unmoved — the third is currently unprovable for the prototype, because it cannot finish.
 
-## BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE — a QUOTED workflow `run:` scalar is scanned as if its YAML quoting were shell, fabricating a site on one spelling and going silent on another
+## BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES - an UNTERMINATED process substitution is scanned as executable, while the `$(` form is correctly suppressed
 
-**Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 5 - raised against that diff, REFUTED against it, and true of the tree either way) · **Severity:** MEDIUM (one spelling FABRICATES a `PsqlSite` for a command bash never runs, which is a forbidden direction; the other is silent, which is the other forbidden direction) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — the repair belongs to the YAML decode path (`scanSource`'s workflow reader), a surface the attached-redirection arc does not otherwise touch, and it needs the scanner to distinguish YAML quoting from shell quoting before the shell lexer ever sees the value. · **Reachability:** PROBED — three spellings, each run against bash and against `scan.ts` at both revisions. · **Incident:** it consumed diff round 5 of this arc (corpus row at `docs/review-rounds/fix/shell-attached-redirection-target/0ba72c23774f.jsonl`), where it was raised as a finding against a diff that does not cause it. The round is the cost event; the defect is real and outlives the refutation.
+**Status:** OPEN · **Facing:** process · **Effort:** M · **Incident:** it consumed diff round 13 of this arc as a BLOCKING finding (corpus row `docs/review-rounds/fix/yaml-run-scalar-quoting-decode/815f61b63957.jsonl`), and round 14 was spent in part correcting the record of it · **Filed:** 2026-08-24 (`fix/yaml-run-scalar-quoting-decode`, diff round 13 finding 1; mechanism corrected at round 14) · **Severity:** MEDIUM (fabricates a site; bounded by the census below) · **Reachability:** PROBED
 
-Production passes the whole YAML file to the scanner, which reads `run:` values. When the scalar is QUOTED, the quoting belongs to YAML and not to the shell, and the scanner does not make that distinction.
+An unterminated `$(` reports zero sites, which is right. Two OTHER unterminated
+spellings report one, which is not. `bash -n` exits 2 on every row below, so
+nothing runs and every reported site is fabricated.
 
-| `run:` scalar | bash                        | scanner                                   |
-| ------------- | --------------------------- | ----------------------------------------- |
-| single-quoted | exits 2, never invokes psql | **0 sites, 0 hits** — silently unsignaled |
-| double-quoted | exits 2, never invokes psql | **1 site** — a FABRICATED `PsqlSite`      |
-| plain         | exits 2, never invokes psql | 0 sites, 1 advisory — correct             |
+| `run:` scalar             | bash -n | scanner                                       |
+| ------------------------- | ------- | --------------------------------------------- |
+| `echo >$(psql -qAt mydb`  | exit 2  | 0 sites - correct suppression                 |
+| `echo >(psql -qAt myd`    | exit 2  | **1 site**, `["-qAt","my"]`, nested, offset 7 |
+| `echo >\$(psql -qAt mydb` | exit 2  | **1 site**, `["-qAt","mydb"]`, offset 9       |
 
-**PRE-EXISTING, proven rather than assumed.** All three spellings were run against `scan.ts` at the merge-base as well as HEAD. The two failing rows are BYTE-IDENTICAL at both revisions. The plain-scalar row is where the attached-redirection arc CHANGED behaviour, and it changed it in the right direction: base is silent, HEAD emits the advisory.
+Note the token truncation in row two: the reported argument loses its last
+character, so the fabricated site is not even a faithful reading of the text it
+fabricated from.
 
-**Why the fabricated site is the worse half.** A silent miss on the single-quoted spelling is the familiar direction and the census bounds it. The double-quoted spelling asserts a psql call site that the shell will never execute — the guard telling a reader that code runs when it does not, which is the direction every other row on this surface treats as forbidden.
+**TWO DISTINCT PATHS, and the first filing conflated them.** Round 13 recorded this
+as one defect with the escaped form as a "route into" the other. It is not:
 
-Close condition: the workflow reader decodes a `run:` scalar's YAML quoting BEFORE handing the value to the shell lexer, with the three spellings above as its acceptance and bash as the oracle for each.
+1. `>(` is a PROCESS SUBSTITUTION. Unterminated, it is scanned as executable and
+   reports `nested: true`.
+2. `\$(` decodes to a literal `$` followed by a BARE `(`, which is a different
+   branch and reports `nested: false` at a different offset.
+
+They agree only in fabricating. A repair aimed at process substitution alone would
+leave the escaped spelling standing, which is exactly why the conflation mattered
+enough to correct rather than quietly restate.
+
+`matchBraceEnd` sits beside the closer these branches use and returns `-1` when a
+span never closed, so the suppression precedent already exists in the file. Why the
+`$(` arm escapes the bug is still unexplained, and until it is, a repair applied at
+`matchBrace` is a guess.
+
+**PRE-EXISTING - and this is the narrow claim, twice narrowed.** The FABRICATION is
+present at the finding arc's merge-base and at HEAD for ROWS 2 AND 3. Row 1 is the
+CONTROL: it reports zero sites at both revisions, which is the correct behaviour and
+the reason the other two are diagnosable at all. The first filing claimed the full
+outputs were identical across those revisions, which the probe does not support; the
+second said "all three rows", which reads as though the control fabricates too. Both
+withdrawn. What is established: this branch neither introduces the fabrication on
+rows 2 and 3 nor repairs it.
+
+Close condition: BOTH unterminated spellings report zero sites - the process
+substitution of row 2 and the bare parenthesis of row 3, named separately because
+they are separate paths and one repair need not reach both. All three rows above are
+deciding cases, row 1 as the control that must STAY at zero, and the census re-run to
+confirm no live workflow changes classification.
 
 ## BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR — four controls rest one rung BELOW the token this arc retired
 
@@ -428,6 +460,25 @@ A native checkbox or radio is normally targeted through its `<label>`, and the t
 **Why not repaired here.** The FINANCIALS structure is deliberate: the caution copy is bound with `aria-describedby` precisely so it stays out of the checkbox's accessible name (the comment at `RoleRecognizeControl.tsx:337` says so). Wrapping the row in a `<label>` to gain the floor folds that caution back into the name, so the fix trades one a11y property for another and needs a decision, not a patch. The staged-review radio sits in a dense per-item list where adding 24px per row is a layout decision on a surface this branch does not otherwise touch.
 
 **First scheduled step:** decide the FINANCIALS shape — either a `<label>` wrapping only the checkbox and its short caption with the caution outside it, or padding on the existing sibling label — then apply the same answer to both files, and settle the staged-review list separately.
+
+## BL-MUTATION-SCANNER-CACHE-INVALIDATION — the scan cache is frozen by absolute path on purpose, and fixture suites pay for it in scratch roots
+
+**Status:** OPEN · **Filed:** 2026-08-24 (`fix/mutation-scratch-fs-event-storm`, split out of that arc at plan review round 2 by orchestrator ruling) · **Severity:** MEDIUM (a cost and a blocked follow-up, never a wrong answer — the frozen parse is currently CORRECT for every shipped consumer) · **Class:** harness cost / test design · **Effort:** M · **Facing:** process · **Incident:** the parent arc's own review corpus, `docs/review-rounds/fix/mutation-scratch-fs-event-storm/` — spec rounds 1-4 and plan rounds 1-2 (28 findings), of which plan r1 finding 7 and plan r2 findings 1, 2, 5 and 6 are all this surface. Round 2 named four wrong implementations a five-case matrix still admits after round 1 had already grown it from four cases, which is one new family per round with no decay. · **Reachability:** PROBED — the staleness, the contract, and the cost are each measured below, not inferred.
+
+**The cache and the contract it is protected by.** `tests/styles/interactiveScanCore.ts:479` holds a module-level `Map<string, ts.SourceFile>` keyed by absolute path, read at `:482` and written at `:492`; those three lines are its only references, so nothing invalidates it. That is DELIBERATE and asserted: `tests/styles/interactiveScanCore.test.ts:444` is `it("parses each file ONCE per process, by path")`, which writes a file, scans, rewrites it, scans again and asserts the FIRST content comes back. Its comment calls the freeze "a real contract, because every consumer of this module scans a tree that does not change under it, and the alternative (an mtime check) buys nothing any caller needs."
+
+**Why it is filed rather than fixed.** The premise is true of every SHIPPED consumer and false of fixture-writing suites, which change the tree under it between scans — and they work around it by building a fresh scratch root per case, which is the churn the parent arc measured. Retiring an asserted contract is a design decision, so it gets its own spec instead of riding along as a task.
+
+**Inputs the successor should not have to re-derive:**
+
+- **The performance rationale is already refuted.** Statting all 254 corpus `.tsx` files takes about 1 ms, and three scans also about 1 ms. The cache is protecting against re-PARSING, which an mtime or content check preserves; "an mtime check buys nothing" was true only while no caller wanted one.
+- **The four wrong implementations a five-case matrix still admits** (plan r2): `Math.trunc(mtimeMs)` passes a same-length rewrite only when it crosses an integer-millisecond boundary and fails on the ordinary 0.034 ms rewrites measured; a one-sided `newMtime > oldMtime` compare serves stale content after a backward timestamp adjustment; a one-sided size compare passes whichever growth direction the case chooses; and `basename(path)` plus metadata aliases common corpus filenames across both scanned trees. Any successor's case matrix starts by rejecting these four.
+- **Only two suites would convert** — `tests/styles/interactiveScanCore.test.ts` and `tests/styles/_metaControlOutlineFill.test.ts` — worth 50 of the 230 roots created per run. The other four in-scope suites build throwaway repository roots whose paths are semantic and are not the cache's problem.
+- **Root reuse must rewrite the SAME path.** A distinct filename per case also reuses one root and never enters the invalidation branch, so the cache work would be dead code no criterion could catch.
+
+**Downstream trigger chain, named because it is not obvious:** `docs/control-outline-forward-guard`'s excluded thirty-two-form case (commit `67471884a`) was excluded precisely because roots could not be shared. Its re-inclusion, and the mutation kills that case alone would restore, wait on THIS row rather than on the parent arc.
+
+**First scheduled step:** decide whether the contract is retired or scoped — an invalidating cache for every caller, versus an opt-in the fixture helpers request — because that choice, not the key's shape, is what the successor spec is actually about.
 
 ## BL-HEAVY-REAP-REPORT-OBSERVABILITY — the reaper's reporting surface is specified but not exhaustively observed
 
@@ -1775,7 +1826,7 @@ The filter is not loose by accident — it covers the eight parser shard files, 
 
 ## BL-REVIEW-ROUND-REPORT-TEST-TIMEOUT-GROWTH — a review-round test derives its expectation from main's merge log, so it slows down with every merge and will eventually time out
 
-**Status:** OPEN. · **Filed:** 2026-08-16 (`docs/mutation-ledger-accuracy`, on behalf of #833, which reported it batch-wide and did not file it) · **Severity:** MEDIUM (a latent flake on a full local clone; CI is structurally immune) · **Class:** test durability · **Effort:** S
+**Status:** OPEN · **Filed:** 2026-08-16 (`docs/mutation-ledger-accuracy`, on behalf of #833, which reported it batch-wide and did not file it) · **Severity:** MEDIUM (a latent flake on a full local clone; CI is structurally immune) · **Class:** test durability · **Effort:** S
 
 `tests/reviewRounds/report.test.ts` — the case `matches the live log when history is available` — builds its expectation by shelling out to `git log --merges --first-parent main --format=%s` (`tests/reviewRounds/report.test.ts:1263-1266`) and comparing it against `mergedArcs(process.cwd())`. Its cost therefore grows with main's merge history, permanently and in one direction, against the fixed `TEST_TIMEOUT_MS = 30_000` (`vitest.projects.ts:179`).
 
@@ -1793,6 +1844,24 @@ mergedArcs()   origin/main   27863ms, 27738ms   -> test PASSES (41 passed)
 **The growth is the durable half.** Main was at 799 first-parent merges when #833 measured, 803 ninety minutes later, and **804** at filing. The trend has no ceiling and no reset.
 
 **Deriving the expectation is DELIBERATE and must not be undone by a careless repair.** The comment above the call says so in terms: "Numbers are derived from the live log, never from literals - a hardcoded 676 makes this a tripwire on the calendar instead of on the producer." A fix that hardcodes the count would trade a slow test for a test that fails on a date, which is the defect the current design already rejected.
+
+**FOURTH measurement, and an INTERIM ceiling shipped, 2026-08-24
+(`fix/yaml-run-scalar-quoting-decode`).** The growth half arrived: after #875
+merged ~98 commits the case stopped fitting at all. Measured on that branch,
+**24.79 s** on a quiet box and **34.66 s** after the merge, against the 30 s
+ceiling — a hard failure of `test:fast`, not a flake, and reproducing on every
+rerun. That arc raised the ceiling to **180 s** in-branch under an explicit
+orchestrator ruling, because a required tier was failing for every arc rather
+than for the one that noticed. It is an INTERIM, and the comment at the test says
+so: the override comes back OUT when the real repair lands, rather than being
+raised again, since a ceiling that only ever moves up has stopped being a
+ceiling.
+
+So the `TEST_TIMEOUT_MS = 30_000` figure above is now the PROJECT default rather
+than this case's ceiling; this one case carries a local 180 s override. The
+direction below remains open and unimplemented — raising the ceiling buys time,
+it does not address the growth, and the real repair (speeding up `mergedArcs`, or
+dropping its second clone) is directed to arc-remerge.
 
 **Not branch-attributable, and CI does not see it.** The input is the `main` ref, so no branch causes or fixes it, and `it.skipIf(isShallow)` (`tests/reviewRounds/report.test.ts:1262`) skips the case entirely on the depth-1 checkouts CI uses. It bites full local clones only — which is to say, it bites developers and agents, not the merge gate.
 
