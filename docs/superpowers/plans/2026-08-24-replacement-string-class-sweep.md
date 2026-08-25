@@ -11,6 +11,10 @@ was re-run on the merged tree and every count is unchanged — 95 commits of `ma
   exist yet, so it is named there rather than cited here). Population walked from disk, so a file
   added under a new top-level directory is covered without editing the suite.
 - **EXTENDS** `tests/mutation/source/registry.ts` — one `GuardSurface` row for the scanner.
+- **EXTENDS** `tests/mutation/source/expectedLedgerKinds.ts` — the per-surface ledger-kind counts.
+  A new surface fails by default until it declares its own, which is the point of the file.
+- **EXTENDS** `EXPECTED_ENV_TOUCHING` in `tests/mutation/_metaPremiseContract.test.ts` — keyed by
+  deciding-suite path, and asserted key-equal to the suite list, so an undeclared suite reds.
 - None of the standing candidate registries applies: no Supabase call boundary, no sentinel
   hiding, no `admin_alerts` catalog row, no advisory-lock topology, no email normalization.
   Declared explicitly rather than left silent.
@@ -103,7 +107,7 @@ step, not a pass.
 
 ## Task 1 — `judgeSource` and the accept-set
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`the scanner module does not exist, so the suite cannot collect and no accept-set case runs` ac=AC-1,AC-2,AC-3,AC-3b -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`the scanner module does not exist, so the suite cannot collect and no accept-set case runs` ac=AC-1,AC-1b,AC-2,AC-3,AC-3b -->
 
 **Files** (fenced: two do not exist yet, and a citation to an absent file is a hard failure):
 
@@ -151,9 +155,14 @@ so a judge that checks `arguments[1]` before checking for a spread accepts on fa
 **Anti-tautology.** Each case asserts the verdict for its OWN input. A single total over a mixed
 fixture passes while two verdicts swap places.
 
+**AC-1b's fixture half lands here**, its reconciliation half in Task 4: a chained
+`s.replace(a, v).replace(b, w)` yields TWO findings and a three-link chain yields three. Without
+it, a visitor that stops descending after classifying a call passes every other case in this task
+— measured, a return-after-any-match variant of the shipped classifier reports 44 of 56.
+
 ## Task 2 — the population, derived from disk
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t population` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`the walk export does not exist, so the subtraction cannot be exercised` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t population` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`the walk export does not exist, so the subtraction cannot be exercised` ac=AC-4,AC-4b -->
 
 Every tracked file matching `\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$`, MINUS `node_modules/**` and
 `docs/**`. Stated as a subtraction so a new top-level directory is covered by default.
@@ -161,6 +170,14 @@ Every tracked file matching `\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$`, MINUS `node_mo
 **Failure mode this catches:** someone rewrites the walk as an allowlist of known directories,
 and a new directory is then silently unscanned. The case feeds a synthetic path under a
 directory name that appears nowhere in the repo and asserts it is IN the population.
+
+**AC-4b lands here too: there is no text prefilter, and the task proves it both ways.**
+Structurally, the walk has no source-text gate. Behaviourally, a fixture set covers all seven
+spellings spec §3.2 tabulates — baseline, wrapped callee, space after the dot, newline, block
+comment, line comment, escaped identifier — and each must be reported.
+`count-trivia-spellings.mts` is the committed derivation over the same seven, so suite and probe
+agree by construction. A prefilter reintroduced later fails the behavioural half rather than
+silently shrinking the population.
 
 The judge reports the EXCLUDED population's site count on every run, so the exclusion cannot
 grow in silence.
@@ -186,13 +203,20 @@ commit. Without that pairing the task proves the premise runs, not that it discr
 
 ## Task 4 — the repo-wide assertion, observed red at 52
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t repo-wide` red-state=authored red-target=`lib/sync/feed/shapeHoldEntry.ts:29` why=`52 in-population offenders are unrepaired at this point, so the assertion names them and fails` ac=AC-5 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t repo-wide` red-state=authored red-target=`lib/sync/feed/shapeHoldEntry.ts:29` why=`52 in-population offenders are unrepaired at this point, so the assertion names them and fails` ac=AC-5,AC-1b -->
 
 This RED is the point of the task, not an obstacle to it: the assertion must be seen naming 52
 sites before any repair lands, or Tasks 5-8 are unverifiable. The failure output IS the work
 list.
 
 Renders findings as `file:line  text` and asserts the list is empty.
+
+**AC-1b's reconciliation half lands here:** the assertion's total is compared against
+`count-conservative.mts`, so a visitor that stops descending cannot pass by agreeing with itself.
+That oracle resolves wrappers and parses every file exactly as the judge does — both come from
+`_shared.mts` — which is what makes the comparison meaningful rather than circular. Spec round 5
+found the oracle sharing a defect with the judge and the cross-check therefore vacuous on the very
+axis under review.
 
 ## Task 5 — `scrubSentryEvent`, the capture-preserving repair
 
@@ -353,7 +377,7 @@ so enrolling `scrubSentryEvent.ts` as a guard surface would want a control ancho
 
 ## Task 8 — the remaining tooling and test wraps
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t repo-wide` red-state=authored red-target=`tests/docs/agentsHeavyPhaseRule.test.ts:1` why=`34 sites across scripts/ and tests/ remain reported until wrapped` ac=AC-5,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t repo-wide` red-state=authored red-target=`tests/docs/agentsHeavyPhaseRule.test.ts:821` why=`34 sites across scripts/ and tests/ remain reported until wrapped` ac=AC-5,AC-7 -->
 
 The balance of the wraps, by file. Derived at plan time, not transcribed:
 
@@ -386,9 +410,26 @@ these tests' input.
 
 ## Task 9 — registry enrolment and the score
 
-<!-- task: red=`pnpm heavy pnpm mutation:guards` red-state=authored red-target=`tests/mutation/source/registry.ts:12` why=`the scanner is not enrolled, so no mutant is generated for it and the gate says nothing about this surface` ac=AC-9 -->
+<!-- task: red=`pnpm heavy pnpm mutation:guards` red-state=authored red-target=`tests/mutation/source/registry.ts:151` why=`the scanner is not enrolled, so no mutant is generated for it and the gate says nothing about this surface` ac=AC-9 -->
 
-One `GuardSurface` row (`tests/mutation/source/registry.ts:12`): `sourcePath` the scanner module,
+**Enrollment is three files, not one.** The registry row alone reds two gates: `pnpm
+mutation:guards` fails ledger-key parity, and the close-out full suite fails deciding-suite
+parity. Measured at plan time — registry 42 rows against expected 42, suites 79 against expected
+79, both currently equal and both unequal under a hypothetical registry-only enrollment:
+
+```
+registryCount: 42   expectedCount: 42   currentEqual: true   registryOnlyEqual: FALSE
+suiteCount:    79   expectedCount: 79   currentEqual: true   enrollmentEqual:   FALSE
+```
+
+1. `tests/mutation/source/registry.ts` — the `GuardSurface` row.
+2. `tests/mutation/source/expectedLedgerKinds.ts` — per-surface ledger-kind counts, declared
+   independently of the surface's own ledger precisely so counting a list against itself cannot
+   pass. MEASURE them from a first run; do not guess.
+3. `EXPECTED_ENV_TOUCHING` in `tests/mutation/_metaPremiseContract.test.ts` — keyed by deciding
+   suite, asserted key-equal to the suite list.
+
+The row itself (`tests/mutation/source/registry.ts:151` is the array it joins): `sourcePath` the scanner module,
 `suitePaths` the fixture suite, `operators` the closure set below, a `scoreFloor`, and a `control`
 edit the suite must notice.
 
@@ -419,6 +460,12 @@ nothing, which the repo-wide assertion reads as zero offenders and PASSES.
 
 Run `pnpm heavy pnpm mutation:guards` BEFORE the first diff dispatch — it spawns a real
 child per mutant and is a MUST-wrap phase under the machine-wide slot semaphore.
+
+**Budget the wall clock: the machine-wide heavy semaphore is at ONE slot.** A full
+`mutation:guards` run queues behind every other heavy phase on the box, so this task is scheduled
+as a single wrapped run rather than an iterate-and-rerun loop. Get the registry row, the ledger
+kinds and the env-touching entry right BEFORE the first run — a red on any of the three costs a
+whole queue position, and the ledger-kind counts have to come from a run that completed.
 
 **Run the FULL four-shard set, never a scoped shard, and re-derive after any merge.** The shard
 partition weighs mutant counts, so enrolling this scanner reshuffles all four shards, and so does
@@ -474,5 +521,21 @@ Cross-checked against the by-directory derivation, which was computed independen
 split: `tests` 35, `lib` 9, `scripts` 5, `docs` 4, `components` 3. The `lib` column reconciles as
 1 (T5) + 3 (T6) + 5 (T7) = 9. ✓
 
-**Registry reconciliation.** One `GuardSurface` row added, none removed or edited. Task 9 asserts
-the array length before and after rather than describing the change.
+**Registry reconciliation.** One `GuardSurface` row added, none removed or edited, PLUS the two
+companion declarations §Task 9 names. Task 9 asserts the array length before and after rather than
+describing the change.
+
+**AC-claim reconciliation, derived rather than asserted.** Plan review round 1 found AC-1b and
+AC-4b declared but claimed by no task, while this section said every criterion was claimed — the
+reconciliation was prose, so it could be wrong. It is now a command:
+
+```
+$ python3 - <<'EOF'
+import re, pathlib
+t = pathlib.Path("docs/superpowers/plans/2026-08-24-replacement-string-class-sweep.md").read_text()
+declared = re.findall(r'^\| (AC-[\w.-]+) \|', t, flags=re.M)
+claimed = {a for m in re.findall(r'ac=([\w.,-]+)', t) for a in m.split(",")}
+print("unclaimed:", [a for a in declared if a not in claimed] or "NONE")
+EOF
+declared 13 | unclaimed: NONE
+```
