@@ -289,16 +289,6 @@ the change itself.
 **Un-defer trigger:** any work that already opens `step3ReviewSections.tsx` for another reason should
 carry these two sites with it, since the marginal cost then collapses to the edit itself.
 
-## BL-REVIEW-MODAL-QUIET-PILL-OUTRANKS-URGENT — the "no action needed" pill now reads louder than the "needs you" one
-
-**Status:** IN PROGRESS · **Branch:** feat/ui-polish-class-sweep · **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique P2). **Class:** visual hierarchy. **Effort:** S. **Class-sweep exception:** (a) — the repair is a product decision this PR cannot settle. **Reachability:** PROBED — both branches are in `components/admin/showpage/PublishedReviewModal.tsx` at the alert pill (`data-testid` suffix `-alert-pill`), and the arithmetic is on the shipped class strings.
-
-The alert pill has two branches. Monitoring-only ("clearing on their own, no action needed") is `border border-border bg-surface-sunken` and, since the subtle-on-interactive swap, rests at `text-text` — roughly 15:1 on its own fill. The needs-you branch is `text-warning-text` on `bg-warning-bg`, 9.5:1. The QUIET state now carries more contrast than the URGENT one.
-
-**Why it was not repaired on this branch.** The site is dispositioned SWAP in the ratified census (spec `2026-08-14-ui-interactive-token-policy-design.md` §4.3), and the exemption side is pinned executably — the registry's 14 rows, plus the NEGATIVE guarantee that no other in-scope element carries a bare `text-text-subtle` — by `tests/styles/_metaSubtleOnInteractive.test.ts`. Moving it to a Family D carve-out would edit a user-ratified table, which is the user's call, not the implementer's. The pair is NOT indistinguishable meanwhile: the fills differ (`bg-surface-sunken` vs `bg-warning-bg`) and the dot differs in shape (hollow positive-tone vs filled review-tone), so the §1 colour-blind floor holds either way.
-
-**First scheduled step:** decide whether an interactive pill whose whole message is "nothing to do here" is a Family D dim member (it is a state pair, and it already carries two non-colour cues), or whether the urgent branch should instead gain weight.
-
 ## BL-SHEET-ICON-CONTAINMENT-WALK-INGESTS-GITIGNORED — a containment guard walks the repo without honouring gitignore, so local scratch directories enter its censused-consumers map
 
 **Status:** OPEN · **Filed:** 2026-08-21 (routed by `pr2` via the orchestrator; probed by `pr2` on main) · **Severity:** LOW-MEDIUM (never reaches the merge gate — it is green in CI by accident of clean checkouts and red for the humans and agents who have local scratch) · **Class:** guard fidelity · **Effort:** S · **Facing:** process · **Reachability:** PROBED — `pr2` ran it BOTH directions: the identical file PASSES in a clean worktree and FAILS in the dirty main checkout. · **Incident:** a `.validation-local/` directory left in the main checkout since May put `node_modules` into the guard's censused-consumers map and failed the guard's own non-compile-trees assertion, and the resulting investigation is the cost event — time spent on a red that describes the checkout rather than the code.
@@ -380,43 +370,6 @@ they are separate paths and one repair need not reach both. All three rows above
 deciding cases, row 1 as the control that must STAY at zero, and the census re-run to
 confirm no live workflow changes classification.
 
-## BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR — four controls rest one rung BELOW the token this arc retired
-
-**Status:** IN PROGRESS · **Branch:** feat/ui-polish-class-sweep · **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** colour policy completeness. **Effort:** S-M. **Class-sweep exception:** (a) — whether a control may rest at the faint rung is a design decision, and the census this arc shipped was ratified around one token. **Reachability:** PROBED — all four sites read from the live tree.
-
-DESIGN §1.1a now says `--color-text-subtle` is never the resting colour of an action target outside three carve-out families. These four controls rest at `--color-text-faint`, which is one rung QUIETER (3.02:1 on `bg-surface-sunken`, vs subtle's 6.09:1) and which §1.1 already describes as "never used for crew-actionable copy":
-
-- `components/crew/primitives/SourceLink.tsx` — crew-facing "In sheet" deep link (sunlit-readability surface).
-- `components/shared/CardReportTrigger.tsx` — crew-facing card report flag.
-- `components/admin/BellPanel.tsx` — bell-row affordance.
-- `components/admin/HoverHelp.tsx` — help trigger glyph.
-
-**Why it was not repaired here.** The ratified census (spec `2026-08-14-ui-interactive-token-policy-design.md` §2.3/§4.3) defines a hit as the BARE token `text-text-subtle`, and the exemption side is pinned executably: 14 registry rows plus the negative guarantee that no other in-scope element rests at a bare `text-text-subtle`. What is NOT pinned is each swapped site's exact token — a site moved from `text-text` to `text-text-faint` would pass, which is what `BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR` is about — nor the 41-site swap tally, nor hover, which was a one-shot verification at implementation time. Policing a second token is a guard-contract change plus a new census, and the sites are deliberately recessive by their own documented design — two of them are crew surfaces whose quietness was an explicit choice. That is a decision to make, not an omission to patch. The `token` field already exists on `SubtleHit` and on the exemption registry rows precisely so a second policed token cannot alias the first's rows.
-
-**First scheduled step:** decide whether `text-faint` is admissible as a resting colour for a deliberately recessive control (and if so, name the condition in §1.1a — e.g. only where a non-colour affordance carries the control), or add it to the policed set and re-census.
-
-## BL-RUNOFSHOW-SUMMARY-NO-MARKER — the one Family S site with no visible fold affordance
-
-**Status:** IN PROGRESS · **Branch:** feat/ui-polish-class-sweep · **Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, whole-diff review R2 F3). **Class:** design-system policy / crew UX. **Effort:** S. **Class-sweep exception:** (a) — restoring a cue or reclassifying the site is a crew-surface design decision the policy arc did not make. **Reachability:** PROBED — the class string is read out below and the site is one of the seven Family S rows in `tests/styles/subtleInteractiveExemptions.ts`.
-
-DESIGN §1.1a's Family S sanctions a resting `text-text-subtle` on a `<summary>` because "the fold affordance is carried by the marker/chevron and the interaction, not by label weight". `components/crew/primitives/RunOfShowList.tsx:82` carries `list-none [&::-webkit-details-marker]:hidden` and renders no replacement, so on the mobile-first crew surface the only hint that the truncated title expands is its trailing ellipsis. It is the only one of the seven Family S sites in that position.
-
-**Why it was not repaired here.** Two defensible answers and no ratification for either: render a chevron (a visual change to a crew row whose density was designed deliberately), or move the site out of Family S and rest it at `text-text` (which changes the row's tone, the thing the dimness was chosen for). The registry row carries the caveat so the exemption's claim is not silently false while the question is open.
-
-**First scheduled step:** decide between a rendered fold cue and a reclassification, and if Family S keeps the site, amend §1.1a to say what counts as the affordance when the marker is suppressed.
-
-## BL-CONTROL-OUTLINE-ON-TINTED-PLATES — the secondary outline dips under 3:1 against warning, info and danger cards
-
-**Status:** IN PROGRESS · **Branch:** feat/ui-polish-class-sweep · **Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, whole-diff review R1 F1). **Class:** design-system contrast. **Effort:** S at the token, M across the plates. **Class-sweep exception:** (a) — which treatment a tinted plate should get is a design decision this policy did not make. **Reachability:** PROBED — ratios computed from the runtime tokens in `app/globals.css` and pinned in `tests/styles/secondary-action-contrast.test.ts`.
-
-The secondary action paints its own `bg-bg` fill, so its outline has two neighbours: the fill inside it (3.21:1 light / 4.00:1 dark) and whatever it stands on outside. On the four neutral grounds DESIGN §1.2 pins, both sides clear 3:1. On a tinted plate the outer edge does not, in exactly one theme per plate: `warning-bg` **2.79** dark (3.04 light), `info-bg` **2.87** light (3.48 dark), `danger-bg` **2.88** light (3.19 dark).
-
-Fourteen shipped controls stand on such a plate, across thirteen sites: `components/admin/DataQualityWarningControls.tsx:21`, `MaintenanceResetButtons.tsx:308` and `:328`, `PerShowAlertResolveButton.tsx:94`, `ReapStaleSessionsButton.tsx:146`, `RecentAutoAppliedStrip.tsx:551`, `ReSyncButton.tsx:286`, `ShowRowActions.tsx:932`, `wizard/step3ReviewSections.tsx:2682`, `wizard/archivedTabOffer.tsx:140` (both its accept and revoke controls), and `StagedPreviewBanner.tsx:72` — the picker link, which joined this entry on 2026-08-16 when the control-outline swap took it from 1.44/1.19 to 3.04 light / **2.79** dark, clearing in light and landing on this entry's own `warning-bg` dark figure (spec `docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md` §4.4), and two more the same swap put on this plate, found by whole-diff review R5: `app/admin/settings/roles/RoleMappingRow.tsx:343` (inside the `bg-warning-bg` confirm card opened at `:330`) and `components/shared/ReportModal.tsx:622` (inside the start-fresh warning plate at `:615`). Those two differ from the picker link and the difference is the entry's whole subject: they carry their OWN `bg-surface` fill, so the outline's INNER edge clears at 3.35/3.76 and only the OUTER edge against the plate sits at 3.04 light / **2.79** dark. The picker link is `bg-transparent`, so both of its edges are the plate.
-
-**Why it is recorded rather than repaired here.** `BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE` was explicit that the prior 1.59:1 boundary was NOT a WCAG failure — the label carried the affordance — and this arc shipped the upgrade under that frame (spec §1.1 R5). A boundary that is strong against its own fill and 2.79-2.88:1 against a tinted plate is a weaker instance of the upgrade, not a regression against the state before it. Choosing the treatment — a darker token used only on tinted plates, a plate-matched outline, or accepting the current numbers — is a design decision, and picking one silently inside a policy arc is what the ledger exists to prevent.
-
-**First scheduled step:** decide whether tinted plates get their own outline token. If yes, the shape is a per-plate `border-*` in the same recipe rather than a new global token, because the neutral grounds already clear and moving the shared token would push them the other way.
-
 ## BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER — two families of low-contrast outline the element-level cover cannot see in either direction
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (a resting boundary at 1.4-1.8:1, on surfaces whose peers moved to 3.35:1 on 2026-08-16) · **Class:** visual boundary / DESIGN scope · **Effort:** S per site, M as a class · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, spec §3.2) · **Class-sweep exception:** (a) — the repair needs a design decision this PR cannot settle, stated per family below · **Reachability:** PROBED — every claim below is a transcript, not an argument.
@@ -447,34 +400,6 @@ The 2026-08-16 ruling swapped the 21 controls a DERIVED cover found: interactive
 **Why `VenueMapTile.tsx:123` was not simply included.** Including it would make the swap set "the 21 the cover found, plus one the cover did not, chosen by hand" — a hand-extended list is exactly the enumerated cover the arc refused everywhere else. It goes here, named first.
 
 **First scheduled step:** answer the two design questions — is a text field's border a control outline, and is an open-state child outline a resting boundary — then apply each answer as a derived sweep over its own family, starting with `VenueMapTile.tsx:123`.
-
-## BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT — two non-interactive chips now read lighter than the control they sit beside
-
-**Status:** IN PROGRESS · **Branch:** feat/ui-polish-class-sweep · **Severity:** LOW-MEDIUM (a visible weight inversion in two places; neither loses information, both carry their state in the semantic tree) · **Class:** visual hierarchy / DESIGN scope · **Effort:** S per site, M as a rule · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, invariant-8 impeccable gate — critique P1, audit P2) · **Class-sweep exception:** (b) a ratified scope decision fences it, AND (a) the rule it would need is a design decision this PR cannot settle · **Reachability:** PROBED — both pairs read out of the live tree, and both were verified to match on `origin/main` and diverge only after this branch.
-
-The 2026-08-16 swap moved 21 CONTROLS. DESIGN.md §1.2a keeps `--color-border-strong` for non-interactive chrome, so two elements that shared a recipe with a swapped control correctly stayed put — and are now the quieter half of a pair a reader sees at once:
-
-- `components/diagrams/GalleryLightbox.tsx:773` — the `aria-hidden` `pointer-events-none` demote chip ("Full detail unavailable"), `rounded-pill border border-border-strong bg-surface-raised px-4`, at `bottom-2`. The Reset chip it matches (`components/diagrams/GalleryLightbox.tsx:708`, `top-2`) is census row 20 and moved to `border-text-faint`. Same pill, same fill, same shadow, same padding; the two can be up in one frame, at opposite ends of the image. 1.59/1.50 versus 3.35/3.53.
-- `components/admin/StagedPreviewBanner.tsx:65` — the `aria-current` chip, `border border-border-strong bg-surface`, standing IN A ROW with the picker `<Link>`s at `components/admin/StagedPreviewBanner.tsx:75` that moved. The entry marked current now carries the weakest boundary in its own row.
-
-**Why it is filed and not repaired.** Spec §4.4 ratifies the second site verbatim — "The sibling `<span aria-current>` at `components/admin/StagedPreviewBanner.tsx:65` is non-interactive chrome: outside the census, keeps its token" — and §1.2a's scope paragraph ratifies the first. Moving either would be moving a non-interactive element under a ruling the user took against a mockup of BUTTONS resting on cards. The general question is the one worth answering, and it is a design decision: **should chrome that visually PAIRS with a control follow that control's outline weight, or does chrome follow chrome?** DESIGN.md's own 2026-08-14 rationale for moving six controls was "leaving a control at the old outline while a control it renders WITH had moved would have shipped a split treatment inside one view" — that reason now points the other way, at chrome, and no rule covers it.
-
-**Not a contrast finding.** Neither element is interactive, so SC 1.4.11 does not reach either, and both carry their state programmatically (`aria-current`, `aria-hidden`). This is hierarchy, not accessibility.
-
-**First scheduled step:** decide whether §1.2a gains a pairing clause (chrome that renders in-frame with a control of the same recipe takes that control's outline weight) or an explicit "chrome follows chrome" statement. Either answer closes both sites; a per-site judgment call closes neither.
-
-## BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR — three native-input rows are targeted through a label that carries no floor
-
-**Status:** IN PROGRESS · **Branch:** feat/ui-polish-class-sweep · **Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, whole-diff review R1 F5). **Class:** accessibility / tap target. **Effort:** S per site, M as a class. **Class-sweep exception:** (a) — the repair needs a decision the current PR cannot settle, stated per site below. **Reachability:** PROBED — the markup is read out in each census row, and the guard now names all three as `under-floor-filed`.
-
-A native checkbox or radio is normally targeted through its `<label>`, and the tap-height census carries that as an exemption family. In three places the mechanism holds and the FLOOR does not:
-
-- `app/admin/settings/roles/RoleMappingRow.tsx:266` and `components/admin/RoleRecognizeControl.tsx:343` — the FINANCIALS checkbox is not label-wrapped like its A1/V1/L1 siblings. It sits in a `div` carrying `min-h-tap-min` with the `<label htmlFor>` as a SIBLING, and a `div` does not toggle a checkbox. The real target is the 20px input plus a label whose own box is one text line.
-- `components/admin/StagedReviewCard.tsx:580` — the radio IS label-wrapped, but the label is `flex cursor-pointer items-center gap-2 text-sm`: no minimum height, no padding, so the target is a single 20px line.
-
-**Why not repaired here.** The FINANCIALS structure is deliberate: the caution copy is bound with `aria-describedby` precisely so it stays out of the checkbox's accessible name (the comment at `RoleRecognizeControl.tsx:337` says so). Wrapping the row in a `<label>` to gain the floor folds that caution back into the name, so the fix trades one a11y property for another and needs a decision, not a patch. The staged-review radio sits in a dense per-item list where adding 24px per row is a layout decision on a surface this branch does not otherwise touch.
-
-**First scheduled step:** decide the FINANCIALS shape — either a `<label>` wrapping only the checkbox and its short caption with the caution outside it, or padding on the existing sibling label — then apply the same answer to both files, and settle the staged-review list separately.
 
 ## BL-MUTATION-SCANNER-CACHE-INVALIDATION — the scan cache is frozen by absolute path on purpose, and fixture suites pay for it in scratch roots
 
@@ -537,16 +462,6 @@ The rule is right in general — a bare filename in a marker has no anchor conte
 
 **First scheduled step:** confirm whether any OTHER tracked root-level file is a plausible `red-target=` (`git ls-files --full-name . | grep -v /` is the enumeration), since that set bounds how much the gap actually costs.
 
-## BL-ADMIN-DEV-PANEL-TAP-FLOOR — the two dev-panel buttons are ~28px, and their classes are not even compiled
-
-**Status:** IN PROGRESS · **Branch:** feat/ui-polish-class-sweep · **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, found by the shipped tap-height scanner's first run). **Class:** accessibility / dev-only surface. **Effort:** S. **Class-sweep exception:** (c) — the repair is a build-scope decision about a surface this branch does not otherwise touch. **Reachability:** PROBED — `pnpm vitest run tests/styles/_metaTapTargetFloor.test.ts` against an empty census names both sites.
-
-Both buttons are `className="border px-3 py-1 bg-{blue,yellow}-600 text-white"` — the materialize action at `app/admin/dev/page.tsx:151` is blue, the schema reset at `:168` is yellow: 4px of vertical padding around a single line, roughly 28px, against the 44px `--spacing-tap-min` floor.
-
-**Why a class-level repair does not work here, which is the whole entry.** `app/globals.css:33` excludes this exact file from Tailwind's source detection, because the dev panel is build-gated out of production (`ADMIN_DEV_PANEL_ENABLED`). None of those classes is compiled — `bg-blue-600` renders nothing today. Adding `min-h-tap-min` would emit no CSS while making the static guard report a floor the browser never applies, which is strictly worse than the honest census row it carries now (`tests/styles/tapTargetCensus.ts`, category `under-floor-filed`).
-
-**First scheduled step:** decide whether the dev panel should be styled at all — either narrow the `@source not` exclusion so the surface compiles and can carry the floor, or ratify it as an unstyled developer tool and move the two census rows to a documented-limit record.
-
 ## BL-TRANSITION-AUDIT-COUNTS-A-MENTION-AS-A-CONSUMER — naming `SECONDARY_ACTION_CLASS` in a comment changes the pinned count
 
 **Filed:** 2026-08-16 (`fix/step3-tap-cluster`, whole-diff CI). **Class:** guard false positive (use-vs-mention). **Effort:** XS. **Class-sweep exception:** (c) — the guard belongs to a different spec's transition audit (§7.4) and this PR does not otherwise touch it; changing its scan semantics is a change to that guard's contract and deserves its own review. **Reachability:** PROBED — see the probe below.
@@ -566,16 +481,6 @@ The stated rule is "a file that CONSUMES `SECONDARY_ACTION_CLASS` is scanned WIT
 **Why it matters beyond the annoyance:** it fails in the direction that teaches the wrong lesson. An author whose only change is a comment gets a red count pin and the natural repair is to bump the pinned number, which silently buys the slack the rule exists to deny.
 
 **First scheduled step:** strip comments before the `includes` check using the existing shared helper `tests/_shared/stripComments.ts` (`stripCommentsSafely`, `ts.ScriptKind.TSX`) — the same defence `tests/styles/_metaSubtleOnInteractive.test.ts` already applies for exactly this reason ("a cue surviving only in commentary cannot satisfy a pin"). Then re-add the comment form above as a stays-quiet regression row.
-
-## BL-GLOBALS-STALE-ACCENT-CONTRAST-COMMENT — globals.css states a contrast figure that has been wrong since 2026-07-16
-
-**Status:** IN PROGRESS · **Branch:** feat/ui-polish-class-sweep · **Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P3). **Class:** doc-rot with a measured cost. **Effort:** XS. **Reachability:** PROBED — the comment and the token are both in `app/globals.css`; the ratio was recomputed from the live values during the gate.
-
-`app/globals.css:1206-1209` tells the reader, in the repo's own voice, that "`--color-accent-on-bg` is 4.11:1 on `--color-bg` … below the 4.5:1 normal-text floor (see `BL-ACCENT-ON-BG-AA-CONTRAST`)". That was true of `#c25e00`. `BL-ACCENT-ON-BG-AA-CONTRAST` shipped 2026-07-16 (`BACKLOG-archive.md:4983`) and moved the light token to `#a65000`, which measures **5.34:1** — the comment survived the fix that invalidated it.
-
-**The cost is measured, not hypothetical:** in the impeccable critique of `fix/tap-target-inline-controls`, an assessment agent read this comment and raised a P1 against a token swap that in fact improves compliance, which then had to be refuted by recomputing both modes by hand. A stale figure in a load-bearing comment is a finding generator.
-
-**First scheduled step:** correct the two figures in place (light 5.34:1; the tinted Callout/aside fills need re-measuring too, since their ≈3.6-3.9:1 claim has the same provenance) and re-point the `BL-` reference at the archive. The prose conclusion — that the prose-link layer uses text colour + underline rather than the accent — is a ratified decision and stays.
 
 ## BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE — the mi11 genuine-removal fallback retains a frozen snapshot over a live row
 
@@ -1484,41 +1389,6 @@ docblock states the gap rather than papering over it.
 
 ---
 
-## BL-DIAGRAMS-ANNOUNCE-CHANNEL-TTL — two crew announce channels ship without the pruning their own module prescribes
-
-**Status:** IN PROGRESS · **Branch:** feat/ui-polish-class-sweep · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, audit half) · **Severity:** low · **Class:** A11Y · **Effort:** XS
-
-`components/diagrams/Gallery.tsx` calls `useAnnounceLog()` twice with no `ttlMs`. The gallery
-channel's region lives for the whole page session, so N thumbnail failures leave N permanent
-`sr-only` sentences that a top-down screen-reader read recites before reaching the grid — the exact
-accumulation `components/admin/announceLog.tsx:31-51` documents and measures for the admin channel
-(12 undos = 12 sibling nodes / 686 chars). The dialog channel is bounded by
-`resetDialogChannel()` on `onExitComplete`, but a close CANCELLED by a re-open inside the 220 ms
-window retains the dialog instance and its log, so that session opens pre-populated.
-
-**Reachability:** PROBED by reading — `ANNOUNCE_LOG_TTL_MS` exists and is exported for exactly this
-case, and neither call site passes it. Not repaired in-branch because the module's own doc weighs a
-strand hazard against accumulation and settles it per channel, and settling it for two NEW channels
-belongs with a look at whether the crew page should share the admin provider at all rather than
-carry two of its own.
-
-## BL-LIGHTBOX-INACTIVE-SLIDES-IN-A11Y-TREE — every carousel slide is exposed, with no current marker
-
-**Status:** IN PROGRESS · **Branch:** feat/ui-polish-class-sweep · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, audit half) · **Severity:** low · **Class:** A11Y · **Effort:** XS
-
-Embla keeps all slides mounted, and `components/diagrams/GalleryLightbox.tsx` marks none of them
-`aria-hidden`. A gallery of twelve diagrams therefore presents twelve images and twelve `sr-only`
-figcaptions to assistive technology with nothing saying which one is on screen; the visible
-"N of M" indicator is the only current-slide signal and it is not associated with the slides.
-The same shape is why arriving on a slide that failed while inactive is silent: nothing announces
-the active-slide transition.
-
-**Reachability:** PROBED by reading the rendered tree in
-`tests/components/diagrams/GalleryLightbox.test.tsx`, which queries inactive slides by DOM rather
-than by role precisely because they are all present. `aria-hidden={!isActive}` is a one-attribute
-change, deferred only because it moves several existing role-based queries and belongs with the
-current-slide announcement decision rather than ahead of it.
-
 ### BL-PLANLINT-ASSERTIONLESS-EXPECT — an `expect(` with no matcher asserts nothing, and is mechanically detectable
 
 **Status:** OPEN · **Severity:** MEDIUM · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, plan round-4 finding 1) · **Effort:** S
@@ -2074,23 +1944,6 @@ The cause is `lib/specLint/citations.ts:55` — `const bare = !prefix.includes("
 **It is a recurring class, not a one-off.** Every repo-root file is affected, and plans legitimately target several: `DESIGN.md`, `AGENTS.md`, `BACKLOG.md`, `PRODUCT.md`, `package.json`. Any arc whose production surface is one of them meets this.
 
 **First scheduled step:** widen the grammar to accept a repo-root form — either treat a tracked root-relative filename as non-bare when it resolves, or accept an explicit `./` prefix — and add the marker-level case to the spec-lint suite. A second, cheaper half worth doing either way: emit an advisory when a plan contains a red-contract region AND `##`-level tasks outside it, so an unnoticed opt-out is at least visible.
-
-## BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT — one control paints 3.35:1 on desktop and 1.27:1 on a phone
-
-**Status:** IN PROGRESS · **Branch:** feat/ui-polish-class-sweep · **Severity:** LOW-MEDIUM (a resting boundary at 1.27:1 below 640px, on a control that measures 3.35:1 above it) · **Class:** visual boundary / DESIGN scope · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec §3.5) · **Facing:** product · **Class-sweep exception:** (b) — a ratified scope decision fences it, and there are TWO of them, one executable · **Reachability:** PROBED — both figures measured from the runtime tokens, and the cascade behaviour read out of the live class strings.
-
-`components/admin/showpage/ShareHub.tsx:781` and `components/admin/showpage/ShareHub.tsx:817` carry `max-sm:border-border`. A `max-sm:` prefix is a RESTING outline below 640px — unlike a `hover:` prefix, which is a state cue and is correctly outside every control-outline cover.
-
-`:781` is the sharpest instance in the repository. Both of its ternary arms ALREADY carry `border-text-faint` from the 2026-08-16 swap, and `max-sm:border-border` wins the cascade below 640px, so **the same button paints 3.35:1 on a desktop viewport and 1.27:1 on a phone**. `:817` is a four-path element with different figures: its two open paths are `bg-surface-sunken` at **1.15:1 light / 1.38:1 dark**, and its two closed paths are `bg-transparent`, so both edges of the outline are whatever ground the kebab is rendered on and no static figure applies.
-
-**Why it is filed rather than swept, and the reason is not "same defect, different file".** Two independent ratifications fence it:
-
-1. **A design ratification.** The in-file comment at `components/admin/showpage/ShareHub.tsx:798` cites `spec 2026-07-24-strip-mobile-stacked-band §3 R3` — "border color drops to `border-border` below sm (the §3 R3 skin; width stays 1px)".
-2. **An executable ratification, which is the load-bearing one.** The case NAMED `keeps max-sm:border-border on BOTH ShareHub ternary arms` in `tests/styles/_metaControlOutlineFill.test.ts` is a shipped pin whose stated purpose is that this exact token survives; its docstring records that a plan review probed corrupting both tokens and found the rest of the suite stays green while the responsive treatment is silently gone. (Cited by NAME, not by line: the 2026-08-18 arc's own Task 1 shifted it from `:156` to `:286`.)
-
-Swapping here would mean editing that pin to assert the opposite of what it was written to catch — the shape where a guard is rewritten to match the change it exists to detect.
-
-**First scheduled step:** decide whether `DESIGN.md` §1.2a's control-outline rule supersedes the §3 R3 mobile skin. If yes, the repair is two token edits plus a matching update to the pin, landing together.
 
 ## BL-VERIFICATION-BLOCK-FAILS-OPEN-ON-UNREADABLE-INPUT — a plan's verification commands report PASS when they could not look
 
