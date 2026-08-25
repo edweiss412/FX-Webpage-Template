@@ -207,40 +207,8 @@ describe("the repo-wide walk states its premise executably (AC-6)", () => {
  * the assertion IS the zero-offender gate (AC-5).
  */
 const EXPECTED_OFFENDERS: readonly string[] = [
-  "scripts/audit-cn-operand-kinds.mjs:1019",
-  "scripts/audit-cn-operand-kinds.mjs:1019",
-  "scripts/extract-admin-log-only-codes.ts:38",
-  "tests/admin/needsAttention.test.ts:163",
-  "tests/ci/_metaEnvBoundExclusionCoverage.test.ts:503",
-  "tests/codexGuard/fixtures/fake-codex.mjs:63",
-  "tests/cross-cutting/psqlStartupFileSuppression.test.ts:2697",
-  "tests/cross-cutting/psqlStartupFileSuppression.test.ts:2697",
-  "tests/cross-cutting/psqlStartupFileSuppression.test.ts:353",
-  "tests/cross-cutting/psqlStartupFileSuppression.test.ts:600",
-  "tests/docs/agentsHeavyPhaseRule.test.ts:1091",
-  "tests/docs/agentsHeavyPhaseRule.test.ts:1118",
-  "tests/docs/agentsHeavyPhaseRule.test.ts:1127",
-  "tests/docs/agentsHeavyPhaseRule.test.ts:821",
-  "tests/docs/agentsHeavyPhaseRule.test.ts:890",
-  "tests/docs/agentsHeavyPhaseRule.test.ts:914",
-  "tests/e2e/_pendingDiscardHarness.tsx:175",
-  "tests/e2e/_pendingDiscardHarness.tsx:175",
-  "tests/e2e/helpers/liveEntryToolchain.ts:191",
-  "tests/e2e/helpers/walkerRoutes.ts:40",
-  "tests/e2e/helpers/walkerRoutes.ts:40",
-  "tests/e2e/helpers/walkerRoutes.ts:40",
-  "tests/mutation/_metaSourceShardIntegrity.test.ts:107",
-  "tests/mutation/_metaSourceShardIntegrity.test.ts:125",
-  "tests/mutation/_metaSourceShardIntegrity.test.ts:252",
-  "tests/mutation/source/premiseScan.test.ts:1085",
-  "tests/mutation/source/premiseScan.test.ts:5301",
-  "tests/mutation/source/premiseScan.test.ts:784",
-  "tests/paneCompaction/driver.test.ts:40",
-  "tests/parser/payloadZeroWidthEnriched.test.ts:143",
-  "tests/reviewRounds/row.test.ts:151",
-  "tests/reviewRounds/row.test.ts:160",
-  "tests/specLint/declaredLimitPins.test.ts:222",
-  "tests/styles/_metaNewTabAnnouncement.test.ts:3697",
+  // Empty: every in-population offender is repaired. The assertion IS the zero-offender
+  // gate now (AC-5), and a NEW offender introduced later reds it by name.
 ];
 
 describe("the repo-wide scan against the declared inventory (AC-1b, AC-5)", () => {

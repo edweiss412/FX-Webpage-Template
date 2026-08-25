@@ -350,7 +350,7 @@ describe("R3 escaping mutants — each was certified SAFE before the fix", () =>
     ["a CLOSED block comment earlier on the line", `/* x */ const s = "// MARKER unrelated";`],
   ])("%s does not fake a comment", (_name, tail) => {
     const sites = sitesIn(
-      `execFileSync("psql", ["-qAt", d]); ${tail.replace("MARKER", EXEMPTION_MARKER)}`,
+      `execFileSync("psql", ["-qAt", d]); ${tail.replace("MARKER", () => EXEMPTION_MARKER)}`,
       "scripts/x.mjs",
     );
     expect(sites[0]!.exemptReason).toBeNull();
@@ -597,7 +597,7 @@ describe("R6 escaping mutants", () => {
       "x.tsx",
     ],
   ])("%s is not a comment", (_name, lines, file) => {
-    const source = lines.join("\n").replace("MARKER", EXEMPTION_MARKER);
+    const source = lines.join("\n").replace("MARKER", () => EXEMPTION_MARKER);
     const sites = sitesIn(source, file);
     expect(sites.length).toBeGreaterThan(0);
     expect(sites.at(-1)!.exemptReason).toBeNull();
@@ -2695,8 +2695,8 @@ describe("R27 escaping mutants", () => {
     const source = [
       `const n = 1; // ${EXEMPTION_MARKER} unrelated adjacent operation`,
       "${API}(`${COMMAND}`, { shell: true });"
-        .replace("${API}", api)
-        .replace("${COMMAND}", command),
+        .replace("${API}", () => api)
+        .replace("${COMMAND}", () => command),
       "",
     ].join("\n");
     const sites = scanSource(source, "x.mjs");

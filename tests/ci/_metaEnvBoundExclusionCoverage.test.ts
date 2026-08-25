@@ -500,7 +500,10 @@ describe("env-bound exclusion coverage (spec §6)", () => {
       ["step continue-on-error", base("", "        continue-on-error: true\n")],
       [
         "decorated literal",
-        base("", "").replace(`pnpm run-excluded ${FILE}`, `pnpm run-excluded ${FILE} || true`),
+        base("", "").replace(
+          `pnpm run-excluded ${FILE}`,
+          () => `pnpm run-excluded ${FILE} || true`,
+        ),
       ],
       ["missing step", base("", "").replace(`pnpm run-excluded ${FILE}`, "echo hi")],
     ];
