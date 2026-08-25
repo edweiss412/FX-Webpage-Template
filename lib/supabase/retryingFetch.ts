@@ -16,7 +16,7 @@
  *                not help a hung admin gate at all.
  *
  * On exhaustion the FIRST attempt's outcome is replayed, so a fully-failed request surfaces
- * exactly what it surfaces today (spec §3.4). That replay is the `!eligible || attempt >=
+ * exactly what it surfaces today (spec §3.4). That replay is the `attempt >=
  * maxRetries` branch in `makeRetryingFetch` below, not a separate module: an earlier draft of
  * this header cited `lib/supabase/replayFirstAttempt.ts`, which has never existed.
  *
@@ -203,7 +203,6 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
     const owned = isRetryEligible(url, method) && !postgrestWillRetry(url, method);
     if (!owned) return inner(input, init);
 
-    const eligible = true;
     // A caller can hand us its signal two ways: `fetch(url, { signal })`, or a `Request` that
     // already carries one. Reading only `init.signal` meant the second form was invisible, so an
     // aborted Request still went out to the transport and came back 200 where a bare fetch rejects.
@@ -299,9 +298,14 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
         return response!;
       }
 
-      if (!eligible || attempt >= maxRetries) {
-        // Ineligible, or every attempt failed: replay the FIRST attempt, so the caller-visible
-        // failure is what it would have been with no wrapper at all (spec §3.4).
+      if (attempt >= maxRetries) {
+        // Every attempt failed: replay the FIRST, so the caller-visible failure is what it would
+        // have been with no wrapper at all (spec §3.4).
+        //
+        // The `!eligible` arm that used to sit here is GONE, not merely unused. Ineligible requests
+        // now return at the ownership check before a single attempt is made, so reaching this line
+        // with `eligible === false` became unrepresentable — and a condition that cannot fire is
+        // worse than no condition, because it reads as a guarantee nothing is enforcing.
         if (firstError !== undefined) throw firstError;
         return firstResponse!;
       }
