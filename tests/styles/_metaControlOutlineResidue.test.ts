@@ -1441,7 +1441,7 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
 
     const under = residueOf(ROOT, blind);
     expect(under.elements.map((e) => `${e.file}:${e.line}`).sort()).toEqual([
-      "components/admin/BellPanel.tsx:1213",
+      "components/admin/BellPanel.tsx:1221",
       "components/admin/RecentAutoAppliedStrip.tsx:447",
       "components/admin/showpage/AttentionMenu.tsx:189",
       "components/admin/telemetry/EventFilters.tsx:85",

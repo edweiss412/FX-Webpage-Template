@@ -72,9 +72,9 @@ export const CENSUS: readonly CensusRow[] = [
   // spec §4.2 row 4 — two-arm ternary, BOTH arms carry the token
   { file: "components/admin/ArchiveShowButton.tsx", line: 365 },
   // spec §4.2 row 5
-  { file: "components/admin/BellPanel.tsx", line: 850 },
+  { file: "components/admin/BellPanel.tsx", line: 858 },
   // spec §4.2 row 6
-  { file: "components/admin/BellPanel.tsx", line: 1072 },
+  { file: "components/admin/BellPanel.tsx", line: 1080 },
   // spec §4.2 row 7 — reject branch
   { file: "components/admin/Mi11GateActions.tsx", line: 69 },
   // spec §4.2 row 8
@@ -205,7 +205,7 @@ export const CENSUS: readonly CensusRow[] = [
  * violate the exclusion while looking clean (plan review R1 F2).
  */
 export const DIVIDERS: readonly CensusRow[] = [
-  { file: "components/admin/BellPanel.tsx", line: 1213 },
+  { file: "components/admin/BellPanel.tsx", line: 1221 },
   { file: "components/admin/RecentAutoAppliedStrip.tsx", line: 447 },
   { file: "components/admin/showpage/AttentionMenu.tsx", line: 189 },
   { file: "components/admin/telemetry/EventFilters.tsx", line: 85 },

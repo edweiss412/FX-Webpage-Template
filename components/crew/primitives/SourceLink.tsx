@@ -70,6 +70,16 @@ export function SourceLink({
       ? "relative before:absolute before:content-[''] before:inset-x-0 before:top-0 before:h-tap-min"
       : "relative before:absolute before:content-[''] before:inset-x-0 before:bottom-0 before:h-tap-min";
 
+  // Rests at text-text, not text-text-faint (DESIGN §1.1a, design doc
+  // 2026-08-25-ui-polish-class-sweep-design.md D4). This link renders the label
+  // "In sheet", and the faint rung measures 3.35:1 on the card fill — over the
+  // 3:1 non-text floor a glyph would be held to, under the 4.5:1 floor for
+  // TEXT. The quietness here was a deliberate crew-surface choice and it is
+  // being overridden knowingly: the icon plus `text-xs` still keep this
+  // secondary to the section copy without putting the label under the floor.
+  // Hover and focus step to text-text-strong because their old target
+  // (text-subtle) is now LIGHTER than the resting colour, which would make the
+  // link read fainter on hover than at rest.
   return (
     <a
       data-slot="source-link"
@@ -77,7 +87,7 @@ export function SourceLink({
       target="_blank"
       rel="noopener noreferrer"
       aria-label="In sheet, view this section in Google Sheets (opens in a new tab)"
-      className={`inline-flex h-fit shrink-0 items-center gap-1 text-xs font-medium text-text-faint transition-colors hover:text-text-subtle focus-visible:text-text-subtle [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
+      className={`inline-flex h-fit shrink-0 items-center gap-1 text-xs font-medium text-text transition-colors hover:text-text-strong focus-visible:text-text-strong [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
     >
       <SheetIcon />
       <span>In sheet</span>

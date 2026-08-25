@@ -100,6 +100,35 @@ member has no reason to rest dim, and it rests at `text-text` like any other
 control. Family D is for pairs whose dim member would otherwise be
 distinguished by the text-color delta ALONE.
 
+**The faint rung, ruled 2026-08-25.** `--color-text-faint` sits one step
+QUIETER than `--color-text-subtle`, and §1.1 already says it is never used for
+crew-actionable copy. Four controls were resting there anyway
+(`BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR`). The condition, which is
+narrower than the subtle rule rather than a second copy of it: **an action
+target may rest at `--color-text-faint` only when it renders no text of its own
+and its glyph is the affordance, or when a non-colour affordance at 3:1 or
+better carries it.**
+
+The line falls there because the faint rung has two problems and only one of
+them is the hierarchy problem this section is about. On `--color-surface` it
+measures 3.35:1 — over the 3:1 floor a glyph or a boundary is held to, and under
+the 4.5:1 floor for TEXT. So a control that renders a label cannot rest here
+whatever one concludes about hierarchy, and a glyph-only control is not making
+the claim that fails.
+
+Two of the four met it and stayed: the card report trigger (a `FlagGlyph` and
+nothing else, named by an `aria-label`) and the hover-help badge (a 3.35:1
+circular border plus `cursor-help`, its `?` `aria-hidden` and acting as a glyph
+inside that boundary). Two did not: the crew source link, which renders "In
+sheet", and the bell panel's ghost resolve control, whose whole content is a
+text label. **Both were overridden knowingly** — the source link's quietness was
+a deliberate crew-surface choice, and it is still secondary by size and icon
+rather than by putting its label under the floor. Registry and reasons:
+`tests/styles/faintRestingControls.test.ts`. This is a CONDITION named here, not
+a second policed token: the ratified `--color-text-subtle` census and its 14
+exemption rows are untouched. Reasoning:
+`docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md` D4.
+
 **Hover is unchanged by this policy.** Where a swapped site's existing hover
 target became its new resting color, that site's hover steps to
 `--color-text-strong` so hover still visibly strengthens; sites whose hover
