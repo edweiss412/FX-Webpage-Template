@@ -12,11 +12,16 @@
  * Pure: no `node:` imports and no third-party imports
  * (pinned by tests/specLint/_metaPureCore.test.ts).
  */
-import type { AcBlocks, AcParseResults, AcRow, AcTableBlock, Finding } from "./types";
+import { classifySpan } from "./citations";
+import type { AcBlocks, AcCell, AcParseResults, AcRow, AcTableBlock, Finding } from "./types";
 import { acKey } from "./types";
 
 const DECL_ANY = /^ {0,3}<!-- ac-coverage:/;
 const DECL = /^ {0,3}<!-- ac-coverage: command-col=([1-9][0-9]*) -->[ \t]*$/;
+/** A `path:line` candidate. `classifySpan` is the AUTHORITY on whether it is one. */
+const PIN_CANDIDATE = /(?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+:[0-9]+(?:-[0-9]+)?/g;
+/** A character that can continue a path: the pin must not be glued to one. */
+const PATH_CHAR = /[A-Za-z0-9_./-]/;
 
 const finding = (
   severity: "fail" | "advisory",
@@ -54,6 +59,47 @@ export function carriesCommand(span: string): boolean {
  */
 export function commandSpansOf(row: AcRow, commandCol: number): string[] {
   return (row.cells[commandCol - 1]?.codes ?? []).filter(carriesCommand);
+}
+
+/**
+ * Whether the pin is UNOBSERVED: it occurs at no PATH BOUNDARY in the command
+ * text. A lexical test, and deliberately not a shell-word claim (spec §8.2.2).
+ *
+ * Three review rounds each found a false accept in a matcher that tried to
+ * identify a shell ARGUMENT by splitting on whitespace — a superstring, a wrong
+ * prefix, then quoting and escaped whitespace and comment text. The arm stops
+ * approximating: the pin occurs, and neither neighbour can continue a path. What
+ * it does NOT notice is a correctly-bounded path inside quotes, after an escape,
+ * or behind a `#`; those are L-6, under the threat fence, and a shell lexer for
+ * an ADVISORY is refused.
+ */
+export function pinUnobserved(commandText: string, path: string): boolean {
+  for (let i = commandText.indexOf(path); i !== -1; i = commandText.indexOf(path, i + 1)) {
+    const before = i === 0 ? "" : commandText[i - 1]!;
+    const after = commandText[i + path.length] ?? "";
+    if (!PATH_CHAR.test(before) && !PATH_CHAR.test(after)) return false;
+  }
+  return true;
+}
+
+/**
+ * `tests/`-rooted `path:line` pins cited in a row's non-command cells.
+ *
+ * `classifySpan` decides what a citation is, so this module holds no second
+ * opinion about it. A `components/**` pin is the SUBJECT under test rather than
+ * the proof, and draws nothing (spec §6.2).
+ */
+export function citedTestPins(cells: readonly AcCell[]): string[] {
+  const out: string[] = [];
+  for (const c of cells) {
+    for (const m of c.text.matchAll(PIN_CANDIDATE)) {
+      const cls = classifySpan(m[0]);
+      if (cls.kind !== "citation" || cls.start === undefined) continue;
+      if (!cls.path.startsWith("tests/")) continue;
+      out.push(cls.path);
+    }
+  }
+  return out;
 }
 
 export interface DeclaredTable {
@@ -230,6 +276,21 @@ export function checkAcCoverage(
           );
         }
       });
+      const commandText = spans.join(" ");
+      const others = row.cells.filter((_, k) => k !== commandCol - 1);
+      for (const path of citedTestPins(others)) {
+        if (pinUnobserved(commandText, path)) {
+          findings.push(
+            finding(
+              "advisory",
+              "AC_COMMAND_PIN_UNOBSERVED",
+              row.line,
+              `the row cites ${path} but the command does not name it`,
+              "a criterion proved by a case this plan is about to author is the legitimate case; see the spec's L-2",
+            ),
+          );
+        }
+      }
     }
   }
   return findings;

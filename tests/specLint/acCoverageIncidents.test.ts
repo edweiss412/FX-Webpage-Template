@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { checkAcCoverage } from "../../lib/specLint/acCoverage";
+import { acCommandPlan, checkAcCoverage } from "../../lib/specLint/acCoverage";
 import { premiseHolds } from "../_shared/premise";
 import { viewOf } from "./acCoverageView";
 
@@ -160,5 +160,95 @@ describe("acCoverage — the incidents it was filed for", () => {
 
   it("the shipped table is clean", () => {
     expect(hardOf(BLOBS.HEAD)).toEqual([]);
+  });
+});
+
+/**
+ * Plant-both, on the shipped fixture (spec §5).
+ *
+ * Seven of the nine plants are review findings kept as regression cases; two are
+ * REPAIRS of earlier plants rather than additions, and each says so inline. The
+ * unplanted table scores nothing, so every plant's finding is the plant's.
+ */
+const PLANTS: { name: string; from: string; to: string; expect: "hard" | "advisory" }[] = [
+  {
+    name: "a_prose_cell",
+    from: `| AC-1 (one read-once pass; read-member spy) | Task 2 structural cover | \`pnpm vitest run tests/paneCompaction/adapter.test.ts\` |`,
+    to: `| AC-1 (one read-once pass; read-member spy) | Task 2 structural cover | both red commands above |`,
+    expect: "hard",
+  },
+  {
+    name: "a2_comment_only_span",
+    from: `| AC-1 (one read-once pass; read-member spy) | Task 2 structural cover | \`pnpm vitest run tests/paneCompaction/adapter.test.ts\` |`,
+    to: `| AC-1 (one read-once pass; read-member spy) | Task 2 structural cover | \`# both red commands above\` |`,
+    expect: "hard",
+  },
+  {
+    name: "b_pin_dropped",
+    from: `\`pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/driver.test.ts tests/docs/_metaPaneCompactionContract.test.ts\``,
+    to: `\`pnpm vitest run tests/paneCompaction/adapter.test.ts tests/docs/_metaPaneCompactionContract.test.ts\``,
+    expect: "advisory",
+  },
+  {
+    name: "d_superstring_appended",
+    from: `tests/paneCompaction/driver.test.ts tests/docs/_metaPaneCompactionContract.test.ts\``,
+    to: `tests/paneCompaction/driver.test.tsx tests/docs/_metaPaneCompactionContract.test.ts\``,
+    expect: "advisory",
+  },
+  {
+    name: "e_superstring_prepended",
+    from: `tests/paneCompaction/driver.test.ts tests/docs/_metaPaneCompactionContract.test.ts\``,
+    to: `archive/tests/paneCompaction/driver.test.ts tests/docs/_metaPaneCompactionContract.test.ts\``,
+    expect: "advisory",
+  },
+  {
+    name: "f_prose_in_a_row_without_leading_pipe",
+    from: `| AC-5 (resume predicate; mode verdict gates) | Task 1 + Task 2 | \`pnpm vitest run tests/paneCompaction/authorization.test.ts tests/paneCompaction/adapter.test.ts\` |`,
+    to: `AC-5 (resume predicate; mode verdict gates) | Task 1 + Task 2 | both red commands above |`,
+    expect: "hard",
+  },
+  {
+    name: "g_backslash_parity",
+    from: `| AC-4 (refusals name the condition) | Task 2 (restored verbatim class) | \`pnpm vitest run tests/paneCompaction/adapter.test.ts\` |`,
+    to: `| AC-4 (refusals name the condition) | Task 2 (restored verbatim class) | \`echo a\\\\|true\` |`,
+    expect: "hard",
+  },
+];
+
+describe("acCoverage — plant-both", () => {
+  it("the unplanted fixture scores nothing at all", () => {
+    expect(checkAcCoverage(viewOf(DECL + BLOBS.HEAD + "\n"), "plan")).toEqual([]);
+  });
+
+  it.each(PLANTS)("$name moves the criterion, and for the reason it names", (plant) => {
+    // Each plant proves its own premise on its OWN inputs: the anchor is unique,
+    // so the edit is the one intended, and the unplanted form scores zero, so the
+    // finding below is attributable to the plant rather than to the fixture.
+    premiseHolds(
+      `the anchor for ${plant.name} occurs exactly once`,
+      BLOBS.HEAD.split(plant.from).length - 1 === 1,
+    );
+    const planted = BLOBS.HEAD.replace(plant.from, plant.to);
+    premiseHolds(`the plant for ${plant.name} changed the table`, planted !== BLOBS.HEAD);
+
+    const found = checkAcCoverage(viewOf(DECL + planted + "\n"), "plan");
+    const wanted = found.filter((f) =>
+      plant.expect === "hard" ? f.severity === "fail" : f.severity === "advisory",
+    );
+    expect(wanted.length).toBeGreaterThan(0);
+  });
+
+  it("c and c2 cover BOTH orderings of a broken span, because c alone was lucky", () => {
+    // Round 1's plant broke the SECOND of two spans and survived the line-key
+    // collision by accident. These two are the pair; they need the adapter's
+    // outcomes to report, so here they assert the PLAN carries every span, which
+    // is the half a line-keyed store would lose.
+    const later = BLOBS.HEAD.replace(
+      "`pnpm vitest run tests/paneCompaction/adapter.test.ts`; `pnpm vitest run tests/docs/_metaPaneCompactionContract.test.ts` |",
+      "`pnpm vitest run 'tests/paneCompaction/adapter.test.ts`; `pnpm vitest run tests/docs/_metaPaneCompactionContract.test.ts` |",
+    );
+    premiseHolds("the later-span plant changed the table", later !== BLOBS.HEAD);
+    const ac15 = acCommandPlan(viewOf(DECL + later + "\n"), "plan").filter((e) => e.spanIndex > 0);
+    expect(ac15.length).toBeGreaterThan(0);
   });
 });
