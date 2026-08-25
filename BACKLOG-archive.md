@@ -182,7 +182,6 @@ The forward guard was attempted in five forms across five review rounds and esca
 
 **Cost threshold, so the close can be re-opened on evidence rather than on feeling** (spec §1.6): more than thirty residue entries, or more than eight rows added or re-keyed in a rolling thirty days as measured by a key diff through the module's own `rowKey`, re-opens the Outcome B close (archive the guard, keep the honesty). Today's figures are 12 and 0.
 
-
 ## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc — CLOSED 2026-08-21
 
 **Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** the six probe chains below each exited 0 and SENT bytes before their repair · **Class:** authorization model · **Facing:** product · **Shipped by:** `feat/pane-compaction-send-auth`
