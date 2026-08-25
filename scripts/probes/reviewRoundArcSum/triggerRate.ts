@@ -72,10 +72,16 @@ const base = total(perBase);
 const arc = total(perArc);
 const pct = (b: Bucket): string => ((b.triggered / b.population) * 100).toFixed(1);
 
-console.log(`per-base   (branch, baseSha, stage): ${base.triggered}/${base.population}  ${pct(base)}%`);
-console.log(`per-arc    (branch directory, stage): ${arc.triggered}/${arc.population}  ${pct(arc)}%`);
+console.log(
+  `per-base   (branch, baseSha, stage): ${base.triggered}/${base.population}  ${pct(base)}%`,
+);
+console.log(
+  `per-arc    (branch directory, stage): ${arc.triggered}/${arc.population}  ${pct(arc)}%`,
+);
 console.log("");
 console.log("per month, per-arc unit:");
 for (const [month, b] of [...perArc].sort()) {
-  console.log(`  ${month}  ${b.triggered}/${b.population}  ${((b.triggered / b.population) * 100).toFixed(1)}%`);
+  console.log(
+    `  ${month}  ${b.triggered}/${b.population}  ${((b.triggered / b.population) * 100).toFixed(1)}%`,
+  );
 }

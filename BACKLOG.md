@@ -2138,7 +2138,6 @@ Both runs were from the repo root with the paths valid and readable; relative an
 
 **First scheduled step:** confirm the behaviour against the current upstream release, then decide wrapper-versus-report — a local wrapper is worth it either way, since this repo's gate cannot wait on an upstream fix.
 
-
 ## BL-PLANLINT-AC-COMMAND-OBSERVABILITY — an AC row can name a command that runs green yet cannot observe its criterion
 
 **Status:** OPEN · **Filed:** 2026-08-21 (`feat/pane-compaction-send-auth`, plan rounds r2 F4 / r3 F5 / r4 F2 — three consecutive rounds each landing an instance of this one class) · **Severity:** MEDIUM (the AC table is the plan's proof surface; a row whose command cannot see its criterion certifies the criterion unobserved, in the silent direction) · **Class:** plan lint · **Effort:** M · **Facing:** process · **Incident:** three review rounds on `feat/pane-compaction-send-auth` each burned a finding on this class — r2 F4 (two rows with non-runnable command cells, plus two vague cells the sweep caught), r3 F5 (one remaining prose cell), r4 F2 (a runnable command whose file list omitted the suite holding the criterion's executable pin, `tests/paneCompaction/driver.test.ts:72`) — corpus rows in `docs/review-rounds/feat/pane-compaction-send-auth/e5d1d723d69c.jsonl`, filing §"plan — 4 rounds". · **Reachability:** PROBED — the three findings above are live instances, each verified against the plan text at its dispatch head.
