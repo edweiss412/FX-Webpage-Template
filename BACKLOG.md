@@ -2028,32 +2028,6 @@ Round 4 will add a third with `{'diff': [4]}` — one counted round at that base
 
 **First scheduled step:** confirm the branch-directory sum against the live corpus (`pnpm review:economy` already walks it) and count how many existing arcs would newly owe a filing — that number decides whether the gate change ships hard or advisory-first.
 
-## BL-REPLACEMENT-STRING-CLASS-SWEEP — a runtime value in `String.replace`'s replacement position is a mini-language, and the repo has never swept for it
-
-**Status:** OPEN · **Filed:** 2026-08-21 (`feat/pane-compaction-send-auth`, diff round 3 F1) · **Severity:** MEDIUM (silent wrong output, not a crash: the call succeeds and the text is wrong) · **Class:** correctness sweep · **Effort:** M · **Facing:** process · **Incident:** diff round 3 on `feat/pane-compaction-send-auth` spent a P1 on this class — `addressPayload` passed the branch and session into `String.replace` as REPLACEMENT STRINGS, so a valid branch named `feat/$&` produced an address line naming `feat/<BRANCH>` and the command exited 0 having told every recipient to ignore a message it reported sending. Corpus row: `docs/review-rounds/feat/pane-compaction-send-auth/c9c71b947a85.jsonl`, `diff` round 3, core scope, `findingCount` 4. · **Reachability:** PROBED — the branch names are accepted by git, and the shipped behaviour was reproduced before repair.
-
-**The shape.** `String.prototype.replace` and `replaceAll` treat `$&`, `` $` ``, `$'`, `$1` and `$<name>` in the REPLACEMENT ARGUMENT as substitution syntax. Any runtime value placed there is therefore interpreted, not inserted. It is the same shape as SQL injection or format-string injection with a different mini-language: a data position that is secretly a grammar.
-
-**Probe.**
-
-```
-$ git check-ref-format --branch 'feat/$&'   -> feat/$&        (valid)
-$ git check-ref-format --branch 'feat/a$`b' -> feat/a$`b      (valid)
-
-"For the session driving <BRANCH> ONLY".replace("<BRANCH>", "feat/$&")
-  -> "For the session driving feat/<BRANCH> ONLY"
-"For the session driving <BRANCH> ONLY".replace("<BRANCH>", "a$`b")
-  -> "For the session driving aFor the session driving b ONLY"
-```
-
-The second is the worse one: `` $` `` splices the entire preceding text into the output.
-
-**Shape of the repair.** A replacer FUNCTION — `text.replace(token, () => value)` — rather than escaping the value, because the function form has no substitution grammar to escape at all; escaping leaves the grammar live and one missed character away from the same defect. The sweep is an AST walk that judges every `.replace`/`.replaceAll` call's second argument: a string literal is fine (no runtime value), a function is fine, anything else is the defect. `tests/paneCompaction/literalSubstitution.test.ts` is the shipped instance of exactly that walk over two files, and is the template.
-
-**Scope note.** This arc closed the class for `scripts/lib/pane-compaction-core.ts` and `scripts/pane-compaction.ts` only. Deferred per the class-sweep disposition rule, exception (c): the repair spans a tree the PR does not otherwise touch, and a repo-wide AST gate is its own reviewable surface rather than a rider on a send-authorization diff.
-
-**First scheduled step:** run the walk repo-wide in report-only mode (`rg -l '\.replace(All)?\('` to bound the file set, then the AST judge over it) and count offenders before deciding whether the gate ships as `fail` or advisory.
-
 ## BL-PLANLINT-AC-COMMAND-OBSERVABILITY — an AC row can name a command that runs green yet cannot observe its criterion
 
 **Status:** OPEN · **Filed:** 2026-08-21 (`feat/pane-compaction-send-auth`, plan rounds r2 F4 / r3 F5 / r4 F2 — three consecutive rounds each landing an instance of this one class) · **Severity:** MEDIUM (the AC table is the plan's proof surface; a row whose command cannot see its criterion certifies the criterion unobserved, in the silent direction) · **Class:** plan lint · **Effort:** M · **Facing:** process · **Incident:** three review rounds on `feat/pane-compaction-send-auth` each burned a finding on this class — r2 F4 (two rows with non-runnable command cells, plus two vague cells the sweep caught), r3 F5 (one remaining prose cell), r4 F2 (a runnable command whose file list omitted the suite holding the criterion's executable pin, `tests/paneCompaction/driver.test.ts:72`) — corpus rows in `docs/review-rounds/feat/pane-compaction-send-auth/e5d1d723d69c.jsonl`, filing §"plan — 4 rounds". · **Reachability:** PROBED — the three findings above are live instances, each verified against the plan text at its dispatch head.

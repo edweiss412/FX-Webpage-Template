@@ -10621,3 +10621,27 @@ Same mechanism as the elder entry, filed independently and in good faith: at fil
 This id is kept RESOLVABLE rather than deleted, because the merged round-economy filing for `feat/speclint-red-reason-verification` cites it by name and `BL-SPECLINT-DOC-BARE-LINE-NUMBERS-UNCOVERED`'s first-scheduled-step names it as sharing an owner and a trigger point. A deleted id dangles both pointers.
 
 Its incident is preserved verbatim as the third measured instance on the elder entry.
+
+---
+
+## BL-REPLACEMENT-STRING-CLASS-SWEEP — a runtime value in `String.replace`'s replacement position is a mini-language, and the repo has never swept for it
+
+**Status:** SHIPPED 2026-08-25 · **Shipped by:** `fix/replacement-string-class-sweep` (PR #883) · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (silent wrong output, not a crash: the call succeeds and the text is wrong) · **Filed:** 2026-08-21 (`feat/pane-compaction-send-auth`, diff round 3 F1) · **Class:** correctness sweep · **Facing:** process · **Reachability:** PROBED — the branch names are accepted by git, and the shipped behaviour was reproduced before repair.
+
+**The close condition the entry named, and what satisfied it.** The first scheduled step was to run the walk repo-wide in report-only mode, count offenders, and only then decide whether the gate ships `fail` or advisory. Done: the count was **56 sites at base `8bf870991`**, of which **four are inside `docs/**`** and outside the population, leaving **52 in-population offenders**. The gate ships **`fail`**, decided on that count rather than in advance, because this PR repairs the population it would otherwise red. Inventory **52 → 0\*\*.
+
+**Where the class was, beyond the two files the filing arc closed.** The scope note deferred the repo-wide sweep under exception (c). Sweeping it found three live product defects, each reproduced on shipped code before repair:
+
+- `components/admin/roleRecognizeCopy.ts` — a role token containing `$'` spliced the sentence tail into its own middle and displaced the chained `<SUMMARY>` replacement, so an unreplaced template marker reached the admin surface.
+- `lib/sync/feed/shapeHoldEntry.ts` — a crew member named `Dana$'X` lost their name from Doug's feed line, replaced by a duplicated fragment.
+- `lib/observe/scrubSentryEvent.ts` — the OPPOSITE repair. Its `$1` is a deliberate capture carrying the `/show/<slug>/` prefix through redaction, so the ordinary wrap applied 51 times elsewhere would have dropped the slug from every scrubbed URL. The sweep's repair rule is not "wrap everything".
+
+**A class the filing did not anticipate.** Six harnesses apply an author-written `from` → `to` edit through a replacement string, **two of them writing the result to disk**. Every one validated that the anchor was unique; none validated the replacement side.
+
+**The shipped gate.** `tests/cross-cutting/replacementString/scan.ts` — an AST judge classifying every `.replace`/`.replaceAll` call's second argument into accepted, not-in-population, or REPORTED BY NAME. An ACCEPT-SET, not a denylist, so an argument form nobody has thought of is reported rather than accepted. `EXPECTED_OFFENDERS` is empty by design: the assertion IS the zero-offender gate, and a new offender reds it by name — which happened once during the arc, on its own repair commit.
+
+**Two decisions reached by review, recorded so neither is relitigated.** There is NO text prefilter: every version of one missed the next spelling, and `s.repl\u0061ce(...)` is a PropertyAccessExpression no source-text regex can ever match (measured cost of parsing everything: ~700ms). Transparent-wrapper resolution is closed BY PLACEMENT, in two helpers every kind test goes through, after three spec rounds found the same class in four different positions.
+
+**Verification as shipped.** Enrolled in the source-mutation registry: **31 mutants, 31/31 killed, zero survivors, score 1.00** over all six declared operators, confirmed on the merge ref by CI's own shard artifact. `regex-quantifier-bound` generates zero mutants on this code and stays DECLARED so the score demonstrably ranges over it. Spec APPROVE r7, plan APPROVE r6, whole-diff APPROVE r1 with zero findings.
+
+**Documented limits** are the shipped spec's §8 (`docs/superpowers/specs/2026-08-24-replacement-string-class-sweep.md`), including aliased and element-access spellings, non-string receivers, and the root-anchored `node_modules`/`docs` exclusion.
