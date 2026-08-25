@@ -75,6 +75,26 @@ describe("a finding carries the location and text a human dispositions it by", (
   });
 });
 
+describe("only `replace` and `replaceAll` are matched", () => {
+  // Without these, the two guards that decide WHETHER a call is a replace call are pinned only by
+  // the repo-wide assertion — a remote kill that depends on the corpus containing some other
+  // method call with two arguments. It does, but a local fixture says so directly.
+  const others = [
+    ["a differently named method", `s.notReplace(a, v)`],
+    ["a same-shaped call on another name", `s.substring(a, v)`],
+    ["a bare function call", `replace(a, v)`],
+  ];
+  for (const [label, src] of others) {
+    it(`ignores ${label}`, () => {
+      expect(one(src), "matching on the property NAME is what scopes this guard").toEqual([]);
+    });
+  }
+
+  it("matches replaceAll as well as replace", () => {
+    expect(one(`s.replaceAll(a, v)`)).toHaveLength(1);
+  });
+});
+
 describe("judgeSource — transparent wrappers resolve (AC-2)", () => {
   const wrapped: [string, string][] = [
     ["parentheses", `s.replace(a, ("lit"))`],
