@@ -423,9 +423,28 @@ dark, and §9 says so rather than leaving it implied.
 - **AC-5. The absorption is demonstrated on the real runner, deterministically.** A CI-only forced
   upstream fault on the admin gate, gated exactly as `x-test-force-infra-fail` is
   (`ENABLE_TEST_AUTH` plus the Bearer secret, so it cannot fire in production), makes the runner
-  produce the recorded mechanism on demand: the page renders, and the run carries a
-  `SUPABASE_UPSTREAM_RETRY` emit. This replaces waiting for a natural occurrence, which is not a
-  reproducer and cannot be scheduled.
+  produce the recorded mechanism on demand. This replaces waiting for a natural occurrence, which is
+  not a reproducer and cannot be scheduled.
+
+  **AMENDED 2026-08-25, on evidence, and the original wording is kept here because it was
+  disproved rather than improved.** This AC first read "the page renders, and the run carries a
+  `SUPABASE_UPSTREAM_RETRY` emit". Green run
+  [32804414458](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32804414458) shows why
+  that cannot settle it: the job carries NINE such emits and three are provably outside the forced
+  test's window (two at 03:23:46 during `admin-changes-feed-layout`, one at 03:24:04 during
+  `dev-capture`). A grep for the code is satisfied by background faults alone, so it would pass with
+  the injector never firing — presence is not attribution.
+
+  The criterion is now page-observable and attributable to the forced request: **forced faults are
+  absorbed and the admin page renders, and a fault that outlasts the budget reaches the recorded
+  failure surface** (`admin-layout-infra-error`, the layout's own catch of `AdminInfraError`).
+  Absorbed or signaled, both halves observed through the page.
+
+  It deliberately makes NO claim about the number of retries. The forced-fault injector's counter
+  belongs to the CLIENT and is shared by every request that client issues, and the admin layout
+  issues three in one `Promise.all`, so a per-request budget cannot be read from a page-level count
+  (run 32806860141). `MAX_SUPABASE_RETRIES` is pinned in `tests/supabase/retryingFetch.test.ts`,
+  with injected timers and exact call counts, which is where a count of that kind can be exact.
 - **AC-6. No new flake class.** Five consecutive green `app-e2e` runs on the PR, stated in advance.
   These are a REGRESSION check, not the evidence for AC-5: at the measured red rate five greens are
   close to a coin flip, which is exactly why AC-5 is deterministic and this criterion is not asked to
