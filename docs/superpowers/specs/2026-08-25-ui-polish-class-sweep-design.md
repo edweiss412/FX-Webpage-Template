@@ -170,3 +170,19 @@ Each of these is settled by a ratification that predates this arc, or by a decis
 - **`BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` stays open, untouched, unmarked.** Its done condition requires widening `tests/styles/interactiveScanCore.ts`'s tag vocabulary, which is recognizer growth. It is the successor arc once D2 and D3 are ratified, not part of this one.
 - **`components/admin/review/ShowReviewSurface.tsx:389` keeps no TTL.** Ratified by announcer spec 2026-07-22 §2.2 and pinned by that surface's own MutationObserver suite.
 - **The dev panel's Tailwind exclusion stays** (`app/globals.css:33`). D5 is the decision; L2 is its recorded cost.
+
+---
+
+## 11. What changed after this document was written
+
+Recorded here rather than folded silently into §1, because two of the eleven decisions moved after the design was drafted and a reader comparing the diff to §1 would otherwise find a discrepancy with no explanation.
+
+**D8 was ruled by the owner, not taken by this arc.** The design doc pre-decided the `aria-hidden` half and paired it with an announcement routed through the lightbox's existing zoom live region, specifically to avoid reversing audit P1-B, which had removed `aria-live` from the page indicator because two competing polite regions interleave. Eric ruled on 2026-08-25 that the row closes with BOTH halves and that the announcement is **associated with the visible indicator**. That is what shipped. P1-B's mechanism objection is still answered: the zoom region stays silent on a navigation-driven scale reset, so exactly one region speaks per gesture-end. Its redundancy argument ("the slide change is already user-initiated via a labeled chevron") stopped being true in the same commit, since a swipe now replaces the only exposed figure and involves no button at all.
+
+**D3's two chips landed on different tokens.** §1 says both move to the control's weight, and the brief that commissioned this arc expected both at `border-text-faint`. The pairing clause points at the TWIN rather than at a named colour, and D2 had already moved the staged-preview picker link onto the tinted token, so its `aria-current` chip took that. The lightbox demote chip took `border-text-faint` from the Reset chip. One rule, two twins, two tokens.
+
+**Three of the brief's own citations had drifted** and were re-derived rather than trusted: five tinted-plate line numbers (those sites paint through a file-local constant that moved while the call site did not), the stale-comment location, and the archived accent row's line.
+
+## 12. Close-out
+
+impeccable-gate: critique=PENDING audit=PENDING p0=0 p1=0 dispositions=none
