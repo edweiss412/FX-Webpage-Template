@@ -32,6 +32,13 @@ describe("judgeSource — the accept-set (AC-1)", () => {
   ];
   for (const [label, src] of accepted) {
     it(`accepts a ${label}`, () => {
+      // Two assertions, because the first alone is satisfied by a judge that never SAW the call.
+      // "no findings" and "no call sites" are the same observation to a broken walk, and the
+      // stub this task started from passed every accepted case for exactly that reason.
+      expect(
+        callSiteCount(["f.ts"], () => src),
+        "the call was seen",
+      ).toBe(1);
       expect(one(src), `${label} carries no runtime value`).toEqual([]);
     });
   }
@@ -92,6 +99,9 @@ describe("only `replace` and `replaceAll` are matched", () => {
   }
 
   it("matches replaceAll as well as replace", () => {
+    // Also the positive control for the three cases above. Each of those asserts NO findings,
+    // which a walk that saw nothing satisfies too; this one fails in that world, so the block
+    // discriminates as a whole even though its negative cases cannot alone.
     expect(one(`s.replaceAll(a, v)`)).toHaveLength(1);
   });
 });
