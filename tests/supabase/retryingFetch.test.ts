@@ -291,6 +291,33 @@ describe("retrying fetch — abort provenance", () => {
  * These cases take the defaults and drive fake timers, so they stay fast without injecting the
  * values under test.
  */
+describe("retrying fetch — the stall timer never holds the process open", () => {
+  test("the per-attempt timer is unref'd", async () => {
+    // no-premise: setTimeout is spied and the transport is an injected stub; nothing real is read.
+    //
+    // `timer.unref?.()` is defensive: the timer is cleared in `finally` on every path, so in
+    // practice nothing pending survives an attempt. That is exactly why the mutation gate could
+    // DELETE the call with every test green — its effect is invisible to a test that completes.
+    //
+    // Invisible is not absent. On a server runtime a pending unref'd timer cannot hold the process
+    // open, and that property is worth pinning rather than excusing: the alternative was an
+    // `equivalent` row asserting the call does nothing observable, which is true of the happy path
+    // and false of the case the call exists for.
+    const unref = vi.fn();
+    const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation((() => ({
+      unref,
+    })) as unknown as typeof setTimeout);
+    try {
+      const inner = vi.fn(async () => ok());
+      await makeRetryingFetch(inner, instant)(RPC, { method: "POST" });
+      // Deleting `timer.unref?.()` leaves this at zero.
+      expect(unref).toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe("retrying fetch — the caller's signal is left as it was found", () => {
   test("every abort listener the wrapper adds is removed again", async () => {
     // no-premise: the transport is an injected stub and sleep/random are injected; nothing real is read.
