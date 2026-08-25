@@ -15,6 +15,7 @@ export async function loadTelemetryStats(now: Date): Promise<LoadTelemetryStatsR
       void log.error("admin_event_stats_24h returned error", {
         source: "admin.telemetry.stats",
         code: "TELEMETRY_STATS_READ_RETURNED_ERROR",
+        error: error.message,
       });
       return FAIL;
     }

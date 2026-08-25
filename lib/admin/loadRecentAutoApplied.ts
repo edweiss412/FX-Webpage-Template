@@ -228,6 +228,14 @@ export async function loadRecentAutoApplied(deps: {
       p_show_ids: deps.publishedShowIds,
     });
     if (error) {
+      // Returned rather than logged, and its caller renders instead of logging, so an
+      // upstream 502 here left NO record anywhere. The message travels in the result AND
+      // reaches the log (invariant 9: an infra fault is recorded where it arrives).
+      void log.error("roster_shift_counts rpc failed", {
+        source: "admin.recentAutoApplied",
+        code: "ROSTER_SHIFT_COUNTS_READ_RETURNED_ERROR",
+        error: error.message,
+      });
       return { kind: "infra_error", message: `roster_shift_counts rpc failed: ${error.message}` };
     }
     for (const r of (data ?? []) as RosterRow[]) {

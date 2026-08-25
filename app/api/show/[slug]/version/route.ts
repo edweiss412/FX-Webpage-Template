@@ -32,6 +32,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
+import { log } from "@/lib/log";
 import { resolvePickerSelection } from "@/lib/auth/picker/resolvePickerSelection";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
@@ -128,6 +129,14 @@ export async function GET(
       p_show_id: showId,
     });
     if (error) {
+      // Logged nothing at all before this, and its only other signal is a 500 that
+      // ShowRealtimeBridge classifies as transient and swallows — so an upstream 502 here was
+      // invisible everywhere. No trigger design can recover a signal that was never sent.
+      void log.error("viewer_version_token rpc failed", {
+        source: "api.show.version",
+        code: "SHOW_VERSION_TOKEN_RPC_FAILED",
+        error: error.message,
+      });
       return NextResponse.json({ error: "SHOW_VERSION_TOKEN_RPC_FAILED" }, { status: 500 });
     }
     data = versionToken;

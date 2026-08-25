@@ -17,6 +17,9 @@ export async function loadAlertSummary(): Promise<AlertSummary> {
       void log.error("admin_alert_summary returned error", {
         source: "admin.telemetry.alertSummary",
         code: "ALERT_SUMMARY_READ_RETURNED_ERROR",
+        // The message is the only thing that says WHICH infra fault this was. Dropping it
+        // made an upstream 502 here indistinguishable from any other read failure.
+        error: error.message,
       });
       return FAIL;
     }
