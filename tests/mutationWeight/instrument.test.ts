@@ -422,6 +422,223 @@ describe("bindingLeg and legSeconds", () => {
   });
 });
 
+describe("survivor kills — boundaries and counters the earlier cases stepped over", () => {
+  // Every case here closes a mutant that survived the re-score. Each names the
+  // mutation it kills, because a case whose purpose is invisible gets deleted by the
+  // next person who tidies the file.
+
+  it("legSeconds refuses leg === n, the boundary exactly one past the last", () => {
+    // Killed: `leg >= n` weakened to `leg > n`. The earlier case used 5, -1 and 1.5
+    // against n=3 and never tried 3 itself, so the off-by-one at the boundary was the
+    // one spelling it could not see -- and n is the FIRST invalid index, so it is the
+    // value a real caller would get wrong.
+    const surfaces = [measured({ surfaceId: "a" })];
+    expect(() => legSeconds(new Map([["a", 3]]), surfaces, 3)).toThrow(/outside 0\.\.2/);
+  });
+
+  it("verdictDelta counts the surfaces and sites the two runs SHARE", () => {
+    // Killed: the shared counters being dropped, never incremented, or started at 1.
+    // They exist so a comparison over almost nothing cannot read as a clean result --
+    // "0 verdicts moved" across 0 shared surfaces is not neutrality, it is silence --
+    // and nothing had asserted them, so all four mutations survived.
+    const before = [
+      measured({
+        surfaceId: "a",
+        verdicts: new Map([
+          ["s1", "KILLED"],
+          ["s2", "SURVIVED"],
+        ]),
+      }),
+      measured({ surfaceId: "gone", verdicts: new Map([["s9", "KILLED"]]) }),
+    ];
+    const after = [
+      measured({
+        surfaceId: "a",
+        verdicts: new Map([
+          ["s1", "KILLED"],
+          ["s2", "KILLED"],
+        ]),
+      }),
+      measured({ surfaceId: "new", verdicts: new Map([["s7", "KILLED"]]) }),
+    ];
+    const d = verdictDelta(before, after);
+    // One surface in both; the arrival and the departure are not shared.
+    expect(d.sharedSurfaces).toBe(1);
+    // Two site ids in both, of which one moved.
+    expect(d.sharedSiteIds).toBe(2);
+    expect(d.moved).toEqual([{ surfaceId: "a", siteId: "s2", from: "SURVIVED", to: "KILLED" }]);
+  });
+
+  it("driftReport skips a surface whose OBSERVED rate is zero, not just undefined", () => {
+    // Killed: `obs <= 0` weakened to `< 0`, its `||` flipped to `&&`, and its literal
+    // 0 moved to 1. A zero observed rate divides into the ratio, so admitting it
+    // yields Infinity and reports a surface as infinitely drifted rather than as
+    // unmeasurable.
+    const zero = measured({ surfaceId: "z", children: [child("s", 0)] });
+    const r = driftReport(new Map([["z", 1000]]), [zero], modelled({ z: { mutants: 1 } }), 2);
+    expect(r.drifted).toEqual([]);
+    expect(r.undeclared).toEqual([]);
+  });
+
+  it("driftReport calls a surface with a zero DECLARED rate undeclared, not drifted", () => {
+    // Killed: `dec <= 0` weakened to `< 0` and its literal moved. A declared zero is a
+    // row nobody measured; reporting it as drift would blame the surface for the
+    // registry.
+    const m = measured({ surfaceId: "d", children: [child("s", 2000)] });
+    const r = driftReport(new Map([["d", 0]]), [m], modelled({ d: { mutants: 1 } }), 2);
+    expect(r.undeclared).toEqual(["d"]);
+    expect(r.drifted).toEqual([]);
+  });
+
+  it("seedRates keeps a rate of exactly 1, which the skip must not swallow", () => {
+    // Killed: `rate <= 0` moved to `rate <= 1`. One millisecond per modelled boot is
+    // absurd in production and perfectly legal here, and dropping it would silently
+    // shrink the seed table rather than fail.
+    const one = measured({ surfaceId: "one", children: [child("s", 1)] });
+    const snap = {
+      label: "x",
+      surfaces: [one],
+      elapsed: new Map<number, number>(),
+      modelled: modelled({ one: { mutants: 999 } }),
+    };
+    expect(seedRates([snap]).has("one")).toBe(true);
+  });
+
+  it("reconcile composes a dump with MORE than one suite and a non-empty ledger", () => {
+    // Killed: `dump.suites - 1` moved to `- 2`. With one suite or an empty ledger the
+    // accepted term is zero and the mutation is invisible; it takes both at once.
+    const r = reconcile(
+      [measured({ surfaceId: "a", mutants: 5 })],
+      modelled({ a: { mutants: 5, accepted: 2, suites: 3 } }),
+      4,
+    );
+    expect(r.weightDisagreement).toEqual([]);
+  });
+
+  it("reconcile prices a MIXED registry, some rated and some not", () => {
+    // Killed: the old-dump fallback `?? 1` moved to `?? 2`. Scaling every weight
+    // uniformly cannot be seen -- LPT is scale-invariant -- so an all-unrated fixture
+    // proves nothing. Doubling only the UNRATED ones changes their weight relative to
+    // the rated ones, which is what moves a leg.
+    // Weights 3, 2, 3 over two legs. Normal packing puts a and b on leg 0 and c on
+    // leg 1; with the unrated b doubled to 4 it becomes b alone on leg 0 and a, c on
+    // leg 1. Chosen by computing both, not by hoping they differ.
+    const surfaces = [
+      measured({ surfaceId: "a", leg: 0, mutants: 2 }),
+      measured({ surfaceId: "b", leg: 0, mutants: 1 }),
+      measured({ surfaceId: "c", leg: 1, mutants: 2 }),
+    ];
+    const r = reconcile(
+      surfaces,
+      modelled({
+        a: { mutants: 2, suites: 1, millisPerBoot: 1 },
+        b: { mutants: 1, suites: 1 },
+        c: { mutants: 2, suites: 1, millisPerBoot: 1 },
+      }),
+      2,
+    );
+    expect(r.moved).toEqual([]);
+  });
+});
+
+describe("survivor kills — the stability and seam reports", () => {
+  const snap = (label: string, surfaces: Measured[], mod: Parameters<typeof modelled>[0]) => ({
+    label,
+    surfaces,
+    elapsed: new Map<number, number>(),
+    modelled: modelled(mod),
+  });
+
+  it("drops a surface whose modelled boots are missing, rather than pricing it at one", () => {
+    // Killed: `?? 0` moved to `?? 1`, and the `&&` in the finite-and-positive filter
+    // flipped to `||`. With zero the ratio is Infinity and the filter removes it; with
+    // one the ratio becomes the raw observed count and the surface enters the report
+    // as though it had been modelled. The `||` admits Infinity for the same reason.
+    const orphan = measured({
+      surfaceId: "orphan",
+      children: [child("s", 1000), child("s", 1000)],
+    });
+    const known = measured({ surfaceId: "known", children: [child("s", 1000)] });
+    const r = bootRatioStability(
+      [
+        snap("new", [orphan, known], { known: { mutants: 1 } }),
+        snap("old", [orphan, known], { known: { mutants: 1 } }),
+      ],
+      1.5,
+    );
+    // `orphan` has no modelled entry in either snapshot, so it must not be ranked.
+    expect(r.latest.maxSurface).not.toBe("orphan");
+    expect(r.moved.map((m) => m.surfaceId)).not.toContain("orphan");
+  });
+
+  it("breaks a tie for the worst ratio toward the FIRST surface, not the last", () => {
+    // Killed: `b[1] > a[1]` weakened to `>=`, which silently prefers whichever
+    // surface the map happened to yield last. A report that names a different
+    // surface run to run for identical data is not a report.
+    const one = measured({ surfaceId: "aaa", children: [child("s", 10), child("s", 10)] });
+    const two = measured({ surfaceId: "zzz", children: [child("s", 10), child("s", 10)] });
+    const r = bootRatioStability(
+      [snap("new", [one, two], { aaa: { mutants: 1 }, zzz: { mutants: 1 } })],
+      1.5,
+    );
+    expect(r.latest.maxSurface).toBe("aaa");
+  });
+
+  it("reports a surface only when it moved MORE than the threshold, not equal to it", () => {
+    // Killed: `factor > movedBy` weakened to `>=`. A factor exactly at the threshold
+    // is the boundary the caller chose to exclude, and admitting it makes the
+    // threshold mean something different from what its name says.
+    const m = (id: string, a: number, b: number) => [
+      measured({ surfaceId: id, children: Array.from({ length: a }, () => child("s", 1)) }),
+      measured({ surfaceId: id, children: Array.from({ length: b }, () => child("s", 1)) }),
+    ];
+    const [newer, older] = m("s1", 4, 2) as [Measured, Measured];
+    const r = bootRatioStability(
+      [snap("new", [newer], { s1: { mutants: 1 } }), snap("old", [older], { s1: { mutants: 1 } })],
+      // ratios are 4/2 and 2/2 -> factor exactly 2. At the boundary, excluded.
+      2,
+    );
+    expect(r.moved).toEqual([]);
+  });
+
+  it("drops a surface whose observed boot ratio is exactly ZERO", () => {
+    // Killed: `r > 0` weakened to `r >= 0`. A surface that produced no children has
+    // ratio 0, which is not a measurement -- it is the absence of one. Admitting it
+    // makes the minimum ratio 0 and drags the reported floor to a value nothing ran.
+    const none = measured({ surfaceId: "silent", children: [], observedBoots: 0 });
+    const real = measured({ surfaceId: "real", children: [child("s", 1000)] });
+    const r = bootRatioStability(
+      [snap("new", [none, real], { silent: { mutants: 1 }, real: { mutants: 1 } })],
+      1.5,
+    );
+    expect(r.latest.min).toBeGreaterThan(0);
+    expect(r.latest.maxSurface).toBe("real");
+  });
+
+  it("reports an EMPTY history as zero rather than as undefined", () => {
+    // Killed: `vals[0] ?? 0` moved to `?? 1`. With no snapshots the minimum is not
+    // one; a fabricated 1 would read as a measured ratio.
+    const r = bootRatioStability([], 1.5);
+    expect(r.latest.min).toBe(0);
+  });
+
+  it("counts a surface as moved only when BOTH partitions place it", () => {
+    // Killed: `pb.has(k) && pa.get(k) !== pb.get(k)` flipped to `||`. A key present
+    // only in the first partition compares its leg against undefined, which differs,
+    // so the flip reports every ARRIVAL as a surface that moved legs -- inflating the
+    // seam magnitude with surfaces that had no previous leg at all.
+    const before = new Map([
+      ["shared", 10],
+      ["gone", 10],
+    ]);
+    const after = new Map([
+      ["shared", 10],
+      ["arrived", 10],
+    ]);
+    expect(seamMagnitude(before, after, 2)).toEqual([]);
+  });
+});
+
 describe("recoverModelled", () => {
   it("recovers the mutant count by removing the ledger and suite terms", () => {
     // boots = mutants + accepted*(suites-1) + suites, so with 2 accepted over 3
