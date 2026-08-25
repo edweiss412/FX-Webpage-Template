@@ -283,6 +283,16 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // declaration and a row appearing here later is a regression to explain.
   pgCronSmokes: {},
   popoverOverlayExtract: { equivalent: 2 },
+  // BL-ADMIN-LOADER-CI-TRANSIENT (2026-08-24). Both enrolled with an EMPTY ledger
+  // because neither has been SCORED yet — the run is slot-gated, and these two
+  // declarations exist so the parity contracts are green at enrolment rather than
+  // after. Empty is a claim, not a placeholder: it says every mutant is expected to
+  // die. If the run produces survivors, the honest repair is a row here WITH its
+  // argument, in the same commit as the accepted row in the registry. The W-NEARMISS
+  // note below is the standing warning about exactly this pair of files drifting.
+  supabaseRetryingFetch: {},
+  supabaseRetryEligibility: {},
+  retryableRpcVolatilityScan: {},
   renderedTextHaystack: {},
   // W-NEARMISS (2026-08-15). Both surfaces were enrolled with an EMPTY ledger, and
   // the note that stood here said both were expected to STAY empty. That was

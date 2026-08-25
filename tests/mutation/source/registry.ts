@@ -3522,6 +3522,82 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  /**
+   * BL-ADMIN-LOADER-CI-TRANSIENT (2026-08-24): both surfaces enrolled BEFORE
+   * the first diff dispatch, per the AGENTS.md convergence rule. The defect
+   * class is exactly "reports OK while the output moved" — the wrapper decides
+   * whether a request is retried and how many times, and the scan decides
+   * whether a retryable RPC is allowed into the set at all.
+   *
+   * Both take `[...OPERATOR_NAMES]`. A scoped subset was the plan's first
+   * draft and it was wrong in the expensive direction: `statement-removal` was
+   * undeclared and is the LARGEST operator on both surfaces (14 of the
+   * wrapper's 40 sites, 13 of the scan's 18), so the declared score would have
+   * ranged over a strict subset while reading as the surface's score.
+   *
+   * `lib/supabase/retryEligibility.ts` was deliberately NOT enrolled at first, and that reasoning
+   * is kept here because it was correct then and is instructive now: 3 sites, defect class set
+   * membership, nothing an operator reaches. Round 4 changed the module rather than the argument.
+   * Repairing that round's P0 moved the ownership decision INTO it — `basePathOf` and
+   * `rpcFunctionName` do prefix matching, slicing and a segment check — and the wrapper's own
+   * mutant count fell 47 to 46 as those sites left it. A module that decides "is this request ours
+   * to retry" is no longer a set lookup, so it is enrolled below.
+   */
+  {
+    id: "supabaseRetryingFetch",
+    sourcePath: "lib/supabase/retryingFetch.ts",
+    suitePaths: [
+      "tests/supabase/retryingFetch.test.ts",
+      "tests/supabase/retryingFetch.failureMode.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Spends one more attempt than the budget allows. Re-probed after the round-1 abort
+    // repair: 4 of 42 tests fail across both suites, so the suite does notice.
+    control: { from: "attempt >= maxRetries", to: "attempt > maxRetries" },
+    accepted: [],
+  },
+  {
+    // Enrolled in round 4, because that round's P0 lived HERE. The base-path repair moved the
+    // ownership decision out of the wrapper and into this module, where no mutation score reached
+    // it — and a scan-anywhere match then claimed Storage writes and retried them. A module that
+    // decides "is this request ours to retry" is exactly the shape the registry exists to hold.
+    id: "supabaseRetryEligibility",
+    sourcePath: "lib/supabase/retryEligibility.ts",
+    suitePaths: ["tests/supabase/retryEligibility.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Inverts the safety decision itself: every retryable name becomes ineligible and every
+    // VOLATILE one becomes eligible, which is the one thing this module must never do.
+    control: {
+      from: "if (fn !== undefined) return RETRYABLE_RPCS.has(fn);",
+      to: "if (fn !== undefined) return !RETRYABLE_RPCS.has(fn);",
+    },
+    accepted: [],
+  },
+  {
+    id: "retryableRpcVolatilityScan",
+    sourcePath: "tests/supabase/retryableRpcVolatilityScan.ts",
+    // Two deciding suites, split by whether they need a database. The walk file carries the
+    // mkdtemp fixtures and runs anywhere; the other asserts against the live catalog. That
+    // split is what keeps `_metaScratchRootCleanup` honest — it runs each mkdtemp-calling
+    // suite STANDALONE in the ambient environment, and a DB-bearing subject cannot pass on
+    // the nodb shard.
+    suitePaths: [
+      "tests/supabase/_metaRetryableRpcVolatility.test.ts",
+      "tests/supabase/_metaRetryableRpcVolatilityWalk.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Demands a name be BOTH retryable and excluded to pass the completeness
+    // arm, so the two legitimate exclusions start reporting as violations.
+    // Re-probed after the round-1 overload/reason repair: 2 of 15 tests fail.
+    control: {
+      from: "if (set.has(name) || hasReasonedEntry(exclusions, name)) continue;",
+      to: "if (set.has(name) && hasReasonedEntry(exclusions, name)) continue;",
+    },
+    accepted: [],
+  },
   {
     id: "replacementString",
     sourcePath: "tests/cross-cutting/replacementString/scan.ts",
