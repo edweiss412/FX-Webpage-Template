@@ -493,3 +493,34 @@ merge.
 ## 12 — closeout
 
 impeccable-gate: N/A — no UI surface
+
+## Open question for the orchestrator: the ownership redesign narrows what spec §9 documents
+
+Round 3's repair changed which requests the wrapper touches, and one consequence reaches the SPEC
+rather than the plan, so it is raised here rather than silently absorbed (invariant 7: the spec is
+canonical; open a question instead of fixing).
+
+Spec §9's dark-set bullet says the transport emit fires on "ANY retried request", and cites the
+probe record's addendum: the first green run carrying the emit attributed background faults on
+`readfinalizeowned_b2`, `viewer_version_token` **and plain table reads**.
+
+Plain table reads no longer emit. Under per-request ownership a `/rest/v1/` GET belongs to
+PostgREST, so the wrapper passes it through untouched and records nothing.
+
+**This was not a free choice.** Round 3 measured the alternative: keeping table GETs inside the
+wrapper is exactly what let a 502-then-503 sequence compose both retry loops back to twelve calls
+and break first-attempt replay. One of the two had to go.
+
+**What is NOT affected**, so the question stays narrow: the arc's own path is a POST to
+`/rest/v1/rpc/<fn>`, which PostgREST never retries, so retryable-RPC faults still absorb and still
+emit exactly as §6 describes. The change is confined to non-RPC idempotent PostgREST requests.
+
+Note also that §6 is NOT contradicted by any of this — it already scopes the emit to where the
+wrapper runs ("an emit exists only where the wrapper runs, and the fault also occurs where it does
+not"). Under the old design the wrapper ran, declined, and recorded nothing, which sat less
+comfortably with §6 than passing through does.
+
+**The question:** does §9's dark set get amended to name PostgREST-owned reads, or does this land as
+a plan-level documented limit? Either is defensible; the choice is the orchestrator's, and nothing
+downstream is blocked on it.
+
