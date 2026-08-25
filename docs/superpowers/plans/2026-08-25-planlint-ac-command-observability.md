@@ -8,7 +8,8 @@ impeccable-gate: N/A — no UI surface
 
 | Meta-test | CREATES / EXTENDS / covered by default | Why |
 | --- | --- | --- |
-| `tests/specLint/_metaPureCore.test.ts` | covered by default | it walks `lib/specLint/` recursively from `CORE_DIR` (`tests/specLint/_metaPureCore.test.ts:11`), so the new module is in scope the moment it exists and no row is added. |
+| `tests/specLint/_metaPureCore.test.ts` | **EXTENDS** | its walker covers the new module by default (`tests/specLint/_metaPureCore.test.ts:11`), but its only assertion forbids three `node:` modules (`tests/specLint/_metaPureCore.test.ts:12`), so a direct `remark` import in the pure core passes it. Round-1 finding 3: AC-15 was claimed by a command that cannot enforce it. Task 8 adds a relative-imports-only assertion, with a planted `remark` import as its red. |
+| `tests/mutation/source/expectedLedgerKinds.ts` | **EXTENDS** | round-1 finding 4. `tests/mutation/_metaLedgerKindsDeclarationParity.test.ts:94` asserts SET EQUALITY in both directions between its keys and `GUARD_SURFACES` ids, so enrolling a surface without an entry fails. Probing `claimSweep` gives this artifact kind's full fan-out: mutation registry, ledger kinds, premise map, suite-derivation meta-test. |
 | `tests/mutation/_metaPremiseContract.test.ts` | EXTENDS | it walks the enrolled suites with a per-suite expected premise count; each newly enrolled suite needs its row (Task 10). |
 | `tests/mutation/_metaGuardSurfaceRegistry.test.ts` | covered by default | it VALIDATES the rows it is given and DISCOVERS no absent one, so it is not protection against forgetting to enrol. Enrolment is a task step. |
 | a new registry-style meta-test | NONE, with the reason | the arm adds no Supabase call boundary, no admin mutation surface, no DB artifact, and no new mutation-surface KIND. The one registry it joins already has a validating meta-test, and the suite-derivation pattern it needs exists at `tests/mutation/_metaClaimSweepSuiteDerivation.test.ts`. |
@@ -35,27 +36,31 @@ $ grep -c '^<!-- task: .*red-target=`lib/specLint/acCoverage.ts`' <this plan>
 6
 ```
 
-The repair is to RE-POINT, never to waive (Task 11), and two rules make the re-pointing durable:
+The repair is to RE-POINT, never to waive (Task 12), and two rules make the re-pointing durable:
 
 - **Every `why=` names a SYMBOL or quoted content, never a line.** A symbol survives a shift; a line number does not.
 - **`RED_TARGET_INVALID` verifies only that a tracked path has an IN-RANGE line, never what is AT it.** A citation that drifts onto unrelated code stays green by design, so Task 11 re-verifies by READING each cited line and matching it to the symbol its `why=` names. Confirming that a citation resolves establishes nothing.
 
-**Anchor table.** Task 11 fills the HEAD column by reading. The BASE column is what the plan cites now.
+**Anchor table.** Task 12 fills the HEAD column by reading each cited line and matching it to the symbol its `why=` names. Round-1 finding 6 found three defects here — a symbol that never existed under that spelling, a row whose `why=` named none, and this task's own row missing — so the table now covers every marker in the plan, not only the invalidated ones.
 
 ```
-| Task | red-target at BASE (plan time)              | What the why= names, by symbol            | HEAD (Task 11) |
-| ---- | ------------------------------------------- | ----------------------------------------- | -------------- |
-| 1    | lib/specLint/acCoverage.ts (untracked)      | `checkAcCoverage`, the stub this creates  | (fill)         |
-| 2    | lib/specLint/acCoverage.ts                  | `readDeclaredTables`                      | (fill)         |
-| 3    | lib/specLint/acCoverage.ts                  | `commandSpanOf`                           | (fill)         |
-| 4    | lib/specLint/acCoverage.ts                  | `acCommandPlan`                           | (fill)         |
-| 5    | lib/specLint/acCoverage.ts                  | `code: "AC_COMMAND_PIN_UNOBSERVED"`       | (fill)         |
-| 6    | lib/specLint/acCoverage.ts                  | `checkAcCoverage`'s declaration gate      | (fill)         |
-| 7    | lib/specLint/run.ts:44 (tracked)            | `CHECK_ORDER`                             | (verify)       |
-| 8    | scripts/spec-lint.ts:864 (tracked)          | the `spawnSync("sh", …)` parse invocation | (verify)       |
-| 9    | docs/…/2026-08-21-pane-compaction-send-authorization.md:363 (tracked) | the AC coverage table's header row | (verify) |
-| 10   | tests/mutation/_metaPremiseContract.test.ts:37 (tracked) | the enrolled-suite expected-count map | (verify) |
+| Task | red-target at BASE (plan time)                            | What the why= names, by symbol            | HEAD (Task 12) |
+| ---- | --------------------------------------------------------- | ----------------------------------------- | -------------- |
+| 1    | lib/specLint/acCoverage.ts (untracked)                    | `checkAcCoverage`, the stub this creates  | (fill)         |
+| 2    | lib/specLint/acCoverage.ts                                | the absence of any declaration-reading branch | (fill)     |
+| 3    | lib/specLint/acCoverage.ts                                | `readDeclaredTables`                      | (fill)         |
+| 4    | lib/specLint/acCoverage.ts                                | `commandSpansOf`                          | (fill)         |
+| 5    | lib/specLint/acCoverage.ts                                | `acCommandPlan`                           | (fill)         |
+| 6    | lib/specLint/acCoverage.ts                                | `AC_COMMAND_PIN_UNOBSERVED`               | (fill)         |
+| 7    | lib/specLint/run.ts:44 (tracked)                          | `CHECK_ORDER`                             | (verify)       |
+| 8    | tests/specLint/_metaPureCore.test.ts:12 (tracked)         | `FORBIDDEN`                               | (verify)       |
+| 9    | scripts/spec-lint.ts:864 (tracked)                        | the `spawnSync("sh", …)` parse invocation | (verify)       |
+| 10   | docs/…/2026-08-21-pane-compaction-send-authorization.md:363 (tracked) | the AC table's header row     | (verify)       |
+| 11   | tests/mutation/source/expectedLedgerKinds.ts:24 (tracked) | `EXPECTED_LEDGER_KINDS`                   | (verify)       |
+| 12   | lib/specLint/redContract.ts:169 (tracked)                 | the tracked-path-only branch's message    | (verify)       |
 ```
+
+Task 2's row names an ABSENCE rather than a symbol, deliberately and stated: its red is that no branch reads a declaration at all, so there is no line to cite until Task 3 creates one. Task 12 records that as the reading rather than hunting for a symbol that should not exist.
 
 ## 4. Pre-draft code-verification pass, run against the live tree
 
@@ -103,94 +108,105 @@ The spec hit is its own prose describing the grammar, not a declaration — the 
 
 ## 6. Tasks
 
+**Order is a dependency, and round 1 found it stated backwards.** Every task from 3 onward consumes the injected view, so the view's TYPE and a test-side builder land in Task 1, before anything that reads one. The ADAPTER wiring is Task 7 and depends on nothing below it; the suites construct views directly, which is what spec §8.3 says they do. Nothing in Tasks 2-6 waits on Task 7.
+
 <!-- tasks: depth=2 red-contract -->
 
-## Task 1 — the module skeleton
+## Task 1 — the view type, a test-side builder, and the module skeleton
 
 <!-- spec-lint: ignore — created by this plan's implementation; not yet tracked -->
-Creates `lib/specLint/acCoverage.ts` exporting `checkAcCoverage(model: DocModel): Finding[]` returning `[]`, and creates `tests/specLint/acCoverage.test.ts` with the declaration-grammar cases. The stub exists so the red is an ASSERTION on the arm's output, never an unresolved import, which the RED-validity rule rejects by construction.
+Creates the `AcBlocks` view type in `lib/specLint/types.ts` (an ordered list of `html` and `table` blocks, each cell carrying its rendered text and its `inlineCode` values), a test-side builder in `tests/specLint/acCoverageView.ts` that parses real markdown with remark into that shape, and `lib/specLint/acCoverage.ts` exporting `checkAcCoverage(blocks, kind)` returning `[]`.
 
-<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`checkAcCoverage is a stub returning [], so every declaration-grammar assertion fails on the arm's output` ac=AC-4 -->
+The builder lives under `tests/` deliberately: a suite may import remark, the pure core may not, and putting it here means Tasks 2-6 can feed the arm real documents without waiting for the adapter.
 
-## Task 2 — the declaration and the table reader
+<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`checkAcCoverage is a stub returning [], so the first declaration assertion fails on the arm's output rather than on module resolution` ac=AC-4 -->
 
-`readDeclaredTables` lands: the declaration grammar, the governed-table rule (a declaration is an `html` block and the table it governs is the next `table` block), the column-count check, the empty-table advisory, and the non-plan advisory. A document may carry several declarations, each governing its own table; one corpus plan already does.
-
-**This task hand-rolls no markdown grammar** (spec section 8.3). It consumes the injected view Task 7 builds, so pipes, escapes, whitespace, backslash parity and cell boundaries are remark's answers and appear nowhere in this module. That is the round-3 repair and it is why this task is small.
-
-`AC_COVERAGE_NOT_A_PLAN` needs `doc.kind`, which `checkAcCoverage` receives as a parameter the way `checkSections` does (`lib/specLint/sections.ts:23`).
-
-<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`readDeclaredTables does not exist, so no declaration-level code is ever emitted and the catalog-completeness check has nothing to range over` ac=AC-4,AC-13 -->
-
-## Task 3 — incident replay, which is arm (a)'s red
+## Task 2 — the live-corpus zero case, authored BEFORE declaration discovery
 
 <!-- spec-lint: ignore — created by this plan's implementation; not yet tracked -->
-Creates `tests/specLint/acCoverageIncidents.test.ts`. The four historical AC tables of spec section 1.2 are checked in as literal fixture text, so the suite is hermetic and cannot be voided by history rewriting. Expected: 4 / 1 / 0 / 0 hard. This suite is the RED for the next task; the counts come from the spec's measurement, not from the arm.
+Creates `tests/specLint/acCoverageCorpus.test.ts`. Walks `docs/superpowers/plans/` from disk, builds a view per document, and asserts the arm contributes zero findings to every document carrying no declaration. Carries a `premise` that the walk found more than 30 documents, stated unconditionally relative to what it guards and never inside a `.each` callback, so an empty walk cannot report a pass.
 
-<!-- task: red=`pnpm vitest run tests/specLint/acCoverageIncidents.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`commandSpanOf does not exist, so the arm emits zero hard findings against fixtures that must produce four` ac=AC-6 -->
+**Authored here and not later, because later it cannot go red** (round-1 finding 2). Its discriminating case plants a declaration into a copy of a walked document and asserts the finding count MOVES. Once Task 3 lands declaration discovery that case passes, so the red must be observed now, while nothing reads a declaration at all.
 
-## Task 4 — arm (a), the hard cell checks
+<!-- task: red=`pnpm vitest run tests/specLint/acCoverageCorpus.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`no branch reads a declaration, so the planted-declaration case sees the same zero count as the unplanted one and the assertion that the count moves fails` ac=AC-3 -->
 
-`commandSpansOf` and the two hard codes, plus `acCommandPlan` emitting one `AcCommandEntry { line, spanIndex, command }` per COMMAND-CARRYING span. A span carries a command only when its trimmed content is neither empty nor beginning with `#` — `sh -nc -- '# anything'` exits 0, so parseability alone admits a cell holding no command (spec round-3 finding 1). The entry type is the arm's OWN, not `ParseCheckEntry`, and the outcomes come back in the arm's own map keyed by `(line, spanIndex)` — `ExecResults.outcomes` is keyed by line alone (`lib/specLint/types.ts:179`), which silently keeps only the last span of a row (spec round-2 finding 2). `ParseResults` and the red arm are untouched. **EVERY non-blank span must parse, not just the first** (spec section 8.2.1, round-1 finding 1): three of the fixture's rows carry more than one producing command, and a first-span rule accepts a broken second one. A span counts for a cell only when it is FULLY inside that cell's column range; a span straddling a GFM cell boundary belongs to no cell (17 corpus rows carry that shape), so the cell reports as carrying no command. Task 3's suite goes green here.
+## Task 3 — declaration grammar and table binding
 
-Four pre-dispatch mutants, run and recorded in the commit, for each string-presence assertion: the value emptied; the value with an appended suffix; the value present but not live (inside a fence in the fixture); each discriminating parameter varied in turn.
+`readDeclaredTables` lands: the declaration grammar, the binding rule (a declaration governs the next `table` block PROVIDED no other declaration lies between them), the column-count check, the empty-table advisory, and the non-plan advisory. A document may carry several declarations, each governing its own table; one corpus plan already does.
 
-<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`acCommandPlan does not exist, so no cell is ever parse-checked and neither the first-span nor the later-span unparsable case draws anything` ac=AC-1,AC-2 -->
+**This task hand-rolls no markdown grammar** (spec §8.3). It reads the view, so pipes, escapes, whitespace, backslash parity and cell boundaries appear nowhere in this module. Task 2's planted-declaration case goes green here.
 
-## Task 5 — arm (b), the advisory, and plant-both
+<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`readDeclaredTables does not exist, so no declaration-level code is emitted and the catalog-completeness check has nothing to range over` ac=AC-4,AC-13,AC-14 -->
 
-`AC_COMMAND_PIN_UNOBSERVED`. Candidate `path:line` substrings are extracted from the row's other cells with one path-shaped regex and each handed to `classifySpan` for the verdict, so this module holds no second opinion about what a citation is. Fires only where `classifySpan` returns a citation with a line coordinate whose `path` starts with `tests/`.
-
-**Lexical path-boundary match** (spec section 8.2.2). The pin occurs in the command cell's span text with neither neighbour a character that can continue a path (`[A-Za-z0-9_./-]`). Three rounds each found a false accept in a matcher that tried to identify a shell ARGUMENT by splitting on whitespace, so the arm claims nothing about shell words. An absence-only rule is REJECTED and the rejection is a test: it silently drops plant (d).
+## Task 4 — incident replay, which is arm (a)'s red
 
 <!-- spec-lint: ignore — created by this plan's implementation; not yet tracked -->
-Adds all NINE plants of spec section 5 to `acCoverageIncidents.test.ts`, six of which are reviewer probes kept as regression cases. Two are repairs of earlier plants rather than additions, and each carries a comment saying so: (c2) mirrors (c)'s span ordering because (c) survived the line-key collision by luck, and (f) plants prose as well as removing the leading pipe because removing the pipe alone moves nothing. Each plant carries a `premiseHolds` immediately above its assertion, proven on that case's OWN inputs, stating that the unplanted form of the same fixture scores zero, so a fixture that cannot express the difference cannot report a pass.
+Creates `tests/specLint/acCoverageIncidents.test.ts`. The historical AC tables of spec §1.2 are checked in as literal fixture text and parsed through Task 1's builder, so the suite is hermetic and cannot be voided by history rewriting. Expected: 4 / 1 / 0 / 0 hard, with the per-blob accounting spec §4 states — three of r2 F4's four, plus r3 F5's instance, and AC-12 an accepted miss under L-1.
 
-<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`no branch emits AC_COMMAND_PIN_UNOBSERVED, so a tests/-rooted pin the command cannot reach draws nothing, while a components/ pin and a strict-superstring command must each keep drawing exactly what the accept-set says` ac=AC-5,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/specLint/acCoverageIncidents.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`commandSpansOf does not exist, so the arm emits zero hard findings against fixtures that must produce four` ac=AC-6 -->
 
-## Task 6 — the live-corpus zero case
+## Task 5 — arm (a), the hard cell checks
+
+`commandSpansOf` and the two hard codes, plus `acCommandPlan` emitting one `AcCommandEntry { line, spanIndex, command }` per COMMAND-CARRYING span. A span carries a command only when its trimmed content is neither empty nor beginning with `#`. Task 4's suite goes green here.
+
+Four pre-dispatch mutants, run and recorded in the commit, for each string-presence assertion: the value emptied; the value with an appended suffix; the value present but not live; each discriminating parameter varied in turn.
+
+<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`acCommandPlan does not exist, so no cell is parse-checked and neither the comment-only case nor the later-span unparsable case draws anything` ac=AC-1,AC-2 -->
+
+## Task 6 — arm (b), and all nine plants
+
+`AC_COMMAND_PIN_UNOBSERVED`. Candidates come from the row's other cells via one path-shaped regex, each handed to `classifySpan` for the verdict. Fires when the pin occurs at a LEXICAL PATH BOUNDARY nowhere in the command cell's span text.
+
+Adds all NINE plants of spec §5, seven of which are reviewer probes kept as regression cases. Each plant carries a `premiseHolds` proven on that case's OWN inputs, stating that the unplanted form of the same fixture scores zero. Two plants are repairs rather than additions and say so inline: (c2) mirrors (c)'s span ordering, and (f) plants prose as well as removing the leading pipe.
+
+<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`no branch emits AC_COMMAND_PIN_UNOBSERVED, so a tests/-rooted pin the command cannot reach draws nothing, while a components/ pin, an appended character and a prepended segment must each keep drawing exactly what the accept-set says` ac=AC-5,AC-7 -->
+
+## Task 7 — the adapter: remark, the view, the AC spawn loop, and the CLI
+
+`scripts/spec-lint.ts` gains the remark parse (`remark().use(remarkGfm)`, the pattern at `lib/reviewRounds/filing.ts:60`), the view it injects, and a SECOND spawn loop for the AC plan keyed by `(line, spanIndex)`. `lib/specLint/run.ts` gains the import, the `CHECK_ORDER` entry and the invocation.
 
 <!-- spec-lint: ignore — created by this plan's implementation; not yet tracked -->
-Creates `tests/specLint/acCoverageCorpus.test.ts`. Walks `docs/superpowers/plans/` from disk, so a document added later is covered by default, and asserts the arm contributes zero findings to every document carrying no declaration. Carries a `premise` that the walk found more than 30 documents, stated unconditionally relative to what it guards and never inside a `.each` callback, so an empty walk cannot report a pass.
-
-<!-- task: red=`pnpm vitest run tests/specLint/acCoverageCorpus.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`the suite does not exist; its planted-declaration case asserts the count moves when a declaration is added to a walked document, which no shipped code yet does` ac=AC-3 -->
-
-## Task 7 — wiring: Check union, orchestrator, adapter, CLI
-
-`types.ts` gains the `Check` member and the injected view's type, `run.ts` gains the import, the `CHECK_ORDER` entry and the invocation, and `scripts/spec-lint.ts` gains three things: the remark parse (`remark().use(remarkGfm)`, the pattern at `lib/reviewRounds/filing.ts:60`), the view it injects, and a SECOND spawn loop for the AC plan keyed by `(line, spanIndex)`.
-
-<!-- spec-lint: ignore — created by this plan's implementation; not yet tracked -->
-The `CHECK_ORDER` entry is compiler-enforced (`lib/specLint/types.ts:45`), so that half cannot be forgotten silently; the `runLint` invocation cannot, which is the half this task's red actually pins. `tests/specLint/acCoverageCli.test.ts` runs the CLI over a document with a prose cell and asserts both that the finding appears in the rendered report and that the process exits 1. This is the exact defect `lib/specLint/types.ts:15` records for `claimSweep`, which shipped complete, tested, scored, and unrendered.
+The `CHECK_ORDER` entry is compiler-enforced (`lib/specLint/types.ts:45`); the `runLint` invocation is not, and that is the half this task's red pins. `tests/specLint/acCoverageCli.test.ts` runs the CLI over a document with a prose cell and asserts both that the finding appears in the rendered report and that the process exits 1 — the exact defect `lib/specLint/types.ts:12-33` records for `claimSweep`.
 
 <!-- task: red=`pnpm vitest run tests/specLint/acCoverageCli.test.ts` red-state=authored red-target=`lib/specLint/run.ts:44` why=`CHECK_ORDER carries no acCoverage entry and runLint never calls the arm, so the CLI renders nothing and exits 0 on a document with a prose command cell` ac=AC-8 -->
 
-## Task 8 — the `--` repair to the shared shell seam
+## Task 8 — the pure core admits no third-party import
+
+Round-1 finding 3: AC-15 was claimed by two commands that cannot enforce it. `tests/specLint/_metaPureCore.test.ts:12` forbids exactly three `node:` modules, so a direct `remark` import in the arm passes it, and the CLI suite checks rendering rather than imports. The settled adapter/core boundary (spec §8.3) had no guard at all.
+
+<!-- spec-lint: ignore — created by this plan's implementation; not yet tracked -->
+This task EXTENDS that walker with a second assertion: every import specifier in `lib/specLint/**` is relative. The guard is green the moment it is authored, so the red is PLANTED — add a `remark` import to `lib/specLint/acCoverage.ts`, observe the new assertion fail, remove it — and both directions land in the commit.
+
+<!-- task: red=`pnpm vitest run tests/specLint/_metaPureCore.test.ts` red-state=authored red-target=`tests/specLint/_metaPureCore.test.ts:12` why=`FORBIDDEN matches only node:fs, node:child_process and node:process, so the planted remark import in the arm passes every existing assertion and the new relative-import assertion is the only thing that can fail` ac=AC-15 -->
+
+## Task 9 — the `--` repair to the shared shell seam
 
 One token at `scripts/spec-lint.ts:864`. Tested in both directions: a command beginning with `-` no longer reports unparsable, and a genuinely malformed command still does. `red-state` is `authored` and not `live`, because the suite passes today (88 tests, run at plan time) and the failing case is one this task writes.
 
 <!-- task: red=`pnpm vitest run tests/specLint/redExec.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:864` why=`the spawnSync("sh", …) parse invocation passes no --, so sh reads a command beginning with a dash as an option and exits 2, which the arm reports as a syntax error` ac=AC-2 -->
 
-## Task 9 — the fixture declares
+## Task 10 — the fixture declares
+
+Adds the one declaration line above the AC coverage table in `docs/superpowers/plans/2026-08-21-pane-compaction-send-authorization.md`, and adds the case to the corpus suite that both declaring plans report zero. Sweep B is re-run and its output pasted into the commit.
+
+<!-- task: red=`pnpm vitest run tests/specLint/acCoverageCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-21-pane-compaction-send-authorization.md:363` why=`the AC coverage table's header row carries no declaration above it, so the arm reads nothing there and the two-declaring-plans assertion finds one` ac=AC-10 -->
+
+## Task 11 — mutation enrolment and the scored run
+
+Adds the registry row, the `EXPECTED_LEDGER_KINDS` entry, and the `_metaPremiseContract` rows, then runs the score under `pnpm heavy`, coordinated with the orchestrator so only one fleet-wide score runs at a time.
+
+**`EXPECTED_LEDGER_KINDS` is a THIRD registry and round 1 found it missing** (finding 4). `tests/mutation/_metaLedgerKindsDeclarationParity.test.ts:94` asserts SET EQUALITY in both directions between its keys and `GUARD_SURFACES` ids, so a new surface without an entry fails and a stale entry for a deleted surface fails too. Probing `claimSweep` shows the full fan-out for this artifact kind: the mutation registry, `EXPECTED_LEDGER_KINDS`, the premise-count map, and a suite-derivation meta-test.
+
+`suitePaths` is DERIVED as every `tests/specLint/acCoverage*.test.ts`, with the derivation asserted in BOTH directions so a suite added under either rule reds rather than silently buying zero score. `EXPECTED_ENV_TOUCHING` (`tests/mutation/_metaPremiseContract.test.ts:37`) declares a per-suite count MEASURED against this tree, and the scanner reads the test BODY, so each environment-touching case carries its OWN premise naming that case's population — binding on Task 2's corpus walk and Task 10's fixture case, both of which read from disk.
+
+The scored run is SLOT-TURN PREFLIGHTED before it queues: the invocation is derived from the `package.json` script definition so every `VAR=value` prefix survives, and it is proved cold in a dry mode first.
+
+<!-- task: red=`pnpm vitest run tests/mutation/_metaLedgerKindsDeclarationParity.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`EXPECTED_LEDGER_KINDS has no acCoverage key, so the set-equality assertion against GUARD_SURFACES ids fails the moment the registry row lands` ac=AC-11 -->
+
+## Task 12 — re-point every invalidated citation, by reading
 
 <!-- spec-lint: ignore — created by this plan's implementation; not yet tracked -->
-Adds the one declaration line above the AC coverage table in `docs/superpowers/plans/2026-08-21-pane-compaction-send-authorization.md`, and adds the case to `acCoverageCorpus.test.ts` that the fixture declares and the arm reports zero over it. Sweep B is re-run and its output pasted into the commit.
-
-<!-- task: red=`pnpm vitest run tests/specLint/acCoverageCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-21-pane-compaction-send-authorization.md:363` why=`the AC coverage table's header row carries no declaration above it, so the arm reads nothing there and the declaring-document assertion finds zero declared tables` ac=AC-10 -->
-
-## Task 10 — mutation enrolment and the scored run
-
-Adds the registry row (`operators: [...OPERATOR_NAMES]`, `suitePaths` DERIVED as every `tests/specLint/acCoverage*.test.ts`, with the derivation asserted in BOTH directions so a suite added under either rule reds rather than silently buying zero score), adds the `_metaPremiseContract` rows, and runs the score under `pnpm heavy`, coordinated with the orchestrator so only one fleet-wide score runs at a time.
-
-`EXPECTED_ENV_TOUCHING` (`tests/mutation/_metaPremiseContract.test.ts:37`) declares a per-suite count of environment-touching cases, MEASURED against this tree rather than guessed, and the scanner reads the test BODY, so **each environment-touching case carries its OWN premise naming that case's own population** — a premise in a shared helper executes but is not attributable. That binds Task 6's corpus walk and Task 9's fixture case, both of which read from disk. The counts land in the commit as measured output, not as an estimate.
-
-The scored run is SLOT-TURN PREFLIGHTED before it queues: the invocation is derived from the `package.json` script definition so every `VAR=value` prefix survives, and it is proved cold in a dry mode first, because a first-second crash behind a scarce slot costs the whole queue wait rather than the crash time.
-
-<!-- task: red=`pnpm vitest run tests/mutation/_metaPremiseContract.test.ts` red-state=authored red-target=`tests/mutation/_metaPremiseContract.test.ts:37` why=`the enrolled-suite expected-count map has no acCoverage rows, so the walk over the new registry row's suitePaths finds no expected count for them` ac=AC-11 -->
-
-## Task 11 — re-point every invalidated citation, by reading
-
-<!-- spec-lint: ignore — created by this plan's implementation; not yet tracked -->
-Task 1 tracked `lib/specLint/acCoverage.ts`, so the six path-only citations counted in section 3 are now hard `RED_TARGET_INVALID`. Re-point each to `path:line`, and verify by READING the cited line and matching it against the symbol its `why=` names. Fill the anchor table's HEAD column. Confirming a citation resolves establishes nothing.
+Task 1 tracked `lib/specLint/acCoverage.ts`, so the path-only citations counted in §3 are now hard `RED_TARGET_INVALID`. Re-point each to `path:line`, and verify by READING the cited line and matching it against the symbol its `why=` names. Fill the anchor table's HEAD column, INCLUDING this task's own row. Confirming a citation resolves establishes nothing.
 
 <!-- task: red=`pnpm spec:lint docs/superpowers/plans/2026-08-25-planlint-ac-command-observability.md` red-state=authored red-target=`lib/specLint/redContract.ts:169` why=`the tracked-path-only branch reports "is tracked; cite the defective line instead of the bare path" once Task 1 lands, so this plan fails its own lint until every citation is re-pointed` ac=AC-12 -->
 
@@ -198,7 +214,11 @@ Task 1 tracked `lib/specLint/acCoverage.ts`, so the six path-only citations coun
 
 ## 7. AC coverage
 
-**AC-9 is claimed by no task marker, deliberately.** Twelve of the spec's thirteen criteria are claimed by an `ac=` field below; AC-9 (the module stays pure) is discharged by a STANDING GATE that predates this arc — `tests/specLint/_metaPureCore.test.ts:11` walks `lib/specLint/` recursively, so the new module is in its population the moment it exists. It has no task and no red BY DESIGN: a guard that passes the moment it is authored is rejected by the red contract, and manufacturing a red for it would mean deliberately shipping an impure module first. Stated here so a reviewer meets the accounting instead of filing the absence as a gap.
+**AC-9 is claimed by no task marker, deliberately, and it is the ONLY one.** Fourteen of the spec's fifteen criteria are claimed by an `ac=` field below. Round-1 finding 5 caught this paragraph claiming thirteen criteria and one exception while AC-14 and AC-15 were silently unowned; both are now claimed, by Tasks 3 and 8.
+
+AC-9 (`lib/specLint/**` imports no `node:fs`, `node:child_process` or `node:process`) is discharged by a STANDING GATE that predates this arc: the walker at `tests/specLint/_metaPureCore.test.ts:11` puts the new module in its population the moment it exists. It has no task and no red BY DESIGN — a guard that passes the moment it is authored is rejected by the red contract, and manufacturing a red would mean deliberately shipping an impure module first.
+
+**AC-15 is the neighbouring criterion and it is NOT discharged that way**, which is round-1 finding 3 and worth keeping distinct: no third-party import in the pure core is a DIFFERENT claim from no `node:` I/O, the existing walker asserts only the second, and Task 8 adds the first with a planted `remark` import as its red. Verified mechanically at plan time: the whole `Object.keys` of the spec's criteria minus the markers' `ac=` union is exactly `{AC-9}`.
 
 
 This plan declares its own AC coverage table, so the arm's second live customer is this arc's own plan. The declaration is the one this arc ships.
