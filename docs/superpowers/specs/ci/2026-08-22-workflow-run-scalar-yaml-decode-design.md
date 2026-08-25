@@ -365,10 +365,13 @@ needs to know its one silent failure direction -- which is exactly the reason no
    and until it is, a repair applied at `matchBrace` is a guess.
 
    **Pre-existing, in the narrow sense the probe supports.** The fabrication is
-   present at this arc's merge-base and at HEAD for all three rows. An earlier
-   version of this limit claimed the full outputs were identical across those
-   revisions; that overstated the evidence and is withdrawn. What holds is that this
-   arc neither introduces nor repairs the fabrication.
+   present at this arc's merge-base and at HEAD for ROWS 2 AND 3. Row 1 is the
+   CONTROL - zero sites at both revisions, the correct behaviour, and the reason the
+   other two are diagnosable at all. Two claims have been withdrawn here: that the
+   full outputs were identical across those revisions (the probe does not support it)
+   and that the fabrication covers "all three rows" (it reads as though the control
+   fabricates too). What holds is that this arc neither introduces nor repairs the
+   fabrication on rows 2 and 3.
 
    **Not repaired here, and the reason is scope.** It surfaced at diff round 13, in
    the shell lexer's span-termination handling rather than the YAML decode path this

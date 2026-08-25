@@ -271,7 +271,7 @@ Close condition: a construct-aware delimiter walk that (a) resolves all four sha
 
 ## BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES - an UNTERMINATED process substitution is scanned as executable, while the `$(` form is correctly suppressed
 
-**Status:** OPEN · **Facing:** product · **Effort:** M · **Filed:** 2026-08-24 (`fix/yaml-run-scalar-quoting-decode`, diff round 13 finding 1; mechanism corrected at round 14) · **Severity:** MEDIUM (fabricates a site; bounded by the census below) · **Reachability:** PROBED
+**Status:** OPEN · **Facing:** process · **Effort:** M · **Incident:** it consumed diff round 13 of this arc as a BLOCKING finding (corpus row `docs/review-rounds/fix/yaml-run-scalar-quoting-decode/815f61b63957.jsonl`), and round 14 was spent in part correcting the record of it · **Filed:** 2026-08-24 (`fix/yaml-run-scalar-quoting-decode`, diff round 13 finding 1; mechanism corrected at round 14) · **Severity:** MEDIUM (fabricates a site; bounded by the census below) · **Reachability:** PROBED
 
 An unterminated `$(` reports zero sites, which is right. Two OTHER unterminated
 spellings report one, which is not. `bash -n` exits 2 on every row below, so
@@ -304,16 +304,20 @@ span never closed, so the suppression precedent already exists in the file. Why 
 `$(` arm escapes the bug is still unexplained, and until it is, a repair applied at
 `matchBrace` is a guess.
 
-**PRE-EXISTING - and this is the narrow claim, not the wide one that was filed
-first.** The FABRICATION is present at the finding arc's merge-base and at HEAD for
-all three rows. The earlier wording claimed the full outputs were identical between
-those revisions; that is a stronger claim than the probe supports and it has been
-withdrawn. What is established is that this branch neither introduces the fabrication
-nor repairs it.
+**PRE-EXISTING - and this is the narrow claim, twice narrowed.** The FABRICATION is
+present at the finding arc's merge-base and at HEAD for ROWS 2 AND 3. Row 1 is the
+CONTROL: it reports zero sites at both revisions, which is the correct behaviour and
+the reason the other two are diagnosable at all. The first filing claimed the full
+outputs were identical across those revisions, which the probe does not support; the
+second said "all three rows", which reads as though the control fabricates too. Both
+withdrawn. What is established: this branch neither introduces the fabrication on
+rows 2 and 3 nor repairs it.
 
-Close condition: an unterminated substitution of any spelling reports zero sites, with
-all three rows above as deciding cases, and the census re-run to confirm no live
-workflow changes classification.
+Close condition: BOTH unterminated spellings report zero sites - the process
+substitution of row 2 and the bare parenthesis of row 3, named separately because
+they are separate paths and one repair need not reach both. All three rows above are
+deciding cases, row 1 as the control that must STAY at zero, and the census re-run to
+confirm no live workflow changes classification.
 
 ## BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE — a QUOTED workflow `run:` scalar is scanned as if its YAML quoting were shell, fabricating a site on one spelling and going silent on another
 

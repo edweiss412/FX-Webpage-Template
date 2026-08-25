@@ -31,12 +31,18 @@
  *    has to enumerate every wrapper (`docker exec "$C"`, an UNQUOTED
  *    `docker exec $C`, `sudo`, `env`, `time`, `xargs`) and silently misses the
  *    one it forgot, which is the wrong failure mode for a security guard.
- * 4. Workflow YAML — the raw source slice of every `run:` scalar, scanned with
- *    the same shell reader, plus the DECODED scalar as a fallback when the raw
- *    slice yields nothing (a double-quoted scalar can spell the command
- *    `\\x70sql` or hide it behind an escaped newline). Both `run: |` blocks and
- *    quoted single-line `run: "psql …"`. A step `name:` that merely mentions
- *    psql is not a call site.
+ * 4. Workflow YAML — every `run:` scalar, scanned with the same shell reader.
+ *    WHICH TEXT is read depends on the scalar's YAML style, and the distinction
+ *    is the whole point rather than an optimisation. For a PLAIN or BLOCK scalar
+ *    the raw source slice IS the shell text. For a QUOTED scalar the quoting
+ *    belongs to YAML, not to the shell, so the raw slice is NOT scanned at all
+ *    and the DECODED value is read instead — a double-quoted scalar can spell
+ *    the command `\\x70sql` or hide it behind an escaped newline, and reading its
+ *    delimiters as shell was wrong in both directions at once (a fabricated site
+ *    on one spelling, silence on another). Decoded text is therefore the primary
+ *    read for quoted styles, never a fallback. Both `run: |` blocks and quoted
+ *    single-line `run: "psql …"`. A step `name:` that merely mentions psql is
+ *    not a call site.
  *
  * The file list is a FILESYSTEM WALK from the repo root, not a hardcoded
  * roster: a psql site added in a brand-new directory fails by default. The
@@ -3504,9 +3510,12 @@ function quotedExecutableScalars(source: string): QuotedExecutableScalar[] {
  * Blank every range to spaces, PRESERVING newlines.
  *
  * Byte count and line count both survive, so every offset and every line number
- * downstream still names the same position it did in the original source. That
- * is what lets the blanked text be handed to the lexer while the untouched
- * `source` is still handed to the arms that read it directly.
+ * downstream still names the same position it did in the original source. That is
+ * what lets the blanked text stand in for the original everywhere downstream: every
+ * reader now takes `shellText`, the one view carrying the blanked ranges. An earlier
+ * version of this comment said the untouched `source` was still handed to the arms
+ * reading it directly, which described the shape before quoted scalars were blanked
+ * out of a single shared view.
  */
 function blankRanges(source: string, ranges: Array<[number, number]>): string {
   if (ranges.length === 0) return source;
