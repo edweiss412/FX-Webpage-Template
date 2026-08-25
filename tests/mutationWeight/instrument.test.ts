@@ -455,6 +455,30 @@ describe("reconcile", () => {
     expect(r.moved.length).toBeGreaterThan(1);
   });
 
+  it("returns recordOnly, modelOnly and duplicated in a stable order", () => {
+    // Three lists, all read by whoever repairs the dump, all sorted, and none of
+    // them distinguishable from unsorted with a single element. Supplied
+    // worst-name-first so the sort is observable.
+    const r = reconcile(
+      [
+        measured({ surfaceId: "zz", leg: 0 }),
+        measured({ surfaceId: "aa", leg: 0 }),
+        // TWO duplicated ids, in reverse name order. One duplicate cannot tell a
+        // sorted list from an unsorted one, which is how the ordering on this
+        // particular list survived its first plant.
+        measured({ surfaceId: "zdup", leg: 0 }),
+        measured({ surfaceId: "zdup", leg: 0 }),
+        measured({ surfaceId: "adup", leg: 0 }),
+        measured({ surfaceId: "adup", leg: 0 }),
+      ],
+      modelled({ zmodel: { mutants: 1 }, amodel: { mutants: 1 } }),
+      4,
+    );
+    expect(r.recordOnly).toEqual(["aa", "adup", "zdup", "zz"]);
+    expect(r.modelOnly).toEqual(["amodel", "zmodel"]);
+    expect(r.duplicated).toEqual(["adup", "zdup"]);
+  });
+
   it("is ok when everything agrees", () => {
     expect(reconcile(one, modelled({ a: {} }), 4).ok).toBe(true);
   });
@@ -543,6 +567,20 @@ describe("driftReport", () => {
     const d = driftReport(new Map([["e", 1000]]), exact, mm, 2).drifted;
     expect(d[0]?.ratio).toBe(2);
     expect(d[0]?.actionable).toBe(false);
+  });
+
+  it("returns the unmeasured list in a stable order", () => {
+    // Two declared surfaces that did not run, declared worst-name-first.
+    const d = driftReport(
+      new Map([
+        ["zeta", 1000],
+        ["alpha", 1000],
+      ]),
+      [],
+      modelled({}),
+      2,
+    );
+    expect(d.unmeasured).toEqual(["alpha", "zeta"]);
   });
 
   it("ranks by ratio, worst first", () => {
@@ -659,6 +697,36 @@ describe("bootRatioStability", () => {
     expect(r.moved).toEqual([{ surfaceId: "a", ratios: [1, 4], factor: 4 }]);
   });
 
+  it("returns movers worst-factor first, not in name order", () => {
+    // The fixture makes name order and factor order DISAGREE, which is the whole
+    // point: `aaa` moves ratio 1 -> 2 (factor 2) and `zzz` moves 0.5 -> 4 (factor 8),
+    // so sorting by factor gives zzz first while sorting by name gives aaa first.
+    // A fixture where the two agree passes under either rule and pins neither.
+    const boots = modelled({ aaa: { mutants: 1 }, zzz: { mutants: 1 } });
+    const kids = (n: number): Child[] => Array.from({ length: n }, () => child("t", 1000));
+    const newer = snap(
+      "new",
+      "b",
+      [
+        measured({ surfaceId: "aaa", children: kids(4) }),
+        measured({ surfaceId: "zzz", children: kids(8) }),
+      ],
+      boots,
+    );
+    const older = snap(
+      "old",
+      "a",
+      [
+        measured({ surfaceId: "aaa", children: kids(2) }),
+        measured({ surfaceId: "zzz", children: kids(1) }),
+      ],
+      boots,
+    );
+    const moved = bootRatioStability([newer, older], 1.05).moved;
+    expect(moved.map((m) => m.surfaceId)).toEqual(["zzz", "aaa"]);
+    expect(moved[0]!.factor).toBeGreaterThan(moved[1]!.factor);
+  });
+
   it("stays silent about a ratio that moved less than the threshold", () => {
     expect(
       bootRatioStability([snapOf("new", "b", 8, 2), snapOf("old", "a", 8, 2)], 1.05).moved,
@@ -684,6 +752,14 @@ describe("bootCountHistory", () => {
     const h = bootCountHistory([withBoots("new", { a: 10, b: 5 }), withBoots("old", { a: 10 })]);
     expect(h.arrived).toEqual(["b"]);
     expect(h.changed).toEqual([{ surfaceId: "b", boots: [undefined, 5] }]);
+  });
+
+  it("lists changed surfaces in a stable order", () => {
+    const h = bootCountHistory([
+      withBoots("new", { zeta: 12, alpha: 12 }),
+      withBoots("old", { zeta: 10, alpha: 10 }),
+    ]);
+    expect(h.changed.map((c) => c.surfaceId)).toEqual(["alpha", "zeta"]);
   });
 
   it("says nothing about a surface whose count never moved", () => {
@@ -725,6 +801,20 @@ describe("suiteMedians", () => {
 });
 
 describe("seamMagnitude", () => {
+  it("names the surfaces that change leg, in a stable order", () => {
+    // Keys inserted worst-name-first, so the returned order comes from the sort
+    // rather than from Map insertion order, which would otherwise supply it for free.
+    const rev = new Map([
+      ["zeta", 10],
+      ["alpha", 1],
+    ]);
+    const fwd = new Map([
+      ["zeta", 1],
+      ["alpha", 10],
+    ]);
+    expect(seamMagnitude(rev, fwd, 2)).toEqual(["alpha", "zeta"]);
+  });
+
   it("names the surfaces that change leg between two weightings", () => {
     const a = new Map([
       ["x", 10],

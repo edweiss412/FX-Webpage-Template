@@ -114,6 +114,48 @@ const DEFECTS = [
     "export const bindingLeg = (legs: readonly number[]): number => Math.min(...legs);",
   ],
   [
+    "reconcile returns recordOnly unsorted",
+    "weights.ts",
+    "  const recordOnly = [...observed.keys()].filter((id) => !modelled.has(id)).sort();",
+    "  const recordOnly = [...observed.keys()].filter((id) => !modelled.has(id));",
+  ],
+  [
+    "reconcile returns modelOnly unsorted",
+    "weights.ts",
+    "  const modelOnly = [...modelled.keys()].filter((id) => !observed.has(id)).sort();",
+    "  const modelOnly = [...modelled.keys()].filter((id) => !observed.has(id));",
+  ],
+  [
+    "reconcile returns the duplicate list unsorted",
+    "weights.ts",
+    "    .map(([id]) => id)\n    .sort();",
+    "    .map(([id]) => id);",
+  ],
+  [
+    "driftReport returns the unmeasured list unsorted",
+    "weights.ts",
+    "  const unmeasured = [...declared.keys()].filter((id) => !seen.has(id)).sort();",
+    "  const unmeasured = [...declared.keys()].filter((id) => !seen.has(id));",
+  ],
+  [
+    "seamMagnitude returns its surfaces unsorted",
+    "weights.ts",
+    "  return [...pa.keys()].filter((k) => pb.has(k) && pa.get(k) !== pb.get(k)).sort();",
+    "  return [...pa.keys()].filter((k) => pb.has(k) && pa.get(k) !== pb.get(k));",
+  ],
+  [
+    "bootRatioStability returns movers in registry order rather than worst-factor first",
+    "weights.ts",
+    "  moved.sort((a, b) => b.factor - a.factor);",
+    "  void 0;",
+  ],
+  [
+    "bootCountHistory walks ids unsorted",
+    "weights.ts",
+    "  for (const id of [...ids].sort()) {",
+    "  for (const id of [...ids]) {",
+  ],
+  [
     "reconcile stops computing which surfaces moved leg",
     "weights.ts",
     "  const moved = [...observed]",
