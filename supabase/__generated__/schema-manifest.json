@@ -12,6 +12,7 @@
     "admin_read_share_token(p_show_id uuid) -> TABLE(share_token text, picker_epoch integer) [DEFINER]",
     "archive_show(p_show_id uuid) -> boolean [DEFINER]",
     "assert_destructive_reset_enabled() -> void [DEFINER]",
+    "assert_prune_enabled() -> void [DEFINER]",
     "auth_email_canonical() -> text [DEFINER]",
     "bell_mark_opened(p_admin_email text, p_seen_through timestamp with time zone) -> void [DEFINER]",
     "bell_mark_read(p_alert_id uuid, p_admin_email text, p_seen_activity_at timestamp with time zone) -> void [DEFINER]",

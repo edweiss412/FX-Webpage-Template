@@ -1,3 +1,57 @@
+## BL-VALIDATION-PRUNE-DB-SIDE-GATE — gate prune_sync_log / prune_app_events on the validation project at the database, not the client — CLOSED 2026-08-24
+
+**Status:** SHIPPED 2026-08-24 · **Effort (as shipped):** M · **Class:** DB safety posture · **Facing:** product · **Shipped by:** `feat/validation-prune-db-side-gate`
+
+**Reachability — PROBED, and the number is the whole reason this row existed.** It was filed
+`INFERRED, NOT PROBED`, naming the settling probe as a live `select public.prune_sync_log()` against
+the validation project from an unguarded client. That probe ran on 2026-08-22: the default call
+deleted **2,488 live rows**. Not a hypothetical, and not one an authoring guard could have stopped.
+
+**Resolution.** `public.assert_prune_enabled()` reads the posture marker that already existed —
+`public.destructive_reset_gate`, which ships `enabled=false` everywhere and is flipped to `true` only
+on validation projects — and raises unless it reads an explicit `false`. Both prune functions call it
+before their `delete`. `is not false` is the entire fail-closed contract: `true` refuses because the
+database says it is validation, `null` refuses because the database says nothing, and only the value
+production keeps forever allows a prune.
+
+**No second marker.** The first spec draft added one and spec review R1 killed it as a P0: two rows
+encoding one fact can disagree, and the reviewer produced three lifecycle states where they did,
+permissively. Reusing the existing marker also means no new table, so no `RPC_GATED_TABLES` row and no
+PostgREST DML lockdown work — `RPC_GATED_TABLES` is still 34.
+
+**Closed live, not by argument.** After the surgical apply to `vzakgrxqwcalbmagufjh`, whose marker
+reads `enabled=true`, all four calls — both functions, default and `interval '5 days'` forms — refused
+inside one rolled-back transaction, each raising a message matching `prune not enabled%`. The probe is
+built so that a SUCCESSFUL prune fails it: each call is followed by `raise exception 'GATE MISSING: …'`
+on its success path, which the handler cannot match and therefore re-raises. The same call that deleted
+2,488 rows two days earlier now refuses. Transcript: plan §12.
+
+**What it cost, recorded because the shape recurs.** Twenty review rounds — eight spec, five plan, seven
+whole-diff — producing thirty-eight findings, of which **not one changed a line of the shipped SQL**.
+The SQL was dry-run against a real database inside a rolled-back transaction before round 1 and never
+moved. Every finding was against the documents' own instructions: whether a command runs, whether a
+criterion is proven by the task claiming it, whether a guard discriminates. Three findings are worth
+carrying forward — spec R3/R4, where acceptance criteria written to CATCH a broken gate would have
+performed the global deletion they existed to detect; plan R5, where a freshly-written guard returned
+`postgres|t` against exactly the database it existed to exclude; and the diff stage's APPROVE at r4,
+earned while the local database was down and the entire `tests/db` tier had never once completed. The
+first COMPLETED suite failed two guards that no amount of reading the diff could have surfaced. **A
+stage APPROVE obtained while a required test tier cannot execute is not a converged stage, and it reads
+identically from the corpus.** Full accounting:
+`docs/review-rounds/feat/validation-prune-db-side-gate/50ca72a566b0.md`.
+
+**Accepted cost.** Validation telemetry stops being pruned, and the daily cron there now fails with
+`prune not enabled for this database`, recorded in `cron.job_run_details`. That is the intended end
+state and the gate's own durable evidence. Deliberate pruning of validation stays available by one
+motion an operator already knows: set the marker `false`, prune, set it back.
+
+**Eliminated on the way here** (so the next reader does not re-derive them): widening the SQL
+recognizer — the spelling axis is open and `_metaDestructiveDbTargetGuard.test.ts`'s r15/r16 history is
+the ratchet; discovery by connection — ships as the census, and its §4.1 limit is this row; a psql-side
+or REST-side guard — different channels, same spelling problem.
+
+---
+
 ## BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH — a guard surface's declared operators produce ZERO sites over a whole branch, so the score cannot see code it is reported against — CLOSED 2026-08-24
 
 **Status:** CLOSED · **Resolution:** re-scoped 2026-08-22 (orchestrator ruling, wave-6 arc brief) to admit a documented-limit close, then closed as documented limit (harness spec §7 L-11) plus the OPERATORS: disclosure arm on the GUARD SURFACE score line, the heading-form trigger, and the bullet-4 admissibility correction · **Shipped by:** `docs/mutation-score-jurisdiction-gap` · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 3) · **Severity:** MEDIUM (the score is reported as the surface's convergence criterion while a branch of that surface is outside it; the number is honest and its jurisdiction is not stated) · **Class:** mutation harness fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — closing it means widening a registry operator set file-wide, which is a measurement-scope decision about the harness rather than a repair to this arc's code. · **Reachability:** PROBED — the numbers below were measured, not estimated. · **Incident:** diff round 3 of this arc found a REGRESSION the arc itself introduced — `$((...))` arithmetic read as a `$()` command substitution, yielding a resolved site for a command bash never runs — after FOUR earlier review rounds and a `49/49` score with zero unaccepted survivors had all passed over it. A reviewer probing bash found it; the score structurally could not.
