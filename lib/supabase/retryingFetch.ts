@@ -303,12 +303,14 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
       // FIRST failure is the answer whenever this attempt is also a failure.
       if (!transient) {
         if (error === undefined && response !== undefined && response.ok) return response;
-        if (haveFirst) {
-          if (firstError !== undefined) throw firstError;
-          if (firstResponse !== undefined) return firstResponse;
-        }
-        if (error !== undefined) throw error;
-        return response!;
+        // The first outcome answers, and it is always RECORDED by here: `haveFirst` is set earlier
+        // in this same iteration, and the try/catch above guarantees exactly one of `firstResponse`
+        // / `firstError` is defined. The mutation gate found the guard and fallback that used to
+        // stand here UNKILLABLE, which is the signature of dead code rather than a missing test — a
+        // tripwire thrown from that fallback did not fire across 126 cases. Removed rather than
+        // tested: a branch nothing can reach is a claim nothing enforces.
+        if (firstError !== undefined) throw firstError;
+        return firstResponse!;
       }
 
       if (attempt >= maxRetries) {
