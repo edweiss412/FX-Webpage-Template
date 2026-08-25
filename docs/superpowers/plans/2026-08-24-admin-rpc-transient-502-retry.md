@@ -260,9 +260,19 @@ what the runner will actually generate:
 
 | surface | sites | by operator |
 | --- | --- | --- |
-| `lib/supabase/retryingFetch.ts` | **40** | integer-literal 14, statement-removal 14, equality-flip 7, logical-connector 4, relational-boundary 1 |
-| `tests/supabase/retryableRpcVolatilityScan.ts` | **18** | statement-removal 13, equality-flip 2, logical-connector 2, integer-literal 1 |
+| `lib/supabase/retryingFetch.ts` | **39** | integer-literal 14, statement-removal 11, equality-flip 9, logical-connector 4, relational-boundary 1 |
+| `tests/supabase/retryableRpcVolatilityScan.ts` | **41** | statement-removal 20, equality-flip 10, logical-connector 8, integer-literal 3 |
 | `lib/supabase/retryEligibility.ts` | **3** | statement-removal 1, equality-flip 1, integer-literal 1 |
+
+Re-derive rather than trust the table:
+
+```sh
+pnpm exec tsx -e 'import {readFileSync} from "node:fs";
+import {GUARD_SURFACES} from "./tests/mutation/source/registry";
+import {enumerateSites} from "./tests/mutation/source/operators";
+for (const s of GUARD_SURFACES) console.log(s.sourcePath,
+  enumerateSites(s.sourcePath, readFileSync(s.sourcePath,"utf8"), [...s.operators]).length);'
+```
 
 The first error was the count: the wrapper was recorded at 24 sites against four declared operators,
 and it is 26 against those four, 40 across all of them. It has since moved AGAIN, to 42, because the
@@ -270,6 +280,15 @@ describeTarget query-strip repair added two `[0]` index literals. A site count i
 file, so it goes stale the moment the file changes — the third derived number on this arc to do so,
 after the env-touching count and the AC-6 tally. The score's own total comes from the RUN, not from
 this table, which is why the table being stale never reached a brief.
+
+**It moved a fifth time**, in the round-1 diff repairs, and the numbers above are that measurement.
+The wrapper fell to 39: the abort repair added statements but deleted the `timedOut` flag and its
+assignment. The scan module went 18 to 41, more than doubling, because three of the four repairs
+landed as new exported functions there (`readOnlyViolations`, `buildCatalog`, `hasReasonedEntry`)
+rather than in the suite — which is the whole point, since only the module is enrolled. A guard that
+grows because its decisions moved OUT of an untestable `beforeAll` is the enrolment working, not
+scope creep. The re-derivation command is now printed with the table, so the next reader measures
+instead of trusting a number that is stale by construction.
 
 The second was the operator list. `statement-removal` was never declared and is the LARGEST operator
 on both enrolled surfaces. A scoped subset leaves the excluded operators' sites unscored, and the
