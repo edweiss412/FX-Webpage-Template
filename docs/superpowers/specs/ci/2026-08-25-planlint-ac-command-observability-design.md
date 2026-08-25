@@ -288,6 +288,8 @@ What genuinely remains:
 | several declarations, each with its own table | each governs its own; there is no one-per-document limit |
 | a declaration inside a fenced block | inert, like every marker |
 | a declaration in a non-`plan` document | `AC_COVERAGE_NOT_A_PLAN`, advisory |
+| a table nested in a blockquote or list item | it participates, in document order — a reader's next table is the nested one. Top-level-only iteration would bind PAST it to a silently different table |
+| a data row with MORE cells than the header | checked, not skipped; the command cell exists and the surplus is ignored, as GFM ignores it |
 | a document with no declaration at all | the arm contributes no findings and reads no tables |
 
 ### 8.2.2 Arm (b)'s matching rule, and why it stopped growing

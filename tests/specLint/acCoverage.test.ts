@@ -144,6 +144,42 @@ describe("acCoverage — the declaration", () => {
     expect(acCommandPlan(viewOf(md), "plan")).toEqual([]);
   });
 
+  it("governs a NESTED table, because a reader's next table is the nested one", () => {
+    // Blocks are flattened into document order, so a table inside a blockquote or
+    // a list item participates. Top-level-only iteration would bind PAST it to
+    // the next one down, which is a silently different table.
+    const quoted = [
+      "<!-- ac-coverage: command-col=3 -->",
+      "",
+      "> | AC | P | Cmd |",
+      "> | --- | --- | --- |",
+      "> | AC-1 | T | prose |",
+      "",
+      TABLE,
+    ].join("\n");
+    expect(codesOf(quoted)).toEqual(["AC_COMMAND_CELL_NOT_RUNNABLE"]);
+  });
+
+  it("a row with MORE cells than the header is checked, not skipped", () => {
+    const md = [
+      "<!-- ac-coverage: command-col=3 -->",
+      "",
+      "| AC | P | Cmd |",
+      "| --- | --- | --- |",
+      "| AC-1 | T | `a` | extra |",
+    ].join("\n");
+    expect(codesOf(md)).toEqual([]);
+  });
+
+  it("a MIS-declaration reports on every row rather than guessing what was meant", () => {
+    // command-col=1 points at the AC id column. The arm cannot tell a
+    // mis-declaration from a table full of defects and does not try (spec L-4);
+    // the declaration is deliberate and the fix is to remove it.
+    expect(codesOf(`<!-- ac-coverage: command-col=1 -->\n\n${TABLE}\n`)).toEqual([
+      "AC_COMMAND_CELL_NOT_RUNNABLE",
+    ]);
+  });
+
   it("AC-13: every code the arm can emit is in the spec's catalog and vice versa", () => {
     // The arm's own emitted set is asserted per-case above; this pins the LIST so
     // a code added in code without a catalog row, or a catalog row with no code,
