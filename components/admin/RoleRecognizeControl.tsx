@@ -346,7 +346,12 @@ export function RoleRecognizeControl({
               its short caption and carries the floor, mirroring the A1/V1/L1 siblings
               above exactly. The caution drops its indent and runs full width, which
               is the one visual change: it reads as a note under the row rather than
-              as a second line of the caption. Spans both columns on desktop (mock). */}
+              as a second line of the caption. `pl-7` (28px) re-aligns it under
+              the caption text rather than under the checkbox: the label's own
+              indent is `size-5` plus `gap-2.5`, 30px, and 28px is the nearest
+              spacing token — 2px under, which reads as aligned and keeps the
+              value out of the arbitrary-bracket syntax this project avoids.
+              Spans both columns on desktop (mock). */}
           <div className="flex flex-col gap-0.5 sm:col-span-2">
             <label
               htmlFor={`${uid}-fin`}
@@ -364,7 +369,7 @@ export function RoleRecognizeControl({
               />
               <span className="text-sm text-text">{COPY.CHECKBOX_FINANCIAL}</span>
             </label>
-            <span id={`${uid}-fin-cap`} className="text-xs text-warning-text">
+            <span id={`${uid}-fin-cap`} className="pl-7 text-xs text-warning-text">
               {COPY.FINANCIAL_CAUTION}
             </span>
           </div>

@@ -296,7 +296,7 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
                 />
                 <span className="text-sm text-text">{COPY.CHECKBOX_FINANCIAL}</span>
               </label>
-              <span id={`${uid}-fin-cap`} className="text-xs text-warning-text">
+              <span id={`${uid}-fin-cap`} className="pl-7 text-xs text-warning-text">
                 {COPY.FINANCIAL_CAUTION}
               </span>
             </div>

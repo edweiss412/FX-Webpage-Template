@@ -218,7 +218,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/RoleRecognizeControl.tsx",
-    line: 355,
+    line: 360,
     tag: "input",
     category: "parent-label-target",
     reason:
