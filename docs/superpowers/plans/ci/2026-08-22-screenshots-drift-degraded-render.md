@@ -1,6 +1,6 @@
 # Plan — screenshots-drift: refuse to encode a faulted render, and instrument both outcomes
 
-**Status:** DRAFT (r3 repaired) · **Spec:** `docs/superpowers/specs/ci/2026-08-22-screenshots-drift-degraded-render-design.md` · **Branch:** `fix/screenshots-drift-instrument`
+**Status:** APPROVED at adversarial-review r6 · **Spec:** `docs/superpowers/specs/ci/2026-08-22-screenshots-drift-degraded-render-design.md` · **Branch:** `fix/screenshots-drift-instrument`
 
 Closes `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM`. Re-dispositions
 `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` — mechanism named, distinct class, stays OPEN.
@@ -533,106 +533,68 @@ spec must widen that `testMatch` in the same commit or the test is dark on arriv
 ## 12. Invariant-8 dual gate: findings and dispositions
 
 The gate ran on the UI-surface diff, which is `app/**` (excluding `app/api/**`) plus `components/**` at the
-branch's merge-base: seventeen files, fourteen of them a single `data-render-fault` attribute each, three
-carrying real markup or prop changes (`components/admin/telemetry/TelemetryOverviewStrip.tsx`,
-`app/admin/wizard/preview/[stagedId]/page.tsx`, `components/crew/SectionTileError.tsx`).
+branch's merge-base. Both halves ran with the canonical v3 setup gates ahead of them: the `context.mjs`
+context load of `PRODUCT.md` and `DESIGN.md`, then the register reference read. The register is **product**,
+since this is admin tooling, so design serves the product rather than being it.
 
-Both halves ran with the canonical v3 setup gates ahead of them: the `context.mjs` context load of
-`PRODUCT.md` and `DESIGN.md`, then the register reference read. The register is **product**, since this is
-admin tooling, so design serves the product rather than being it.
+The halves are `/impeccable critique` and `/impeccable audit`. Naming them literally is load-bearing rather
+than stylistic: `tests/docs/_invariant8Closeout.ts:39-40` matches those exact strings, and a unit naming
+neither is never folded into the population that owes a marker line. An earlier draft said "the
+critique-then-audit pair", which reads identically to a person and matches neither, so this plan passed
+`tests/docs/_metaInvariant8Closeout.test.ts` carrying no marker at all.
 
-**Naming both halves literally, and why that is not pedantry.** The halves are `/impeccable critique` and
-`/impeccable audit`. Earlier drafts of this section called them "the critique-then-audit pair", which reads
-identically to a human and is invisible to the guard: `tests/docs/_invariant8Closeout.ts:39-40` matches the
-literal strings `impeccable critique` and `impeccable audit`, and a unit naming neither is never folded into
-the population that owes a marker line. The paraphrase did not weaken the marker requirement, it removed
-one. This plan passed `tests/docs/_metaInvariant8Closeout.test.ts` with no marker at all, which is exactly
-the guard-premise failure this repo already has a rule about. Naming the commands is what puts the unit in
-scope of its own gate.
+### The gate was re-run, because the first run went stale
 
-### Method
+The first run covered **seventeen** UI files. Repairing whole-diff review round 1 then added an eighteenth,
+`components/admin/IgnoredSheetsDisclosure.tsx`, and round 4b caught that the recorded gate therefore did not
+cover the final diff. Invariant 8 makes that P0 regardless of visual impact, and it is exactly the trap the
+invariant exists for: a gate is a claim about a diff, and the diff moved underneath it. The numbers below
+are the RE-RUN, on all eighteen files, at commit `676394e20`.
 
-`/impeccable critique` ran dual-agent, the two assessments isolated from each other until synthesis, so the
-run is not degraded and carries no degraded banner. Assessment A was the design review; Assessment B ran
-the bundled detector and the project's mechanical invariants. `/impeccable audit` ran separately as the
-technical half.
+`/impeccable critique`: **26/40**, dual-agent, not degraded. `/impeccable audit`: **19/20, Excellent**, with
+accessibility, performance, theming and responsive all at 4/4 for the same reason: the diff changes no
+rendered output. Nothing in it can regress a surface, because every added attribute is inert to layout,
+paint and assistive technology.
 
-Assessment B proved its own detector live before trusting a clean result, which is the point worth copying:
-an empty finding list from a detector that never fired is indistinguishable from a clean one. It seeded a
-probe file carrying a bounce cubic-bezier, got `PROBE_EXIT=2` and a `bounce-easing` hit back, and confirmed
-`.impeccable/config.json` suppresses none of the seventeen targets. Only then is `exit 0, zero findings` a
-result rather than a shrug.
+### P0: none. P1: one, closed.
 
-### Scores
+**Marker vocabulary is three incompatible schemes, and it is operator-facing.** The values land verbatim in
+the CI refusal message, so `telemetry-events`, `materialize-result` and `dashboard-ignored-sheets` name a
+PLACE while `admin-allowlist-read` names an operation. An operator triaging a refused capture reads them as
+a taxonomy that is not one. ACCEPTED as a documented limit rather than repaired here: renaming twenty
+markers touches every file in the diff for a cosmetic gain, and the value grammar is already fenced as out
+of scope for this arc with the reasoning recorded in the round-1 brief. Filed for the follow-up that owns
+the grammar.
 
-`critique`: **25/40**. The floor is heuristic 3 (user control), 4 (consistency), 6 (recognition over
-recall), 9 (error recovery) and 10 (documentation), and every one of those is about the marking convention
-being undocumented at the design layer rather than about anything the diff renders.
+### P2 and P3: seven raised, three fixed, four acknowledged
 
-`audit`: **19/20, Excellent**. Accessibility, performance, theming and responsive all scored 4/4 for the
-same reason: the diff changes no rendered output. Anti-patterns took the single point off.
+FIXED, because each was a guard that did not hold what it claimed:
 
-### P0: none. P1: two, both closed.
+- **The hand-marking assertion was file-scoped.** It asserted a marker appeared ANYWHERE in a declared
+  file, so with two declared residues in `TelemetryOverviewStrip.tsx` and four marker occurrences,
+  deleting one still passed. Now per-site, matching three real shapes: the marker expression naming the
+  flag, a flag opening a ternary that contains one, and a component whose body carries one. Each of the
+  four hand-marked sites was verified by removing its own marker and watching this case fail.
+- **Marker detection counted text React never renders.** A JSX comment mentioning the prop,
+  `data-render-fault={undefined}`, `={fault ? "x" : undefined}` and `={reason && "x"}` all read as marked.
+  A false positive here is worse than a miss: it certifies coverage that does not exist.
+- **The classifier ignored polarity.** `!== "infra_error"` classified identically to `===`, so a HEALTHY
+  branch read as a fault, and a disjunction was accepted when either side looked fault-shaped even though
+  the branch fires for a healthy state too. Both narrowed. The candidate population is unchanged at 35
+  total, 30 accepted, 5 residue, 0 unmarked, which is the evidence that the narrowing removed false
+  classifications rather than real ones.
 
-**P1-1, `pnpm format:check` failed.** `app/admin/wizard/preview/[stagedId]/page.tsx` carried unparenthesized
-JSX returns and off-grid indent, and `tests/mutation/source/registryMembership.test.ts` was also dirty. This
-is a required check, so it was a merge blocker sitting in the branch. FIXED. Worth recording that the design
-half found it: a formatting gate is not a design finding, but the reviewer ran the command rather than
-reading the code and reasoning about it.
+ACKNOWLEDGED and deliberately not fixed: the duplicated fault copy in `SystemHealthCard`, the refusal
+message carrying no next step, the unbounded `tile-${domain}` value, and the comment mass sitting inside
+JSX attribute lists. All are P2 or P3, none changes what renders, and each is named here rather than left
+to be rediscovered.
 
-**P1-2, the crew-facing terminal failure carries no marker.** Raised as "verify or file", correctly.
-VERIFIED, and closed as a documented limit rather than a code change. The manifest routes are `/admin` and
-`/admin/needs-attention` only (`scripts/help-screenshots.manifest.ts`), so `scanRoots()` derives
-`["app/admin", "components"]` and the guard at `app/show/[slug]/[shareToken]/page.tsx:220` is outside the
-scan. The surface cannot be captured at all today, so there is no capture it can make wrong, which puts it
-under the ledger filing bar's documented-limit rule rather than in the open queue. The `UNEXERCISED`
-declaration now names the asymmetry directly, since a reader comparing `TerminalFailure` against
-`SectionTileError` will otherwise read it as an oversight, and states the re-arm trigger: a crew-show
-manifest entry brings both into scope.
-
-### P2 and P3: six raised, two fixed, two refuted, four acknowledged
-
-FIXED, in `fd597d8ec`:
-
-- **The fault arm was `default:`.** `AlertSummary` is closed, so `default` meant `infra_error` and nothing
-  said so. A later fourth kind would have rendered "Unavailable" and blocked the byte gate without anyone
-  classifying it. Now an explicit `case`, with the new `default` a compile-time exhaustiveness check that
-  keeps the conservative render and deliberately does not set the fault flag.
-- **The hand-marked-flag assertion pinned exact source text**, so a Prettier reflow would have reddened CI
-  with no behavior change. Whitespace-normalized. Not hypothetical here: the line-pinned residue registry
-  in the same file moved twice during this branch.
-
-REFUTED, recorded so a later round does not re-derive them:
-
-- **`MaterializeCard`'s `partial` and `refused` branches are unmarked while `infra_error` is.** That
-  asymmetry is the design. `partial` and `refused` are outcomes the admin is supposed to see; `infra_error`
-  is a fault. Marking a designed outcome is the same mistake already rejected in writing at
-  `app/admin/wizard/preview/[stagedId]/page.tsx:58-62`, where deriving the marker from `testId` would have
-  refused a capture on a healthy empty roster.
-- **`let unavailable` allegedly manufactures residue that `const unavailable = summary.kind === "infra_error"`
-  would enroll "at zero cost".** It would not. `scanCandidates` (`tests/help/_renderFaultScan.ts:371-395`)
-  takes only if-statements whose then branch returns JSX and conditionals whose when-true IS a JSX root.
-  `SystemHealthCard` returns `<StatCard>` unconditionally and the ternary yields a string, so the site is
-  flag-shaped under either spelling and `FLAG_RESIDUE` is right as written.
-
-ACKNOWLEDGED and deliberately not fixed. All are P2 or P3, which invariant 8 does not require closing, and
-all four are one finding wearing four hats: the marker's PRESENCE semantics are well guarded (meta-test,
-detector suite, refusal tests) while its VALUE semantics are ungoverned. The twenty reason strings are free
-strings with no union, no uniqueness assertion, and one templated from a free `domain`; `""` type-checks and
-degrades to `(unspecified)`; `"staged-preview-decode"` is written twice; and `DESIGN.md` does not mention the
-attribute. A value grammar plus a uniqueness meta-test is the right repair and it is a redesign of the marker
-surface this diff does not otherwise touch, which is class-sweep exception (c). Worst case today is a
-refusal whose diagnostic string is less useful than it could be, never a capture that is silently wrong, so
-the consequence bound holds.
-
-Two findings are pre-existing and not charged to this diff: `components/admin/OnboardingWizard.tsx:39` has an
-unused `TriggeredReviewItem` (present on `origin/main`; this diff added only an attribute), and
-`components/admin/telemetry/EventTimeline.tsx:16-19` uses `bg-warning-bg` without `text-warning-text` unlike
-its three siblings. The audit computed the inherited contrast at 15.6:1 light and 10.6:1 dark, so that one is
-a consistency point and not a contrast defect.
+Two findings are pre-existing and not charged to this diff: `MaterializeCard.tsx:264-266` renders
+`{result.message}` raw in `font-mono` on a developer-only route, and `EventTimeline.tsx:19-21` sets
+`bg-warning-bg` without `text-warning-text` unlike its three siblings. The audit computed the inherited
+contrast as unverifiable statically and marked it "needs browser" rather than guessing.
 
 The end-to-end refusal of a real capture on a marked branch is **not verified by this gate** and cannot be:
-it needs a browser and a seeded database, and the heavy-phase semaphore was saturated. AC-5's CI cells cover
-it.
+it needs a browser and a seeded database. AC-5's CI cells cover it.
 
-impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=1 dispositions=recorded

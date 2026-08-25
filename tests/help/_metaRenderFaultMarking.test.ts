@@ -75,6 +75,8 @@ const FLAG_RESIDUE: Record<string, string> = {
     "same surface, renders Unavailable. MARKED BY HAND via the renderFault prop.",
   "components/admin/IgnoredSheetsDisclosure.tsx:degraded":
     'reaches dashboard-overview and IS captured: Dashboard derives `degraded` from `ignoredResult.kind === "infra_error"` (Dashboard.tsx:489) and passes it here, where a `degraded ?` ternary renders a visible Couldn\'t-load chip on /admin. MARKED BY HAND via data-render-fault. Not scanner-reachable because the guard is a bare prop, so classifyExpression returns null and the ConditionalExpression arm drops it. Found by whole-diff review r1, which is the point worth recording: the residue registry named the ASSIGNMENT site in Dashboard and missed that the RENDER lives in another component.',
+  "components/admin/OnboardingWizard.tsx:OperatorErrorBlock":
+    "reaches dashboard-overview and IS captured: OnboardingWizard.tsx:818 renders it from the FALSE arm of `service.ok ? healthy : <OperatorErrorBlock />`, and it paints a Setup-is-paused section on /admin. MARKED BY HAND at the component, which renders the fault unconditionally, so the marker always reaches the DOM and the capture refuses. Not scanner-reachable for a DIFFERENT reason from the others: the ternary arm inspects only `whenTrue`, so a fault in the false arm is invisible to it whatever its guard looks like. Found by whole-diff review r4b; the blind spot is declared here rather than widened into the recognizer.",
   "app/admin/layout.tsx:inOnboarding":
     "assigns a routing flag and returns no JSX from that branch; fails open by design.",
 };
@@ -88,21 +90,77 @@ describe("the flag-shaped residue is named, since no scan can reach it", () => {
     }
   });
 
-  it("the two hand-marked flags really do carry the marker", () => {
-    // Without this the registry could claim a marking that was never made, or
-    // that a later edit removed -- the stale-declaration failure mode.
-    const strip = readFileSync(
-      join(process.cwd(), "components/admin/telemetry/TelemetryOverviewStrip.tsx"),
-      "utf8",
+  it("every entry CLAIMING a hand-marking really carries one", () => {
+    // DERIVED from the declarations, not a written-down list. The previous
+    // version named "the two hand-marked flags" and read one file, so when a
+    // THIRD hand-marked site was added by a review repair the registry kept
+    // claiming a marker nothing checked -- deleting that marker would have left
+    // the scan at 35 candidates, 30 accepted, five residues, all green.
+    //
+    // The declaration is now the trigger: say "MARKED BY HAND" in an entry's
+    // reason and this case reads that entry's file and demands the attribute.
+    // A new hand-marked site is covered the moment it is declared, and a
+    // declaration whose marker was removed fails here rather than lying.
+    const claimed = Object.entries(FLAG_RESIDUE).filter(([, reason]) =>
+      reason.includes("MARKED BY HAND"),
     );
-    // Whitespace-normalized before matching. The assertion is about the marking,
-    // not its column: pinning the exact source text makes a Prettier reflow of
-    // that attribute a red CI run with no behavior change, and the line-pinned
-    // residue registry in this same file has already moved twice for exactly
-    // that reason.
-    const flat = strip.replace(/\s+/g, " ");
-    expect(flat).toContain('renderFault={unavailable ? "telemetry-system-health" : undefined}');
-    expect(flat).toContain('renderFault={isInfra ? "telemetry-events" : undefined}');
+    premise("some flag-residue entry claims a hand-marking", claimed.length, 0);
+
+    for (const [site] of claimed) {
+      const file = site.slice(0, site.lastIndexOf(":"));
+      const flag = site.slice(site.lastIndexOf(":") + 1);
+      // The flag's own identifier, so `SystemHealthCard.unavailable` looks for
+      // `unavailable`. Two entries can name the SAME file, which is why a
+      // file-scoped check is not enough: TelemetryOverviewStrip declares two
+      // and carries four marker occurrences, so deleting one of the two left a
+      // surviving mutant under the previous version of this case.
+      const identifier = flag.slice(flag.lastIndexOf(".") + 1);
+      const lines = readFileSync(join(process.cwd(), file), "utf8").split("\n");
+      const MARKER = /(?:data-render-fault|renderFault)\s*=/;
+      const named = new RegExp(`\\b${identifier}\\b`);
+
+      // TWO shapes, both real, and the check names them rather than accepting
+      // any marker anywhere near the flag. A generous proximity window let a
+      // NEIGHBOURING site's marker satisfy this one: TelemetryOverviewStrip
+      // declares two residues and carries four other marker occurrences, so
+      // deleting one of the two still passed.
+      //
+      //   A. the marker expression names the flag, on its own line:
+      //        renderFault={unavailable ? "telemetry-system-health" : undefined}
+      //   B. the flag opens a ternary and the marker sits inside that branch:
+      //        {degraded ? (  ...  data-render-fault="dashboard-ignored-sheets"
+      const sameLine = lines.some((line) => MARKER.test(line) && named.test(line));
+
+      // C. the entry names a COMPONENT and the marker lives in its body:
+      //      export function OperatorErrorBlock() { ... data-render-fault=... }
+      //    Scanned from the declaration to the next top-level one, so a marker
+      //    belonging to a LATER component cannot satisfy this entry.
+      const declared = lines.findIndex((line) =>
+        new RegExp(`(?:function|const)\\s+${identifier}\\b`).test(line),
+      );
+      const declaresMarker =
+        declared !== -1 &&
+        (() => {
+          const rest = lines.slice(declared + 1);
+          const nextTop = rest.findIndex((line) =>
+            /^(?:export\s+)?(?:function|const)\s+\w/.test(line),
+          );
+          const body = nextTop === -1 ? rest : rest.slice(0, nextTop);
+          return body.some((line) => MARKER.test(line));
+        })();
+      const GUARD_WINDOW = 15;
+      const guardsBranch = lines.some((line, i) => {
+        if (!new RegExp(`\\b${identifier}\\s*\\?`).test(line)) return false;
+        return lines.slice(i, i + GUARD_WINDOW).some((near) => MARKER.test(near));
+      });
+
+      expect(
+        sameLine || guardsBranch || declaresMarker,
+        `${site} declares MARKED BY HAND but no marker in ${file} is tied to \`${identifier}\`: ` +
+          `no marker line names it, no \`${identifier} ?\` branch opens one within ${GUARD_WINDOW} lines, ` +
+          `and no \`${identifier}\` declaration carries one in its body`,
+      ).toBe(true);
+    }
   });
 });
 

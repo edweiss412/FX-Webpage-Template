@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { Project, ScriptTarget, SyntaxKind, type Node } from "ts-morph";
 import { describe, expect, it } from "vitest";
-import { marksUnconditionally } from "./_renderFaultScan";
+import { attributeAlwaysPresent, marksUnconditionally } from "./_renderFaultScan";
 
 /**
  * The hop into a shared component is only sound for a component that marks on
@@ -74,5 +74,40 @@ describe("the component hop distinguishes an always-on marker from a call-site o
       }
     `);
     expect(marksUnconditionally(jsx)).toBe(true);
+  });
+});
+
+describe("marker detection counts only what React actually renders", () => {
+  // Probed at whole-diff review r4b: text-matching the JSX source counted a
+  // JSX COMMENT mentioning the prop, and counted values React omits. A false
+  // positive here is worse than a miss, because it certifies coverage that does
+  // not exist -- the capture would sail past a fault branch reporting it marked.
+  const opening = (source: string): Node => {
+    const project = new Project({
+      compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+      useInMemoryFileSystem: true,
+    });
+    const file = project.createSourceFile("probe.tsx", source);
+    const el =
+      file.getFirstDescendantByKind(SyntaxKind.JsxSelfClosingElement) ??
+      file.getFirstDescendantByKind(SyntaxKind.JsxOpeningElement);
+    if (el === undefined) throw new Error("fixture has no JSX element");
+    return el;
+  };
+
+  it.each([
+    ["a string literal", '<div data-render-fault="x" />', true],
+    ["a template literal", "<div data-render-fault={`tile-${d}`} />", true],
+    ["a bare attribute", "<div data-render-fault />", true],
+    ["an undefined value", "<div data-render-fault={undefined} />", false],
+    [
+      "a conditional with an undefined arm",
+      '<div data-render-fault={f ? "x" : undefined} />',
+      false,
+    ],
+    ["a logical and", '<div data-render-fault={reason && "x"} />', false],
+    ["a bare optional prop", "<div data-render-fault={renderFault} />", false],
+  ])("treats %s as present=%s", (_label, source, expected) => {
+    expect(attributeAlwaysPresent(opening(source))).toBe(expected);
   });
 });

@@ -202,17 +202,22 @@ function classifyExpression(
   if (Node.isBinaryExpression(node)) {
     const op = node.getOperatorToken().getKind();
     if (op === SyntaxKind.InKeyword) return "in-operator";
-    if (
-      op === SyntaxKind.EqualsEqualsEqualsToken ||
-      op === SyntaxKind.ExclamationEqualsEqualsToken
-    ) {
+    // POLARITY IS PART OF THE GUARD. `=== "infra_error"` opens a fault branch;
+    // `!== "infra_error"` opens the HEALTHY one. Treating them alike classified
+    // healthy branches as faults, which would demand a marker on a branch that
+    // renders fine -- a false candidate, and the residue registry is where false
+    // candidates go to dilute the signal it exists to carry.
+    if (op === SyntaxKind.EqualsEqualsEqualsToken) {
       if (node.getText().includes(INFRA_ERROR)) return "literal-comparison";
     }
-    // A compound guard is accepted when either side is, at this polarity.
-    return (
-      classifyExpression(node.getLeft(), predicates, depth, negated) ??
-      classifyExpression(node.getRight(), predicates, depth, negated)
-    );
+    // A DISJUNCTION fires on either side, so it is a fault guard only when BOTH
+    // sides are: `kind === "infra_error" || kind === "ok"` opens a branch that
+    // renders for a healthy state too. A conjunction is narrower than either
+    // side, so one fault-shaped side is enough.
+    const left = classifyExpression(node.getLeft(), predicates, depth, negated);
+    const right = classifyExpression(node.getRight(), predicates, depth, negated);
+    if (op === SyntaxKind.BarBarToken) return left !== null && right !== null ? left : null;
+    return left ?? right;
   }
 
   if (Node.isCallExpression(node)) {
@@ -271,9 +276,65 @@ function jsxRoot(expression: Node | undefined): Node | null {
  */
 const MARKER = /(?:data-render-fault|renderFault)[=\s]/;
 
+/**
+ * Does this element carry a marker that ALWAYS reaches the DOM?
+ *
+ * Text-matching the JSX source counted things React never renders. Probed at
+ * whole-diff review r4b: a component containing only
+ * `{/* thread the renderFault prop here *\/}` read as marked, and so did
+ * `data-render-fault={undefined}`, `={fault ? "x" : undefined}` and
+ * `={reason && "x"}`. React omits an attribute whose value is `undefined` or
+ * `false`, so each of those is a marker that is not there -- a FALSE POSITIVE in
+ * the enforcement, which is worse than a miss because it certifies coverage that
+ * does not exist.
+ *
+ * The narrow rule: only a value that cannot be absent counts. A bare attribute,
+ * a string literal and a template literal always produce one. A bare identifier,
+ * a conditional with an `undefined`/`null` arm, and a logical `&&` can each
+ * arrive absent, so they do not count HERE -- the call site has to spell the
+ * marker itself.
+ */
+export function attributeAlwaysPresent(node: Node): boolean {
+  const opening = Node.isJsxElement(node) ? node.getOpeningElement() : node;
+  if (!Node.isJsxOpeningElement(opening) && !Node.isJsxSelfClosingElement(opening)) return false;
+
+  for (const attribute of opening.getAttributes()) {
+    if (!Node.isJsxAttribute(attribute)) continue;
+    const name = attribute.getNameNode().getText();
+    if (name !== "data-render-fault" && name !== "renderFault") continue;
+
+    const initializer = attribute.getInitializer();
+    if (initializer === undefined) return true;
+    if (Node.isStringLiteral(initializer)) return true;
+    if (!Node.isJsxExpression(initializer)) return true;
+
+    const expression = initializer.getExpression();
+    if (expression === undefined) continue;
+    if (Node.isIdentifier(expression)) continue;
+    if (Node.isConditionalExpression(expression)) {
+      const arms = [expression.getWhenTrue(), expression.getWhenFalse()];
+      if (arms.some((a) => /^(?:undefined|null)$/.test(a.getText().trim()))) continue;
+      return true;
+    }
+    if (Node.isBinaryExpression(expression)) {
+      const op = expression.getOperatorToken().getText();
+      if (op === "&&" || op === "||") continue;
+      return true;
+    }
+    return true;
+  }
+  return false;
+}
+
 function carriesAttribute(jsx: Node | null): boolean {
   if (jsx === null) return false;
-  if (MARKER.test(jsx.getText())) return true;
+  if (attributeAlwaysPresent(jsx)) return true;
+  for (const el of jsx.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement)) {
+    if (attributeAlwaysPresent(el)) return true;
+  }
+  for (const el of jsx.getDescendantsOfKind(SyntaxKind.JsxOpeningElement)) {
+    if (attributeAlwaysPresent(el)) return true;
+  }
 
   // A branch may build the marked element into a local and embed it:
   // `const note = (<section data-render-fault=... />)` then `return <div>{note}</div>`.

@@ -668,6 +668,16 @@ export function OperatorErrorBlock() {
   return (
     <section
       data-testid="wizard-operator-error"
+      // Layer 1 marker, written at the COMPONENT because this block renders a
+      // fault unconditionally: one marker for one behavior beats repeating the
+      // string at each call site, and the DOM cannot tell where it was authored.
+      // The scanner cannot reach the call site at OnboardingWizard.tsx:818 --
+      // the guard there is `service.ok ? healthy : <OperatorErrorBlock />`, and
+      // the ternary arm only inspects `whenTrue`, so a fault in the FALSE arm is
+      // invisible to it. Found by whole-diff review r4b. The marker still
+      // reaches the DOM, so the capture refuses either way; the scan's blind
+      // spot is declared in the residue registry rather than widened away.
+      data-render-fault="wizard-operator-error"
       aria-labelledby="wizard-operator-error-heading"
       className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
     >

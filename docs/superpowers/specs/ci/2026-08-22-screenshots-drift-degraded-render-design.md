@@ -1,6 +1,6 @@
 # screenshots-drift: two occurrences, two mechanisms, one gate that cannot tell either from a regression
 
-**Status:** DRAFT (r1 repaired) · **Filed:** 2026-08-22 · **Arc:** `fix/screenshots-drift-instrument`
+**Status:** APPROVED at adversarial-review r7 (0 findings) · **Filed:** 2026-08-22 · **Arc:** `fix/screenshots-drift-instrument`
 **Closes:** `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM`
 **Re-dispositions:** `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` — mechanism named, distinct class, stays OPEN
 
