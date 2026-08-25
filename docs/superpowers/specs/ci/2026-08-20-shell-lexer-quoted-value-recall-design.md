@@ -563,11 +563,19 @@ of this table naming the at-maximum test in pin 11's place.
 | 4 | same test, row "a mixed-quoted interpreter positional" | Left alone — `INTERPRETER_POSITIONAL_BINDING` is untouched. |
 | 5 | same test, row "a wrapper-prefixed quoted-directory value" | Left alone — both readings in `valueBinds` are untouched (ratified §6 item 6, 2026-08-17). |
 | 6 | same test, row "a whitespace directory component" | Left alone — the multiword/flag branch is untouched. |
-| 7 | `multiword binding value: a quoted run: scalar (the plain spelling) stays a limit` | Left alone — declined by the flag criterion, which resolved-scope row 3 fixes. |
-| 8 | same test, "the mixed spelling" | Left alone — same reason; the assignment word route already dequotes it and the flag criterion still declines. |
+| 7 | `multiword binding value: a quoted run: scalar (the plain spelling) stays a limit` | Left alone — declined by the flag criterion, which resolved-scope row 3 fixes. **Reason superseded 2026-08-22, see note below.** |
+| 8 | same test, "the mixed spelling" | Left alone — same reason; the assignment word route already dequotes it and the flag criterion still declines. **Reason superseded 2026-08-22, see note below.** |
 | 9 | `a \U escape AT the Unicode maximum still decodes` (its paired zero for `\U00110000psql`) | Left alone — `decodeAnsiCEscape` is untouched; arm 2 re-lexes operands THROUGH it, so the conservative reading is inherited rather than changed. |
 | 10 | `the derived roots really were derived…` / `never contains the tracked source root %s` (the §4.2 root-skip stays-quiet pin) | Left alone — different surface (gitignore root-skip derivation); neither arm touches `rootSkipNamesFromGitignore` or the walk. |
 | 11 | `a template literal's \u{...} above the Unicode maximum keeps its raw reading` | Left alone — `mapRawToLines`, `decodeAnsiCEscape` and the template path are untouched. This is a DISTINCT limit from pin 9 and a differently shaped one: the site is still REPORTED but NOT CERTIFIED, because the guard cannot read the argv it would have to certify. It asserts a suppression verdict, not a zero, which is why a zero-assertion census could not see it. |
+
+**Rows 7 and 8, superseded in part 2026-08-22** by
+`docs/superpowers/specs/ci/2026-08-22-workflow-run-scalar-yaml-decode-design.md`
+(`BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE`). The ACTION each row records is true and stays: this
+arc did leave those pins alone. The REASON is what falls — the flag criterion never declined
+those rows, it never saw them, because `scanShellIndirection` lexed the whole YAML file and the
+scalar's YAML quotes were read as shell quotes. Both pins have since been retired and re-pinned
+as hits. Canonical record: the note on §6 item 2 of the 2026-08-17 design.
 
 Two pins retire; nine are left alone with a reason. The two retiring rows live in ONE test over a
 six-row literal array, so the edit is two rows out of that array plus two new positive assertions —
@@ -614,6 +622,12 @@ rather than one that is absent. No limit in this list is a false certification.
    removed from this bullet** (arm 1).
 2. A multiword assignment value whose psql command carries no flag-shaped token, including a quoted
    YAML `run:` scalar and a quoted directory component carrying IFS whitespace. Unchanged.
+
+   **Superseded in part, 2026-08-22** (`BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE`): the quoted YAML
+   `run:` scalar clause no longer holds — it now reports. The sentence above is left standing
+   rather than rewritten, so what the limit claimed stays legible next to the note that retires
+   it; the directory-component clause is untouched and still holds. Canonical record: the note on
+   §6 item 2 of the 2026-08-17 design.
 3. **NEW, and it is the sharpest limit in this list.** The ATTACHED redirection target family is not
    read at all. The attached-target regex wholly consumes its match, so a target that CONTAINS A
    COMMAND SUBSTITUTION hides an executing command from BOTH scanners — zero sites and zero
