@@ -764,7 +764,14 @@ export function main() {
       );
       continue;
     }
-    writeFileSync(kill.file, before.replace(kill.from, kill.to), "utf8");
+    // Replacer function: `kill.to` is AUTHORED code text, and as a replacement STRING a `$&` or
+    // `$'` in it would apply as something other than what the author wrote — and this one is
+    // written straight to disk.
+    writeFileSync(
+      kill.file,
+      before.replace(kill.from, () => kill.to),
+      "utf8",
+    );
     let outcome;
     try {
       outcome = runSuite(kill.live === true ? LIVE_SUITE : SUITE, kill.filter, kill.live === true);

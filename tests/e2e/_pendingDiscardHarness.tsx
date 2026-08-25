@@ -173,8 +173,8 @@ export function armedHtml(width: number): string {
     );
   }
   const armedEl = ignoreEl
-    .replace(DISCARD_RESTING_CLASS, IGNORE_ARMED_CLASS)
-    .replace(IDLE_STACK, ARMED_STACK);
+    .replace(DISCARD_RESTING_CLASS, () => IGNORE_ARMED_CLASS)
+    .replace(IDLE_STACK, () => ARMED_STACK);
   if (!armedEl.includes(IGNORE_ARMED_CLASS) || !armedEl.includes(ARMED_STACK)) {
     throw new Error(
       "armed substitution did not apply inside the Ignore button — the component no " +

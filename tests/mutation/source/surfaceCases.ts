@@ -146,7 +146,10 @@ export function registerSurfaceCases(
         // taskContract's text inside this describe.each, which meant enrolling a
         // second surface red the gate.
         const source = readFileSync(surface.sourcePath, "utf8");
-        const broken = source.replace(surface.control.from, surface.control.to);
+        // Replacer function: `control.to` is registry-AUTHORED code text, so a `$` sequence in it
+        // would apply as something other than its declared text and this liveness proof would
+        // then be testing bytes nobody wrote.
+        const broken = source.replace(surface.control.from, () => surface.control.to);
         expect(
           broken,
           "control did not apply; validateSurface should have rejected this row",

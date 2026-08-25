@@ -3694,7 +3694,7 @@ describe("R6: scanner changes are pinned", () => {
       "{flag ? a === b : !x}",
     ]) {
       reports(
-        `const A=({flag,a,b,x})=><a href="x" target="_blank">${expr.replace("HID", hid)} <NewTabHint /></a>;`,
+        `const A=({flag,a,b,x})=><a href="x" target="_blank">${expr.replace("HID", () => hid)} <NewTabHint /></a>;`,
         /only visible content is the announcement/,
         `a falsy left operand selects the right: ${expr}`,
       );

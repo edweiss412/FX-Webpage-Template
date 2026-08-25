@@ -12,10 +12,16 @@ import { redactEmails } from "@/lib/log/sanitize";
 // is replaced. Both segments are whitespace-bounded so a token embedded in prose does not
 // swallow following words, and a trailing `?s=...&gate=...` / `#frag` is preserved.
 const SHOW_TOKEN_RE = /(\/show\/[^/?#\s]+\/)[^/?#\s]+/g;
-const TOKEN_PLACEHOLDER = "$1[shareToken-redacted]";
+// The `/show/<slug>/` prefix rides through the scrub as a CAPTURE, taken as a replacer
+// parameter rather than written as `$1` in a replacement string. A replacement string is parsed
+// by `String.replace` — `$&`, `` $` ``, `$'`, `$n` are all interpreted there — so the sweep in
+// spec 2026-08-24-replacement-string-class-sweep wraps every runtime replacement in this repo to
+// disable that grammar. Wrapping THIS one naively would have emitted a literal `$1` and dropped
+// the slug from every scrubbed URL, which is the one repair this sweep must not make.
+const REDACTED_TOKEN = "[shareToken-redacted]";
 
 function scrubUrl(value: string): string {
-  return value.replace(SHOW_TOKEN_RE, TOKEN_PLACEHOLDER);
+  return value.replace(SHOW_TOKEN_RE, (_match, prefix: string) => `${prefix}${REDACTED_TOKEN}`);
 }
 function scrubText(value: string): string {
   return redactEmails(scrubUrl(value));

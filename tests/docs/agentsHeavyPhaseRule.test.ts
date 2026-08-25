@@ -818,12 +818,12 @@ describe("AGENTS.md heavy-phase rule", () => {
    */
   const withinRule = (text: string, edit: (rule: string) => string): string => {
     const rule = extractRule(text);
-    return rule === null ? text : text.replace(rule, edit(rule));
+    return rule === null ? text : text.replace(rule, () => edit(rule));
   };
   const editRule =
     (find: string, replace: string) =>
     (text: string): string =>
-      withinRule(text, (rule) => rule.replace(find, replace));
+      withinRule(text, (rule) => rule.replace(find, () => replace));
 
   const OPERATORS: Array<[string, (text: string) => string]> = [
     ["delete the whole bullet", (text) => withinRule(text, () => "")],
@@ -889,7 +889,7 @@ describe("AGENTS.md heavy-phase rule", () => {
       (text) =>
         text.replace(
           RULE_OPENER_FOR_TESTS,
-          "### Retired guidance (non-normative)\n\n" + RULE_OPENER_FOR_TESTS,
+          () => "### Retired guidance (non-normative)\n\n" + RULE_OPENER_FOR_TESTS,
         ),
     ],
     [
@@ -912,7 +912,7 @@ describe("AGENTS.md heavy-phase rule", () => {
       "comment the whole rule out of the normative document",
       (text) =>
         text
-          .replace(RULE_OPENER_FOR_TESTS, `<!--\n${RULE_OPENER_FOR_TESTS}`)
+          .replace(RULE_OPENER_FOR_TESTS, () => `<!--\n${RULE_OPENER_FOR_TESTS}`)
           .replace(
             "\n---\n\n## Cross-CLI orchestrator discipline",
             "\n---\n-->\n\n## Cross-CLI orchestrator discipline",
@@ -1088,7 +1088,7 @@ describe("AGENTS.md heavy-phase rule", () => {
   it.each(SIBLINGS)("stays quiet when %s is appended after the rule", (_label, sibling) => {
     const rule = extractRule(LIVE);
     premiseHolds("the live rule was located", rule !== null);
-    const withSibling = LIVE.replace(rule!, rule! + sibling);
+    const withSibling = LIVE.replace(rule!, () => rule! + sibling);
     premiseHolds("the sibling was actually appended", withSibling !== LIVE);
     expect(checkHeavyPhaseRule(withSibling)).toEqual([]);
   });
@@ -1117,7 +1117,7 @@ describe("AGENTS.md heavy-phase rule", () => {
       (text) =>
         text.replace(
           "## Cross-cutting discipline (from milestone retrospectives)",
-          "## Cross-cutting discipline background\n\nA short background note.\n\n" +
+          () => "## Cross-cutting discipline background\n\nA short background note.\n\n" +
             "## Cross-cutting discipline (from milestone retrospectives)",
         ),
     ],
@@ -1126,7 +1126,7 @@ describe("AGENTS.md heavy-phase rule", () => {
       (text) =>
         text.replace(
           "## Cross-cutting discipline (from milestone retrospectives)",
-          "Cross-cutting discipline (from milestone retrospectives)\n" + "-".repeat(58),
+          () => "Cross-cutting discipline (from milestone retrospectives)\n" + "-".repeat(58),
         ),
     ],
     [
