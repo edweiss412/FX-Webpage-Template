@@ -40,13 +40,22 @@ describe("scratch-root cleanup (BL-MUTATION-SCRATCH-FS-EVENT-STORM)", () => {
     expect(families(run.survivors)).toEqual([]);
   });
 
-  it("removes every root it creates even when a case fails", { timeout: 600_000 }, () => {
-    // Fail on a write that lands after roots exist. A failure in a case that
-    // created no root proves nothing: the other cases clean up after themselves
-    // and there is nothing left behind to find.
-    const run = runSuiteSet(SUBJECTS, { failAfter: 1 });
-    premiseHolds(`the injected failure took (exit ${run.exitCode})`, run.exitCode !== 0);
-    premise("scratch roots created before the failure", run.created.length, 0);
-    expect(families(run.survivors)).toEqual([]);
-  });
+  // The failure arm runs PER FILE, unlike the success arm above. One child with
+  // an injected fail-on-first-write dies early, so a single run would only ever
+  // exercise whichever suite happened to start first and would report the other
+  // twelve as covered. Per file is affordable precisely because each child dies
+  // fast: the cost is startup, not suite time.
+  it.each(SUBJECTS)(
+    "removes every root it creates even when a case fails: %s",
+    (file) => {
+      // Fail on a write that lands after roots exist. A failure in a case that
+      // created no root proves nothing: the other cases clean up after themselves
+      // and there is nothing left behind to find.
+      const run = runSuiteSet([file], { failAfter: 1 });
+      premiseHolds(`the injected failure took (exit ${run.exitCode})`, run.exitCode !== 0);
+      premise("scratch roots created before the failure", run.created.length, 0);
+      expect(families(run.survivors)).toEqual([]);
+    },
+    120_000,
+  );
 });

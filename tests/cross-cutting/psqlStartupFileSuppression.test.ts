@@ -36,7 +36,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ts from "typescript";
-import { describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 
 import { premise, premiseHolds } from "../_shared/premise";
 import { stripCommentsForFile } from "../_shared/stripComments";
@@ -55,6 +55,27 @@ import {
   scanWorkflowIndirection,
   tokenSuppressesStartupFiles,
 } from "./psqlStartupFiles/scan";
+
+/**
+ * Scratch roots this file creates, removed together in `afterAll`.
+ *
+ * The per-case `finally` blocks below stay and are still the primary cleanup;
+ * this is the backstop for the gap they cannot cover. Each root is created
+ * BEFORE the `try` that removes it, so a failure between those two lines leaks
+ * it — which is exactly what the failure arm of
+ * `tests/mutation/_metaScratchRootCleanup.test.ts` found here. `rmSync` with
+ * `force` is idempotent, so removing an already-removed root is a no-op.
+ * Row: BL-MUTATION-SCRATCH-FS-EVENT-STORM.
+ */
+const scratchRoots: string[] = [];
+function trackScratch(root: string): string {
+  scratchRoots.push(root);
+  return root;
+}
+afterAll(() => {
+  for (const root of scratchRoots) rmSync(root, { recursive: true, force: true });
+  scratchRoots.length = 0;
+});
 
 const REPO_ROOT = join(__dirname, "..", "..");
 
@@ -1652,7 +1673,7 @@ describe("an unreadable directory is reported, never skipped", () => {
   // list is empty. Root bypasses directory permissions, so the probe cannot run
   // there — the live assertion above still holds either way.
   test.skipIf(isRoot)("chmod 000 on a directory holding a psql site fails the census", () => {
-    const root = mkdtempSync(join(tmpdir(), "psql-unreadable-"));
+    const root = trackScratch(mkdtempSync(join(tmpdir(), "psql-unreadable-")));
     const blocked = join(root, "scripts");
     mkdirSync(blocked, { recursive: true });
     writeFileSync(join(blocked, "probe.sh"), 'psql "$DSN" -qAt -c "select 1"\n', "utf8");
@@ -1735,7 +1756,7 @@ describe("the walk skips gitignore-declared roots and names what it cannot parse
   const PSQL_SITE = 'execFileSync("psql", ["-qAt", dsn]);\n';
 
   function buildTree(gitignoreText: string | null): string {
-    const root = mkdtempSync(join(tmpdir(), "psql-gitignore-"));
+    const root = trackScratch(mkdtempSync(join(tmpdir(), "psql-gitignore-")));
     if (gitignoreText !== null) writeFileSync(join(root, ".gitignore"), gitignoreText, "utf8");
     mkdirSync(join(root, "genout"), { recursive: true });
     writeFileSync(join(root, "genout", "bundle.js"), DEEP_BUNDLE, "utf8");
@@ -1775,7 +1796,7 @@ describe("the walk skips gitignore-declared roots and names what it cannot parse
   });
 
   test("an ABSENT .gitignore yields an empty derived set, not a fallback to literals", () => {
-    const root = mkdtempSync(join(tmpdir(), "psql-nogitignore-"));
+    const root = trackScratch(mkdtempSync(join(tmpdir(), "psql-nogitignore-")));
     try {
       mkdirSync(join(root, "out"), { recursive: true });
       writeFileSync(join(root, "out", "probe.sh"), 'psql "$DSN" -qAt -c "select 1"\n', "utf8");
@@ -1788,7 +1809,7 @@ describe("the walk skips gitignore-declared roots and names what it cannot parse
   });
 
   test("the ratified root-relative `docs` skip survives the derivation", () => {
-    const root = mkdtempSync(join(tmpdir(), "psql-docs-skip-"));
+    const root = trackScratch(mkdtempSync(join(tmpdir(), "psql-docs-skip-")));
     try {
       mkdirSync(join(root, "docs"), { recursive: true });
       writeFileSync(join(root, "docs", "quoted.sh"), 'psql "$DSN" -qAt -c "select 1"\n', "utf8");
@@ -6739,7 +6760,7 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
   // actually executed it. A row that stops executing changes its own
   // expectation, so the test cannot rot into asserting a stale belief.
   test("the scanner agrees with BASH on every arithmetic-versus-substitution spelling", () => {
-    const dir = mkdtempSync(join(tmpdir(), "arith-oracle-"));
+    const dir = trackScratch(mkdtempSync(join(tmpdir(), "arith-oracle-")));
     const bin = join(dir, "bin");
     mkdirSync(bin);
     const fake = join(bin, "psql");
