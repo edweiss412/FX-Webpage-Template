@@ -44,7 +44,8 @@ the request it landed on.
 | This spec does not diagnose why the gateway resets the connection. It absorbs the fault and instruments the next occurrence so the cause becomes observable. | §7, §9 |
 | Volatility alone is NOT the answer to the double-execution axis. It is one of two arms, and the reason is a probe, not a preference. Round 1 raised this and the spec had already reached the same place independently. | §4 |
 | On exhaustion the wrapper replays the FIRST attempt's outcome, so the caller-visible failure is what it is today. This is the answer to the mixed-failure axis, not an omission of it. | §3.4 |
-| Discovery is repo-wide by RPC NAME, never scoped to callers of the factory. Round 2 demonstrated the scoped rule failing in both directions at once. | §4.4 |
+| Discovery matches string literals against the catalog's non-`VOLATILE` set; it does not recognize call sites. Two call-site rules failed one round apart. | §4.4 |
+| §7's dump triggers on the FAULT (Kong's 502 body in the run output), not on a retry emit, so it reaches the service-role paths the wrapper excludes. | §7 |
 
 ## 2. Convergence criterion for review of this spec
 
@@ -108,6 +109,14 @@ The wrapper retries a request when ALL of the following hold:
 
 Everything else is returned or rethrown exactly as it is today. The wrapper never reads a body, never
 converts a status into a different one, and never swallows a rejection.
+
+**The status set needs no measured population of its own, and the reason is structural.** Only 502 was
+observed, so retrying 503 and 504 looks like the same unmeasured guess the GET clause is fenced as.
+It is not: §4 already restricts every retryable request to a function the database has proven cannot
+write, so a retry can only ever RE-EXECUTE A PROVEN READ, whatever status triggered it. That makes the
+status set a latency decision bounded by §3.5's budget rather than a safety one. 504 is the case that
+makes this worth stating: retrying a timeout is normally the dangerous one, because the original
+request may still be running. Here what may still be running is a read.
 
 ### 3.3 The `/rpc/` path segment is load-bearing
 
@@ -262,29 +271,38 @@ and asserts:
 - **Safety.** Every name in `RETRYABLE_RPCS` is non-`VOLATILE` AND completes inside a `READ ONLY`
   transaction. This is the direction that prevents double execution, so a name that cannot be resolved
   in the catalog FAILS rather than being skipped.
-- **Completeness.** Every `.rpc("<name>")` in the repository whose function the catalog reports as
+- **Completeness.** Every string literal in the tree that matches a name the catalog reports as
   non-`VOLATILE` is EITHER in `RETRYABLE_RPCS` or in an explicit exclusion list carrying a reason.
-  Discovery walks the filesystem repo-wide, so a call site added later is covered by default rather
-  than silently exempt.
+  Discovery walks the filesystem repo-wide, so a name added later is covered by default rather than
+  silently exempt.
 
-**Discovery is repo-wide by NAME, and scoping it to callers of the factory was tried and is wrong.**
-Round 2 of review demonstrated both failure directions on one rule. Scoping discovery to files that
-import `createSupabaseServerClient` is UNDER-inclusive, because the client travels as a value:
-`listShowsForCrew` takes it as a parameter (`lib/data/listShowsForCrew.ts`, search
-`export async function listShowsForCrew`) and its caller constructs it (`app/me/page.tsx`, search
-`await createSupabaseServerClient()`), so `my_share_tokens_for_email` is invisible to an
-import-scoped walk. It is simultaneously OVER-inclusive, because that same file names the factory in
-its COMMENTS, which is why a text scan appeared to find it.
+**Discovery matches literals against the catalog; it does not recognize call sites.** Two attempts at
+a call-site rule failed, one round apart, and the second is why this arm no longer tries.
 
-Name-level totality is also the correct GRAIN, not merely a safer one. Eligibility is decided at
-request time from the URL, so the question a call site can answer is which function, never which
-client. Excluding by construction site would be answering a question the wrapper never asks.
+Round 2 killed import scoping: the client travels as a value, so `listShowsForCrew`'s parameter-passed
+client is invisible to an import-scoped walk (`lib/data/listShowsForCrew.ts`, search
+`export async function listShowsForCrew`), while that same file names the factory in COMMENTS and so
+matches a text scan. Under-inclusive and over-inclusive at once.
 
-Discovery PARSES rather than line-greps, and the reason is now first-hand rather than hypothetical:
-this spec's own earlier membership list came from a line-grep, which surfaced `readfinalizeowned_b2`
-and was dismissed as an artifact of two lines running together. The name was real
-(`app/admin/_showReviewModal.tsx`, search `readfinalizeowned_b2`), and dropping it left a genuine
-member uncovered. The line-grep did not invent the name. The dismissal did.
+Keying on `.rpc("<name>")` fails one indirection further out. `lib/showLifecycle/_shared.ts` (search
+`export const defaultRpc`) calls `supabase.rpc(fn, args)` with the name as a PARAMETER, and the names
+arrive at a different call shape entirely (`lib/showLifecycle/archiveShow.ts`, search
+`callLifecycleRpc`). Those four names are VOLATILE, so today's retry set is unaffected and the runtime
+rule still decides correctly from the URL. But a future non-`VOLATILE` RPC through that helper would
+be invisible to a `.rpc(`-keyed walk, which is round 2's failure shape repeated at a longer range.
+
+So the arm stops recognizing the call and matches against a finite external list instead. The catalog
+decides which names matter; the walk only has to find a MENTION of one. Over-inclusion is safe by
+construction: a spurious match forces a name into "in the set or excluded with a reason" and can never
+cause a retry on its own, so the arm's errors all point at more scrutiny rather than less.
+
+This is the same move the volatility arm already makes, and it is deliberately not a smarter parser.
+Each previous rule was a recognizer, and each round widened it; this one cannot be widened, because it
+recognizes nothing.
+
+**Documented limit, narrow and stated:** a name assembled by concatenation, or read from data at
+runtime, is reachable by neither the catalog match nor any call-site rule. No such construction exists
+in the tree today, and adding one would need a deliberate edit that this limit names in advance.
 
 Both arms carry an executable premise (`tests/_shared/premise.ts`, search `export function premise`):
 the catalog query must return rows and the walk must find call sites. A test that passes because it
@@ -320,7 +338,9 @@ This is a forensic log code, not a user-visible one. It does not enter master sp
 catalog row. The sibling forensic code `ADMIN_SHOW_VERSION_TOKEN_READ_FAILED` appears in neither
 `lib/messages/catalog.ts` nor the master spec, verified by grep at authoring time.
 
-The emit is also what §7 triggers on, which is what makes the instrument reach the green path.
+The emit is a SECONDARY signal for §7, not its trigger: it tells a reader of the artifact whether the
+fault was absorbed. §7 keys on Kong's 502 body instead, because an emit only exists where the wrapper
+runs and the fault also occurs where it does not.
 
 ### 6.1 The emit cannot re-enter the wrapper
 
@@ -345,21 +365,39 @@ own logs. `.github/workflows/app-e2e.yml` gains a step that dumps, for the Supab
 gateway and PostgREST logs plus each container's restart count and `OOMKilled` state, uploaded with the
 existing artifact.
 
-**It does not run only on failure, and that is the whole point.** Most 502-bearing jobs are already
-green (probe §Finding 2), and a working retry moves still more occurrences onto the green path, so an
-`if: failure()` trigger would go dark exactly as the repair starts working. The step runs when the run
-FAILED **or** when the run's own output carries a `SUPABASE_UPSTREAM_RETRY` emit. A green run that
-absorbed a 502 is the most informative artifact this class has ever produced, and it is precisely the
-one a failure-only trigger discards.
+**It does not run only on failure, and it does not key on the retry either.** Both of those triggers
+go dark exactly when they are most needed.
+
+Failure-only goes dark because most 502-bearing jobs are already green (probe §Finding 2), and a
+working retry moves still more occurrences onto the green path.
+
+Retry-keyed goes dark for a subtler reason that round 3 of review found, and it is worth stating
+because the earlier draft got it wrong. A retry emit only exists where the wrapper runs, and the
+wrapper is scoped to one client (§3.1). Four non-`VOLATILE` RPCs are called through the excluded
+service-role client and degrade silently rather than failing anything: `admin_alert_summary`
+(`lib/admin/loadAlertSummary.ts`) and `admin_event_stats_24h` (`lib/admin/loadTelemetryStats.ts`)
+return `infra_error`; `roster_shift_counts` (`lib/admin/loadRecentAutoApplied.ts`) returns
+`infra_error` and the dashboard deliberately keeps rendering; and the version route
+(`app/api/show/[slug]/version/route.ts`) returns 500, which `ShowRealtimeBridge`
+(`components/realtime/ShowRealtimeBridge.tsx`, search `transient_failure`) classifies as transient
+and swallows. A 502 on any of those leaves the job green AND produces no emit.
+
+**So the trigger keys on the FAULT, not on the repair.** The step runs when the run FAILED, or when
+the run's own output contains Kong's 502 body, `An invalid response was received from the upstream
+server`. That is the same discriminating string the evidence pass used to find this class in the
+first place (probe §Finding 1), it appears whichever client made the call, and it does not care
+whether a retry followed.
+
+Three properties follow, and they are why this is the right trigger rather than a wider one:
+
+- The instrument is INDEPENDENT of the repair. It would have worked before this spec existed, and it
+  keeps working if the retry is later narrowed or removed.
+- It needs no product change to reach the service-role paths, so §7's coverage does not have to buy
+  itself by widening the wrapper across that client's many callers.
+- A `SUPABASE_UPSTREAM_RETRY` emit remains a useful SECONDARY signal in the artifact, telling a reader
+  whether the fault was absorbed. It is no longer the gate.
 
 A run with neither condition uploads nothing and pays nothing.
-
-This is also why §4.4's membership has to be total. `readfinalizeowned_b2` fails OPEN: its 502 branch
-logs `ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED` and returns `false`
-(`app/admin/_showReviewModal.tsx`, search `readFinalizeOwned`), so a 502 there produces no test
-failure and, if the name were outside the set, no retry emit either. Both trigger conditions would be
-false and the occurrence would go unrecorded. A member missing from the set does not merely lose its
-retry; it takes the instrument down with it.
 
 Verified commands, against a live local stack:
 
@@ -420,16 +458,30 @@ captured run rather than after another inference round.
   section claimed every member was `sql`-language; that claim was false and is the reason this
   paragraph now states the split instead of a blanket.
 
-- **The population is thirteen, derived repo-wide.** A content-level scan of every `.rpc("<name>")` in
-  the tree returns 46 distinct names; the catalog reports thirteen of them non-`VOLATILE`:
-  `admin_alert_summary`, `admin_event_stats_24h`, `admin_read_share_token`, `auth_email_canonical`,
+- **The population is thirteen, out of forty-five runtime RPC names.** The count's scope is stated
+  because round 3 found the earlier one unreproducible: 41 distinct names appear as literals in
+  `.rpc("<name>")` across `app`, `components`, `lib`, `scripts` and `supabase`, and resolving the one
+  computed call (`lib/showLifecycle/_shared.ts`, search `export const defaultRpc`) adds the four
+  lifecycle names, giving 45 runtime names. An earlier draft said 46, having counted a test-only name.
+
+  The catalog reports thirteen of the 45 as non-`VOLATILE`: `admin_alert_summary`,
+  `admin_event_stats_24h`, `admin_read_share_token`, `auth_email_canonical`,
   `get_admin_show_review_snapshot`, `is_admin`, `is_developer`, `is_session_live`,
   `my_share_tokens_for_email`, `readfinalizeowned_b2`, `resolve_show_by_slug_and_token`,
-  `roster_shift_counts`, `viewer_version_token`.
+  `roster_shift_counts`, `viewer_version_token`. The remaining 32 are VOLATILE and excluded by the
+  rule.
 
-  Six of those were the measured consumers. An earlier draft claimed eight, from an import-scoped text
-  scan; that number missed five members and is corrected here rather than quietly restated. The
-  remaining thirty-three names are VOLATILE and are excluded by the rule.
+  Six of the thirteen were the measured consumers. An earlier draft claimed eight, from an
+  import-scoped text scan; that number missed five members and is corrected here rather than quietly
+  restated.
+
+- **Four of the thirteen are reached ONLY through the excluded service-role client** and are therefore
+  never retried: `admin_alert_summary`, `admin_event_stats_24h`, `roster_shift_counts`, and the
+  version route's `viewer_version_token`. That is deliberate and unchanged, because the measured
+  incident is on the session client, and widening the wrapper across the service-role client's many
+  callers would buy retry coverage for paths that already degrade without failing anything. What their
+  exclusion must NOT cost is attribution, which is why §7's trigger keys on the fault rather than on
+  the retry.
 
 - **Every client construction site, and its disposition.** Stated as a census rather than an adjective,
   because a reader can check a census:
@@ -437,9 +489,15 @@ captured run rather than after another inference round.
   | site | disposition |
   | --- | --- |
   | `lib/supabase/server.ts`, search `createServerClient(` | WRAPPED. The factory this spec installs into. |
-  | `lib/supabase/server.ts`, search `createSupabaseServiceRoleClient` | excluded, and §6.1's recursion fence depends on that exclusion. |
+  | `lib/supabase/server.ts`, search `createSupabaseServiceRoleClient` | excluded. See the service-role limit above; §6.1's recursion fence also rests on it. |
   | `lib/supabase/browser.ts`, search `getSupabaseBrowserClient` | excluded, client-side. |
-  | `app/api/test-auth/set-session/route.ts`, search `createServerClient(` | excluded. A second cookie-bound ssr client, `ENABLE_TEST_AUTH`-gated test infrastructure that never serves a crew or admin request. Named because it is the same SHAPE as the wrapped factory, so a reviewer sweeping for missed sites will find it. |
+  | `app/api/test-auth/set-session/route.ts`, search `createServerClient(` | excluded. A second cookie-bound ssr client, `ENABLE_TEST_AUTH`-gated test infrastructure that never serves a crew or admin request. |
+  | `app/api/test-auth/set-session/route.ts`, search `createClient(` | excluded. The same route's service-role client, same gate. |
+  | `lib/dev/materialize/client.ts`, search `createClient(` | excluded. Dev-materialize tooling, not a request path. |
+
+  Scope is stated because the previous census could not be reproduced: these are the SIX construction
+  sites under `app/`, `components/` and `lib/`. Counting `scripts/`, `tests/` and `supabase/` as well
+  gives 33. The last two rows are the ones round 3 found missing.
 
   There is no middleware.ts in this tree, which is worth stating positively: middleware is the usual
   second home for a cookie-bound client, and its absence is why this census is four rows.
