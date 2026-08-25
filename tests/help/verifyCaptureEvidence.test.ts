@@ -253,8 +253,8 @@ describe("schema completeness, so a record cannot describe nothing", () => {
   it("rejects entries missing the always-present fields", () => {
     const stripped = CLEAN.map(({ capturedAtUtc: _a, faultHits: _b, ...rest }) => rest);
     const problems = verifyEvidence({ ...HEADER, entries: stripped }, EXPECTED, {});
-    expect(problems.some((p) => p.includes("is missing capturedAtUtc"))).toBe(true);
-    expect(problems.some((p) => p.includes("is missing faultHits"))).toBe(true);
+    expect(problems.some((p) => p.includes("no usable capturedAtUtc"))).toBe(true);
+    expect(problems.some((p) => p.includes("faultHits is not an array of strings"))).toBe(true);
   });
 
   it("rejects an entry with no frozenClockInstant", () => {
@@ -262,7 +262,7 @@ describe("schema completeness, so a record cannot describe nothing", () => {
     // the capture ran under the frozen clock rather than a live one.
     const stripped = CLEAN.map(({ frozenClockInstant: _f, ...rest }) => rest);
     const problems = verifyEvidence({ ...HEADER, entries: stripped }, EXPECTED, {});
-    expect(problems.some((p) => p.includes("is missing frozenClockInstant"))).toBe(true);
+    expect(problems.some((p) => p.includes("no usable frozenClockInstant"))).toBe(true);
   });
 
   it("rejects a header without the machine fields, even locally", () => {
@@ -270,15 +270,19 @@ describe("schema completeness, so a record cannot describe nothing", () => {
     // docker, so `--local` does not waive them.
     const { cpuModel: _m, cpuCount: _c, ...header } = HEADER as Record<string, unknown>;
     const problems = verifyEvidence({ ...header, entries: CLEAN }, EXPECTED, { local: true });
-    expect(problems.some((p) => p.includes("cpuModel is missing"))).toBe(true);
-    expect(problems.some((p) => p.includes("cpuCount is missing"))).toBe(true);
+    expect(problems.some((p) => p.includes("cpuModel is missing or not a non-empty string"))).toBe(
+      true,
+    );
+    expect(problems.some((p) => p.includes("cpuCount is missing or not a positive integer"))).toBe(
+      true,
+    );
   });
 
   it("rejects hash fields that are present but are not sha256 digests", () => {
     // Presence alone proved nothing about the bytes the hash claims to identify.
     const bogus = CLEAN.map((e) => ({ ...e, pixelSha256: "nope", webpSha256: "nah" }));
     const problems = verifyEvidence({ ...HEADER, entries: bogus }, EXPECTED, {});
-    expect(problems.some((p) => p.includes("not a sha256 digest"))).toBe(true);
+    expect(problems.some((p) => p.includes("pixelSha256 is not valid"))).toBe(true);
   });
 
   it("still accepts a genuine clean record", () => {
@@ -308,5 +312,86 @@ describe("AC-5's staging artifact hash comparison", () => {
   it("skips refused entries, which wrote no bytes by design", () => {
     const entries = [entry("one", "light", { refusedReason: "render-fault", webpSha256: null })];
     expect(verifyStagingHashes(entries, "/stage", () => Buffer.from("x"))).toEqual([]);
+  });
+});
+
+describe("round 2: the validator checks TYPE and DOMAIN, not just presence", () => {
+  const refusal = (over: Record<string, unknown>) =>
+    entry("one", "light", {
+      pixelWidth: null,
+      pixelHeight: null,
+      pixelSha256: null,
+      webpBytes: null,
+      webpSha256: null,
+      ...over,
+    });
+
+  it("rejects a refused entry whose identity is not the one the manifest expects there", () => {
+    // The prefix was checked and the refused entry itself was not, so a record
+    // could certify a refusal attributed to a capture nobody requested.
+    const wrong = [
+      entry("ghost", "dark", {
+        pixelWidth: null,
+        pixelHeight: null,
+        pixelSha256: null,
+        webpBytes: null,
+        webpSha256: null,
+        refusedReason: "render-fault",
+        faultHits: ["x"],
+      }),
+    ];
+    const problems = verifyEvidence({ ...HEADER, entries: wrong }, EXPECTED, {});
+    expect(problems.some((p) => p.includes("but the manifest expects"))).toBe(true);
+  });
+
+  it("rejects NUMERIC hash fields, which the shape check used to decline to inspect", () => {
+    // The exact hole: the digest check was guarded by `typeof value === "string"`,
+    // so it skipped the values most likely to be wrong.
+    const bogus = [
+      entry("one", "light", { pixelSha256: 123, webpSha256: 456 }),
+      entry("one", "dark"),
+    ];
+    const problems = verifyEvidence({ ...HEADER, entries: bogus }, EXPECTED, {});
+    expect(problems.some((p) => p.includes("pixelSha256 is not valid"))).toBe(true);
+  });
+
+  it("rejects string and negative dimensions", () => {
+    const bad = [
+      entry("one", "light", { pixelWidth: "1", pixelHeight: -5, webpBytes: "12" }),
+      entry("one", "dark"),
+    ];
+    const problems = verifyEvidence({ ...HEADER, entries: bad }, EXPECTED, {});
+    expect(problems.some((p) => p.includes("pixelWidth is not valid"))).toBe(true);
+    expect(problems.some((p) => p.includes("pixelHeight is not valid"))).toBe(true);
+  });
+
+  it("rejects a selector-absent refusal that names no absentSelector", () => {
+    const problems = verifyEvidence(
+      { ...HEADER, entries: [refusal({ refusedReason: "selector-absent" })] },
+      EXPECTED,
+      {},
+    );
+    expect(problems.some((p) => p.includes("names no absentSelector"))).toBe(true);
+  });
+
+  it("rejects a fault refusal carrying no fault evidence", () => {
+    // A refusal has to carry the evidence its own reason promises.
+    const problems = verifyEvidence(
+      { ...HEADER, entries: [refusal({ refusedReason: "render-fault", faultHits: [] })] },
+      EXPECTED,
+      {},
+    );
+    expect(problems.some((p) => p.includes("records no faultHits"))).toBe(true);
+  });
+
+  it("rejects a non-digest claimed hash in the staging comparison instead of skipping it", () => {
+    // Skipping was the same defect one layer down: the malformed claim silently
+    // waived the comparison that exists to check it.
+    const problems = verifyStagingHashes(
+      [entry("one", "light", { webpSha256: 999 })] as never,
+      "/stage",
+      () => null,
+    );
+    expect(problems.some((p) => p.includes("cannot be compared"))).toBe(true);
   });
 });

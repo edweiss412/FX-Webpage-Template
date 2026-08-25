@@ -17,17 +17,41 @@ export class SelectorAbsentError extends Error {
   readonly selector: string;
   readonly markers: string[];
 
-  constructor(selector: string, markers: string[]) {
+  /** The distinct capture selector and how many elements it matched, when one was checked. */
+  readonly captureSelector?: string;
+  readonly captureSelectorMatches?: number;
+
+  constructor(
+    selector: string,
+    markers: string[],
+    observed: { captureSelector?: string; captureSelectorMatches?: number } = {},
+  ) {
     const found = markers.length > 0 ? markers.join(", ") : "none";
-    super(`capture selector ${selector} never resolved; document markers: ${found}`);
+    // "did not become visible" rather than "never resolved": the wait is on
+    // `state: "visible"`, and a present-but-hidden element times out the same
+    // way an absent one does. Claiming absence overstates what was observed.
+    const capture =
+      observed.captureSelector !== undefined
+        ? `; capture selector ${observed.captureSelector} matched ${observed.captureSelectorMatches ?? 0} element(s)`
+        : "";
+    super(
+      `readiness selector ${selector} did not become visible${capture}; document markers: ${found}`,
+    );
     this.name = "SelectorAbsentError";
     this.selector = selector;
     this.markers = markers;
+    if (observed.captureSelector !== undefined) this.captureSelector = observed.captureSelector;
+    if (observed.captureSelectorMatches !== undefined)
+      this.captureSelectorMatches = observed.captureSelectorMatches;
   }
 }
 
-async function refuse(page: Page, selector: string): Promise<never> {
-  throw new SelectorAbsentError(selector, await detectRenderFaults(page));
+async function refuse(
+  page: Page,
+  selector: string,
+  observed: { captureSelector?: string; captureSelectorMatches?: number } = {},
+): Promise<never> {
+  throw new SelectorAbsentError(selector, await detectRenderFaults(page), observed);
 }
 
 /**
@@ -58,7 +82,12 @@ export async function quiesceWithLayer0(
     stableMs?: number;
   },
 ): Promise<void> {
-  const attributedSelector = opts.captureSelector ?? opts.waitForSelector;
+  // Attribute to the selector we ACTUALLY waited on, never to one we did not
+  // query. The old form reported `captureSelector ?? waitForSelector`, so when
+  // the two differ a readiness timeout was reported as absence of the CAPTURE
+  // selector without that selector ever being looked at. The operator then went
+  // hunting an element that was present the whole time.
+  const waitedSelector = opts.waitForSelector;
 
   try {
     await page
@@ -81,7 +110,20 @@ export async function quiesceWithLayer0(
     // visible", which is the claim `selector-absent` makes. Anything else keeps
     // its own name and propagates, and the capture still writes no bytes.
     if (!(error instanceof Error) || error.name !== "TimeoutError") throw error;
-    return await refuse(page, attributedSelector);
+
+    // A timeout on `state: "visible"` does NOT prove absence: a present but
+    // hidden element times out identically. So report what was actually
+    // observed, and when a distinct capture selector exists, say whether IT is
+    // present rather than implying it is not.
+    const capturePresent =
+      opts.captureSelector !== undefined && opts.captureSelector !== waitedSelector
+        ? await page.locator(opts.captureSelector).count()
+        : null;
+    return await refuse(page, waitedSelector, {
+      ...(opts.captureSelector !== undefined && opts.captureSelector !== waitedSelector
+        ? { captureSelector: opts.captureSelector, captureSelectorMatches: capturePresent ?? 0 }
+        : {}),
+    });
   }
 
   await waitForPaintQuiescence(page, opts.stableMs ?? DEFAULT_EXPECT_STABLE_MS);

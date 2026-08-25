@@ -3,9 +3,35 @@ import sharp from "sharp";
 
 /** Layer 2's refusal: the capture's dimensions moved against the baseline. */
 export class GeometryMismatchError extends Error {
-  constructor(baselinePath: string, expected: string, actual: string) {
-    super(`geometry moved against ${baselinePath}: baseline ${expected}, captured ${actual}`);
+  /**
+   * The dimensions as FIELDS, not only interpolated into the message.
+   *
+   * Spec section 6 has the record carry the observed dimensions for a refused
+   * entry, because they are the narrowing evidence an operator gets in exchange
+   * for the honest ceiling that unique attribution is impossible. Leaving them
+   * in the message alone means the durable record loses them: `refusedEntry`
+   * writes null pixel fields for every refusal, so the artifact carried the
+   * refusal without the one measurement that makes it actionable.
+   */
+  readonly baselineWidth: number;
+  readonly baselineHeight: number;
+  readonly capturedWidth: number;
+  readonly capturedHeight: number;
+
+  constructor(
+    baselinePath: string,
+    baseline: { width: number; height: number },
+    captured: { width: number; height: number },
+  ) {
+    super(
+      `geometry moved against ${baselinePath}: baseline ${baseline.width}x${baseline.height}, ` +
+        `captured ${captured.width}x${captured.height}`,
+    );
     this.name = "GeometryMismatchError";
+    this.baselineWidth = baseline.width;
+    this.baselineHeight = baseline.height;
+    this.capturedWidth = captured.width;
+    this.capturedHeight = captured.height;
   }
 }
 
@@ -44,8 +70,8 @@ export async function checkGeometry(
   if (captured.width !== baseline.width || captured.height !== baseline.height) {
     throw new GeometryMismatchError(
       baselinePath,
-      `${baseline.width}x${baseline.height}`,
-      `${captured.width}x${captured.height}`,
+      { width: baseline.width ?? 0, height: baseline.height ?? 0 },
+      { width: captured.width ?? 0, height: captured.height ?? 0 },
     );
   }
 

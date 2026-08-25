@@ -176,3 +176,31 @@ describe("the catch is NARROWED to the selector wait, not wrapped around the fun
     expect((error as { refusedReason?: string }).refusedReason).toBeUndefined();
   });
 });
+
+describe("a readiness timeout is attributed to the selector actually waited on", () => {
+  it("does not blame a capture selector that was never queried, and reports its real presence", async () => {
+    // The failure this catches: waitFor times out on #wait, and the refusal
+    // named #capture as missing without ever looking at it -- while #capture
+    // was present the whole time. That is a confidently wrong attribution
+    // inside the threat fence, which sends an operator hunting an element
+    // that is right there.
+    const page = await pageWith(`<body><div id="capture">present</div></body>`);
+    const error = await quiesceWithLayer0(page, {
+      waitForSelector: "#wait",
+      captureSelector: "#capture",
+      selectorTimeoutMs: 300,
+      stableMs: 50,
+    }).catch((e: unknown) => e);
+    await page.close();
+
+    expect(error).toBeInstanceOf(SelectorAbsentError);
+    const absent = error as SelectorAbsentError;
+    expect(absent.selector).toBe("#wait");
+    expect(absent.captureSelector).toBe("#capture");
+    expect(absent.captureSelectorMatches).toBe(1);
+    // And the wording no longer overstates: a `state: "visible"` timeout does
+    // not prove absence, since a present-but-hidden element times out the same way.
+    expect(absent.message).toContain("did not become visible");
+    expect(absent.message).not.toContain("never resolved");
+  });
+});

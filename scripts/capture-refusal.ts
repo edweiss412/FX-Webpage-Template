@@ -59,6 +59,13 @@ export type CapturedEntry = {
   refusedReason: string | null;
   /** Present only on a `selector-absent` refusal: the selector that never resolved (spec section 4.2.1). */
   absentSelector?: string;
+  /** Present only on a geometry refusal: the observed dimensions (spec section 6). */
+  geometry?: {
+    baselineWidth: number;
+    baselineHeight: number;
+    capturedWidth: number;
+    capturedHeight: number;
+  };
   geometrySkippedReason?: string;
 };
 

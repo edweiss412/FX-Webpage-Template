@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type BrowserContext } from "@playwright/test";
 import { CAPTURE_LAUNCH_ARGS } from "./capture-launch-args";
+import { GeometryMismatchError } from "./capture-geometry";
 import { type CaptureTheme, disableAnimations, installDeterminism } from "./capture-core";
 import {
   buildRunHeader,
@@ -206,6 +207,7 @@ function refusedEntry(
   error: unknown,
 ): CapturedEntry {
   const selectorAbsent = error instanceof SelectorAbsentError;
+  const geometryMismatch = error instanceof GeometryMismatchError ? error : null;
   return {
     key: entry.key,
     theme,
@@ -217,6 +219,21 @@ function refusedEntry(
     // triaging a refused capture from the artifact alone could not tell WHICH
     // selector failed to resolve without parsing prose.
     ...(selectorAbsent ? { absentSelector: error.selector } : {}),
+    // Spec section 6: a geometry refusal carries the OBSERVED DIMENSIONS. They
+    // are the narrowing evidence the operator gets in exchange for the honest
+    // ceiling that unique attribution needs dataflow this arc declines. Without
+    // them the record says only "geometry moved" and the measurement that makes
+    // that actionable lives in a log line nobody keeps.
+    ...(geometryMismatch !== null
+      ? {
+          geometry: {
+            baselineWidth: geometryMismatch.baselineWidth,
+            baselineHeight: geometryMismatch.baselineHeight,
+            capturedWidth: geometryMismatch.capturedWidth,
+            capturedHeight: geometryMismatch.capturedHeight,
+          },
+        }
+      : {}),
     pixelWidth: null,
     pixelHeight: null,
     pixelSha256: null,

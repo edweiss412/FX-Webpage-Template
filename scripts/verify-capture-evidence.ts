@@ -8,28 +8,40 @@ import { EVIDENCE_FILENAME } from "./help-screenshots";
 /** The four fields that reach the capture only through a docker passthrough. */
 const PASSTHROUGH_FIELDS = ["eventName", "runnerName", "runnerArch", "runnerOs"] as const;
 
-const PRE_ENCODE = ["pixelWidth", "pixelHeight", "pixelSha256"] as const;
 const POST_ENCODE = ["webpBytes", "webpSha256"] as const;
-
-/**
- * Fields every entry carries whatever the outcome, refused or complete.
- *
- * Separate from PRE_ENCODE/POST_ENCODE because those are legitimately null on a
- * refusal, while these are not: a refusal still happened at a time, still ran
- * under a frozen clock, and still reports whatever markers were found. Their
- * absence was accepted silently until whole-diff review r1 probed for it.
- */
-const ALWAYS_PRESENT = ["capturedAtUtc", "frozenClockInstant", "faultHits"] as const;
-
-/**
- * Header fields describing the machine. NOT passthroughs: these are read from
- * the runner directly rather than forwarded through docker, so `--local` does
- * not waive them and a record without them cannot say what produced it.
- */
-const MACHINE_FIELDS = ["cpuModel", "cpuCount"] as const;
 
 /** A sha256 hex digest, which is what both hash fields claim to be. */
 const SHA256 = /^[0-9a-f]{64}$/;
+
+/**
+ * TYPED predicates, not presence checks.
+ *
+ * Round 1 of the whole-diff review repaired this validator by adding
+ * presence checks, and round 2 showed why that was the wrong altitude: every
+ * one of them asked "is the field there" while the interesting failures are
+ * "is it the right KIND of thing". A numeric `pixelSha256` skipped the digest
+ * check entirely, because that check was guarded by `typeof value === "string"`
+ * and so declined to fire on exactly the values that most needed it. Dimensions
+ * arrived as strings, and as negative numbers. `faultHits` arrived as a string.
+ *
+ * A validator that only rejects absence certifies any record whose fields exist,
+ * which is close to certifying nothing. These are the shape AND the domain.
+ */
+const isNonEmptyString = (v: unknown): v is string => typeof v === "string" && v.length > 0;
+const isSha256 = (v: unknown): v is string => isNonEmptyString(v) && SHA256.test(v);
+const isPositiveInt = (v: unknown): v is number =>
+  typeof v === "number" && Number.isInteger(v) && v > 0;
+const isStringArray = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every((x) => typeof x === "string");
+
+/** Field name to the predicate its value must satisfy on a COMPLETED entry. */
+const COMPLETED_FIELD_TYPES: Record<string, (v: unknown) => boolean> = {
+  pixelWidth: isPositiveInt,
+  pixelHeight: isPositiveInt,
+  webpBytes: isPositiveInt,
+  pixelSha256: isSha256,
+  webpSha256: isSha256,
+};
 
 type Entry = Record<string, unknown> & { key?: unknown; theme?: unknown };
 
@@ -80,15 +92,20 @@ export function verifyEvidence(
   const run = record as Record<string, unknown>;
   const entries = (Array.isArray(run.entries) ? run.entries : []) as Entry[];
 
-  for (const field of MACHINE_FIELDS) {
-    if (run[field] === null || run[field] === undefined || run[field] === "") {
-      problems.push(`${field} is missing; the record cannot say what machine produced it`);
-    }
+  if (!isNonEmptyString(run.cpuModel)) {
+    problems.push(
+      `cpuModel is missing or not a non-empty string; the record cannot say what machine produced it`,
+    );
+  }
+  if (!isPositiveInt(run.cpuCount)) {
+    problems.push(
+      `cpuCount is missing or not a positive integer; got ${JSON.stringify(run.cpuCount)}`,
+    );
   }
 
   if (opts.local !== true) {
     for (const field of PASSTHROUGH_FIELDS) {
-      if (typeof run[field] !== "string" || run[field] === "") {
+      if (!isNonEmptyString(run[field])) {
         problems.push(
           `${field} is empty; the docker step must forward it with a value-less -e ${field}`,
         );
@@ -139,8 +156,46 @@ export function verifyEvidence(
       );
     }
     const refused = entries[refusedAt]!;
-    if (typeof refused.refusedReason !== "string" || refused.refusedReason === "") {
-      problems.push(`${identityOf(refused)} is refused but names no refusedReason`);
+
+    // The refused entry is an identity too. Checking only the prefix let a
+    // record certify a refusal attributed to a capture the manifest never
+    // requested, which breaks the attribution guarantee the consequence bound
+    // rests on: every refusal names the entry it refused.
+    const refusedIdentity = identityOf(refused);
+    const expectedRefused = expected[refusedAt];
+    if (expectedRefused === undefined) {
+      problems.push(
+        `refused entry ${refusedIdentity} sits at position ${refusedAt}, past the ${expected.length} the manifest expects`,
+      );
+    } else if (refusedIdentity !== expectedRefused) {
+      problems.push(
+        `refused entry is ${refusedIdentity} but the manifest expects ${expectedRefused} at that position`,
+      );
+    }
+
+    if (!isNonEmptyString(refused.refusedReason)) {
+      problems.push(`${refusedIdentity} is refused but names no refusedReason`);
+    }
+
+    // A refusal has to carry the evidence its OWN reason promises. Both of
+    // these were accepted before: an absence with nothing naming what was
+    // absent, and a fault refusal with no fault.
+    if (refused.refusedReason === "selector-absent" && !isNonEmptyString(refused.absentSelector)) {
+      problems.push(
+        `${refusedIdentity} refused as selector-absent but names no absentSelector; ` +
+          "spec section 4.2.1 requires the missing selector in the entry",
+      );
+    }
+    if (
+      isNonEmptyString(refused.refusedReason) &&
+      refused.refusedReason !== "selector-absent" &&
+      isStringArray(refused.faultHits) &&
+      refused.faultHits.length === 0
+    ) {
+      problems.push(
+        `${refusedIdentity} refused as ${refused.refusedReason} but records no faultHits; ` +
+          "a fault refusal without a fault names no cause",
+      );
     }
     for (const field of POST_ENCODE) {
       if (refused[field] !== null) {
@@ -155,27 +210,34 @@ export function verifyEvidence(
   // EVERY entry, refused or not, carries these. A refusal still happened at a
   // time, still ran under a frozen clock, and still reports its markers.
   for (const entry of entries) {
-    for (const field of ALWAYS_PRESENT) {
-      if (entry[field] === null || entry[field] === undefined) {
-        problems.push(`${identityOf(entry)} is missing ${field}`);
-      }
+    if (!isNonEmptyString(entry.capturedAtUtc)) {
+      problems.push(
+        `${identityOf(entry)} has no usable capturedAtUtc: ${JSON.stringify(entry.capturedAtUtc)}`,
+      );
+    }
+    if (!isNonEmptyString(entry.frozenClockInstant)) {
+      problems.push(
+        `${identityOf(entry)} has no usable frozenClockInstant: ${JSON.stringify(entry.frozenClockInstant)}`,
+      );
+    }
+    if (!isStringArray(entry.faultHits)) {
+      problems.push(
+        `${identityOf(entry)} faultHits is not an array of strings: ${JSON.stringify(entry.faultHits)}`,
+      );
     }
   }
 
   const completeThrough = refusedAt === -1 ? entries.length : refusedAt;
   const completed = entries.slice(0, completeThrough);
   for (const entry of completed) {
-    for (const field of [...PRE_ENCODE, ...POST_ENCODE]) {
-      if (entry[field] === null || entry[field] === undefined) {
-        problems.push(`${identityOf(entry)} is complete but ${field} is missing`);
-      }
-    }
-    // Presence is not enough: a non-hash string satisfied every check above
-    // while proving nothing about the bytes it claims to identify.
-    for (const field of ["pixelSha256", "webpSha256"] as const) {
-      const value = entry[field];
-      if (typeof value === "string" && !SHA256.test(value)) {
-        problems.push(`${identityOf(entry)} has a ${field} that is not a sha256 digest: ${value}`);
+    // One typed pass, not a presence pass plus a shape pass. The two-pass form
+    // is what let a numeric hash through: the shape check declined to fire on a
+    // non-string, which is precisely the value it should have rejected.
+    for (const [field, isValid] of Object.entries(COMPLETED_FIELD_TYPES)) {
+      if (!isValid(entry[field])) {
+        problems.push(
+          `${identityOf(entry)} is complete but ${field} is not valid: ${JSON.stringify(entry[field])}`,
+        );
       }
     }
   }
@@ -233,7 +295,14 @@ export function verifyStagingHashes(
   for (const entry of entries) {
     if (isRefused(entry)) continue;
     const claimed = entry.webpSha256;
-    if (typeof claimed !== "string") continue;
+    if (!isSha256(claimed)) {
+      // Skipping here was the same defect one layer down: a malformed claim
+      // silently waived the comparison that exists to check it.
+      problems.push(
+        `${identityOf(entry)} claims a webpSha256 that is not a digest, so it cannot be compared: ${JSON.stringify(claimed)}`,
+      );
+      continue;
+    }
     const artifact = join(stagingDir, `${identityOf(entry)}.webp`);
     const bytes = readArtifact(artifact);
     if (bytes === null) {
