@@ -95,6 +95,7 @@
   --color-text-strong: var(--color-text-strong-runtime);
   --color-text-subtle: var(--color-text-subtle-runtime);
   --color-text-faint: var(--color-text-faint-runtime);
+  --color-control-outline-tinted: var(--color-control-outline-tinted-runtime);
   --color-border: var(--color-border-runtime);
   --color-border-strong: var(--color-border-strong-runtime);
   --color-accent: var(--color-accent-runtime);
@@ -370,6 +371,18 @@
   --color-text-strong-runtime: #0e0f12;
   --color-text-subtle-runtime: #5a5b62;
   --color-text-faint-runtime: #8b8c92;
+  /* Control outline on a TINTED plate only (DESIGN §1.2a, design doc
+     2026-08-25-ui-polish-class-sweep-design.md D2). --color-text-faint is the
+     outline everywhere else and clears 3:1 on all four neutral grounds; on
+     warning-bg / info-bg / danger-bg it lands at 2.79-3.04, under the floor in
+     one theme per plate. This token exists so the plates clear without retuning
+     the shared one, which would push the neutral grounds the other way. Light:
+     3.62 warning / 3.42 info / 3.42 danger, and 3.99 against the control's own
+     bg-surface fill. Deliberately LIGHTER than --color-text-subtle (5.79-6.13
+     on the same plates) so §1.2a's hover-heavier-than-rest relation survives
+     the raised resting weight. All three relations are asserted, not pinned as
+     constants, in tests/styles/secondary-action-contrast.test.ts. */
+  --color-control-outline-tinted-runtime: #7e7f86;
   --color-border-runtime: #e5e4e0;
   --color-border-strong-runtime: #cfcdc7;
   --color-accent-runtime: #ff8c1a;
@@ -429,6 +442,9 @@
     --color-text-strong-runtime: #f5f3ee;
     --color-text-subtle-runtime: #9c9a93;
     --color-text-faint-runtime: #74736d;
+    /* Tinted-plate control outline; see the light block. Dark: 3.65 warning /
+       4.55 info / 4.17 danger, under --color-text-subtle's 4.72-5.89. */
+    --color-control-outline-tinted-runtime: #88867f;
     --color-border-runtime: #2a2b30;
     --color-border-strong-runtime: #3a3b40;
     --color-accent-runtime: #ff8c1a;
@@ -478,6 +494,9 @@
   --color-text-strong-runtime: #f5f3ee;
   --color-text-subtle-runtime: #9c9a93;
   --color-text-faint-runtime: #74736d;
+  /* Tinted-plate control outline; see the light block. Dark: 3.65 warning /
+     4.55 info / 4.17 danger, under --color-text-subtle's 4.72-5.89. */
+  --color-control-outline-tinted-runtime: #88867f;
   --color-border-runtime: #2a2b30;
   --color-border-strong-runtime: #3a3b40;
   --color-accent-runtime: #ff8c1a;

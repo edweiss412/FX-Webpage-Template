@@ -27,6 +27,20 @@ export type CensusRow = {
   readonly file: string;
   /** 1-based ELEMENT line, exactly as `scanInteractiveElements` reports it. */
   readonly line: number;
+  /**
+   * Which outline token this row wears TODAY. Absent means `text-faint`, the
+   * token both swaps moved to and what all but three rows still wear.
+   *
+   * Added 2026-08-25 (`BL-CONTROL-OUTLINE-ON-TINTED-PLATES`, design doc
+   * 2026-08-25-ui-polish-class-sweep-design.md D2). Three of these controls
+   * stand on a TINTED plate, where `text-faint` measures 2.79-3.04 and misses
+   * the 3:1 non-text floor in one theme per plate; they now wear a plate-only
+   * token. Recording it on the row keeps this file the record of where each
+   * swept control ENDED UP. The alternative — dropping the three rows — would
+   * lose the fact that they were part of the 2026-08-16/18 swaps at all, which
+   * is the one thing this census exists to remember.
+   */
+  readonly outline?: "text-faint" | "control-outline-tinted";
 };
 
 /**
@@ -39,10 +53,19 @@ export type CensusRow = {
  * each contribute two rows out of 6-21 interactive elements in the same file.
  */
 export const CENSUS: readonly CensusRow[] = [
-  // spec §4.2 row 1 — shares the file-local `outlineBtn` constant with row 2
-  { file: "app/admin/settings/roles/RoleMappingRow.tsx", line: 211 },
-  // spec §4.2 row 2 — same constant as row 1; ONE source edit moves both
-  { file: "app/admin/settings/roles/RoleMappingRow.tsx", line: 343 },
+  // spec §4.2 row 1 — the edit button, on the neutral row card. Shared the
+  // file-local `outlineBtn` constant with row 2 until 2026-08-25, when the
+  // outline COLOUR was lifted out of that constant so each call site could
+  // supply the one its ground needs; the rest of the treatment is still shared.
+  { file: "app/admin/settings/roles/RoleMappingRow.tsx", line: 218 },
+  // spec §4.2 row 2 — the remove-confirm button, INSIDE the `bg-warning-bg`
+  // confirm card. Moved to the plate token 2026-08-25; no longer moves with
+  // row 1, which is why the colour left the shared constant.
+  {
+    file: "app/admin/settings/roles/RoleMappingRow.tsx",
+    line: 350,
+    outline: "control-outline-tinted",
+  },
   // spec §4.2 row 3 — only its `compact` branch carries the token (§6: the
   // non-compact branch stays `border-border bg-surface` at 1.27:1)
   { file: "app/admin/show/[slug]/ResetPickerEpochButton.tsx", line: 178 },
@@ -56,8 +79,14 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/Mi11GateActions.tsx", line: 69 },
   // spec §4.2 row 8
   { file: "components/admin/RoleRecognizeControl.tsx", line: 225 },
-  // spec §4.2 row 9 — picker Link, transparent on `bg-warning-bg` (§4.4)
-  { file: "components/admin/StagedPreviewBanner.tsx", line: 72 },
+  // spec §4.2 row 9 — picker Link, transparent on `bg-warning-bg` (§4.4). Its
+  // `bg-transparent` fill makes BOTH edges the plate, so it was the sharpest
+  // instance of the tinted-plate problem; moved to the plate token 2026-08-25.
+  {
+    file: "components/admin/StagedPreviewBanner.tsx",
+    line: 72,
+    outline: "control-outline-tinted",
+  },
   // spec §4.2 row 10
   { file: "components/admin/StagedReviewCard.tsx", line: 649 },
   // spec §4.2 row 11
@@ -82,13 +111,20 @@ export const CENSUS: readonly CensusRow[] = [
   // itself survived every one of those merges untouched, and what moved is
   // where it sits. The suite RED that caught this drift is the pin working —
   // `resolveCensus` returns `null` rather than dropping the row.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4151 },
-  // spec §4.2 row 19 — spec cites 4178; live 4208, same reason as row 18
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4208 },
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4156 },
+  // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
+  // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4213 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 693 },
   // spec §4.2 row 21
-  { file: "components/shared/ReportModal.tsx", line: 622 },
+  // Inside the start-fresh `bg-warning-bg` plate: moved to the plate token
+  // 2026-08-25. Its sibling at :675 is on a neutral ground and did not move.
+  {
+    file: "components/shared/ReportModal.tsx",
+    line: 622,
+    outline: "control-outline-tinted",
+  },
 
   // ---------------------------------------------------------------------------
   // 2026-08-18 arc — the `border-border` half of the same §1.2a predicate.

@@ -81,7 +81,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   // they move to the honest category and take a ledger entry with them.
   {
     file: "app/admin/settings/roles/RoleMappingRow.tsx",
-    line: 266,
+    line: 273,
     tag: "input",
     category: "under-floor-filed",
     reason:
@@ -195,7 +195,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   // the floor. The input's own `size-*` is the drawn box, not the hit area.
   {
     file: "app/admin/settings/roles/RoleMappingRow.tsx",
-    line: 254,
+    line: 261,
     tag: "input",
     category: "parent-label-target",
     reason:
@@ -278,7 +278,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/showpage/ShareHub.tsx",
-    line: 1043,
+    line: 1054,
     tag: "div",
     category: "full-bleed",
     reason:
@@ -293,7 +293,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    line: 3770,
+    line: 3775,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -421,7 +421,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/DataQualityWarningControls.tsx",
-    line: 97,
+    line: 110,
     tag: "button",
     category: "unresolvable-dynamic",
     reason: "`${NEUTRAL_BTN} ${RING_OFFSET[mode]}` — computed member access in the template.",

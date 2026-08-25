@@ -144,9 +144,25 @@ describe.each(RESOLVED.map((r, i) => [i + 1, r] as const))(
       expect(resolvedRow.element).not.toBeNull();
     });
 
-    it(`carries border-text-faint (${label})`, () => {
+    /**
+     * The token this row wears TODAY, which is `text-faint` for all but the
+     * three that later moved to a tinted plate (`outline` on the census row,
+     * 2026-08-25). Asserting the row's own token rather than a constant is what
+     * keeps this a record of where each swept control ended up; asserting
+     * `text-faint` unconditionally would force the three plate controls out of
+     * the census and lose the fact that they were swept at all.
+     *
+     * The retired token is asserted absent in the same case, so a row cannot
+     * satisfy this by carrying both.
+     */
+    it(`carries its recorded outline token (${label})`, () => {
       expect(resolvedRow.element).not.toBeNull();
-      expect(carries(resolvedRow.element as ScanElement, "border-text-faint")).toBe(true);
+      const element = resolvedRow.element as ScanElement;
+      const expected = `border-${resolvedRow.row.outline ?? "text-faint"}`;
+      const retired =
+        expected === "border-text-faint" ? "border-control-outline-tinted" : "border-text-faint";
+      expect(carries(element, expected)).toBe(true);
+      expect(carries(element, retired)).toBe(false);
     });
 
     /**

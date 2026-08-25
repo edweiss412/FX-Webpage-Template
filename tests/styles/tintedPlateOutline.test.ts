@@ -1,0 +1,241 @@
+/**
+ * The control outline on a TINTED plate.
+ *
+ * WHY THIS EXISTS. `--color-text-faint` is the control-outline token
+ * (DESIGN.md §1.2a). It clears 3:1 against all four neutral grounds, and on a
+ * `warning-bg` / `info-bg` / `danger-bg` card it does not: 3.04 light / **2.79**
+ * dark on warning, **2.87** light / 3.48 dark on info, **2.88** light / 3.19
+ * dark on danger — under the floor in exactly one theme per plate, never both.
+ * `BL-CONTROL-OUTLINE-ON-TINTED-PLATES` filed the design question and this arc
+ * answered it (design doc 2026-08-25-ui-polish-class-sweep-design.md, D2):
+ * a SECOND token used only on a tinted plate, rather than retuning the shared
+ * one, because the four neutral grounds already clear and moving the shared
+ * token pushes them the other way.
+ *
+ * HOW COMPLETENESS IS ARGUED, and where it stops.
+ *
+ * The repo already declares "this control stands on a tinted plate" ON THE
+ * ELEMENT ITSELF: `focus-visible:ring-offset-<plate>` must match the card fill
+ * the control sits on, a contract an impeccable audit P2 established and the
+ * shipped code keeps (see the comment above `RING_OFFSET` in
+ * `components/admin/DataQualityWarningControls.tsx`). That signal is
+ * element-level, so it needs no ancestor resolution, and the derived arm below
+ * walks the whole scanned universe for it. A control added tomorrow that
+ * follows the ring-offset contract fails here by default.
+ *
+ * It does not reach everything, and the registry arm names each site it misses
+ * WITH the reason, rather than presenting a hand list as if it were a cover.
+ * The three ways a real tinted-plate control stays invisible to the derived arm:
+ * a ring-offset resolved through a Record indexed by a variable (the scanner
+ * reports the class string unresolved), a control whose file simply never
+ * declared a ring-offset, and an element kind the scanner does not admit at all.
+ *
+ * DOCUMENTED LIMIT (L1 in the design doc). Asking "is this control inside a
+ * tinted plate?" in general needs ancestor resolution, which
+ * `tests/styles/interactiveScanCore.ts` does not have and is not getting here:
+ * widening it is recognizer growth of exactly the shape AGENTS.md "Repair
+ * direction under same-axis recurrence" declines, and it is why
+ * `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` was left untouched by this arc.
+ * RE-FILE TRIGGER: a control on a tinted plate reaching `main` at
+ * `border-text-faint`, or the scanner gaining ancestor resolution for some
+ * other reason.
+ */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import { premise } from "../_shared/premise";
+import { allStrings, scanInteractiveElements, type ScanElement } from "./interactiveScanCore";
+
+import { SECONDARY_ACTION_CLASS, SECONDARY_ACTION_ON_TINTED_CLASS } from "@/lib/ui/actionClass";
+
+const ROOT = process.cwd();
+const UNIVERSE = scanInteractiveElements(ROOT);
+
+/** The token this arc added. Named once; every assertion below reads it. */
+const TINTED = "border-control-outline-tinted";
+
+/** A resting outline colour. `border` alone is a width, not a colour. */
+const RESTING_OUTLINE =
+  /(^|\s)border-(text-faint|border|border-strong|control-outline-tinted)(\s|$)/;
+const TINTED_RING_OFFSET = /(^|\s)focus-visible:ring-offset-(warning-bg|info-bg|danger-bg)(\s|$)/;
+
+function has(strings: readonly string[], token: string): boolean {
+  const whole = new RegExp(`(^|\\s)${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`);
+  return strings.some((s) => whole.test(s));
+}
+
+/**
+ * Elements whose OWN resolved class strings declare both a tinted plate and a
+ * resting outline. This is the derived subject list; nothing about it is typed
+ * out by hand.
+ */
+const DERIVED: ScanElement[] = UNIVERSE.filter((e) => {
+  const strings = allStrings(e);
+  return (
+    strings.some((s) => TINTED_RING_OFFSET.test(s)) && strings.some((s) => RESTING_OUTLINE.test(s))
+  );
+});
+
+describe("controls that declare a tinted plate carry the tinted outline", () => {
+  it("premise: the scanner reaches the tree and finds tinted-plate controls in it", () => {
+    // Without both, every assertion below is vacuously true over an empty list
+    // — the failure mode a derived cover is most exposed to.
+    premise("scanner reaches the component tree", UNIVERSE.length, 200);
+    premise("the derived subject list is non-empty", DERIVED.length, 5);
+  });
+
+  it.each(DERIVED.map((e) => [`${e.file}:${e.line}`, e] as const))(
+    "%s carries the tinted-plate outline",
+    (_label, element) => {
+      const strings = allStrings(element);
+      expect(has(strings, TINTED)).toBe(true);
+      expect(has(strings, "border-text-faint")).toBe(false);
+    },
+  );
+});
+
+/**
+ * The sites the derived arm cannot see, each with the reason it cannot.
+ *
+ * A registry is weaker than a walk and this one says so in its own rows. It is
+ * here because the alternative — presenting these five as if the walk had found
+ * them — would make the cover claim something it does not do.
+ */
+type RegistryRow = {
+  readonly file: string;
+  /** A stable literal near the control. Line numbers drift; these do not. */
+  readonly anchor: string;
+  /** Lines to read after the anchor. The window is part of the claim. */
+  readonly window: number;
+  readonly plate: "warning-bg" | "info-bg" | "danger-bg";
+  /**
+   * The literal that must appear in the window. Usually the token; for the two
+   * links of the RescanSheetButton chain it is the NEXT link, so the chain is
+   * pinned end to end rather than only at its ends.
+   */
+  readonly carries: string;
+  /** Why the derived arm cannot see this one. Never blank. */
+  readonly invisibleBecause: string;
+};
+
+const REGISTRY: readonly RegistryRow[] = [
+  {
+    file: "components/admin/DataQualityWarningControls.tsx",
+    anchor: "const PLATE",
+    window: 8,
+    plate: "warning-bg",
+    carries: TINTED,
+    invisibleBecause:
+      "the ring-offset is a Record indexed by the `mode` prop, so the scanner resolves no plate string for the element. The outline joins that same record rather than the shared NEUTRAL_BTN, because `ignored` cards are surface-sunken and already clear.",
+  },
+  {
+    file: "components/admin/wizard/archivedTabOffer.tsx",
+    anchor: "export const ARCHIVED_TAB_BTN",
+    window: 4,
+    plate: "warning-bg",
+    carries: TINTED,
+    invisibleBecause:
+      "the file declares no ring-offset at all. The constant itself moves rather than its call sites, because BOTH card tones are tinted (`cardTone` is warning-bg when changed, info-bg otherwise), so there is no untinted use of this button to protect.",
+  },
+  {
+    file: "app/admin/settings/roles/RoleMappingRow.tsx",
+    anchor: 'data-testid="role-mapping-remove"',
+    window: 6,
+    plate: "warning-bg",
+    carries: TINTED,
+    invisibleBecause:
+      "the file declares no ring-offset. The override is at THIS call site and not in `outlineBtn`, because the same constant paints the edit button on a neutral card.",
+  },
+  {
+    file: "lib/ui/actionClass.ts",
+    anchor: "export const SECONDARY_ACTION_ON_TINTED_CLASS",
+    window: 3,
+    plate: "info-bg",
+    carries: TINTED,
+    invisibleBecause:
+      "`lib/` holds no markup, so no element exists here for the scanner to reach. This is the far end of the only chain in this registry.",
+  },
+  {
+    file: "components/admin/RescanSheetButton.tsx",
+    anchor: "onTintedPlate ?",
+    window: 3,
+    plate: "info-bg",
+    carries: "SECONDARY_ACTION_ON_TINTED_CLASS",
+    invisibleBecause:
+      "the shared treatment lives in `lib/` and is neutral at every call site but one, so the plate is a prop rather than a class the scanner could read off this element. Pinned on the NEXT LINK rather than the token: this file selects a treatment, it does not name a colour.",
+  },
+  {
+    file: "components/admin/wizard/step3ReviewSections.tsx",
+    anchor: "pack-list-rescan-needed-",
+    window: 14,
+    plate: "info-bg",
+    carries: "onTintedPlate",
+    invisibleBecause:
+      "the control is a <RescanSheetButton> child, so the plate lives on the enclosing div and the button's own class string never mentions it. This is the site that passes the plate, and it is pinned on the prop for the same reason the link above is pinned on the constant.",
+  },
+];
+
+describe("tinted-plate sites the derived arm cannot see", () => {
+  it.each(REGISTRY.map((r) => [`${r.file} @ ${r.anchor}`, r] as const))(
+    "%s still carries the tinted outline",
+    (_label, row) => {
+      const src = readFileSync(join(ROOT, row.file), "utf8").split("\n");
+      const at = src.findIndex((l) => l.includes(row.anchor));
+      // The anchor moving is a different failure from the token going away, and
+      // conflating them would let a rename read as a passing repair.
+      premise(`the anchor ${row.anchor} is still in ${row.file}`, at + 1, 0);
+      const window = src.slice(at, at + row.window).join("\n");
+      expect(window).toContain(row.carries);
+    },
+  );
+
+  it("gives every registry row a reason the derived arm cannot see it", () => {
+    expect(REGISTRY.filter((r) => r.invisibleBecause.trim().length < 40)).toEqual([]);
+  });
+});
+
+/**
+ * The one control on a tinted plate this arc deliberately did NOT move.
+ *
+ * `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` family A asks an open design
+ * question: is a text field's border a control outline at all, or a field
+ * affordance? The user's 2026-08-16 ruling was taken against a mockup of
+ * BUTTONS resting on cards and did not reach it. That row is deliberately left
+ * open and unmarked by this arc, so moving one of its members here would answer
+ * its question in passing, which is precisely what the ledger exists to stop.
+ *
+ * Pinned rather than merely omitted: an unremarked absence reads as an
+ * oversight, and the next sweep would "fix" it without noticing it was a
+ * decision.
+ */
+describe("the text input inside the validation reset plate is left alone", () => {
+  it("keeps border-text-faint, fenced by BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER family A", () => {
+    const src = readFileSync(join(ROOT, "components/admin/MaintenanceResetButtons.tsx"), "utf8");
+    const at = src.indexOf('data-testid="validation-reset-input"');
+    premise("the validation reset input is still in the file", at + 1, 0);
+    const window = src.slice(at, at + 900);
+    expect(window).toContain("border-text-faint");
+    expect(window).not.toContain(TINTED);
+  });
+});
+
+/**
+ * The two secondary-action treatments differ in EXACTLY the outline token.
+ *
+ * The registry above pins each link of the chain separately, which proves the
+ * links exist and says nothing about whether the plate variant is still the
+ * same button. A second constant that drifted in padding, weight or fill would
+ * satisfy every row above while quietly shipping a sixth treatment into the
+ * slot `lib/ui/actionClass.ts` exists to hold at one.
+ */
+describe("the tinted secondary action is the same button, one token apart", () => {
+  it("differs from the neutral treatment in the outline token and nothing else", () => {
+    const neutral = SECONDARY_ACTION_CLASS.split(/\s+/).filter(Boolean);
+    const tinted = SECONDARY_ACTION_ON_TINTED_CLASS.split(/\s+/).filter(Boolean);
+    premise("the treatments carry enough classes to compare", neutral.length, 5);
+    expect(tinted.filter((c) => !neutral.includes(c))).toEqual([TINTED]);
+    expect(neutral.filter((c) => !tinted.includes(c))).toEqual(["border-text-faint"]);
+  });
+});

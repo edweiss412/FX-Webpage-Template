@@ -44,8 +44,15 @@ const CHECKBOX_LABEL: Record<GrantableFlag, string> = {
   FINANCIALS: COPY.CHECKBOX_FINANCIAL,
 };
 
+// No border COLOR: this constant paints on TWO different grounds. The edit
+// button stands on the neutral row card; the remove-confirm button stands
+// inside the bg-warning-bg card opened below, where --color-text-faint measures
+// 3.04 light / 2.79 dark and misses the 3:1 non-text floor in dark. `cn` does
+// not merge Tailwind conflicts (lib/ui/cn.ts, ratified), so appending a second
+// border-color would have no defined winner — each call site supplies the only
+// one. DESIGN §1.2a; design doc 2026-08-25-ui-polish-class-sweep-design.md D2.
 const outlineBtn = cn(
-  "inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border border-text-faint bg-surface px-3 text-sm font-medium text-text-strong",
+  "inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border bg-surface px-3 text-sm font-medium text-text-strong",
   "transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
   "disabled:cursor-not-allowed disabled:opacity-60",
 );
@@ -212,7 +219,7 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
               type="button"
               onClick={startEdit}
               aria-label={COPY.EDIT_LABEL}
-              className={outlineBtn}
+              className={cn(outlineBtn, "border-text-faint")}
             >
               <span
                 aria-hidden="true"
@@ -345,7 +352,7 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
               data-testid="role-mapping-remove"
               disabled={busy}
               onClick={confirmRemove}
-              className={outlineBtn}
+              className={cn(outlineBtn, "border-control-outline-tinted")}
             >
               {busy ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> : null}
               {busy ? COPY.REMOVING_LABEL : COPY.REMOVE_CONFIRM_YES}

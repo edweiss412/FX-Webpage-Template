@@ -143,6 +143,8 @@ affordance is a fill or a border keep it as-is.
 | `--color-text-faint` as OUTLINE vs `--color-bg`       | 3.21:1 | 4.00:1 | ≥3:1 non-text — same button on the page ground |
 | `--color-text-subtle` on `--color-surface-raised`  | 6.76:1 | 5.97:1 | AA body (≥4.5:1) — the theme persist-failure note bubble (spec 2026-08-15-theme-persistence-note §2.2) and any other raised-surface caption; pinned in `tests/styles/status-token-contrast.test.ts` |
 | `--color-text-faint` as OUTLINE vs `--color-surface-raised` | 3.35:1 | 3.53:1 | ≥3:1 non-text — popover and modal surfaces, pinned so a raised-surface control is not an unmeasured fourth ground |
+| `--color-control-outline-tinted` as OUTLINE vs the three TINTED plates | 3.42-3.62:1 | 3.65-4.55:1 | ≥3:1 non-text — the control outline on a `warning-bg` / `info-bg` / `danger-bg` card, and ONLY there. `--color-text-faint` measures 2.87-3.04 light / 2.79-3.48 dark on the same plates, under the floor in one theme per plate; this token exists so the plates clear without retuning the shared one, which would push the four neutral grounds the other way (2026-08-25, `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`) |
+| `--color-control-outline-tinted` vs `--color-surface` (inner edge) | 3.99:1 | 4.91:1 | ≥3:1 non-text — the inner edge of a plate control carrying its own `bg-surface` fill; the outer edge is the plate row above |
 | `--color-border` as OUTLINE vs the four neutral grounds | 1.22-1.27:1 | 1.19-1.38:1 | **BELOW the 3:1 non-text floor, and recorded rather than required** — this is the before-state the 2026-08-18 ruling moved 37 controls away from. Pinned so a future retune of `--color-border` cannot quietly reintroduce the weight that was removed; `tests/styles/secondary-action-contrast.test.ts` asserts it stays under the floor |
 | `--color-text-subtle` as OUTLINE vs the four neutral grounds | 6.09-6.76:1 | 5.97-6.94:1 | ≥3:1 non-text — the hover outline for a control whose border is its ONLY hover cue (§1.2a). A body-text token in a new role, so it takes a pin like any new one |
 | `--color-accent-on-bg` as OUTLINE vs the four neutral grounds | 5.02-5.57:1 | 8.30-9.65:1 | ≥3:1 non-text — the hover outline where the cue is an accent HUE. `--color-accent` itself measures 2.10-2.33:1 here and is decorative-only in light, which is why the load-bearing accent token carries this role |
@@ -315,15 +317,48 @@ implied away — `warning-bg` 3.04 light / **2.79** dark, `info-bg` **2.87** lig
 in `BL-CONTROL-OUTLINE-ON-TINTED-PLATES` and is not duplicated here, because a summary that
 drifts from the list it summarises is worse than a pointer.
 
-Two things follow, and the second is why this is a recorded position and not a
-defect. First, the outer edge dips to 2.79–2.88:1 in exactly one theme per
-plate, never both. Second, R5 above is the standing frame: the outline is an
-upgrade over a label that already carried the affordance, so a boundary that is
-strong against its own fill and slightly under 3:1 against a tinted plate is a
-weaker version of the upgrade, not a regression against the prior state (which
-was 1.59:1 on `surface` — and 1.52/1.70 on `bg`, 1.44/1.19 on `warning-bg`; recomputed 2026-08-16 after whole-diff R7 caught "against everything" as a false universal). Whether tinted plates should get their own
-treatment — a darker token, or a plate-matched outline — is a design decision
-this policy did not make, filed as `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`.
+**Ruled 2026-08-25: a tinted plate gets its own outline token.** The figures
+above were a recorded position for ten days, on the frame R5 supplies: the
+outline is an upgrade over a label that already carried the affordance, so a
+boundary strong against its own fill and slightly under 3:1 against a tinted
+plate is a weaker version of the upgrade, not a regression against the prior
+state (1.59:1 on `surface`, 1.52/1.70 on `bg`, 1.44/1.19 on `warning-bg`;
+recomputed 2026-08-16 after whole-diff R7 caught "against everything" as a false
+universal). `BL-CONTROL-OUTLINE-ON-TINTED-PLATES` filed the design question and
+it is now answered.
+
+`--color-control-outline-tinted` is the outline for a control standing on
+`warning-bg`, `info-bg` or `danger-bg`, and nowhere else. **The shared token did
+not move**, deliberately: the four neutral grounds already clear at
+`--color-text-faint`, and retuning it to rescue the plates pushes them the other
+way. The shape is a per-plate `border-*` inside the same recipe rather than a
+new global default, which is what the ledger row's own first-scheduled-step
+prescribed. Where a treatment is shared across grounds the outline COLOUR was
+lifted OUT of the shared constant and supplied per call site or per plate branch
+(`lib/ui/actionClass.ts`, `components/admin/DataQualityWarningControls.tsx`,
+`app/admin/settings/roles/RoleMappingRow.tsx`): `cn` does not merge Tailwind
+conflicts, a ratified decision, so two `border-*` classes on one element have no
+defined winner and the colour has to appear exactly once.
+
+Hover still strengthens. The new token is deliberately LIGHTER than
+`--color-text-subtle` on every plate in both themes, so the
+hover-heavier-than-rest rule below survives the raised resting weight. That
+relation, the 3:1 clearance, and "heavier than the shared token" are asserted as
+RELATIONS in `tests/styles/secondary-action-contrast.test.ts` rather than pinned
+as constants, so a retune fails at the moment it inverts a pair and stays quiet
+when it is harmless. Which controls wear the token is covered by
+`tests/styles/tintedPlateOutline.test.ts`, whose derived arm reads the plate off
+each element's own `focus-visible:ring-offset-*`.
+
+One control on a tinted plate did NOT move, and its absence is a decision: the
+`<input type="text">` reset confirm field in
+`components/admin/MaintenanceResetButtons.tsx`. Whether a text field's border is
+a control outline at all is the open question in
+`BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` family A, and answering it in passing
+is what the ledger exists to prevent. It is pinned as an untouched site so the
+next sweep reads it as a fence rather than an oversight. The reasoning for all
+of this is
+`docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md` D2.
 
 **This was a design upgrade, not a compliance repair.** The prior boundary —
 1.59:1 on `surface`, the figure this section quotes throughout — was not a WCAG

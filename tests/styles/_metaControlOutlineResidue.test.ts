@@ -284,11 +284,23 @@ function rowFor(
   category: ResidueCategory,
   reason: string,
   backlogRef?: string,
+  /**
+   * The paint map to project through. Defaults to the LIVE one, which is the
+   * point of this helper for every live subject.
+   *
+   * Overridable for exactly one case: `responsive-skin-filed` has no live
+   * member since 2026-08-25, so `LIVE.paint` no longer holds a
+   * `max-sm:border-border` entry and a constructed subject would project to
+   * nothing and be refused as "not residue" — the wrong reason, which would
+   * make the bar case pass for a reason unrelated to the bar. `classify`
+   * compiles any token through the design system, live or not.
+   */
+  paint: ReadonlyMap<string, TokenPaint | null> = LIVE.paint,
 ): ResidueRow {
   const base = {
     file: el.file,
     tag: el.tag,
-    paint: projectionsOf(el, LIVE.paint),
+    paint: projectionsOf(el, paint),
     category,
     reason,
   };
@@ -370,17 +382,22 @@ describe("the oracle and the version it classifies under", () => {
 
 describe("the residue census (spec §1.4, §5.1)", () => {
   // covers: AC-1
-  it("holds exactly 12 rows", () => {
-    expect(RESIDUE_CENSUS.length).toBe(12);
+  it("holds exactly 10 rows", () => {
+    expect(RESIDUE_CENSUS.length).toBe(10);
   });
 
   // covers: AC-11
-  it("holds 3 / 5 / 2 / 2 / 0 / 0 rows by category", () => {
+  it("holds 3 / 5 / 2 / 0 / 0 / 0 rows by category", () => {
     const count = (c: ResidueCategory) => RESIDUE_CENSUS.filter((r) => r.category === c).length;
     expect(count("switch-track")).toBe(3);
     expect(count("side-divider")).toBe(5);
     expect(count("focus-state-chrome")).toBe(2);
-    expect(count("responsive-skin-filed")).toBe(2);
+    // Zero since 2026-08-25. ShareHub was this category's only member and its
+    // ledger row closed, so both elements left the residue entirely. Pinned at
+    // zero rather than deleted: the category's BAR is what the next filed
+    // responsive skin is measured against, and the bar cases below exercise it
+    // against a constructed subject for exactly that reason.
+    expect(count("responsive-skin-filed")).toBe(0);
     expect(count("filed-defect")).toBe(0);
     expect(count("literal-outline")).toBe(0);
   });
@@ -700,9 +717,40 @@ const literalRow = (category: ResidueCategory, backlogRef?: string): ResidueRow 
   return backlogRef === undefined ? base : { ...base, backlogRef };
 };
 
+const SKIN_TOKENS = [
+  "bg-surface",
+  "border",
+  "border-text-faint",
+  "max-sm:border",
+  "max-sm:border-border",
+];
+const skinPaint = () => classify(oracle, SKIN_TOKENS);
+
+const responsiveSkin = (): ScanElement => ({
+  file: "components/admin/showpage/ShareHub.tsx",
+  line: 781,
+  tag: "button",
+  paths: [SKIN_TOKENS],
+  unresolved: false,
+  hasClassName: true,
+  allowlisted: false,
+});
+
 describe("category bars: refusals (spec §1.5, AC-4)", () => {
   const track = () => liveElement(PT);
-  const shareHub = () => liveElement("components/admin/showpage/ShareHub.tsx", 781);
+  /**
+   * A CONSTRUCTED subject, because `responsive-skin-filed` has had no live
+   * member since 2026-08-25: ShareHub was the only one and its ledger row
+   * closed (`BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT`), so both of its
+   * elements now carry `max-sm:border-text-faint` and are not residue at all.
+   *
+   * The bar still has to work — it is what the next filed responsive skin will
+   * be measured against — and a bar with no subject is a bar that quietly stops
+   * being exercised. `rowFor` builds the row from this element's projections,
+   * so the shape below is the whole fixture: a weak token that DOES carry a
+   * responsive variant, which is the precondition the category's bar checks
+   * before it looks at the backlogRef.
+   */
   const skipLink = () => liveElement("app/help/layout.tsx");
   const divider = () => liveElement("components/admin/showpage/AttentionMenu.tsx");
 
@@ -817,8 +865,14 @@ describe("category bars: refusals (spec §1.5, AC-4)", () => {
 
   // covers: AC-4, W12
   it("refuses a responsive-skin-filed row whose backlogRef resolves to nothing", () => {
-    const el = shareHub();
-    const row = rowFor(el, "responsive-skin-filed", "the phone skin is filed", "BL-NO-SUCH-ENTRY");
+    const el = responsiveSkin();
+    const row = rowFor(
+      el,
+      "responsive-skin-filed",
+      "the phone skin is filed",
+      "BL-NO-SUCH-ENTRY",
+      skinPaint(),
+    );
     expect(validateRow(row, el, oracle, ledger)).toEqual([
       `${el.file}: backlogRef BL-NO-SUCH-ENTRY does not resolve to a ledger heading`,
     ]);
@@ -826,8 +880,14 @@ describe("category bars: refusals (spec §1.5, AC-4)", () => {
 
   // covers: AC-4, W12
   it("refuses a responsive-skin-filed row whose entry does not name its file", () => {
-    const el = shareHub();
-    const row = rowFor(el, "responsive-skin-filed", "the phone skin is filed", "BL-TEST-ROW");
+    const el = responsiveSkin();
+    const row = rowFor(
+      el,
+      "responsive-skin-filed",
+      "the phone skin is filed",
+      "BL-TEST-ROW",
+      skinPaint(),
+    );
     expect(validateRow(row, el, oracle, constructedLedger("a body about something else"))).toEqual([
       `${el.file}: backlogRef BL-TEST-ROW resolves but its entry does not name this file`,
     ]);
@@ -959,15 +1019,25 @@ describe("category bars: acceptances, each one variable from a refusal (AC-4)", 
   });
 
   // covers: AC-4, W12
-  it("accepts ShareHub citing its own ledger entry", () => {
-    const el = liveElement("components/admin/showpage/ShareHub.tsx", 781);
+  /**
+   * The acceptance twin of the two refusals above, on the same constructed
+   * subject and for the same reason: this category has no live member since
+   * 2026-08-25. It cites a ledger entry that still exists and still names the
+   * file, so it differs from each refusal in exactly one variable.
+   */
+  // covers: AC-4, W12
+  it("accepts a responsive-skin row whose constructed entry names its file", () => {
+    const el = responsiveSkin();
     const row = rowFor(
       el,
       "responsive-skin-filed",
       "the phone skin's weight is filed and fenced",
-      "BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT",
+      "BL-TEST-ROW",
+      skinPaint(),
     );
-    expect(validateRow(row, el, oracle, ledger)).toEqual([]);
+    expect(
+      validateRow(row, el, oracle, constructedLedger(`the phone skin lives in ${el.file}`)),
+    ).toEqual([]);
   });
 
   // covers: AC-4, W12
@@ -1350,7 +1420,7 @@ describe("the grammar the module does not model (AC-13)", () => {
 
 describe("a defect planted in the theme, not in the module (AC-16)", () => {
   // covers: AC-16, W20
-  it("an oracle blind to the weak colour drops the residue to the seven border-border elements", async () => {
+  it("an oracle blind to the weak colour drops the residue to the five border-border elements", async () => {
     const broken = css.replace(/^\s*--color-border-strong:.*$/m, "");
     premise("the declaration was removed", css.length - broken.length, 1);
     const dir = mkdtempSync(join(tmpdir(), "control-outline-residue-theme-"));
@@ -1374,8 +1444,6 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       "components/admin/BellPanel.tsx:1213",
       "components/admin/RecentAutoAppliedStrip.tsx:447",
       "components/admin/showpage/AttentionMenu.tsx:189",
-      "components/admin/showpage/ShareHub.tsx:781",
-      "components/admin/showpage/ShareHub.tsx:817",
       "components/admin/telemetry/EventFilters.tsx:85",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
@@ -1453,18 +1521,25 @@ describe("the census cannot disagree with the pins beside it", () => {
   });
 
   // covers: AC-12
-  it("the residue overlaps the swap census at exactly ShareHub's line 781", () => {
+  /**
+   * The two censuses no longer overlap at all, and that is the 2026-08-25
+   * repair rather than a lost pin.
+   *
+   * ShareHub's line 781 was the single overlap: an element the swap census held
+   * (its desktop rest state moved with the 21) that was ALSO residue (its phone
+   * skin stayed weak). Closing `BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT`
+   * removed the second half, so the element is now only a swap row.
+   *
+   * Asserted as an empty overlap rather than deleted, because "these two
+   * censuses are disjoint" is a real claim about the pair and the next element
+   * that lands in both should have to say so out loud.
+   */
+  // covers: AC-12
+  it("the residue and the swap census are now disjoint", () => {
     const overlap = LIVE.elements.filter((el) =>
       CENSUS.some((row) => row.file === el.file && row.line === el.line),
     );
-    expect(overlap.map((el) => `${el.file}:${el.line}`)).toEqual([
-      "components/admin/showpage/ShareHub.tsx:781",
-    ]);
-    // Reached THROUGH the overlapping element's key. Finding a row by `category === x` and then
-    // asserting `category === x` is a tautology: it can only fail when no such row exists at all,
-    // and it says nothing about the element the pin is named for.
-    const byKey = new Map(RESIDUE_CENSUS.map((r) => [rowKey(r), r] as const));
-    expect(byKey.get(residueKey(overlap[0]!, LIVE.paint))?.category).toBe("responsive-skin-filed");
+    expect(overlap.map((el) => `${el.file}:${el.line}`)).toEqual([]);
   });
 });
 

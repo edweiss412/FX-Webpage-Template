@@ -2714,10 +2714,15 @@ function ArchivedTabRescanNeeded({
     >
       <p className="font-medium">Your change was saved, but this preview is out of date.</p>
       <p>Re-scan to refresh it.</p>
+      {/* The enclosing card is `bg-info-bg`, a tinted plate: the shared outline
+          token measures 2.87:1 against it in light, under the 3:1 non-text
+          floor. `onTintedPlate` swaps that one token and nothing else (design
+          doc 2026-08-25-ui-polish-class-sweep-design.md, D2). */}
       <RescanSheetButton
         driveFileId={dfid}
         wizardSessionId={wizardSessionId}
         disabled={isPublishRunActive}
+        onTintedPlate
       />
     </div>
   );
