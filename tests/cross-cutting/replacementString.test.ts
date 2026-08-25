@@ -130,6 +130,33 @@ describe("judgeSource — argument shapes that are not a replacement (AC-3, AC-3
   }
 });
 
+describe("a spread AFTER the replacement position does not make a call unclassifiable", () => {
+  // §3.1's rule fires on a spread at index 0 or 1, because those are the positions that make
+  // `arguments[1]` stop meaning "the replacement". A spread at index 2 or later does not: the
+  // replacement is still exactly where it looks, so the call classifies on its own merits.
+  it("accepts a literal replacement even when a spread follows it", () => {
+    expect(one(`s.replace(a, "lit", ...rest)`)).toEqual([]);
+  });
+
+  it("still reports a runtime replacement when a spread follows it", () => {
+    expect(one(`s.replace(a, v, ...rest)`)).toHaveLength(1);
+  });
+});
+
+describe("callSiteCount counts what the walk SAW, in every bucket", () => {
+  // The premise asserts this is above a floor, which cannot see an off-by-one. The count is what
+  // distinguishes "the population is clean" from "the walk parsed nothing", so it is pinned
+  // exactly on a fixture rather than only bounded on the live tree.
+  it("counts accepted, reported and not-in-population calls alike", () => {
+    const src = `s.replace(a, "lit"); s.replace(b, v); s.replace(c);`;
+    expect(callSiteCount(["f.ts"], () => src)).toBe(3);
+  });
+
+  it("is zero for a source with no replace call at all", () => {
+    expect(callSiteCount(["f.ts"], () => "const x = 1;")).toBe(0);
+  });
+});
+
 describe("judgeSource — chained calls (AC-1b)", () => {
   it("reports BOTH links of a two-link chain", () => {
     expect(one(`s.replace(a, v).replace(b, w)`)).toHaveLength(2);
