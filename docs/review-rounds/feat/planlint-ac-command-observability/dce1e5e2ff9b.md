@@ -7,8 +7,10 @@ Base `dce1e5e2ff9b`. Diff-stage rounds for the AC-coverage plan-lint arm
 
 **Examined:** whether an AC coverage arm keyed on an explicit declaration reports correctly on the
 citation forms a plan actually uses, and whether this arc's own evidence records say what they claim.
-This file holds the last two of the arc's **five** diff rounds. The five are split across three
-bases, because rows key on `(branch, merge-base)` and main was absorbed three times mid-arc:
+This file holds the last two of the arc's **five** diff rounds. The branch directory has FOUR bases,
+which is the figure the gate message and `pnpm review:economy` both report ("5 across 4 bases"); three
+of the four hold diff rows, because rows key on `(branch, merge-base)` and main was absorbed three
+times mid-arc:
 `300a9f937b8a` holds arc rounds 1 and 2 (1 and 4 findings), `9f8da68b0919` holds arc round 3
 (4 findings), and this base holds arc rounds 4 and 5, recorded as 1 and 2 (1 finding, then APPROVE
 with 0). The counter restarts at 1 on each new side of a split by design, per the economy spec §8.2
