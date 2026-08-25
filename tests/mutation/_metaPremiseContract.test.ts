@@ -322,6 +322,19 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // fixture's own parsed-and-produced-an-element check) are both about tree
   // content, not environment.
   "tests/styles/_metaControlOutlineFill.test.ts": 0,
+  // The residue census's deciding suite (2026-08-22). 0, and PROBED rather than
+  // assumed: it reads app/globals.css, BACKLOG.md and DEFERRED.md from the tree,
+  // builds every mutated corpus it scans under mkdtempSync, and drives pure
+  // functions plus Tailwind's own design-system loader in-process. No child
+  // process, no ledger-git, no process.env member. Its `premise` and
+  // `premiseHolds` calls are about tree content and the compiled oracle -- the
+  // Tailwind major, the scanner's universe, and the canonical weak token
+  // compiling -- none of which is environment.
+  // 0 until 2026-08-24, now 1: the thirty-two-form case reads `MUTATION_MUTANT` to skip itself in
+  // a per-mutant child (it costs ~15s of the file's ~45s and every mutant paid it), and reading the
+  // environment is what the classifier keys on. The case carries a premise on `FORMS.length`, so it
+  // satisfies the contract rather than being exempted from it.
+  "tests/styles/_metaControlOutlineResidue.test.ts": 1,
   // The browser mode's two deciding suites (2026-08-15). Both declare 0, and the
   // declaration is honest rather than convenient: each builds the scratch trees it
   // reads under mkdtempSync and drives pure functions, touching no member of

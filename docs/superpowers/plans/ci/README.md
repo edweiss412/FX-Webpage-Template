@@ -19,3 +19,4 @@ Post-deployment (v1.X+) plans grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-17-modal-wait-skeleton-tolerant-sites.md`](./2026-08-17-modal-wait-skeleton-tolerant-sites.md) | 2026-08-17 |
 | [`2026-08-21-shell-attached-redirection-target.md`](./2026-08-21-shell-attached-redirection-target.md) | 2026-08-21 |
 | [`2026-08-21-shell-attached-redirection-target-HANDOVER.md`](./2026-08-21-shell-attached-redirection-target-HANDOVER.md) | 2026-08-21 |
+| [`2026-08-24-mutation-scratch-fs-event-storm.md`](./2026-08-24-mutation-scratch-fs-event-storm.md) | 2026-08-24 |
