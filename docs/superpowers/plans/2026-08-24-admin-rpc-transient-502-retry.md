@@ -332,8 +332,19 @@ A CI-only forced upstream fault, gated exactly as `x-test-force-infra-fail` is: 
 the Bearer secret, and a request-scoped header. It cannot fire in production.
 
 The injector WRAPS the real fetch and delegates after N. It must not short-circuit the wrapper, or
-AC-5 could pass without a retry ever occurring. The assertion is: the page renders, the run carries a
-`SUPABASE_UPSTREAM_RETRY` emit, and the emit's attempt number proves a second attempt happened.
+AC-5 could pass without a retry ever occurring.
+
+**The evidence is the budget boundary, not a log grep.** The first draft of this task settled AC-5 by
+grepping the run for a `SUPABASE_UPSTREAM_RETRY` emit, and the first green run carrying the emit
+disproved that step: run `32804414458` holds nine records, three of them provably outside this spec's
+window (probe record, addendum). A grep for the code is satisfied by background faults alone and
+would pass with the injector never firing.
+
+So the assertion is a differential across the budget instead, all of it page-observable: one forced
+fault renders, two render (the last attempt the budget allows), three exhaust and reach the recorded
+error boundary. A wrapper that never retried fails the absorbed cases; one that retried further fails
+the exhausted case. The exhausted case also asserts the boundary copy is PRESENT, which is what keeps
+the other two cases' `toHaveCount(0)` from passing against a misspelled selector.
 
 ## Task 8 — Four boundaries stop dropping the fault's message
 

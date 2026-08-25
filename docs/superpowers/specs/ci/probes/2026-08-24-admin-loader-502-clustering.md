@@ -199,3 +199,48 @@ the three failures are all among those seven, which is the row-level claim in Fi
 
 The two `notify-toggles` runs in Finding 6 are outside this sample and were pulled separately:
 `32572200250` (job `97029175982`) and `32587470121` (job `97065938118`).
+
+## Addendum, later the same day: what the transport emit measured on its first green run
+
+The findings above stand as written. This section records what changed once the retry wrapper
+started emitting at the transport, because that instrument sees a population this probe's method
+could not.
+
+Run [32804414458](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32804414458), job
+`97671582614`, **green**, carries nine `SUPABASE_UPSTREAM_RETRY` records.
+
+Three are attributable to background faults by their position in the run, outside any window in
+which the forced-fault spec was executing:
+
+| time | consumer | what was running |
+| --- | --- | --- |
+| 03:23:46 | `readfinalizeowned_b2` | between `admin-changes-feed-layout` tests 78 and 79 |
+| 03:23:46 | `is_admin` | same |
+| 03:24:04 | `viewer_version_token` | between `dev-capture` tests 91 and 92 |
+
+That is Finding 2 confirmed by a second, independent instrument: a genuine gate-level 502 landed in
+a job that stayed green, and the wrapper absorbed it. It is also the first direct measurement of the
+row's thesis rather than an inference from red runs.
+
+The other six sit in a 1.1 second cluster immediately before the forced-fault test and **cannot be
+attributed either way from the log alone.** The injector is request-scoped and cannot leak (it
+requires both the Bearer secret and a per-request header, and its counter closes over one client),
+so those six are either this spec's forced faults across several clients in one page render, or
+background faults that happened to land in the same second.
+
+**Finding 4 is therefore not falsified, and not confirmed either.** Three of the six ambiguous
+records name table reads (`/rest/v1/admin_alerts`, `/rest/v1/shows`, `/rest/v1/pending_ingestions`),
+which would be the first GET-side faults ever observed here. Finding 4 already stated the limit that
+predicts this: a `.from()` fault that no consumer logs was invisible to the original grep, and the
+transport emit is exactly the instrument that removes that blind spot. Whether a GET can carry a
+genuine upstream 502 is now an OPEN question with a cheap settlement — read the emit population from
+runs whose jobs never execute the forced-fault spec.
+
+It does not move the design. Non-RPC GETs are retried on the method because they are idempotent, so
+a GET fault is already handled; what would change is Finding 4's reasoning about why the gateway does
+not absorb these for us, not the retry's scope.
+
+**Consequence for AC-5.** The nine records are also why the plan's log-grep evidence step was
+replaced. A grep for the code is satisfied by background faults alone, so it cannot prove the
+mechanism under test ran. `tests/e2e/admin-upstream-retry.spec.ts` now settles it from
+page-observable behavior across the budget boundary instead.
