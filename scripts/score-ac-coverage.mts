@@ -1,0 +1,103 @@
+#!/usr/bin/env tsx
+/**
+ * Score ONE enrolled surface through the harness's own path.
+ *
+ * Takes the same `runSurface` + `evaluateGate` route the shard suites take, so it
+ * reports the same numbers. Scoped rather than sharded because holding the single
+ * machine-wide heavy slot for ten unrelated surfaces to score one is the wrong
+ * trade.
+ *
+ * It calls those two DIRECTLY rather than through `surfaceCases.evaluateSurface`,
+ * which would be the tidier seam: that module imports `vitest` at module scope,
+ * and plain tsx loads it as CJS, where vitest refuses to be required. The `--dry`
+ * mode below caught that before a slot was taken, which is the whole point of it.
+ *
+ *   node --import tsx scripts/score-ac-coverage.mts --dry   # cold proof, no slot
+ *   pnpm heavy node --import tsx scripts/score-ac-coverage.mts
+ *
+ * `--dry` resolves the module graph, finds the surface, and checks every declared
+ * suite exists — every failure mode reachable in the first second — WITHOUT
+ * spawning a mutant. A run queued behind a scarce slot pays the whole wait for a
+ * crash it could have found cold.
+ */
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+import { evaluateGate } from "../tests/mutation/source/gate";
+import { emitRunRecord } from "../tests/mutation/source/records";
+import { GUARD_SURFACES } from "../tests/mutation/source/registry";
+import { runSurface } from "../tests/mutation/source/runner";
+
+const SURFACE_ID = process.argv[2]?.startsWith("--")
+  ? "acCoverage"
+  : (process.argv[2] ?? "acCoverage");
+const DRY = process.argv.includes("--dry");
+const root = process.cwd();
+
+const surface = GUARD_SURFACES.find((s) => s.id === SURFACE_ID);
+if (surface === undefined) {
+  console.error(`no enrolled surface with id ${SURFACE_ID}`);
+  process.exit(2);
+}
+
+const missing = [surface.sourcePath, ...surface.suitePaths].filter(
+  (p) => !existsSync(resolve(root, p)),
+);
+if (missing.length > 0) {
+  console.error(`declared path(s) that do not exist: ${missing.join(", ")}`);
+  process.exit(2);
+}
+
+console.log(`surface:    ${surface.id}`);
+console.log(`source:     ${surface.sourcePath}`);
+console.log(`suites:     ${surface.suitePaths.length}`);
+for (const s of surface.suitePaths) console.log(`              ${s}`);
+console.log(`operators:  ${surface.operators.join(", ")}`);
+console.log(`scoreFloor: ${surface.scoreFloor}`);
+console.log(`accepted:   ${surface.accepted.length}`);
+
+if (DRY) {
+  console.log("\nDRY: module graph resolved, surface found, every declared path exists.");
+  console.log("No mutant was generated and no slot is required for this mode.");
+  process.exit(0);
+}
+
+const run = runSurface(root, surface);
+const result = evaluateGate({
+  surfaceId: surface.id,
+  mutantCount: run.mutantCount,
+  noOps: run.noOps,
+  baselineGreen: run.baselineGreen,
+  killed: run.killed,
+  survivors: run.survivors,
+  ledger: surface.accepted,
+  scoreFloor: surface.scoreFloor,
+  outcomes: run.outcomes,
+});
+for (const notice of result.notices) process.stdout.write(`${notice.detail}\n`);
+void emitRunRecord({
+  surfaceId: surface.id,
+  passed: result.passed,
+  score: result.score.value,
+  outcomes: run.outcomes,
+});
+const unaccepted = result.failures.filter((f) => f.condition !== "no-op");
+
+console.log(`\nmutants:    ${run.mutantCount}`);
+console.log(`killed:     ${run.killed}`);
+console.log(`survivors:  ${run.survivors.length}`);
+for (const s of run.survivors) console.log(`              ${s}`);
+console.log(`score:      ${result.score.killed}/${result.score.total} = ${result.score.value}`);
+console.log(`passed:     ${result.passed}`);
+for (const f of result.failures) console.log(`  FAILURE  ${f.condition}: ${f.detail}`);
+for (const n of result.notices) console.log(`  notice   ${JSON.stringify(n)}`);
+
+// The GUARD SURFACE line, rendered from the RUN and the shipped registry row so
+// neither the numerals nor the operator set is retyped from memory.
+console.log(
+  `\nGUARD SURFACE: ${surface.sourcePath} — MUTATION SCORE: ${result.score.killed}/${result.score.total}, ` +
+    `${unaccepted.length === 0 ? "0" : String(unaccepted.length)} unaccepted survivors — ` +
+    `OPERATORS: ${surface.operators.join(", ")}`,
+);
+
+process.exit(result.passed ? 0 : 1);
