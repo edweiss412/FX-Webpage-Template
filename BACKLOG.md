@@ -1123,6 +1123,8 @@ occurrence lands here as it happens:
 
 - [32763990640 attempt 2](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32763990640) — the SAME run re-run on the SAME bytes, and it is the most useful occurrence on this row because of what CHANGED. Attempt 1 failed `admin-settings-admins-refresh` and `needs-attention-page`; attempt 2 failed NEITHER of them and failed `admin-changes-feed-layout.spec.ts:118` (mobile-safari) instead, 157 of 158 passing. Three distinct admin specs across two replays of one tree, and the third is the spec `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` is named for. **This is the row's cleanest disproof that these are spec defects**: a defect reproduces on identical bytes and these did not, they MOVED. It also settles an AC-4 question it was about to lose — `needs-attention-page`'s second red did not reproduce, so it is not a spec earning a strike, and dropping it would have removed a passing member and restarted the five-green count on an artefact.
 
+- [32786399563](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32786399563) — `admin-settings-admins-refresh` (`:91`) AGAIN, on PR #875's FINAL CI gate at head `4ed670170`, and it is the occurrence that shows this class outliving the count it disrupted: #875's five-green loop had already closed when this fired. Attempt 1 failed a `locator.click` at the 60 s test timeout, 157 of 158 cases passing, with the run's own server log naming the mechanism rather than leaving it to inference: `AdminInfraError: requireAdmin: is_admin RPC failed: An invalid response was received from the upstream server`, alongside `admin_read_share_token returned error: An invalid response was received from the upstream server` and repeated `Error: The destination stream closed early`. An upstream 502 on the admin gate, the same spec and the same line as this row's `32763990640` attempt-1 occurrence, so the signature is matched literally rather than by family resemblance. **The replay on identical bytes went GREEN**, which is the counter rule below applied prospectively rather than retroactively: the red did not reproduce, so it is an environment observation and no spec earned a strike. Recorded here rather than committed on `ci/app-e2e-batch2` by orchestrator ruling of 2026-08-24 — the occurrence is evidence, not a gate, and committing it would have moved a head whose CI-green proof the readiness report rested on.
+
 THREE of them were reproduced locally under the CI posture (`CI=1`, so `pnpm build && pnpm start`,
 both DSNs pinned) and passed: parse-panel 10 of 10, warning-panel 4 of 4 with `--trace on`,
 needs-attention 12 of 12. The occurrences not named in that sentence were not re-probed locally, and the row
@@ -1150,9 +1152,74 @@ re-adding them tonight would be churn on an arc whose bar is five consecutive gr
 runs. Their restoration is **batch 3's first question**, and their allowlist rows already carry every
 run id a batch-3 reader needs.
 
+**What `fix/admin-loader-ci-transient` (PR #882) closed, and what it did not.** It ships a bounded
+retry at the Supabase RPC boundary plus the instrumentation that makes the fault visible, so the ONE
+mechanism this row's log finally named — `AdminInfraError: requireAdmin: is_admin RPC failed: An
+invalid response was received from the upstream server`, an upstream 502 on the admin gate (run 32763990640) — is absorbed and, when it recurs, leaves a durable `SUPABASE_UPSTREAM_RETRY` record
+instead of being inferred from app logs.
+
+The row stays OPEN because it is a CLASS and that is one member of it. Not every occurrence listed
+above is an RPC 502: `notify-toggles` is a server action plus `router.refresh()` failing to settle
+inside a 10 s poll, and `telemetry-layout` is a loader that never resolves at all, with the sidebar
+and log at zero rects. Neither is a request the retry wrapper sees. The remaining scope is therefore
+exactly the decision below, unchanged by this PR, plus the descoped
+`BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY` — and the shipping spec's §7.1 repairs four consumer
+boundaries while explicitly claiming no completeness.
+
 First scheduled step: decide whether the ratified open-time recovery (the changes-feed helper) can be
 extended to a page-segment boundary at all, or whether the runner's Supabase bootstrap is what needs
 hardening. Both are fleet decisions; neither belongs to a wiring arc. **`notify-toggles` now carries the second red on one spec that is batch 1's drop threshold, and it is wired on `main`,** so that step now also has to say what the threshold means for a member no batch owns: the choices are the recovery above, a targeted wait on that one server-action settle, or accepting a known-flaky required check on `main`. A wiring arc can record the occurrence, which is what this row is; it cannot choose between those three.
+
+## BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY — a transient upstream 5xx can be swallowed by its consumer, leaving the occurrence unattributable
+
+**Status:** OPEN · **Filed:** 2026-08-24 (`fix/admin-loader-ci-transient`, descoped out of that spec by orchestrator ruling after the attribution design drew twelve of eighteen findings across three review rounds) · **Facing:** process · **Severity:** MEDIUM (it does not break a shipped surface; it means the NEXT occurrence of an already-recurring CI class is diagnosed by inference again) · **Class:** observability · **Effort:** M · **Reachability:** PROBED — the four boundaries below were each read at their error branch, and the shipping spec's §7.1 repairs the four while explicitly claiming no completeness. · **Incident:** `BL-ADMIN-LOADER-CI-TRANSIENT`'s own arc. Five counted spec review rounds, eighteen declared findings, twelve of them against three successive attribution designs (`docs/review-rounds/fix/admin-loader-ci-transient/bcd3d088ec76.md` and its `.jsonl`). Separately, that row's occurrence list is a set of CI reds whose mechanism had to be inferred from app logs because nothing captured the gateway's own state.
+
+**What is missing.** A 502 from the local Supabase gateway is recorded only if the consumer that
+receives it chooses to log the message. Many do not: two log a code without the message, one returns
+it inside `infra_error` and never logs it, one discards it and returns a bare 500, and others swallow
+it entirely (`components/admin/Dashboard.tsx` maps both a returned error and a throw to "Held";
+`lib/admin/bellFeed.ts` returns `infra_error` without logging). The class is NOT bounded by the retry
+population — it includes VOLATILE RPCs and plain table reads — which is precisely why enumerating
+consumers failed three times.
+
+**Honest state after the shipping PR.** `fix/admin-loader-ci-transient` repairs FOUR boundaries as
+invariant-9 defects (`lib/admin/loadAlertSummary.ts`, `lib/admin/loadTelemetryStats.ts`,
+`lib/admin/loadRecentAutoApplied.ts`, `app/api/show/[slug]/version/route.ts`) and claims nothing
+beyond them. **Every other swallowing path stays dark until this row lands.** That is stated here so a
+reader does not mistake the stopgap for the solution.
+
+**The design this arc already paid for, so it is not re-derived.** Each item below cost at least one
+review round:
+
+- **Observe at the transport, not at the consumer.** A hook on the server-side client factories sees
+  every call and no consumer can swallow it. Enumerating consumers is the wrong shape.
+- **The recursion fence belongs on the LOG LEVEL, not on a client scope.** The durable sink persists
+  `warn`/`error` through `createSupabaseServiceRoleClient` (`lib/log/persist.ts`), so an observer on
+  that client emitting at `warn` observes its own persist write, without bound. `debug` reaches the
+  console chokepoint synchronously and can NEVER persist — the `app_events` level CHECK admits only
+  info/warn/error, and `tests/log/logger.test.ts` pins that `persist: true` on a debug call is inert.
+  A property anchored in a database constraint survives a later scope change; a fence written about
+  one mechanism did not survive being restated about a sibling.
+- **Plant FOUR transport states, not two.** 5xx records; success is invisible with identical bytes; a
+  rejected fetch rethrows the same error unwrapped (a hook written around `response.status` can throw
+  its own TypeError and change the failure class); the body is never read or cloned (reading it
+  consumes the stream and hands the consumer an empty response, a symptom that looks nothing like a
+  logging change).
+- **The workflow must CAPTURE the signal.** A later step cannot read an earlier step's stdout. Four
+  mechanics, each with a failure mode worse than the one it prevents: `set -o pipefail` under
+  `shell: bash` (without it the step's status is `tee`'s and a FAILING app-e2e reports success — a
+  required check that cannot go red is worse than the flake it instruments), `2>&1` before the pipe
+  (the records travel on stderr), `if: always()` on the grep step (else it is skipped exactly when the
+  run failed), and an `id:` (the dump's condition references `steps.<id>.outputs.<name>`).
+  `.github/workflows/x-audits.yml` already does all of this in four places.
+- **Coverage is enforced, not asserted.** Three server-side clients are constructed directly rather
+  than through a factory (`app/api/test-auth/set-session/route.ts` twice,
+  `lib/dev/materialize/client.ts`). Each is exempt on a stated ground, and a walked meta-test makes a
+  FOURTH fail by default.
+
+**First scheduled step:** decide observer versus a capture-only approach on the evidence, then build
+the plant-four harness BEFORE the spec, since three prose designs in a row each introduced the next
+round's defect.
 
 ## BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE — a 0.5px equality on a webkit text-derived box flakes, and the job that would notice is dark on `main`
 
