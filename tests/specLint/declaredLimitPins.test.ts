@@ -219,7 +219,7 @@ describe("discoverPins — declines the core itself decides", () => {
     'test("plain qplinth lambda heading", () => expect(g).toBe("a documented limit"));',
   ];
   const SECOND_ARG_ACCEPT = SECOND_ARG_DECLINE.map((l) =>
-    l.replace('"plain qplinth lambda heading"', `"${T.lambdaSecondArg}"`),
+    l.replace('"plain qplinth lambda heading"', () => `"${T.lambdaSecondArg}"`),
   );
 
   it("declines a phrase in the SECOND argument, never the title (spec §3.1 item 2)", () => {

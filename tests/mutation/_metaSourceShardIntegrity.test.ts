@@ -104,7 +104,7 @@ describe("mutation-harness matrices are pinned to their constants", () => {
         /\$\{\{\s*matrix\.shard\s*\}\}/,
       );
       for (let i = 0; i < f.count; i++) {
-        const realized = run.replace(/\$\{\{\s*matrix\.shard\s*\}\}/g, String(i));
+        const realized = run.replace(/\$\{\{\s*matrix\.shard\s*\}\}/g, () => String(i));
         // EXACTLY its own file: an extra target here is the fail-open case.
         expect(targetsIn(realized)).toEqual([shardFile(f, i)]);
       }
@@ -122,7 +122,7 @@ describe("mutation-harness matrices are pinned to their constants", () => {
     const realized = [
       ...FAMILIES.flatMap((f) =>
         Array.from({ length: f.count }, (_, i) =>
-          targetsIn(vitestRun(f.job).replace(/\$\{\{\s*matrix\.shard\s*\}\}/g, String(i))),
+          targetsIn(vitestRun(f.job).replace(/\$\{\{\s*matrix\.shard\s*\}\}/g, () => String(i))),
         ).flat(),
       ),
       ...GATES.flatMap((g) => targetsIn(vitestRun(g.job))),
@@ -249,7 +249,7 @@ describe("mutation-harness matrices are pinned to their constants", () => {
         if (!(step.uses ?? "").startsWith("actions/upload-artifact")) continue;
         const name = (step as { with?: { name?: string } }).with?.name ?? "";
         for (let i = 0; i < 16; i++) {
-          uploaded.add(name.replace(/\$\{\{\s*matrix\.shard\s*\}\}/g, String(i)));
+          uploaded.add(name.replace(/\$\{\{\s*matrix\.shard\s*\}\}/g, () => String(i)));
         }
       }
     }

@@ -3397,4 +3397,30 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  {
+    id: "replacementString",
+    sourcePath: "tests/cross-cutting/replacementString/scan.ts",
+    suitePaths: ["tests/cross-cutting/replacementString.test.ts"],
+    // All six declared operators, deliberately. A scoped subset leaves the excluded operators'
+    // sites unscored, and the round-1 diff brief's `OPERATORS:` tail would then have to say so.
+    operators: [
+      "relational-boundary",
+      "equality-flip",
+      "logical-connector",
+      "integer-literal",
+      "regex-quantifier-bound",
+      "statement-removal",
+    ],
+    scoreFloor: 0.9,
+    // Drops ArrowFunction from the accept-set, so a case whose expected verdict is ACCEPTED
+    // starts reporting. Chosen over anchoring on the callee-name check, which would make the
+    // judge match nothing at all — the repo-wide assertion reads that as zero offenders and
+    // PASSES, so it would prove the overlay applied by way of a gate that cannot fail.
+    // Unique on the current source: `grep -c -F 'ts.isArrowFunction(a) ||'` = 1.
+    control: {
+      from: "ts.isArrowFunction(a) ||",
+      to: "",
+    },
+    accepted: [],
+  },
 ];

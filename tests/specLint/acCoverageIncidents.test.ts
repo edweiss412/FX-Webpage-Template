@@ -228,7 +228,13 @@ describe("acCoverage — plant-both", () => {
       `the anchor for ${plant.name} occurs exactly once`,
       BLOBS.HEAD.split(plant.from).length - 1 === 1,
     );
-    const planted = BLOBS.HEAD.replace(plant.from, plant.to);
+    // A REPLACER FUNCTION, not a replacement string: `String.replace` expands
+    // `$&`, `$'`, `` $` `` and `$1` inside a runtime second argument, so a plant
+    // whose `to` happened to contain one would splice the surrounding document
+    // into the fixture and the case would assert against text nobody wrote. The
+    // repo-wide judge enrolled 2026-08-24 reports this shape; a function argument
+    // is substituted verbatim.
+    const planted = BLOBS.HEAD.replace(plant.from, () => plant.to);
     premiseHolds(`the plant for ${plant.name} changed the table`, planted !== BLOBS.HEAD);
 
     const found = checkAcCoverage(viewOf(DECL + planted + "\n"), "plan");

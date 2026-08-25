@@ -37,6 +37,23 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // An `accepted-gap` appearing in this row would be the surface's first and
   // owes its own filing; a NEW equivalent row is a coverage regression to explain.
   // totality.ts declares an EMPTY ledger — every mutant of it is killed.
+  // The replacement-string judge, enrolled 2026-08-24. Declares an EMPTY ledger: every mutant is
+  // expected to be KILLED, no equivalences and no accepted gaps.
+  //
+  // Predicted before the run rather than read off it, which is the point. All 31 mutants
+  // enumerateSites generates were reasoned through family by family against the 49-case suite,
+  // and the two that would have survived — the `slice(0, 110)` truncation and the spread guard's
+  // `=== 1` — were repaid with cases rather than accepted. Two more were killed only remotely, by
+  // the repo-wide assertion, and now have local fixtures. Three statement-removal mutants were
+  // spot-checked by planting. The prediction is written down in
+  // docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count.md §11 so the run can
+  // contradict it, and so a later reader can audit the reasoning rather than inherit a bare {}.
+  //
+  // An `accepted-gap` appearing here later would be this surface's first and owes its own filing.
+  // A NEW `equivalent` row is a coverage regression to explain, not a fact to record: one kill on
+  // this surface is by CRASH rather than assertion (`callee.name` read off a non-property-access
+  // node), and that is the one to distrust first if the score ever moves.
+  replacementString: {},
   mutationSurfaceEnumerate: { equivalent: 3 },
   mutationSurfaceTotality: {},
   // premiseScan, enrolled 2026-08-16. The gate found 8 survivors on the first

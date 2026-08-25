@@ -160,7 +160,7 @@ describe("resolveIngestionCopy (catalog-safe, spec §7)", () => {
       driveFileName,
     });
     expect(copy).toBe(
-      MESSAGE_CATALOG.DRIVE_FETCH_FAILED.dougFacing.replace("<sheet-name>", driveFileName),
+      MESSAGE_CATALOG.DRIVE_FETCH_FAILED.dougFacing.replace("<sheet-name>", () => driveFileName),
     );
     expect(copy).not.toMatch(/<[a-z-]+>/i);
   });
