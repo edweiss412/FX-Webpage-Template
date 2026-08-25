@@ -21,7 +21,12 @@ describe("an authored replacement applies verbatim through a replacer function",
   const source = "keep ANCHOR here";
 
   it("a replacement STRING is parsed, which is the defect", () => {
-    const out = source.replace("ANCHOR", EVERY_SEQUENCE);
+    // The sequence is written INLINE here rather than passed as `EVERY_SEQUENCE`, and that is not
+    // stylistic. This repo's own judge reports a runtime value in a replacement position, and it
+    // reported this very line the moment the file became tracked — correctly, since it cannot know
+    // a demonstration from a defect. A string LITERAL is accepted because the author wrote every
+    // character of it, which is exactly the claim being made here.
+    const out = source.replace("ANCHOR", "$& $` $' $1 $$");
     expect(out, "the premise: a string replacement really is interpreted here").not.toContain(
       EVERY_SEQUENCE,
     );
