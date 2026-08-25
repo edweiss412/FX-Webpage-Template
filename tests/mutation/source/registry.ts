@@ -3263,4 +3263,47 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  /**
+   * The shard-weight instrument, enrolled 2026-08-25 with the arc that wrote it
+   * (`BL-MUTATION-WEIGHT-MODEL-BOOT-COUNT-ONLY`).
+   *
+   * Enrolled BEFORE the first whole-diff dispatch, per the AGENTS.md rule, because
+   * its defect class is exactly the one this registry exists to catch: it reports a
+   * plausible number while the thing it measures has moved. Every figure in that
+   * arc's spec comes out of these two modules, so a silent defect here is a silent
+   * defect in a ratified design.
+   *
+   * Two rows because the arc split the instrument in two modules, the same way the
+   * invariant-10 engine above is split: `records.ts` decides what a run COST,
+   * `weights.ts` decides what that cost MEANS for the partition. One suite decides
+   * both, and it is paired with `scripts/mutation-weight-plant.mjs`, which plants
+   * fifteen named defects into a copy and requires the suite to go red on each.
+   *
+   * `[...OPERATOR_NAMES]`, not a scoped subset. A subset would leave the excluded
+   * operators' sites unscored while the number still read as the surface's score.
+   */
+  {
+    id: "mutationWeightRecords",
+    sourcePath: "lib/mutationWeight/records.ts",
+    suitePaths: ["tests/mutationWeight/instrument.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Reads every leg as leg 0. The suite lays a record down under
+    // `mutation-records-source-shards-2` and asserts the leg comes from the
+    // DIRECTORY, so a constant defeats it.
+    control: { from: "const leg = Number(rec[1]);", to: "const leg = 0;" },
+    accepted: [],
+  },
+  {
+    id: "mutationWeightWeights",
+    sourcePath: "lib/mutationWeight/weights.ts",
+    suitePaths: ["tests/mutationWeight/instrument.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Reports the SHORTEST leg as the binding one. The binding leg is the whole
+    // criterion the weight change is judged on, so inverting it is the defect that
+    // would matter most and the suite pins it directly.
+    control: { from: "Math.max(...legs)", to: "Math.min(...legs)" },
+    accepted: [],
+  },
 ];

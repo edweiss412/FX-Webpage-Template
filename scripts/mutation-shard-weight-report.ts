@@ -22,14 +22,17 @@
  * trees is not a weaker result, it is a different question, and printing it
  * anyway is how a cross-tree number gets quoted as a measurement.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 
 import { type RunArtifacts, readRun } from "../lib/mutationWeight/records";
 import {
   type ModelledBoots,
+  type ModelledSurface,
   type Snapshot,
   bindingLeg,
+  bootCountHistory,
+  bootRatioStability,
   driftReport,
   legSeconds,
   lpt,
@@ -37,6 +40,7 @@ import {
   reconcile,
   seamMagnitude,
   seedRates,
+  suiteMedians,
   verdictDelta,
 } from "../lib/mutationWeight/weights";
 import { GUARD_SURFACES } from "../tests/mutation/source/registry";
@@ -50,10 +54,26 @@ const row = (label: string, legs: readonly number[]): string =>
 
 function modelledFrom(file: string | undefined): ModelledBoots {
   if (file !== undefined) {
-    const raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, number>;
+    const raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, ModelledSurface>;
     return new Map(Object.entries(raw));
   }
-  return new Map(GUARD_SURFACES.map((s) => [s.id, weightOf(s)]));
+  // The checked-out registry. `weightOf` IS the boot count until the rate
+  // multiplies it, so the parts are recovered from the surface's own fields.
+  return new Map(
+    GUARD_SURFACES.map((s) => {
+      const boots = weightOf(s);
+      const suites = s.suitePaths.length;
+      return [
+        s.id,
+        {
+          boots,
+          mutants: boots - s.accepted.length * (suites - 1) - suites,
+          accepted: s.accepted.length,
+          suites,
+        },
+      ];
+    }),
+  );
 }
 
 function parseRuns(argv: readonly string[]): { dir: string; modelledFile?: string }[] {
@@ -75,7 +95,12 @@ function parseRuns(argv: readonly string[]): { dir: string; modelledFile?: strin
   return runs;
 }
 
-function describe(label: string, art: RunArtifacts, modelled: ModelledBoots): Snapshot {
+function describe(
+  label: string,
+  sha: string,
+  art: RunArtifacts,
+  modelled: ModelledBoots,
+): Snapshot {
   const { surfaces, elapsed } = art;
   console.log(`\n=== ${label} — ${String(surfaces.length)} surfaces ===`);
 
@@ -90,6 +115,17 @@ function describe(label: string, art: RunArtifacts, modelled: ModelledBoots): Sn
               .map(
                 (m) =>
                   `${m.surfaceId} (ran on ${String(m.observed)}, recomputes to ${String(m.recomputed)})`,
+              )
+              .join(", ")}`
+          : "") +
+        (rec.duplicated.length > 0
+          ? `\n  more than one record for: ${rec.duplicated.join(", ")}`
+          : "") +
+        (rec.weightDisagreement.length > 0
+          ? `\n  the dump and the records disagree about the weight's own parts: ${rec.weightDisagreement
+              .map(
+                (w) =>
+                  `${w.surfaceId} ${w.field} modelled ${String(w.modelled)} vs observed ${String(w.observed)}`,
               )
               .join(", ")}`
           : "") +
@@ -119,7 +155,8 @@ function describe(label: string, art: RunArtifacts, modelled: ModelledBoots): Sn
   }
 
   const loads = new Array<number>(N).fill(0);
-  for (const m of surfaces) loads[m.leg] = (loads[m.leg] ?? 0) + (modelled.get(m.surfaceId) ?? 0);
+  for (const m of surfaces)
+    loads[m.leg] = (loads[m.leg] ?? 0) + (modelled.get(m.surfaceId)?.boots ?? 0);
   console.log(row("  ...its MODELLED loads (what the optimiser balanced)", loads));
 
   const rates = surfaces
@@ -131,7 +168,7 @@ function describe(label: string, art: RunArtifacts, modelled: ModelledBoots): Sn
     `  ms per MODELLED boot: min ${String(Math.round(lo.r))} (${lo.id})  max ${String(Math.round(hi.r))} (${hi.id})` +
       `  spread ${(hi.r / lo.r).toFixed(1)}x`,
   );
-  const modelledTotal = [...modelled.values()].reduce((a, b) => a + b, 0);
+  const modelledTotal = [...modelled.values()].reduce((a, b) => a + b.boots, 0);
   const observedTotal = surfaces.reduce((a, m) => a + m.observedBoots, 0);
   console.log(
     `  boots: modelled ${String(modelledTotal)} vs observed children ${String(observedTotal)} ` +
@@ -157,13 +194,13 @@ function describe(label: string, art: RunArtifacts, modelled: ModelledBoots): Sn
   );
 
   const cheapest = surfaces
-    .filter((m) => m.childMillis.length > 0)
-    .reduce((a, m) => a + Math.min(...m.childMillis), 0);
+    .filter((m) => m.children.length > 0)
+    .reduce((a, m) => a + Math.min(...m.children.map((c) => c.durationMs)), 0);
   console.log(
     `  one cheapest boot per surface totals ${String(Math.round(cheapest / 1000))}s ` +
       `(what a measure-at-partition-time pre-pass would cost)`,
   );
-  return { label, surfaces, modelled };
+  return { label, sha, surfaces, modelled };
 }
 
 function main(): void {
@@ -173,7 +210,14 @@ function main(): void {
     throw new Error("usage: --run <dir>[:<modelledJson>] [--run ...] [--emit-registry]");
 
   const snaps: Snapshot[] = specs.map((s) =>
-    describe(basename(s.dir), readRun(s.dir), modelledFrom(s.modelledFile)),
+    // The sha defaults to the dump path when not given: two runs sharing a dump
+    // share a sha by construction, which is exactly the case the median covers.
+    describe(
+      basename(s.dir),
+      s.modelledFile ?? "working-tree",
+      readRun(s.dir),
+      modelledFrom(s.modelledFile),
+    ),
   );
 
   if (snaps.length >= 2) {
@@ -187,31 +231,46 @@ function main(): void {
       const later = snaps[i] as Snapshot;
       const earlier = snaps[i + 1] as Snapshot;
       const seed = seedRates([earlier]);
-      const weights = later.surfaces.map((m) => {
-        const boots = later.modelled.get(m.surfaceId) ?? 0;
-        const rate = seed.get(m.surfaceId) ?? ratePerModelledBoot(m, later.modelled) ?? 0;
-        return { key: m.surfaceId, w: boots * rate };
-      });
-      const mine = legSeconds(lpt(weights, N), later.surfaces, N);
-      const shipped = legSeconds(
+      // A surface the SEED run never saw has no held-out rate, and there is no
+      // honest way to invent one: falling back to the later run's OWN rate makes
+      // boots x rate reproduce that run's seconds exactly, so the surface scores
+      // itself. An earlier version did exactly that and quietly contaminated two of
+      // three pairs. Such surfaces are EXCLUDED from both sides of the comparison
+      // and named, rather than priced circularly and counted.
+      const scored = later.surfaces.filter((m) => seed.has(m.surfaceId));
+      const excluded = later.surfaces.filter((m) => !seed.has(m.surfaceId));
+      const bootsOfId = (id: string): number => later.modelled.get(id)?.boots ?? 0;
+      const mine = legSeconds(
         lpt(
-          later.surfaces.map((m) => ({
+          scored.map((m) => ({
             key: m.surfaceId,
-            w: later.modelled.get(m.surfaceId) ?? 0,
+            w: bootsOfId(m.surfaceId) * (seed.get(m.surfaceId) ?? 0),
           })),
           N,
         ),
-        later.surfaces,
+        scored,
         N,
       );
-      const arrivals = later.surfaces.filter((m) => !seed.has(m.surfaceId)).map((m) => m.surfaceId);
-      console.log(`\n  seed ${earlier.label} -> score ${later.label}`);
+      const shipped = legSeconds(
+        lpt(
+          scored.map((m) => ({ key: m.surfaceId, w: bootsOfId(m.surfaceId) })),
+          N,
+        ),
+        scored,
+        N,
+      );
+      console.log(
+        `\n  seed ${earlier.label} -> score ${later.label}  (${String(scored.length)} surfaces scored)`,
+      );
       console.log(row("    seconds-calibrated weight", mine));
       console.log(row("    shipped modelled-boots weight", shipped));
       console.log(
         `    binding leg ${bindingLeg(mine) <= bindingLeg(shipped) ? "IMPROVED" : "REGRESSED"} by ` +
           `${String(Math.round(Math.abs(bindingLeg(shipped) - bindingLeg(mine))))}s` +
-          `; arrivals priced by their author: ${arrivals.length > 0 ? arrivals.join(", ") : "none"}`,
+          `; EXCLUDED as unpriceable held-out: ` +
+          (excluded.length > 0
+            ? excluded.map((m) => `${m.surfaceId} (${String(Math.round(m.seconds))}s)`).join(", ")
+            : "none"),
       );
     }
 
@@ -232,49 +291,158 @@ function main(): void {
     const newest = snaps[0] as Snapshot;
     const prior = snaps[1] as Snapshot;
 
-    const seeded = seedRates([prior]);
+    // The seam asks what happens WHEN THIS SHIPS, so it uses the table that would
+    // ship: `seedRates` over every snapshot, newest first. That is not the held-out
+    // question and must not borrow its rule -- at ship time the required field
+    // guarantees every surface has a rate, including the newest one.
+    const shipping = seedRates(snaps);
     const proposed = new Map(
       newest.surfaces.map((m) => [
         m.surfaceId,
-        (newest.modelled.get(m.surfaceId) ?? 0) *
-          (seeded.get(m.surfaceId) ?? ratePerModelledBoot(m, newest.modelled) ?? 0),
+        (newest.modelled.get(m.surfaceId)?.boots ?? 0) * (shipping.get(m.surfaceId) ?? 0),
       ]),
     );
-    const seam = seamMagnitude(newest.modelled, proposed, N);
+    const seam = seamMagnitude(
+      new Map([...newest.modelled].map(([k, v]) => [k, v.boots])),
+      proposed,
+      N,
+    );
     console.log(
       `\n=== SEAM: ${String(seam.length)} of ${String(newest.modelled.size)} surfaces ` +
         `(${String(Math.round((100 * seam.length) / newest.modelled.size))}%) change leg under the new weight ===\n  ${seam.join(", ")}`,
     );
     const declared = seedRates([prior]);
-    const { drifted, unmeasured } = driftReport(declared, newest.surfaces, newest.modelled, 2);
+    const { drifted, unmeasured, undeclared } = driftReport(
+      declared,
+      newest.surfaces,
+      newest.modelled,
+      2,
+    );
     console.log(
       `\n=== DRIFT of a ${prior.label} table against ${newest.label} — every surface, ranked ===`,
     );
-    for (const d of drifted.slice(0, 8))
+    // EVERY row. An earlier version printed eight and said the rest were "named in
+    // full output", which was simply untrue: there was no fuller output anywhere.
+    for (const d of drifted)
       console.log(
         `  ${d.actionable ? "ACTIONABLE" : "          "} ${d.surfaceId.padEnd(28)} ` +
           `declared ${String(d.declaredMillis).padStart(6)}ms  observed ${String(d.observedMillis).padStart(6)}ms  ${d.ratio.toFixed(2)}x`,
       );
     console.log(
-      `  ...${String(Math.max(0, drifted.length - 8))} further surfaces named in full output; ` +
-        `${String(drifted.filter((d) => d.actionable).length)} actionable, ` +
-        `unmeasured: ${unmeasured.length > 0 ? unmeasured.join(", ") : "none"}`,
+      `  ${String(drifted.length)} surfaces named, ${String(drifted.filter((d) => d.actionable).length)} actionable; ` +
+        `declared but unmeasured: ${unmeasured.length > 0 ? unmeasured.join(", ") : "none"}; ` +
+        `measured but undeclared: ${undeclared.length > 0 ? undeclared.join(", ") : "none"}`,
     );
+  }
+
+  if (snaps.length >= 2) {
+    // PROVENANCE. Every remaining artifact-derived claim in the spec is printed
+    // here, so "one command prints every figure" is a fact about this file rather
+    // than an aspiration. A claim with no line in this block does not belong in
+    // the document.
+    console.log(`\n=== PROVENANCE ===`);
+    const stab = bootRatioStability(snaps, 1.05);
+    console.log(
+      `  observed/modelled boot ratio, newest run: min ${stab.latest.min.toFixed(2)} ` +
+        `median ${stab.latest.median.toFixed(2)} max ${stab.latest.max.toFixed(2)} (${stab.latest.maxSurface})`,
+    );
+    console.log(
+      `  ratio moved by >5% across ${String(snaps.length)} runs, oldest first: ${String(stab.moved.length)} surface(s)` +
+        (stab.moved.length > 0
+          ? ` — ${stab.moved.map((x) => `${x.surfaceId} ${x.ratios.map((r) => r.toFixed(2)).join("->")}`).join(", ")}`
+          : ""),
+    );
+    const hist = bootCountHistory(snaps);
+    console.log(
+      `  modelled boot count moved or arrived, oldest-first: ${String(hist.changed.length)} surface(s)` +
+        (hist.changed.length > 0
+          ? `\n${hist.changed.map((c) => `    ${c.surfaceId.padEnd(26)} ${c.boots.map((b) => (b === undefined ? "-" : String(b))).join(" ")}`).join("\n")}`
+          : ""),
+    );
+    console.log(
+      `  of those, ARRIVALS (unpriceable by a bolt-on table): ${hist.arrived.join(", ") || "none"}`,
+    );
+
+    // The seed rule that was measured and rejected, scored on the same target as
+    // the shipped one above. A declined alternative with no number beside it is an
+    // assertion; with one it is a decision.
+    const newestSnap = snaps[0] as Snapshot;
+    const priorSnaps = snaps.slice(1);
+    if (priorSnaps.length >= 2) {
+      const timeMedian = new Map<string, number>();
+      for (const m of newestSnap.surfaces) {
+        const rates = priorSnaps
+          .map((sn) => {
+            const found = sn.surfaces.find((x) => x.surfaceId === m.surfaceId);
+            return found === undefined ? undefined : ratePerModelledBoot(found, sn.modelled);
+          })
+          .filter((r): r is number => r !== undefined)
+          .sort((a, b) => a - b);
+        if (rates.length > 0) timeMedian.set(m.surfaceId, rates[Math.floor(rates.length / 2)] ?? 0);
+      }
+      const scoredByTimeMedian = newestSnap.surfaces.filter((m) => timeMedian.has(m.surfaceId));
+      console.log(
+        row(
+          "  DECLINED seed rule: median across ALL prior runs",
+          legSeconds(
+            lpt(
+              scoredByTimeMedian.map((m) => ({
+                key: m.surfaceId,
+                w:
+                  (newestSnap.modelled.get(m.surfaceId)?.boots ?? 0) *
+                  (timeMedian.get(m.surfaceId) ?? 0),
+              })),
+              N,
+            ),
+            scoredByTimeMedian,
+            N,
+          ),
+        ),
+      );
+    }
+
+    // L-5's evidence: the per-suite breakdown for whatever drifted worst.
+    const worst = driftReport(
+      seedRates([snaps[1] as Snapshot]),
+      newestSnap.surfaces,
+      newestSnap.modelled,
+      2,
+    )
+      .drifted.filter((d) => d.actionable)
+      .slice(0, 1);
+    for (const d of worst) {
+      for (const [label, sn] of [
+        ["newest", snaps[0]],
+        ["prior", snaps[1]],
+      ] as const) {
+        const m = (sn as Snapshot).surfaces.find((x) => x.surfaceId === d.surfaceId);
+        if (m === undefined) continue;
+        const timeouts = m.children.filter((c) => c.kind === "timeout").length;
+        console.log(
+          `  ${d.surfaceId} @ ${label}: ${String(m.mutants)} mutants, ${String(timeouts)} timeout children; ` +
+            suiteMedians(m)
+              .map((x) => `${x.suite} median ${String(x.medianMs)}ms over ${String(x.children)}`)
+              .join("; "),
+        );
+      }
+    }
   }
 
   if (argv.includes("--emit-registry")) {
     const seed = seedRates(snaps);
-    const out = "millis-per-boot.json";
-    writeFileSync(out, `${JSON.stringify(Object.fromEntries([...seed].sort()), null, 1)}\n`);
+    // Completeness FIRST. Writing and then failing leaves on disk the exact partial
+    // table this refuses to emit, and the next reader has no way to tell it apart
+    // from a complete one.
     const missing = GUARD_SURFACES.filter((s) => !seed.has(s.id)).map((s) => s.id);
-    console.log(`\nwrote ${out} with ${String(seed.size)} rates`);
     if (missing.length > 0) {
       console.error(
         `ENROLLED BUT UNMEASURED, so no rate can be emitted for: ${missing.join(", ")}. ` +
-          `Run the surface and read its rate, rather than guessing one.`,
+          `Run the surface and read its rate, rather than guessing one. Nothing was written.`,
       );
       process.exit(1);
     }
+    // stdout, not a file in whatever directory the caller happened to be in.
+    process.stdout.write(`${JSON.stringify(Object.fromEntries([...seed].sort()), null, 1)}\n`);
   }
 }
 

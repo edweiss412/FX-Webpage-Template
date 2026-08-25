@@ -12,7 +12,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /** One child process the runner spawned, as `runMutantRecorded` recorded it. */
-type Child = { suite: string; kind: "exit" | "timeout"; durationMs: number };
+export type Child = { suite: string; kind: "exit" | "timeout"; durationMs: number };
 type Outcome = { siteId: string; verdict: string; children?: readonly Child[] };
 type RunRecordFile = {
   surfaceId: string;
@@ -38,8 +38,16 @@ export type Measured = {
   mutants: number;
   observedBoots: number;
   seconds: number;
-  /** Every child duration, kept rather than summed: the cheapest boot is a real question. */
-  childMillis: number[];
+  /**
+   * Every child, kept whole rather than reduced to a duration.
+   *
+   * `suite` and `kind` are retained deliberately. An earlier version kept only
+   * `durationMs`, which made the per-suite breakdown behind documented limit L-5
+   * unrecoverable after parsing, and left the DISTINCT SUITE COUNT -- the one
+   * observable that can tell a weight change apart from a suite-list change --
+   * uncomputable.
+   */
+  children: Child[];
   verdicts: ReadonlyMap<string, string>;
   passed: boolean;
 };
@@ -63,16 +71,14 @@ export function readRun(dir: string): RunArtifacts {
       for (const file of readdirSync(join(dir, entry))) {
         if (!file.endsWith(".json")) continue;
         const j = JSON.parse(readFileSync(join(dir, entry, file), "utf8")) as RunRecordFile;
-        const childMillis = j.outcomes
-          .flatMap((o) => [...(o.children ?? [])])
-          .map((c) => c.durationMs);
+        const children = j.outcomes.flatMap((o) => [...(o.children ?? [])]);
         surfaces.push({
           surfaceId: j.surfaceId,
           leg,
           mutants: j.outcomes.length,
-          observedBoots: childMillis.length,
-          seconds: childMillis.reduce((a, b) => a + b, 0) / 1000,
-          childMillis,
+          observedBoots: children.length,
+          seconds: children.reduce((a, c) => a + c.durationMs, 0) / 1000,
+          children,
           verdicts: new Map(j.outcomes.map((o) => [o.siteId, o.verdict])),
           passed: j.passed,
         });
