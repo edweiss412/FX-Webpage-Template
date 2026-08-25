@@ -35,7 +35,7 @@ describe("scratch-root cleanup (BL-MUTATION-SCRATCH-FS-EVENT-STORM)", () => {
   //
   // `callsMkdtemp` reads callee text, so an ordinary refactor of a subject to an
   // alias, a destructured binding, or a re-exported helper would drop that file
-  // out of `SUBJECTS`. The other twelve keep the non-empty premise green,
+  // out of `SUBJECTS`. The other thirteen keep the non-empty premise green,
   // neither arm ever runs the omitted file, and it could leak while this suite
   // passed. A conservative outcome nobody is told about is not a documented
   // limit — it is a hole with a comment next to it.
@@ -58,6 +58,7 @@ describe("scratch-root cleanup (BL-MUTATION-SCRATCH-FS-EVENT-STORM)", () => {
       "tests/mutation/source/premiseScan.test.ts",
       "tests/scripts/ledgerClaimsCheck.test.ts",
       "tests/styles/_metaControlOutlineFill.test.ts",
+      "tests/styles/_metaControlOutlineResidue.test.ts",
       "tests/styles/interactiveScanCore.test.ts",
     ]);
   });
