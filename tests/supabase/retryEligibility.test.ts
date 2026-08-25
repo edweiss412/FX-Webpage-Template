@@ -18,7 +18,14 @@
  */
 import { describe, expect, test } from "vitest";
 
-import { RETRYABLE_RPCS, isRetryEligible } from "@/lib/supabase/retryEligibility";
+import {
+  POSTGREST_RETRYABLE_STATUSES,
+  RETRYABLE_RPCS,
+  basePathOf,
+  isRetryEligible,
+  postgrestWillRetry,
+  rpcFunctionName,
+} from "@/lib/supabase/retryEligibility";
 
 const BASE = "http://127.0.0.1:54321";
 const eligible = (path: string, method: string): boolean =>
@@ -79,5 +86,92 @@ describe("isRetryEligible — the /rpc/ segment is load-bearing", () => {
 describe("RETRYABLE_RPCS", () => {
   test("is non-empty, so the predicate's true-branch is reachable", () => {
     expect(RETRYABLE_RPCS.size).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The mount arithmetic, pinned case by case.
+ *
+ * Enrolling this module scored it 2/12 with ten survivors, every one of them in the code that
+ * decides WHICH requests are ours — `basePathOf`, `rpcFunctionName`, the retryable status set, and
+ * the parse in `postgrestWillRetry`. The suite had twelve tests and none of them reached any of it.
+ * That is the point of enrolling a module whose defect class is "claims a request it does not own":
+ * the round-4 P0 lived exactly here.
+ */
+describe("basePathOf — the mount, taken from the client rather than guessed", () => {
+  test("absent or empty is the root", () => {
+    expect(basePathOf(undefined)).toBe("");
+    expect(basePathOf("")).toBe("");
+  });
+
+  test("a root url has no base path, with or without the trailing slash", () => {
+    expect(basePathOf("http://127.0.0.1:54321")).toBe("");
+    expect(basePathOf("http://127.0.0.1:54321/")).toBe("");
+  });
+
+  test("a prefixed url keeps its prefix, and trailing slashes do not change it", () => {
+    expect(basePathOf("http://h/proxy")).toBe("/proxy");
+    expect(basePathOf("http://h/proxy/")).toBe("/proxy");
+    expect(basePathOf("http://h/a/b//")).toBe("/a/b");
+  });
+
+  test("an unparseable url is the root rather than a throw", () => {
+    expect(basePathOf("not a url")).toBe("");
+  });
+});
+
+describe("rpcFunctionName — exact prefix, exactly one segment", () => {
+  test("names the function at the root mount", () => {
+    expect(rpcFunctionName("/rest/v1/rpc/is_admin")).toBe("is_admin");
+  });
+
+  test("names it under a base path, and NOT without one", () => {
+    expect(rpcFunctionName("/proxy/rest/v1/rpc/is_admin", "/proxy")).toBe("is_admin");
+    expect(rpcFunctionName("/proxy/rest/v1/rpc/is_admin")).toBeUndefined();
+  });
+
+  test("refuses an interior match — the round-4 P0's shape", () => {
+    // A Storage object may legitimately be NAMED `rest/v1/rpc/is_admin`.
+    expect(rpcFunctionName("/storage/v1/object/bucket/rest/v1/rpc/is_admin")).toBeUndefined();
+  });
+
+  test("a ONE-character function name is a name, not an empty one", () => {
+    // `rest.length > 0` — the gate showed `> 1` surviving, because every case here used a long
+    // name. PostgREST accepts a single-character function, so the boundary is 0 and not 1.
+    expect(rpcFunctionName("/rest/v1/rpc/f")).toBe("f");
+  });
+
+  test("refuses an empty name and a nested path", () => {
+    expect(rpcFunctionName("/rest/v1/rpc/")).toBeUndefined();
+    expect(rpcFunctionName("/rest/v1/rpc/a/b")).toBeUndefined();
+  });
+});
+
+describe("postgrestWillRetry — the other half of the same mount test", () => {
+  test("a GET at the mount is PostgREST's", () => {
+    expect(postgrestWillRetry("http://h/rest/v1/shows", "GET")).toBe(true);
+  });
+
+  test("a POST at the mount is not, because PostgREST only retries idempotent methods", () => {
+    expect(postgrestWillRetry("http://h/rest/v1/shows", "POST")).toBe(false);
+  });
+
+  test("a Storage path that merely CONTAINS the mount is not PostgREST's", () => {
+    expect(postgrestWillRetry("http://h/storage/v1/object/b/rest/v1/shows", "GET")).toBe(false);
+  });
+
+  test("under a base path the mount moves with it", () => {
+    expect(postgrestWillRetry("http://h/proxy/rest/v1/shows", "GET", "/proxy")).toBe(true);
+    expect(postgrestWillRetry("http://h/proxy/rest/v1/shows", "GET")).toBe(false);
+  });
+
+  test("an unparseable url keeps ownership rather than orphaning the request", () => {
+    expect(postgrestWillRetry("not a url", "GET")).toBe(false);
+  });
+});
+
+describe("POSTGREST_RETRYABLE_STATUSES", () => {
+  test("is exactly the set the installed client retries, so a drifted literal reds here", () => {
+    expect([...POSTGREST_RETRYABLE_STATUSES].sort((a, b) => a - b)).toEqual([503, 520]);
   });
 });

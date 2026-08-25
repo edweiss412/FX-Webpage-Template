@@ -69,7 +69,12 @@ export const RETRYABLE_RPCS: ReadonlySet<string> = new Set([
  * known where the wrapper is constructed.
  */
 export function basePathOf(baseUrl: string | undefined): string {
-  if (baseUrl === undefined || baseUrl === "") return "";
+  // One condition, not two. The original read `baseUrl === undefined || baseUrl === ""`, and the
+  // gate showed the `||` flipping to `&&` with nothing observable changing: `new URL("")` throws
+  // and the catch already answers "" for it, so the empty-string half was dead. The undefined half
+  // is NOT dead — it narrows the type for `new URL` — so it stays, now as the only test here, and
+  // flipping its `===` reds the base-path case rather than surviving.
+  if (baseUrl === undefined) return "";
   try {
     const p = new URL(baseUrl).pathname.replace(/\/+$/, "");
     return p === "/" ? "" : p;
