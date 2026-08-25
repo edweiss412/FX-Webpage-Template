@@ -781,7 +781,11 @@ describe("scope-aware extent resolution", () => {
     const mod = join(scratch, `mod${id}.ts`);
     writeFileSync(mod, moduleSrc, "utf8");
     const p = join(scratch, `case${id}-user.ts`);
-    writeFileSync(p, testSrc.replace("__MODULE__", `./mod${id}`), "utf8");
+    writeFileSync(
+      p,
+      testSrc.replace("__MODULE__", () => `./mod${id}`),
+      "utf8",
+    );
     const [first] = classifyTests(ROOT, p);
     return first?.verdict ?? "<no test found>";
   }
@@ -1082,7 +1086,11 @@ describe("R2 — dynamic imports and non-runtime positions", () => {
     const id = n++;
     writeFileSync(join(scratch, `pure${id}.ts`), moduleSrc, "utf8");
     const p = join(scratch, `multi${id}-user.ts`);
-    writeFileSync(p, testSrc.replace(/__MODULE__/g, `./pure${id}`), "utf8");
+    writeFileSync(
+      p,
+      testSrc.replace(/__MODULE__/g, () => `./pure${id}`),
+      "utf8",
+    );
     return classifyTests(ROOT, p).map((t) => t.verdict);
   }
 
@@ -5298,7 +5306,8 @@ describe("producer B — an unfollowable factory slot reports unclassifiable", (
       caseSrc.split(cell.registration(cell.slotArg)).length === 2 &&
         INLINE_BODY.test(INLINE) &&
         twinSrc !== caseSrc &&
-        twinSrc === caseSrc.replace(cell.registration(cell.slotArg), cell.registration(INLINE)),
+        twinSrc ===
+          caseSrc.replace(cell.registration(cell.slotArg), () => cell.registration(INLINE)),
     );
   }
   premise("the producer-B cell set is non-empty", B_CELLS.length, 0);

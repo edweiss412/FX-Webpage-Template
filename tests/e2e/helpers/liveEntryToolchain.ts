@@ -189,7 +189,7 @@ function emitCommittedFace(outFile: string): void {
   // no-op here would ship the app's `/fonts/` URL into every harness, where it
   // 404s and renders identically to a missing face.
   const faceBlock = fontsCss
-    .replace(`url("${PUBLIC_FONT_URL}")`, `url("${HARNESS_FONT_FILENAME}")`)
+    .replace(`url("${PUBLIC_FONT_URL}")`, () => `url("${HARNESS_FONT_FILENAME}")`)
     .replace("font-display: swap;", "font-display: block;");
 
   // Verify the rewrite through the PARSER, not a substring search. The

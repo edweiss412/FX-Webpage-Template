@@ -245,7 +245,10 @@ export function normalizeStageWords(roleCell: string): StageNormalization {
     const corrected = STAGE_CANONICAL[cand] ?? cand;
     corrections.push({ detected, corrected });
     // Replace the trimmed head core, preserving head's surrounding whitespace + the marker.
-    return head.replace(detected, corrected) + marker;
+    // Replacer function. `corrected` is provably `$`-free — it is STAGE_CANONICAL[cand] where
+    // cand comes from closedVocabMatch over the four-element STAGE_VOCAB, so this is hygiene
+    // rather than a live defect (spec §5). `detected` is the PATTERN, matched literally.
+    return head.replace(detected, () => corrected) + marker;
   });
 
   return { corrected: rebuilt.join(""), corrections };
