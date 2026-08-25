@@ -39,7 +39,25 @@ const FORCE_HEADERS = {
  * would pass this file while disagreeing with the catalog.
  */
 const BOUNDARY_COPY = getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED");
-const BOUNDARY_TESTID = "admin-route-error-boundary";
+
+/**
+ * The LAYOUT's catch, not the page boundary, and the distinction is the whole point.
+ *
+ * `app/admin/layout.tsx:82` catches `AdminInfraError` from its own gate and renders this
+ * surface; `app/admin/error.tsx` is the per-route boundary that catches a fault raised AFTER
+ * the layout resolved. `admin-route-boundaries.spec.ts:24` exists to keep those apart, and it
+ * reaches the page boundary by forcing the fault at `layer=page` — a layer selector this
+ * spec's injector does not have.
+ *
+ * This injector fails the FIRST N requests of each client, and the first Supabase call in an
+ * `/admin` request is the layout's gate. So the layout catch is the deterministic surface here.
+ *
+ * It is also the one the ledger row documents: `BL-ADMIN-LOADER-CI-TRANSIENT`'s first
+ * occurrence records the failing page as "the whole page as 'Admin session unavailable'", which
+ * is this component's heading. Two CI rounds were spent guessing at surfaces while the row
+ * already named this one.
+ */
+const BOUNDARY_TESTID = "admin-layout-infra-error";
 
 test.describe("admin gate absorbs a forced upstream 502", () => {
   test("the admin page renders through an injected gateway fault", async ({ page }) => {
@@ -54,21 +72,24 @@ test.describe("admin gate absorbs a forced upstream 502", () => {
     await expect(page.getByTestId(BOUNDARY_TESTID)).toHaveCount(0);
   });
 
-  // The budget's exact boundary, and the reason this file does not settle AC-5 by grepping the
-  // run's log for SUPABASE_UPSTREAM_RETRY. It tried that first, and run 32804414458 showed why
-  // it cannot work: nine emits landed in one green job, and three of them are provably not this
-  // spec's — two at 03:23:46 during admin-changes-feed-layout, one at 03:24:04 during
-  // dev-capture, both windows outside this test entirely. The code appearing in the log is
-  // therefore satisfied by background faults alone, and would still be satisfied if the
-  // injector here never fired.
+  // Why this file does not settle AC-5 by grepping the run's log for SUPABASE_UPSTREAM_RETRY.
+  // It tried that first, and run 32804414458 showed why it cannot work: nine emits landed in
+  // one green job, and three are provably not this spec's — two at 03:23:46 during
+  // admin-changes-feed-layout, one at 03:24:04 during dev-capture, both windows outside this
+  // test entirely. The code appearing in the log is satisfied by background faults alone, and
+  // would still be satisfied if the injector here never fired.
   //
-  // These two cases settle it from page-observable behavior instead. The wrapper takes
-  // MAX_SUPABASE_RETRIES = 2 retries, so it makes three attempts in total: two forced faults
-  // are absorbed on the third attempt, and three exhaust the budget and replay the first
-  // attempt's 502, which is the recorded failure mode. Neither case can pass without the retry
-  // running the exact number of times claimed — a wrapper that never retried would fail the
-  // absorbed case, and one that retried more would fail the exhausted case.
-  test("two forced faults are absorbed on the last attempt the budget allows", async ({ page }) => {
+  // What these cases assert instead is page-observable and attributable to THIS request.
+  //
+  // What they deliberately do NOT assert is the exact retry budget. An earlier revision tried
+  // to pin MAX_SUPABASE_RETRIES = 2 with a 1/2/3-fault differential, on the assumption that a
+  // forced count is spent by ONE request. It is not: the injector's counter belongs to the
+  // CLIENT and is shared by every request that client makes, and app/admin/layout.tsx:77 issues
+  // three in one Promise.all. Run 32806860141 is the disproof — many distinct `fn` values each
+  // at `attempt: 1`, the budget spread thin, no single request reliably exhausting. The exact
+  // budget is pinned where it can be: retryingFetch.test.ts, with injected timers and exact
+  // call counts.
+  test("two forced faults are absorbed and the page still renders", async ({ page }) => {
     await signInAs(page, ADMIN_FIXTURE);
     await page.setExtraHTTPHeaders({ ...FORCE_HEADERS, "x-test-force-upstream-502": "2" });
 
@@ -78,14 +99,23 @@ test.describe("admin gate absorbs a forced upstream 502", () => {
     await expect(page.getByTestId(BOUNDARY_TESTID)).toHaveCount(0);
   });
 
-  test("three forced faults exhaust the budget and reach the error boundary", async ({ page }) => {
+  // The other side of the consequence bound: absorbed OR signaled, never silently wrong. A
+  // fault that outlasts the budget must still reach the recorded surface rather than hang or
+  // quietly succeed.
+  //
+  // 50 rather than 3 because of the shared-counter finding above: every request the layout
+  // makes must run out of attempts, so the count has to cover all of them, not one. This asserts
+  // that a persistent fault SURFACES — it makes no claim about how many retries preceded it.
+  test("a fault that outlasts the budget reaches the recorded failure surface", async ({
+    page,
+  }) => {
     await signInAs(page, ADMIN_FIXTURE);
-    await page.setExtraHTTPHeaders({ ...FORCE_HEADERS, "x-test-force-upstream-502": "3" });
+    await page.setExtraHTTPHeaders({ ...FORCE_HEADERS, "x-test-force-upstream-502": "50" });
 
     await page.goto("/admin");
 
-    // Asserting the boundary is PRESENT is also what makes the other two cases mean anything:
-    // their toHaveCount(0) would pass just as happily against a misspelled selector.
+    // Asserting a surface is PRESENT is also what makes the two absorbed cases mean anything:
+    // their toHaveCount(0) would pass just as happily against a testid that never existed.
     await expect(page.getByTestId(BOUNDARY_TESTID)).toBeVisible();
     await expect(page.getByText(BOUNDARY_COPY).first()).toBeVisible();
   });
