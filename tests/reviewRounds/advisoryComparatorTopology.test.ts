@@ -275,7 +275,12 @@ describe("boundary-advisory comparator topology (2026-08-07 spec §3.1)", () => 
     const shipped =
       ".filter((r) => !strictlyBefore(instant(r.startedAt), instant(ARC_SUM_FREEZE)));";
     const lexical = ".filter((r) => r.startedAt === null || !(r.startedAt < ARC_SUM_FREEZE));";
-    const regressed = corpus!.src.replace(shipped, lexical);
+    // Replacer FUNCTION, not a replacement string, per the #883 class sweep:
+    // the function form has no substitution grammar at all, so a `$&` or `$1`
+    // appearing in the regressed source can never be interpreted. `lexical` is
+    // a literal today and carries none, which is exactly why the shape rather
+    // than the value is what gets fixed.
+    const regressed = corpus!.src.replace(shipped, () => lexical);
     premiseHolds("the repaired line is still present to regress", regressed !== corpus!.src);
     expect(lexicalTimestampComparisons(corpus!.file, regressed).length).toBeGreaterThan(0);
   });
