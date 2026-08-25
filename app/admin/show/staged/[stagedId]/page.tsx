@@ -218,6 +218,7 @@ export default async function LiveFirstSeenStagedPage({ params }: PageProps) {
     return (
       <main
         data-testid="live-first-seen-staged-infra-error"
+        data-render-fault="staged-sheet-load"
         className="mx-auto flex max-w-2xl flex-col gap-section-gap"
       >
         <header className="flex flex-col gap-2">

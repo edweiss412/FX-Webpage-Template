@@ -150,6 +150,46 @@ export function validateSurface(surface: GuardSurface): string[] {
  */
 export const GUARD_SURFACES: GuardSurface[] = [
   /**
+   * The render-fault detector, enrolled 2026-08-24 before its first diff review.
+   *
+   * Shape was decided at authoring time rather than after: the detector is an
+   * importable module with a referring Vitest suite, because the runner overlays
+   * a target only when a suite IMPORTS it. A terminal CLI script cannot be
+   * enrolled without restructuring, which is how two earlier arcs discovered
+   * enrolment was impossible only after review had already begun.
+   *
+   * The operator subset is enumerated by what can actually REACH the detector's
+   * logic. Measured on the first scored run rather than predicted: the module's
+   * comparisons are ALL equality (`rootSelector !== undefined`, `count === 0`,
+   * `root === null`, `value === ""`), so `equality-flip` produces five mutants
+   * and `integer-literal` one, on the `0` in `count === 0`. `relational-boundary`
+   * produces NONE and is declared anyway, deliberately: there is no `<`/`>` in
+   * the module today, so the operator reaches no site, and keeping it declared
+   * means the day someone writes one it is covered without a registry edit. An
+   * earlier version of this comment claimed the root count was a relational
+   * comparison. It is not, it is `=== 0`, and the run said so. `logical-connector` and `statement-removal` are
+   * excluded because the module has no compound conditions and its statements
+   * are a linear sequence whose removal the suite already catches through the
+   * assertions above -- a budget decision, not a claim their mutants would be
+   * uninteresting, and widening is a registry change carrying its own numbers.
+   */
+  {
+    id: "captureRenderFault",
+    sourcePath: "scripts/capture-render-fault.ts",
+    suitePaths: ["tests/help/renderFaultDetector.test.ts"],
+    operators: ["relational-boundary", "equality-flip", "integer-literal"],
+    scoreFloor: 0.9,
+    // Blinds the empty-value branch, so an empty `data-render-fault` reports
+    // the raw "" instead of "(unspecified)". The suite asserts that mapping
+    // directly, so a live overlay kills it deterministically. Verified unique
+    // on the current source (`grep -c -F 'value === ""'` = 1).
+    control: {
+      from: 'value === ""',
+      to: 'value === "NEVERMATCHES"',
+    },
+    accepted: [],
+  },
+  /**
    * The premise recognizer, enrolled 2026-08-16 with a SCOPED operator subset.
    *
    * Both suites are listed because both are load-bearing consumers: the unit

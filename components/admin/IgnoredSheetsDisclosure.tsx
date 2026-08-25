@@ -79,6 +79,15 @@ export function IgnoredSheetsDisclosure({
             {degraded ? (
               <span
                 data-testid="ignored-sheets-degraded-chip"
+                // Layer 1 marker. `degraded` is derived in Dashboard from
+                // `ignoredResult.kind === "infra_error"` and this chip renders
+                // inside /admin, a manifest-captured route, so an ignored-sheets
+                // read failure would otherwise be baked into a committed
+                // baseline. The scanner cannot reach this branch (its guard is a
+                // bare prop, so `classifyExpression` returns null and the
+                // ternary arm drops it), which is why the marker is written by
+                // hand here and declared in the residue registry.
+                data-render-fault="dashboard-ignored-sheets"
                 className="inline-flex items-center gap-1 rounded-pill border border-border-strong bg-warning-bg px-2 py-0.5 text-xs font-semibold text-warning-text"
               >
                 <TriangleAlert aria-hidden="true" className="size-3 shrink-0" />

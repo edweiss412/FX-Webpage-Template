@@ -48,10 +48,23 @@ type PageProps = {
   searchParams: Promise<{ as?: string; s?: string }>;
 };
 
-function FailureSurface({ testId, copy }: { testId: string; copy: string }) {
+function FailureSurface({
+  testId,
+  copy,
+  renderFault,
+}: {
+  testId: string;
+  copy: string;
+  // The marker is passed EXPLICITLY, never derived from testId. Deriving it
+  // marked `staged-preview-empty-roster` too, and an empty roster is a designed
+  // empty state, not breakage -- the capture would have refused a healthy
+  // surface, and the reason string would have miscategorised it besides.
+  renderFault?: string | undefined;
+}) {
   return (
     <main
       data-testid={testId}
+      data-render-fault={renderFault}
       className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
     >
       <p className="text-base text-text-subtle">{copy}</p>
@@ -76,7 +89,13 @@ export default async function StagedPreviewPage({ params, searchParams }: PagePr
   const lookup = await lookupStagedRow(stagedId);
   if (lookup.kind === "not_found") notFound();
   if (lookup.kind === "infra_error") {
-    return <FailureSurface testId="staged-preview-infra-error" copy={LOAD_FAILURE_COPY} />;
+    return (
+      <FailureSurface
+        testId="staged-preview-infra-error"
+        copy={LOAD_FAILURE_COPY}
+        renderFault="staged-preview-lookup"
+      />
+    );
   }
 
   const checkedAt = (await nowDate()).toISOString();
@@ -95,11 +114,23 @@ export default async function StagedPreviewPage({ params, searchParams }: PagePr
       requestedViewerId: as ?? null,
     });
   } catch {
-    return <FailureSurface testId="staged-preview-decode-error" copy={LOAD_FAILURE_COPY} />;
+    return (
+      <FailureSurface
+        testId="staged-preview-decode-error"
+        copy={LOAD_FAILURE_COPY}
+        renderFault="staged-preview-decode"
+      />
+    );
   }
 
   if (built.kind === "decode_error") {
-    return <FailureSurface testId="staged-preview-decode-error" copy={LOAD_FAILURE_COPY} />;
+    return (
+      <FailureSurface
+        testId="staged-preview-decode-error"
+        copy={LOAD_FAILURE_COPY}
+        renderFault="staged-preview-decode"
+      />
+    );
   }
   if (built.kind === "empty_roster") {
     return <FailureSurface testId="staged-preview-empty-roster" copy={EMPTY_ROSTER_COPY} />;
