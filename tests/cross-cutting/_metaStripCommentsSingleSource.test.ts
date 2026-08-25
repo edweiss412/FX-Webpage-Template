@@ -61,6 +61,20 @@ export type StandingRow = { file: string; family: string; marker: string; reason
  *  still fails. This list is EXACTLY the plan-time simulation's offender set. */
 export const STANDING_ALLOWLIST: StandingRow[] = [
   {
+    file: "tests/styles/accentCommentFigures.test.ts",
+    family: "two-char-literal",
+    marker: "*/",
+    reason:
+      "The COMMENT IS THE SUBJECT. This test reads the prose-link comment in " +
+      "app/globals.css and asserts the contrast figures it states match the tokens " +
+      "actually shipped -- the comment had claimed 4.11:1 for an accent that measures " +
+      "5.34:1, and a stale figure in a design note is exactly what it exists to catch. " +
+      "It slices from the comment's opening phrase to its `*/` close. Routing it through " +
+      "the shared module would strip the only text it examines and leave an assertion " +
+      "over an empty string, which is the failure mode this whole invariant guards " +
+      "against, arriving from the other direction.",
+  },
+  {
     file: "tests/mutation/source/processProbe.ts",
     family: "startswith-filter",
     marker: "#",

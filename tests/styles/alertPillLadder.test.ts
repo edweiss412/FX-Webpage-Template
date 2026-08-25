@@ -47,10 +47,16 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { premise, premiseHolds } from "../_shared/premise";
 
 const FILE = "components/admin/showpage/PublishedReviewModal.tsx";
-const src = readFileSync(join(process.cwd(), FILE), "utf8");
+// Read through the shared single source, so every walk below reads CODE.
+// The ternary reader used to carry `(?:\/\*[\s\S]*?\*\/\s*)?` at three
+// positions to step over comments between its tokens; with the comments
+// already gone the pattern is just the ternary, and there is one fewer
+// hand-rolled comment idiom in the tree.
+const src = stripCommentsForFile(readFileSync(join(process.cwd(), FILE), "utf8"), FILE);
 
 /** The four neutral ground fills; a pill wearing one is not separated by fill. */
 const NEUTRAL_FILL = /(^|\s)bg-(bg|surface|surface-sunken|surface-raised)(\s|$)/;
@@ -161,9 +167,7 @@ function branches(): { monitoring: string; urgent: string } {
   // The attribute value is a template literal; its arms are the only two
   // double-quoted strings inside it that sit either side of the `:`.
   const slice = src.slice(attr, src.indexOf("}`}", attr));
-  const m = slice.match(
-    /monitoringOnly\s*(?:\/\*[\s\S]*?\*\/\s*)?\?\s*(?:\/\*[\s\S]*?\*\/\s*)?"([^"]*)"\s*:\s*(?:\/\*[\s\S]*?\*\/\s*)?"([^"]*)"/,
-  );
+  const m = slice.match(/monitoringOnly\s*\?\s*"([^"]*)"\s*:\s*"([^"]*)"/);
   if (!m) throw new Error("the two-branch alert pill's ternary is no longer readable");
   return { monitoring: m[1]!, urgent: m[2]! };
 }
@@ -290,7 +294,8 @@ describe("normalization covers the decorations the app really uses", () => {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) stack.push(full);
       else if (/\.(tsx?|mdx)$/.test(entry.name)) {
-        for (const m of readFileSync(full, "utf8").matchAll(/[\w:!-]*\bborder-[\w[\]().:-]+!?/g)) {
+        const code = stripCommentsForFile(readFileSync(full, "utf8"), full);
+        for (const m of code.matchAll(/[\w:!-]*\bborder-[\w[\]().:-]+!?/g)) {
           used.add(m[0]);
         }
       }

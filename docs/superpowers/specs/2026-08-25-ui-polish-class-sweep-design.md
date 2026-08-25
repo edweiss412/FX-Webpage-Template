@@ -125,7 +125,7 @@ Round 0, per AGENTS.md. Each shape was grepped across `app/` and `components/` b
 
 ## 6. Documented limits
 
-**L0 — a scan that reads source must model comments, and this branch proved it four times.** Recorded as a lesson rather than as machinery, because the four sites need genuinely different things and forcing them into one helper would be the speculative abstraction that causes the next defect:
+**L0 — a scan that reads source must model comments, and this branch proved it four times.** **Corrected after round 3.** This entry originally argued that the sites needed genuinely different things and that one helper would be the speculative abstraction causing the next defect. That was reasoning from an absence I never checked: the repo already ships `tests/_shared/stripComments.ts` as a mandatory single source, and `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` fails any walked test that hand-rolls comment handling. It named five files on this branch, all mine. Three of them wanted the shared module outright and are now routed through it; the fourth reads a comment AS ITS SUBJECT and carries a reasoned allowlist row. So the abstraction was neither speculative nor mine to decline — the one real distinction was between stripping comments and reading them, which the allowlist already expresses. The lesson stands; the conclusion drawn from it did not:
 
 | Where | What it did | Caught by |
 |---|---|---|

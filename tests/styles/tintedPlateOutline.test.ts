@@ -45,6 +45,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { stripCommentsForFile } from "../_shared/stripComments";
+
 import { premise } from "../_shared/premise";
 import { allStrings, scanInteractiveElements, type ScanElement } from "./interactiveScanCore";
 
@@ -60,19 +62,6 @@ const TINTED = "border-control-outline-tinted";
 const RESTING_OUTLINE =
   /(^|\s)border-(text-faint|border|border-strong|control-outline-tinted)(\s|$)/;
 const TINTED_RING_OFFSET = /(^|\s)focus-visible:ring-offset-(warning-bg|info-bg|danger-bg)(\s|$)/;
-
-/**
- * Source with comments removed, for counting CLASSES rather than prose.
- *
- * This branch hit the same bug four times: a comment that NAMES a token is not
- * an element that wears it. Two guards over-counted, one walker over-masked,
- * and this counting arm caught its own instance the moment it shipped — the
- * comment two lines above `ARCHIVED_TAB_BTN` explaining which ground gets
- * `border-text-faint` was itself counted as an occurrence of it.
- */
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^[^\n]*?\/\/[^\n]*$/gm, " ");
-}
 
 function has(strings: readonly string[], token: string): boolean {
   const whole = new RegExp(`(^|\\s)${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`);
@@ -310,7 +299,9 @@ describe("a registered file's neutral-ground count is pinned", () => {
     "%s keeps exactly its recorded number of neutral-ground outlines",
     (_label, row) => {
       const found = (
-        stripComments(readFileSync(join(ROOT, row.file), "utf8")).match(/border-text-faint/g) ?? []
+        stripCommentsForFile(readFileSync(join(ROOT, row.file), "utf8"), row.file).match(
+          /border-text-faint/g,
+        ) ?? []
       ).length;
       expect(
         found,

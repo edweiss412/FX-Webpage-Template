@@ -35,6 +35,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { stripCommentsForFile } from "../_shared/stripComments";
+
 import { premise } from "../_shared/premise";
 
 const ROOT = process.cwd();
@@ -57,45 +59,24 @@ type Site = { readonly file: string; readonly line: number; readonly body: strin
 const SITES: Site[] = (() => {
   const found: Site[] = [];
   for (const file of [...walk("app"), ...walk("components")]) {
-    const lines = readFileSync(join(ROOT, file), "utf8").split("\n");
-    // A `<summary` inside a COMMENT is prose about the element, not the element
-    // — `RunOfShowList.tsx` and `ErrorExplainer.tsx` each carry a comment that
-    // names the tag while explaining why its marker is hidden, and both were
-    // reported as unrepaired sites until this mask existed. Tracked across
-    // lines rather than stripped, so the line numbers stay real.
-    // A `<summary` is inside a comment iff, in the text BEFORE it on its line,
-    // a `/*` is still unclosed, or a block carried from an earlier line has not
-    // closed yet, or a `//` precedes it.
+    // Comments come off through the shared single source BEFORE the walk, and
+    // it blanks them in place, so line numbers stay real while a `<summary`
+    // that only appears in prose simply is not there to find.
     //
-    // Two rounds of repair converged here. The first version masked whatever
-    // followed a closing `*/`; the second still masked code after a block that
-    // OPENED AND CLOSED on the same line (`/* note */ <summary>`, and its JSDoc
-    // spelling), which round 2 caught. Reasoning about the head of the line
-    // rather than about the line as a whole is what makes both cases fall out.
-    //
-    // Documented limit: a `//` inside a string literal before a `<summary` on
-    // the same line would over-mask. No such line exists in this corpus, and
-    // over-masking is the direction that HIDES a site, so if one ever appears
-    // the walk's population premise below is what catches it.
-    const commented: boolean[] = [];
-    let inBlock = false;
-    for (const line of lines) {
-      const tag = line.indexOf("<summary");
-      if (tag < 0) {
-        commented.push(false);
-      } else {
-        const head = line.slice(0, tag);
-        const lastOpen = head.lastIndexOf("/*");
-        const lastClose = head.lastIndexOf("*/");
-        commented.push(lastOpen > lastClose || (inBlock && lastClose < 0) || head.includes("//"));
-      }
-      const lineOpen = line.lastIndexOf("/*");
-      const lineClose = line.lastIndexOf("*/");
-      if (lineOpen > lineClose) inBlock = true;
-      else if (lineClose > lineOpen) inBlock = false;
-    }
+    // This replaces a 25-line hand-rolled comment state machine. It existed
+    // because `RunOfShowList.tsx` and `ErrorExplainer.tsx` each carry a comment
+    // that NAMES the tag while explaining why its marker is hidden, and both
+    // were reported as unrepaired sites until something masked them. Two rounds
+    // of review each found one more spelling it mishandled — first code after a
+    // closing `*/`, then a block that opened and closed on one line. Parsing the
+    // file instead of matching markers ends that class rather than adding a
+    // third case, and it retires the documented limit the machine carried (a
+    // `//` inside a string literal before a `<summary` on the same line would
+    // have over-masked). `tests/cross-cutting/_metaStripCommentsSingleSource`
+    // requires the single source in any event.
+    const lines = stripCommentsForFile(readFileSync(join(ROOT, file), "utf8"), file).split("\n");
     for (let i = 0; i < lines.length; i++) {
-      if (!lines[i]!.includes("<summary") || commented[i]) continue;
+      if (!lines[i]!.includes("<summary")) continue;
       let body = "";
       for (let k = i; k < Math.min(i + 60, lines.length); k++) {
         body += lines[k] + "\n";
@@ -125,6 +106,34 @@ const REGISTERED: ReadonlyArray<{ file: string; affordance: string }> = [
 ];
 
 describe("a marker-suppressing summary renders a replacement cue", () => {
+  // The mask has to be proven on the POPULATION, not on pass/fail. Disabling
+  // the strip and re-running is not a probe: the corpus's prose mentions of
+  // `<summary` sit in RunOfShowList and ErrorExplainer, both of which now carry
+  // a real chevron, so the false sites PASS and the suite goes green with 27
+  // cases instead of 19. A mask whose only effect is the size of the population
+  // is invisible to every assertion that ranges over it — so this asserts the
+  // size directly, and names what the difference is made of.
+  it("the comment mask actually excludes prose mentions of the tag", () => {
+    const raw: string[] = [];
+    for (const file of [...walk("app"), ...walk("components")]) {
+      const src = readFileSync(join(ROOT, file), "utf8");
+      const stripped = stripCommentsForFile(src, file);
+      const rawLines = src.split("\n");
+      const strippedLines = stripped.split("\n");
+      for (let i = 0; i < rawLines.length; i++) {
+        if (rawLines[i]!.includes("<summary") && !strippedLines[i]!.includes("<summary")) {
+          raw.push(`${file}:${i + 1}`);
+        }
+      }
+    }
+    // Non-vacuity: if the corpus ever stops mentioning the tag in prose this
+    // assertion stops meaning anything, so it fails rather than passing empty.
+    premise("prose-only mentions of <summary> in the corpus", raw.length, 0);
+    // and none of them reached the population
+    const sitesAt = new Set(SITES.map((s) => `${s.file}:${s.line}`));
+    expect(raw.filter((r) => sitesAt.has(r))).toEqual([]);
+  });
+
   it("premise: the walk reaches the component tree and finds these summaries", () => {
     // Without this every assertion below is vacuously true over an empty list.
     premise("marker-suppressing summaries found", SITES.length, 10);

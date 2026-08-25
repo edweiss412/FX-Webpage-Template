@@ -33,6 +33,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { stripCommentsForFile } from "../_shared/stripComments";
+
 import { premiseHolds } from "../_shared/premise";
 
 const ROOT = process.cwd();
@@ -89,17 +91,21 @@ const PAIRS: readonly Pair[] = [
  * outline and the pair would look mismatched. A comment is not a class.
  */
 function outlineTokens(file: string, anchor: string, window: number): string[] {
-  const src = readFileSync(join(ROOT, file), "utf8").split("\n");
-  const at = src.findIndex((l) => l.includes(anchor));
-  premiseHolds(`the anchor ${anchor} is still in ${file}`, at >= 0);
-  // Line comments are stripped PER LINE, before the join. Stripping after it
-  // deletes everything past the first `//` in the whole window — including the
-  // className two lines below — and the premise below is what caught that.
-  const text = src
-    .slice(at, at + window)
-    .map((line) => line.replace(/\/\/.*$/, " "))
-    .join(" ")
-    .replace(/\/\*[\s\S]*?\*\//g, " ");
+  // ONE line-space. The anchor is found in the STRIPPED text and the window is
+  // sliced from it, so there is no assumption that stripping preserves line
+  // numbering — and an anchor that only appears inside a comment correctly
+  // fails the premise instead of pointing the window at prose.
+  const stripped = stripCommentsForFile(readFileSync(join(ROOT, file), "utf8"), file).split("\n");
+  const at = stripped.findIndex((l) => l.includes(anchor));
+  premiseHolds(`the anchor ${anchor} is still in ${file} (outside comments)`, at >= 0);
+  // Comments come off through the shared single source, which parses the file
+  // with the TypeScript scanner rather than matching markers. The hand-rolled
+  // version this replaces had to strip line comments PER LINE before the join,
+  // because stripping after it deleted everything past the first `//` in the
+  // whole window — including the className two lines below. Parsing does not
+  // have that failure mode, and `tests/cross-cutting/_metaStripCommentsSingleSource`
+  // requires the single source anyway.
+  const text = stripped.slice(at, at + window).join(" ");
   return [...new Set([...text.matchAll(/\bborder-([a-z][a-z0-9-]*)\b/g)].map((m) => m[1]!))].sort();
 }
 
