@@ -9,7 +9,14 @@
 // the catch-clause shape is the proof: it has no comparison to enumerate.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { Node, Project, ScriptTarget, SyntaxKind, type SourceFile } from "ts-morph";
+import {
+  Node,
+  Project,
+  type ReturnStatement,
+  ScriptTarget,
+  SyntaxKind,
+  type SourceFile,
+} from "ts-morph";
 import { deriveScanRoots, parseManifestRoutes } from "@/scripts/help-screenshots-routes";
 
 export const FAULT_ATTRIBUTE = "data-render-fault";
@@ -333,6 +340,23 @@ export function attributeCanRender(node: Node): boolean {
   const yieldsValue = (expression: Node | undefined): boolean => {
     if (expression === undefined) return false;
     if (/^(?:undefined|null)$/.test(expression.getText().trim())) return false;
+    // WRAPPERS are unwrapped rather than defaulting to renderable. The default
+    // at the bottom of this function is "can render", which is the dangerous
+    // direction -- it lets an impossible marker satisfy a hand registry -- and
+    // `(undefined)`, `undefined as string | undefined` and `void 0` all reached
+    // it, since none matches the literal test above. These are wrappers around
+    // an expression, not new grammar families: each defers to what it wraps.
+    if (Node.isParenthesizedExpression(expression)) return yieldsValue(expression.getExpression());
+    if (
+      Node.isAsExpression(expression) ||
+      Node.isSatisfiesExpression(expression) ||
+      Node.isNonNullExpression(expression) ||
+      Node.isTypeAssertion(expression)
+    ) {
+      return yieldsValue(expression.getExpression());
+    }
+    // `void <anything>` evaluates to `undefined`, always.
+    if (Node.isVoidExpression(expression)) return false;
     if (Node.isConditionalExpression(expression)) {
       return yieldsValue(expression.getWhenTrue()) || yieldsValue(expression.getWhenFalse());
     }
@@ -449,6 +473,26 @@ function carriesAttribute(jsx: Node | null): boolean {
   if (jsx === null) return false;
   if (attributeAlwaysPresent(jsx)) return true;
 
+  // The ROOT itself first. The ancestry walk below stops AT `jsx`, so a root
+  // that is itself conditional was never examined: routing the embedded-local
+  // hop through this function still certified `const note = cond ? <marked/> :
+  // null`, the exact shape the hop was repaired for. A walk bounded by a node
+  // cannot inspect that node, so the root is decomposed here instead.
+  if (Node.isParenthesizedExpression(jsx)) return carriesAttribute(jsx.getExpression());
+  if (Node.isConditionalExpression(jsx)) {
+    // Both arms, because the DOM sees only one and either may be the one.
+    return carriesAttribute(jsx.getWhenTrue()) && carriesAttribute(jsx.getWhenFalse());
+  }
+  if (Node.isBinaryExpression(jsx)) {
+    const rootOp = jsx.getOperatorToken().getText();
+    // `cond && <marked/>` renders NOTHING when cond is falsy, so it can never
+    // mark unconditionally, whatever the right side carries.
+    if (rootOp === "&&") return false;
+    if (rootOp === "||" || rootOp === "??") {
+      return carriesAttribute(jsx.getLeft()) && carriesAttribute(jsx.getRight());
+    }
+  }
+
   // A marked DESCENDANT only counts when nothing between it and the branch root
   // can decline to render it. `{cond ? <marked/> : null}` puts a marker in the
   // source that the DOM may never receive, and counting it certified coverage
@@ -519,7 +563,7 @@ export function componentRendersMarker(file: SourceFile, name: string): boolean 
         ? declaration.getBody()
         : declaration.getInitializer();
       if (body === undefined) continue;
-      // EVERY returned JSX root, through the ONE funnel.
+      // EVERY exit, through the ONE funnel.
       //
       // This read `MARKER.test(returned.getText()) && marksUnconditionally(...)`,
       // and the pair certified a component that renders no marker at all: the
@@ -532,8 +576,7 @@ export function componentRendersMarker(file: SourceFile, name: string): boolean 
       // invisible. A component marks on every render only if every JSX it can
       // return carries the attribute, hence `every` over all roots, with the
       // non-empty guard so a component returning no JSX is not vacuously marked.
-      const returns = returnedJsxRoots(body);
-      if (returns.length > 0 && returns.every((r) => carriesAttribute(r))) {
+      if (everyReturnMarks(body)) {
         return true;
       }
     }
@@ -583,23 +626,47 @@ export function marksUnconditionally(returned: Node): boolean {
 }
 
 /**
- * EVERY JSX root this body can return, for the certification path.
+ * Does EVERY exit of this body render a marker?
+ *
+ * The predecessor collected JSX roots and applied `every` to them, which
+ * silently DISCARDED the exits that were not JSX: a component returning
+ * `<marked/>` on one path and `null`, `false`, `0` or text on another certified,
+ * while React rendered no marker on those paths. Filtering before a universal
+ * quantifier makes the quantifier range over the survivors, which is not the
+ * question. Every exit is examined, and a non-JSX one fails outright.
+ *
+ * Documented limit: an implicit fall-through (a body that ends without a
+ * `return`) is not modelled. It is invisible to a return-statement walk, and
+ * modelling it needs control-flow analysis this arc does not carry.
+ */
+function everyReturnMarks(body: Node): boolean {
+  const statements = returnedStatements(body);
+  if (statements.length === 0) return false;
+  for (const statement of statements) {
+    const jsx = jsxRoot(statement.getExpression());
+    if (jsx === null) return false;
+    if (!carriesAttribute(jsx)) return false;
+  }
+  return true;
+}
+
+/**
+ * EVERY return statement this body owns, JSX or not.
  *
  * `firstReturnedJsx` stays for candidate COLLECTION, where the branch's first
  * rendered element is the thing under test. Certification is a different
  * question -- "does this mark on every render" -- and it has to see every exit.
  */
-function returnedJsxRoots(body: Node): Node[] {
-  const roots: Node[] = [];
+function returnedStatements(body: Node): ReturnStatement[] {
+  const owned: ReturnStatement[] = [];
   for (const statement of body.getDescendantsOfKind(SyntaxKind.ReturnStatement)) {
     const owner = statement.getFirstAncestor(
       (a) => Node.isArrowFunction(a) || Node.isFunctionDeclaration(a) || a === body,
     );
     if (owner !== body) continue;
-    const jsx = jsxRoot(statement.getExpression());
-    if (jsx !== null) roots.push(jsx);
+    owned.push(statement);
   }
-  return roots;
+  return owned;
 }
 
 function firstReturnedJsx(body: Node): Node | null {

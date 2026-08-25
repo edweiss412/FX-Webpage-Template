@@ -333,3 +333,105 @@ describe("the component hop certifies only a component that really marks", () =>
     expect(componentIn(`function Empty() { return null; }`, "Empty")).toBe(false);
   });
 });
+
+/**
+ * Round 7 found three defects in the round-6b repairs. Each is pinned here with
+ * the reviewer's own probe, because each survived a repair that was believed to
+ * close its class -- which is the recurring shape of this whole review.
+ */
+describe("the round-7 repairs", () => {
+  const componentIn = (source: string, name: string): boolean => {
+    const project = new Project({
+      compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+      useInMemoryFileSystem: true,
+    });
+    const file = project.createSourceFile("probe.tsx", source);
+    return componentRendersMarker(file, name);
+  };
+
+  // 1. The ancestry walk is bounded BY the root, so it can never inspect the
+  //    root. An embedded local that is itself conditional slipped through the
+  //    hop that had just been repaired to catch exactly this.
+  it.each([
+    ["ternary with a null arm", `cond ? <b data-render-fault="x" /> : null`],
+    ["logical and", `cond && <b data-render-fault="x" />`],
+    ["logical or with an unmarked arm", `other || <b data-render-fault="x" />`],
+    ["nullish with an unmarked arm", `other ?? <b data-render-fault="x" />`],
+  ])("refuses an embedded local whose root is a %s", (_label, expression) => {
+    expect(
+      componentIn(
+        `function Host() {
+           const note = ${expression};
+           return <div>{note}</div>;
+         }`,
+        "Host",
+      ),
+    ).toBe(false);
+  });
+
+  it("still accepts an embedded local marked on BOTH ternary arms", () => {
+    // Both arms mark, so the DOM gets a marker whichever way it goes. Without
+    // this the repair could just refuse every conditional root and pass.
+    expect(
+      componentIn(
+        `function Host() {
+           const note = cond ? <b data-render-fault="x" /> : <i data-render-fault="y" />;
+           return <div>{note}</div>;
+         }`,
+        "Host",
+      ),
+    ).toBe(true);
+  });
+
+  // 2. Filtering to JSX before `every` made the quantifier range over the
+  //    survivors. A non-JSX exit renders no marker and must fail outright.
+  it.each([
+    ["null", "null"],
+    ["undefined", "undefined"],
+    ["false", "false"],
+    ["zero", "0"],
+    ["text", `"nothing to report"`],
+  ])("refuses a component whose other exit returns %s", (_label, value) => {
+    expect(
+      componentIn(
+        `function Maybe({ bad }: { bad: boolean }) {
+           if (bad) return <div data-render-fault="x">failed</div>;
+           return ${value};
+         }`,
+        "Maybe",
+      ),
+    ).toBe(false);
+  });
+
+  // 3. `attributeCanRender` defaults unrecognized expressions to renderable,
+  //    which is the direction that lets an impossible marker certify. These
+  //    wrappers all reached that default.
+  const canRender = (jsx: string): boolean => {
+    const project = new Project({
+      compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+      useInMemoryFileSystem: true,
+    });
+    const file = project.createSourceFile("probe.tsx", `const _x = ${jsx};`);
+    const node =
+      file.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement)[0] ??
+      file.getDescendantsOfKind(SyntaxKind.JsxOpeningElement)[0];
+    if (node === undefined) throw new Error("fixture has no JSX element");
+    return attributeCanRender(node);
+  };
+
+  it.each([
+    ["parenthesized undefined", "<div data-render-fault={(undefined)} />"],
+    ["void 0", "<div data-render-fault={void 0} />"],
+    ["as-cast undefined", "<div data-render-fault={undefined as string | undefined} />"],
+    ["satisfies undefined", "<div data-render-fault={undefined satisfies undefined} />"],
+    ["nested wrappers", "<div data-render-fault={((void 0))} />"],
+  ])("refuses %s, which can never produce an attribute", (_label, jsx) => {
+    expect(canRender(jsx)).toBe(false);
+  });
+
+  it("still accepts a wrapped value that CAN render", () => {
+    // The unwrapping must defer to what it wraps, not refuse every wrapper.
+    expect(canRender(`<div data-render-fault={("telemetry-events")} />`)).toBe(true);
+    expect(canRender(`<div data-render-fault={code as string} />`)).toBe(true);
+  });
+});
