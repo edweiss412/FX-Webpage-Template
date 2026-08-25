@@ -20,7 +20,7 @@
  * NOT in PARALLEL_TEST_GLOBS and therefore runs in the serial project, which is the tier that
  * boots Supabase.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,6 +32,9 @@ import { assertLocalDbUrl } from "../db/_localDbUrl";
 import { premise } from "../_shared/premise";
 import {
   EXCLUSIONS,
+  PRODUCT_SOURCE_EXTENSION,
+  buildCallArgs,
+  bodyCannotHaveRun,
   buildCatalog,
   READ_ONLY_SQLSTATE,
   completenessViolations,
@@ -59,12 +62,17 @@ afterAll(async () => {
 });
 
 let catalog: Catalog = new Map();
-let memberCalls: { proname: string; identity: string; args: string }[] = [];
+let memberCalls: {
+  proname: string;
+  identity: string;
+  isstrict: boolean;
+  argtypes: string[];
+}[] = [];
 
 beforeAll(async () => {
   // Every overload is kept. Building `name -> row` collapsed them last-wins, which let a
   // VOLATILE overload hide behind a STABLE one of the same name (round-1 review).
-  const rows = await sql<{ proname: string; provolatile: string; identity: string }[]>`
+  const rows = await sql<CatalogRow[]>`
     select p.proname, p.provolatile,
            pg_get_function_identity_arguments(p.oid) as identity
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -75,14 +83,20 @@ beforeAll(async () => {
   // hand-written, so a signature change cannot leave the arm calling a shape that no longer
   // exists. NULL arguments: the arm asks whether the body can WRITE, never what it returns.
   const members = [...RETRYABLE_RPCS];
-  memberCalls = await sql<{ proname: string; identity: string; args: string }[]>`
+  // Argument TYPES, not a pre-built NULL list. The args are built in TS by `buildCallArgs`, which
+  // substitutes a real value per type — NULL arguments make PostgreSQL skip a STRICT body entirely,
+  // so a NULL-called STRICT member would be recorded clean without executing (round-2 review).
+  memberCalls = await sql<
+    { proname: string; identity: string; isstrict: boolean; argtypes: string[] }[]
+  >`
     select p.proname,
            pg_get_function_identity_arguments(p.oid) as identity,
+           p.proisstrict as isstrict,
            coalesce(
-             (select string_agg('null::' || format_type(t.oid, null), ', ' order by o.ord)
+             (select array_agg(format_type(t.oid, null) order by o.ord)
                 from unnest(p.proargtypes) with ordinality as o(tid, ord)
                 join pg_type t on t.oid = o.tid),
-             '') as args
+             '{}') as argtypes
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = any(${members})`;
 });
@@ -215,7 +229,20 @@ describe("RETRYABLE_RPCS — safety arm", () => {
 
     const outcomes: ReadOnlyOutcome[] = [];
     for (const call of memberCalls) {
-      outcomes.push(await runReadOnly(call.proname, call.identity, call.args));
+      const args = buildCallArgs(call.argtypes);
+      const skipped = bodyCannotHaveRun(call.isstrict, args.unsupported);
+      const outcome = skipped
+        ? // Do not even issue the call: it cannot execute the body, and running it would only
+          // produce a clean-looking result. Record WHY instead.
+          {
+            name: call.proname,
+            identity: call.identity,
+            sqlstate: null,
+            message: `no sentinel for ${args.unsupported.join(", ")}`,
+            bodySkipped: true,
+          }
+        : await runReadOnly(call.proname, call.identity, args.sql);
+      outcomes.push(outcome);
     }
 
     expect(readOnlyViolations(outcomes)).toEqual([]);
@@ -302,6 +329,113 @@ describe("RETRYABLE_RPCS — safety arm", () => {
     expect(
       readOnlyViolations([{ ...raised, name: "_blank" }], new Map([["_blank", "   "]])),
     ).toHaveLength(1);
+  });
+});
+
+describe("a NULL argument cannot be mistaken for an executed body", () => {
+  /**
+   * Round-2 review found the arm calling every member with NULL arguments while treating a
+   * non-throwing call as clean. PostgreSQL SKIPS a `STRICT` function's body entirely on any NULL
+   * input, so a STRICT member reached "verified read-only" without executing one statement.
+   *
+   * No member is STRICT today (proisstrict is false for all thirteen, and for all sixty-six public
+   * functions), which is exactly why nothing observed it. Both halves are therefore planted.
+   */
+  test("PLANT: a STRICT writer called with a real value IS caught by the arm", async () => {
+    premise("a live connection to build the planted STRICT pair on", catalog.size, 0);
+    // `text` deliberately: it HAS a sentinel, so the body actually runs and the arm can fire.
+    const outcome = await runReadOnly(
+      "_probe_strict_text",
+      "",
+      buildCallArgs(["text"]).sql,
+      async (tx) => {
+        await tx.unsafe(`create table _probe_st(x int)`);
+        await tx.unsafe(
+          `create function _probe_st_vol(a text) returns void language plpgsql volatile as $$ begin insert into _probe_st values (1); end $$`,
+        );
+        await tx.unsafe(
+          `create function _probe_strict_text(a text) returns void language plpgsql stable strict as $$ begin perform _probe_st_vol(a); end $$`,
+        );
+      },
+    );
+    expect(outcome.sqlstate).toBe(READ_ONLY_SQLSTATE);
+  });
+
+  test("PLANT: the SAME function called with NULL raises nothing — the defect, reproduced", async () => {
+    premise("a live connection to build the planted STRICT pair on", catalog.size, 0);
+    // This is what the arm used to do. It is the reason a NULL-called STRICT member looked clean:
+    // the body never ran, so there was nothing to raise.
+    const outcome = await runReadOnly("_probe_strict_text2", "", "null::text", async (tx) => {
+      await tx.unsafe(`create table _probe_st2(x int)`);
+      await tx.unsafe(
+        `create function _probe_st_vol2(a text) returns void language plpgsql volatile as $$ begin insert into _probe_st2 values (1); end $$`,
+      );
+      await tx.unsafe(
+        `create function _probe_strict_text2(a text) returns void language plpgsql stable strict as $$ begin perform _probe_st_vol2(a); end $$`,
+      );
+    });
+    // No error at all, from a function that demonstrably writes. Clean is NOT evidence here.
+    expect(outcome.sqlstate).toBeNull();
+  });
+
+  test("PLANT: a STRICT member with an unsupported argument type is never reported clean", () => {
+    // no-premise: every input is a literal built in the test.
+    //
+    // The remaining NULL path: a type with no sentinel falls back to NULL, and for a STRICT
+    // function that means the body cannot run. The classifier must refuse to call that clean.
+    const args = buildCallArgs(["some_exotic_type"]);
+    expect(args.unsupported).toEqual(["some_exotic_type"]);
+    expect(bodyCannotHaveRun(true, args.unsupported)).toBe(true);
+    // A non-STRICT function with the same NULL fallback still executes, so it is NOT skipped.
+    expect(bodyCannotHaveRun(false, args.unsupported)).toBe(false);
+
+    const skipped: ReadOnlyOutcome = {
+      name: "_strict_exotic",
+      identity: "a some_exotic_type",
+      sqlstate: null,
+      message: "no sentinel",
+      bodySkipped: true,
+    };
+    // Clean-looking (sqlstate null) yet a violation, which is the whole point.
+    expect(readOnlyViolations([skipped], new Map())).toHaveLength(1);
+    // And a declaration does not excuse it either: this is not an inconclusive raise, it is a
+    // call that never happened.
+    expect(readOnlyViolations([skipped], new Map([["_strict_exotic", "declared"]]))).toHaveLength(
+      1,
+    );
+  });
+
+  test("every supported argument type produces a NON-null literal", () => {
+    // no-premise: literal inputs. Guards the sentinel table against a row that silently degrades
+    // to NULL, which would reintroduce the STRICT skip for that type.
+    const types = ["text", "text[]", "uuid", "uuid[]", "timestamp with time zone"];
+    const built = buildCallArgs(types);
+    expect(built.unsupported).toEqual([]);
+    expect(built.sql).not.toContain("null");
+    expect(built.sql.split(",")).toHaveLength(types.length);
+  });
+});
+
+describe("the walk covers every extension the project compiles", () => {
+  test("PRODUCT_SOURCE_EXTENSION accepts every extension tsconfig names", () => {
+    // no-premise: tsconfig is read below and asserted non-empty.
+    //
+    // `.tsx?` alone skipped `.mts`, which tsconfig compiles — so a product module could name an RPC
+    // invisibly to the completeness arm (round-2 review). Derived from tsconfig rather than
+    // restated, so adding a glob there fails here instead of silently narrowing the walk.
+    const cfg = readFileSync(join(process.cwd(), "tsconfig.json"), "utf8");
+    const globs = [...cfg.matchAll(/"\*\*\/\*\.([a-z]+)"/g)].map((m) => m[1]!);
+    premise("extension globs parsed out of tsconfig include", globs.length, 0);
+    for (const ext of new Set(globs)) {
+      expect(PRODUCT_SOURCE_EXTENSION.test(`some.${ext}`), `tsconfig compiles .${ext}`).toBe(true);
+    }
+  });
+
+  test("it still rejects what is not source", () => {
+    // no-premise: literal inputs.
+    for (const f of ["notes.md", "data.json", "styles.css", "image.png"]) {
+      expect(PRODUCT_SOURCE_EXTENSION.test(f), f).toBe(false);
+    }
   });
 });
 

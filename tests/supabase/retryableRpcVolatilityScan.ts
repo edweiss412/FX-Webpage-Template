@@ -83,6 +83,23 @@ export function hasReasonedEntry(map: ReadonlyMap<string, string>, name: string)
 
 export const PRODUCT_ROOTS = ["app", "lib", "components"];
 
+/**
+ * Extensions the walk treats as product source.
+ *
+ * `.tsx?` alone was too narrow, and round-2 review probed it: `tsconfig.json` includes an `.mts` glob,
+ * so an ordinary `.mts` module under one of the roots compiles as product code while the walk
+ * skipped it — a module could name an RPC and the completeness arm would stay green. Zero such
+ * files exist under the roots today, which is why nothing observed it.
+ *
+ * Deliberately wider than tsconfig's list rather than derived from it. The failure direction that
+ * matters is MISSING a file: discovery is already over-inclusive by design (a spurious match only
+ * forces a name into "retryable or excluded" and can never cause a retry), so an extension that
+ * turns out not to be compiled costs nothing, while one that is compiled and unscanned is the gap.
+ * `tests/supabase/productSourceExtensions.test.ts` asserts this covers every extension tsconfig
+ * names, so a tsconfig change that adds one fails rather than silently narrowing the walk.
+ */
+export const PRODUCT_SOURCE_EXTENSION = /\.(?:tsx?|mtsx?|ctsx?|jsx?|mjs|cjs)$/;
+
 /** Every string literal in the product tree, so discovery never recognizes a CALL. */
 export function literalsInProductTree(roots: readonly string[] = PRODUCT_ROOTS): Set<string> {
   const found = new Set<string>();
@@ -94,7 +111,7 @@ export function literalsInProductTree(roots: readonly string[] = PRODUCT_ROOTS):
         walk(full);
         continue;
       }
-      if (!/\.tsx?$/.test(entry)) continue;
+      if (!PRODUCT_SOURCE_EXTENSION.test(entry)) continue;
       for (const m of readFileSync(full, "utf8").matchAll(/["'`]([A-Za-z0-9_]+)["'`]/g)) {
         found.add(m[1]!);
       }
@@ -154,6 +171,11 @@ export type ReadOnlyOutcome = {
   /** `null` when the call completed without raising. */
   sqlstate: string | null;
   message: string | null;
+  /**
+   * True when the call CANNOT have executed the body — a STRICT function given a NULL argument.
+   * Such a call is not evidence of anything and must never read as clean.
+   */
+  bodySkipped?: boolean;
 };
 
 /**
@@ -184,13 +206,25 @@ export function readOnlyViolations(
   // sweeping this round's own repair for the shape rather than the instance.
   const unreachedByName = new Map<string, boolean>();
   for (const o of outcomes) {
-    unreachedByName.set(o.name, (unreachedByName.get(o.name) ?? false) || o.sqlstate !== null);
+    unreachedByName.set(
+      o.name,
+      (unreachedByName.get(o.name) ?? false) || o.sqlstate !== null || o.bodySkipped === true,
+    );
   }
 
   for (const o of outcomes) {
     if (o.sqlstate === READ_ONLY_SQLSTATE) {
       // Declaring a member inconclusive does NOT excuse this: 25006 is the arm firing, not noise.
       out.push(`${o.name}(${o.identity}): wrote inside a READ ONLY transaction (${o.message})`);
+      continue;
+    }
+    // A STRICT function given a NULL argument never ran, so "it did not raise" says nothing. This
+    // is checked BEFORE the clean path, because that path is exactly where it used to be absorbed.
+    if (o.bodySkipped === true) {
+      out.push(
+        `${o.name}(${o.identity}): STRICT and called with a NULL argument, so PostgreSQL skipped ` +
+          `the body entirely — this call is not evidence the function cannot write`,
+      );
       continue;
     }
     if (o.sqlstate !== null && !hasReasonedEntry(inconclusive, o.name)) {
@@ -231,4 +265,66 @@ export function buildCatalog(rows: readonly CatalogRow[]): Catalog {
     cat.set(r.proname, list);
   }
   return cat;
+}
+
+/**
+ * A non-NULL literal for each argument type the retry set actually uses.
+ *
+ * Round-2 review found the arm calling every member with NULL arguments, which PostgreSQL does not
+ * merely tolerate — for a `STRICT` function it SKIPS THE BODY ENTIRELY and returns NULL. The arm
+ * then saw no error and recorded the member clean, so a STRICT member reached "verified read-only"
+ * without one statement of it running. Probed both halves on the live stack: a STRICT function
+ * wrapping a volatile writer raises NOTHING under READ ONLY when called with NULL, and raises 25006
+ * when called with a non-NULL value.
+ *
+ * Passing real values fixes the STRICT case and is strictly better for every other case too, since
+ * more of each body actually executes. The five types below are the complete current set across all
+ * thirteen members; each was verified to execute cleanly under READ ONLY.
+ */
+const ARG_SENTINELS: ReadonlyMap<string, string> = new Map([
+  ["text", "''::text"],
+  ["text[]", "'{}'::text[]"],
+  ["uuid", "'00000000-0000-0000-0000-000000000000'::uuid"],
+  ["uuid[]", "'{}'::uuid[]"],
+  ["timestamp with time zone", "now()"],
+]);
+
+export type CallArgs = {
+  /** The argument list to interpolate, already typed. */
+  sql: string;
+  /** Types with no sentinel, which therefore fell back to NULL. */
+  unsupported: string[];
+};
+
+/**
+ * Build the argument list for one overload, and report any type that had to fall back to NULL.
+ *
+ * Pure, so the fallback path can be driven by a planted type rather than by whichever types the
+ * catalog happens to hold today. The fallback is the dangerous branch: NULL is exactly what makes a
+ * STRICT body skip, so the caller must refuse to call such a result clean.
+ */
+export function buildCallArgs(argTypes: readonly string[]): CallArgs {
+  const parts: string[] = [];
+  const unsupported: string[] = [];
+  for (const t of argTypes) {
+    const sentinel = ARG_SENTINELS.get(t);
+    if (sentinel === undefined) {
+      unsupported.push(t);
+      parts.push(`null::${t}`);
+      continue;
+    }
+    parts.push(sentinel);
+  }
+  return { sql: parts.join(", "), unsupported };
+}
+
+/**
+ * Whether this call could not have executed the function's body.
+ *
+ * True exactly when the function is STRICT and at least one argument fell back to NULL. PostgreSQL
+ * skips a STRICT body on any NULL input, so such a call proves nothing and must never be recorded
+ * as a clean READ ONLY execution.
+ */
+export function bodyCannotHaveRun(isStrict: boolean, unsupported: readonly string[]): boolean {
+  return isStrict && unsupported.length > 0;
 }
