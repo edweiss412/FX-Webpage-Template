@@ -369,6 +369,61 @@ describe("acCoverage — the skips and boundaries the arm depends on", () => {
     );
   });
 
+  it("takes the FIRST duplicate reference definition, as CommonMark renders it", () => {
+    // `Map.set` per definition took the LAST one, so the arm inspected a different
+    // destination than the document RENDERS: the row visibly cited the required
+    // test while the scan read some other URL, which is a silent WRONG ACCEPT
+    // rather than a miss (round 3 finding 1). Both reference-bearing node types
+    // are covered, because the defect was in the shared resolver.
+    for (const cell of ["[driver][ref]", "![driver][ref]"]) {
+      const md = [
+        "<!-- ac-coverage: command-col=3 -->",
+        "",
+        "| AC | Pin | Cmd |",
+        "| --- | --- | --- |",
+        `| AC-14 | ${cell} | \`pnpm vitest run tests/paneCompaction/adapter.test.ts\` |`,
+        "",
+        "[ref]: tests/paneCompaction/driver.test.ts:72",
+        "[ref]: docs/other.md:1",
+      ].join("\n");
+      const view = viewOf(md);
+      const plan = acCommandPlan(view, "plan");
+      const parse = {
+        outcomes: new Map(
+          plan.map((e) => [acKey(e.line, e.spanIndex), { kind: "exit" as const, code: 0 }]),
+        ),
+      };
+      expect(checkAcCoverage(view, "plan", parse).map((f) => f.code)).toContain(
+        "AC_COMMAND_PIN_UNOBSERVED",
+      );
+    }
+  });
+
+  it("sees a pin written as reference-image ALT text", () => {
+    // `image` carried its alt and `imageReference` did not, so a pin that renders
+    // visibly was invisible to the scan (round 3 finding 2) — the same omission
+    // one node type over, which a class sweep should have caught the first time.
+    const md = [
+      "<!-- ac-coverage: command-col=3 -->",
+      "",
+      "| AC | Pin | Cmd |",
+      "| --- | --- | --- |",
+      "| AC-14 | ![tests/paneCompaction/driver.test.ts:72][icon] | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |",
+      "",
+      "[icon]: public/icon.png",
+    ].join("\n");
+    const view = viewOf(md);
+    const plan = acCommandPlan(view, "plan");
+    const parse = {
+      outcomes: new Map(
+        plan.map((e) => [acKey(e.line, e.spanIndex), { kind: "exit" as const, code: 0 }]),
+      ),
+    };
+    expect(checkAcCoverage(view, "plan", parse).map((f) => f.code)).toContain(
+      "AC_COMMAND_PIN_UNOBSERVED",
+    );
+  });
+
   it("a pin the command DOES name stays silent through every citation form", () => {
     // The other half: the repair must not make every linked pin draw. Same forms,
     // command now naming the cited file.

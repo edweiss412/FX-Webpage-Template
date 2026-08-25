@@ -20,12 +20,18 @@ const FORBIDDEN = /["'`]node:(fs|child_process|process)(\/[A-Za-z/]+)?["'`]/;
  * `require()`, and dynamic `import()`. One alternation rather than four scans,
  * matching the shape of `FORBIDDEN` above.
  *
- * DOCUMENTED LIMIT, probed rather than assumed. This scan catches every specifier
- * form tried against it -- `from` clause, bare side-effect import, `require()`,
- * dynamic `import()`, `export ... from`, `export * from`, `import type`,
- * multi-line `from`, `import x = require()`, a template-literal specifier, a
- * newline inside `import(...)`, an indented bare import, and a package subpath:
- * thirteen forms, ZERO missed. It has two false positives: `from "pkg"` sitting
+ * DOCUMENTED LIMIT, probed -- and the probe was not exhaustive the first time,
+ * which is worth recording beside the limit itself. The scan catches the `from`
+ * clause, a bare side-effect import, `require()`, dynamic `import()`,
+ * `export ... from`, `export * from`, `import type`, multi-line `from`,
+ * `import x = require()`, a template-literal specifier, a newline inside
+ * `import(...)`, an indented bare import, a package subpath, and an
+ * import-attributes call `import("pkg", { with: ... })`. That last one ESCAPED
+ * until whole-diff review round 3: the pattern demanded `)` immediately after
+ * the specifier, so a standards-valid two-argument dynamic import with a STATIC
+ * literal specifier passed the guard. It now accepts `,` or `)` there. A list of
+ * forms is evidence about the forms someone thought to try, never a proof of
+ * closure. It has two false positives: `from "pkg"` sitting
  * inside a STRING or TEMPLATE literal is flagged, because comments are stripped
  * here and strings are not.
  *
@@ -41,7 +47,7 @@ const FORBIDDEN = /["'`]node:(fs|child_process|process)(\/[A-Za-z/]+)?["'`]/;
  * statically.
  */
 const SPECIFIER =
-  /(?:from\s*["'`]([^"'`]+)["'`])|(?:^\s*import\s+["'`]([^"'`]+)["'`])|(?:require\(\s*["'`]([^"'`]+)["'`]\s*\))|(?:import\(\s*["'`]([^"'`]+)["'`]\s*\))/gm;
+  /(?:from\s*["'`]([^"'`]+)["'`])|(?:^\s*import\s+["'`]([^"'`]+)["'`])|(?:require\(\s*["'`]([^"'`]+)["'`]\s*[,)])|(?:import\(\s*["'`]([^"'`]+)["'`]\s*[,)])/gm;
 
 function walk(dir: string): string[] {
   const out: string[] = [];

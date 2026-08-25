@@ -52,18 +52,33 @@ function cellView(node: RootContent, defs: ReadonlyMap<string, string>): AcCell 
     } else if (n.type === "html") {
       text += ` ${n.value} `;
     }
-    if (n.type === "image" && n.alt) text += n.alt;
+    // ALT for BOTH image forms. `image` carried its alt and `imageReference` did
+    // not, so a pin written as reference-image alt text rendered visibly and was
+    // invisible to the scan (round 3 finding 2) -- the same omission one node type
+    // over, which is what a class sweep is supposed to catch the first time.
+    if ((n.type === "image" || n.type === "imageReference") && n.alt) text += ` ${n.alt} `;
     for (const c of ("children" in n ? n.children : []) as RootContent[]) walk(c);
   };
   walk(node);
   return { text, codes };
 }
 
-/** Every `definition` in the document, so reference links resolve to a URL. */
+/**
+ * Every `definition` in the document, so reference links resolve to a URL.
+ *
+ * FIRST definition wins, which is CommonMark's rule for a duplicated identifier.
+ * A plain `Map.set` per definition takes the LAST one, and then the arm inspects
+ * a different destination than the document RENDERS: a row could visibly cite the
+ * required test while the scan read some other URL, which is a silent wrong
+ * accept rather than a miss (whole-diff review round 3 finding 1). Duplicated
+ * definitions are ordinary authoring, not obfuscation.
+ */
 function definitionsOf(root: Root): ReadonlyMap<string, string> {
   const out = new Map<string, string>();
   const walk = (n: Root | RootContent): void => {
-    if (n.type === "definition") out.set(n.identifier.toLowerCase(), n.url);
+    if (n.type === "definition" && !out.has(n.identifier.toLowerCase())) {
+      out.set(n.identifier.toLowerCase(), n.url);
+    }
     for (const c of ("children" in n ? n.children : []) as RootContent[]) walk(c);
   };
   walk(root);

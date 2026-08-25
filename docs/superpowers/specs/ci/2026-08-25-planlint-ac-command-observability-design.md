@@ -34,7 +34,7 @@ Each decision below is settled, with the evidence that settled it. Verify the ci
   Advisory for (b) — a criterion can legitimately be proved by a new case the plan authors — hard for (a).
   ```
 
-- **The `--` repair to the shared shell seam ships in this PR.** `scripts/spec-lint.ts:864` spawns `sh` with no `--` (line number at `300a9f937`, the anchor section 2 uses; the repair ships here, so at HEAD the seam is `scripts/spec-lint.ts:902` and carries the `--`). It is the same defect class as the arm's own trap, in the one seam the arm calls, and the class-sweep disposition rule's default is repair every instance in the same PR. "Same defect, different file" is explicitly not a sufficient reason to defer it.
+- **The `--` repair to the shared shell seam ships in this PR.** `scripts/spec-lint.ts:864` spawns `sh` with no `--` (line number at `300a9f937`, the anchor section 2 uses; the repair ships here, so at `f2c21a187` the seam is `scripts/spec-lint.ts:902` and carries the `--`). It is the same defect class as the arm's own trap, in the one seam the arm calls, and the class-sweep disposition rule's default is repair every instance in the same PR. "Same defect, different file" is explicitly not a sufficient reason to defer it.
 - **EVERY non-blank span in a command cell must parse, not just the first** (round-1 finding 1). A command cell may therefore not carry backticked text that is not a command. An aside belongs outside the code span. Section 6.3 measures what that costs on the live corpus.
 - **Arm (b) tests a LEXICAL PATH BOUNDARY and claims nothing about shell words** (round-1 finding 2, superseded by the round-3 repair). An earlier draft of this bullet said "whole argument", which the round-3 repair expressly abandoned; the surviving statement is section 8.2.2 and L-6.
 - **Arm (b) validates, it does not discover.** Documented limit L-2, with the reason. Do not file "arm (b) would not have caught r4 F2" as a finding; this spec says so first.
@@ -64,7 +64,7 @@ The row scheduled this first. It settles the design.
 
 ```
 $ grep -rl '^| AC-' docs/superpowers/plans/ --include='*.md' | wc -l
-33          # at 300a9f937; 34 at HEAD, this plan being the addition
+33          # at 300a9f937; 34 at f2c21a187, this plan being the addition
 ```
 
 **Every figure in this section is taken at commit `300a9f937`**, a SHA and not a moving ref. Two anchors were tried and both drifted: the working tree moved when this plan landed in `docs/superpowers/plans/`, and then `origin/main` itself moved 69 commits and took the "pinned" figures with it. A ref is not an anchor. The HEAD figures are given beside each so the difference is visible rather than surprising, and no conclusion here turns on the delta.
@@ -80,14 +80,16 @@ distinct enclosing headings:          25
 column counts observed:               2 to 6
 tables in the PLAN CORPUS using the fixture's exact header: 1
 
-# at 300a9f937. At HEAD, with main merged and this arc's plan in the corpus:
-# 936 tables, 36 AC tables, 35 distinct headers, 26 headings, and 2 using the
-# fixture's header — this plan's own AC table being the second.
+# at 300a9f937. At f2c21a187, with main merged and this arc's plan in the corpus:
+# 939 tables, 36 AC tables, 35 distinct headers, 26 headings, and 2 using the
+# fixture's header — this plan's own AC table being the second. Both figures are
+# anchored because the corpus MOVES; the second was written as "at HEAD", which
+# names a different tree every commit and had already gone stale (round 3 F4).
 ```
 
-Every AC coverage table in the corpus has a header row unlike every other one. The header naming the command column is spelled, among others, `Producing command`, `Channel`, `Channel the proof arrives on`, `Executable step that PROVES it`, `The executable step, and the channel it arrives on`, `Evidence`, `Notes`, `Task`, `proved by`, `discharged by`, `claimed by`. Exactly one table in the plan corpus AT `300a9f937` uses `| AC | Proved by | Producing command |`, and it is the fixture, because it is the only plan that had been through four review rounds on this class. At HEAD there are two: this arc's plan adopted the same header, which is the convention spreading rather than a counter-example. The claim is scoped to a rev for that reason — an earlier draft scoped it to the plan corpus instead of the repository, which was the right narrowing and still moved the moment this arc's own plan landed in that corpus.
+Every AC coverage table in the corpus has a header row unlike every other one. The header naming the command column is spelled, among others, `Producing command`, `Channel`, `Channel the proof arrives on`, `Executable step that PROVES it`, `The executable step, and the channel it arrives on`, `Evidence`, `Notes`, `Task`, `proved by`, `discharged by`, `claimed by`. Exactly one table in the plan corpus AT `300a9f937` uses `| AC | Proved by | Producing command |`, and it is the fixture, because it is the only plan that had been through four review rounds on this class. At `f2c21a187` there are two: this arc's plan adopted the same header, which is the convention spreading rather than a counter-example. The claim is scoped to a rev for that reason — an earlier draft scoped it to the plan corpus instead of the repository, which was the right narrowing and still moved the moment this arc's own plan landed in that corpus.
 
-**The load-bearing number is 35 distinct headers over 35 tables — still zero repeats — and it survives every re-anchoring.** At HEAD it is 35 distinct over 36, the one repeat being this plan's own adoption of the fixture's header. The claim got STRONGER as the corpus grew, which is what a real property does; nothing about the grammar's instability turns on the delta.
+**The load-bearing number is 35 distinct headers over 35 tables — still zero repeats — and it survives every re-anchoring.** At `f2c21a187` it is 35 distinct over 36, the one repeat being this plan's own adoption of the fixture's header. The claim got STRONGER as the corpus grew, which is what a real property does; nothing about the grammar's instability turns on the delta.
 
 **Consequence.** Keying the arm on the header name is a recognizer over open English, which the row forbids and which this repo has measured as the losing move. Keying it on the enclosing heading is the same thing with 24 spellings instead of 34. Keying it on "the last column" is worse than either: it is a silent guess, and section 6.3 shows it producing 42 hard findings on six v1-era tables whose last column is a Notes column.
 
@@ -177,7 +179,7 @@ $ sh -c -- 'echo NORMAL_OK'
 NORMAL_OK                     (exit 0)
 ```
 
-The failure is reported as unparsable, which is indistinguishable from a genuine syntax error and is the wrong verdict. **This bug was live in the shipped red arm at `300a9f937`**, at `scripts/spec-lint.ts:864`, which spawned `sh` with `[mode === "parse" ? "-nc" : "-c", command]` and no `--`. This PR repairs it; at HEAD the seam sits at `scripts/spec-lint.ts:902` and passes `--`. No current `red=` command begins with `-`, so it is latent rather than firing:
+The failure is reported as unparsable, which is indistinguishable from a genuine syntax error and is the wrong verdict. **This bug was live in the shipped red arm at `300a9f937`**, at `scripts/spec-lint.ts:864`, which spawned `sh` with `[mode === "parse" ? "-nc" : "-c", command]` and no `--`. This PR repairs it; at `f2c21a187` the seam sits at `scripts/spec-lint.ts:902` and passes `--`. No current `red=` command begins with `-`, so it is latent rather than firing:
 
 ```
 $ node docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.mjs markers origin/main
@@ -196,13 +198,13 @@ In `docs/superpowers/plans/2026-08-18-control-outline-border-token.md:70` the ro
 
 The arm was run over every AC coverage table whose last column carries a code span in at least 80 percent of its rows (11 of the 34), as a stand-in for the convention spreading. Full accounting, so no reader recomputes a different total:
 
-**Pinned to commit `300a9f937`, for the same reason the census in section 2 is, and to a SHA rather than a ref for the reason stated there.** At HEAD — main merged, this plan in the corpus — the modern bucket reads 7 tables and 7 hard, and the total 13 and 49. The extra table is this plan's own, scoring zero; the extra finding is a SEVENTH true instance that arrived with main and is listed below.
+**Pinned to commit `300a9f937`, for the same reason the census in section 2 is, and to a SHA rather than a ref for the reason stated there.** At `f2c21a187` — main merged, this plan in the corpus — the modern bucket reads 7 tables and 7 hard, and the total 13 and 49. The extra table is this plan's own, scoring zero; the extra finding is a SEVENTH true instance that arrived with main and is listed below.
 
 | Population | Tables (at `origin/main`) | hard | What they are |
 | --- | --- | --- | --- |
 | `v1-pre-deployment-amendments/**` handoffs | 6 | 42 | `AC / Phase X status / Notes` tables whose last column is a Notes column. Every one is a mis-declaration under L-4, not a defect. They are the reason the declaration names its column instead of guessing the last one. |
 | 2026-08 plans | 6 | 7 | one is the fixture (0 hard); the rest carry 7, and all seven are true instances of the class |
-| total | 12 | 49 | at HEAD: 13 tables, 49 hard — this plan's own table added, scoring zero |
+| total | 12 | 49 | at `f2c21a187`: 13 tables, 49 hard — this plan's own table added, scoring zero |
 
 The seven true instances, across four documents, are listed so a reader can check the arm against them rather than take the count on trust. They are not repaired by this PR; none of those plans declares a table, so the arm never sees them.
 
@@ -220,14 +222,15 @@ The seven true instances, across four documents, are listed so a reader can chec
 
 ### 6.4 What the corpus looks like to the parser
 
-```
-$ node docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.mjs hazards
-tables in the plan corpus, per remark:        936
-data rows across them:                        7612
-documents carrying MORE THAN ONE AC table:    1
-   docs/superpowers/plans/ci/2026-08-20-browser-child-lifetime.md (2)
-every pipe/whitespace/backslash question above is remark's, not this arm's
-```
+The transcript lives in the probe record's Q5 and is NOT duplicated here. It stood in this
+section as an unanchored copy, drifted from the generator, and was still stale after the probe
+record had been repaired (whole-diff review round 3 finding 4) — two copies of one measurement
+drift, and the copy nobody re-runs is the one that lies. At the probe record's pinned commit
+`f2c21a187` the generator reports **939 tables and 7637 data rows** in the plan corpus, and
+exactly **one** document carrying more than one AC coverage table
+(`docs/superpowers/plans/ci/2026-08-20-browser-child-lifetime.md`). Those figures move with the
+corpus, which is why they are stated against a commit and re-derived from
+[the probe record](./probes/2026-08-25-ac-coverage-prototype-probes.md) rather than pasted twice.
 
 Earlier drafts counted the inputs a hand-rolled reader had to survive: 75 rows with an escaped pipe, 675 with leading whitespace, 17 with a code span containing an unescaped pipe. Those counts are RETIRED rather than corrected. Section 8.3's parser answers each of them and section 8.2.1 no longer carries a row for any of them. What remains is the one structural fact the arm must still handle itself, and one plan already exercises it: a document may declare more than one AC coverage table.
 
