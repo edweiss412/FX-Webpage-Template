@@ -207,11 +207,6 @@ describe("the repo-wide walk states its premise executably (AC-6)", () => {
  * the assertion IS the zero-offender gate (AC-5).
  */
 const EXPECTED_OFFENDERS: readonly string[] = [
-  "lib/log/sanitize.ts:6",
-  "lib/parser/personalization.ts:248",
-  "lib/test/serialAudit.ts:19",
-  "lib/test/serialAudit.ts:19",
-  "lib/test/serialAudit.ts:19",
   "scripts/audit-cn-operand-kinds.mjs:1019",
   "scripts/audit-cn-operand-kinds.mjs:1019",
   "scripts/extract-admin-log-only-codes.ts:38",
