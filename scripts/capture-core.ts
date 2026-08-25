@@ -98,6 +98,17 @@ export async function waitForQuiescence(
   opts: { waitForSelector: string; stableMs?: number },
 ): Promise<void> {
   await page.locator(opts.waitForSelector).first().waitFor({ state: "visible" });
+  await waitForPaintQuiescence(page, opts.stableMs ?? DEFAULT_EXPECT_STABLE_MS);
+}
+
+/**
+ * Everything quiescence does AFTER the selector resolves.
+ *
+ * Split out so a caller can narrow a catch to the selector wait alone. Each
+ * step here fails for its own reasons, and attributing one of them to a
+ * missing selector is a mislabelled refusal.
+ */
+export async function waitForPaintQuiescence(page: Page, stableMs: number): Promise<void> {
   await page.waitForLoadState("networkidle");
   // M11-A-D5 recipe: networkidle does not guarantee fonts are rasterized or
   // the last layout/paint has flushed — on loaded CI runners the same content
@@ -109,7 +120,7 @@ export async function waitForQuiescence(
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
   });
-  await page.waitForTimeout(opts.stableMs ?? DEFAULT_EXPECT_STABLE_MS);
+  await page.waitForTimeout(stableMs);
 }
 
 export async function encodeWebp(pngBuffer: Buffer): Promise<Buffer> {

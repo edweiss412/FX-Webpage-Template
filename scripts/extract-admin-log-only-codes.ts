@@ -36,7 +36,7 @@ function isNullShape(cell: string): boolean {
 
 function splitMarkdownRow(line: string): string[] {
   return line
-    .replace(/\\\|/g, ESCAPED_PIPE_SENTINEL)
+    .replace(/\\\|/g, () => ESCAPED_PIPE_SENTINEL)
     .split("|")
     .slice(1, -1)
     .map((cell) => cell.trim().replace(new RegExp(ESCAPED_PIPE_SENTINEL, "g"), "|"));

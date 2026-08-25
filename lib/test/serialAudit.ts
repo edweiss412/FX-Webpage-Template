@@ -16,10 +16,14 @@ const DEEP = "\0DEEP\0";
 const STAR = "\0STAR\0";
 
 export function globToRegExp(glob: string): RegExp {
+  // Replacer functions. The three sentinels are NUL-delimited and carry no `$`, so behaviour
+  // is unchanged; the wrap removes the grammar rather than fixing a live defect. Note the
+  // NEXT line deliberately keeps a replacement STRING — `"\\$&"` is an authored backreference
+  // escaping regex metacharacters, which is the accept-set working as intended.
   const marked = glob
-    .replace(/\/\*\*$/, DEEP_SUFFIX)
-    .replace(/\*\*\//g, DEEP)
-    .replace(/\*/g, STAR);
+    .replace(/\/\*\*$/, () => DEEP_SUFFIX)
+    .replace(/\*\*\//g, () => DEEP)
+    .replace(/\*/g, () => STAR);
   const escaped = marked.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   const body = escaped
     .replace(/\\\{([^}]*)\\\}/g, (_m, alts: string) => `(?:${alts.split(",").join("|")})`)

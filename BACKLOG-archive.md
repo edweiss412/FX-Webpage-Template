@@ -1,3 +1,257 @@
+## BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM — the byte gate fails on a diff that changes no render input — CLOSED 2026-08-24
+
+**Status:** SHIPPED 2026-08-24 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM · **Class:** CI gate fidelity · **Facing:** process · **Shipped by:** `fix/screenshots-drift-instrument`
+
+**Resolution — mechanism A named, and BOTH filed candidates refuted by replay.** The failing artifact was
+downloaded inside its retention window and compared against the baseline as committed at that same sha.
+The captured `review-queues-empty-state-light.webp` changed GEOMETRY: content was present that the
+baseline does not have. Neither filed candidate survives that measurement. Encoding cannot change element
+geometry, so the encoder is refuted; and a wall-clock crossing cannot revert between two themes captured
+seconds apart, so the time-of-day reading is refuted as the mechanism for THIS occurrence.
+
+**What shipped is a refusal, not a repair of the byte gate.** Three layers, each with a stated ceiling:
+layer 0 attributes a capture selector that never resolves; layer 1 refuses on a marked
+`data-render-fault` branch inside the captured subtree; layer 2 refuses on a geometry change against the
+committed baseline. A faulted render now fails LOUDLY and attributed instead of encoding a wrong image
+and reporting drift.
+
+**The one-class assertion this row made is RETRACTED.** This row and
+`BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` asserted the two occurrences were one class and must be
+scheduled together. Working them together was right and is what surfaced both mechanisms. Closing them
+together would have shipped a false certification: the sibling occurrence changed no geometry, no layout
+and no content, and the repair shipped here would never fire on it. The sibling stays open.
+
+## BL-MUTATION-SCRATCH-FS-EVENT-STORM — mutation scratch roots are created per mutant, and the filesystem event volume melts the box — CLOSED 2026-08-25
+
+**Status:** SHIPPED 2026-08-25 · **Shipped by:** `fix/mutation-scratch-fs-event-storm` (PR #881) · **Effort (as shipped):** M · **Filed:** 2026-08-24 (bl-orch, swap-emergency post-mortem) · **Severity:** HIGH (machine-wide outage vector, not a wrong answer) · **Class:** harness cost / capacity · **Effort:** M · **Facing:** process · **Incident:** 2026-08-24 ~13:30–17:00 CDT — two concurrent mutation-score runs generated sustained create/delete storms from per-mutant scratch roots (~43 roots × ~11MB per case run × 250 mutants on one surface alone); fseventsd ballooned to 7GB RSS / 85% CPU (it journals every Data-volume event, no per-path exclusion exists, and it does not return the memory), swap peaked 22GB, load-average peaked 492 on 12 cores, the fleet lost ~3h of wall clock, one 3-hour single-path score run was lost, and recovery required killing every session plus a sudo kill of fseventsd. Measured throughout by three arcs and the orchestrator; the near-identical 2026-08-10 jetsam incident (12 vm-compressor JetsamEvents, hard reset) is the same class with the memory face forward. · **Reachability:** PROBED — the incident is the probe.
+
+**Root cause, localized by probe.** The path-keyed cache is `tests/styles/interactiveScanCore.ts:479` — a module-level `Map<string, ts.SourceFile>` keyed by absolute path, read at `:482` and written at `:492`. Those three lines are its only references in the repository, so no invalidation path exists. Probed both directions: a suite that writes two different fixtures to one reused root gets the FIRST parse back for both, while two separate roots return the two parses correctly (the negative control, which is what proves the probe can see the difference). Tailwind is NOT the cache and is exonerated by its own probe — `__unstable__loadDesignSystem` re-reads the same path fresh, shown by removing a theme token and watching the candidate go null. A root therefore cannot be reused while the cache stands, which is what 67471884a measured when it excluded the thirty-two-form case.
+
+**The churn has two limbs, and the filed incident only named one.** The transient limb is create/delete volume during a run, proportional to mutants x roots-per-suite-run, since the harness runs the whole deciding suite once per mutant (`tests/mutation/source/childRun.ts:30`; the harness's own scratch is modest — one root per surface at `tests/mutation/source/runner.ts:229`, cleaned at `:269`). Measured on main: 4,360 mutants across 42 surfaces, with churn concentrated in four of them — premiseScan at 1,896 filesystem-mutating calls per suite run (365,928 per scored pass), mutationSurfaceEnumerate 116,532, ledgerGit 113,949, interactiveScanCore 74,528, and most surfaces at the vitest floor of six. The DURABLE limb is accumulation: four of five sampled producers create a root per case and never remove it (zero `rmSync` in `tests/log/mutationSurface/enumerate.test.ts`, `tests/styles/interactiveScanCore.test.ts`, `tests/ci/_metaModalWaitHelper.test.ts` and `tests/styles/_metaControlOutlineFill.test.ts`; `premiseScan.test.ts` is the one that cleans, and also the one already reusing a single root). The machine currently holds 781,949 leaked directories in one flat TMPDIR — 408,864 `mutation-surface-`, 249,666 `scan-fixture-`, 30,000 `modal-wait-guard-` — mostly EMPTY, so this costs inodes, directory entries and fseventsd journal volume rather than disk. Enumerating that directory now exceeds three minutes, and every later `mkdtempSync` pays for its size. fseventsd is the amplifier on both limbs.
+
+**Repair shape, two tiers ship, a third is split out.** (1) CLEANUP, the cheapest and largest single win: every scratch-creating suite gets a matching removal in a `finally` or `afterAll`. This addresses the accumulation limb, which nothing else touches, and needs no cache work. (2) ADMISSION: a single-slot class for mutation-score runs so at most ONE generates churn at a time, ordinary suites keeping their own class. Note the design trap — a second slot DIRECTORY is two independent semaphores and would RAISE total concurrency, so the class must be an ADDITIONAL lock acquired class-first, and a nested mutation run REFUSES rather than queueing behind a lock it cannot win. (3) Cache invalidation and root reuse are SPLIT OUT to `BL-MUTATION-SCANNER-CACHE-INVALIDATION` by orchestrator ruling at plan review round 2: it retires an asserted contract, its case matrix grew a wrong-implementation family per round, it converts only two of six suites, and it was the only verdict-risky tier. Dropping it means this arc edits no enrolled source at all.
+
+**Non-repairs, fenced:** fseventsd cannot be excluded per-directory (no such mechanism); /tmp placement dodges Spotlight but not fseventsd; RAM disks move I/O but the daemon still processes the events. Do not relitigate these.
+
+**Resolution — tiers 1 and 2 shipped; tier 3 split out on evidence, which made the remaining claims stronger.**
+Tier 1, CLEANUP: eight scratch-creating suites got a tracked-roots array and an `afterAll` removal. The
+plan scoped six; the guard's own failure arm found the other two (`psqlStartupFileSuppression`,
+`interactionTimingScan`), which clean up on success and leak precisely when a case fails — the moment a
+suite is being debugged, and the moment it runs most. Tier 2, ADMISSION: `scripts/with-heavy-slot.py`
+gained a `mutation` class taken alongside an ordinary slot, acquired CLASS-FIRST, with a nested run
+REFUSING rather than waiting. Class-first is not a preference: the reverse order deadlocks, and the
+round-1 repair for this very row shipped that deadlock before spec R2 caught it. Exposed as
+`pnpm heavy:mutation` — `pnpm heavy --class mutation` cannot work, because the `heavy` script already
+ends in `--` and `split_argv` swallows the flag.
+
+**Tier 3 was a rescope, not a retreat.** The path-keyed cache at `tests/styles/interactiveScanCore.ts:479`
+turned out to be an ASSERTED contract: `interactiveScanCore.test.ts:444` writes a file, scans, rewrites,
+scans again and asserts the FIRST content returns, calling the freeze "a real contract." Changing it is a
+contract decision, not a cleanup, so it left as `BL-MUTATION-SCANNER-CACHE-INVALIDATION` carrying its own
+terms. Narrowing the scope on evidence is what let tiers 1 and 2 close cleanly.
+
+**Verified by two independent instruments that agree.** A scoped gate over the eight surfaces whose
+deciding suites this arc edits, run through the harness's own `runSurface` + `evaluateGate`, scored SEVEN
+at 1.0000 with zero unaccepted survivors (`interactiveScanCore` 261/272, `mutationSurfaceEnumerate`
+246/249, `psqlStartupScan` 49/79, `controlOutlineScan` 65/65, `modal-wait-helper-scan` 95/97,
+`interactionTimingScan` 131/148, `mutationSurfaceTotality` 20/20). CI's four `source-shards` scored the
+FULL partition at the same head with no shard-level bail: 0, 1 and 3 PASS. The single unaccepted survivor
+anywhere in the partition was INHERITED — `modal-wait-disposition`, `logical-connector:500:42:&&>||`, from
+`291ca4fc4` via #875, proven not this arc's by a three-run controlled experiment (baseline 41/41; mutant
+at HEAD 41/41, surviving; mutant with this arc's two suite edits reverted to merge-base 41/41, still
+surviving). It is unreachable-on-corpus rather than equivalent, so its repair is one constructed-corpus
+case, not a ledger blessing. Reported to the owning arc with probe and repair.
+
+**The accumulation limb was larger than the filed incident named.** 781,949 leaked directories, nearly all
+empty — an inode and fsevents cost rather than a disk one. An approved one-time purge removed 780,888 and
+took enumeration of that tree from 76.0s to 0.6s. The derived "12 dirs/sec" leak RATE was RETRACTED: the
+measurement window contained another arc's score run, so the premise "no score run in progress" was never
+verified on a shared machine.
+
+## BL-VALIDATION-PRUNE-DB-SIDE-GATE — gate prune_sync_log / prune_app_events on the validation project at the database, not the client — CLOSED 2026-08-24
+
+**Status:** SHIPPED 2026-08-24 · **Effort (as shipped):** M · **Class:** DB safety posture · **Facing:** product · **Shipped by:** `feat/validation-prune-db-side-gate`
+
+**Reachability — PROBED, and the number is the whole reason this row existed.** It was filed
+`INFERRED, NOT PROBED`, naming the settling probe as a live `select public.prune_sync_log()` against
+the validation project from an unguarded client. That probe ran on 2026-08-22: the default call
+deleted **2,488 live rows**. Not a hypothetical, and not one an authoring guard could have stopped.
+
+**Resolution.** `public.assert_prune_enabled()` reads the posture marker that already existed —
+`public.destructive_reset_gate`, which ships `enabled=false` everywhere and is flipped to `true` only
+on validation projects — and raises unless it reads an explicit `false`. Both prune functions call it
+before their `delete`. `is not false` is the entire fail-closed contract: `true` refuses because the
+database says it is validation, `null` refuses because the database says nothing, and only the value
+production keeps forever allows a prune.
+
+**No second marker.** The first spec draft added one and spec review R1 killed it as a P0: two rows
+encoding one fact can disagree, and the reviewer produced three lifecycle states where they did,
+permissively. Reusing the existing marker also means no new table, so no `RPC_GATED_TABLES` row and no
+PostgREST DML lockdown work — `RPC_GATED_TABLES` is still 34.
+
+**Closed live, not by argument.** After the surgical apply to `vzakgrxqwcalbmagufjh`, whose marker
+reads `enabled=true`, all four calls — both functions, default and `interval '5 days'` forms — refused
+inside one rolled-back transaction, each raising a message matching `prune not enabled%`. The probe is
+built so that a SUCCESSFUL prune fails it: each call is followed by `raise exception 'GATE MISSING: …'`
+on its success path, which the handler cannot match and therefore re-raises. The same call that deleted
+2,488 rows two days earlier now refuses. Transcript: plan §12.
+
+**What it cost, recorded because the shape recurs.** Twenty review rounds — eight spec, five plan, seven
+whole-diff — producing thirty-eight findings, of which **not one changed a line of the shipped SQL**.
+The SQL was dry-run against a real database inside a rolled-back transaction before round 1 and never
+moved. Every finding was against the documents' own instructions: whether a command runs, whether a
+criterion is proven by the task claiming it, whether a guard discriminates. Three findings are worth
+carrying forward — spec R3/R4, where acceptance criteria written to CATCH a broken gate would have
+performed the global deletion they existed to detect; plan R5, where a freshly-written guard returned
+`postgres|t` against exactly the database it existed to exclude; and the diff stage's APPROVE at r4,
+earned while the local database was down and the entire `tests/db` tier had never once completed. The
+first COMPLETED suite failed two guards that no amount of reading the diff could have surfaced. **A
+stage APPROVE obtained while a required test tier cannot execute is not a converged stage, and it reads
+identically from the corpus.** Full accounting:
+`docs/review-rounds/feat/validation-prune-db-side-gate/50ca72a566b0.md`.
+
+**Accepted cost.** Validation telemetry stops being pruned, and the daily cron there now fails with
+`prune not enabled for this database`, recorded in `cron.job_run_details`. That is the intended end
+state and the gate's own durable evidence. Deliberate pruning of validation stays available by one
+motion an operator already knows: set the marker `false`, prune, set it back.
+
+**Eliminated on the way here** (so the next reader does not re-derive them): widening the SQL
+recognizer — the spelling axis is open and `_metaDestructiveDbTargetGuard.test.ts`'s r15/r16 history is
+the ratchet; discovery by connection — ships as the census, and its §4.1 limit is this row; a psql-side
+or REST-side guard — different channels, same spelling problem.
+
+---
+
+## BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH — a guard surface's declared operators produce ZERO sites over a whole branch, so the score cannot see code it is reported against — CLOSED 2026-08-24
+
+**Status:** CLOSED · **Resolution:** re-scoped 2026-08-22 (orchestrator ruling, wave-6 arc brief) to admit a documented-limit close, then closed as documented limit (harness spec §7 L-11) plus the OPERATORS: disclosure arm on the GUARD SURFACE score line, the heading-form trigger, and the bullet-4 admissibility correction · **Shipped by:** `docs/mutation-score-jurisdiction-gap` · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 3) · **Severity:** MEDIUM (the score is reported as the surface's convergence criterion while a branch of that surface is outside it; the number is honest and its jurisdiction is not stated) · **Class:** mutation harness fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — closing it means widening a registry operator set file-wide, which is a measurement-scope decision about the harness rather than a repair to this arc's code. · **Reachability:** PROBED — the numbers below were measured, not estimated. · **Incident:** diff round 3 of this arc found a REGRESSION the arc itself introduced — `$((...))` arithmetic read as a `$()` command substitution, yielding a resolved site for a command bash never runs — after FOUR earlier review rounds and a `49/49` score with zero unaccepted survivors had all passed over it. A reviewer probing bash found it; the score structurally could not.
+
+`psqlStartupScan` declares `relational-boundary` and `regex-quantifier-bound`. The arithmetic branch added in diff round 3 uses equality tests and `Math.max`, so those operators enumerate **zero sites over it**: the surface holds 79 sites with the branch present and held 79 without it.
+
+**Measured cost of closing it as-is.** The first version of this row said `integer-literal` is the ONLY operator reaching the branch, at +375. **That was wrong and diff round 5 caught it:** the measurement behind it was a FILE-WIDE delta, which answers "what does adding this operator cost" and not "does this operator reach the branch". Two different questions, and I reported one as the other.
+
+Re-censused per operator. **The file-wide column is the load-bearing one and the only one stated as a count:**
+
+| operator                            | file-wide | reaches the `$((` branches? |
+| ----------------------------------- | --------: | --------------------------- |
+| `relational-boundary` (declared)    |        71 | **no**                      |
+| `regex-quantifier-bound` (declared) |         8 | **no**                      |
+| `logical-connector`                 |       195 | yes                         |
+| `equality-flip`                     |       278 | yes                         |
+| `integer-literal`                   |       375 | yes                         |
+| `statement-removal`                 |       414 | yes                         |
+| `arithmetic-operator`               |         0 | no                          |
+
+An earlier version of this row gave exact in-branch COUNTS. They are deliberately gone: diff round 6 enumerated the same branches and got different numbers, and both enumerations were honest — the count depends entirely on where you cut the branch, and a neighbouring ordinary `$()` arm sits immediately after it. A number whose value depends on an arbitrary boundary is not a measurement, so what remains is the predicate that does not: **which operators reach the branch at all**, and what each costs file-wide.
+
+FOUR operators reach it, not the one this row first named, and the cheapest is `logical-connector` at +195 file-wide rather than `integer-literal` at +375. What survives every correction is the finding: both DECLARED operators reach it ZERO times, so the branch is outside the score's jurisdiction as configured, and every operator that would reach it is file-wide on a surface that already runs ~24 minutes.
+
+**Why it was NOT enrolled in the arc that found it.** Enrolling buys mutants weaker than the verifier already built: the branch's terminal check is a bash-oracle matrix that derives every expectation from whether the shell actually executed the command, promoted into the deciding suite so it is a standing gate rather than a session artifact. Enrolment would add hundreds of mutants over unrelated integer literals to reach one branch a stronger instrument already covers, and it would land that decision under review pressure at diff round 4.
+
+**The general shape, which is worth more than the instance.** A mutation score answers "does the suite pin what is WRITTEN". It cannot answer "is what is written the whole domain", because a construct the code never distinguished is invisible to every mutant of that code. This row is the first measured instance on this repo of a surface being scored against operators that cannot reach part of it.
+
+Close condition: either a per-branch enrolment mechanism (operators scoped to a region rather than a file), or a ratified decision that file-wide widening is worth its runtime, taken outside a review round with these numbers in hand.
+
+**Closed as a documented limit, not as the mechanism the close condition first named.** The close condition above admitted only (a) a per-region enrolment mechanism or (b) a ratified file-wide widening. The orchestrator's wave-6 arc brief of 2026-08-22 added (c) a documented-limit close carrying a REQUIRED disclosure, as a first-class outcome, on this row's own finding that the general shape is worth more than the instance: a score answers "does the suite pin what is written" and can never answer "is what is written the whole domain". Where the three-way decision is argued: `docs/superpowers/specs/ci/2026-08-22-mutation-score-jurisdiction-gap.md` §1.
+
+Re-censused at `50ca72a56`: FOUR undeclared operators reach the `$((` branch, the cheapest `logical-connector` at 195 file-wide sites; widening moves `psqlStartupScan` from 80 to 275 modelled boots and repartitions 20 surfaces. (a) was declined because per-region operator scoping is a new addressing scheme for the registry, priced against one branch a stronger instrument already covers (that spec §1.2). (b) was declined because the runtime is paid by every arc that touches the surface, forever, to reach a branch whose terminal check is already a bash-oracle matrix in the deciding suite (§1.3).
+
+What shipped instead. The score's jurisdiction is DISCLOSED at the dispatch boundary: every round-1 `GUARD SURFACE:` score arm carries an `OPERATORS:` tail naming the set the score ranges over, and `AGENTS.md` bullet 4 now binds the surviving-mutant admissibility requirement to code a declared operator actually REACHES, so a finding about unreached code is admissible on a domain probe instead of being refuted by a number that cannot see it. Two defects surfaced by the arc's own reviews came in with it: round 1 found the shipped trigger never read the ATX heading form, leaving 24 heading-form declarations across ten round-1 briefs dark to the gate; round 2 found a score-shaped line rescued by a `CANNOT-EXPRESS:` tail beside it, closed by the marker-precedence matrix (spec §2.2) under which a line carrying `MUTATION SCORE:` in any shape is decided by the score arm and never by the other one.
+
+**RE-FILE TRIGGER (L-11, harness spec §7, verbatim):** a second measured incident in which a diff adds declared-operator-unreached code to an enrolled surface and a regression in it passes review behind a quoted score that CARRIED its `OPERATORS:` tail; that is the evidence that disclosure is insufficient and a reach instrument is owed.
+
+**RE-FILE TRIGGER (L-E, jurisdiction spec §4, verbatim):** a declaration form that the structure-keyed trigger does not read, found in the live briefs corpus; the repair is another CommonMark structure, never a prose recognizer.
+
+## BL-DERIVED-NUMBERS-IN-DOCS-ROT — a number a document states about an artifact goes stale unless a command produces it at write time — CLOSED 2026-08-22 (`docs/derived-numbers-provenance`, CONVENTION)
+
+**Status:** RESOLVED 2026-08-22 — CONVENTION, NO TEST · **Effort (as shipped):** S (filed M; the count retired the test that made it M) · **Facing:** process · **Class:** documentation fidelity · **Shipped by:** `docs/derived-numbers-provenance` · **Spec:** `docs/superpowers/specs/ci/2026-08-22-derived-number-provenance-convention.md` · **Probe record:** `docs/superpowers/specs/ci/probes/2026-08-22-derived-number-population-census.md`
+
+**Resolution.** The row's own first scheduled step decided it. A `## Stating a figure` section now sits
+in the probe directory's README requiring an IMMUTABLE anchor — an object id, or an honest declaration
+that a measurement is not reproducible and why. No lint, no meta-test, no CI wiring.
+
+**The sharpening the count produced, and it is the part worth keeping.** The row proposed that a figure
+either carry its producing command or be script-assembled. **That is not sufficient.** A command says
+how a figure was derived, not what from, and a command run against a moving tree answers differently
+tomorrow. The corpus supplied the counterexample: `2026-08-16-timing-scan-binding-probes.md` anchors
+every probe in it to `origin/fix/scanner-scope-totality` and prints the `git show` that materialises the
+scanner from it — a producing command, exactly as the row asked — and names no sha anywhere. That branch
+has since been deleted (`git ls-remote origin 'refs/heads/fix/scanner-scope-totality'` returns nothing),
+so the record now names nothing a reader can fetch. It is unrepairable — no edit recovers the tree it
+measured, and inventing a plausible sha would be a guess wearing provenance's clothes — so it stands as
+the README's worked counterexample. **What the arc does NOT claim** is a count of how many other
+records are adequately bound: the anchor screen only detects a record naming no immutable anchor at
+all, since one unrelated object id anywhere makes a whole document pass, and spec review round 2
+retired a draft that read it as a certificate.
+
+**Why no test, measured rather than argued.** The gate the row sketched — a bare count near an
+artifact path must name its producing command — reds 23 times on the corpus at `b52481446`, at least
+15 of them on lines that state no artifact figure at all. Its reds are probe and task ordinals, arithmetic demonstrated in place,
+control-outcome table cells, a retraction and an environment note. Fifteen state no artifact figure at
+all and one more states a figure in order to retract it; the remaining seven are real figures whose
+binding this arc does not decide, and they would be no safer for passing, because the gate demands a
+producing COMMAND on the line and a producing command is not a binding. It is also blind to the one
+record the anchor screen flags: that file's single red is a task ordinal, so the rule fires on the
+wrong lines of the right file. A rule whose satisfaction does not imply the property it protects
+cannot be repaired by tiering. A record-level presence check fares
+worse still — one red, and it is false.
+
+**And the classification the row asked for is not mechanizable.** Three variants of one token-matching
+heuristic give 31.7%, 59.7% and 35.1%; 653 of the best variant's 725 hits are below 100, the range
+where token collision is expected — magnitude, not proven coincidence. The spread alone proves only that the heuristic is unreliable — that correction came
+from spec review round 1 and is carried in the record. What settles it is that the record scoring zero
+under every variant, `2026-08-21-abort-reachability-correction.md`, is on inspection one of the
+best-provenanced in the corpus: it names the blob it mutated and the blob it produced, the exact
+condition edit, and the verbatim vitest line, using indented transcript instead of fenced blocks. No
+adjustment to a token rule reaches that, and the partition that does work is a hand classification,
+affordable at 23 lines and nowhere beyond.
+
+**The rot is not in the population the row scoped.** Three of its four measured instances happened in
+ledger-class documents. A first draft sized that with the same census and reported a tenfold
+provenance gap; **that comparison was withdrawn in review** — the instrument asks whether a prose
+figure reappears in a commanded block in the same file, probe records structurally carry such blocks
+and ledger prose does not, so no ratio between the genres is licensed, and the binding census that
+replaced it has a document-sized unit while a ledger file holds hundreds of entries. Filed as
+`BL-LEDGER-FIGURE-PROVENANCE` on the orchestrator's 2026-08-22 ruling, resting on the incidents rather
+than on a number, with its overlap against `BL-CLOSEOUT-COUNT-PROSE-DRIFT` allocated by a stated rule
+(the owner is the document a figure is STATED IN) rather than declared absent.
+
+**Re-open trigger:** a probe record ships stating a figure whose only anchor is mutable. The convention
+is written down now, so that is a convention violation with a named home rather than a detection
+problem, and the census script prints the mutable-only list on every run.
+
+**Declined and fenced so it is not rebuilt.** The per-figure detector, for the measurement above. The
+census script must not be promoted into a gate without re-deriving that measurement — its three
+readings exist to show a token-matching classifier cannot be trusted here, and an arc that picks one
+and gates on it ships the unreliability instead of removing it.
+
+## BL-CONTROL-OUTLINE-FORWARD-GUARD — a guard that keeps the control-outline population correct going forward, with five escapes already closed
+
+**Status:** CLOSED, RE-SCOPED · **Severity:** LOW (no shipped defect; this was a regression-prevention ambition) · **Class:** guard design / design-system enforcement · **Effort:** L as filed · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, spec §5.2, §6) · **Closed:** 2026-08-22 (`docs/control-outline-forward-guard`, PR TBD, `db41d2255a0c`) · **Reachability:** PROBED — every escape below was demonstrated against a LIVE mechanism during spec review, not reasoned about.
+
+**The disposition, first thing a reader meets.** The row asked ONE question: does a forward guard need a signal `scanInteractiveElements` does not produce. The answer is **no for the forward claim as bounded**, and **yes for measured effective paint**, which closes here as a documented limit. Outcome C shipped at `db41d2255a0c`: a content-keyed, reasons-required residue census (`tests/styles/controlOutlineResidue.ts`, `tests/styles/_metaControlOutlineResidue.test.ts`), enrolled in the source-mutation registry. It decides nothing about structure. It asks Tailwind's own compiler, loaded from the production `app/globals.css`, what an element's tokens paint, and then asks whether the set of weak-outline carriers changed. Spec: `docs/superpowers/specs/2026-08-21-control-outline-forward-guard-design.md` (approved at spec round 9; §6 is the limits record this entry points at rather than duplicates).
+
+The forward guard was attempted in five forms across five review rounds and escaped structurally each time. The table is carried here verbatim, with a sixth row for what shipped:
+
+| Round | Mechanism                                                       | The escape that killed it                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| draft | some branch carries `border-accent-edge`                        | move a track's OFF fill to `bg-surface`: green, while the recorded 1.43/1.75 becomes an unrecorded 1.59/1.60. And `border-accent-edge` is not toggle-exclusive — `DESIGN.md:35` gives it the active step pill and the show-day progress segment                                                                                                                                                                |
+| R1 F2 | existential: has an `ON` branch AND has an `OFF` branch         | append a third branch `border-border-strong bg-surface`: green at 1.59/1.60. An existential predicate is a denylist in disguise                                                                                                                                                                                                                                                                                |
+| R2 F1 | universal accept-set: EVERY branch is an `ON` or an `OFF`       | "tokens include" is not "tokens are": `border-border-strong bg-surface-sunken bg-warning-bg` still includes the `OFF` pair while `bg-warning-bg` wins the cascade (1.44/1.19)                                                                                                                                                                                                                                  |
+| R3 F2 | (as above, exactness attempted)                                 | exactness requires deciding which of two paint tokens on one branch wins — that is the CSS cascade, i.e. a CSS evaluator in a test helper                                                                                                                                                                                                                                                                      |
+| R5 F1 | enumerated five-row FILE registry                               | membership binds the exemption to the FILE, not the ELEMENT. Refactor a registered toggle so its track moves onto a nested span — **the live `components/admin/telemetry/AutoRefreshControl.tsx:106` pattern** — and the outer control becomes a plain `border-border-strong bg-surface` at 1.59/1.60: cover still three elements, file-set equality still true, recipe still present in the file, guard green |
+| **C** | **content-keyed residue census over the compiler's own answer** | **not escaped. All five executed RED, the R5 file registry green on four of them, and two control edits green (spec §1.4.3). The mechanism decides nothing about structure: it asks Tailwind's own compiler what an element's tokens paint, and then asks whether the set of weak-outline carriers changed**                                                                                                   |
+
+**The reason the five failed, stated once so nobody re-derives it.** Deciding "is this element a switch track" is a question about rendered structure and effective paint, and `scanInteractiveElements` reports neither. Every mechanism above tried to recover structure from that projection, and each recovered a slightly larger subset while leaving the next mutation available. C does not try: it decides token PRESENCE and set equality, and the one paint question it answers (which of an element's own utilities wins a border side) is answered by the engine that generates the cascade rather than by a predicate over strings.
+
+**What C does not buy, recorded as documented limits rather than as new rows** (each with its re-file trigger; the owning surface's limits record is spec §6, and this entry does not duplicate it):
+
+- **Effective paint is frozen, not measured.** A registered element whose outline token is unchanged but whose GROUND moved by a mechanism outside the paint projection (an ancestor background, `opacity-*`) is not seen. This is the half of the ambition Outcome A would have bought, taken as the documented-limit close. Re-file trigger: a shipped defect where a registered row's recorded ratio and its rendered ratio disagree.
+- **A false `switch-track` row.** An element that is NOT a track but carries the exact ON/OFF recipe passes the form bar; trackness is a RULING (`DESIGN.md` §1.2a), not a property the scanner could project. Registering one costs a false citation of the ruling, a bump of the pinned `switch-track` literal from 3, and a diff a reviewer reads. Review's class, by design. Re-file trigger: a false row reaching main.
+- **A third theme colour.** A resting outline at any `--color-*` the two rulings did not name is STRONG by the oracle and outside the question. Re-file trigger: a third theme colour appearing as a resting outline on an interactive element, at which point it joins `WEAK_COLOURS` as a deliberate edit carrying its own seeded rows.
+
+**Cost threshold, so the close can be re-opened on evidence rather than on feeling** (spec §1.6): more than thirty residue entries, or more than eight rows added or re-keyed in a rolling thirty days as measured by a key diff through the module's own `rowKey`, re-opens the Outcome B close (archive the guard, keep the honesty). Today's figures are 12 and 0.
+
 ## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc — CLOSED 2026-08-21
 
 **Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** the six probe chains below each exited 0 and SENT bytes before their repair · **Class:** authorization model · **Facing:** product · **Shipped by:** `feat/pane-compaction-send-auth`
@@ -10524,3 +10778,59 @@ Same mechanism as the elder entry, filed independently and in good faith: at fil
 This id is kept RESOLVABLE rather than deleted, because the merged round-economy filing for `feat/speclint-red-reason-verification` cites it by name and `BL-SPECLINT-DOC-BARE-LINE-NUMBERS-UNCOVERED`'s first-scheduled-step names it as sharing an owner and a trigger point. A deleted id dangles both pointers.
 
 Its incident is preserved verbatim as the third measured instance on the elder entry.
+
+---
+
+## BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE — a QUOTED workflow `run:` scalar is scanned as if its YAML quoting were shell, fabricating a site on one spelling and going silent on another
+
+**Status:** SHIPPED 2026-08-25 · **Shipped by:** `fix/yaml-run-scalar-quoting-decode` (PR #879) · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (one spelling FABRICATES a `PsqlSite` for a command bash never runs, which is a forbidden direction; the other is silent, which is the other forbidden direction) · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 5 - raised against that diff, REFUTED against it, and true of the tree either way) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — the repair belongs to the YAML decode path (`scanSource`'s workflow reader), a surface the attached-redirection arc does not otherwise touch, and it needs the scanner to distinguish YAML quoting from shell quoting before the shell lexer ever sees the value. · **Reachability:** PROBED — three spellings, each run against bash and against `scan.ts` at both revisions. · **Incident:** it consumed diff round 5 of this arc (corpus row at `docs/review-rounds/fix/shell-attached-redirection-target/0ba72c23774f.jsonl`), where it was raised as a finding against a diff that does not cause it. The round is the cost event; the defect is real and outlives the refutation.
+
+Production passes the whole YAML file to the scanner, which reads `run:` values. When the scalar is QUOTED, the quoting belongs to YAML and not to the shell, and the scanner does not make that distinction.
+
+| `run:` scalar | bash                        | scanner                                   |
+| ------------- | --------------------------- | ----------------------------------------- |
+| single-quoted | exits 2, never invokes psql | **0 sites, 0 hits** — silently unsignaled |
+| double-quoted | exits 2, never invokes psql | **1 site** — a FABRICATED `PsqlSite`      |
+| plain         | exits 2, never invokes psql | 0 sites, 1 advisory — correct             |
+
+**PRE-EXISTING, proven rather than assumed.** All three spellings were run against `scan.ts` at the merge-base as well as HEAD. The two failing rows are BYTE-IDENTICAL at both revisions. The plain-scalar row is where the attached-redirection arc CHANGED behaviour, and it changed it in the right direction: base is silent, HEAD emits the advisory.
+
+**Why the fabricated site is the worse half.** A silent miss on the single-quoted spelling is the familiar direction and the census bounds it. The double-quoted spelling asserts a psql call site that the shell will never execute — the guard telling a reader that code runs when it does not, which is the direction every other row on this surface treats as forbidden.
+
+Close condition: the workflow reader decodes a `run:` scalar's YAML quoting BEFORE handing the value to the shell lexer, with the three spellings above as its acceptance and bash as the oracle for each.
+
+**A NEIGHBOURING FABRICATION SURVIVES THIS ENTRY, and it is named so the archive
+does not read as a closed class.** Diff round 13 found that an UNTERMINATED
+process substitution still reports a site - `run: echo >(psql -qAt myd` yields
+`["-qAt","myd"]` while `bash -n` exits 2 - and that the escaped-dollar spellings
+decode into that same path. It is a different defect in a different function:
+this entry was about YAML quoting reaching the shell lexer undecoded, that one is
+about what `matchBrace` returns when a span never closes. Probed identical at
+this arc's merge-base and at HEAD, so it is neither introduced nor repaired here.
+Carried as `BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES` and as
+documented limit 9 of the design spec, which states plainly that the arc's
+consequence bound does not extend to it.
+
+---
+
+## BL-REPLACEMENT-STRING-CLASS-SWEEP — a runtime value in `String.replace`'s replacement position is a mini-language, and the repo has never swept for it
+
+**Status:** SHIPPED 2026-08-25 · **Shipped by:** `fix/replacement-string-class-sweep` (PR #883) · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (silent wrong output, not a crash: the call succeeds and the text is wrong) · **Filed:** 2026-08-21 (`feat/pane-compaction-send-auth`, diff round 3 F1) · **Class:** correctness sweep · **Facing:** process · **Reachability:** PROBED — the branch names are accepted by git, and the shipped behaviour was reproduced before repair.
+
+**The close condition the entry named, and what satisfied it.** The first scheduled step was to run the walk repo-wide in report-only mode, count offenders, and only then decide whether the gate ships `fail` or advisory. Done: the count was **56 sites at base `8bf870991`**, of which **four are inside `docs/**`** and outside the population, leaving **52 in-population offenders**. The gate ships **`fail`**, decided on that count rather than in advance, because this PR repairs the population it would otherwise red. Inventory **52 → 0\*\*.
+
+**Where the class was, beyond the two files the filing arc closed.** The scope note deferred the repo-wide sweep under exception (c). Sweeping it found three live product defects, each reproduced on shipped code before repair:
+
+- `components/admin/roleRecognizeCopy.ts` — a role token containing `$'` spliced the sentence tail into its own middle and displaced the chained `<SUMMARY>` replacement, so an unreplaced template marker reached the admin surface.
+- `lib/sync/feed/shapeHoldEntry.ts` — a crew member named `Dana$'X` lost their name from Doug's feed line, replaced by a duplicated fragment.
+- `lib/observe/scrubSentryEvent.ts` — the OPPOSITE repair. Its `$1` is a deliberate capture carrying the `/show/<slug>/` prefix through redaction, so the ordinary wrap applied 51 times elsewhere would have dropped the slug from every scrubbed URL. The sweep's repair rule is not "wrap everything".
+
+**A class the filing did not anticipate.** Six harnesses apply an author-written `from` → `to` edit through a replacement string, **two of them writing the result to disk**. Every one validated that the anchor was unique; none validated the replacement side.
+
+**The shipped gate.** `tests/cross-cutting/replacementString/scan.ts` — an AST judge classifying every `.replace`/`.replaceAll` call's second argument into accepted, not-in-population, or REPORTED BY NAME. An ACCEPT-SET, not a denylist, so an argument form nobody has thought of is reported rather than accepted. `EXPECTED_OFFENDERS` is empty by design: the assertion IS the zero-offender gate, and a new offender reds it by name — which happened once during the arc, on its own repair commit.
+
+**Two decisions reached by review, recorded so neither is relitigated.** There is NO text prefilter: every version of one missed the next spelling, and `s.repl\u0061ce(...)` is a PropertyAccessExpression no source-text regex can ever match (measured cost of parsing everything: ~700ms). Transparent-wrapper resolution is closed BY PLACEMENT, in two helpers every kind test goes through, after three spec rounds found the same class in four different positions.
+
+**Verification as shipped.** Enrolled in the source-mutation registry: **31 mutants, 31/31 killed, zero survivors, score 1.00** over all six declared operators, confirmed on the merge ref by CI's own shard artifact. `regex-quantifier-bound` generates zero mutants on this code and stays DECLARED so the score demonstrably ranges over it. Spec APPROVE r7, plan APPROVE r6, whole-diff APPROVE r1 with zero findings.
+
+**Documented limits** are the shipped spec's §8 (`docs/superpowers/specs/2026-08-24-replacement-string-class-sweep.md`), including aliased and element-access spellings, non-string receivers, and the root-anchored `node_modules`/`docs` exclusion.

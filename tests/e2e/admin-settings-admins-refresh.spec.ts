@@ -136,7 +136,18 @@ test.describe("embedded /admin/settings Administrators — observable refresh (d
       // correct (we assert only the ACTIVE region above).
 
       // --- (b) ADD a new admin via the embedded add form ---
+      // The form sits behind the "Add admin" disclosure
+      // (components/admin/settings/AddAdminDisclosure.tsx:23 trigger, panel
+      // admin-settings-add-admin at :71). Its inputs are in the DOM while the
+      // panel is collapsed, so `fill` succeeds and only the click fails, by
+      // retrying "admin-settings-admins-card intercepts pointer events" until
+      // the 60s test timeout. Open the disclosure first and wait on the
+      // trigger's own aria-expanded, the state the panel animates from.
+      const addTrigger = page.getByTestId("admin-add-admin-trigger");
+      await addTrigger.click();
+      await expect(addTrigger).toHaveAttribute("aria-expanded", "true");
       const addForm = page.getByTestId("admin-allowlist-add-form");
+      await expect(addForm).toBeVisible();
       await addForm.getByTestId("admin-allowlist-email-input").fill(addEmail);
       await addForm.getByTestId("admin-allowlist-add-button").click();
 

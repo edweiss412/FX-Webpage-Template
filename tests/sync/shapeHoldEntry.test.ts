@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { shapeHoldEntry, type HoldRow } from "@/lib/sync/feed/shapeHoldEntry";
 import { sortKeyFromRaw, toIso } from "@/lib/sync/feed/sortKey";
+import { premiseHolds } from "../_shared/premise";
 
 /**
  * The hold-to-FeedEntry shaping step, extracted from readShowChangeFeed so the
@@ -71,4 +72,36 @@ describe("shapeHoldEntry", () => {
     expect(entry.acceptable).toBe(false);
     expect(entry.acknowledgedAt).toBeNull();
   });
+});
+
+describe("a $-bearing crew name stays literal in the summary", () => {
+  // entity_key and the held/proposed names are free text from the Google Sheet, and `fill`
+  // substitutes them into a catalog template. A replacement STRING parses `$&`, `` $` ``, `$'`
+  // and `$$` there, so a crew member named `Dana$'X` had the rest of the sentence spliced into
+  // the middle of Doug's feed line and their actual name disappeared.
+  // Spec 2026-08-24-replacement-string-class-sweep §5.
+  const HOSTILE: [string, string][] = [
+    ["$' (everything after the match)", "Dana$'X"],
+    ["$& (the matched text)", "Dana$&X"],
+    ["$` (everything before the match)", "Dana$`X"],
+    ["$$ (an escaped dollar)", "Dana$$X"],
+  ];
+
+  for (const [label, name] of HOSTILE) {
+    test(`round-trips ${label}`, () => {
+      const entry = shapeHoldEntry(
+        hold({
+          entity_key: name,
+          held_value: { email: "old@example.test", name },
+          proposed_value: {
+            disposition: "rename",
+            name: "Dana Renamed",
+            email: "old@example.test",
+          },
+        }),
+      );
+      premiseHolds(`${label}: a summary was generated`, entry.summary.length > 0);
+      expect(entry.summary, "the crew name is data, not a substitution pattern").toContain(name);
+    });
+  }
 });

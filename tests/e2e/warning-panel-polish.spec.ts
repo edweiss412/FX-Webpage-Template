@@ -18,6 +18,7 @@ import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { openShowReviewModal } from "./helpers/openShowReviewModal";
+import { awaitModalHydrated } from "./helpers/awaitModalHydrated";
 
 // No modal selector is declared here any more: both opens route through
 // tests/e2e/helpers/openShowReviewModal.ts, which is now the single place the
@@ -97,6 +98,13 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
   async function openModal(page: import("@playwright/test").Page) {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await openShowReviewModal(page, show.slug, { timeoutMs: 30_000 });
+    // openShowReviewModal awaits the modal's MOUNT. The Ignore control is a
+    // client island whose onClick React attaches at hydration, so a click in
+    // that window completes against the server-rendered button and no request
+    // follows (run 3's trace: click done in 179ms, no data-quality/ignore
+    // request). This is the ratified test-side gate for the class
+    // (docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:309).
+    await awaitModalHydrated(page);
   }
 
   test("pointer button scrolls its section to the aligned position", async ({ page }) => {
@@ -340,6 +348,12 @@ test.describe("pointer overflow reveal (announcer spec §4.2-4.3)", () => {
   test("reveal button expands the list; a revealed name scrolls its section", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await openShowReviewModal(page, revealShow.slug, { timeoutMs: 30_000 });
+    // This describe opens the modal directly rather than through openModal
+    // above, so it needs the same hydration gate: the reveal button is a client
+    // island too, and a click in the pre-hydration window is lost the same way
+    // (measured here the first time this case ever ran: the expansion never
+    // happened and "Rooms & scope" was absent).
+    await awaitModalHydrated(page);
     const dfid = revealShow.driveFileId;
     const SENTENCE = `[data-testid="wizard-step3-card-${dfid}-warnings-elsewhere"]`;
     const SCROLLER = `[data-testid="wizard-step3-card-${dfid}-review-content"]`;

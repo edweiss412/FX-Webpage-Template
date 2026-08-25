@@ -3,18 +3,31 @@ import { writeFileSync } from "node:fs";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { cleanupRuns, mkRun, readCalls, runGuard, writeScenario, type Run } from "./harness";
+import { HEADING_CORPUS } from "./fixtures/guardSurfaceHeadingCorpus";
 
 afterAll(cleanupRuns);
 
 /**
  * The guard-surface dispatch gate (enforcement-pair spec §2.1): a round-1 diff
- * brief that declares a `GUARD SURFACE:` line must carry, ON THAT LINE, either
- * a canonical mutation-score declaration with an empty unaccepted-survivor set
- * or a `CANNOT-EXPRESS:` probe citation - else exit 2 BEFORE any dispatch.
+ * brief that declares a `GUARD SURFACE:` line, written plain or as a Markdown
+ * ATX heading, must carry, ON THAT LINE, either a canonical mutation-score
+ * declaration with an empty unaccepted-survivor set AND the `OPERATORS:` tail
+ * naming the set that score ranges over, or a `CANNOT-EXPRESS:` probe citation
+ * - else exit 2 BEFORE any dispatch.
  *
- * Every rejecting case asserts zero fake-codex calls: the gate sits in the
- * pre-dispatch validation phase, so a rejected brief takes no lock, writes no
- * result artifact, and appends no corpus row - identical to missing --stage.
+ * Marker precedence (jurisdiction spec §2.2): a line carrying `MUTATION SCORE:`
+ * in any shape is a score declaration, decided by the score arm plus the
+ * `OPERATORS:` check and never rescued by a cannot-express tail; the
+ * cannot-express arm decides only marker-free lines. Presence is checked, not
+ * membership (§4 L-A), the same posture as the registry floor.
+ *
+ * Every rejecting case asserts zero fake-codex calls AND writes an APPROVE
+ * scenario first: without one the fake codex exits before recording a call, so
+ * the zero-call half would hold even had the gate dispatched. `readCalls`
+ * throws on a scenario-less run, so the class cannot return with the next case.
+ * The gate sits in the pre-dispatch validation phase, so a rejected brief takes
+ * no lock, writes no result artifact, and appends no corpus row - identical to
+ * missing --stage.
  */
 
 const APPROVE_STEP = {
@@ -38,6 +51,7 @@ async function dispatch(run: Run, args: string[] = ["--stage", "diff", "--round"
 describe("round-1 diff guard-surface gate (spec §2.1)", () => {
   it("EXITS 2 on a declared line with neither arm, naming both arms, without dispatching", async () => {
     const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
     briefWith(run, "GUARD SURFACE: lib/reviewRounds/filing.ts — enrolment pending");
     const res = await dispatch(run);
     expect(res.code).toBe(2);
@@ -48,12 +62,179 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
     expect(readCalls(run)).toHaveLength(0);
   });
 
+  // Jurisdiction spec §2.2: a score without the operator set it ranges over is
+  // a number without its jurisdiction. Presence is checked, not membership
+  // (spec §4 L-A), the same posture as the cannot-express citation.
+  it("EXITS 2 on a score arm with no OPERATORS: tail, naming OPERATORS, without dispatching", async () => {
+    const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
+    briefWith(
+      run,
+      "GUARD SURFACE: psqlStartupScan - MUTATION SCORE: 49/49, 0 unaccepted survivors",
+    );
+    const res = await dispatch(run);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toContain("OPERATORS:");
+    expect(readCalls(run)).toHaveLength(0);
+  });
+
+  it("PASSES a score arm with an OPERATORS: tail through to the dispatch", async () => {
+    const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
+    briefWith(
+      run,
+      "GUARD SURFACE: psqlStartupScan - MUTATION SCORE: 49/49, 0 unaccepted survivors; OPERATORS: relational-boundary, regex-quantifier-bound",
+    );
+    const res = await dispatch(run);
+    expect(res.code).toBe(0);
+    expect(readCalls(run)).toHaveLength(1);
+  });
+
+  // Spec review round 2: the score arm BINDS. A valid score without its tail is
+  // rejected even when the line also carries a cannot-express tail; otherwise a
+  // quoted score passes without its jurisdiction on the other arm.
+  it("EXITS 2 on a score arm with no OPERATORS: tail even beside a CANNOT-EXPRESS: tail", async () => {
+    const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
+    briefWith(
+      run,
+      "GUARD SURFACE: tests/mutation/source/spawnBounded.ts - MUTATION SCORE: 12/12, 0 unaccepted survivors; CANNOT-EXPRESS: watchdog half, no string-literal operator",
+    );
+    const res = await dispatch(run);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toContain("OPERATORS:");
+    expect(readCalls(run)).toHaveLength(0);
+  });
+
+  it("EXITS 2 on a NON-canonical score beside a CANNOT-EXPRESS: tail (marker precedence)", async () => {
+    const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
+    briefWith(
+      run,
+      "GUARD SURFACE: lib/foo.ts - MUTATION SCORE: 0/0, 0 unaccepted survivors; CANNOT-EXPRESS: spawn-only",
+    );
+    const res = await dispatch(run);
+    expect(res.code).toBe(2);
+    expect(readCalls(run)).toHaveLength(0);
+  });
+
+  it("EXITS 2 on an OPERATORS: marker with an empty tail", async () => {
+    const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
+    briefWith(
+      run,
+      "GUARD SURFACE: psqlStartupScan - MUTATION SCORE: 49/49, 0 unaccepted survivors; OPERATORS:",
+    );
+    const res = await dispatch(run);
+    expect(res.code).toBe(2);
+    expect(readCalls(run)).toHaveLength(0);
+  });
+
+  // Diff review round 4: `\\S` accepts ANY non-whitespace, so a marker whose
+  // value is empty but which is FOLLOWED by another token passed - the next
+  // arm's own punctuation became the "operator set". An empty tail at
+  // end-of-line was covered; the whole suffix-followed class was not. Narrowed
+  // to "the tail begins with an identifier character", optionally backticked,
+  // which is what every real tail in the corpus does.
+  it.each([
+    ["semicolon before the next arm", "; OPERATORS: ; CANNOT-EXPRESS: spawn-only"],
+    ["comma-only value", "; OPERATORS: , relational-boundary"],
+    ["dash-only value", "; OPERATORS: - relational-boundary"],
+  ])("EXITS 2 on an OPERATORS: value that is empty but suffix-followed (%s)", async (_n, tail) => {
+    const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
+    briefWith(
+      run,
+      `GUARD SURFACE: psqlStartupScan - MUTATION SCORE: 49/49, 0 unaccepted survivors${tail}`,
+    );
+    const res = await dispatch(run);
+    expect(res.code).toBe(2);
+    expect(readCalls(run)).toHaveLength(0);
+  });
+
+  // The same shape on the SIBLING arm, which predates this spec: one defect,
+  // both instances, repaired together rather than left for the next round.
+  it("EXITS 2 on a CANNOT-EXPRESS: value that is empty but suffix-followed", async () => {
+    const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
+    briefWith(run, "GUARD SURFACE: lib/foo.ts - CANNOT-EXPRESS: ; see below");
+    const res = await dispatch(run);
+    expect(res.code).toBe(2);
+    expect(readCalls(run)).toHaveLength(0);
+  });
+
+  // The narrowing's positive twin: a backticked tail is what the live corpus
+  // writes, so it must keep dispatching or the narrowing has gone too far.
+  it("PASSES a backtick-quoted OPERATORS: tail", async () => {
+    const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
+    briefWith(
+      run,
+      "GUARD SURFACE: psqlStartupScan - MUTATION SCORE: 49/49, 0 unaccepted survivors; OPERATORS: `all`",
+    );
+    const res = await dispatch(run);
+    expect(res.code).toBe(0);
+    expect(readCalls(run)).toHaveLength(1);
+  });
+
+  // Spec review round 1: the corpus writes the declaration as a Markdown
+  // heading and the shipped trigger never read it. Structure-keyed: one to six
+  // `#` then whitespace, nothing else (spec §4 L-E).
+  it("EXITS 2 on a HEADING-form score arm with no OPERATORS: tail (AC-9)", async () => {
+    const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
+    briefWith(
+      run,
+      "## GUARD SURFACE: psqlStartupScan - MUTATION SCORE: 49/49, 0 unaccepted survivors",
+    );
+    const res = await dispatch(run);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toContain("OPERATORS:");
+    expect(readCalls(run)).toHaveLength(0);
+  });
+
+  it("replays the 24 corpus heading lines: the 20 nonconforming ones are enumerated by number, the 4 conforming ones dispatch alone, the 12 score lines dispatch once a tail is appended (AC-9)", async () => {
+    const rejected = HEADING_CORPUS.filter((r) => r.verdict.startsWith("reject-"));
+    const accepted = HEADING_CORPUS.filter((r) => r.verdict.startsWith("dispatch-"));
+    const scored = HEADING_CORPUS.filter((r) => r.verdict === "reject-no-operators");
+    expect([rejected.length, accepted.length, scored.length]).toEqual([20, 4, 12]);
+
+    const all = mkRun();
+    writeScenario(all, [APPROVE_STEP]);
+    briefWith(all, HEADING_CORPUS.map((r) => r.line).join("\n"));
+    const resAll = await dispatch(all);
+    expect(resAll.code).toBe(2);
+    expect(readCalls(all)).toHaveLength(0);
+    // The message enumerates EXACTLY the nonconforming lines, by 1-based line number.
+    const listed = [...resAll.stderr.matchAll(/^\s+line (\d+):/gm)]
+      .map((m) => Number(m[1]))
+      .sort((a, b) => a - b);
+    const expected = HEADING_CORPUS.map((r, i) =>
+      r.verdict.startsWith("reject-") ? i + 1 : null,
+    ).filter((n): n is number => n !== null);
+    expect(listed).toEqual(expected);
+
+    const ok = mkRun();
+    writeScenario(ok, [APPROVE_STEP]);
+    briefWith(ok, accepted.map((r) => r.line).join("\n"));
+    const resOk = await dispatch(ok);
+    expect(resOk.code).toBe(0);
+    expect(readCalls(ok)).toHaveLength(1);
+
+    const tailed = mkRun();
+    writeScenario(tailed, [APPROVE_STEP]);
+    briefWith(tailed, scored.map((r) => `${r.line}; OPERATORS: all`).join("\n"));
+    const resTailed = await dispatch(tailed);
+    expect(resTailed.code).toBe(0);
+    expect(readCalls(tailed)).toHaveLength(1);
+  });
+
   it("PASSES a conforming score-arm line through to the dispatch", async () => {
     const run = mkRun();
     writeScenario(run, [APPROVE_STEP]);
     briefWith(
       run,
-      "GUARD SURFACE: lib/reviewRounds/filing.ts — MUTATION SCORE: 82/84, 0 unaccepted survivors",
+      "GUARD SURFACE: lib/reviewRounds/filing.ts — MUTATION SCORE: 82/84, 0 unaccepted survivors; OPERATORS: all",
     );
     const res = await dispatch(run);
     expect(res.code).toBe(0);
@@ -76,6 +257,7 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
   // surface's CANNOT-EXPRESS silently absorb a deleted MUTATION SCORE line.
   it("EXITS 2 on a MIXED brief - a conforming cannot-express line plus a bare line", async () => {
     const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
     briefWith(
       run,
       [
@@ -95,10 +277,11 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
   // cover a second enrolled surface.
   it("EXITS 2 when one of two enrolled surfaces carries the only score", async () => {
     const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
     briefWith(
       run,
       [
-        "GUARD SURFACE: lib/reviewRounds/corpus.ts — MUTATION SCORE: 12/12, 0 unaccepted survivors",
+        "GUARD SURFACE: lib/reviewRounds/corpus.ts — MUTATION SCORE: 12/12, 0 unaccepted survivors; OPERATORS: all",
         "",
         "GUARD SURFACE: lib/reviewRounds/count.ts — also enrolled",
       ].join("\n"),
@@ -113,6 +296,7 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
   // is rejected - dispatching on it is what enrolment-precedes-review forbids.
   it("EXITS 2 on a declared NON-empty unaccepted-survivor set", async () => {
     const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
     briefWith(run, "GUARD SURFACE: lib/foo.ts — MUTATION SCORE: 82/84, 1 unaccepted survivor");
     const res = await dispatch(run);
     expect(res.code).toBe(2);
@@ -133,6 +317,7 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
     ],
   ])("EXITS 2 on a semantically invalid fraction (%s)", async (_n, decl) => {
     const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
     briefWith(run, `GUARD SURFACE: lib/foo.ts — ${decl}`);
     const res = await dispatch(run);
     expect(res.code).toBe(2);
@@ -143,6 +328,7 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
   // fraction elsewhere on the line cannot satisfy the arm.
   it("EXITS 2 on a floating fraction without the adjacent MUTATION SCORE: marker", async () => {
     const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
     briefWith(run, "GUARD SURFACE: lib/foo.ts — last run 12/12; 0 unaccepted survivors");
     const res = await dispatch(run);
     expect(res.code).toBe(2);
@@ -156,7 +342,10 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
   it("PASSES a canonical below-floor declaration - documented limit §5.8", async () => {
     const run = mkRun();
     writeScenario(run, [APPROVE_STEP]);
-    briefWith(run, "GUARD SURFACE: lib/foo.ts — MUTATION SCORE: 0/1, 0 unaccepted survivors");
+    briefWith(
+      run,
+      "GUARD SURFACE: lib/foo.ts — MUTATION SCORE: 0/1, 0 unaccepted survivors; OPERATORS: all",
+    );
     const res = await dispatch(run);
     expect(res.code).toBe(0);
     expect(readCalls(run)).toHaveLength(1);
@@ -168,6 +357,7 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
     ["no survivor phrase after the fraction", "MUTATION SCORE: 1/1"],
   ])("EXITS 2 on a score line with %s", async (_n, decl) => {
     const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
     briefWith(run, `GUARD SURFACE: lib/foo.ts — ${decl}`);
     const res = await dispatch(run);
     expect(res.code).toBe(2);
@@ -176,6 +366,7 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
 
   it("enumerates EVERY nonconforming line, not only the first", async () => {
     const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
     briefWith(
       run,
       [
@@ -231,13 +422,14 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
 
   it("a conforming disposition inside a fence does not SATISFY a live bare line", async () => {
     const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
     briefWith(
       run,
       [
         "GUARD SURFACE: lib/foo.ts — see below",
         "",
         "```",
-        "GUARD SURFACE: lib/foo.ts — MUTATION SCORE: 82/84, 0 unaccepted survivors",
+        "GUARD SURFACE: lib/foo.ts — MUTATION SCORE: 82/84, 0 unaccepted survivors; OPERATORS: all",
         "```",
       ].join("\n"),
     );
@@ -248,6 +440,7 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
 
   it("EXITS 2 on a CANNOT-EXPRESS marker with an empty tail", async () => {
     const run = mkRun();
+    writeScenario(run, [APPROVE_STEP]);
     briefWith(run, "GUARD SURFACE: scripts/codex-guard.mjs — CANNOT-EXPRESS:");
     const res = await dispatch(run);
     expect(res.code).toBe(2);

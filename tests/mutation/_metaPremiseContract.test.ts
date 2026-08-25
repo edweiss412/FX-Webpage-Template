@@ -34,6 +34,11 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // guessed: each is what the classifier reports today, declared independently
   // so a recognizer that silently stops matching drops them to zero and reds
   // instead of reporting a clean corpus it no longer understands.
+  // The replacement-string guard, enrolled 2026-08-24. MEASURED via classifyTests over this
+  // suite, not guessed: exactly two of its eighteen tests read the real tree — the premise
+  // ("looked at all") and the repo-wide inventory assertion. Both do so deliberately; the sixteen
+  // fixture cases are pure functions of a source string, which is what lets them kill mutants.
+  "tests/cross-cutting/replacementString.test.ts": 2,
   "tests/specLint/claimSweepNumeric.test.ts": 3,
   "tests/specLint/claimSweepNamed.test.ts": 0,
   "tests/specLint/claimSweepNotFound.test.ts": 0,
@@ -263,6 +268,17 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // child_process, ledger-git, or process.env.
   "tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts": 0,
   "tests/help/_metaUiLabelCrosswalk.test.ts": 0,
+  // renderFaultDetector, enrolled 2026-08-24 with the captureRenderFault surface.
+  // Declared 0, and the zero needs its reason on the record: this suite launches a
+  // real Chromium in `beforeAll` and drives it from every case, which is
+  // environment-touching in the ordinary sense of the words. It is 0 under THIS
+  // classifier because the launch is a `@playwright/test` call, and the traversal
+  // deliberately does not resolve into node_modules -- without that boundary every
+  // verdict collapses. So read this 0 as "reaches no first-party environment sink",
+  // NOT as "this suite is pure". If it ever drops other suites to 0 alongside it,
+  // that is the recognizer breaking, which is exactly what the declaration exists
+  // to surface.
+  "tests/help/renderFaultDetector.test.ts": 0,
   // Enrolled by specLintNumerics (2026-08-11). Pure, and the declaration is
   // honest rather than convenient: every case drives checkNumerics or runLint
   // over literal fixture text with a hand-built FileResolver, so it reaches no
@@ -326,6 +342,19 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // fixture's own parsed-and-produced-an-element check) are both about tree
   // content, not environment.
   "tests/styles/_metaControlOutlineFill.test.ts": 0,
+  // The residue census's deciding suite (2026-08-22). 0, and PROBED rather than
+  // assumed: it reads app/globals.css, BACKLOG.md and DEFERRED.md from the tree,
+  // builds every mutated corpus it scans under mkdtempSync, and drives pure
+  // functions plus Tailwind's own design-system loader in-process. No child
+  // process, no ledger-git, no process.env member. Its `premise` and
+  // `premiseHolds` calls are about tree content and the compiled oracle -- the
+  // Tailwind major, the scanner's universe, and the canonical weak token
+  // compiling -- none of which is environment.
+  // 0 until 2026-08-24, now 1: the thirty-two-form case reads `MUTATION_MUTANT` to skip itself in
+  // a per-mutant child (it costs ~15s of the file's ~45s and every mutant paid it), and reading the
+  // environment is what the classifier keys on. The case carries a premise on `FORMS.length`, so it
+  // satisfies the contract rather than being exempted from it.
+  "tests/styles/_metaControlOutlineResidue.test.ts": 1,
   // The browser mode's two deciding suites (2026-08-15). Both declare 0, and the
   // declaration is honest rather than convenient: each builds the scratch trees it
   // reads under mkdtempSync and drives pure functions, touching no member of

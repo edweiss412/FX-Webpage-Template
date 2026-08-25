@@ -128,6 +128,15 @@ const KNOWN_DANGLING: Record<string, string> = {
   // not exempted — the stale-row ratchet below is what proves that.
   "BL-RESOLVED":
     "cited in docs/audits/pr-38-217-bug-audit-2026-07-02.md — no entry as of 2026-08-02",
+  // FORWARD REFERENCE, and the stale-row ratchet is the removal mechanism.
+  // BL-LEDGER-FIGURE-PROVENANCE fences itself against this id, and the spec and
+  // probe record beside it cite the same fence, because the orchestrator's
+  // 2026-08-22 routing ruling requires both rows to name their boundary. The
+  // entry itself is FILED ON ANOTHER BRANCH — ci/app-e2e-batch2, PR #875, open
+  // and BLOCKED at the time of writing — which lands before this one. This row
+  // is debt that #875's merge repays: once it is on main and this branch merges
+  // main, the id resolves and the ratchet FAILS this row as stale, which is
+  // what forces its deletion rather than anyone remembering to look.
   // L-wave forward references (spec 2026-08-06-l-wave-design.md + its plan): ids the
   // wave's W-LDOCS branch FILES as part of its ratified decompositions/filings. Each
   // row is debt that the filing commit repays — the stale-row ratchet forces removal
@@ -242,6 +251,23 @@ export function isFamilyReference(text: string, end: number, stem: string, defin
  * as dead, and a row whose id becomes real fails as stale.
  */
 const NOT_A_CITATION: Record<string, Record<string, string>> = {
+  "tests/styles/_metaControlOutlineResidue.test.ts": {
+    "BL-TEST-ROW": "the constructed ledger entry the filed-defect and literal-outline bars resolve against",
+    "BL-OTHER": "the neighbouring entry in that constructed ledger, which must NOT answer the ref",
+    "BL-NEXT": "the trailing entry, so the body-extraction stops at the next heading",
+    "BL-NO-SUCH-ENTRY": "the ref that must resolve to nothing, for the does-not-resolve refusal",
+    "BL-PREFIX": "the short id in the prefix pair proving a ref matches a WHOLE id",
+    "BL-PREFIX-CHILD": "the longer id sharing its prefix, which must not answer the short ref",
+  },
+  "docs/superpowers/specs/2026-08-21-control-outline-forward-guard-design.md": {
+    "BL-LIT-1": "the constructed ledger id in §1.5's literal-outline bar transcript",
+    "BL-LIT-9": "the ref that resolves to nothing in that same transcript",
+  },
+  "docs/superpowers/plans/2026-08-21-control-outline-forward-guard.md": {
+    "BL-LIT-1": "quoted from the spec's literal-outline probe transcript",
+    "BL-LIT-9": "quoted from the same transcript, the unresolvable ref",
+    "BL-TEST-ROW": "the constructed entry the plan's bar cases cite",
+  },
   "tests/docs/_metaLedgerClaimCollision.test.ts": {
     "BL-PLANTED-COLLISION": "planted declared claim proving the backstop reads one",
     "BL-PLANTED-OPEN": "planted OPEN entry proving it does not read one",

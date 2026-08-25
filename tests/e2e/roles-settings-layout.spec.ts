@@ -275,7 +275,13 @@ test.describe("roles settings — desktop one-line grid (≥760px)", () => {
     await firstRow.getByRole("button", { name: COPY.EDIT_LABEL }).click();
     await firstRow.getByTestId("role-mapping-save").click();
     const saved = firstRow.getByTestId("role-mapping-saved-confirm");
-    await expect(saved).toBeVisible();
+    // Wait for the STATE, not a box: role-mapping-saved-confirm renders sr-only
+    // until updateRoleTokenMapping returns ok (app/admin/settings/roles/RoleMappingRow.tsx:118,
+    // :165-174), and toBeVisible accepts that 1px placeholder, so the width
+    // measurement below ran while the save's server action was still in flight.
+    // A slow action now waits; a failed one fails by name instead of measuring
+    // the placeholder.
+    await expect(saved).toHaveText(COPY.EDIT_SAVED_CONFIRM);
     expect(Math.abs((await rect(saved)).width - (await contentWidth()))).toBeLessThanOrEqual(1);
   });
 });

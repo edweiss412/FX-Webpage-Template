@@ -354,13 +354,59 @@ export async function collectRawCodeLeaksInPage(
           }
         }
       };
+      // SCRIPT ONLY, and the narrowness is the point. A Next.js page inlines its
+      // RSC flight payload as `self.__next_f.push([...])` <script> text, and that
+      // payload carries serialized props verbatim: /admin's own payload holds 45
+      // §12.4 codes (measured 2026-08-22, batch-2 R8), which no reader ever sees.
+      // STYLE stays in scope — whole-diff review round 1 (scope A) is right that a
+      // stylesheet is a place a code can appear (`content: "CODE"`), and this walk
+      // caught that before the R8 repair, so excluding it would have been a
+      // narrowing this arc has no measurement for. NOSCRIPT and TEMPLATE likewise
+      // stay: their text is cheap to scan and neither carries a serialized payload.
+      // Attributes and live DOM properties are unaffected either way.
+      // ...and even SCRIPT is excluded by what the page RENDERS, not by its tag.
+      // Review round 2 (scope A) probed a `<script type=application/json>` under
+      // `script { display: block }`: the UA stylesheet's `display: none` is what
+      // makes script text unreadable, and a stylesheet can take it away, at which
+      // point the text is ordinary visible copy that `textContent` reached before
+      // R8. So the exclusion asks the computed style instead of the tag name.
+      const isHiddenScript = (el: Element): boolean =>
+        el.tagName === "SCRIPT" && getComputedStyle(el).display === "none";
+      const renderedText = (node: Element): string => {
+        // Fast path: no non-rendered descendant, so textContent is already the
+        // rendered text (native, and this runs once per element on the page).
+        const scripts = node.querySelectorAll("script");
+        let hidden = false;
+        for (const scriptEl of scripts) {
+          if (isHiddenScript(scriptEl)) {
+            hidden = true;
+            break;
+          }
+        }
+        if (!hidden) {
+          return node.textContent ?? "";
+        }
+        // nodeType literals, not the `Node` global: this body is serialized into
+        // the browser, where `Node` is the DOM interface, while tsc resolves the
+        // repo's Node.js `Node` type and rejects `Node.TEXT_NODE`.
+        const TEXT_NODE = 3;
+        const ELEMENT_NODE = 1;
+        let text = "";
+        for (const child of node.childNodes) {
+          if (child.nodeType === TEXT_NODE) text += child.nodeValue ?? "";
+          else if (child.nodeType === ELEMENT_NODE && !isHiddenScript(child as Element))
+            text += renderedText(child as Element);
+        }
+        return text;
+      };
       const walk = (root: Element | ShadowRoot) => {
         const children =
           root instanceof Element
             ? [root, ...root.querySelectorAll("*")]
             : [...root.querySelectorAll("*")];
         for (const node of children) {
-          check("textContent", node.tagName.toLowerCase(), node.textContent ?? "");
+          if (isHiddenScript(node)) continue;
+          check("textContent", node.tagName.toLowerCase(), renderedText(node));
           for (const attr of attrs) check("attribute", `@${attr}`, node.getAttribute(attr));
           if (node instanceof HTMLInputElement)
             check("live-dom-property", "input.value", node.value);
