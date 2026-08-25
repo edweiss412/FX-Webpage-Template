@@ -296,8 +296,11 @@ wrong, and each files here rather than as a review round.
    process-facing mint bar wants one.
 8. **The AC-6 census does not resolve ALIASES, so an aliased quoted executable scalar would be
    counted as zero.** `run: *cmd` parses to an Alias node, `isScalar` is false for it, and the
-   census skips the pair
-   (`docs/superpowers/specs/ci/probes/2026-08-22-quoted-scalar-census.mts:50`) — while
+   census skips the pair at its `if (!isScalar(value as never)) return;` branch
+   (`docs/superpowers/specs/ci/probes/2026-08-22-quoted-scalar-census.mts:72`, a
+   drafting-time locator for that branch — the construct is what identifies it, since
+   any edit above shifts the line). The same holds for an aliased ITEM inside an
+   `args:` sequence, which the item loop skips for the same reason — while
    `scanWorkflowSource` DOES resolve aliases, so such a scalar is affected by this repair. Unlike
    the other limits here the failure direction is a MISCOUNT rather than a conservative demote, and
    the census underwrites AC-5's digest-neutrality argument, so it is recorded rather than left
