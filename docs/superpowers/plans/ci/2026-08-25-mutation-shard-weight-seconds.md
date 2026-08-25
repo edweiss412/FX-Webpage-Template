@@ -816,6 +816,21 @@ The third row is the shell-shadow case as a mutation rather than as prose: a `ru
 that shadows the step's `env:` must fail the whole-command equality pin, and if it does
 not, the pin reads the mapping only and is fail-open.
 
+**The eight WIRING plants run by direct perturbation, not through the harness**, for the
+same reason as the held-out fixtures: `_metaSourceShardIntegrity` reads the workflow with
+`readFileSync` on a repo-relative path, so there is no import specifier to redirect and a
+plant into a scratch copy would be invisible. All eight were applied to the real workflow
+and reverted, and every one failed the pin. The six SCRIPT plants do go through the
+harness, because `driftCli.ts` sits under the default root and the deciding suite imports
+it through the `@/` alias the harness rewrites.
+
+**One of the six escaped on its first run, and the escape was the useful part.** Relabelling
+the declared-but-unmeasured section as "drifted" left both surfaces reported on separate
+lines, which is all the case originally checked — so a reader would have been told a stale
+registry row had drifted. The assertion now pins what each section SAYS it is, and the
+mutant is caught. A case that checks two things landed on different lines is not checking
+that they are distinguishable.
+
 **RED, and the collection failure does NOT count as one.** An earlier draft offered a
 module-resolution failure naming the missing script as its first red. That is a command
 that never reached a deciding assertion, and the project's red-validity rule rejects it for

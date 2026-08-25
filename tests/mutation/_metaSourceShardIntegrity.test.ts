@@ -26,7 +26,14 @@ type Step = {
   uses?: string;
   run?: string;
   env?: Record<string, string>;
-  with?: { script?: string };
+  // Widened from `{ script?: string }` when the rate-drift pins landed: those read
+  // `pattern` and `path` off a download step, and the narrow shape made an ordinary
+  // read an implicit-any error. Index signature rather than a fixed list, because
+  // this models arbitrary action inputs and a fixed list is a second thing to
+  // maintain every time a pin reads a new one.
+  with?: Record<string, string | undefined>;
+  /** A step's own condition. Pinned by the rate-drift case, which turns on it. */
+  if?: string;
 };
 type Job = {
   "timeout-minutes"?: number;
@@ -38,7 +45,11 @@ type Job = {
   outputs?: Record<string, string>;
 };
 const WORKFLOW = join(ROOT, ".github/workflows/mutation-harness.yml");
-const wf = parseYaml(readFileSync(WORKFLOW, "utf8")) as { jobs: Record<string, Job> };
+const wf = parseYaml(readFileSync(WORKFLOW, "utf8")) as {
+  jobs: Record<string, Job>;
+  /** The trigger block, so the PR path filter can be asserted as data. */
+  on?: { pull_request?: { paths?: string[] } };
+};
 
 const runsOf = (job: string): string[] =>
   (wf.jobs[job]?.steps ?? []).map((s) => s.run ?? "").filter((r) => r.length > 0);
@@ -299,6 +310,59 @@ describe("mutation-harness matrices are pinned to their constants", () => {
     expect(check, "the budget job has no budget-check step").toBeGreaterThanOrEqual(0);
     expect(checkout, "checkout must precede the local setup action").toBeLessThan(setup);
     expect(setup, "setup must precede the step that runs pnpm tsx").toBeLessThan(check);
+  });
+
+  it("the rate-drift step is wired so it still speaks when the budget fails", () => {
+    const steps = wf.jobs["budget"]?.steps ?? [];
+    const step = steps.find((x) => x.id === "rate-drift");
+    expect(step, "the budget job declares no step with id rate-drift").toBeDefined();
+
+    // `if: always()`, by equality. The step FOLLOWS the budget check, so without
+    // this it is skipped on exactly the runs where knowing which rate drifted
+    // matters most: the step that explains a breach would be silent whenever
+    // there is one. Nothing else in this file would notice, because the env and
+    // command assertions below stay green on a step that never executes.
+    expect(step!.if?.trim()).toBe("always()");
+
+    // The env MAPPING and the WHOLE command, for the same reasons as the budget
+    // check above: a shell assignment prefix in `run:` shadows the step's `env:`,
+    // so a guard reading only the mapping is fail-open against a step that
+    // contradicts its own declaration.
+    const env = step!.env ?? {};
+    expect(env["RECORDS_DIR"]).toBe("records");
+    expect(env["DRIFT_ACTIONABLE_AT"]).toBe("2");
+    expect(step!.run?.trim()).toBe("pnpm tsx scripts/check-rate-drift.ts");
+
+    // The download that feeds it, PATTERN and DESTINATION both. A step that
+    // downloads to the wrong path reports every surface unmeasured, which reads
+    // as a clean run with nothing to say rather than as a broken one -- and the
+    // pattern is per-SURFACE records, not the elapsed stamps the budget check
+    // uses, because a rate is derived from child wall clock the stamps do not
+    // carry.
+    const dl = steps.find((x) => (x.with ?? {})["path"] === "records");
+    expect(dl, "nothing downloads into the records/ path the drift step reads").toBeDefined();
+    expect((dl!.with ?? {})["pattern"]).toBe("mutation-records-source-shards-*");
+    expect((dl!.with ?? {})["path"]).toBe("records");
+
+    // It must be able to RUN, in order, like its sibling.
+    const at = (needle: string) =>
+      steps.findIndex((x) => (x.uses ?? "") === needle || x.id === needle);
+    expect(at("./.github/actions/setup")).toBeLessThan(at("rate-drift"));
+    expect(steps.indexOf(dl!)).toBeLessThan(at("rate-drift"));
+  });
+
+  it("the PR path filter fires this workflow for the surfaces it now guards", () => {
+    // THIS PR CANNOT DEMONSTRATE THIS FOR ITSELF: it edits the workflow, so the
+    // harness fires regardless, and the filter's absence would be invisible on
+    // exactly the PR that introduced the step. Without these entries a later change
+    // under lib/mutationWeight, or to the drift script itself, merges without the
+    // harness ever running.
+    const paths = wf.on?.pull_request?.paths ?? [];
+    expect(paths).toContain("scripts/check-rate-drift.ts");
+    expect(paths).toContain("lib/mutationWeight/**");
+    // The sibling it was modelled on, asserted alongside so a rewrite that drops
+    // the whole list cannot leave this case green on an empty array.
+    expect(paths).toContain("scripts/check-shard-budget.ts");
   });
 
   it("a red shard does not cancel its siblings, and budget gates notify (AC-6c)", () => {

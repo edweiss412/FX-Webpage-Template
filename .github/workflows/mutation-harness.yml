@@ -47,6 +47,12 @@ on:
       - "tests/parser/mutationHarness.*.test.ts"
       - "lib/ci/shardBudget.ts"
       - "scripts/check-shard-budget.ts"
+      - "scripts/check-rate-drift.ts"
+      # The weight model the partition is priced by. Without this entry a change
+      # under lib/mutationWeight merges without ever running this harness, and the
+      # PR that ADDED the drift step could not have noticed, because editing the
+      # workflow fires it regardless.
+      - "lib/mutationWeight/**"
       # vitest wiring owns the mutation project's existence/includes — a wiring-only
       # PR must fire the real workflow too (whole-diff review advisory).
       - "vitest.config.ts"
@@ -289,6 +295,26 @@ jobs:
           PARSER_SHARD_COUNT: "8"
           SOURCE_SHARD_COUNT: "4"
         run: pnpm tsx scripts/check-shard-budget.ts
+      # The RECORDS, not the elapsed stamps: drift is per SURFACE, and only the
+      # per-surface record carries the child wall clock a rate is derived from.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutation-records-source-shards-*
+          path: records
+      # `if: always()` is the whole point of this step's placement. It follows the
+      # budget check, and an over-budget failure is EXACTLY the case where knowing
+      # which rate drifted matters most -- without it, the step that explains a
+      # breach is silent precisely when there is one.
+      #
+      # It never fails the job: drift is a report, and the script exits 0 whether or
+      # not anything drifted. See its header.
+      - name: Report per-surface rate drift
+        id: rate-drift
+        if: always()
+        env:
+          RECORDS_DIR: records
+          DRIFT_ACTIONABLE_AT: "2"
+        run: pnpm tsx scripts/check-rate-drift.ts
 
   # Surface a scheduled red run as ONE deduped tracking issue (otherwise invisible: a non-required
   # check with no notification anyone reads). SEPARATE job so issues:write never reaches the
