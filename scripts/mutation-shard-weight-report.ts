@@ -167,13 +167,28 @@ function describe(
     const parts = [...elapsed]
       .sort((a, b) => a[0] - b[0])
       .map(([leg, secs]) => `${String(Math.round((100 * (observed[leg] ?? 0)) / secs))}%`);
+    // WHICH legs, not "each leg". A partial download reported percentages for the
+    // stamps that arrived under a phrase claiming coverage of all of them, so a run
+    // missing half its legs read exactly like a complete one. The legs are named, and
+    // any that are absent are named too -- coverage evidence that quietly omits its
+    // own gaps is worse than no coverage line, because it invites the reader to trust
+    // it.
+    const present = [...elapsed].map(([leg]) => leg).sort((a, b) => a - b);
+    const missing = Array.from({ length: N }, (_, i) => i).filter((i) => !elapsed.has(i));
     say(
-      `  children explain ${parts.join(" / ")} of each leg's own elapsed.txt ` +
+      `  children explain ${parts.join(" / ")} of the elapsed.txt for leg(s) ` +
+        `${present.join(", ")} ` +
         `(${[...elapsed]
           .sort((a, b) => a[0] - b[0])
           .map(([, s]) => String(s))
           .join(" / ")}s)`,
     );
+    if (missing.length > 0) {
+      say(
+        `  leg coverage is PARTIAL: no elapsed stamp for leg(s) ${missing.join(", ")}, ` +
+          `so the percentages above describe ${String(present.length)} of ${String(N)} legs`,
+      );
+    }
   } else {
     say("  elapsed-source-shards-* not downloaded, so leg coverage is UNMEASURED here");
   }

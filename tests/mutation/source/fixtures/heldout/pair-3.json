@@ -62,6 +62,10 @@
       "seconds": 555.219
     },
     {
+      "surfaceId": "connectionCensus",
+      "seconds": 2562.18
+    },
+    {
       "surfaceId": "controlOutlineScan",
       "seconds": 196.784
     },

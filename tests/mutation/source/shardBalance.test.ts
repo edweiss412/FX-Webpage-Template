@@ -69,21 +69,38 @@ describe("held-out binding leg (AC-3)", () => {
         SOURCE_SHARD_COUNT,
       );
 
-    it("is genuinely held out: the seed run is not the scored run", () => {
-      // The forbidden construction, pinned rather than assumed. With one run on both
-      // sides the comparison is circular and every margin is free.
+    it("is genuinely held out: two DISTINCT, non-empty run ids", () => {
+      // Inequality alone was not enough, and the gap was exploitable by deletion:
+      // with either field absent the comparison is `undefined !== "meas-..."`, which
+      // is true, so a fixture that had lost its provenance entirely passed as held
+      // out. The shape has to be asserted before the difference means anything.
+      for (const [field, value] of [
+        ["seedRun", fx.seedRun],
+        ["scoreRun", fx.scoreRun],
+      ] as const) {
+        expect(typeof value, `${field} must be a string`).toBe("string");
+        expect(value.trim().length, `${field} must not be empty`).toBeGreaterThan(0);
+        expect(value, `${field} must name a run`).toMatch(/^meas-\d+$/);
+      }
       expect(fx.seedRun).not.toBe(fx.scoreRun);
     });
 
-    it("prices no surface the seed run never saw", () => {
-      // The second forbidden construction. An arrival has no held-out rate, and
-      // falling back to the scored run's OWN rate makes it score itself. Excluded
-      // surfaces must be absent from the seed AND from the scored set.
-      const scoredIds = new Set(run().scored.map((m) => m.surfaceId));
-      for (const id of fx.excluded) {
-        expect(Object.keys(fx.seed), `${id} must not be seeded`).not.toContain(id);
-        expect(scoredIds.has(id), `${id} must not be scored`).toBe(false);
-      }
+    it("partitions EVERY later-run surface into scored or excluded, with none lost", () => {
+      // Completeness DERIVED, not read back from a list the fixture also supplies.
+      // Checking only the ids already in `excluded` left the omitted set unchecked,
+      // so deleting an entry from that list passed every assertion -- the fixture was
+      // grading its own homework. The partition is now computed from the seed.
+      const r = run();
+      const all = fx.surfaces.map((m) => m.surfaceId).sort();
+      const partition = [...r.scored.map((m) => m.surfaceId), ...r.excluded].sort();
+      expect(partition, "every later surface is either scored or excluded").toEqual(all);
+      // And the split is exactly seeded versus not, which is what "held out" means.
+      const seeded = new Set(Object.keys(fx.seed));
+      expect(r.scored.every((m) => seeded.has(m.surfaceId))).toBe(true);
+      expect(r.excluded.every((id) => !seeded.has(id))).toBe(true);
+      // The recorded list must agree with the derived one, so a fixture edited on one
+      // side and not the other fails rather than drifting.
+      expect(r.excluded).toEqual([...fx.excluded].sort());
     });
 
     it("puts the SECONDS-calibrated binding leg STRICTLY below the shipped one", () => {

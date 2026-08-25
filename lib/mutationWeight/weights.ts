@@ -257,6 +257,27 @@ export function reconcile(
         modelled: dump.suites,
         observed: suites,
       });
+
+    // ACCEPTED is witnessed too, and it is the arm that was missing. Previously the
+    // dump's accepted count was checked only against its OWN total via the
+    // self-composition test below, so a dump could raise `accepted` and raise `boots`
+    // coherently, pass every check, and emit a DIFFERENT rate. In a green run every
+    // survivor is a ledgered accepted row -- an unaccepted survivor fails the gate --
+    // so the records' SURVIVED verdicts are the observation the registry's count must
+    // match.
+    //
+    // Checked only on a PASSING run, because a red run is precisely where an
+    // unaccepted survivor exists and the two legitimately differ.
+    if (m.passed) {
+      const survived = [...m.verdicts.values()].filter((v) => v === "SURVIVED").length;
+      if (survived !== dump.accepted)
+        weightDisagreement.push({
+          surfaceId: m.surfaceId,
+          field: "accepted",
+          modelled: dump.accepted,
+          observed: survived,
+        });
+    }
   }
 
   // The dump against ITSELF. `accepted` is the third input to the boot formula and
@@ -462,11 +483,18 @@ export function driftReport(
   for (const m of surfaces) {
     const dec = declared.get(m.surfaceId);
     const obs = ratePerModelledBoot(m, modelled);
-    if (obs === undefined || obs <= 0) continue;
+    // THE UNDECLARED CHECK COMES FIRST, and the order is the whole point. Skipping an
+    // unusable observation before asking whether the surface is declared made a
+    // surface that is BOTH undeclared and unobservable vanish from every category --
+    // not drifted, not unmeasured, not undeclared -- which is exactly the silent
+    // outcome this report exists to make impossible. A surface enrolled without a
+    // rate is a fact about the REGISTRY and does not depend on whether this run
+    // managed to measure it.
     if (dec === undefined || dec <= 0) {
       undeclared.push(m.surfaceId);
       continue;
     }
+    if (obs === undefined || obs <= 0) continue;
     seen.add(m.surfaceId);
     const ratio = Math.max(dec, obs) / Math.min(dec, obs);
     drifted.push({

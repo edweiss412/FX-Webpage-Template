@@ -343,6 +343,12 @@ describe("mutation-harness matrices are pinned to their constants", () => {
     expect(dl, "nothing downloads into the records/ path the drift step reads").toBeDefined();
     expect((dl!.with ?? {})["pattern"]).toBe("mutation-records-source-shards-*");
     expect((dl!.with ?? {})["path"]).toBe("records");
+    // The DOWNLOAD's condition, not only the consumer's. A step with no condition
+    // carries an implicit success(), so an over-budget budget-check skips this
+    // download and the drift step then runs -- its own always() intact -- against a
+    // records/ directory that does not exist. Pinning the consumer alone left the
+    // report defeated on precisely the runs it exists for.
+    expect(dl!.if?.trim()).toBe("always()");
 
     // It must be able to RUN, in order, like its sibling.
     const at = (needle: string) =>

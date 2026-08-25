@@ -297,7 +297,14 @@ jobs:
         run: pnpm tsx scripts/check-shard-budget.ts
       # The RECORDS, not the elapsed stamps: drift is per SURFACE, and only the
       # per-surface record carries the child wall clock a rate is derived from.
+      # `if: always()` HERE TOO, and its absence would have silently defeated the
+      # step below. A step with no condition carries an implicit `success()`, so an
+      # over-budget budget-check skips this download, and `rate-drift` then runs --
+      # its own always() intact -- against a records/ directory that does not exist.
+      # The consumer's condition is worthless without its prerequisite's.
       - uses: actions/download-artifact@v4
+        id: records-download
+        if: always()
         with:
           pattern: mutation-records-source-shards-*
           path: records

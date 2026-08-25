@@ -113,7 +113,9 @@ describe("readRun", () => {
   });
 
   /** A record directory shaped exactly like the artifacts the nightly uploads. */
-  const layout = (opts: { elapsed?: string; emptyElapsedDir?: boolean } = {}): string => {
+  const layout = (
+    opts: { elapsed?: string; emptyElapsedDir?: boolean; badDuration?: unknown } = {},
+  ): string => {
     const dir = mkdtempSync(join(tmpdir(), "fx-readrun-"));
     roots.push(dir);
     mkdirSync(join(dir, "mutation-records-source-shards-2"), { recursive: true });
@@ -128,7 +130,16 @@ describe("readRun", () => {
           {
             siteId: "s1",
             verdict: "KILLED",
-            children: [{ suite: "one.test.ts", kind: "exit", durationMs: 1500 }],
+            children: [
+              {
+                suite: "one.test.ts",
+                kind: "exit",
+                // `badDuration` is written EXACTLY as given, including undefined,
+                // which JSON.stringify drops -- that is the missing-field case and it
+                // must be refused like the rest.
+                durationMs: "badDuration" in opts ? opts.badDuration : 1500,
+              },
+            ],
           },
           {
             siteId: "s2",
@@ -179,6 +190,22 @@ describe("readRun", () => {
       expect(m?.verdicts.get("s2")).toBe("SURVIVED");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("REFUSES a child duration that is not a finite non-negative number", () => {
+    // The cast on JSON.parse is a promise about the file, not a check of it, and every
+    // invalid shape JSON can hold reaches the addition. Two STRING durations are the
+    // worst of them: "1000" + "2000" concatenates to 10002 seconds rather than 3, and
+    // nothing downstream notices because the child, mutant, suite and leg counts are
+    // all intact -- reconciliation passes and the corrupted total becomes a seed rate.
+    //
+    // Refused loudly rather than coerced, because there is no conservative reading of
+    // a duration nobody can parse: pricing it at zero understates a leg exactly as
+    // silently as trusting it overstates one.
+    for (const bad of ["1000", true, null, -1, {}, undefined]) {
+      const dir = layout({ badDuration: bad });
+      expect(() => readRun(dir), `durationMs ${JSON.stringify(bad)}`).toThrow(/durationMs/);
     }
   });
 
@@ -491,6 +518,18 @@ describe("survivor kills — boundaries and counters the earlier cases stepped o
     expect(r.drifted).toEqual([]);
   });
 
+  it("names a surface that is BOTH undeclared and unobservable, rather than dropping it", () => {
+    // The consequence bound of this whole design is that every input is handled or
+    // SIGNALED, never silently wrong. A surface with no declared rate and no usable
+    // observation used to appear in none of the three categories: the unusable
+    // observation was skipped before anything asked whether it was declared. It is a
+    // fact about the registry either way.
+    const silent = measured({ surfaceId: "ghost", children: [child("s", 0)] });
+    const r = driftReport(new Map(), [silent], modelled({ ghost: { mutants: 1 } }), 2);
+    expect(r.undeclared).toEqual(["ghost"]);
+    expect(r.drifted).toEqual([]);
+  });
+
   it("driftReport keeps an OBSERVED rate of exactly 1, at the guard's literal", () => {
     // Killed: the literal in `obs <= 0` moved to 1, so a surface observed at exactly
     // one millisecond per modelled boot is skipped entirely. The earlier zero-rate
@@ -530,12 +569,49 @@ describe("survivor kills — boundaries and counters the earlier cases stepped o
   it("reconcile composes a dump with MORE than one suite and a non-empty ledger", () => {
     // Killed: `dump.suites - 1` moved to `- 2`. With one suite or an empty ledger the
     // accepted term is zero and the mutation is invisible; it takes both at once.
+    // The two SURVIVED verdicts are not decoration: on a passing run every survivor
+    // is a ledgered accepted row, so the records witness the accepted count and a
+    // dump claiming 2 with none observed is now a disagreement in its own right.
     const r = reconcile(
-      [measured({ surfaceId: "a", mutants: 5 })],
+      [
+        measured({
+          surfaceId: "a",
+          mutants: 5,
+          verdicts: new Map([
+            ["s1", "SURVIVED"],
+            ["s2", "SURVIVED"],
+            ["s3", "KILLED"],
+          ]),
+        }),
+      ],
       modelled({ a: { mutants: 5, accepted: 2, suites: 3 } }),
       4,
     );
     expect(r.weightDisagreement).toEqual([]);
+  });
+
+  it("reconcile catches a dump that raises accepted and boots together", () => {
+    // The gap this closes: accepted was checked only against the dump's OWN total, so
+    // raising `accepted` and raising `boots` coherently passed every check while
+    // emitting a DIFFERENT rate -- probed at 1500 vs 1000 ms/boot for the same
+    // seconds. The weight is invariant within one tree, since boots x rate reproduces
+    // the seconds either way, but the RATE is what gets seeded and applied to a LATER
+    // tree's boots, where nothing cancels.
+    const r = reconcile(
+      [
+        measured({
+          surfaceId: "a",
+          mutants: 5,
+          verdicts: new Map([["s1", "KILLED"]]),
+        }),
+      ],
+      // Self-consistent by composition (5 + 1*(2-1) + 2 = 8) and still wrong: the run
+      // observed no survivor at all.
+      modelled({ a: { mutants: 5, accepted: 1, suites: 2 } }),
+      4,
+    );
+    expect(r.weightDisagreement.map((w) => w.field)).toEqual(["accepted"]);
+    expect(r.ok).toBe(false);
   });
 
   it("reconcile prices a MIXED registry, some rated and some not", () => {

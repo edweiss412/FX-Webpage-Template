@@ -61,6 +61,36 @@ export type RunArtifacts = {
 const RECORD_DIR = /^mutation-records-source-shards-(\d+)$/;
 const ELAPSED_DIR = /^elapsed-source-shards-(\d+)$/;
 
+/**
+ * Total child wall clock, REFUSING a duration that is not a finite non-negative number.
+ *
+ * The cast on `JSON.parse` is a promise about the file, not a check of it, and every
+ * invalid shape JSON can hold reaches the addition: `"1000"` concatenates rather than
+ * adds, so two string durations become 10,002 seconds instead of 3; `true` coerces to
+ * 1; `null` to 0; a negative offsets real time; an object or a missing field yields
+ * NaN. None of it disturbs the child, mutant, suite or leg COUNTS, so reconciliation
+ * still passes and the corrupted total becomes a seed rate -- or serialises to `null`
+ * and is read back as an absent one.
+ *
+ * A corrupt artifact is refused loudly, naming the file, because there is no
+ * conservative reading of a duration nobody can parse: pricing it at zero understates
+ * a leg just as silently as trusting it overstates one.
+ */
+function sumDurations(children: readonly Child[], file: string): number {
+  let total = 0;
+  for (const c of children) {
+    const d: unknown = c.durationMs;
+    if (typeof d !== "number" || !Number.isFinite(d) || d < 0) {
+      throw new Error(
+        `${file}: child of ${c.suite} has an unusable durationMs (${JSON.stringify(d)}); ` +
+          `a record that cannot be priced is refused rather than summed`,
+      );
+    }
+    total += d;
+  }
+  return total / 1000;
+}
+
 export function readRun(dir: string): RunArtifacts {
   const surfaces: Measured[] = [];
   const elapsed = new Map<number, number>();
@@ -77,7 +107,7 @@ export function readRun(dir: string): RunArtifacts {
           leg,
           mutants: j.outcomes.length,
           observedBoots: children.length,
-          seconds: children.reduce((a, c) => a + c.durationMs, 0) / 1000,
+          seconds: sumDurations(children, join(dir, entry, file)),
           children,
           verdicts: new Map(j.outcomes.map((o) => [o.siteId, o.verdict])),
           passed: j.passed,
