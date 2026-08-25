@@ -304,11 +304,11 @@ The alert pill has two branches. Monitoring-only ("clearing on their own, no act
 
 Three observable shapes, each paired with what bash actually did:
 
-| input                                  | bash             | scanner                                      |
-| -------------------------------------- | ---------------- | -------------------------------------------- |
-| `cat >"$(echo ${A:-)}; psql -c 'x')"`  | RAN, exit 0      | **0 sites AND 0 advisories** — a silent miss |
-| `cat >${OUT:-$(echo }; psql -c 'x')}`  | RAN              | 1 site, `nested: false` — wrong attribution  |
-| ``cat >$(echo `echo x; psql -c 'x')``  | **RAN NOTHING**  | **1 site** — a FABRICATED call               |
+| input                                 | bash            | scanner                                      |
+| ------------------------------------- | --------------- | -------------------------------------------- |
+| `cat >"$(echo ${A:-)}; psql -c 'x')"` | RAN, exit 0     | **0 sites AND 0 advisories** — a silent miss |
+| `cat >${OUT:-$(echo }; psql -c 'x')}` | RAN             | 1 site, `nested: false` — wrong attribution  |
+| ``cat >$(echo `echo x; psql -c 'x')`` | **RAN NOTHING** | **1 site** — a FABRICATED call               |
 
 **The third was found on 2026-08-22 by `fix/shell-brace-cross-construct` and is the sharpest of the
 three.** The unclosed backtick means bash dies on the unexpected EOF and executes nothing at all, so
