@@ -2,8 +2,16 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-24-replacement-string-class-sweep.md`
 **Branch:** `fix/replacement-string-class-sweep`
-**Base:** `origin/main` at `bcd3d088ec7678347fc35e7127fe851af3afb041` (merged after the spec stage; every derivation below
-was re-run on the merged tree and every count is unchanged — 95 commits of `main` added no offenders)
+**Base:** `origin/main` at `bcd3d088ec7678347fc35e7127fe851af3afb041`, merged after the spec
+stage. Every derivation below was re-run on the merged tree and every OFFENDER count is unchanged
+— 95 commits of `main` added none.
+
+**Two populations, deliberately different, and round 4 caught them being quoted as one.** The
+SCANNER's population is spec §3.2's: tracked JS/TS minus `node_modules/**` and `docs/**`, which is
+**3586 files** at this base. The DERIVATIONS in the probe directory parse **3672** — everything
+tracked, `docs/**` included — because their job is to report the four `docs/**` offenders the
+scanner is not meant to see. Both figures are correct for their own instrument and neither
+substitutes for the other.
 
 ## Meta-test inventory
 
@@ -377,7 +385,7 @@ the defect. The reading is for the few where it is not.
 <!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t inventory` red-state=authored red-target=`lib/log/sanitize.ts:6` why=`the five files leave EXPECTED_OFFENDERS in this commit, so the inventory assertion reds until they are wrapped` ac=AC-7 -->
 
 `lib/log/sanitize.ts` (1), `lib/test/serialAudit.ts` (3), `lib/parser/personalization.ts` (1).
-Four of these five are cover-VOUCHED rather than merely silent — `REDACTED` and the three
+These are **five sites across three files**. Four of the five are cover-VOUCHED rather than merely silent — `REDACTED` and the three
 sentinels each resolve to a single plain same-file literal — and the fifth,
 `personalization.ts`, is settled by the closed-vocabulary argument above rather than by the
 cover. Behaviour is provably unchanged here, so no behavioural test attaches. The wrap removes the grammar rather than
@@ -546,11 +554,20 @@ The order that works, and spends the heavy slot exactly once:
    `tests/mutation/guardSurfaces.gates.test.ts:21` fails on the missing declaration. That is the
    task's observed RED. It is cheap in CPU — a key comparison over two arrays, generating no
    mutants — but it is a `--project mutation` run, so it is WRAPPED anyway.
-2. **Measure the ledger kinds through the harness's own code path, scoped to this surface** —
-   import `runSurface` and read the ledger it produces, rather than running all four shards to
-   learn one surface's counts. WRAPPED: `runSurface` runs a baseline and then spawns a child suite
-   per generated mutant, so it is a heavy phase by the transitive-shape rule regardless of being
-   scoped to one surface.
+2. **Run this surface scoped, then CLASSIFY its survivors** — the step round 4 found missing.
+   `runSurface` returns `{ mutantCount, noOps, baselineGreen, killed, survivors, outcomes }` and no
+   ledger: the accepted-survivor ledger is `GuardSurface.accepted`, which `evaluateGate` reads from
+   the registry row, and it is AUTHORED rather than produced. So this step imports `runSurface`
+   scoped to the new surface, reads `survivors`, and dispositions each one — `equivalent` with the
+   argument for why the mutant cannot change behaviour, or `accepted-gap` with a backlog ref —
+   writing those rows into the registry row's `accepted`. `EXPECTED_LEDGER_KINDS` then counts the
+   kinds in that authored ledger, and AC-9's "empty unaccepted-survivor set" means every survivor
+   has a row. A survivor with no disposition is the gate's whole point and must not be waved
+   through.
+
+   WRAPPED: `runSurface` runs a baseline and then spawns a child suite per generated mutant, so it
+   is a heavy phase by the transitive-shape rule regardless of being scoped to one surface. Expect
+   to repeat it if a disposition turns out wrong — budget the queue position.
 3. **Declare `EXPECTED_LEDGER_KINDS` from that measurement, and `EXPECTED_ENV_TOUCHING` from a
    DIFFERENT one.** Round 3 caught these being attributed to a single source: `runSurface`'s
    `RunResult` carries mutant counts, kills, survivors and outcomes, and nothing about environment
