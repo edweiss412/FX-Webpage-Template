@@ -63,7 +63,7 @@ export const CENSUS: readonly CensusRow[] = [
   // row 1, which is why the colour left the shared constant.
   {
     file: "app/admin/settings/roles/RoleMappingRow.tsx",
-    line: 350,
+    line: 361,
     outline: "control-outline-tinted",
   },
   // spec §4.2 row 3 — only its `compact` branch carries the token (§6: the
@@ -88,9 +88,9 @@ export const CENSUS: readonly CensusRow[] = [
     outline: "control-outline-tinted",
   },
   // spec §4.2 row 10
-  { file: "components/admin/StagedReviewCard.tsx", line: 649 },
+  { file: "components/admin/StagedReviewCard.tsx", line: 656 },
   // spec §4.2 row 11
-  { file: "components/admin/StagedReviewCard.tsx", line: 660 },
+  { file: "components/admin/StagedReviewCard.tsx", line: 667 },
   // spec §4.2 row 12
   { file: "components/admin/UnignoreButton.tsx", line: 57 },
   // spec §4.2 row 13 — two-arm ternary, BOTH arms carry the token, and both

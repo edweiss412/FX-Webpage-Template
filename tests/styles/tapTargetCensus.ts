@@ -23,7 +23,7 @@
  * review tightened the grammar. 53 rows out of 354 in-scope elements — 301
  * clear statically. Per category: 15 full-bleed, 13 unresolvable-dynamic, 9
  * padding-arithmetic, 7 inline-prose-link, 7 parent-label-target, 2
- * under-floor-filed.
+ * dev-only-unstyled.
  *
  * Three rows moved from `under-floor-filed` to `parent-label-target` on
  * 2026-08-25, and the direction is the point: they are not reclassified, they
@@ -31,8 +31,11 @@
  * mechanism and wrong about the site — a native input IS targeted through its
  * label, and that label was one text line high. Now it carries the floor, so
  * the category that was already true of the mechanism is true of the box too.
- * The two rows left in `under-floor-filed` are the dev panel's, which is a
- * decision rather than a backlog item; see their reason.
+ * `under-floor-filed` is now EMPTY. Its last two rows were the dev panel's, and
+ * they moved to `dev-only-unstyled` on the same date: that surface is ratified
+ * as an unstyled developer tool, not a repair anybody owes. The category stays
+ * in the union because the next genuinely-under-floor site should have somewhere
+ * honest to go.
  *
  * The two rows the tightening ADDED are the useful record here: both had been
  * clearing on a horizontal-only pseudo bleed that proves nothing about height.
@@ -47,6 +50,13 @@ export type TapCensusCategory =
   | "full-bleed"
   | "padding-arithmetic"
   | "under-floor-filed"
+  /**
+   * A build-gated developer surface, ratified as unstyled. NOT a filing: the
+   * floor is not enforced here and this census does not claim it is. Every such
+   * row states its re-file trigger, and its executable premise — that the file
+   * is still excluded from Tailwind's source scan — is asserted by the suite.
+   */
+  | "dev-only-unstyled"
   | "unresolvable-dynamic";
 
 export type TapCensusRow = {
@@ -63,24 +73,25 @@ export type TapCensusRow = {
 };
 
 export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
-  // ---- under-floor-filed (2) ---------------------------------------------
+  // ---- dev-only-unstyled (2) ----------------------------------------------
+  // Ratified 2026-08-25 (design doc 2026-08-25-ui-polish-class-sweep-design.md,
+  // D5), closing BL-ADMIN-DEV-PANEL-TAP-FLOOR. These were `under-floor-filed`,
+  // which asserts an OPEN repair somebody owes; nobody owes this one.
   {
     file: "app/admin/dev/page.tsx",
     line: 151,
     tag: "button",
-    category: "under-floor-filed",
+    category: "dev-only-unstyled",
     reason:
-      "Dev-panel button at py-1 (~28px). The whole page is build-gated out of production (ADMIN_DEV_PANEL_ENABLED) and `app/globals.css` excludes it from Tailwind's source scan, so its classes are not even compiled — a class-level repair here would emit no CSS and would make the guard report a floor the browser never applies. Filed rather than patched.",
-    backlogRef: "BL-ADMIN-DEV-PANEL-TAP-FLOOR",
+      "Dev-panel button at py-1 (~28px). The page is build-gated out of production (ADMIN_DEV_PANEL_ENABLED) and `app/globals.css` excludes it from Tailwind's source scan, so a class-level repair emits NO CSS while making a static guard report a floor the browser never applies — strictly worse than an honest row. Ratified as an unstyled developer tool rather than repaired. RE-FILE TRIGGER: ADMIN_DEV_PANEL_ENABLED becoming true in a production build, or the panel gaining a non-developer audience.",
   },
   {
     file: "app/admin/dev/page.tsx",
     line: 165,
     tag: "button",
-    category: "under-floor-filed",
+    category: "dev-only-unstyled",
     reason:
-      "Second dev-panel button, same shape and same filing as the one above (py-1, Tailwind-excluded, build-gated out of production).",
-    backlogRef: "BL-ADMIN-DEV-PANEL-TAP-FLOOR",
+      "Second dev-panel button, same shape and same ratification as the one above. RE-FILE TRIGGER: as above — a production build reaching this surface, or a non-developer audience for it.",
   },
   // ---- full-bleed, added by the R1 grammar tightening (2) ----------------
   // Both of these were CLEARING before the whole-diff review, and both for the
