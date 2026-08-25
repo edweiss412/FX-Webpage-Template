@@ -125,7 +125,18 @@ Round 0, per AGENTS.md. Each shape was grepped across `app/` and `components/` b
 
 ## 6. Documented limits
 
-Two, both process-facing. Under the 2026-08-25 freeze neither mints a `BL-` row; each is recorded on its owning surface with a re-file trigger.
+**L0 — a scan that reads source must model comments, and this branch proved it four times.** Recorded as a lesson rather than as machinery, because the four sites need genuinely different things and forcing them into one helper would be the speculative abstraction that causes the next defect:
+
+| Where | What it did | Caught by |
+|---|---|---|
+| `pairedChromeOutline.test.ts` | stripped `//` AFTER joining the window, deleting the className two lines below | its own premise assertion |
+| `summaryFoldCue.test.ts` | reported two files as unrepaired because a COMMENT named `<summary>`; then twice more on where a block comment ends | the walk, then diff round 2 |
+| `tintedPlateOutline.test.ts` | counted a comment naming `border-text-faint` as an occurrence of it | itself, on the commit that added it |
+| `alertPillLadder.test.ts` | a bare `monitoringOnly ? … : …` regex landed on the status DOT's ternary depending on where a comment sat | the ladder assertion |
+
+The through-line: **prose that names a token is not an element that wears it**, and every one of these scans was written as if the file were only code. Two of them were caught by a premise assertion rather than by review, which is the argument for premises. RE-FILE TRIGGER: a fifth instance, at which point the shared helper stops being speculative.
+
+Two more, both process-facing. Under the 2026-08-25 freeze neither mints a `BL-` row; each is recorded on its owning surface with a re-file trigger.
 
 **L1 — the tinted-plate cover is a registry, not an ancestor resolution.** `tests/styles/interactiveScanCore.ts` resolves an element's own `className` and has no notion of an enclosing fill, so "is this control standing on a tinted plate?" cannot be asked of it. Giving it ancestor resolution is recognizer growth of exactly the shape AGENTS.md **"Repair direction under same-axis recurrence"** declines, and it is the reason `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` was left untouched by this arc. So the cover is three arms, and the third is the one this section originally described wrongly.
 
@@ -256,3 +267,9 @@ No P0 or P1 is outstanding, so no `DEFERRED.md` entry is owed.
 **Three more were found by self-review while the tree was frozen for that round**, all in guards this branch added, all fixed in the same commit: an outline predicate that counted a divider as emphasis (whose *first* repair also failed its own probe), a comment mask that would skip a `<summary>` sharing a line with a closing `*/`, and a guard naming a compensating screenshot the PR body did not link.
 
 **The shape across all seven is one thing:** every finding was a claim this branch made about itself that the tree did not support. None was a defect in the shipped UI. That is the failure mode a self-assessed critique is least able to catch, and it is exactly what the cross-model round was for.
+
+**Round 2: NEEDS-ATTENTION, 3 findings — the arc's cap.** F2, F3, F4 and SR-3 verified as holding. Three repairs had kept a defect: two stale `375px` claims outlived the viewport fix (in the spec's own header and the audit table, while the constant was correctly 390); the SR-1 predicate recognised only STANDALONE PHYSICAL side widths, so `border-t-border`, `border-s-border`, `border-s` and `border-e-2` all still scored as emphasis; and the SR-2 mask still hid code after a block comment that opened and closed on one line.
+
+All three were fixed rather than fenced. **The cap is on ROUNDS, not on repairs** — each was mechanical and unambiguous, and shipping a known-wrong predicate to respect a dispatch budget would be the letter of the rule against its purpose. No round 3 was dispatched.
+
+**SR-4, found by sweeping my own repair rather than by either round.** `ARCHIVED_TAB_BTN` has five call sites, not the two in the file I edited. The colour was moved into the constant on the reasoning that both card tones are tinted — true of that file, false of the constant, since `components/admin/review/PublishedArchivedTabOffer.tsx` uses it at two more sites on `bg-surface-sunken`. **That file is not in the diff that changed its rendering**, which is exactly the blast radius a shared constant has. Not a contrast failure (3.60:1 light / 5.36:1 dark, over the floor) but a violation of the rule this document wrote: the token is for tinted plates *and nowhere else*. Colour lifted back out; the neutral sibling is registered pinned at the NEUTRAL token, because it is the file most likely to be swept onto the plate token by accident.
