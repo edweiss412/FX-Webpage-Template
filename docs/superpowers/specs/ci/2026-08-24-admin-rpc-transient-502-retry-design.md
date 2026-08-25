@@ -408,14 +408,45 @@ a throw to "Held"; and `lib/admin/bellFeed.ts`, search `get_bell_feed_rows`, whi
 at all, which is exactly how the conflation stayed invisible.
 
 **So the fault is recorded at the transport, where every call passes and no consumer can swallow it.**
-An OBSERVE-ONLY hook on the server-side client factories logs `code: "SUPABASE_UPSTREAM_FAULT"` with
-the status and the request path whenever an upstream 5xx arrives. It retries nothing, changes no
+An OBSERVE-ONLY hook on the server-side client factories records `SUPABASE_UPSTREAM_FAULT` with the
+status and the request path whenever an upstream 5xx arrives. It retries nothing, changes no
 eligibility, and returns the response untouched; §4's rules are unaffected in both directions.
+
+**It records at `log.debug`, and that choice is load-bearing rather than stylistic.** The durable sink
+persists every `warn` and `error` (`lib/log/logger.ts`, search `function shouldPersist`) by writing
+`app_events` through `createSupabaseServiceRoleClient` (`lib/log/persist.ts`, search
+`createSupabaseServiceRoleClient`). An observer on the service-role client that emitted at `warn`
+would therefore observe its own persist write: a 5xx on that insert emits again, which writes again,
+without bound. Awaiting it would block the original response; not awaiting it would leave an unbounded
+background chain. Either one changes caller-visible behavior.
+
+`debug` closes that by construction rather than by care. It reaches the same console chokepoint
+synchronously (`lib/log/logger.ts`, search `The ONE intentional console chokepoint`), so CI still sees
+it, and it can NEVER persist: the `app_events` level CHECK admits only info, warn and error, so
+`persist: true` on a debug call is deliberately inert and `tests/log/logger.test.ts` pins that with
+"debug never persists even with { persist:true }".
+
+This is the §6.1 recursion fence re-derived one layer out. §6.1 warned that widening the WRAPPER to the
+service-role client would re-open the recursion; widening the OBSERVER to it does the same thing, and
+the earlier draft of this section walked into exactly that. The fence now rests on a property of the
+log LEVEL, which no future client-scope change can quietly undo.
 
 Three consequences, and the third is the one that argues for this over the alternatives:
 
-- It covers the wrapped client, the service-role client, and any future server-side factory, because
-  it sits below all of them.
+- It covers the wrapped client and the service-role client, which are the two the measured faults
+  used. It does NOT cover a client constructed directly rather than through a factory, and three exist:
+  `app/api/test-auth/set-session/route.ts` builds both a service-role and a cookie-bound client
+  (search `createClient(` and `createServerClient(`), and `lib/dev/materialize/client.ts` builds one.
+  The first two run on the app-e2e runner, because `ENABLE_TEST_AUTH` is set in the workflow env.
+
+  All three are exempt on a stated ground rather than by oversight: a 5xx in the test-auth route breaks
+  `signInAs`, which fails every spec that depends on it, so the run goes red and §7's FAILURE arm
+  attributes it; `lib/dev/materialize` is not a request path. Neither is a silent-attribution hole.
+
+  Defensible is not recorded, though, and a FOURTH site added later would inherit neither the observer
+  nor the reasoning. So a structural meta-test walks the tree and asserts every server-side
+  `createClient` / `createServerClient` construction either routes through an observed factory or
+  carries an explicit exemption with a reason. A new site fails by default.
 - It fires BEFORE a retry, so an absorbed 502 is recorded even when the caller only ever sees a 200.
 - **It makes the diff smaller.** The four consumer log-line repairs the previous draft required stop
   being load-bearing and are dropped. A choke point no consumer can bypass replaces four edits that
@@ -438,10 +469,25 @@ through explicit outputs, and the current job streams Playwright's output straig
 (`.github/workflows/app-e2e.yml`, search `pnpm exec playwright test`), with the only artifact
 condition being `failure() || github.event_name == 'workflow_dispatch'`.
 
-So the run step tees its output to a file, a following step greps that file for
+So the run step captures its output to a file, a following step greps that file for
 `SUPABASE_UPSTREAM_FAULT` and writes the result to `$GITHUB_OUTPUT`, and the dump step conditions on
 `failure()` or that output. Without the capture the trigger has no value to read, which makes it inert
 rather than merely imprecise.
+
+Four mechanics are load-bearing, and each has a failure mode worse than the one it prevents:
+
+- **`set -o pipefail`, with `shell: bash`.** Actions runs `run:` under `bash -e`; pipefail is NOT set,
+  so a pipeline's status is `tee`'s and a FAILING app-e2e would report success. A required check that
+  cannot go red is worse than the flake this spec exists to fix. `.github/workflows/x-audits.yml`
+  already does exactly this in four places (search `set -o pipefail`); follow it rather than restate it.
+- **`2>&1` before the pipe.** The records travel on stderr: the logger's console chokepoint dispatches
+  by level, and Playwright forwards web-server stderr to the reporter's own stderr. A stdout-only tee
+  leaves the marker in the hosted log and absent from the file, so the grep answers false on exactly
+  the green 502-bearing run the dump exists for.
+- **`if: always()` on the grep step**, or it is skipped precisely when the run failed, which is one of
+  the two cases the dump serves.
+- **an `id:` on the grep step**, because the dump's condition references `steps.<id>.outputs.<name>`.
+  Without it there is nothing to reference, which is this same defect one layer down.
 
 ## 8. Acceptance
 
@@ -473,10 +519,28 @@ rather than merely imprecise.
   appears and is NOT required; its absence is not evidence either way and blocks nothing.
 - **AC-7. The fault is recorded no matter who swallows it.** Executable, with a stubbed transport
   returning a 502: (a) a consumer that discards the error entirely still produces a
-  `SUPABASE_UPSTREAM_FAULT` line; (b) a 502-then-200 retry on the wrapped client produces one too,
+  `SUPABASE_UPSTREAM_FAULT` record; (b) a 502-then-200 retry on the wrapped client produces one too,
   proving the observer fires ahead of the retry and covers the absorbed case round 4 found; (c) the
   service-role client produces one. Each case is a consumer the previous design depended on and this
   one does not.
+- **AC-7a. The observer is provably pass-through, in all FOUR transport states.** Plant each and assert
+  the caller's observable outcome is identical to the no-observer baseline, and that a record appears
+  ONLY where one should:
+  1. **5xx** — records; the response is returned unread and its body still readable by the caller.
+  2. **success** — INVISIBLE; no record, response bytes identical.
+  3. **rejected fetch** — the SAME error is rethrown, unwrapped. A hook written around
+     `response.status` can throw its own TypeError here and convert a network error into a different
+     failure class, which would also break §3.4's replay rule, since that rule needs the rejection to
+     arrive intact.
+  4. **unread body** — the observer never reads or clones the body. Reading one to inspect it consumes
+     the stream and hands the consumer an empty response; the symptom would look nothing like a
+     logging change.
+
+  States 3 and 4 are here because each is a property a future edit can silently violate, which is the
+  criterion for owing an executable arm rather than a sentence.
+- **AC-7c. The observer cannot recurse.** A stubbed 5xx on the durable sink's own `app_events` write
+  produces exactly one record and no unbounded chain, which is the `log.debug` contract in §7.1
+  asserted rather than trusted.
 - **AC-7b. The workflow can actually read the signal (§7.2).** The run step's output is captured to a
   file, the grep step writes `$GITHUB_OUTPUT`, and the dump step's condition references it. Asserted
   against the workflow file, because a trigger with no value to read is inert rather than imprecise.
@@ -516,15 +580,19 @@ rather than merely imprecise.
   import-scoped text scan; that number missed five members and is corrected here rather than quietly
   restated.
 
-- **Five of the thirteen are reached ONLY through the excluded service-role client**, and one more is
-  reached BOTH ways. Round 4 found the earlier version of this bullet wrong in membership while right
-  in count, so it is enumerated rather than summarized:
+- **Four of the thirteen are reached ONLY through the excluded service-role client**, and one more is
+  reached BOTH ways. This bullet has now been wrong twice — round 4 caught it wrong in membership while
+  right in count, and round 5 caught `auth_email_canonical` misclassified because the FILE constructs a
+  service-role client at one point and the RPC is issued on a DIFFERENT client a few lines later
+  (`lib/auth/picker/resolvePickerSelection.ts`, search `const authClient`). File-level attribution
+  cannot answer a per-CALL question, which is the same shape as every other completeness error in this
+  arc. Enumerated per call site:
 
   | RPC | reached through |
   | --- | --- |
   | `admin_alert_summary` | service-role only (`lib/admin/loadAlertSummary.ts`) |
   | `admin_event_stats_24h` | service-role only (`lib/admin/loadTelemetryStats.ts`) |
-  | `auth_email_canonical` | service-role only (`lib/auth/picker/resolvePickerSelection.ts`) |
+  | `auth_email_canonical` | WRAPPED only — issued on `authClient`, not on the service-role client the same file also builds (`lib/auth/picker/resolvePickerSelection.ts`, search `const authClient`) |
   | `resolve_show_by_slug_and_token` | service-role only (`lib/auth/picker/resolveShowPageAccess.ts`, `app/api/auth/picker-bootstrap/route.ts`) |
   | `roster_shift_counts` | service-role only (`lib/admin/loadRecentAutoApplied.ts`) |
   | `viewer_version_token` | BOTH — wrapped at `app/admin/_showReviewModal.tsx`, service-role at `app/api/show/[slug]/version/route.ts` and `lib/data/getShowForViewer.ts` |
