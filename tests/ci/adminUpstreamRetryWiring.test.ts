@@ -10,6 +10,10 @@
  *
  * So this asserts PRESENCE in all four, which is the arm those guards structurally cannot
  * provide.
+ *
+ * PLANTED, not assumed: removing the registration from all four registries at once fails all
+ * four cases and nothing else, so each case owns its own registry rather than riding on a
+ * neighbour. Run before shipping; the tree was restored and verified clean afterwards.
  */
 import { readFileSync } from "node:fs";
 
