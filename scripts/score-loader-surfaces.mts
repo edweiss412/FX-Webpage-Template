@@ -18,7 +18,19 @@ const WANTED = new Set([
 ]);
 const root = process.cwd();
 
-for (const surface of GUARD_SURFACES.filter((s) => WANTED.has(s.id))) {
+const selected = GUARD_SURFACES.filter((s) => WANTED.has(s.id));
+// A silent filter is how this script reported TWO surfaces while I believed it measured three: the
+// third had just been enrolled and `WANTED` had not caught up, and a filter answers "nothing here"
+// exactly like "nothing wanted". Refuse instead.
+const missing = [...WANTED].filter((id) => !selected.some((s) => s.id === id));
+if (missing.length > 0) {
+  console.error(
+    `score-loader-surfaces: wanted surfaces not in the registry: ${missing.join(", ")}`,
+  );
+  process.exit(2);
+}
+
+for (const surface of selected) {
   const started = Date.now();
   const run = runSurface(root, surface);
   const gate = evaluateGate({

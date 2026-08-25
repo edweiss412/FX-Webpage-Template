@@ -98,7 +98,11 @@ export const PRODUCT_ROOTS = ["app", "lib", "components"];
  * `tests/supabase/productSourceExtensions.test.ts` asserts this covers every extension tsconfig
  * names, so a tsconfig change that adds one fails rather than silently narrowing the walk.
  */
-export const PRODUCT_SOURCE_EXTENSION = /\.(?:tsx?|mtsx?|ctsx?|jsx?|mjs|cjs)$/;
+// `.mdx` belongs here for the same reason the JS family does: next.config.ts wires @next/mdx, so
+// MDX under the product roots COMPILES, and `app/` currently holds 13 such files. A round-5
+// probe supplied an MDX call to an immutable function and the walk returned no literals and no
+// violations while the MDX compiler happily emitted the call.
+export const PRODUCT_SOURCE_EXTENSION = /\.(?:tsx?|mtsx?|ctsx?|jsx?|mjs|cjs|mdx)$/;
 
 /** Every string literal in the product tree, so discovery never recognizes a CALL. */
 export function literalsInProductTree(roots: readonly string[] = PRODUCT_ROOTS): Set<string> {

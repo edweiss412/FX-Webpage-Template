@@ -102,8 +102,20 @@ const IDEMPOTENT_METHODS = new Set(["GET", "HEAD"]);
  *
  * An RPC takes its answer from RETRYABLE_RPCS regardless of METHOD, because PostgREST serves
  * `GET /rest/v1/rpc/<fn>` for non-volatile functions and HTTP idempotency is a claim about the
- * method rather than about what the function can do (spec §4.2). Everything else is eligible
- * only when its method is idempotent.
+ * method rather than about what the function can do (spec §4.2).
+ *
+ * The method rule applies ONLY under this client's PostgREST mount. Spec §4's "non-RPC GET is
+ * retry-eligible by method" is written throughout over PostgREST traffic — its worked example is
+ * `GET /rest/v1/shows` and its eligibility table lists only `/rest/v1/` requests. But this wrapper
+ * is installed as the WHOLE client's fetch, so it also sees Auth, Storage and Functions, which that
+ * rule never contemplated. Auth's `reauthenticate()` is the proof: a GET that SENDS a nonce, so a
+ * retry delivers a second one and hands the caller success where a bare client surfaced the 502
+ * (probed at calls=2). Restricting the method rule to the mount implements what §4 says rather than
+ * changing it, and it settles the whole class — Auth, Storage and Functions at once — instead of
+ * excluding one function name and waiting for the next.
+ *
+ * DOCUMENTED LIMIT: a 502 on a non-PostgREST idempotent request is not absorbed. Nothing absorbed
+ * it before this arc either, so the behaviour is unchanged rather than lost.
  */
 export function isRetryEligible(url: string, method: string | undefined, basePath = ""): boolean {
   let path: string;
@@ -116,6 +128,9 @@ export function isRetryEligible(url: string, method: string | undefined, basePat
 
   const fn = rpcFunctionName(path, basePath);
   if (fn !== undefined) return RETRYABLE_RPCS.has(fn);
+
+  // Outside the mount we own nothing, whatever the method.
+  if (!path.startsWith(`${basePath}${POSTGREST_PREFIX}`)) return false;
 
   return IDEMPOTENT_METHODS.has((method ?? "GET").toUpperCase());
 }

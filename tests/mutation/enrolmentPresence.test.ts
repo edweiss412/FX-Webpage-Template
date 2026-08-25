@@ -27,15 +27,16 @@ import { describe, expect, test } from "vitest";
 import { GUARD_SURFACES } from "./source/registry";
 
 /**
- * BL-ADMIN-LOADER-CI-TRANSIENT's two scored surfaces.
+ * BL-ADMIN-LOADER-CI-TRANSIENT's three scored surfaces.
  *
- * `lib/supabase/retryEligibility.ts` is deliberately absent: 3 mutable sites, and its defect
- * class is set membership, which no operator reaches. Enrolling it would report coverage while
- * proving nothing, so its exclusion is a decision recorded in the plan, not an oversight this
- * file should flag.
+ * `lib/supabase/retryEligibility.ts` was deliberately absent while its defect class really was set
+ * membership. Round 4's P0 lived in it and the repair moved the ownership decision INTO it, so it
+ * is enrolled now and belongs in this list — a guard that names two of three surfaces cannot fail
+ * for the third going missing, which is the one thing it exists to do.
  */
 const REQUIRED_ENROLMENTS: ReadonlyMap<string, string> = new Map([
   ["supabaseRetryingFetch", "lib/supabase/retryingFetch.ts"],
+  ["supabaseRetryEligibility", "lib/supabase/retryEligibility.ts"],
   ["retryableRpcVolatilityScan", "tests/supabase/retryableRpcVolatilityScan.ts"],
 ]);
 

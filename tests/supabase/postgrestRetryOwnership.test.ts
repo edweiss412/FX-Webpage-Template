@@ -87,10 +87,14 @@ function rpcMethodChangingOptions(file: string): string[] {
   const src = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
   const hits: string[] = [];
   const visit = (node: ts.Node): void => {
+    // The CALLEE gets the same peeling as the argument and the value: `(c.rpc)(...)` is a
+    // parenthesized expression, not a property access, so an unwrapped check never saw it.
+    const callee = ts.isCallExpression(node) ? erasedValue(node.expression) : undefined;
     if (
       ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === "rpc"
+      callee !== undefined &&
+      ts.isPropertyAccessExpression(callee) &&
+      callee.name.text === "rpc"
     ) {
       for (const rawArg of node.arguments) {
         const arg = erasedValue(rawArg);
@@ -142,7 +146,11 @@ describe("ownership is decided per REQUEST, across url AND method", () => {
     // no-premise: literal inputs.
     premise("url x method pairs", URLS.length * METHODS.length, 1);
     // Both dimensions must actually change the answer, or the table proves nothing about either.
-    const byUrl = new Set(URLS.map((u) => weOwn(u.url, "GET")));
+    // POST, not GET. Since round 5 the wrapper owns NO GET at all — a mount GET is PostgREST's and
+    // an off-mount GET is declined outright — so on GET every url answers false and the dimension
+    // would look degenerate when it is simply uniform. On POST an in-set rpc is ours and everything
+    // else is not, which is the discrimination this table claims to make.
+    const byUrl = new Set(URLS.map((u) => weOwn(u.url, "POST")));
     // The rpc path, not a table path: on a TABLE url the answer is false for every method (writes
     // are ineligible, reads are PostgREST's), so a table would make this pass vacuously. On an rpc
     // url POST is ours and GET is PostgREST's, which is exactly the discrimination being claimed.
@@ -194,9 +202,17 @@ describe("ownership is decided per REQUEST, across url AND method", () => {
     expect(postgrestWillRetry(`${H}/rest/v1/rpc/is_admin`, "POST")).toBe(false);
   });
 
-  test("Auth GETs are ours, because nothing else would retry them", () => {
-    // no-premise: literal inputs. Declining these is what round 3 measured as calls=1 emits=0.
-    expect(weOwn(`${H}/auth/v1/user`, "GET")).toBe(true);
+  test("Auth GETs are NOT ours — off the mount we claim nothing", () => {
+    // no-premise: literal inputs.
+    //
+    // REVERSED in round 5, fenced in both directions. Round 3 read declining these as an orphan
+    // (calls=1 emits=0) and the repair made every idempotent request ours. Round 5 probed the cost:
+    // Auth's `reauthenticate()` is a GET that SENDS a nonce, so ownership meant a second delivery
+    // and a 200 where a bare client surfaced the 502. Round 3's real objection was declining while
+    // believing another layer would retry; claiming nothing is not that. Spec §4's method rule is
+    // written over PostgREST traffic and now applies only under the mount.
+    expect(weOwn(`${H}/auth/v1/user`, "GET")).toBe(false);
+    expect(weOwn(`${H}/auth/v1/reauthenticate`, "GET")).toBe(false);
     expect(postgrestWillRetry(`${H}/auth/v1/user`, "GET")).toBe(false);
   });
 
@@ -298,6 +314,8 @@ describe("the documented limit stays unreachable", () => {
           '  await c.rpc("angle_arg", {}, (<const>{ head: true }));',
           '  await c.rpc("nonnull_arg", {}, ({ head: true })!);',
           '  await c.rpc("dynamic", {}, { get: someFlag });',
+          '  await (c.rpc)("paren_callee", {}, { get: true });',
+          '  await c.rpc<Row>("generic_callee", {}, { head: true });',
           "}",
         ].join("\n"),
         "utf8",
@@ -309,10 +327,31 @@ describe("the documented limit stays unreachable", () => {
       // Every erased form counts; only the genuinely dynamic value is the documented limit.
       // five get (plain, as-const value, satisfies value, satisfies arg, as-const arg)
       // and three head (plain, angle-bracket arg, non-null arg).
-      expect(hits.sort()).toEqual(["get", "get", "get", "get", "get", "head", "head", "head"]);
+      // six get, four head: the two extra are a PARENTHESIZED callee and one with an explicit
+      // type argument, both of which the round-5 probe walked straight past.
+      expect(hits.sort()).toEqual([
+        "get",
+        "get",
+        "get",
+        "get",
+        "get",
+        "get",
+        "head",
+        "head",
+        "head",
+        "head",
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("the file prefilter matches the MEMBER, so an explicit type argument is not skipped", () => {
+    // The prefilter exists only to keep the parser off every product file. It must not DECIDE
+    // anything: `.rpc(` skipped `c.rpc<Row>(...)` whole, and the AST never saw the file.
+    const withGenerics = 'await c.rpc<Row>("f", {}, { get: true });';
+    expect(withGenerics.includes(".rpc(")).toBe(false);
+    expect(withGenerics.includes(".rpc")).toBe(true);
   });
 
   test("the installed client changes an rpc's method for exactly these options", () => {
@@ -341,9 +380,13 @@ describe("the documented limit stays unreachable", () => {
     // unscanned — and components/admin/Dashboard.tsx ALREADY calls readfinalizeowned_b2, which put a
     // live call site one ordinary edit from the unowned-502 gap with this guard green. Same repair
     // as the extension list one round earlier: share the constant so the two cannot diverge again.
+    // Prefilter on the MEMBER, not on the punctuation after it. `.rpc(` missed `.rpc<T>(` — an
+    // explicit type argument is ordinary TypeScript, and the file was then skipped whole, so the
+    // AST never got a chance. The prefilter exists only to keep the parse off 2000 files; it must
+    // not decide anything the AST decides.
     const files = scanProductFiles(PRODUCT_ROOTS);
-    const rpcFiles = files.filter((f) => readFileSync(f, "utf8").includes(".rpc("));
-    premise("files containing an .rpc( call", rpcFiles.length, 0);
+    const rpcFiles = files.filter((f) => readFileSync(f, "utf8").includes(".rpc"));
+    premise("files containing an .rpc member access", rpcFiles.length, 0);
 
     // Both method-changing options, derived from the installed client rather than enumerated by
     // hand: PostgrestClient's rpc() computes `method = head ? 'HEAD' : 'GET'` when `head || get`,

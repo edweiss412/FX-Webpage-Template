@@ -837,20 +837,46 @@ describe("a later failure never replaces the caller's original one", () => {
 });
 
 describe("owning a request is not the same as retrying every failure of it", () => {
-  test("an Auth GET is OURS and its 503 is retried", async () => {
+  test("an Auth GET is NOT ours — one call, and the caller keeps the failure", async () => {
     // no-premise: the transport is an injected stub and sleep/random are injected.
     //
-    // Round 3 measured this dying at `calls=1 emits=0`: ownership was decided without looking at
-    // the URL, so an Auth failure was handed to PostgREST's loop — which is not in Auth's call
-    // chain at all. Nothing retried it and nothing recorded it.
-    const inner = vi.fn(async () => (inner.mock.calls.length < 3 ? bad(503) : ok()));
+    // THIS CASE REVERSED, and both directions are fenced here so neither side is relitigated.
+    //
+    // Round 3 measured Auth GETs dying at `calls=1 emits=0` and called it an ORPHAN: ownership was
+    // decided without looking at the URL, so an Auth failure was handed to PostgREST's loop, which
+    // is not in Auth's call chain at all. The repair made every idempotent request ours.
+    //
+    // Round 5 probed what that bought: Auth's `reauthenticate()` is a GET that SENDS a nonce, so
+    // owning it meant a lost response delivered a SECOND nonce and returned 200 where a bare client
+    // surfaced the 502 (calls=2). A duplicate delivery is worse than an unretried read.
+    //
+    // Both findings are right about their own half, and the reconciliation is that round 3's
+    // concern was never "we do not retry" — it was "we DECLINE while believing another layer will
+    // retry, and it cannot see the request". Not owning it is not that. We claim nothing, retry
+    // nothing, and hand back exactly what an unwrapped client returns, which is the whole of the
+    // guarantee. Spec §4's method rule is written over PostgREST traffic — its example is
+    // `GET /rest/v1/shows` — and now applies only under the mount.
+    const inner = vi.fn(async () => bad(503));
 
     const res = (await makeRetryingFetch(inner, instant)(`${AUTH}/user`, {
       method: "GET",
     })) as Response;
 
-    expect(res.status).toBe(200);
-    expect(inner.mock.calls.length).toBeGreaterThan(1);
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(503);
+  });
+
+  test("an Auth GET that SENDS something is not retried either — the round-5 P0", async () => {
+    // no-premise: as above. `reauthenticate` is the member the sweep confirmed side-effecting;
+    // pinned by URL so the class, not the name, is what the wrapper declines.
+    const inner = vi.fn(async () => (inner.mock.calls.length === 1 ? bad(502) : ok()));
+
+    const res = (await makeRetryingFetch(inner, instant)(`${AUTH}/reauthenticate`, {
+      method: "GET",
+    })) as Response;
+
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(502);
   });
 
   test("a 520 is not absorbed anywhere, and that is policy rather than an orphan", async () => {

@@ -63,6 +63,20 @@ describe("the product-tree walk skips what it claims to skip", () => {
     }
   });
 
+  test("an .mdx file is walked, because next.config compiles MDX under the product roots", () => {
+    // Round 5 probed this: an MDX call to an immutable function returned no literals and no
+    // violations while the MDX compiler emitted the call happily. `app/` holds 13 MDX files.
+    const root = mkdtempSync(join(tmpdir(), "walk-mdx-"));
+    try {
+      premise("a fixture root to walk", 1, 0);
+      writeFileSync(join(root, "page.mdx"), 'export const x = "MDX_LITERAL";\n');
+
+      expect(literalsInProductTree([root]).has("MDX_LITERAL")).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("a DIRECTORY whose name ends in .ts is recursed, never read as a file", () => {
     // The `continue` after `walk(full)` is what stops a directory from reaching readFileSync.
     // Remove it and a directory named `x.ts` passes the extension test and throws EISDIR.
