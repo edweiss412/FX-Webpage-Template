@@ -22,8 +22,17 @@
  * derives its own numbers), and re-derived 2026-08-15 after the whole-diff
  * review tightened the grammar. 53 rows out of 354 in-scope elements — 301
  * clear statically. Per category: 15 full-bleed, 13 unresolvable-dynamic, 9
- * padding-arithmetic, 7 inline-prose-link, 5 under-floor-filed, 4
- * parent-label-target.
+ * padding-arithmetic, 7 inline-prose-link, 7 parent-label-target, 2
+ * under-floor-filed.
+ *
+ * Three rows moved from `under-floor-filed` to `parent-label-target` on
+ * 2026-08-25, and the direction is the point: they are not reclassified, they
+ * are REPAIRED. `BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR` had them right about the
+ * mechanism and wrong about the site — a native input IS targeted through its
+ * label, and that label was one text line high. Now it carries the floor, so
+ * the category that was already true of the mechanism is true of the box too.
+ * The two rows left in `under-floor-filed` are the dev panel's, which is a
+ * decision rather than a backlog item; see their reason.
  *
  * The two rows the tightening ADDED are the useful record here: both had been
  * clearing on a horizontal-only pseudo bleed that proves nothing about height.
@@ -54,7 +63,7 @@ export type TapCensusRow = {
 };
 
 export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
-  // ---- under-floor-filed (5) ---------------------------------------------
+  // ---- under-floor-filed (2) ---------------------------------------------
   {
     file: "app/admin/dev/page.tsx",
     line: 151,
@@ -73,40 +82,6 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
       "Second dev-panel button, same shape and same filing as the one above (py-1, Tailwind-excluded, build-gated out of production).",
     backlogRef: "BL-ADMIN-DEV-PANEL-TAP-FLOOR",
   },
-  // These three were `parent-label-target` until the whole-diff review read the
-  // markup (R1 F5). The category was right about the MECHANISM — a native input
-  // is targeted through its label — and wrong about the FLOOR: in these three
-  // the label does not carry one. A census reason that is true of the pattern
-  // and false of the site is the failure mode this file exists to prevent, so
-  // they move to the honest category and take a ledger entry with them.
-  {
-    file: "app/admin/settings/roles/RoleMappingRow.tsx",
-    line: 273,
-    tag: "input",
-    category: "under-floor-filed",
-    reason:
-      "The FINANCIALS checkbox is NOT label-wrapped like its A1/V1/L1 siblings: it sits in a `div` carrying `min-h-tap-min`, with its `<label htmlFor>` as a SIBLING (RoleMappingRow.tsx:277). A div does not toggle a checkbox, so the real target is the 20px input plus a label whose own box is one text line. The structure is deliberate — the caution text is bound with `aria-describedby` so it stays out of the accessible name — which is why the repair is a decision, not a patch.",
-    backlogRef: "BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR",
-  },
-  {
-    file: "components/admin/RoleRecognizeControl.tsx",
-    line: 343,
-    tag: "input",
-    category: "under-floor-filed",
-    reason:
-      "The same FINANCIALS shape as RoleMappingRow:266 — `div` with `min-h-tap-min`, sibling `<label htmlFor>`, `aria-describedby` caution — in the crew-facing recognize control (RoleRecognizeControl.tsx:342).",
-    backlogRef: "BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR",
-  },
-  {
-    file: "components/admin/StagedReviewCard.tsx",
-    line: 580,
-    tag: "input",
-    category: "under-floor-filed",
-    reason:
-      "This radio IS wrapped by its `<label>`, but that label is `flex cursor-pointer items-center gap-2 text-sm` — no minimum height and no padding, so the target is a single 20px text line. The wrapping was the whole reason the row read as exempt.",
-    backlogRef: "BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR",
-  },
-
   // ---- full-bleed, added by the R1 grammar tightening (2) ----------------
   // Both of these were CLEARING before the whole-diff review, and both for the
   // wrong reason: the pseudo recipe read any `before:-inset-*` as proof of
@@ -190,7 +165,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
       "'What the sync statuses mean' link inside the legend paragraph under the table; inline within running text.",
   },
 
-  // ---- parent-label-target (4) -------------------------------------------
+  // ---- parent-label-target (7) -------------------------------------------
   // A native checkbox inside a <label>: the label is the target, and it carries
   // the floor. The input's own `size-*` is the drawn box, not the hit area.
   {
@@ -222,7 +197,30 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",
   },
-
+  {
+    file: "app/admin/settings/roles/RoleMappingRow.tsx",
+    line: 287,
+    tag: "input",
+    category: "parent-label-target",
+    reason:
+      "FINANCIALS checkbox, now inside a floor-carrying `<label>` like its A1/V1/L1 siblings. Was `under-floor-filed`: the floor sat on the row `div` while the `<label htmlFor>` was a SIBLING of the input, so it was on an element that toggles nothing (BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR, closed 2026-08-25). The caution copy stays OUTSIDE the label, still bound by `aria-describedby`, so the accessible name is the short caption alone.",
+  },
+  {
+    file: "components/admin/RoleRecognizeControl.tsx",
+    line: 355,
+    tag: "input",
+    category: "parent-label-target",
+    reason:
+      "FINANCIALS checkbox, identical shape and identical repair to the RoleMappingRow row above — the two are the same control and drifted apart once already.",
+  },
+  {
+    file: "components/admin/StagedReviewCard.tsx",
+    line: 587,
+    tag: "input",
+    category: "parent-label-target",
+    reason:
+      "Staged-review action radio inside `<label className='flex min-h-tap-min cursor-pointer items-center gap-2 py-1 …'>`. Was `under-floor-filed` and deferred under class-sweep exception (c); the 2026-08-25 sweep touched this surface, so (c) stopped fencing it.",
+  },
   // ---- full-bleed (13) ----------------------------------------------------
   // Scrims, click-away layers, and controls whose box IS a region far taller
   // than 44px. Every one is `inset-0`/`size-full` or fills a sized parent.

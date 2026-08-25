@@ -269,24 +269,35 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
                 <span className="text-sm text-text">{CHECKBOX_LABEL[flag]}</span>
               </label>
             ))}
-            <div className="flex min-h-tap-min items-start gap-2.5 py-1">
-              <input
-                type="checkbox"
-                id={`${uid}-fin`}
-                data-testid="role-mapping-check-FINANCIALS"
-                aria-describedby={`${uid}-fin-cap`}
-                checked={checks.FINANCIALS}
-                disabled={busy}
-                onChange={() => toggle("FINANCIALS")}
-                className="mt-0.5 size-5 accent-accent"
-              />
-              <span className="flex flex-col gap-0.5">
-                <label htmlFor={`${uid}-fin`} className="cursor-pointer text-sm text-text">
-                  {COPY.CHECKBOX_FINANCIAL}
-                </label>
-                <span id={`${uid}-fin-cap`} className="text-xs text-warning-text">
-                  {COPY.FINANCIAL_CAUTION}
-                </span>
+            {/* Financial: the caution is bound with `aria-describedby` so it never
+                folds into the checkbox's accessible name, and it sits OUTSIDE the
+                label for the same reason (design doc
+                2026-08-25-ui-polish-class-sweep-design.md, D6). What changed:
+                `min-h-tap-min` used to sit on this row `div` while the
+                `<label htmlFor>` was a SIBLING of the input, so the floor was on an
+                element that toggles nothing and the real target was one text line
+                (BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR). Identical shape to
+                RoleRecognizeControl, deliberately: the two rows are the same control
+                and drifted apart once already. */}
+            <div className="flex flex-col gap-0.5">
+              <label
+                htmlFor={`${uid}-fin`}
+                className="flex min-h-tap-min cursor-pointer items-center gap-2.5 py-1"
+              >
+                <input
+                  type="checkbox"
+                  id={`${uid}-fin`}
+                  data-testid="role-mapping-check-FINANCIALS"
+                  aria-describedby={`${uid}-fin-cap`}
+                  checked={checks.FINANCIALS}
+                  disabled={busy}
+                  onChange={() => toggle("FINANCIALS")}
+                  className="size-5 shrink-0 accent-accent"
+                />
+                <span className="text-sm text-text">{COPY.CHECKBOX_FINANCIAL}</span>
+              </label>
+              <span id={`${uid}-fin-cap`} className="text-xs text-warning-text">
+                {COPY.FINANCIAL_CAUTION}
               </span>
             </div>
           </div>
