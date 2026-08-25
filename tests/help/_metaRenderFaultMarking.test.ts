@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { premise } from "../_shared/premise";
-import { ACCEPTED_FORMS, scanCandidates, scanRoots } from "./_renderFaultScan";
+import { Node, Project, ScriptTarget, SyntaxKind } from "ts-morph";
+import { ACCEPTED_FORMS, attributeCanRender, scanCandidates, scanRoots } from "./_renderFaultScan";
 
 // One scan for the file: the walk is over every .ts/.tsx under the derived
 // roots and is the expensive part.
@@ -123,7 +124,48 @@ describe("the flag-shaped residue is named, since no scan can reach it", () => {
       const lines = readFileSync(join(process.cwd(), file), "utf8")
         .split("\n")
         .map((line) => (isComment(line) ? "" : line));
-      const MARKER = /(?:data-render-fault|renderFault)\s*=/;
+      // Marker presence is decided STRUCTURALLY, by the scanner's own predicate,
+      // reduced to the line numbers these text shapes work in.
+      //
+      // All three shapes below used to ask a regex, `/(?:data-render-fault|
+      // renderFault)\s*=/`. That matches the SPELLING, not the guarantee, so
+      // `data-render-fault={undefined}` satisfied every one of them -- React
+      // omits an attribute whose value is `undefined`, so the DOM receives no
+      // marker at all. Round 6 replaced each of the four hand markers with that
+      // form and this assertion still passed, on all four. A guard that accepts
+      // the degraded form of the very thing it certifies is not a guard.
+      //
+      // Round 5's sabotage only ever DELETED markers, which the regex did catch.
+      // Degradation is the case it never tried.
+      //
+      // The predicate is `attributeCanRender`, NOT `attributeAlwaysPresent`. A
+      // hand-marked fault site is conditional by design -- `{isInfra ?
+      // "telemetry-events" : undefined}` must not mark a healthy render -- so
+      // demanding "always" fails correct code, as it did on
+      // TelemetryOverviewStrip.tsx:252 when this repair first used it. The
+      // probe's actual content is that a marker which can NEVER render passed.
+      const markerLines = ((): Set<number> => {
+        const project = new Project({
+          compilerOptions: { target: ScriptTarget.Latest, jsx: 4 },
+          skipAddingFilesFromTsConfig: true,
+        });
+        const source = project.addSourceFileAtPath(join(process.cwd(), file));
+        const found = new Set<number>();
+        const elements = [
+          ...source.getDescendantsOfKind(SyntaxKind.JsxOpeningElement),
+          ...source.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement),
+        ];
+        for (const element of elements) {
+          if (!attributeCanRender(element)) continue;
+          for (const attribute of element.getAttributes()) {
+            if (!Node.isJsxAttribute(attribute)) continue;
+            const attributeName = attribute.getNameNode().getText();
+            if (attributeName !== "data-render-fault" && attributeName !== "renderFault") continue;
+            found.add(attribute.getStartLineNumber() - 1);
+          }
+        }
+        return found;
+      })();
       const named = new RegExp(`\\b${identifier}\\b`);
 
       // TWO shapes, both real, and the check names them rather than accepting
@@ -136,7 +178,7 @@ describe("the flag-shaped residue is named, since no scan can reach it", () => {
       //        renderFault={unavailable ? "telemetry-system-health" : undefined}
       //   B. the flag opens a ternary and the marker sits inside that branch:
       //        {degraded ? (  ...  data-render-fault="dashboard-ignored-sheets"
-      const sameLine = lines.some((line) => MARKER.test(line) && named.test(line));
+      const sameLine = lines.some((line, i) => markerLines.has(i) && named.test(line));
 
       // C. the entry names a COMPONENT and the marker lives in its body:
       //      export function OperatorErrorBlock() { ... data-render-fault=... }
@@ -152,13 +194,16 @@ describe("the flag-shaped residue is named, since no scan can reach it", () => {
           const nextTop = rest.findIndex((line) =>
             /^(?:export\s+)?(?:function|const)\s+\w/.test(line),
           );
-          const body = nextTop === -1 ? rest : rest.slice(0, nextTop);
-          return body.some((line) => MARKER.test(line));
+          const bodyEnd = nextTop === -1 ? lines.length : declared + 1 + nextTop;
+          for (let i = declared + 1; i < bodyEnd; i += 1) if (markerLines.has(i)) return true;
+          return false;
         })();
       const GUARD_WINDOW = 15;
       const guardsBranch = lines.some((line, i) => {
         if (!new RegExp(`\\b${identifier}\\s*\\?`).test(line)) return false;
-        return lines.slice(i, i + GUARD_WINDOW).some((near) => MARKER.test(near));
+        for (let k = i; k < Math.min(i + GUARD_WINDOW, lines.length); k += 1)
+          if (markerLines.has(k)) return true;
+        return false;
       });
 
       expect(

@@ -3,7 +3,10 @@ import { Project, ScriptTarget, SyntaxKind, type Node } from "ts-morph";
 import { describe, expect, it } from "vitest";
 import {
   attributeAlwaysPresent,
+  attributeCanRender,
   classifyExpression,
+  componentRendersMarker,
+  infraPredicateNames,
   marksUnconditionally,
 } from "./_renderFaultScan";
 
@@ -142,5 +145,191 @@ describe("round 5b: polarity is decided in ONE place, and every path goes throug
     ['result.kind === "infra_error" && ready', true],
   ])("classifies %s as a fault guard = %s", (guard, expected) => {
     expect(classify(guard) !== null).toBe(expected);
+  });
+});
+
+/**
+ * Round 6b found a substring fallback surviving INSIDE the polarity funnel: if
+ * `classifyExpression` declined an initializer, the next line re-classified it
+ * as `tile-errors` merely because its text mentioned the literal. That skipped
+ * the negation and disjunction rules the funnel exists to apply, so a
+ * healthy-capable guard was enrolled as a fault guard and its branch would have
+ * been pressured to carry a marker that refuses healthy captures.
+ *
+ * These fixtures need a PRECEDING declaration, because the defect only shows on
+ * the one-hop path where the guard is an identifier resolved to an initializer.
+ */
+describe("the one-hop polarity path applies the rules, it does not substring", () => {
+  const classifyHop = (prelude: string, guard: string): unknown => {
+    const project = new Project({
+      compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+      useInMemoryFileSystem: true,
+    });
+    const file = project.createSourceFile("probe.ts", `${prelude}\nconst _x = ${guard};`);
+    const expression = file.getVariableDeclarationOrThrow("_x").getInitializerOrThrow();
+    return classifyExpression(expression, new Set<string>());
+  };
+
+  it.each([
+    // The reviewer's two probes, verbatim in shape. Both mention `tileErrors`
+    // and both can be TRUE on a healthy render, so neither is a fault guard.
+    ["negated one-hop", "const healthy = !tileErrors.length;", "healthy"],
+    ["mixed disjunction one-hop", "const mixed = tileErrors.length || ready;", "mixed"],
+  ])("does not classify a %s as a fault guard", (_label, prelude, guard) => {
+    expect(classifyHop(prelude, guard)).not.toBe("tile-errors");
+  });
+
+  it("still classifies a genuine one-hop fault guard", () => {
+    // The narrowing must not cost the real case: without this, deleting the
+    // whole one-hop path would pass the two cases above.
+    expect(classifyHop("const bad = tileErrors.length > 0;", "bad")).toBe("tile-errors");
+  });
+});
+
+/**
+ * Resolution is by DECLARATION, so an aliased import must resolve to the
+ * declaration it names. It did not: the set recorded the declaration's spelling
+ * while the call site was compared by its LOCAL spelling, so an aliased
+ * predicate was neither accepted nor reported. Silently skipped is the one
+ * outcome the consequence bound forbids.
+ */
+describe("imported predicate aliases resolve to their declaration", () => {
+  const namesFor = (importLine: string): Set<string> => {
+    const project = new Project({
+      compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+      useInMemoryFileSystem: true,
+    });
+    project.createSourceFile(
+      "predicates.ts",
+      `export const isInfraError = (v: { kind: string }): v is { kind: "infra_error" } =>
+         v.kind === "infra_error";`,
+    );
+    const file = project.createSourceFile("probe.ts", `${importLine}\nexport const _u = 1;`);
+    return infraPredicateNames(file);
+  };
+
+  it("registers the LOCAL alias, not only the declared name", () => {
+    expect(namesFor(`import { isInfraError as bad } from "./predicates";`).has("bad")).toBe(true);
+  });
+
+  it("still registers an unaliased import under its own name", () => {
+    expect(namesFor(`import { isInfraError } from "./predicates";`).has("isInfraError")).toBe(true);
+  });
+});
+
+/**
+ * `attributeCanRender` answers the HAND-MARKED site's question -- can this
+ * marker ever reach the DOM -- which is not the shared component's question.
+ * Conflating them fails correct code: the canonical hand shape is conditional
+ * on the fault flag by design.
+ */
+describe("attributeCanRender separates a conditional marker from an impossible one", () => {
+  const el = (jsx: string): Node => {
+    const project = new Project({
+      compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+      useInMemoryFileSystem: true,
+    });
+    const file = project.createSourceFile("probe.tsx", `const _x = ${jsx};`);
+    const node =
+      file.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement)[0] ??
+      file.getDescendantsOfKind(SyntaxKind.JsxOpeningElement)[0];
+    if (node === undefined) throw new Error("fixture has no JSX element");
+    return node;
+  };
+
+  it.each([
+    ['<div data-render-fault="x" />', true],
+    ['<div renderFault={isInfra ? "telemetry-events" : undefined} />', true],
+    ["<div data-render-fault={flag} />", true],
+    ['<div data-render-fault={cond && "x"} />', true],
+    // Can NEVER render: React omits an attribute whose value is `undefined`.
+    ["<div data-render-fault={undefined} />", false],
+    ["<div renderFault={undefined} />", false],
+    ["<div data-render-fault={cond ? undefined : undefined} />", false],
+    ["<div data-render-fault={null} />", false],
+    ["<div />", false],
+  ])("%s can render: %s", (jsx, expected) => {
+    expect(attributeCanRender(el(jsx))).toBe(expected);
+  });
+
+  it("is WEAKER than attributeAlwaysPresent, not a synonym for it", () => {
+    // The distinction this whole predicate exists for. If someone collapses the
+    // two, this fails rather than the failure surfacing on a live component.
+    const conditional = el('<div renderFault={isInfra ? "telemetry-events" : undefined} />');
+    expect(attributeCanRender(conditional)).toBe(true);
+    expect(attributeAlwaysPresent(conditional)).toBe(false);
+  });
+});
+
+/**
+ * The component hop's own certification, pinned directly.
+ *
+ * The live tree CANNOT discriminate this: no shipped fault branch renders a
+ * marking component without passing the prop, so the census stays green whether
+ * the predicate works or not. That is exactly why round 6b found the hop
+ * certifying components that render no marker at all, and why these cases are
+ * the only thing standing under the repair.
+ *
+ * The defect was a pair. `MARKER.test(subtreeText)` matched the attribute's
+ * NAME anywhere in the text, a comment included; `marksUnconditionally` then
+ * answered "if the root carries a marker, is it always present", which is
+ * vacuously TRUE when the root carries none. Text-presence plus vacuous
+ * unconditionality read as "marked".
+ */
+describe("the component hop certifies only a component that really marks", () => {
+  const componentIn = (source: string, name: string): boolean => {
+    const project = new Project({
+      compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+      useInMemoryFileSystem: true,
+    });
+    const file = project.createSourceFile("probe.tsx", source);
+    return componentRendersMarker(file, name);
+  };
+
+  it("refuses a component whose only marker is in a COMMENT", () => {
+    // The round-6b probe: markerRegexMatches true, rootAlwaysPresent false,
+    // and the pair certified it anyway.
+    expect(
+      componentIn(
+        `function Note() {
+           return <div>{/* data-render-fault= threaded by the caller */}failed</div>;
+         }`,
+        "Note",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a component whose LATER return is unmarked", () => {
+    // Only the first return was inspected, so this read as marked. A component
+    // marks on every render only if every exit does.
+    expect(
+      componentIn(
+        `function Maybe({ bad }: { bad: boolean }) {
+           if (bad) return <div data-render-fault="x">failed</div>;
+           return <div>fine</div>;
+         }`,
+        "Maybe",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts a component whose every return is marked", () => {
+    // The narrowing must not reject a correct component, or the guard trades a
+    // false negative for a false positive and the census fails on real code.
+    expect(
+      componentIn(
+        `function Always({ bad }: { bad: boolean }) {
+           if (bad) return <div data-render-fault="x">failed</div>;
+           return <div data-render-fault="y">also failed</div>;
+         }`,
+        "Always",
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses a component that returns no JSX at all", () => {
+    // `every` over an empty list is TRUE, so without the non-empty guard this
+    // certifies a component that renders nothing.
+    expect(componentIn(`function Empty() { return null; }`, "Empty")).toBe(false);
   });
 });

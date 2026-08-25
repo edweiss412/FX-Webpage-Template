@@ -135,7 +135,7 @@ function predicateTestsForFault(fn: Node): boolean {
 }
 
 /** Names of `v is T` predicates whose body tests an infra-error kind. */
-function infraPredicateNames(file: SourceFile): Set<string> {
+export function infraPredicateNames(file: SourceFile): Set<string> {
   const names = new Set<string>();
 
   const consider = (source: SourceFile): void => {
@@ -173,6 +173,18 @@ function infraPredicateNames(file: SourceFile): Set<string> {
       declaration.getModuleSpecifierSourceFile() ??
       resolveSpecifier(file, declaration.getModuleSpecifierValue());
     if (resolved !== null && resolved !== undefined) consider(resolved);
+
+    // Resolution is by DECLARATION, but the call site spells the LOCAL name. An
+    // aliased import (`import { isInfraError as bad }`) registered the
+    // declaration's name while `classifyExpression` compared `bad`, so the
+    // predicate was neither accepted nor reported -- silently skipped, which is
+    // the one outcome the consequence bound forbids. The alias is mapped onto
+    // the declaration it resolves to, which is what "aliases do not break
+    // declaration-based resolution" was always supposed to mean.
+    for (const named of declaration.getNamedImports()) {
+      const alias = named.getAliasNode()?.getText();
+      if (alias !== undefined && names.has(named.getNameNode().getText())) names.add(alias);
+    }
   }
 
   return names;
@@ -187,18 +199,6 @@ function initializerNode(node: Node): Node | null {
     if (declaration === undefined) continue;
     if (Node.isVariableDeclaration(declaration)) {
       return declaration.getInitializer() ?? null;
-    }
-  }
-  return null;
-}
-
-function initializerText(node: Node): string | null {
-  if (!Node.isIdentifier(node)) return null;
-  for (const definition of node.getDefinitions()) {
-    const declaration = definition.getDeclarationNode();
-    if (declaration === undefined) continue;
-    if (Node.isVariableDeclaration(declaration)) {
-      return declaration.getInitializer()?.getText() ?? null;
     }
   }
   return null;
@@ -280,7 +280,14 @@ export function classifyExpression(
   if (initializer !== null && depth < 2) {
     const classified = classifyExpression(initializer, predicates, depth + 1, negated);
     if (classified !== null) return classified;
-    if (initializerText(node)?.includes(TILE_ERRORS) === true && !negated) return "tile-errors";
+    // NO substring fallback here. One stood at this line and re-classified an
+    // initializer as `tile-errors` merely because its TEXT mentioned the
+    // literal, which is the exact bypass the paragraph above condemns: it
+    // skipped both the negation and the disjunction rules, so a negated one-hop
+    // and a mixed disjunction each classified a HEALTHY-capable guard as a
+    // fault guard. If the one rule cannot classify the initializer, the answer
+    // is "unclassifiable" and the site reports as residue -- a surfaced gap,
+    // not a guess that silently pressures a healthy branch to carry a marker.
   }
 
   return null;
@@ -300,26 +307,58 @@ function jsxRoot(expression: Node | undefined): Node | null {
 }
 
 /**
- * Does the branch's returned JSX carry the marker?
+ * Can this element's marker EVER reach the DOM?
  *
- * The check is over the whole returned SUBTREE, not just its root element,
- * because that is exactly what the capture does: `detectRenderFaults` scans the
- * captured subtree for `[data-render-fault]` wherever it sits. A root-only
- * check would have been stricter than the runtime in the wrong direction --
- * the admin layout's failure screen wraps its marked div in a provider, and a
- * root-only check calls that unmarked while the capture sees it perfectly.
+ * The sibling question to `attributeAlwaysPresent`, and a different one. A
+ * SHARED component must mark on every render, so certifying it asks "always".
+ * A HAND-MARKED fault site is conditional BY DESIGN -- the canonical shape is
+ * `renderFault={isInfra ? "telemetry-events" : undefined}`, which must not mark
+ * a healthy render -- so asking "always" there would fail correct code.
  *
- * Two spellings count. `data-render-fault` is the DOM attribute. `renderFault`
- * is the same marker at a COMPONENT boundary, where a DOM attribute cannot
- * cross and a prop is the only way to thread it -- pinned at the call site, so
- * only the fault branches count rather than every use of the component.
+ * Round 6 reported the hand registry as text-matching and prescribed
+ * `attributeAlwaysPresent`. The defect was real and the prescription was not:
+ * applied literally it failed `TelemetryOverviewStrip.tsx:252`, a correct
+ * marker. What the probe actually demonstrated is narrower -- that
+ * `data-render-fault={undefined}` passed, and that value can NEVER produce an
+ * attribute. So the rule for a hand-marked site is "can render", not "always".
  *
- * Plus ONE hop into a shared fallback component, for the branches that return a
- * bare `<SectionTileError />`. Marking that component once is the honest
- * factoring: fourteen branches render it, the capture reads the DOM, and the
- * DOM cannot tell where the attribute was authored.
+ * Absent by construction: an omitted or comment-only expression, a literal
+ * `undefined`/`null`, and a conditional or logical chain in which no arm can
+ * yield a value. Everything else can render.
  */
-const MARKER = /(?:data-render-fault|renderFault)[=\s]/;
+export function attributeCanRender(node: Node): boolean {
+  const opening = Node.isJsxElement(node) ? node.getOpeningElement() : node;
+  if (!Node.isJsxOpeningElement(opening) && !Node.isJsxSelfClosingElement(opening)) return false;
+
+  const yieldsValue = (expression: Node | undefined): boolean => {
+    if (expression === undefined) return false;
+    if (/^(?:undefined|null)$/.test(expression.getText().trim())) return false;
+    if (Node.isConditionalExpression(expression)) {
+      return yieldsValue(expression.getWhenTrue()) || yieldsValue(expression.getWhenFalse());
+    }
+    if (Node.isBinaryExpression(expression)) {
+      const op = expression.getOperatorToken().getText();
+      if (op === "&&") return yieldsValue(expression.getRight());
+      if (op === "||" || op === "??") {
+        return yieldsValue(expression.getLeft()) || yieldsValue(expression.getRight());
+      }
+    }
+    return true;
+  };
+
+  for (const attribute of opening.getAttributes()) {
+    if (!Node.isJsxAttribute(attribute)) continue;
+    const name = attribute.getNameNode().getText();
+    if (name !== "data-render-fault" && name !== "renderFault") continue;
+
+    const initializer = attribute.getInitializer();
+    if (initializer === undefined) return true;
+    if (Node.isStringLiteral(initializer)) return true;
+    if (!Node.isJsxExpression(initializer)) return true;
+    if (yieldsValue(initializer.getExpression())) return true;
+  }
+  return false;
+}
 
 /**
  * Does this element carry a marker that ALWAYS reaches the DOM?
@@ -386,6 +425,26 @@ export function attributeAlwaysPresent(node: Node): boolean {
   return false;
 }
 
+/**
+ * Does the branch's returned JSX carry the marker?
+ *
+ * The check is over the whole returned SUBTREE, not just its root element,
+ * because that is exactly what the capture does: `detectRenderFaults` scans the
+ * captured subtree for `[data-render-fault]` wherever it sits. A root-only
+ * check would have been stricter than the runtime in the wrong direction --
+ * the admin layout's failure screen wraps its marked div in a provider, and a
+ * root-only check calls that unmarked while the capture sees it perfectly.
+ *
+ * Two spellings count. `data-render-fault` is the DOM attribute. `renderFault`
+ * is the same marker at a COMPONENT boundary, where a DOM attribute cannot
+ * cross and a prop is the only way to thread it -- pinned at the call site, so
+ * only the fault branches count rather than every use of the component.
+ *
+ * Plus ONE hop into a shared fallback component, for the branches that return a
+ * bare `<SectionTileError />`. Marking that component once is the honest
+ * factoring: fourteen branches render it, the capture reads the DOM, and the
+ * DOM cannot tell where the attribute was authored.
+ */
 function carriesAttribute(jsx: Node | null): boolean {
   if (jsx === null) return false;
   if (attributeAlwaysPresent(jsx)) return true;
@@ -424,19 +483,13 @@ function carriesAttribute(jsx: Node | null): boolean {
     // marker inside the local, certifying an attribute that never reaches the DOM.
     const initializer = initializerNode(inner);
     if (initializer === null) continue;
-    if (attributeAlwaysPresent(initializer)) return true;
-    if (
-      initializer
-        .getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement)
-        .some((el) => attributeAlwaysPresent(el))
-    )
-      return true;
-    if (
-      initializer
-        .getDescendantsOfKind(SyntaxKind.JsxOpeningElement)
-        .some((el) => attributeAlwaysPresent(el))
-    )
-      return true;
+    // Recurses into the SAME funnel rather than re-implementing "root or any
+    // marked descendant". The open-coded version accepted a marked descendant
+    // of the local without preserving CONDITIONAL ANCESTRY, so
+    // `const note = cond ? <marked/> : null` certified a marker the DOM may
+    // never receive -- the very rule `carriesAttribute` exists to apply, dropped
+    // by the copy that did not call it.
+    if (carriesAttribute(initializer)) return true;
   }
 
   const opening = Node.isJsxElement(jsx) ? jsx.getOpeningElement() : jsx;
@@ -456,7 +509,7 @@ function carriesAttribute(jsx: Node | null): boolean {
   return marked;
 }
 
-function componentRendersMarker(file: SourceFile, name: string): boolean {
+export function componentRendersMarker(file: SourceFile, name: string): boolean {
   // Same file first: several fault surfaces are local helpers, not imports.
   for (const source of [file, importSourceOf(file, name)]) {
     if (source === null) continue;
@@ -466,8 +519,21 @@ function componentRendersMarker(file: SourceFile, name: string): boolean {
         ? declaration.getBody()
         : declaration.getInitializer();
       if (body === undefined) continue;
-      const returned = firstReturnedJsx(body);
-      if (returned !== null && MARKER.test(returned.getText()) && marksUnconditionally(returned)) {
+      // EVERY returned JSX root, through the ONE funnel.
+      //
+      // This read `MARKER.test(returned.getText()) && marksUnconditionally(...)`,
+      // and the pair certified a component that renders no marker at all: the
+      // regex matched the marker's name anywhere in the subtree TEXT (a comment
+      // counts), and `marksUnconditionally` answers "if a marker is on the root,
+      // is it always present", which is vacuously true when the root has none.
+      // Text-presence plus vacuous-unconditionality read as "marked".
+      //
+      // It also inspected only the FIRST return, so a later unmarked return was
+      // invisible. A component marks on every render only if every JSX it can
+      // return carries the attribute, hence `every` over all roots, with the
+      // non-empty guard so a component returning no JSX is not vacuously marked.
+      const returns = returnedJsxRoots(body);
+      if (returns.length > 0 && returns.every((r) => carriesAttribute(r))) {
         return true;
       }
     }
@@ -514,6 +580,26 @@ export function marksUnconditionally(returned: Node): boolean {
     );
   if (!hasMarker) return true;
   return attributeAlwaysPresent(opening);
+}
+
+/**
+ * EVERY JSX root this body can return, for the certification path.
+ *
+ * `firstReturnedJsx` stays for candidate COLLECTION, where the branch's first
+ * rendered element is the thing under test. Certification is a different
+ * question -- "does this mark on every render" -- and it has to see every exit.
+ */
+function returnedJsxRoots(body: Node): Node[] {
+  const roots: Node[] = [];
+  for (const statement of body.getDescendantsOfKind(SyntaxKind.ReturnStatement)) {
+    const owner = statement.getFirstAncestor(
+      (a) => Node.isArrowFunction(a) || Node.isFunctionDeclaration(a) || a === body,
+    );
+    if (owner !== body) continue;
+    const jsx = jsxRoot(statement.getExpression());
+    if (jsx !== null) roots.push(jsx);
+  }
+  return roots;
 }
 
 function firstReturnedJsx(body: Node): Node | null {
