@@ -40,20 +40,41 @@ describe("scratch-root cleanup (BL-MUTATION-SCRATCH-FS-EVENT-STORM)", () => {
     expect(families(run.survivors)).toEqual([]);
   });
 
-  // The failure arm runs PER FILE, unlike the success arm above. One child with
-  // an injected fail-on-first-write dies early, so a single run would only ever
-  // exercise whichever suite happened to start first and would report the other
-  // twelve as covered. Per file is affordable precisely because each child dies
-  // fast: the cost is startup, not suite time.
+  // The failure arm runs PER FILE, unlike the success arm above: one child with
+  // an injected failure dies partway, so a single combined run would only ever
+  // exercise whichever suite started first and would report the rest as covered.
+  //
+  // Injection is keyed to ROOTS CREATED, not to a write count. Firing on the
+  // first write always lands in the earliest case, so a later root-creating case
+  // whose cleanup ran only on success would never be reached.
+  //
+  // DOCUMENTED LIMIT, stated because the cheap version of this is a trap: at two
+  // roots the injection reaches the SECOND root-creating case, not an
+  // arbitrarily late one. Reaching the last would need a passing run per file to
+  // learn its root count plus a second run to inject there, roughly doubling a
+  // ~120 s guard on every unit-suite run. A regression in a suite's tenth
+  // root-creating case is not caught here. Re-file trigger: a leak found in the
+  // field that this ordinal would have missed.
   it.each(SUBJECTS)(
     "removes every root it creates even when a case fails: %s",
     (file) => {
-      // Fail on a write that lands after roots exist. A failure in a case that
-      // created no root proves nothing: the other cases clean up after themselves
-      // and there is nothing left behind to find.
-      const run = runSuiteSet([file], { failAfter: 1 });
+      // Prefer the LATE injection. Three subjects create exactly one root, so
+      // the roots-2 arm never fires for them and the child exits 0 -- which the
+      // premise correctly refuses to accept as evidence. Fall back to the
+      // write-count arm there rather than weakening the premise, and rather
+      // than skipping those files: a single-root suite still has to clean up.
+      let run = runSuiteSet([file], { failAfterRoots: 2 });
+      let late = true;
+      if (run.exitCode === 0) {
+        late = false;
+        run = runSuiteSet([file], { failAfter: 1 });
+      }
       premiseHolds(`the injected failure took (exit ${run.exitCode})`, run.exitCode !== 0);
-      premise("scratch roots created before the failure", run.created.length, 0);
+      premise(
+        `scratch roots created before the failure (${late ? "late" : "early"} injection)`,
+        run.created.length,
+        0,
+      );
       expect(families(run.survivors)).toEqual([]);
     },
     120_000,

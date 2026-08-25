@@ -242,7 +242,7 @@ The intersection is empty. The only shared file either branch would contend for 
 
 ## 8. Acceptance criteria
 
-- **AC-1 (verdict neutrality, the closed criterion).** Tier 1 edits the deciding suites of six enrolled surfaces, so it must move no verdict. For **all six** — `controlOutlineScan`, `interactiveScanCore`, `modal-wait-helper-scan`, `modal-wait-disposition`, `mutationSurfaceEnumerate`, `mutationSurfaceTotality` — the pre-change and post-change runs produce the identical mutant set and identical per-mutant verdicts, compared as SETS so an equal total with two verdicts swapped fails.
+- **AC-1 (verdict neutrality, the closed criterion).** Tier 1 edits the deciding suites of six enrolled surfaces, so it must move no verdict. For **all eight** — `controlOutlineScan`, `interactiveScanCore`, `modal-wait-helper-scan`, `modal-wait-disposition`, `mutationSurfaceEnumerate`, `mutationSurfaceTotality`, `psqlStartupScan`, `interactionTimingScan` — the pre-change and post-change runs produce the identical mutant set and identical per-mutant verdicts, compared as SETS so an equal total with two verdicts swapped fails.
 
   With tier 3 deferred, `interactiveScanCore` REJOINS this comparison: no enrolled SOURCE is edited, so every surface keeps its mutant set and a plain before/after equality is expressible for all six. The earlier AC-1b (prove the two arms differ) and AC-1c (re-score the changed source, plus behavioral cache cases) are **retired with tier 3** — there is no on/off layout switch to prove and no changed predicate to score. They move to the successor row in §9 as design inputs.
 

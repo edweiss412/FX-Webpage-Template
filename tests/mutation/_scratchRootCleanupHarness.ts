@@ -52,7 +52,18 @@ export function decidingSuiteSets(): string[][] {
 export function callsMkdtemp(repoRelPath: string): boolean {
   const abs = join(REPO_ROOT, repoRelPath);
   if (!existsSync(abs)) return false;
-  return /\bmkdtempSync\s*\(/.test(readFileSync(abs, "utf8"));
+  // Every temp-root API, not one spelling: the sync form, the callback form,
+  // and the `fs.promises` namespace. The PRELOAD patches the same three, so the
+  // pre-filter and the recorder agree about what a root is.
+  //
+  // DOCUMENTED LIMIT, and it is why the behavioral arm is the real check: a
+  // suite creating roots through a re-exported helper, or under an alias this
+  // pattern does not spell, drops out of the subject list silently. The
+  // membership arm's claim is deliberately weak -- "this file is enrolled" --
+  // and a syntactic pre-filter cannot make it strong. What bounds the damage:
+  // any subject that IS listed is measured by the preload at RUNTIME, for what
+  // it actually did rather than for what it looks like.
+  return /\b(?:fs\.promises\.)?mkdtemp(?:Sync)?\s*\(/.test(readFileSync(abs, "utf8"));
 }
 
 export type ChildRun = {
@@ -78,7 +89,18 @@ export type ChildRun = {
  * hook. A failure in a case that created no root proves nothing: the other
  * cases clean up after themselves and there is nothing left to leak.
  */
-export function runSuiteSet(files: readonly string[], opts: { failAfter?: number } = {}): ChildRun {
+/**
+ * Wall-clock ceiling for one subject child. A subject suite that hangs would
+ * otherwise hang the guard, and the guard runs inside the unit suite. This is
+ * also the accepted ceiling `tests/mutation/_metaSpawnDisposition.test.ts`
+ * requires of a MEMBER spawn.
+ */
+export const SUBJECT_RUN_TIMEOUT_MS = 600_000;
+
+export function runSuiteSet(
+  files: readonly string[],
+  opts: { failAfter?: number; failAfterRoots?: number } = {},
+): ChildRun {
   const iso = mkdtempSync(join(tmpdir(), "fx-cleanup-guard-"));
   const log = join(iso, "__created.log");
   const preload = join(iso, "__preload.cjs");
@@ -98,7 +120,11 @@ export function runSuiteSet(files: readonly string[], opts: { failAfter?: number
       ...(opts.failAfter === undefined
         ? {}
         : { FX_CLEANUP_GUARD_FAIL_AFTER: String(opts.failAfter) }),
+      ...(opts.failAfterRoots === undefined
+        ? {}
+        : { FX_CLEANUP_GUARD_FAIL_AFTER_ROOTS: String(opts.failAfterRoots) }),
     },
+    timeout: SUBJECT_RUN_TIMEOUT_MS,
   });
 
   const created = readFileSync(log, "utf8").split("\n").filter(Boolean);
@@ -121,10 +147,10 @@ const log = process.env.FX_CLEANUP_GUARD_LOG;
 if (log) {
   const rawWriteSync = fs.writeSync;
   const fd = fs.openSync(log, "a");
-  const origMkdtemp = fs.mkdtempSync;
   let inProbe = false;
-  fs.mkdtempSync = function (...args) {
-    const made = origMkdtemp.apply(this, args);
+  let rootCount = 0;
+  const record = (made) => {
+    rootCount += 1;
     if (!inProbe) {
       inProbe = true;
       try { rawWriteSync.call(fs, fd, made + "\\n"); } catch {}
@@ -132,16 +158,50 @@ if (log) {
     }
     return made;
   };
-  const failAfter = Number(process.env.FX_CLEANUP_GUARD_FAIL_AFTER ?? "");
-  if (Number.isFinite(failAfter) && failAfter > 0) {
+  const origMkdtempSync = fs.mkdtempSync;
+  fs.mkdtempSync = function (...args) { return record(origMkdtempSync.apply(this, args)); };
+  // The callback form and the promises namespace create roots too, and a
+  // recorder blind to them reports "created 0" for a suite that made many.
+  const origMkdtemp = fs.mkdtemp;
+  if (typeof origMkdtemp === "function") {
+    fs.mkdtemp = function (...args) {
+      const cb = args[args.length - 1];
+      if (typeof cb === "function") {
+        args[args.length - 1] = function (err, made) {
+          if (!err && made) record(made);
+          return cb.apply(this, arguments);
+        };
+      }
+      return origMkdtemp.apply(this, args);
+    };
+  }
+  if (fs.promises && typeof fs.promises.mkdtemp === "function") {
+    const origPromise = fs.promises.mkdtemp;
+    fs.promises.mkdtemp = function (...args) {
+      return origPromise.apply(this, args).then(record);
+    };
+  }
+  const failAfter = Number(process.env.FX_CLEANUP_GUARD_FAIL_AFTER || "");
+  const failAfterRoots = Number(process.env.FX_CLEANUP_GUARD_FAIL_AFTER_ROOTS || "");
+  const byWriteArmed = Number.isFinite(failAfter) && failAfter > 0;
+  const byRootsArmed = Number.isFinite(failAfterRoots) && failAfterRoots > 0;
+  if (byWriteArmed || byRootsArmed) {
     let writes = 0;
-    const origWrite = fs.writeFileSync;
+    const origWriteFileSync = fs.writeFileSync;
     fs.writeFileSync = function (...args) {
       writes += 1;
-      if (writes === failAfter) {
-        throw new Error("FX_CLEANUP_GUARD injected failure after " + writes + " writes");
+      // Two arming modes, and the second is the point. FAIL_AFTER fires on the
+      // Nth write, which always lands in whichever case runs first.
+      // FAIL_AFTER_ROOTS waits until N roots exist, so a LATE root-creating
+      // case is actually reached -- an always-early injection never runs the
+      // later cases at all, and a later case whose cleanup only runs on success
+      // would go unexercised while the guard reported itself satisfied.
+      if ((byWriteArmed && writes === failAfter) || (byRootsArmed && rootCount >= failAfterRoots)) {
+        throw new Error(
+          "FX_CLEANUP_GUARD injected failure (writes=" + writes + ", roots=" + rootCount + ")",
+        );
       }
-      return origWrite.apply(this, args);
+      return origWriteFileSync.apply(this, args);
     };
   }
 }

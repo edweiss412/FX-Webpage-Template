@@ -1220,21 +1220,77 @@ describe("mutation admission class", () => {
     expect(overlaps(got.get("a"), got.get("b"))).toBe(false);
   }, 60_000);
 
-  it("AC-3 — an ordinary run still takes the other slot while the class is held", async () => {
+  it("AC-3 — one class holder plus TWO ordinary acquirers never exceeds the slot count", async () => {
     const dir = slotDir();
+    const holdMs = 900;
     const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2", FX_HEAVY_POLL_MS: "100" };
-    const holder = await holdSlot({ ...env }, []);
-    // The class must bound mutation runs against EACH OTHER, never reduce total
-    // admission: an ordinary phase is entitled to the free slot.
-    const classHolder = runWrapped(env, sleeperArgs(60_000), ["--class", "mutation"]);
-    // Waiting for "acquired slot-" alone would pass TODAY, with --class ignored
-    // and both children simply taking slots -- a case green the moment it is
-    // written. The class acquisition must be announced in its own right.
-    await waitForStderr(classHolder, "acquired class mutation", 20_000);
-    await waitForStderr(classHolder, "acquired slot-", 20_000);
-    classHolder.child.kill("SIGKILL");
+
+    // The stated topology, not a smaller one. An earlier version ran ONE
+    // ordinary acquirer beside the class holder, which the rejected
+    // separate-slot-directory design also passes while admitting three heavy
+    // phases: the class run takes its own dir's slot and both ordinary runs take
+    // the shared pair. Three participants is what discriminates them.
+    const log = join(dir, "ceiling.log");
+    const cls = runWrapped(env, logWindowArgs("class", log, holdMs), ["--class", "mutation"]);
+    const one = runWrapped(env, logWindowArgs("one", log, holdMs));
+    const two = runWrapped(env, logWindowArgs("two", log, holdMs));
+    const results = await Promise.all([cls.exited, one.exited, two.exited]);
+    for (const r of results) expect(r.code).toBe(0);
+
+    const got = windows(log);
+    for (const tag of ["class", "one", "two"]) expect(got.get(tag)).toBeDefined();
+    // At most two of the three windows may overlap at any instant. Checking the
+    // three PAIRS is enough: a triple overlap implies all three pairs overlap.
+    const pairs: [string, string][] = [
+      ["class", "one"],
+      ["class", "two"],
+      ["one", "two"],
+    ];
+    const overlapping = pairs.filter(([a, b]) => overlaps(got.get(a), got.get(b)));
+    expect(overlapping.length).toBeLessThan(3);
+  }, 90_000);
+
+  it("AC-2f — a class run WAITING for the class holds no slot, so ordinary work still runs", async () => {
+    const dir = slotDir();
+    const holdMs = 1200;
+    // ONE slot, so "does the waiting class run occupy it" is answerable.
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+
+    // A holds the class for the whole window. B is a second class run: it must
+    // block on the CLASS, not on the slot, and must not be holding the slot
+    // while it blocks.
+    const holder = runWrapped(env, sleeperArgs(60_000), ["--class", "mutation"]);
+    await waitForStderr(holder, "acquired class", 20_000);
+    const blocked = runWrapped(env, sleeperArgs(60_000), ["--class", "mutation"]);
+    await waitForStderr(blocked, "waiting for the mutation class", 20_000);
+
+    // The discriminator. If the class were acquired AFTER the slot, `blocked`
+    // would be sitting on the only slot while it waits, and this ordinary run
+    // could never start. Asserting the announcement ORDER instead does not
+    // catch that: the slot's own announcement comes after `acquire_loop`, so
+    // both orderings print class-then-slot. Verified by planting the defect.
+    const log = join(dir, "ordinary.log");
+    const ordinary = runWrapped(env, logWindowArgs("ordinary", log, holdMs));
+    const res = await ordinary.exited;
+    expect(res.code).toBe(0);
+    expect(windows(log).get("ordinary")).toBeDefined();
+
     holder.child.kill("SIGKILL");
-    await Promise.all([classHolder.exited, holder.exited]);
+    blocked.child.kill("SIGKILL");
+    await Promise.all([holder.exited, blocked.exited]);
+  }, 90_000);
+
+  it("AC-2e/b — `--class` with no value is refused, not read as no-class", async () => {
+    const dir = slotDir();
+    // The dangerous reading: treat a malformed request as absence and admit the
+    // run unbounded. The caller ASKED to be bounded.
+    const run = runWrapped(
+      { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2" },
+      [process.execPath, "-e", "process.exit(0)"],
+      ["--class"],
+    );
+    expect((await run.exited).code).toBe(2);
+    expect(run.stderr()).toMatch(/requires a value/i);
   }, 60_000);
 
   it("AC-2b — a class run nested under an inherited slot REFUSES, and says why", async () => {

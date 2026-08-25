@@ -81,7 +81,7 @@ Each `red-target=` was verified by READING the cited line and matching it to the
 
 Full statements live in spec §8; these are the plan-side references.
 
-- **AC-1** — verdict neutrality across all six surfaces whose deciding suites this plan edits, compared as sets. (AC-1b and AC-1c retired with the deferred tier.)
+- **AC-1** — verdict neutrality across all EIGHT surfaces whose deciding suites this plan edits, compared as sets. (AC-1b and AC-1c retired with the deferred tier.)
 - **AC-2** — two direct class acquirers serialize; an ordinary acquirer still proceeds while a slot is free.
 - **AC-2b** — a nested mutation invocation exits non-zero with the outermost-wrap message.
 - **AC-2c** — the round-2 deadlock cycle terminates for every participant.
@@ -146,7 +146,7 @@ The suite already has the template: `runWrapped(env, argv, wrapperArgs)` (`tests
 **No `red=` marker, and that is the point.** This task runs measurements and records their comparison; it writes no production code, so there is no command that is red before it and green after it. Giving it a marker would mean inventing a red it cannot observe — the defect the red-contract rules exist to catch. The region closes above; a heading outside a declared region is unchecked by design (multi-region, `docs/superpowers/specs/2026-08-09-task-enrollment-multi-region-design.md`).
 
 
-Compare **mutant sets and per-mutant verdicts as SETS**, never counts — an equal total with two verdicts swapped must fail — across **all six** surfaces whose deciding suites Task 1 edits: `controlOutlineScan`, `interactiveScanCore`, `modal-wait-helper-scan`, `modal-wait-disposition`, `mutationSurfaceEnumerate`, `mutationSurfaceTotality`.
+Compare **mutant sets and per-mutant verdicts as SETS**, never counts — an equal total with two verdicts swapped must fail — across **all eight** surfaces whose deciding suites Task 1 edits: `controlOutlineScan`, `interactiveScanCore`, `modal-wait-helper-scan`, `modal-wait-disposition`, `mutationSurfaceEnumerate`, `mutationSurfaceTotality`, `psqlStartupScan`, `interactionTimingScan`. The last two joined when implementation found their failure-path leaks; an acceptance gate that still named six could pass without ever checking them.
 
 **`interactiveScanCore` is IN the comparison, and that is the rescope paying off.** While the cache change was in this plan it had to be excluded, because editing its source changes its mutant set and a before/after equality is not expressible. With that work split out, no enrolled SOURCE is edited by this plan at all: every surface keeps its mutant set, and a plain equality covers all six. AC-1b and AC-1c retired with the tier they served — there is no on/off layout switch to prove and no changed predicate to score.
 

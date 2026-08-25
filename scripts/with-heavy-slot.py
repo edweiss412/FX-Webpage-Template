@@ -90,15 +90,23 @@ def parse_class_flag(args: list[str]) -> tuple[str | None, str | None]:
     different name.
     """
     raw: str | None = None
+    seen = False
     for i, token in enumerate(args):
         if token == "--class":
+            seen = True
             raw = args[i + 1] if i + 1 < len(args) else None
             break
         if token.startswith("--class="):
+            seen = True
             raw = token.split("=", 1)[1]
             break
-    if raw is None:
+    if not seen:
         return None, None
+    # `--class` with nothing after it is a MALFORMED REQUEST, never "no class
+    # wanted". Reading it as absence is the worst available reading: the caller
+    # asked to be bounded, and would have been silently admitted unbounded.
+    if raw is None or raw == "":
+        return None, "--class requires a value; accepted: %s" % ", ".join(CLASS_NAMES)
     if raw not in CLASS_NAMES:
         return None, "unknown --class %r; accepted: %s" % (raw, ", ".join(CLASS_NAMES))
     return raw, None
@@ -780,8 +788,13 @@ def main(argv: list[str]) -> int:
     cadence = WarnCadence(warn_s)
     class_fd: int | None = None
     if requested_class is not None:
+        # BEFORE the slot, and the announcement order is what pins it: a test can
+        # assert "acquired class" precedes "acquired slot-", which is false the
+        # moment someone moves this below `acquire_loop`. Acquiring the slot
+        # first would mean waiting for the class WHILE HOLDING a slot, which is
+        # the wait-while-holding state the whole design excludes.
         class_fd = acquire_class_lock(slot_dir, requested_class, poll_ms, jitter_pct, cadence)
-        warn("acquired class %s" % requested_class)
+        warn("acquired class %s (before any slot)" % requested_class)
     index, fd, slots = acquire_loop(
         slot_dir, desired, poll_ms, jitter_pct, cadence, hold_open_ms, priority
     )
