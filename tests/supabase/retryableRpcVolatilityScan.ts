@@ -174,23 +174,37 @@ export function readOnlyViolations(
   inconclusive: ReadonlyMap<string, string> = READ_ONLY_INCONCLUSIVE,
 ): string[] {
   const out: string[] = [];
+
+  // Whether ANY overload of a name failed to reach a verdict. Staleness is a property of the NAME,
+  // because the declaration is keyed by name while outcomes are per OVERLOAD.
+  //
+  // Judged per-outcome, a name with one raising overload and one clean overload reported the clean
+  // one as a stale declaration and failed — while the declaration was legitimately true of the
+  // other. That is the SAME name-versus-overload confusion the catalog collapse was, found by
+  // sweeping this round's own repair for the shape rather than the instance.
+  const unreachedByName = new Map<string, boolean>();
   for (const o of outcomes) {
-    const declared = hasReasonedEntry(inconclusive, o.name);
+    unreachedByName.set(o.name, (unreachedByName.get(o.name) ?? false) || o.sqlstate !== null);
+  }
+
+  for (const o of outcomes) {
     if (o.sqlstate === READ_ONLY_SQLSTATE) {
       // Declaring a member inconclusive does NOT excuse this: 25006 is the arm firing, not noise.
       out.push(`${o.name}(${o.identity}): wrote inside a READ ONLY transaction (${o.message})`);
       continue;
     }
-    if (o.sqlstate !== null && !declared) {
+    if (o.sqlstate !== null && !hasReasonedEntry(inconclusive, o.name)) {
       out.push(
         `${o.name}(${o.identity}): raised ${o.sqlstate} (${o.message}) so READ ONLY reached no ` +
           `verdict, and it is not declared in READ_ONLY_INCONCLUSIVE with a reason`,
       );
-      continue;
     }
-    if (o.sqlstate === null && declared) {
+  }
+
+  for (const [name, unreached] of unreachedByName) {
+    if (!unreached && hasReasonedEntry(inconclusive, name)) {
       out.push(
-        `${o.name}(${o.identity}): declared inconclusive but executed cleanly — remove the ` +
+        `${name}: declared inconclusive but EVERY overload executed cleanly — remove the ` +
           `READ_ONLY_INCONCLUSIVE row, it is stale`,
       );
     }

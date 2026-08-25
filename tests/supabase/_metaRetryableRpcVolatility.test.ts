@@ -274,6 +274,30 @@ describe("RETRYABLE_RPCS — safety arm", () => {
 
     expect(readOnlyViolations([raised], declared)).toHaveLength(1);
     expect(readOnlyViolations([clean], declared)).toHaveLength(1);
+    // A declared name with TWO overloads, one raising and one clean, is NOT stale. Judged per
+    // outcome the clean overload reported the declaration stale and failed the arm, while the
+    // declaration was legitimately true of the other overload — the same name-versus-overload
+    // confusion as the catalog collapse, swept out of this round's own repair.
+    expect(
+      readOnlyViolations(
+        [
+          { name: "_mixed", identity: "a integer", sqlstate: "42501", message: "forbidden" },
+          { name: "_mixed", identity: "a integer, b integer", sqlstate: null, message: null },
+        ],
+        new Map([["_mixed", "one overload is admin-gated"]]),
+      ),
+    ).toEqual([]);
+    // But a name whose EVERY overload runs clean is still stale, so the rule did not simply go quiet.
+    expect(
+      readOnlyViolations(
+        [
+          { name: "_mixed", identity: "a integer", sqlstate: null, message: null },
+          { name: "_mixed", identity: "a integer, b integer", sqlstate: null, message: null },
+        ],
+        new Map([["_mixed", "one overload is admin-gated"]]),
+      ),
+    ).toHaveLength(1);
+
     // And the reasoned-entry rule: a declaration with an EMPTY reason does not excuse anything.
     expect(
       readOnlyViolations([{ ...raised, name: "_blank" }], new Map([["_blank", "   "]])),
