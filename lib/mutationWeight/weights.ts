@@ -5,6 +5,22 @@
 import type { Measured } from "./records";
 
 /**
+ * The median of a sample, averaging the middle PAIR when the count is even.
+ *
+ * Exported and used by every caller, because three private copies produced two
+ * wrong ones: both `bootRatioStability` and the report's rejected historical
+ * baseline picked the upper-middle value, so `[1000, 3000]` returned 3000 where the
+ * median is 2000. An ordinary enrolment makes the surface population even, so that
+ * was not a corner — it was the common case one enrolment away.
+ */
+export function median(xs: readonly number[]): number {
+  const v = [...xs].sort((a, b) => a - b);
+  if (v.length === 0) return 0;
+  const mid = Math.floor(v.length / 2);
+  return v.length % 2 === 1 ? (v[mid] ?? 0) : ((v[mid - 1] ?? 0) + (v[mid] ?? 0)) / 2;
+}
+
+/**
  * What `bootsOf` computed for one surface at one sha, IN PARTS.
  *
  * The parts are carried and not just the total, because the total alone cannot
@@ -74,11 +90,6 @@ export function seedRates(newestFirst: readonly Snapshot[]): Map<string, number>
       }
     }
   }
-  const median = (xs: readonly number[]): number => {
-    const v = [...xs].sort((a, b) => a - b);
-    const mid = Math.floor(v.length / 2);
-    return v.length % 2 === 1 ? (v[mid] ?? 0) : ((v[mid - 1] ?? 0) + (v[mid] ?? 0)) / 2;
-  };
   return new Map([...bySurface].map(([id, v]) => [id, Math.round(median(v.rates))]));
 }
 
@@ -424,7 +435,7 @@ export function bootRatioStability(
   return {
     latest: {
       min: vals[0] ?? 0,
-      median: vals[Math.floor(vals.length / 2)] ?? 0,
+      median: median(vals),
       max: Math.max(...vals),
       maxSurface,
     },
@@ -460,15 +471,6 @@ export function suiteMedians(m: Measured): { suite: string; children: number; me
   const by = new Map<string, number[]>();
   for (const c of m.children) by.set(c.suite, [...(by.get(c.suite) ?? []), c.durationMs]);
   return [...by]
-    .map(([suite, xs]) => {
-      const v = [...xs].sort((a, b) => a - b);
-      const mid = Math.floor(v.length / 2);
-      return {
-        suite,
-        children: v.length,
-        medianMs:
-          v.length % 2 === 1 ? (v[mid] ?? 0) : Math.round(((v[mid - 1] ?? 0) + (v[mid] ?? 0)) / 2),
-      };
-    })
+    .map(([suite, xs]) => ({ suite, children: xs.length, medianMs: Math.round(median(xs)) }))
     .sort((a, b) => b.medianMs - a.medianMs);
 }

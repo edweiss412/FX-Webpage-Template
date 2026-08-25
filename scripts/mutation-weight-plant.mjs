@@ -114,6 +114,36 @@ const DEFECTS = [
     "export const bindingLeg = (legs: readonly number[]): number => Math.min(...legs);",
   ],
   [
+    "reconcile stops computing which surfaces moved leg",
+    "weights.ts",
+    "  const moved = [...observed]",
+    "  const moved = [].concat([...observed].slice(0, 0))",
+  ],
+  [
+    "reconcile compares the observed leg against the wrong recomputed one",
+    "weights.ts",
+    "    .filter(([id, leg]) => recomputed.has(id) && recomputed.get(id) !== leg)",
+    "    .filter(([id]) => recomputed.has(id) && false)",
+  ],
+  [
+    "median picks the upper-middle value for an even population",
+    "weights.ts",
+    "  return v.length % 2 === 1 ? (v[mid] ?? 0) : ((v[mid - 1] ?? 0) + (v[mid] ?? 0)) / 2;",
+    "  return v[mid] ?? 0;",
+  ],
+  [
+    "median stops sorting, so it reports whatever arrived in the middle",
+    "weights.ts",
+    "  const v = [...xs].sort((a, b) => a - b);\n  if (v.length === 0) return 0;",
+    "  const v = [...xs];\n  if (v.length === 0) return 0;",
+  ],
+  [
+    "bootRatioStability reports the corpus MAX instead of its median",
+    "weights.ts",
+    "      median: median(vals),",
+    "      median: Math.max(...vals),",
+  ],
+  [
     "reconcile stops checking the dump composes into its own total",
     "weights.ts",
     "    if (composed !== dump.boots)",
@@ -155,12 +185,11 @@ const DEFECTS = [
     "    if (boots[0] === undefined) arrived.push(id);",
     "    void id;",
   ],
-  [
-    "suiteMedians reports the mean rather than the median",
-    "weights.ts",
-    "          v.length % 2 === 1 ? (v[mid] ?? 0) : Math.round(((v[mid - 1] ?? 0) + (v[mid] ?? 0)) / 2),",
-    "          Math.round(v.reduce((a, b) => a + b, 0) / v.length),",
-  ],
+  // `suiteMedians` had its own median plant until the three private copies were
+  // collapsed into one exported `median`. Its anchor no longer exists, and the
+  // central "median picks the upper-middle value" plant above covers every caller
+  // instead. Removed rather than re-anchored: the class repair is what made the
+  // per-site plant redundant, and keeping it would assert a code path that is gone.
   [
     "readRun stops summing child durations into seconds",
     "records.ts",

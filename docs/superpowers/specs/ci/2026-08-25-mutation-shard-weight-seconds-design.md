@@ -170,7 +170,9 @@ Two properties do the work, and they are separable.
 
 **The extensive half stays derived.** Boots is recomputed from the source on every run, so a surface whose source grows gets more mutants, more boots and more weight with no table edit. That half moves: corpus modelled boots went 4386 to 4979 across the four nightlies. Committing total seconds per surface would freeze that growth until someone re-measured. Committing the RATE and deriving the COUNT puts the committed number on the slowly-varying half.
 
-**A new surface can never be missing.** The field is required, so an enrolment without a rate is a TypeScript error, not a silent fallback. This is what removes §1.3's guess entirely, and it is the whole difference between this and a bolt-on table. The marginal cost to an enrolling author is reading one number off a run they already do: enrolment already requires a real run to establish `scoreFloor` and verify the `control` mutant, `.mutation-records/` is written on local runs too, and `--emit-registry` prints the value.
+**A new surface can never be missing.** The field is required, so an enrolment without a rate is a TypeScript error, not a silent fallback. This is what removes §1.3's guess entirely, and it is the whole difference between this and a bolt-on table. The marginal cost to an enrolling author is reading one number off a run they already do: enrolment already requires a real run to establish `scoreFloor` and verify the `control` mutant, and `scripts/mutation-score-surfaces.ts` prints the rate beside the score (§2.4.1).
+
+`--emit-registry` is NOT that tool and cannot be: it REFUSES to emit while any enrolled surface is unmeasured (§2.4), which is precisely the state a new enrolment is in. It reseeds surfaces that already have measurements; the score tool is what produces a first one. An earlier draft named `--emit-registry` here and contradicted its own §2.4 two sections later.
 
 ### §1.6 Why the count may stay biased, which the first review round forced into the open
 
@@ -328,7 +330,11 @@ Its own arm is the reconciliation described at the top of this document, proven 
 
   Only (i) is verdict neutrality. (ii) and (iii) are ordinary gate obligations and are stated separately so neither can be mistaken for it.
 
-  The old-weight side of (i) is `workflow_dispatch` run `32844208485` on `main` at `300a9f937`, this branch's merge base. Authority is assigned by tree BEFORE either lands: the full CI matrix on this PR is authoritative for the branch tree; a scoped local run is authoritative only for the tree it ran on, and triages rather than certifies.
+  **The old-weight side is captured at this branch's FINAL merge base, not at its first one.** An earlier capture at `300a9f937` (`workflow_dispatch` run `32844208485`) is SUPERSEDED rather than lost: the merge base moves as this branch absorbs main — at least `#882` per the seam ruling and `#881` — and main stays old-weight until this branch merges, so there is no closing window and an early capture measures a tree that is not the comparison tree. One dispatch at the settled base is both cheaper and more correct.
+
+  **Both sides must come from the SAME TRIGGER.** `workflow_dispatch` and `pull_request` are separate populations on this repo, and a claim anchored across them is a claim about two things. The baseline is dispatch-triggered, so the branch side is dispatched too; the `pull_request` matrix still runs and is still read for CI-green, but it is not the anchor. Where a dispatch cannot be had, the fallback is a PARTITION-LEVEL claim, which is weaker and is labelled as such rather than presented as verdict equality.
+
+  Authority is otherwise assigned by tree BEFORE either lands: the full CI matrix on this PR is authoritative for the branch tree; a scoped local run is authoritative only for the tree it ran on, and triages rather than certifies.
 
   **The bar for (i) is sharp because it was measured first**, by the same script, from the same records:
 
@@ -351,7 +357,7 @@ Its own arm is the reconciliation described at the top of this document, proven 
 
   Three consecutive pairs is what the artifacts allow and is not a claim of generality; the margin is a measurement of this corpus over four days. If rates drift and nobody refreshes them the margin shrinks toward zero and the drift report names the surfaces responsible. It does not shrink toward a wrong verdict.
 
-- **AC-4 — a surface cannot enrol without a rate.** Omitting `millisPerBoot` fails to compile; a non-positive, `NaN`, non-integer, or above-timeout value fails a test by name.
+- **AC-4 — a surface cannot enrol without a rate.** Omitting `millisPerBoot` fails to compile; a non-positive, `NaN`, non-integer, or above-`SHARD_BUDGET_SECONDS` value fails a test by name. The upper bound is the budget and NOT the mutant timeout, for the reason §2.1 gives — a per-modelled-boot rate legitimately exceeds one child's timeout, so the tighter bound would reject an honest enrolment after an ordinary suite slowdown. This criterion said "above-timeout" for one round after §2.1 was corrected, which would have reinstated exactly that false rejection.
 
 - **AC-5 — the drift report names every measured surface**, marks which are actionable, keeps declared-but-unmeasured and measured-but-undeclared as two distinct states neither of which is "agreeing", and leaves every job's exit status unchanged.
 

@@ -37,6 +37,7 @@ import {
   driftReport,
   legSeconds,
   lpt,
+  median,
   ratePerModelledBoot,
   reconcile,
   seamMagnitude,
@@ -243,8 +244,10 @@ function main(): void {
     say(`\n=== HELD OUT: a rate seeded on one run, scored on a LATER one ===`);
     say(
       "  Scored on the LATER run's own seconds, so the seed never sees the run it is judged on.\n" +
-        "  An arrival the seed run never saw is priced by its enrolling author, which is what the\n" +
-        "  required field buys and what a bolt-on table cannot have.",
+        "  An arrival the seed run never saw is EXCLUDED from both sides and named below. In\n" +
+        "  production its enrolling author measures it, and that measurement is not\n" +
+        "  reconstructible after the fact -- pricing it from the scored run's own rate would\n" +
+        "  make the surface score itself.",
     );
     for (let i = 0; i < snaps.length - 1; i += 1) {
       const later = snaps[i] as Snapshot;
@@ -397,7 +400,7 @@ function main(): void {
           })
           .filter((r): r is number => r !== undefined)
           .sort((a, b) => a - b);
-        if (rates.length > 0) timeMedian.set(m.surfaceId, rates[Math.floor(rates.length / 2)] ?? 0);
+        if (rates.length > 0) timeMedian.set(m.surfaceId, median(rates));
       }
       const scoredByTimeMedian = newestSnap.surfaces.filter((m) => timeMedian.has(m.surfaceId));
       say(

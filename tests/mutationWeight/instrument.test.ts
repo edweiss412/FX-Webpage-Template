@@ -14,6 +14,7 @@ import {
   driftReport,
   legSeconds,
   lpt,
+  median,
   ratePerModelledBoot,
   reconcile,
   seamMagnitude,
@@ -184,6 +185,28 @@ describe("ratePerModelledBoot", () => {
     expect(
       ratePerModelledBoot(measured({ surfaceId: "a" }), modelled({ a: { boots: 0 } })),
     ).toBeUndefined();
+  });
+});
+
+describe("median", () => {
+  it("averages the middle PAIR when the count is even", () => {
+    // The defect this replaced picked the upper-middle value, so [1000, 3000]
+    // returned 3000. An ordinary enrolment makes the surface population even, so
+    // that was the common case one enrolment away rather than a corner.
+    expect(median([1000, 3000])).toBe(2000);
+    expect(median([1, 2, 3, 100])).toBe(2.5);
+  });
+
+  it("takes the middle value when the count is odd", () => {
+    expect(median([30_000, 1000, 2000])).toBe(2000);
+  });
+
+  it("does not care about input order", () => {
+    expect(median([3000, 1000])).toBe(median([1000, 3000]));
+  });
+
+  it("returns 0 for an empty sample rather than NaN", () => {
+    expect(median([])).toBe(0);
   });
 });
 
@@ -394,6 +417,27 @@ describe("reconcile", () => {
     });
   });
 
+  it("reports a surface observed on a leg it does not recompute to", () => {
+    // The wrong-leg arm, which had no assertion at all: the partition code could
+    // have been replaced with a constant and every other case here still passed,
+    // so cost evidence from a genuinely different partition would have validated.
+    // FOUR surfaces over four shards so each lands on its own leg, and one record
+    // is then claimed to have run somewhere else.
+    const four = ["a", "b", "c", "d"];
+    const dump = modelled(Object.fromEntries(four.map((id, i) => [id, { mutants: 10 - i }])));
+    const truth = reconcile(
+      four.map((id, i) => measured({ surfaceId: id, leg: i })),
+      dump,
+      4,
+    );
+    expect(truth.moved, "premise: the honest placement reconciles").toEqual([]);
+
+    const lied = four.map((id, i) => measured({ surfaceId: id, leg: id === "a" ? 3 : i }));
+    const r = reconcile(lied, dump, 4);
+    expect(r.ok).toBe(false);
+    expect(r.moved).toEqual([{ surfaceId: "a", observed: 3, recomputed: 0 }]);
+  });
+
   it("is ok when everything agrees", () => {
     expect(reconcile(one, modelled({ a: {} }), 4).ok).toBe(true);
   });
@@ -484,6 +528,30 @@ describe("bootRatioStability", () => {
   it("reports the ratio of OBSERVED children to MODELLED boots", () => {
     const r = bootRatioStability([snapOf("n", "s", 8, 2)], 1.05);
     expect(r.latest).toMatchObject({ min: 4, median: 4, max: 4, maxSurface: "a" });
+  });
+
+  it("takes a real MEDIAN across surfaces, including an even population", () => {
+    // The earlier fixture had ONE surface, so every statistic collapsed to the same
+    // number and no median rule could be distinguished. An even population of four
+    // with distinct ratios is what discriminates. Each surface declares one mutant
+    // and one suite, so its modelled boots are 2, and children of 1/2/4/8 give
+    // ratios of 0.5/1/2/4: the median is 1.5 and picking the upper-middle gives 2.
+    const many = snap(
+      "n",
+      "s",
+      [1, 2, 4, 8].map((k, i) =>
+        measured({
+          surfaceId: `s${String(i)}`,
+          children: Array.from({ length: k }, () => child("t", 1000)),
+        }),
+      ),
+      modelled(Object.fromEntries([0, 1, 2, 3].map((i) => [`s${String(i)}`, { mutants: 1 }]))),
+    );
+    const r = bootRatioStability([many], 1.05);
+    expect(r.latest.median).toBe(1.5);
+    expect(r.latest.min).toBe(0.5);
+    expect(r.latest.max).toBe(4);
+    expect(r.latest.maxSurface).toBe("s3");
   });
 
   it("reports a surface whose ratio MOVED, oldest first", () => {
