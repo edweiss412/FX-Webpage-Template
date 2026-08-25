@@ -24,7 +24,7 @@
  */
 import { log } from "@/lib/log";
 
-import { isRetryEligible } from "./retryEligibility";
+import { isRetryEligible, postgrestOwnsRetry } from "./retryEligibility";
 
 /** Retries AFTER the first attempt. Two, not the sibling's three: this path is a page render. */
 export const MAX_SUPABASE_RETRIES = 2;
@@ -143,7 +143,13 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 }
 
 function abortReasonOf(signal: AbortSignal): unknown {
-  return signal.reason ?? new DOMException("This operation was aborted", "AbortError");
+  // `?? new DOMException(...)` was wrong, and round-2 review probed it: `abort(null)` is legal and
+  // native fetch rejects with exactly `null`. Coalescing replaced the caller's stated reason with a
+  // synthesized AbortError, changing the answer. Only a genuinely ABSENT reason is synthesized —
+  // which the spec does not produce, so this is a fallback for exotic runtimes, not the normal path.
+  return signal.reason !== undefined
+    ? signal.reason
+    : new DOMException("This operation was aborted", "AbortError");
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -185,10 +191,19 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
     const eligible = isRetryEligible(url, method);
     // A caller can hand us its signal two ways: `fetch(url, { signal })`, or a `Request` that
     // already carries one. Reading only `init.signal` meant the second form was invisible, so an
-    // aborted Request still went out to the transport and came back 200 where a bare fetch
-    // rejects. `init.signal` wins when both are present, matching how fetch itself resolves it.
+    // aborted Request still went out to the transport and came back 200 where a bare fetch rejects.
+    //
+    // `??` was wrong for the precedence, though, and round-2 review probed it: `RequestInit.signal`
+    // legally accepts NULL, and native fetch reads an explicit null as an OVERRIDE that clears the
+    // Request's signal. Coalescing treated it as absence and fell back to the Request's, so a
+    // pre-aborted Request rejected where a bare fetch resolves 200. Presence of the KEY is the test,
+    // not truthiness of the value.
     const callerSignal =
-      init?.signal ?? (input instanceof Request ? input.signal : undefined) ?? undefined;
+      init !== undefined && "signal" in init
+        ? (init.signal ?? undefined)
+        : input instanceof Request
+          ? input.signal
+          : undefined;
 
     let firstResponse: Response | undefined;
     let firstError: unknown;
@@ -254,6 +269,20 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
       // signal is part of the composed signal the body streams under, so the cancellation lands
       // on the body read where a bare fetch also lands it.
       if (isAborted(callerSignal)) {
+        if (error !== undefined) throw error;
+        return response!;
+      }
+
+      // PostgREST retries some of these itself, and two retrying layers MULTIPLY rather than add:
+      // round-2 review measured a 503 on a GET turning into TWELVE transport calls against a
+      // ratified budget of three, with only eight of eleven transitions emitting a record because
+      // PostgREST's retries never reach `onRetry`. Declining what it owns leaves exactly one
+      // retrying layer per (method, failure) pair. See `postgrestOwnsRetry` for the full argument.
+      const abortShaped =
+        error !== undefined &&
+        ((error as { name?: string }).name === "AbortError" ||
+          (error as { code?: string }).code === "ABORT_ERR");
+      if (postgrestOwnsRetry(method, response?.status, error !== undefined, abortShaped)) {
         if (error !== undefined) throw error;
         return response!;
       }

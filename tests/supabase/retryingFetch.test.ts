@@ -551,3 +551,95 @@ describe("retrying fetch — the DEFAULTS, not the injected harness", () => {
     }
   });
 });
+
+describe("retrying fetch — exactly one retrying layer, never two", () => {
+  /**
+   * Round-2 diff review measured the stacking: `@supabase/postgrest-js` enables retries BY DEFAULT
+   * for idempotent methods, so PostgREST's four attempts each invoked this wrapper's three and a
+   * 503 on a GET became TWELVE transport calls against a ratified budget of three — with only eight
+   * of the eleven transitions emitting a record, because PostgREST's retries never reach `onRetry`.
+   *
+   * Two retrying layers MULTIPLY. The repair is to decline what the other layer owns, which is the
+   * same single-holder reasoning invariant 2 applies to advisory locks.
+   */
+  test("a 503 on an idempotent method is left to PostgREST — one call, not three", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected.
+    const inner = vi.fn(async () => bad(503));
+
+    const res = (await makeRetryingFetch(inner, instant)(RPC, { method: "GET" })) as Response;
+
+    expect(res.status).toBe(503);
+    // The whole finding in one assertion: this layer must not spend attempts on a failure the
+    // layer above it will retry anyway.
+    expect(inner).toHaveBeenCalledTimes(1);
+  });
+
+  test("a 502 on an idempotent method is still absorbed — PostgREST does not retry it", async () => {
+    // no-premise: as above. This is the arc's OWN fault, so declining 503 must not disarm it.
+    const inner = vi.fn(async () => (inner.mock.calls.length < 2 ? bad(502) : ok()));
+
+    const res = (await makeRetryingFetch(inner, instant)(RPC, { method: "GET" })) as Response;
+
+    expect(res.status).toBe(200);
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  test("a 503 on a NON-idempotent method is still ours — PostgREST only retries GET/HEAD/OPTIONS", async () => {
+    // no-premise: as above. The carve-out is keyed on METHOD, so POST must be unaffected.
+    const inner = vi.fn(async () => (inner.mock.calls.length < 2 ? bad(503) : ok()));
+
+    const res = (await makeRetryingFetch(inner, instant)(RPC, { method: "POST" })) as Response;
+
+    expect(res.status).toBe(200);
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  test("a non-abort transport error on an idempotent method is left to PostgREST", async () => {
+    // no-premise: as above. PostgREST retries network errors on idempotent methods, but never an
+    // abort — so our own per-attempt timeout stays ours and is covered by the timeout cases above.
+    const boom = new TypeError("fetch failed");
+    const inner = vi.fn(async () => {
+      throw boom;
+    });
+
+    await expect(makeRetryingFetch(inner, instant)(RPC, { method: "GET" })).rejects.toBe(boom);
+    expect(inner).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("retrying fetch — the caller's own answer is never rewritten", () => {
+  test("an explicit `signal: null` in init OVERRIDES a Request's signal", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected.
+    //
+    // `init?.signal ?? request.signal` read an explicit null as ABSENCE and fell back to the
+    // Request's signal, so a pre-aborted Request rejected where a bare fetch resolves 200. Native
+    // fetch treats the null as an override; presence of the KEY is the test, not truthiness.
+    const caller = new AbortController();
+    caller.abort(new Error("request-aborted"));
+    const inner = vi.fn(async () => ok());
+
+    const res = (await makeRetryingFetch(inner, instant)(
+      new Request(RPC, { signal: caller.signal }),
+      {
+        signal: null,
+      },
+    )) as Response;
+
+    expect(res.status).toBe(200);
+    expect(inner).toHaveBeenCalledTimes(1);
+  });
+
+  test("abort(null) surfaces as exactly null, not a synthesized AbortError", async () => {
+    // no-premise: as above. `signal.reason ?? new DOMException(...)` replaced a caller's stated
+    // reason of `null` with a different error; node's own fetch rejects with exactly `null`.
+    const caller = new AbortController();
+    caller.abort(null);
+    const inner = vi.fn(async () => ok());
+
+    // `rejects.toBeNull()` rather than a message match: the identity IS the assertion.
+    await expect(
+      makeRetryingFetch(inner, instant)(RPC, { method: "POST", signal: caller.signal }),
+    ).rejects.toBeNull();
+    expect(inner).not.toHaveBeenCalled();
+  });
+});

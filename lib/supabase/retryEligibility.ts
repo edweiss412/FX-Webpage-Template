@@ -71,3 +71,50 @@ export function isRetryEligible(url: string, method: string | undefined): boolea
 
   return IDEMPOTENT_METHODS.has((method ?? "GET").toUpperCase());
 }
+
+/**
+ * PostgREST's OWN retry contract, mirrored so this wrapper can decline what that layer owns.
+ *
+ * `@supabase/postgrest-js` enables retries BY DEFAULT (`PostgrestBuilder.ts` — `retryEnabled = true`)
+ * and there is no client-level switch: `.retry(false)` is a per-QUERY builder method, so disabling it
+ * at every call site would silently regress the moment someone adds one.
+ *
+ * Round-2 diff review measured the consequence. Two retrying layers MULTIPLY: PostgREST's four
+ * attempts each invoke this wrapper's three, so a 503 on a GET became TWELVE transport calls against
+ * a ratified budget of three, and only eight of the eleven transitions emitted a record, because
+ * PostgREST's own retries never reach `onRetry`.
+ *
+ * The repair is NARROWING, which is the direction this project's convergence rule prescribes: the
+ * wrapper declines exactly the cases PostgREST already retries, so every (method, failure) pair has
+ * exactly ONE retrying layer. That is the same single-holder reasoning invariant 2 applies to
+ * advisory locks — nested holders do not add safety, they multiply.
+ *
+ * The arc's own fault is untouched: PostgREST does not retry 502, so an upstream gateway 502 is still
+ * absorbed here, which is the whole point of the wrapper.
+ *
+ * These MIRROR `node_modules/@supabase/postgrest-js/src/types/common/common.ts` and are not importable
+ * from the package entrypoint. `tests/supabase/postgrestRetryContract.test.ts` reads the installed
+ * source and fails if a version bump moves either set, so the mirror cannot drift silently.
+ */
+export const POSTGREST_RETRYABLE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
+export const POSTGREST_RETRYABLE_STATUSES: ReadonlySet<number> = new Set([520, 503]);
+
+/**
+ * Whether PostgREST's own retry loop will retry this outcome, meaning this wrapper must not.
+ *
+ * `aborted` is the caller's own cancellation OR this wrapper's per-attempt timeout. PostgREST never
+ * retries an abort (`fetchError?.name === 'AbortError' || fetchError?.code === 'ABORT_ERR'` rethrows),
+ * so a timeout stays THIS layer's to retry and does not stack.
+ */
+export function postgrestOwnsRetry(
+  method: string | undefined,
+  status: number | undefined,
+  hadError: boolean,
+  aborted: boolean,
+): boolean {
+  if (!POSTGREST_RETRYABLE_METHODS.has((method ?? "GET").toUpperCase())) return false;
+  if (aborted) return false;
+  // A non-abort transport rejection is retried by PostgREST on an idempotent method.
+  if (hadError) return true;
+  return status !== undefined && POSTGREST_RETRYABLE_STATUSES.has(status);
+}
