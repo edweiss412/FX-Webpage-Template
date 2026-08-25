@@ -887,7 +887,14 @@ export function nodeDeps(root: string): CliDeps {
     spawn: (command, cwd, timeoutMs, mode) => {
       // `-nc` is the parse check: sh reads the whole command for syntax and
       // executes none of it. `-c` is the ordinary run.
-      const r = spawnSync("sh", [mode === "parse" ? "-nc" : "-c", command], {
+      //
+      // `--` ends sh's OWN option parsing, so a command string beginning with a
+      // dash is the operand rather than a flag. Without it `sh -nc '--stat'`
+      // exits 2 with "invalid option", which this arm reports as a syntax error
+      // — the wrong verdict, and indistinguishable from a real one. Latent when
+      // repaired (no tracked `red=` begins with a dash) and reachable from the
+      // AC coverage arm, which calls this same seam.
+      const r = spawnSync("sh", [mode === "parse" ? "-nc" : "-c", "--", command], {
         cwd,
         timeout: timeoutMs,
         encoding: "utf8",

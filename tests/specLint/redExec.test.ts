@@ -1,4 +1,9 @@
+import { spawnSync } from "node:child_process";
+
 import { describe, expect, it } from "vitest";
+
+import { premiseHolds } from "../_shared/premise";
+import { nodeDeps } from "../../scripts/spec-lint";
 import { runLint } from "../../lib/specLint/run";
 import { collectionProbePlan, parseCheckPlan } from "../../lib/specLint/redContract";
 import { parseDoc } from "../../lib/specLint/parse";
@@ -967,5 +972,39 @@ describe("corpus distillations through runLint (spec §2.4, AC-7)", () => {
         corpusResolver,
       ).findings.map((f) => f.code),
     ).toEqual([]);
+  });
+});
+
+// ---- the shell parse invocation passes `--` (AC-2) ----
+describe("the parse-check spawn separates options from the command string", () => {
+  // `sh -nc '--stat'` is `sh` reading `--stat` as its OWN option: it exits 2 with
+  // "invalid option", which the arm reports as a syntax error. `--` ends option
+  // parsing, so the command string is the operand whatever it begins with.
+  //
+  // Latent rather than firing when this landed: no `red=` in tracked markdown
+  // begins with a dash (572 markers at origin/main, zero matches). The AC coverage
+  // arm calls the same seam, so the repair lands once, here.
+  // Through the ADAPTER's own spawn, not through a local `sh` call. Asserting
+  // that `sh -nc -- x` works is a fact about sh; the claim under test is that
+  // scripts/spec-lint.ts INVOKES it that way, and only nodeDeps can answer it.
+  const parse = (command: string): number => {
+    const r = nodeDeps(process.cwd()).spawn(command, process.cwd(), 10_000, "parse");
+    return r.status ?? -1;
+  };
+
+  it("a command beginning with a dash is NOT reported unparseable", () => {
+    premiseHolds(
+      "sh really does reject the unrepaired form, so this case has something to catch",
+      (spawnSync("sh", ["-nc", "--stat"], { encoding: "utf8" }).status ?? -1) !== 0,
+    );
+    expect(parse("--stat")).toBe(0);
+  });
+
+  it("a genuinely malformed command still fails, so `--` did not disable the check", () => {
+    expect(parse("pnpm vitest run 'unterminated")).not.toBe(0);
+  });
+
+  it("`--` does not disturb an ordinary command", () => {
+    expect(parse("pnpm vitest run tests/a.test.ts")).toBe(0);
   });
 });
