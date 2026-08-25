@@ -1,7 +1,11 @@
 // @vitest-environment node
 import { Project, ScriptTarget, SyntaxKind, type Node } from "ts-morph";
 import { describe, expect, it } from "vitest";
-import { attributeAlwaysPresent, marksUnconditionally } from "./_renderFaultScan";
+import {
+  attributeAlwaysPresent,
+  classifyExpression,
+  marksUnconditionally,
+} from "./_renderFaultScan";
 
 /**
  * The hop into a shared component is only sound for a component that marks on
@@ -109,5 +113,34 @@ describe("marker detection counts only what React actually renders", () => {
     ["a bare optional prop", "<div data-render-fault={renderFault} />", false],
   ])("treats %s as present=%s", (_label, source, expected) => {
     expect(attributeAlwaysPresent(opening(source))).toBe(expected);
+  });
+});
+
+describe("round 5b: polarity is decided in ONE place, and every path goes through it", () => {
+  // The repair that mattered here was not another clause. Round 4b fixed the
+  // DIRECT binary comparison and left four shortcuts that reached the same
+  // conclusion by other routes: a predicate registered because its text
+  // MENTIONS the fault literal, a one-hop initializer classified by substring,
+  // and disjunctions accepted on one side. Each is now funnelled through this
+  // one function, so a healthy branch cannot be enrolled as a fault branch and
+  // pressured to carry a marker that would refuse healthy captures.
+  const classify = (guard: string): unknown => {
+    const project = new Project({
+      compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+      useInMemoryFileSystem: true,
+    });
+    const file = project.createSourceFile("probe.ts", `const _x = ${guard};`);
+    const expression = file.getVariableDeclarationOrThrow("_x").getInitializerOrThrow();
+    return classifyExpression(expression, new Set<string>());
+  };
+
+  it.each([
+    ['result.kind === "infra_error"', true],
+    ['result.kind !== "infra_error"', false],
+    ['!(result.kind === "infra_error")', false],
+    ['result.kind === "infra_error" || result.kind === "ok"', false],
+    ['result.kind === "infra_error" && ready', true],
+  ])("classifies %s as a fault guard = %s", (guard, expected) => {
+    expect(classify(guard) !== null).toBe(expected);
   });
 });

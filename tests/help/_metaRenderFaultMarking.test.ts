@@ -115,7 +115,14 @@ describe("the flag-shaped residue is named, since no scan can reach it", () => {
       // and carries four marker occurrences, so deleting one of the two left a
       // surviving mutant under the previous version of this case.
       const identifier = flag.slice(flag.lastIndexOf(".") + 1);
-      const lines = readFileSync(join(process.cwd(), file), "utf8").split("\n");
+      // Comment lines are dropped BEFORE matching. A commented-out marker is
+      // exactly the state this case exists to catch -- someone disabling the
+      // attribute while the declaration still claims it -- and a line regex
+      // counted it as proof the marker was there.
+      const isComment = (line: string): boolean => /^\s*(?:\/\/|\*|\/\*|\{\s*\/\*)/.test(line);
+      const lines = readFileSync(join(process.cwd(), file), "utf8")
+        .split("\n")
+        .map((line) => (isComment(line) ? "" : line));
       const MARKER = /(?:data-render-fault|renderFault)\s*=/;
       const named = new RegExp(`\\b${identifier}\\b`);
 

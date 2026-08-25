@@ -116,6 +116,24 @@ function importSourceOf(file: SourceFile, name: string): SourceFile | null {
   return null;
 }
 
+/**
+ * Does this type predicate test FOR a fault, rather than merely mention one?
+ *
+ * Runs the predicate's returned expression through the branch classifier, with
+ * an empty predicate set so it cannot recurse into itself. A predicate that
+ * classifies as a fault guard is registered; one that negates it is not.
+ */
+function predicateTestsForFault(fn: Node): boolean {
+  const returned =
+    fn
+      .getDescendantsOfKind(SyntaxKind.ReturnStatement)
+      .map((r) => r.getExpression())
+      .find((e) => e !== undefined) ??
+    (Node.isArrowFunction(fn) && !Node.isBlock(fn.getBody()) ? fn.getBody() : undefined);
+  if (returned === undefined) return false;
+  return classifyExpression(returned, new Set<string>()) !== null;
+}
+
 /** Names of `v is T` predicates whose body tests an infra-error kind. */
 function infraPredicateNames(file: SourceFile): Set<string> {
   const names = new Set<string>();
@@ -128,6 +146,12 @@ function infraPredicateNames(file: SourceFile): Set<string> {
       const returnType = fn.getReturnTypeNode();
       if (returnType === undefined || !Node.isTypePredicate(returnType)) continue;
       if (!fn.getText().includes(INFRA_ERROR)) continue;
+      // MENTIONING the literal is not the same as testing FOR it. `isHealthy`
+      // spelled `v.kind !== "infra_error"` mentions it while meaning the
+      // opposite, and registering it made every `if (isHealthy)` a fault guard.
+      // The predicate's own returned expression goes through the same classifier
+      // the branch guards do, so polarity is decided in exactly one place.
+      if (!predicateTestsForFault(fn)) continue;
 
       if (Node.isFunctionDeclaration(fn)) {
         const name = fn.getName();
@@ -155,6 +179,19 @@ function infraPredicateNames(file: SourceFile): Set<string> {
 }
 
 /** Resolve an identifier to the initializer text of its declaration, once. */
+/** The initializer NODE, so a caller can run a predicate over it rather than its text. */
+function initializerNode(node: Node): Node | null {
+  if (!Node.isIdentifier(node)) return null;
+  for (const definition of node.getDefinitions()) {
+    const declaration = definition.getDeclarationNode();
+    if (declaration === undefined) continue;
+    if (Node.isVariableDeclaration(declaration)) {
+      return declaration.getInitializer() ?? null;
+    }
+  }
+  return null;
+}
+
 function initializerText(node: Node): string | null {
   if (!Node.isIdentifier(node)) return null;
   for (const definition of node.getDefinitions()) {
@@ -182,7 +219,7 @@ function initializerText(node: Node): string | null {
  * rather than being silently dropped, which is the right side to fail on. No
  * such site exists in the corpus today.
  */
-function classifyExpression(
+export function classifyExpression(
   node: Node,
   predicates: Set<string>,
   depth = 0,
@@ -232,10 +269,18 @@ function classifyExpression(
   // The guard may be a boolean computed elsewhere. Resolving ONE hop keeps the
   // tileErrors and comparison shapes visible without becoming dataflow
   // analysis, which this arc deliberately does not carry.
-  const initializer = initializerText(node);
-  if (initializer !== null) {
-    if (initializer.includes(TILE_ERRORS)) return "tile-errors";
-    if (initializer.includes(INFRA_ERROR)) return "literal-comparison";
+  // The one-hop re-runs THIS classifier on the initializer node rather than
+  // substringing its text. Substring matching bypassed the polarity and
+  // disjunction rules entirely: `const isHealthy = result.kind !== "infra_error"`
+  // mentions the literal, so `if (isHealthy)` classified as a fault guard and a
+  // HEALTHY branch would have been pressured to carry a marker that refuses
+  // healthy captures. Same defect, and same repair, as the marker hop above:
+  // resolve to the node and run the one rule.
+  const initializer = initializerNode(node);
+  if (initializer !== null && depth < 2) {
+    const classified = classifyExpression(initializer, predicates, depth + 1, negated);
+    if (classified !== null) return classified;
+    if (initializerText(node)?.includes(TILE_ERRORS) === true && !negated) return "tile-errors";
   }
 
   return null;
@@ -318,7 +363,22 @@ export function attributeAlwaysPresent(node: Node): boolean {
     }
     if (Node.isBinaryExpression(expression)) {
       const op = expression.getOperatorToken().getText();
-      if (op === "&&" || op === "||") continue;
+      // `a && "x"` can yield a falsy left operand, so the attribute may vanish.
+      // `a || "x"` and `a ?? "x"` cannot: when the left side declines, the right
+      // one supplies a value, so the attribute is always present. Treating the
+      // whole family as absent would demand a marker on code that already has
+      // one -- a false RED, which is the opposite error from the one this
+      // predicate was tightened to fix, and just as wrong.
+      if (op === "&&") continue;
+      if (op === "||" || op === "??") {
+        const right = expression.getRight();
+        const alwaysTruthy =
+          (Node.isStringLiteral(right) && right.getLiteralValue().length > 0) ||
+          Node.isTemplateExpression(right) ||
+          Node.isNoSubstitutionTemplateLiteral(right);
+        if (alwaysTruthy) return true;
+        continue;
+      }
       return true;
     }
     return true;
@@ -329,11 +389,27 @@ export function attributeAlwaysPresent(node: Node): boolean {
 function carriesAttribute(jsx: Node | null): boolean {
   if (jsx === null) return false;
   if (attributeAlwaysPresent(jsx)) return true;
+
+  // A marked DESCENDANT only counts when nothing between it and the branch root
+  // can decline to render it. `{cond ? <marked/> : null}` puts a marker in the
+  // source that the DOM may never receive, and counting it certified coverage
+  // the runtime detector would not find.
+  const unconditional = (el: Node): boolean => {
+    if (!attributeAlwaysPresent(el)) return false;
+    for (let a = el.getParent(); a !== undefined && a !== jsx; a = a.getParent()) {
+      if (Node.isConditionalExpression(a)) return false;
+      if (Node.isBinaryExpression(a)) {
+        const op = a.getOperatorToken().getText();
+        if (op === "&&" || op === "||" || op === "??") return false;
+      }
+    }
+    return true;
+  };
   for (const el of jsx.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement)) {
-    if (attributeAlwaysPresent(el)) return true;
+    if (unconditional(el)) return true;
   }
   for (const el of jsx.getDescendantsOfKind(SyntaxKind.JsxOpeningElement)) {
-    if (attributeAlwaysPresent(el)) return true;
+    if (unconditional(el)) return true;
   }
 
   // A branch may build the marked element into a local and embed it:
@@ -343,8 +419,24 @@ function carriesAttribute(jsx: Node | null): boolean {
   for (const container of jsx.getDescendantsOfKind(SyntaxKind.JsxExpression)) {
     const inner = container.getExpression();
     if (inner === undefined || !Node.isIdentifier(inner)) continue;
-    const initializer = initializerText(inner);
-    if (initializer !== null && MARKER.test(initializer)) return true;
+    // The hop resolves to the initializer NODE and runs the same predicate.
+    // Text-matching it accepted `data-render-fault={undefined}` and a commented
+    // marker inside the local, certifying an attribute that never reaches the DOM.
+    const initializer = initializerNode(inner);
+    if (initializer === null) continue;
+    if (attributeAlwaysPresent(initializer)) return true;
+    if (
+      initializer
+        .getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement)
+        .some((el) => attributeAlwaysPresent(el))
+    )
+      return true;
+    if (
+      initializer
+        .getDescendantsOfKind(SyntaxKind.JsxOpeningElement)
+        .some((el) => attributeAlwaysPresent(el))
+    )
+      return true;
   }
 
   const opening = Node.isJsxElement(jsx) ? jsx.getOpeningElement() : jsx;
@@ -408,21 +500,20 @@ function componentRendersMarker(file: SourceFile, name: string): boolean {
 export function marksUnconditionally(returned: Node): boolean {
   const opening = Node.isJsxElement(returned) ? returned.getOpeningElement() : returned;
   if (!Node.isJsxOpeningElement(opening) && !Node.isJsxSelfClosingElement(opening)) return true;
-
-  for (const attribute of opening.getAttributes()) {
-    if (!Node.isJsxAttribute(attribute)) continue;
-    const attributeName = attribute.getNameNode().getText();
-    if (attributeName !== "data-render-fault" && attributeName !== "renderFault") continue;
-
-    const initializer = attribute.getInitializer();
-    if (initializer === undefined) return true;
-    if (!Node.isJsxExpression(initializer)) return true;
-
-    const expression = initializer.getExpression();
-    if (expression !== undefined && Node.isIdentifier(expression)) return false;
-    return true;
-  }
-  return true;
+  // Delegates to the ONE predicate. This used to carry its own copy of the rule
+  // whose "any computed expression always yields a value" arm was false for
+  // `cond ? "x" : undefined` and for `a && "x"` -- the same shapes the direct
+  // path had already been fixed for. Two copies of a rule is two chances to fix
+  // only one of them, which is what happened.
+  const hasMarker = opening
+    .getAttributes()
+    .some(
+      (a) =>
+        Node.isJsxAttribute(a) &&
+        ["data-render-fault", "renderFault"].includes(a.getNameNode().getText()),
+    );
+  if (!hasMarker) return true;
+  return attributeAlwaysPresent(opening);
 }
 
 function firstReturnedJsx(body: Node): Node | null {
