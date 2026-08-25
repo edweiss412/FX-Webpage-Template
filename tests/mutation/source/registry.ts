@@ -1214,6 +1214,100 @@ export const GUARD_SURFACES: GuardSurface[] = [
    * repair, so they decide nothing about this surface and would buy wall clock
    * at no score. That is a declared choice, not an oversight.
    */
+  /**
+   * The AC coverage arm (`BL-PLANLINT-AC-COMMAND-OBSERVABILITY`), enrolled
+   * BEFORE the first diff dispatch, because its defect class is exactly
+   * "reports OK while the output moved" — a plan-lint arm that certifies a
+   * criterion observed when the command cannot observe it.
+   *
+   * `suitePaths` is DERIVED, not typed: every `tests/specLint/acCoverage*.test.ts`.
+   * The derivation is asserted in BOTH directions by
+   * `tests/mutation/_metaAcCoverageSuiteDerivation.test.ts` — the list EQUALS the
+   * glob, and no file importing the module sits outside it — so a suite added
+   * under either rule fails rather than silently buying zero score. That check is
+   * named outside the glob deliberately: it would otherwise match its own rule
+   * and have to enrol itself, and it decides nothing about the module.
+   */
+  {
+    id: "acCoverage",
+    sourcePath: "lib/specLint/acCoverage.ts",
+    suitePaths: [
+      "tests/specLint/acCoverage.test.ts",
+      "tests/specLint/acCoverageCli.test.ts",
+      "tests/specLint/acCoverageCorpus.test.ts",
+      "tests/specLint/acCoverageIncidents.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // Inverts the command-carrying test, which EVERY plant depends on: with it
+    // flipped, a prose cell is accepted and a real command is reported. A harness
+    // that reaches this file at all cannot fail to kill it, which is what a
+    // positive control is for. Verified unique on the current source:
+    // `grep -c -F 'return s !== "" && !s.startsWith("#");'` = 1.
+    control: {
+      from: 'return s !== "" && !s.startsWith("#");',
+      to: 'return s !== "" && s.startsWith("#");',
+    },
+    /**
+     * FOUR rows, all `equivalent`, each unreachable for a reason OUTSIDE this
+     * module rather than a reason about its tests. Written AFTER a scored run
+     * named them, so each is a prediction with a falsifier: if a later run KILLS
+     * one, the argument is wrong and the row comes out — reconciliation reports a
+     * killed accepted site as STALE without anyone remembering to check.
+     *
+     * This count is the human-facing half of an executable fact and drifted from
+     * it once: it read THREE after the fourth row landed, so the audit a reader
+     * performs disagreed with the audit the gate performs (whole-diff review
+     * round 2 finding 4). `expectedLedgerKinds.ts` carries the same number and is
+     * asserted against this array, so the executable pair cannot drift; only this
+     * sentence can, which is why it names the count rather than implying it.
+     *
+     * NOT every survivor is accepted. Across the two scored runs, six survivors
+     * were REPAIRED rather than ledgered — four killed by tests each planted
+     * against its own mutant, and one deleted outright as a dead line whose
+     * comparator could not reorder anything. A row here means the mutant cannot
+     * be killed by any assertion, never that killing it was inconvenient.
+     */
+    accepted: [
+      {
+        siteId: "regex-quantifier-bound:19:21:{0,3}>{0,4}",
+        kind: "equivalent",
+        reason:
+          "`^ {0,3}` in DECL_ANY, widened to `{0,4}`. The bound is applied to an html node's VALUE, and CommonMark makes four leading spaces an indented code block, so remark yields NO html node at that indent. Probed 0-4: indent 3 gives the value with its three spaces preserved, indent 4 gives no html node at all. Nothing can reach the fourth space, so the wider bound matches nothing the narrower one does not. The live domain 0-3 is pinned by the indent-boundary case in tests/specLint/acCoverage.test.ts.",
+      },
+      {
+        siteId: "regex-quantifier-bound:20:17:{0,3}>{0,4}",
+        kind: "equivalent",
+        reason:
+          "The same `^ {0,3}` bound in DECL, the full-grammar match, with the same argument and the same probe. DECL is only ever applied to a value DECL_ANY has already matched, so the fourth space is unreachable twice over.",
+      },
+      {
+        siteId: "logical-connector:97:35:||>&&",
+        kind: "equivalent",
+        reason:
+          '`cls.kind !== "citation" || cls.start === undefined` in citedTestPins, with the ' +
+          "`||` flipped to `&&`. The two operands are never independent on the reachable " +
+          "domain, so the connective cannot matter. Every span reaching classifySpan here is a " +
+          "PIN_CANDIDATE match, and PIN_CANDIDATE REQUIRES `:[0-9]+`; a match whose coordinates " +
+          "are a real line number classifies `citation` and always carries `start`, and one " +
+          "whose coordinates are not (`:0`, `:01`, `:12-0`) classifies `malformed`, which " +
+          "carries neither `path` nor `start`. So `kind !== citation` and `start === undefined` " +
+          "are TRUE together and FALSE together, and `||` and `&&` agree on both. A citation " +
+          "with `start` absent is the path-only form, which PIN_CANDIDATE cannot produce. " +
+          "Probed over the candidate set, and confirmed by planting: the mutant leaves all 46 " +
+          "tests across the four deciding suites green. The clause is kept rather than deleted " +
+          "because `start?: number` is genuinely optional in SpanClass and the narrowing is " +
+          "load-bearing if PIN_CANDIDATE ever admits the path-only form. Falsifier: a later run " +
+          "that KILLS this site means PIN_CANDIDATE widened, and the row comes out.",
+      },
+      {
+        siteId: "integer-literal:77:87:1>2",
+        kind: "equivalent",
+        reason:
+          "`commandText.indexOf(path, i + 1)` widened to `i + 2` in pinUnobserved's scan. The mutant differs only if a second occurrence of `path` begins at exactly `i + 1`, which requires `path` to have period 1 — every character identical. `path` reaches this function only from PIN_CANDIDATE via classifySpan, whose grammar requires at least one `/` and a `.` before `:N`, so a period-1 string can never be one. Probed over the candidate set: no period-1 string satisfies PIN_CANDIDATE.",
+      },
+    ],
+  },
   {
     id: "claimSweep",
     sourcePath: "lib/specLint/claimSweep.ts",
