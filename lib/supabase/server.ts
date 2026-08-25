@@ -11,7 +11,7 @@
  */
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 import { makeRetryingFetch } from "./retryingFetch";
 
@@ -30,6 +30,47 @@ function hardenSupabaseCookieOptions(
     secure: true,
     sameSite: "lax",
   };
+}
+
+/**
+ * Test-only, production-gated injector for AC-5's deterministic proof.
+ *
+ * Gated exactly as `maybeForceTestInfraFail` is (lib/auth/requireAdmin.ts): ENABLE_TEST_AUTH,
+ * a TEST_AUTH_SECRET of real length, the matching Bearer header, and a request-scoped header
+ * naming how many faults to inject. It cannot fire in production, where ENABLE_TEST_AUTH is
+ * unset and the Bearer gate would stop it anyway.
+ *
+ * It WRAPS the real fetch and DELEGATES after N. It must never short-circuit the wrapper: if it
+ * returned success directly, AC-5 could pass without a retry ever running, which is the
+ * tautology the acceptance criterion exists to avoid.
+ */
+async function maybeForceUpstreamFaults(inner: typeof fetch): Promise<typeof fetch> {
+  if (process.env.ENABLE_TEST_AUTH !== "true") return inner;
+  const secret = process.env.TEST_AUTH_SECRET;
+  if (secret === undefined || secret.length < 16) return inner;
+
+  let requested: string | null = null;
+  try {
+    const h = await headers();
+    if (h.get("authorization") !== `Bearer ${secret}`) return inner;
+    requested = h.get("x-test-force-upstream-502");
+  } catch {
+    return inner; // no request scope (build, background) — nothing to force
+  }
+  const remaining = Number(requested ?? "");
+  if (!Number.isInteger(remaining) || remaining <= 0) return inner;
+
+  let left = remaining;
+  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    if (left > 0) {
+      left -= 1;
+      return new Response(
+        JSON.stringify({ message: "An invalid response was received from the upstream server" }),
+        { status: 502, headers: { "content-type": "application/json" } },
+      );
+    }
+    return inner(input, init);
+  }) as typeof fetch;
 }
 
 export async function createSupabaseServerClient() {
@@ -51,7 +92,7 @@ export async function createSupabaseServerClient() {
     // Installed HERE and nowhere else — the service-role client is deliberately excluded, and
     // spec §6.1's recursion fence depends on that exclusion, because the durable log sink
     // writes through it.
-    global: { fetch: makeRetryingFetch(fetch) },
+    global: { fetch: makeRetryingFetch(await maybeForceUpstreamFaults(fetch)) },
     cookies: {
       getAll() {
         return cookieStore.getAll().map((c) => ({ name: c.name, value: c.value }));
