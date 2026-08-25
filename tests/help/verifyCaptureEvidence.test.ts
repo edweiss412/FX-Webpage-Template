@@ -2,7 +2,9 @@
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { Project, ScriptTarget, SyntaxKind } from "ts-morph";
 import {
+  ENTRY_SCHEMA,
   absentRecordProblem,
   verifyEvidence,
   verifyStagingHashes,
@@ -550,5 +552,120 @@ describe("round 5a: the entry schema is a TOTAL table over both outcomes", () =>
       }),
     ]);
     expect(problems).toEqual([]);
+  });
+});
+
+/**
+ * The table's totality claim, made executable.
+ *
+ * Round 6 found `absentSelector`, `geometry` and `geometrySkippedReason`
+ * declared on `CapturedEntry` and absent from `ENTRY_SCHEMA`, so malformed
+ * values passed on the outcome that never emits them. Adding those three rows
+ * repairs the three; it does nothing for the fourth field someone adds next
+ * year, which is the same defect wearing a later date.
+ *
+ * So the field set is DERIVED from the type declaration rather than restated
+ * here. A list restated in a test re-opens the moment someone edits the type,
+ * which is precisely how the three got missed: the claim of totality lived in a
+ * comment, and a comment reads nothing.
+ */
+describe("ENTRY_SCHEMA totality", () => {
+  const declaredFields = (): string[] => {
+    const project = new Project({
+      compilerOptions: { target: ScriptTarget.Latest },
+      useInMemoryFileSystem: false,
+      skipAddingFilesFromTsConfig: true,
+    });
+    const file = project.addSourceFileAtPath(
+      fileURLToPath(new URL("../../scripts/capture-refusal.ts", import.meta.url)),
+    );
+    const alias = file.getTypeAliasOrThrow("CapturedEntry");
+    const literal = alias.getTypeNodeOrThrow();
+    // A property signature per declared field, optional ones included -- an
+    // optional field is exactly the case the omission rode in on.
+    return literal
+      .asKindOrThrow(SyntaxKind.TypeLiteral)
+      .getProperties()
+      .map((prop) => prop.getName())
+      .sort();
+  };
+
+  it("covers every field CapturedEntry declares, and invents none", () => {
+    const declared = declaredFields();
+    // Guard the guard: if the type ever stops parsing into properties, an empty
+    // set would make the comparison below pass while checking nothing.
+    expect(declared.length).toBeGreaterThan(10);
+    expect(Object.keys(ENTRY_SCHEMA).sort()).toEqual(declared);
+  });
+
+  it("decides BOTH outcomes for every field", () => {
+    for (const [field, rules] of Object.entries(ENTRY_SCHEMA)) {
+      expect(typeof rules.completed, `${field}.completed`).toBe("function");
+      expect(typeof rules.refused, `${field}.refused`).toBe("function");
+    }
+  });
+});
+
+describe("the three optional fields, per outcome", () => {
+  /** Looks the row up rather than asserting it exists inline: a MISSING row is a
+   *  different failure from a row that accepts the wrong value, and the totality
+   *  test above owns the first one. */
+  const ruleFor = (field: string, outcome: "completed" | "refused") => {
+    const row = ENTRY_SCHEMA[field];
+    if (!row) throw new Error(`${field} has no ENTRY_SCHEMA row`);
+    return row[outcome];
+  };
+
+  // Each case is the mutant round 6 demonstrated: a value that is malformed, or
+  // legal under the OTHER outcome, presented to the outcome that never emits it.
+  const cases: Array<{ field: string; outcome: "completed" | "refused"; value: unknown }> = [
+    { field: "absentSelector", outcome: "completed", value: "#help-root" },
+    { field: "absentSelector", outcome: "refused", value: "" },
+    { field: "absentSelector", outcome: "refused", value: 7 },
+    { field: "geometry", outcome: "completed", value: { baselineWidth: 1 } },
+    { field: "geometry", outcome: "refused", value: { baselineWidth: 1 } },
+    { field: "geometry", outcome: "refused", value: [] },
+    {
+      field: "geometry",
+      outcome: "refused",
+      // A fifth key is not the record spec section 6 describes.
+      value: {
+        baselineWidth: 1,
+        baselineHeight: 1,
+        capturedWidth: 1,
+        capturedHeight: 1,
+        extra: 1,
+      },
+    },
+    {
+      field: "geometry",
+      outcome: "refused",
+      value: { baselineWidth: 0, baselineHeight: 1, capturedWidth: 1, capturedHeight: 1 },
+    },
+    { field: "geometrySkippedReason", outcome: "refused", value: "clock skipped" },
+    { field: "geometrySkippedReason", outcome: "completed", value: "" },
+  ];
+
+  it.each(cases)("rejects $field on a $outcome entry", ({ field, outcome, value }) => {
+    expect(ruleFor(field, outcome)(value)).toBe(false);
+  });
+
+  const accepted: Array<{ field: string; outcome: "completed" | "refused"; value: unknown }> = [
+    { field: "absentSelector", outcome: "refused", value: "#help-root" },
+    { field: "absentSelector", outcome: "refused", value: undefined },
+    { field: "absentSelector", outcome: "completed", value: undefined },
+    {
+      field: "geometry",
+      outcome: "refused",
+      value: { baselineWidth: 1280, baselineHeight: 720, capturedWidth: 1280, capturedHeight: 733 },
+    },
+    { field: "geometry", outcome: "refused", value: undefined },
+    { field: "geometrySkippedReason", outcome: "completed", value: "frozen clock unavailable" },
+    { field: "geometrySkippedReason", outcome: "completed", value: undefined },
+    { field: "geometrySkippedReason", outcome: "refused", value: undefined },
+  ];
+
+  it.each(accepted)("accepts $field on a $outcome entry", ({ field, outcome, value }) => {
+    expect(ruleFor(field, outcome)(value)).toBe(true);
   });
 });

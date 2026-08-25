@@ -44,6 +44,31 @@ const isExactlyNull = (v: unknown): boolean => v === null;
 const isEmptyStringArray = (v: unknown): boolean => isStringArray(v) && v.length === 0;
 
 /**
+ * EXACTLY absent. The optional fields are the only ones where absence is legal,
+ * and it is legal only under the outcome that does not emit them.
+ */
+const isAbsent = (v: unknown): boolean => v === undefined;
+
+const optional =
+  (present: (v: unknown) => boolean) =>
+  (v: unknown): boolean =>
+    isAbsent(v) || present(v);
+
+/**
+ * The four observed dimensions of a geometry refusal. Checked STRUCTURALLY --
+ * an object carrying three of the four, or a fifth key, is not the record spec
+ * section 6 requires, and reporting "geometry moved" without the measurement is
+ * the exact gap those dimensions were added to close.
+ */
+const GEOMETRY_KEYS = ["baselineWidth", "baselineHeight", "capturedWidth", "capturedHeight"];
+const isGeometry = (v: unknown): boolean => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const keys = Object.keys(v as Record<string, unknown>).sort();
+  if (keys.join(",") !== [...GEOMETRY_KEYS].sort().join(",")) return false;
+  return GEOMETRY_KEYS.every((k) => isPositiveInt((v as Record<string, unknown>)[k]));
+};
+
+/**
  * The COMPLETE entry schema, as a table over both outcomes.
  *
  * Three review rounds ran at this: each added clauses for the cases the round
@@ -53,12 +78,21 @@ const isEmptyStringArray = (v: unknown): boolean => isStringArray(v) && v.length
  * non-date clock strings, a refused entry with its pixel fields ABSENT rather
  * than null, and a geometry refusal whose dimensions are identical).
  *
- * A TABLE is total by construction: every field appears under both outcomes, so
- * adding a field to the record forces a decision here rather than silently
- * inheriting "unchecked". `undefined` satisfies no predicate, including
- * `isExactlyNull`, so an ABSENT field fails wherever a present one would.
+ * A TABLE is total: every field appears under both outcomes, so adding a field
+ * to the record forces a decision here rather than silently inheriting
+ * "unchecked". `undefined` satisfies no predicate except the explicitly
+ * optional ones, so an ABSENT field fails wherever a present one would.
+ *
+ * That totality is ENFORCED, not asserted. This comment previously claimed it
+ * "by construction" while three declared fields -- `absentSelector`, `geometry`
+ * and `geometrySkippedReason` -- were missing from the table, so malformed
+ * values rode through on the outcomes that never emit them. A comment cannot
+ * hold a claim about a set it does not read. The totality test derives the
+ * field set from `CapturedEntry` itself and fails on any field this table omits
+ * or invents, which is what makes the paragraph above true of field N+1 rather
+ * than only of the fields someone remembered.
  */
-const ENTRY_SCHEMA: Record<
+export const ENTRY_SCHEMA: Record<
   string,
   { completed: (v: unknown) => boolean; refused: (v: unknown) => boolean }
 > = {
@@ -75,6 +109,15 @@ const ENTRY_SCHEMA: Record<
   pixelSha256: { completed: isSha256, refused: isExactlyNull },
   webpBytes: { completed: isPositiveInt, refused: isExactlyNull },
   webpSha256: { completed: isSha256, refused: isExactlyNull },
+  // The three optional fields, each emitted under exactly ONE outcome.
+  // `absentSelector` and `geometry` come from the refusal builder
+  // (scripts/help-screenshots.ts), so a COMPLETED entry carrying either is
+  // describing a refusal it did not have.
+  absentSelector: { completed: isAbsent, refused: optional(isNonEmptyString) },
+  geometry: { completed: isAbsent, refused: optional(isGeometry) },
+  // `geometrySkippedReason` is the mirror case: it is spread by the COMPLETED
+  // builder (scripts/capture-refusal.ts), beside `refusedReason: null`.
+  geometrySkippedReason: { completed: optional(isNonEmptyString), refused: isAbsent },
 };
 
 type Entry = Record<string, unknown> & { key?: unknown; theme?: unknown };
