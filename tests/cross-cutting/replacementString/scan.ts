@@ -49,10 +49,15 @@ function isAccepted(a: ts.Expression): boolean {
 /**
  * The `.replace` / `.replaceAll` property access a call denotes, transparent wrappers resolved.
  *
- * Resolution happens HERE and in `litOf` below, not at each kind test, because spec rounds 2, 4
- * and 5 each found this same class in a different position — the argument, the callee, a const
- * initializer, and the file prefilter that used to gate the walk. Four positions in one class is
- * a fact about placement (spec §3.3).
+ * Resolution happens HERE and at the one other kind test that needs it — `classify`'s look at
+ * `args[1]` — rather than being left to each caller, because spec rounds 2, 4 and 5 each found
+ * this same class in a DIFFERENT position: the replacement argument, the callee, a const
+ * initializer in the audit script, and the file prefilter that used to gate the walk. Four
+ * positions in one class is a fact about placement, not about care (spec §3.3).
+ *
+ * The prefilter is gone entirely rather than made more permissive: an escaped identifier,
+ * `s.repl\u0061ce(...)`, is a PropertyAccessExpression no source-text regex can match, so that
+ * axis had no terminating state. Measured cost of parsing every file instead: ~700ms.
  */
 function replaceCallee(n: ts.Node): ts.PropertyAccessExpression | null {
   if (!ts.isCallExpression(n)) return null;

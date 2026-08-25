@@ -1,4 +1,5 @@
-// Structural guard for the replacement-string class sweep (spec §3, §9).
+// Structural guard for the replacement-string class sweep
+// (docs/superpowers/specs/2026-08-24-replacement-string-class-sweep.md §3, §9).
 //
 // Two halves. The FIXTURE cases run `judgeSource` over source STRINGS, which is what lets them
 // kill mutants: the harness overlay rewrites the module graph, so a check that read its subject

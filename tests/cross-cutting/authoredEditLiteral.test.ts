@@ -1,4 +1,5 @@
-// The mechanism behind the authored-edit class (spec §5).
+// The mechanism behind the authored-edit class
+// (docs/superpowers/specs/2026-08-24-replacement-string-class-sweep.md §5).
 //
 // Six sites in this repo apply an author-written `from` -> `to` edit through `String.replace`,
 // two of them writing the result straight to disk. Every one validates that the ANCHOR is unique
