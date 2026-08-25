@@ -607,6 +607,57 @@ describe("retrying fetch — exactly one retrying layer, never two", () => {
   });
 });
 
+describe("our own timeout stays ours, even on the methods PostgREST retries", () => {
+  test("a per-attempt timeout on a GET is retried here, not handed to PostgREST", async () => {
+    // no-premise: the transport is an injected stub and sleep/random/timeoutMs are injected.
+    //
+    // FOUND BY PLANTING, not by review. Every other timeout case uses POST, so the method check in
+    // `postgrestOwnsRetry` short-circuits before the abort test — and hardcoding `abortShaped` to
+    // false left all 39 cases green. The detection was doing real work with nothing pinning it.
+    //
+    // The path is not hypothetical: PostgREST serves `GET /rest/v1/rpc/<fn>` for NON-VOLATILE
+    // functions, which is precisely what every member of RETRYABLE_RPCS is. So a broken abort test
+    // would make a timed-out admin RPC fail after ONE attempt instead of three — PostgREST refuses
+    // to retry an abort, and we would have just declined it as "theirs".
+    let attempts = 0;
+    const inner = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          attempts += 1;
+          if (attempts > 1) {
+            resolve(ok());
+            return;
+          }
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("The operation was aborted.", "AbortError")),
+          );
+        }),
+    );
+
+    const res = (await makeRetryingFetch(inner as unknown as typeof fetch, {
+      ...instant,
+      timeoutMs: 5,
+    })(RPC, { method: "GET" })) as Response;
+
+    expect(res.status).toBe(200);
+    // Two calls: the timed-out attempt and its retry. One call means we deferred to a layer that
+    // will not retry an abort, and the request simply died.
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  test("a NON-abort transport error on a GET is still PostgREST's, so the two stay distinguishable", async () => {
+    // no-premise: as above. The companion direction — without this, "retry every GET error" would
+    // also pass the case above while reintroducing the multiplication.
+    const boom = new TypeError("fetch failed");
+    const inner = vi.fn(async () => {
+      throw boom;
+    });
+
+    await expect(makeRetryingFetch(inner, instant)(RPC, { method: "GET" })).rejects.toBe(boom);
+    expect(inner).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("retrying fetch — the caller's own answer is never rewritten", () => {
   test("an explicit `signal: null` in init OVERRIDES a Request's signal", async () => {
     // no-premise: the transport is an injected stub and sleep/random are injected.
