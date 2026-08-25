@@ -388,6 +388,35 @@ server`. That is the same discriminating string the evidence pass used to find t
 first place (probe §Finding 1), it appears whichever client made the call, and it does not care
 whether a retry followed.
 
+### 7.1 The string only appears if a consumer writes it, and today none of the four do
+
+Keying on the fault is necessary and not sufficient, and the reason is a defect one layer below the
+trigger. On the four service-role paths above, a 502 currently produces NO fault string at all:
+
+| path | what a 502 writes to the log today |
+| --- | --- |
+| `lib/admin/loadAlertSummary.ts`, search `ALERT_SUMMARY_READ_RETURNED_ERROR` | `source` and `code`, message OMITTED |
+| `lib/admin/loadTelemetryStats.ts`, search `TELEMETRY_STATS_READ_RETURNED_ERROR` | same shape, message OMITTED |
+| `lib/admin/loadRecentAutoApplied.ts`, search `roster_shift_counts rpc failed` | returns the message inside `infra_error`; never logs it, and its caller does not either |
+| `app/api/show/[slug]/version/route.ts`, search `SHOW_VERSION_TOKEN_RPC_FAILED` | NOTHING. It discards `error.message` and returns a bare 500 |
+
+So the honest count of dark conditions is THREE, not two: the job stays green, no retry emit exists on
+an unwrapped client, and the fault string is never written.
+
+**That is an invariant-9 defect at four call boundaries, not a trigger problem.** An infra fault
+arrives and the code drops its message or never records it. The version route is the clearest
+instance: its only other signal is a 500 that `ShowRealtimeBridge` classifies as `transient_failure`
+and swallows, so nothing anywhere ends up knowing why.
+
+The repair makes the fault attributable AT ITS SOURCE: the two coded `log.error` calls gain the error
+message, `loadRecentAutoApplied`'s returned `infra_error` is logged rather than only returned, and the
+version route logs before it returns 500. Four log lines, no behavior change beyond what reaches the
+log, and each is the invariant-9 rule applied where it was skipped.
+
+For the version route this is unavoidable rather than preferred. It emits nothing at all today, so
+there is no code and no message to key on, and no trigger design can recover a signal that was never
+sent.
+
 Three properties follow, and they are why this is the right trigger rather than a wider one:
 
 - The instrument is INDEPENDENT of the repair. It would have worked before this spec existed, and it
@@ -439,7 +468,11 @@ captured run rather than after another inference round.
   carry proof it cannot bear. The executed-count oracle (`scripts/check-app-e2e-executed.mjs`) is
   unchanged and green. A natural `SUPABASE_UPSTREAM_RETRY` emit during these runs is recorded when it
   appears and is NOT required; its absence is not evidence either way and blocks nothing.
-- **AC-7. Invariant 9 suites pass unmodified** (`tests/auth/_metaInfraContract.test.ts`,
+- **AC-7. Every one of §7.1's four paths writes the fault string on a 502.** Executable per path with
+  a stubbed client returning Kong's body: the emitted log line contains the upstream-server message,
+  and for the version route a log line exists at all. This is what makes §7's trigger reachable, so it
+  is asserted rather than assumed.
+- **AC-8. Invariant 9 suites pass unmodified** (`tests/auth/_metaInfraContract.test.ts`,
   `tests/admin/_metaInfraContract.test.ts`).
 
 ## 9. Documented limits
