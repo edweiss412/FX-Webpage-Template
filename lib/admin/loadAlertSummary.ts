@@ -43,10 +43,13 @@ export async function loadAlertSummary(): Promise<AlertSummary> {
     if (total === 0) return { kind: "ok", degraded: 0, notice: 0, total: 0 };
     const notice = total - degraded;
     return { kind: degraded > 0 ? "degraded" : "notice", degraded, notice, total };
-  } catch {
+  } catch (err) {
     void log.error("admin_alert_summary threw", {
       source: "admin.telemetry.alertSummary",
       code: "ALERT_SUMMARY_READ_THREW",
+      // Same reason as the returned-error branch above: the code says a read failed, the message
+      // says WHICH fault it was. A thrown 502 and a thrown type error were indistinguishable here.
+      error: err,
     });
     return FAIL;
   }

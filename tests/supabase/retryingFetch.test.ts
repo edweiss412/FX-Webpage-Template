@@ -191,6 +191,25 @@ describe("retrying fetch — a retry is never silent (spec §6)", () => {
     });
   });
 
+  test("a base-path deployment emits the FUNCTION NAME, not the path it sits under", async () => {
+    // no-premise: the transport is an injected stub, so this case reads no socket, file or clock.
+    //
+    // Ownership was made base-path aware one round earlier; the emit's identity extractor was not,
+    // and it kept a private root-anchored copy of the same regex. So a proxied deployment retried
+    // correctly and then wrote `fn: "/proxy/rest/v1/rpc/is_admin"` into a durable sink — a field
+    // every later query groups by. Both now share one exported RPC_PATH, which is why this cannot
+    // drift again: there is no second copy left to forget.
+    const emitted: Array<Record<string, unknown>> = [];
+    const inner = vi.fn(async () => (inner.mock.calls.length === 1 ? bad(502) : ok()));
+    await makeRetryingFetch(inner, {
+      ...instant,
+      onRetry: (fields) => emitted.push(fields),
+    })("http://127.0.0.1:54321/proxy/rest/v1/rpc/is_admin", { method: "POST" });
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({ fn: "is_admin", status: 502, attempt: 1 });
+  });
+
   test("an unparseable URL is ineligible, so no record of it can exist", async () => {
     // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     // Written while trying to prove a leak that turns out to be UNREACHABLE, and kept because
@@ -357,6 +376,54 @@ describe("retrying fetch — a caller's cancellation is never swallowed", () => 
       )(new Request(RPC, { method: "POST", signal: caller.signal })),
     ).rejects.toBe(reason);
     expect(inner).not.toHaveBeenCalled();
+  });
+
+  test("`signal: undefined` is ABSENCE, so a Request's signal still governs", async () => {
+    // no-premise: the assertion is that the transport is never reached, which cannot pass vacuously.
+    //
+    // Three distinct states, and two rounds each moved the line between them. Round 2: `??` treated
+    // an explicit NULL as absence, so a null override fell back to the Request's signal. The repair
+    // tested key PRESENCE — and round 3 probed THAT: `{ signal: undefined }` carries the key, but
+    // native fetch reads undefined as absent and still inherits the Request's signal, so presence
+    // swallowed a real cancellation and returned 200 on an aborted request. The value decides.
+    const caller = new AbortController();
+    const reason = new Error("request-aborted");
+    caller.abort(reason);
+    const inner = vi.fn(async () => ok());
+
+    await expect(
+      makeRetryingFetch(inner, instant)(
+        new Request(RPC, { method: "POST", signal: caller.signal }),
+        // Cast because THIS repo sets exactOptionalPropertyTypes, which makes the literal
+        // unspellable here — not because the input is exotic. The wrapper is installed as the
+        // Supabase client's global fetch, and that client compiles under its own config: any
+        // `{ ...opts, signal: opts.signal }` spread with no signal present produces exactly this
+        // object at runtime. The type system's objection is local to us; the input is not.
+        { signal: undefined } as unknown as RequestInit,
+      ),
+    ).rejects.toBe(reason);
+    expect(inner).not.toHaveBeenCalled();
+  });
+
+  test("`signal: null` is an explicit override, so the Request's signal does NOT govern", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case
+    // reads no socket, file, clock or environment variable — the classifier reports it touching
+    // because the wrapper it drives can reach fetch, not because this test does.
+    //
+    // The other side of the same line, pinned so neither repair can be undone by fixing the other.
+    // A bare fetch given `{ signal: null }` ignores the Request's signal and performs the request;
+    // the wrapper has to agree, or it rejects a call that would have succeeded.
+    const caller = new AbortController();
+    caller.abort(new Error("request-aborted"));
+    const inner = vi.fn(async () => ok());
+
+    const res = await makeRetryingFetch(inner, instant)(
+      new Request(RPC, { method: "POST", signal: caller.signal }),
+      { signal: null },
+    );
+
+    expect(res.status).toBe(200);
+    expect(inner).toHaveBeenCalledTimes(1);
   });
 
   test("a caller who aborts during backoff does not get another attempt", async () => {

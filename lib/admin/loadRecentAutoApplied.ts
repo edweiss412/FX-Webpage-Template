@@ -141,6 +141,11 @@ export async function loadRecentAutoApplied(deps: {
   try {
     supabase = deps.supabase ?? createSupabaseServiceRoleClient();
   } catch (err) {
+    void log.error("recent auto-applied client construction failed", {
+      source: "admin.recentAutoApplied",
+      code: "RECENT_AUTO_APPLIED_CLIENT_THREW",
+      error: err,
+    });
     return {
       kind: "infra_error",
       message: `service-role client construction failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -172,6 +177,11 @@ export async function loadRecentAutoApplied(deps: {
     rawRows = (data ?? []) as RawRow[];
     matchedTotal = count ?? rawRows.length;
   } catch (err) {
+    void log.error("show_change_log read threw", {
+      source: "admin.recentAutoApplied",
+      code: "SHOW_CHANGE_LOG_READ_THREW",
+      error: err,
+    });
     return {
       kind: "infra_error",
       message: `show_change_log read threw: ${err instanceof Error ? err.message : String(err)}`,
@@ -245,6 +255,15 @@ export async function loadRecentAutoApplied(deps: {
       rosterShiftByShow[r.show_id] = { added, removed, renamed, total: added + removed + renamed };
     }
   } catch (err) {
+    // A typed result carries the fault to the CALLER, which satisfies invariant 9 — but the only
+    // caller (app/admin/needs-attention/page.tsx) degrades on it without logging, so the message
+    // reached nobody durable. The retry wrapper absorbs upstream 502s here; an absorbed fault that
+    // leaves no trace is the exact thing this arc exists to stop.
+    void log.error("roster_shift_counts rpc threw", {
+      source: "admin.recentAutoApplied",
+      code: "ROSTER_SHIFT_COUNTS_READ_THREW",
+      error: err,
+    });
     return {
       kind: "infra_error",
       message: `roster_shift_counts rpc threw: ${err instanceof Error ? err.message : String(err)}`,

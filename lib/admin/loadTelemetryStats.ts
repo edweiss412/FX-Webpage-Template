@@ -48,10 +48,11 @@ export async function loadTelemetryStats(now: Date): Promise<LoadTelemetryStatsR
       return FAIL;
     }
     return { kind: "ok", stats: { total, errorCount, warnCount, infoCount, buckets } };
-  } catch {
+  } catch (err) {
     void log.error("admin_event_stats_24h threw", {
       source: "admin.telemetry.stats",
       code: "TELEMETRY_STATS_READ_THREW",
+      error: err,
     });
     return FAIL;
   }

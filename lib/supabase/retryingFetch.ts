@@ -24,7 +24,7 @@
  */
 import { log } from "@/lib/log";
 
-import { isRetryEligible, postgrestWillRetry } from "./retryEligibility";
+import { isRetryEligible, postgrestWillRetry, RPC_PATH } from "./retryEligibility";
 
 /** Retries AFTER the first attempt. Two, not the sibling's three: this path is a page render. */
 export const MAX_SUPABASE_RETRIES = 2;
@@ -110,7 +110,7 @@ export type RetryingFetchOptions = {
 function describeTarget(url: string): string {
   try {
     const path = new URL(url).pathname;
-    return /^\/rest\/v1\/rpc\/([^/]+)$/.exec(path)?.[1] ?? path;
+    return RPC_PATH.exec(path)?.[1] ?? path;
   } catch {
     // UNREACHABLE, and now written so that it cannot pretend otherwise. `isRetryEligible` calls
     // `new URL` first and refuses anything that throws, so no unparseable URL ever reaches a retry
@@ -207,13 +207,19 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
     // already carries one. Reading only `init.signal` meant the second form was invisible, so an
     // aborted Request still went out to the transport and came back 200 where a bare fetch rejects.
     //
-    // `??` was wrong for the precedence, though, and round-2 review probed it: `RequestInit.signal`
-    // legally accepts NULL, and native fetch reads an explicit null as an OVERRIDE that clears the
-    // Request's signal. Coalescing treated it as absence and fell back to the Request's, so a
-    // pre-aborted Request rejected where a bare fetch resolves 200. Presence of the KEY is the test,
-    // not truthiness of the value.
+    // `??` was wrong for the precedence, and round-2 review probed it: `RequestInit.signal` legally
+    // accepts NULL, and native fetch reads an explicit null as an OVERRIDE that clears the Request's
+    // signal. Coalescing treated it as absence and fell back to the Request's, so a pre-aborted
+    // Request rejected where a bare fetch resolves 200.
+    //
+    // Key PRESENCE was the wrong repair for it, and round-3 review probed that too: `{ signal:
+    // undefined }` has the key, but native fetch treats undefined as ABSENT and still inherits the
+    // Request's signal, so testing presence swallowed a caller's cancellation and returned 200 on a
+    // request the caller had aborted. The three cases are distinct and the value is what separates
+    // them: a SIGNAL is used, NULL is an explicit "no signal" that does not inherit, and UNDEFINED
+    // (or an absent key) is absence that inherits from the Request.
     const callerSignal =
-      init !== undefined && "signal" in init
+      init !== undefined && init.signal !== undefined
         ? (init.signal ?? undefined)
         : input instanceof Request
           ? input.signal

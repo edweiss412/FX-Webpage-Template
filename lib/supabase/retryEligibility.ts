@@ -56,7 +56,7 @@ export const RETRYABLE_RPCS: ReadonlySet<string> = new Set([
  * The leading slash is load-bearing: `/myrest/v1/rpc/x` must NOT match, and it does not, because
  * the character before `rest` is `y` rather than `/`.
  */
-const RPC_PATH = /(?:^|\/)rest\/v1\/rpc\/([^/]+)$/;
+export const RPC_PATH = /(?:^|\/)rest\/v1\/rpc\/([^/]+)$/;
 
 /** The PostgREST mount point, located the same way and for the same reason. */
 const POSTGREST_PREFIX = "/rest/v1/";

@@ -17,15 +17,89 @@
  * Ownership is therefore decided ONCE PER REQUEST, from (url, method) alone, and this file asserts
  * that over the cross product of both dimensions.
  */
+import { createRequire } from "node:module";
+import ts from "typescript";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
 import { isRetryEligible, postgrestWillRetry } from "@/lib/supabase/retryEligibility";
-import { PRODUCT_SOURCE_EXTENSION } from "./retryableRpcVolatilityScan";
+import { PRODUCT_ROOTS, PRODUCT_SOURCE_EXTENSION } from "./retryableRpcVolatilityScan";
 import { premise } from "../_shared/premise";
+
+/**
+ * The `rpc()` options that make the request non-POST. DERIVED from the installed client, not
+ * enumerated from memory: `PostgrestClient.rpc()` computes `method = head ? 'HEAD' : 'GET'` under
+ * `head || get`, and defaults both to false. Pinned against that source by "the installed client
+ * changes an rpc's method for exactly these options" below, so a version bump adding a third such
+ * option FAILS here rather than silently widening the unowned-502 gap.
+ */
+const METHOD_CHANGING_RPC_OPTIONS = ["get", "head"] as const;
+
+/**
+ * The `.rpc()` calls in one file that pass a method-changing option as `true`.
+ *
+ * Structural on purpose. A text match for `head: true` reads the whole FILE, and
+ * `components/admin/Dashboard.tsx` both calls `.rpc()` and, separately, runs three
+ * `.select("id", { count: "exact", head: true })` count queries — a legitimate table read that has
+ * nothing to do with rpc method selection. Scanning text flagged it, so the guard's first widened
+ * run failed on a file containing no offender at all. A guard that cries wolf gets narrowed by the
+ * next person who trips it, which is how the real gap would have been reopened.
+ *
+ * Walking the AST removes the whole class rather than this one instance: comments are not nodes,
+ * and a `.select()` argument is not a `.rpc()` argument. Node's own parser decides, not a pattern.
+ *
+ * DOCUMENTED LIMIT: it reads a literal `true` (through `as const` and parentheses) and nothing else.
+ * `{ get: someFlag }`, `{ ...opts }`, and shorthand `{ get }` carry values no static walk can know,
+ * so they are not flagged. That is deliberate rather than an oversight: the threat fence here is
+ * ordinary authoring mistakes, where the option is written inline, and the alternative — flagging
+ * every unresolvable value — reintroduces exactly the false-positive class this walk replaced. A
+ * guard that fires on safe code gets narrowed by whoever trips it next, which is how the real gap
+ * would reopen.
+ */
+function rpcMethodChangingOptions(file: string): string[] {
+  const src = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+  const hits: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "rpc"
+    ) {
+      for (const arg of node.arguments) {
+        if (!ts.isObjectLiteralExpression(arg)) continue;
+        for (const prop of arg.properties) {
+          if (!ts.isPropertyAssignment(prop)) continue;
+          const name = prop.name.getText(src).replace(/^["']|["']$/g, "");
+          if (!METHOD_CHANGING_RPC_OPTIONS.some((o) => o === name)) continue;
+          // Unwrap `as const` / `as boolean` / parentheses before asking whether the value is
+          // literally true. `{ get: true as const }` is ordinary authoring, and a bare kind check
+          // reads its initializer as an AsExpression and lets it through.
+          let value: ts.Expression = prop.initializer;
+          while (ts.isAsExpression(value) || ts.isParenthesizedExpression(value)) {
+            value = value.expression;
+          }
+          if (value.kind === ts.SyntaxKind.TrueKeyword) {
+            hits.push(`${file}:${name}`);
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(src);
+  return hits;
+}
+
+/** The installed PostgrestClient source, resolved the way the contract test resolves common.ts. */
+function installedClientSource(): string {
+  const require = createRequire(import.meta.url);
+  const supabaseJs = require.resolve("@supabase/supabase-js/package.json");
+  const pkgJson = createRequire(supabaseJs).resolve("@supabase/postgrest-js/package.json");
+  return readFileSync(join(dirname(pkgJson), "src/PostgrestClient.ts"), "utf8");
+}
 
 const H = "http://127.0.0.1:54321";
 const URLS = [
@@ -178,6 +252,54 @@ describe("the documented limit stays unreachable", () => {
     }
   });
 
+  test("the detector separates a method-changing rpc option from everything that looks like one", () => {
+    // Both directions, because each failed in a different way. Text matching FIRED on a file whose
+    // only `head: true` was a count query and a comment; and before it was widened, the same guard
+    // was SILENT on `head: true` in an rpc call. A guard that only proves it stays quiet cannot tell
+    // "nothing is wrong" from "I cannot see anything".
+    const dir = mkdtempSync(join(tmpdir(), "rpc-opt-"));
+    try {
+      const f = join(dir, "sample.ts");
+      writeFileSync(
+        f,
+        [
+          "// a comment mentioning head: true, which is not a node",
+          "export async function a(c) {",
+          '  await c.select("id", { count: "exact", head: true });',
+          '  await c.rpc("plain_one", { p: 1 });',
+          '  await c.rpc("getter", {}, { get: true });',
+          '  await c.rpc("header", {}, { head: true });',
+          '  await c.rpc("explicitly_false", {}, { get: false });',
+          '  await c.rpc("as_const", {}, { get: true as const });',
+          '  await c.rpc("dynamic", {}, { get: someFlag });',
+          "}",
+        ].join("\n"),
+        "utf8",
+      );
+
+      // "as_const" IS caught (the unwrap), "dynamic" is NOT (the documented limit), and the
+      // select option, the comment and `get: false` stay quiet.
+      const hits = rpcMethodChangingOptions(f).map((h) => h.split(":").pop());
+      expect(hits.sort()).toEqual(["get", "get", "head"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the installed client changes an rpc's method for exactly these options", () => {
+    // The tripwire below is only as wide as METHOD_CHANGING_RPC_OPTIONS, so that list is read back
+    // out of the vendor's OWN branch condition rather than trusted. Enumerating it by hand is what
+    // left `head: true` uncovered for a round; deriving it means the next option the client adds
+    // reds this test instead of quietly reopening the gap.
+    const src = installedClientSource();
+    const branch = /else if \(([^)]+)\)\s*\{\s*method = head \? 'HEAD' : 'GET'/.exec(src);
+    premise("the method-selection branch was located in the installed client", branch ? 1 : 0, 0);
+
+    const condition = branch?.[1] ?? "";
+    const named = Array.from(new Set(condition.match(/[A-Za-z_$][\w$]*/g) ?? [])).sort();
+    expect(named).toEqual([...METHOD_CHANGING_RPC_OPTIONS].sort());
+  });
+
   test("rpcCallsAreNotGet: no caller turns an rpc into a GET", () => {
     // The limit is only harmless while every `.rpc()` is a POST. PostgREST serves
     // `GET /rest/v1/rpc/<fn>` when asked, and such a call becomes PostgREST's under per-request
@@ -185,11 +307,23 @@ describe("the documented limit stays unreachable", () => {
     //
     // Walked from disk so a NEW call site is covered by default. The premise is that the walk found
     // rpc calls at all; an empty scan would satisfy the assertion vacuously.
-    const files = scanProductFiles(["app", "lib"]);
+    // Roots come from PRODUCT_ROOTS, not a private list. The private list said ["app", "lib"] while
+    // PRODUCT_ROOTS says ["app", "lib", "components"], so every `.rpc()` under components/ was
+    // unscanned — and components/admin/Dashboard.tsx ALREADY calls readfinalizeowned_b2, which put a
+    // live call site one ordinary edit from the unowned-502 gap with this guard green. Same repair
+    // as the extension list one round earlier: share the constant so the two cannot diverge again.
+    const files = scanProductFiles(PRODUCT_ROOTS);
     const rpcFiles = files.filter((f) => readFileSync(f, "utf8").includes(".rpc("));
     premise("files containing an .rpc( call", rpcFiles.length, 0);
 
-    const offenders = rpcFiles.filter((f) => /\bget\s*:\s*true\b/.test(readFileSync(f, "utf8")));
+    // Both method-changing options, derived from the installed client rather than enumerated by
+    // hand: PostgrestClient's rpc() computes `method = head ? 'HEAD' : 'GET'` when `head || get`,
+    // so exactly these two turn an rpc into a non-POST. Matching only `get` left `head: true` —
+    // equally ordinary, equally unowned, since HEAD is in PostgREST's retryable METHODS while 502
+    // is not in its retryable STATUSES. METHOD_CHANGING_RPC_OPTIONS is pinned against the installed
+    // source below, so a version bump that adds a third option fails instead of silently widening
+    // the gap.
+    const offenders = rpcFiles.flatMap((f) => rpcMethodChangingOptions(f));
     expect(offenders).toEqual([]);
   });
 });

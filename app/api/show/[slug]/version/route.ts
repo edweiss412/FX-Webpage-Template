@@ -60,7 +60,14 @@ async function showIdFromSlug(slug: string): Promise<"infra_error" | string | nu
       .maybeSingle()) as { data: { id: string } | null; error: unknown };
     if (error) return "infra_error";
     return data?.id ?? null;
-  } catch {
+  } catch (err) {
+    // Swept in with the above rather than left for a later round: same file, same shape, and this
+    // one discarded the fault entirely — a bare sentinel with neither message nor emit.
+    void log.error("show id from slug threw", {
+      source: "api.show.version",
+      code: "SHOW_ID_FROM_SLUG_THREW",
+      error: err,
+    });
     return "infra_error";
   }
 }
@@ -140,7 +147,15 @@ export async function GET(
       return NextResponse.json({ error: "SHOW_VERSION_TOKEN_RPC_FAILED" }, { status: 500 });
     }
     data = versionToken;
-  } catch {
+  } catch (err) {
+    // The returned-error branch above emits; this one answered 500 in silence, so a thrown upstream
+    // fault on the same RPC left no durable record at all. Distinct code from the returned-error
+    // one, because "the RPC answered with an error" and "the call threw" are different faults.
+    void log.error("show version token rpc threw", {
+      source: "api.show.version",
+      code: "SHOW_VERSION_TOKEN_RPC_THREW",
+      error: err,
+    });
     return NextResponse.json({ error: "SHOW_VERSION_TOKEN_RPC_FAILED" }, { status: 500 });
   }
 
