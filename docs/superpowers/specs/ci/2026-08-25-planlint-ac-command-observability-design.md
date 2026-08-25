@@ -263,14 +263,19 @@ this is a limit of the method rather than a gap in the suite. **Re-file trigger:
 harness that distinguishes `TIMEOUT` from `KILLED` in the score, at which point the
 denominator should exclude it rather than count it as a kill.
 
-**Review economy, recorded here because the corpus structurally cannot hold it.** The whole-diff
-stage ran FOUR rounds — r1 NEEDS-ATTENTION (1 finding), r2 BLOCKING (4), r3 BLOCKING (4), r4
-BLOCKING (1) — but they are split across FOUR corpus files, because rows are keyed by
-`(branch, merge-base)` and `origin/main` was absorbed three times mid-arc. Per the economy spec
-§8.2 item 3 the `--round` counter restarts at 1 on the new side of a split, so each file is
-contiguous and no file reaches `ROUND_THRESHOLD`. The per-file threshold therefore structurally
-under-counts any arc that absorbs main, and a filing declaring the true total cannot live in the
-corpus without failing its own count check.
+**Review economy.** The whole-diff stage ran FIVE rounds: r1 NEEDS-ATTENTION (1 finding), r2
+BLOCKING (4), r3 BLOCKING (4), r4 BLOCKING (1), r5 APPROVE (0). They are split across THREE corpus
+files, because rows are keyed by `(branch, merge-base)` and `origin/main` was absorbed three times
+mid-arc. Per the economy spec §8.2 item 3 the `--round` counter restarts at 1 on the new side of a
+split, so each file is contiguous and no single file reaches `ROUND_THRESHOLD`. This paragraph
+originally recorded that the corpus could not hold a filing declaring the true total, since a
+per-base count check would reject it. That is no longer so: `feat/review-round-arc-sum` (#887) added
+the arc-sum rule, which sums distinct `(baseSha, round)` pairs across every base of one branch
+directory, and absorbing it turned this arc's five rounds into an owed filing. It is filed at
+`docs/review-rounds/feat/planlint-ac-command-observability/dce1e5e2ff9b.md`, at the latest base
+holding diff rows, declaring that file's own count of 2 with the cross-base total of 5 on its
+`**Examined:**` line. The under-counting this paragraph described was real and is now closed by
+someone else's arc.
 
 The rounds were not spent on one defect. Three of the four found the SAME CLASS: the injected cell
 view dropped a string the parser had already read — link destinations (r2), duplicate-definition
