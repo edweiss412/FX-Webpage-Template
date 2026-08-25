@@ -214,6 +214,51 @@ describe("retrying fetch — a retry is never silent (spec §6)", () => {
     expect(emitted[0]).toMatchObject({ fn: "is_admin", status: 502, attempt: 1 });
   });
 
+  test("a schema-qualified rpc is NOT owned — the retry set speaks only for public", async () => {
+    // no-premise: the transport is an injected stub.
+    //
+    // The URL does not carry the schema. `supabase.schema("dev").rpc("is_admin", ...)` produces the
+    // SAME path as the public call and differs only in `Content-Profile`, so a url+method rule let
+    // `dev.is_admin` — a different function, possibly a writer — inherit `public.is_admin`'s
+    // safety. config.toml exposes `graphql_public` and `dev` today.
+    const inner = vi.fn(async () => bad(502));
+    const res = await makeRetryingFetch(inner, instant)(RPC, {
+      method: "POST",
+      headers: { "Content-Profile": "dev" },
+    });
+
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(502);
+  });
+
+  test("an explicit public profile is still ours, so the header is read and not merely feared", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case
+    // reads no socket, file, clock or environment variable.
+    //
+    // The other direction: without this, declining everything would pass the case above while
+    // silently disabling the feature.
+    const inner = vi.fn(async () => (inner.mock.calls.length === 1 ? bad(502) : ok()));
+    const res = await makeRetryingFetch(inner, instant)(RPC, {
+      method: "POST",
+      headers: { "Content-Profile": "public" },
+    });
+
+    expect(inner).toHaveBeenCalledTimes(2);
+    expect(res.status).toBe(200);
+  });
+
+  test("the profile is read off a Request too, not only off init", async () => {
+    // no-premise: as above — injected stub, no ambient read.
+    const inner = vi.fn(async () => bad(502));
+    const res = await makeRetryingFetch(
+      inner,
+      instant,
+    )(new Request(RPC, { method: "POST", headers: { "content-profile": "dev" } }));
+
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(502);
+  });
+
   test("a STORAGE object named like an rpc is not owned, so a write is never retried", async () => {
     // no-premise: the transport is an injected stub; nothing here reads a socket, file or clock.
     //

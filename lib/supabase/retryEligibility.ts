@@ -117,7 +117,17 @@ const IDEMPOTENT_METHODS = new Set(["GET", "HEAD"]);
  * DOCUMENTED LIMIT: a 502 on a non-PostgREST idempotent request is not absorbed. Nothing absorbed
  * it before this arc either, so the behaviour is unchanged rather than lost.
  */
-export function isRetryEligible(url: string, method: string | undefined, basePath = ""): boolean {
+export function isRetryEligible(
+  url: string,
+  method: string | undefined,
+  basePath = "",
+  schema?: string,
+): boolean {
+  // RETRYABLE_RPCS is a statement about functions in `public`, because that is the only schema the
+  // volatility scan reads. A request naming any other schema targets a DIFFERENT function that
+  // happens to share a name, so its safety is unverified and we decline rather than inherit.
+  if (schema !== undefined && schema !== "public") return false;
+
   let path: string;
   try {
     path = new URL(url).pathname;

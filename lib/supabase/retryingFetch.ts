@@ -55,13 +55,34 @@ export const PER_ATTEMPT_TIMEOUT_MS = 2000;
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 /** The request's URL and method, wherever they were carried. */
+/**
+ * The schema this request targets, from PostgREST's `Content-Profile`.
+ *
+ * The URL does NOT carry it. `supabase.schema("dev").rpc("is_admin", ...)` and the default
+ * `public` call produce the SAME path and differ only in this header, so a rule reading url and
+ * method alone lets `dev.is_admin` inherit `public.is_admin`'s retry safety — a different function,
+ * possibly a writer, retried on someone else's evidence. `supabase/config.toml` already exposes
+ * `graphql_public` and `dev`, and `.schema()` is an existing authoring pattern here.
+ */
+function contentProfileOf(input: RequestInfo | URL, init?: RequestInit): string | undefined {
+  const read = (h: HeadersInit | undefined): string | undefined => {
+    if (h === undefined) return undefined;
+    if (h instanceof Headers) return h.get("content-profile") ?? undefined;
+    const entries = Array.isArray(h) ? h : Object.entries(h);
+    for (const [k, v] of entries) if (k.toLowerCase() === "content-profile") return v;
+    return undefined;
+  };
+  return read(init?.headers) ?? (input instanceof Request ? read(input.headers) : undefined);
+}
+
 function describeRequest(
   input: RequestInfo | URL,
   init?: RequestInit,
-): { url: string; method: string | undefined } {
-  if (typeof input === "string") return { url: input, method: init?.method };
-  if (input instanceof URL) return { url: input.href, method: init?.method };
-  return { url: input.url, method: init?.method ?? input.method };
+): { url: string; method: string | undefined; schema: string | undefined } {
+  const schema = contentProfileOf(input, init);
+  if (typeof input === "string") return { url: input, method: init?.method, schema };
+  if (input instanceof URL) return { url: input.href, method: init?.method, schema };
+  return { url: input.url, method: init?.method ?? input.method, schema };
 }
 
 /**
@@ -200,7 +221,7 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> {
-    const { url, method } = describeRequest(input, init);
+    const { url, method, schema } = describeRequest(input, init);
 
     // ONE ownership decision, before the first attempt, for the whole request.
     //
@@ -214,7 +235,7 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
     // committed server-side: measured `bare 201, wrapped AbortError, commits=1` on both sides. A
     // request this wrapper does not retry must come back exactly as it would with no wrapper at all.
     const owned =
-      isRetryEligible(url, method, basePath) && !postgrestWillRetry(url, method, basePath);
+      isRetryEligible(url, method, basePath, schema) && !postgrestWillRetry(url, method, basePath);
     if (!owned) return inner(input, init);
 
     // A caller can hand us its signal two ways: `fetch(url, { signal })`, or a `Request` that

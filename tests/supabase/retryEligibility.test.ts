@@ -175,3 +175,38 @@ describe("POSTGREST_RETRYABLE_STATUSES", () => {
     expect([...POSTGREST_RETRYABLE_STATUSES].sort((a, b) => a - b)).toEqual([503, 520]);
   });
 });
+
+describe("the schema a request names, which the URL does not carry", () => {
+  const RPC = "http://127.0.0.1:54321/rest/v1/rpc/is_admin";
+  const member = [...RETRYABLE_RPCS][0]!;
+  const RPC_MEMBER = `http://127.0.0.1:54321/rest/v1/rpc/${member}`;
+
+  test("no profile is the default schema, so a retryable member stays eligible", () => {
+    expect(isRetryEligible(RPC_MEMBER, "POST")).toBe(true);
+    expect(isRetryEligible(RPC_MEMBER, "POST", "", undefined)).toBe(true);
+  });
+
+  test("an explicit public profile is the same request", () => {
+    expect(isRetryEligible(RPC_MEMBER, "POST", "", "public")).toBe(true);
+  });
+
+  test("any other exposed schema is a DIFFERENT function and is declined", () => {
+    // `supabase.schema("dev").rpc(...)` produces the same path and differs only in
+    // `Content-Profile`. RETRYABLE_RPCS speaks for `public` alone — the volatility scan reads no
+    // other schema — so `dev.is_admin` would be retried on `public.is_admin`'s evidence.
+    // config.toml exposes `graphql_public` and `dev` today.
+    expect(isRetryEligible(RPC_MEMBER, "POST", "", "dev")).toBe(false);
+    expect(isRetryEligible(RPC_MEMBER, "POST", "", "graphql_public")).toBe(false);
+  });
+
+  test("the decline covers the method branch too, not just the rpc one", () => {
+    expect(isRetryEligible("http://127.0.0.1:54321/rest/v1/shows", "GET", "", "dev")).toBe(false);
+    expect(isRetryEligible("http://127.0.0.1:54321/rest/v1/shows", "GET")).toBe(true);
+  });
+
+  test("a non-member rpc is still ineligible whatever the schema says", () => {
+    expect(isRetryEligible(RPC.replace("is_admin", "some_writer"), "POST", "", "public")).toBe(
+      false,
+    );
+  });
+});
