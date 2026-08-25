@@ -263,6 +263,29 @@ this is a limit of the method rather than a gap in the suite. **Re-file trigger:
 harness that distinguishes `TIMEOUT` from `KILLED` in the score, at which point the
 denominator should exclude it rather than count it as a kill.
 
+**Review economy, recorded here because the corpus structurally cannot hold it.** The whole-diff
+stage ran FOUR rounds — r1 NEEDS-ATTENTION (1 finding), r2 BLOCKING (4), r3 BLOCKING (4), r4
+BLOCKING (1) — but they are split across FOUR corpus files, because rows are keyed by
+`(branch, merge-base)` and `origin/main` was absorbed three times mid-arc. Per the economy spec
+§8.2 item 3 the `--round` counter restarts at 1 on the new side of a split, so each file is
+contiguous and no file reaches `ROUND_THRESHOLD`. The per-file threshold therefore structurally
+under-counts any arc that absorbs main, and a filing declaring the true total cannot live in the
+corpus without failing its own count check.
+
+The rounds were not spent on one defect. Three of the four found the SAME CLASS: the injected cell
+view dropped a string the parser had already read — link destinations (r2), duplicate-definition
+precedence and `imageReference` alt (r3), then titles on all four title-bearing forms (r4). Each
+time I repaired the instances the reviewer named, and each time the next round found the next
+member, because an ENUMERATION of text-bearing fields is always one field behind the format. The
+closing repair is an inversion, not a longer list: the view default-includes every string mdast
+carries in the cell and denies a short structural set, so a field this module has never heard of is
+included rather than dropped, and the worst case degrades from a silent wrong accept to harmless
+noise in a pin scan. It is pinned by a DERIVED test that walks the row's own mdast and asserts no
+non-structural string is missing from the view, so a regression to enumeration fails as a class.
+
+The general rule, worth more than this arm: **when successive rounds each add one member to a
+recognizer's accept-list, the repair direction is to invert the default, not to extend the list.**
+
 ## 8. Design
 
 ### 8.1 The declaration

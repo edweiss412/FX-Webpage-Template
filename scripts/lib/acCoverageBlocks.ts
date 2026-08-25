@@ -37,26 +37,44 @@ import type { AcBlocks, AcCell, AcHtmlBlock, AcRow, AcTableBlock } from "../../l
  * `codes` is unchanged and still holds inlineCode only: a URL is not a command,
  * and admitting one there would let a link masquerade as a runnable cell.
  */
-function cellView(node: RootContent, defs: ReadonlyMap<string, string>): AcCell {
+/**
+ * Structural fields that are never authored prose. Everything else is collected.
+ *
+ * DEFAULT-INCLUDE is the whole point. An enumeration of text-bearing fields was
+ * wrong four rounds running -- link destinations (r2), duplicate-definition
+ * precedence and `imageReference` alt (r3), then titles on all four title-bearing
+ * forms (r4) -- because a list of fields is always one field behind the format.
+ * Inverting it closes the class: a string mdast carries in the cell reaches the
+ * scan unless it is named here, so a field this module has never heard of is
+ * INCLUDED rather than dropped, and the failure mode becomes harmless noise in a
+ * pin scan rather than a silent wrong accept.
+ */
+const STRUCTURAL_FIELDS = new Set(["type", "referenceType", "align", "lang", "meta", "checked"]);
+
+/**
+ * A cell's strings and its inlineCode values. remark decides both.
+ *
+ * `text` is EVERY string mdast carries in the cell, minus the structural fields
+ * above. `codes` still holds inlineCode only: a URL or a title is not a command,
+ * and admitting one there would let a link masquerade as a runnable cell.
+ */
+function cellView(node: RootContent, defs: ReadonlyMap<string, DefinitionStrings>): AcCell {
   let text = "";
   const codes: string[] = [];
   const walk = (n: RootContent): void => {
-    if (n.type === "text") text += n.value;
-    else if (n.type === "inlineCode") {
-      text += n.value;
-      codes.push(n.value);
-    } else if (n.type === "link" || n.type === "image") {
-      text += ` ${n.url} `;
-    } else if (n.type === "linkReference" || n.type === "imageReference") {
-      text += ` ${defs.get(n.identifier.toLowerCase()) ?? n.identifier} `;
-    } else if (n.type === "html") {
-      text += ` ${n.value} `;
+    for (const [key, value] of Object.entries(n)) {
+      if (typeof value !== "string" || value === "" || STRUCTURAL_FIELDS.has(key)) continue;
+      // `text`/`inlineCode` values join the flow directly so rendered prose reads
+      // as written; every other string is delimited, because a URL abutting the
+      // next word would invent a token neither one contains.
+      text +=
+        n.type === "text" || (n.type === "inlineCode" && key === "value") ? value : ` ${value} `;
     }
-    // ALT for BOTH image forms. `image` carried its alt and `imageReference` did
-    // not, so a pin written as reference-image alt text rendered visibly and was
-    // invisible to the scan (round 3 finding 2) -- the same omission one node type
-    // over, which is what a class sweep is supposed to catch the first time.
-    if ((n.type === "image" || n.type === "imageReference") && n.alt) text += ` ${n.alt} `;
+    if (n.type === "inlineCode") codes.push(n.value);
+    if (n.type === "linkReference" || n.type === "imageReference") {
+      const d = defs.get(n.identifier.toLowerCase());
+      if (d) text += ` ${d.url} ${d.title ?? ""} `;
+    }
     for (const c of ("children" in n ? n.children : []) as RootContent[]) walk(c);
   };
   walk(node);
@@ -73,11 +91,14 @@ function cellView(node: RootContent, defs: ReadonlyMap<string, string>): AcCell 
  * accept rather than a miss (whole-diff review round 3 finding 1). Duplicated
  * definitions are ordinary authoring, not obfuscation.
  */
-function definitionsOf(root: Root): ReadonlyMap<string, string> {
-  const out = new Map<string, string>();
+type DefinitionStrings = { url: string; title: string | null | undefined };
+
+function definitionsOf(root: Root): ReadonlyMap<string, DefinitionStrings> {
+  const out = new Map<string, DefinitionStrings>();
   const walk = (n: Root | RootContent): void => {
     if (n.type === "definition" && !out.has(n.identifier.toLowerCase())) {
-      out.set(n.identifier.toLowerCase(), n.url);
+      // URL and TITLE both: a reference form's pin can live in either (r4).
+      out.set(n.identifier.toLowerCase(), { url: n.url, title: n.title });
     }
     for (const c of ("children" in n ? n.children : []) as RootContent[]) walk(c);
   };

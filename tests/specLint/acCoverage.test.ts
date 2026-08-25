@@ -1,5 +1,8 @@
 import { readFileSync } from "node:fs";
 
+import { remark } from "remark";
+import remarkGfm from "remark-gfm";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -366,6 +369,62 @@ describe("acCoverage — the skips and boundaries the arm depends on", () => {
     };
     expect(checkAcCoverage(view, "plan", parse).map((f) => f.code)).toContain(
       "AC_COMMAND_PIN_UNOBSERVED",
+    );
+  });
+
+  it("collects EVERY string mdast carries in the cell, not an enumerated list of fields", () => {
+    // THE CLASS, not another instance. Four rounds each found one more field the
+    // view dropped -- link destinations (r2), duplicate-definition precedence and
+    // `imageReference` alt (r3), titles on all four title-bearing forms (r4) --
+    // because an enumeration of text-bearing fields is always one field behind the
+    // format. The view now DEFAULT-INCLUDES: a string reaches the scan unless its
+    // key is structural. This asserts that property against the nodes remark
+    // actually produces, so a regression to enumeration fails here rather than
+    // being found by a fifth round.
+    const STRUCTURAL = new Set(["type", "referenceType", "align", "lang", "meta", "checked"]);
+    const cell = '[a](u1 "t1") ![b](u2 "t2") [c][r1] ![d][r2] `code` <a href="h1">e</a> plain';
+    const md = [
+      "<!-- ac-coverage: command-col=2 -->",
+      "",
+      "| AC | Pin |",
+      "| --- | --- |",
+      `| AC-1 | ${cell} |`,
+      "",
+      '[r1]: u3 "t3"',
+      '[r2]: u4 "t4"',
+    ].join("\n");
+    const root = remark().use(remarkGfm).parse(md);
+    // Scope the walk to the ROW UNDER TEST plus the definitions it resolves
+    // through. An earlier version walked the whole document and reported the
+    // header cell as "dropped" -- a defect in the assertion's extraction, not in
+    // the view, and exactly the scoping mistake the anti-tautology rule warns
+    // about in the other direction.
+    type Nodeish = { type: string; children?: unknown[] };
+    const kids = root.children as unknown as Nodeish[];
+    const tableNode = kids.find((n) => n.type === "table")!;
+    const bodyRow = tableNode.children![1];
+    const defNodes = kids.filter((n) => n.type === "definition");
+
+    // every non-structural string on every node inside that row and its definitions
+    const strings: string[] = [];
+    const walk = (n: unknown): void => {
+      if (typeof n !== "object" || n === null) return;
+      for (const [k, v] of Object.entries(n as Record<string, unknown>)) {
+        if (typeof v === "string" && v !== "" && !STRUCTURAL.has(k)) strings.push(v);
+        else if (Array.isArray(v)) v.forEach(walk);
+        else if (typeof v === "object" && v !== null) walk(v);
+      }
+    };
+    [bodyRow, ...defNodes].forEach(walk);
+    expect(strings.length).toBeGreaterThanOrEqual(12); // the fixture exercises many fields
+
+    const view = viewOf(md);
+    const table = view.find((b) => b.kind === "table");
+    const seen =
+      table && table.kind === "table" ? table.rows[0]!.cells.map((c) => c.text).join(" ") : "";
+    const dropped = [...new Set(strings)].filter((v) => !seen.includes(v));
+    expect(dropped, `strings mdast carries but the view dropped: ${dropped.join(", ")}`).toEqual(
+      [],
     );
   });
 
