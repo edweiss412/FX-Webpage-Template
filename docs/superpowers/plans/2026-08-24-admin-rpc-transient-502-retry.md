@@ -33,7 +33,13 @@ installed anywhere.
 Authored as its own module from the start because it is enrolled in the source-mutation registry in
 Task 6, and the runner can only overlay a target a suite imports.
 
-Cases come from every row of the spec's method census, plus the discrimination case that census
+Cases include RPC-by-GET in both directions, which the method census does not cover: PostgREST serves
+`GET /rest/v1/rpc/<fn>` for non-volatile functions, and spec §4.2 holds RPC GETs to the SAME set
+membership as RPC POSTs. So a retryable RPC by GET retries, and a VOLATILE RPC by GET is single-attempt
+(spec AC-3 names that case). Without both, a predicate returning `true` for every GET passes, and so
+does one rejecting every RPC GET — opposite bugs, same green.
+
+Cases also come from every row of the spec's method census, plus the discrimination case that census
 exposed: an insert into a table NAMED after a retryable function must not be retried. That case is
 what pins the rule to the full `/rest/v1/rpc/<fn>` shape rather than to a trailing segment.
 
@@ -83,6 +89,22 @@ rule to the volatility-only rule §4.2 already rejected. The fixture is the spec
 `lib/supabase/retryingFetch.ts (new)` follows `withDriveRetry`: a named max-retries constant, exponential
 backoff with jitter, `sleep` and `random` injectable so no test sleeps.
 
+**The budget the spec delegates here, stated as a number.** `MAX_SUPABASE_RETRIES = 2` (the sibling's
+`DEFAULT_MAX_DRIVE_RETRIES` is 3; two is chosen because this path is a user-visible page render rather
+than a background sync). Backoff follows the sibling's shape, `250ms * 2^(n-1)` plus up to 250ms
+jitter, so the delays are at most 500ms and 750ms and the WORST-CASE ADDED LATENCY IS 1250ms on a
+fully-failing request.
+
+Both comparisons the spec asks for, stated rather than implied. Against the admin gate: `requireAdmin`
+resolves `is_session_live` and `is_admin` in parallel, so 1250ms is the ceiling added to one admin page
+render in the worst case, and only on a request that was going to fail outright anyway. Against CI:
+`.github/workflows/app-e2e.yml` sets `timeout-minutes: 30` on a job measured at 435s, so even a
+pathological run of retries cannot approach the job ceiling.
+
+`RETRYABLE_STATUSES = {502, 503, 504}` is a named export, and this task's red pins the SET rather than
+one member: 502, 503 and 504 each retry, and 500 and 429 do NOT. The sibling treats both as transient
+for Drive, so that is a deliberate divergence this test RECORDS rather than inherits.
+
 AC-1's second half is the anti-tautology arm and is written in the same task: with the cap at zero,
 the same 502-then-200 stub must still surface the error. Without it, the first half passes for a
 wrapper that never retried anything.
@@ -92,7 +114,8 @@ wrapper that never retried anything.
 <!-- task: red=`pnpm vitest run tests/supabase/retryingFetch.failureMode.test.ts` ac=AC-2 -->
 
 All four exhausted two-attempt sequences: 502 then 502, 502 then reject, reject then 502, reject then
-reject.
+reject. The 5xx member is varied across `RETRYABLE_STATUSES` rather than fixed at 502, so an
+implementation that special-cases one status cannot pass.
 
 The wrapper is not installed in the factory until Task 5, so this task reaches it the way this repo
 already does: `vi.mock("@/lib/supabase/server", ...)` returning a client built with the wrapper (the
@@ -123,7 +146,21 @@ Both existing contract suites run here and must pass unmodified.
 
 ## Task 6 — Registry enrolment and the score run
 
-<!-- task: red=`pnpm vitest run tests/mutation/source/registry.test.ts` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` ac=AC-4 -->
+
+**Enrolment has its OWN fan-out of THREE tables, and the earlier red pointed at a file that does not
+exist** (`tests/mutation/source/registry.test.ts — no such file`), which made it the missing-file state this plan's
+own preamble forbids. The real guard is `tests/mutation/_metaGuardSurfaceRegistry.test.ts`, and two
+companion tables gate the same change:
+
+| table | where | what a missing row does |
+| --- | --- | --- |
+| the guard-surface registry | `tests/mutation/source/registry.ts` | the surface is not scored at all |
+| `EXPECTED_LEDGER_KINDS` | `tests/mutation/source/expectedLedgerKinds.ts` | `_metaLedgerKindsDeclarationParity` fails |
+| `EXPECTED_ENV_TOUCHING` | `tests/mutation/_metaPremiseContract.test.ts`, search `EXPECTED_ENV_TOUCHING` | its keys are asserted EQUAL to the suite list, so a new deciding suite without a row fails |
+
+Both new surfaces need rows in all three. Adding only the registry rows leaves two merge-gating
+contracts red.
 
 **Two registry rows, not one.** The runner overlays exactly ONE `surface.sourcePath`
 (`tests/mutation/source/runner.ts`, search `const target = resolve(root, surface.sourcePath)`), so one
@@ -149,7 +186,20 @@ not taken: one run fleet-wide at a time.
 
 <!-- task: red=`sh -c 'BASELINE_SERVER_ONLY=1 pnpm exec playwright test tests/e2e/admin-upstream-retry.spec.ts --project=desktop-chromium'` ac=AC-5 -->
 
-**Wiring comes FIRST in this task, or the red is unreachable.** A new spec file is selected by
+**A new e2e member has a FOUR-registry fan-out; wiring comes FIRST in this task, or the red is
+unreachable.**
+
+| registry | governs | omission's symptom |
+| --- | --- | --- |
+| `playwright.config.ts` `testMatch` | selection | red reports "no selected tests", indistinguishable from a pass |
+| `.github/workflows/app-e2e.yml` file list | execution | AC-5 never runs on any PR |
+| `scripts/check-app-e2e-executed.mjs` `REQUIRED` | the per-spec executed floor | `tests/cross-cutting/app-e2e-ci-wiring.test.ts` fails, by design |
+| `tests/ci/_workflowCoverageScan.ts` `governs` | which env pair covers the spec | the spec runs without its env; the scan flags EVERY governing row, not one |
+
+The floor is `cases x resolving projects` (this spec resolves under `desktop-chromium` only, so `x 1`),
+never a floor of 1 — the oracle refuses a floor that demands nothing. The `governs` addition goes in
+every governing row, because this spec needs the whole app-e2e env contract, not one variable.
+ A new spec file is selected by
 nothing: `playwright.config.ts`'s `desktop-chromium` project matches an explicit basename allowlist,
 and `.github/workflows/app-e2e.yml` runs an explicit file list. `admin-upstream-retry` appears in
 NEITHER today (verified: zero occurrences in each). So the task adds the basename to the project's
