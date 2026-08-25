@@ -1230,6 +1230,23 @@ describe("mutation admission class", () => {
     // separate-slot-directory design also passes while admitting three heavy
     // phases: the class run takes its own dir's slot and both ordinary runs take
     // the shared pair. Three participants is what discriminates them.
+    // Premise arm: the SAME three children, unwrapped, must overlap three ways.
+    // Without it, startup skew alone can prevent a triple overlap and the
+    // ceiling assertion below holds for a reason that has nothing to do with
+    // admission — which is how the rejected independent-capacity design passes.
+    const premiseLog = join(dir, "premise.log");
+    const pre = ["class", "one", "two"].map((tag) =>
+      runUnwrapped(logWindowArgs(tag, premiseLog, holdMs)),
+    );
+    await Promise.all(pre.map((r) => r.exited));
+    const pw = windows(premiseLog);
+    premiseHolds(
+      "all three unwrapped children overlap — the ceiling oracle is blind otherwise",
+      overlaps(pw.get("class"), pw.get("one")) &&
+        overlaps(pw.get("class"), pw.get("two")) &&
+        overlaps(pw.get("one"), pw.get("two")),
+    );
+
     const log = join(dir, "ceiling.log");
     const cls = runWrapped(env, logWindowArgs("class", log, holdMs), ["--class", "mutation"]);
     const one = runWrapped(env, logWindowArgs("one", log, holdMs));
@@ -1250,30 +1267,41 @@ describe("mutation admission class", () => {
     expect(overlapping.length).toBeLessThan(3);
   }, 90_000);
 
-  it("AC-2f — a class run WAITING for the class holds no slot, so ordinary work still runs", async () => {
+  it("AC-2f — a class run WAITING for the class holds NO slot, so ordinary work still runs", async () => {
     const dir = slotDir();
-    const holdMs = 1200;
-    // ONE slot, so "does the waiting class run occupy it" is answerable.
-    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+    const holdMs = 900;
+    // TWO slots, and that is the whole design of this case. At one slot the
+    // class HOLDER legitimately owns the only slot, so an ordinary run cannot
+    // proceed either way and the case distinguishes nothing — it just waits for
+    // the holder and then races. (CI caught that as a 90 s timeout; locally it
+    // passed by winning the race.) At two slots the holder takes one, and the
+    // question "does the BLOCKED class run take the other" has an answer.
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2", FX_HEAVY_POLL_MS: "100" };
 
-    // A holds the class for the whole window. B is a second class run: it must
-    // block on the CLASS, not on the slot, and must not be holding the slot
-    // while it blocks.
     const holder = runWrapped(env, sleeperArgs(60_000), ["--class", "mutation"]);
     await waitForStderr(holder, "acquired class", 20_000);
+    await waitForStderr(holder, "acquired slot-", 20_000);
+
     const blocked = runWrapped(env, sleeperArgs(60_000), ["--class", "mutation"]);
     await waitForStderr(blocked, "waiting for the mutation class", 20_000);
 
-    // The discriminator. If the class were acquired AFTER the slot, `blocked`
-    // would be sitting on the only slot while it waits, and this ordinary run
-    // could never start. Asserting the announcement ORDER instead does not
-    // catch that: the slot's own announcement comes after `acquire_loop`, so
-    // both orderings print class-then-slot. Verified by planting the defect.
+    // The discriminator: one slot is still free ONLY IF `blocked` is waiting on
+    // the class without having taken one. Under a slot-first implementation it
+    // would hold the second slot and this ordinary run could not start.
+    // TIME-BOUNDED, and that is the discriminator rather than a nicety. Under a
+    // slot-first implementation the ordinary run does still complete — after the
+    // 60 s holder finishes — so "it eventually exits 0" is satisfied by the
+    // defect and only the DEADLINE separates them. Verified by planting
+    // slot-first: the unbounded form passed, this one fails.
     const log = join(dir, "ordinary.log");
+    const startedAt = Date.now();
     const ordinary = runWrapped(env, logWindowArgs("ordinary", log, holdMs));
-    const res = await ordinary.exited;
-    expect(res.code).toBe(0);
+    expect((await ordinary.exited).code).toBe(0);
+    const elapsed = Date.now() - startedAt;
     expect(windows(log).get("ordinary")).toBeDefined();
+    // Generous against CI slowness, and still an order of magnitude under the
+    // 60 s wait a slot-first implementation would impose.
+    expect(elapsed).toBeLessThan(20_000);
 
     holder.child.kill("SIGKILL");
     blocked.child.kill("SIGKILL");
@@ -1322,6 +1350,10 @@ describe("mutation admission class", () => {
     // acquirer waiting for the one slot, and nested class work under the holder.
     const ordinary = await holdSlot(env);
     const classWaiter = runWrapped(env, sleeperArgs(1_500), ["--class", "mutation"]);
+    // The cycle must EXIST before "it terminates" means anything. Without this,
+    // a nested implementation that happens to win the race and acquire the class
+    // before refusing passes while deadlocking under the intended ordering.
+    await waitForStderr(classWaiter, "acquired class", 20_000);
     const marker = /FX_HEAVY_SLOT_HELD=(\S+)/.exec(ordinary.stderr());
     const inherited = marker?.[1] ?? `${join(dir, "slot-0")}:${ordinary.pid}`;
     const nested = runWrapped(
@@ -1364,6 +1396,21 @@ describe("mutation admission class — the production entry point", () => {
     //
     // slots=2 is the discriminator: at one slot these serialize regardless.
     const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2", FX_HEAVY_POLL_MS: "100" };
+
+    // Premise arm, and it is specifically about `pnpm` and reaper startup skew:
+    // if the two workloads do not overlap when NOTHING bounds them, the
+    // non-overlap asserted below proves only that they were slow to start, and
+    // a script that silently drops `--class mutation` passes.
+    const premiseLog = join(dir, "premise.log");
+    const pa = spawnRun("pnpm", ["heavy", ...logWindowArgs("a", premiseLog, holdMs)], env);
+    const pb = spawnRun("pnpm", ["heavy", ...logWindowArgs("b", premiseLog, holdMs)], env);
+    await Promise.all([pa.exited, pb.exited]);
+    const pw = windows(premiseLog);
+    premiseHolds(
+      "the two production-entry workloads overlap without the class — the oracle is blind otherwise",
+      overlaps(pw.get("a"), pw.get("b")),
+    );
+
     const log = join(dir, "entry.log");
     const a = spawnRun("pnpm", ["heavy:mutation", ...logWindowArgs("a", log, holdMs)], env);
     const b = spawnRun("pnpm", ["heavy:mutation", ...logWindowArgs("b", log, holdMs)], env);

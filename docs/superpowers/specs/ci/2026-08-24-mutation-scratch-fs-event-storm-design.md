@@ -166,7 +166,11 @@ Preferred: key on `(path, mtimeMs, size)`. A fixture rewritten within the same m
 
 **The shape that works.** A mutation run takes an ADDITIONAL exclusive lock alongside its ordinary slot, both fds inheritable through `exec`, both released at process death by the same mechanism. Total concurrency stays at the ordinary slot count; mutation exclusivity is the extra lock.
 
-**Lock ordering is load-bearing.** The class lock is acquired FIRST, then the ordinary slot. The reverse deadlocks: run A holds a slot and waits for the class while run B holds the class and waits for a slot. Class-first gives a global order, and ordinary runs never want the class lock, so no cycle exists.
+**Lock ordering is load-bearing, and the invariant is NO CYCLE — not "nothing ever waits while holding".** The class lock is acquired FIRST, then the ordinary slot. The reverse deadlocks: run A holds a slot and waits for the class while run B holds the class and waits for a slot.
+
+Class-first does mean a queuing mutation run **holds the class while it waits for a slot**, and that is intended rather than an oversight. Any ordered two-lock acquisition holds the first while taking the second; a blanket "no wait-while-holding" rule is unsatisfiable for one and is not the property that matters. What matters is that the wait cannot close a cycle, and it cannot: ordinary runs never request the class, so no one is ever waiting on a resource the queuing class holder owns.
+
+The consequence is bounded and worth stating: a mutation run queuing for a slot delays OTHER MUTATION runs (they wait for the class) and delays nothing else (ordinary phases take slots normally). AC-2f pins that second half — the half a reader would doubt — by showing an ordinary run proceeding while a class run is blocked on the class.
 
 **Reentrancy, and two rounds of getting it wrong.** `FX_HEAVY_SLOT_HELD` names one slot as `path:pid`, validated three ways before it is trusted (`scripts/with-heavy-slot.py:381`). Nested invocations pass through under the outermost holder (`scripts/with-heavy-slot.py:683`).
 
