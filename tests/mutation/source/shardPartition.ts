@@ -28,12 +28,30 @@ export const SOURCE_SHARD_COUNT = 4;
 /** SECONDS, not minutes -- an integer-minute record cannot express 60m59s. */
 export const SHARD_BUDGET_SECONDS = 60 * 60;
 
-export function weightOf(surface: GuardSurface): number {
+/**
+ * MODELLED child boots for one surface.
+ *
+ * Extracted from `weightOf` VERBATIM. The expression is also
+ * `sourceShardPartition`'s own control anchor in the guard-surface registry, and
+ * `validateSurface` rejects a row whose anchor does not occur exactly once, so
+ * reformatting this line breaks enrolment and the failure reads as an unrelated
+ * registry error.
+ *
+ * Separate from `weightOf` because the count and the cost are different questions:
+ * the drift report and the seeding emitter both need boots WITHOUT a rate applied,
+ * and a caller that wanted the count and got a cost would be wrong by whatever the
+ * rate happens to be.
+ */
+export function bootsOf(surface: GuardSurface): number {
   const text = readFileSync(surface.sourcePath, "utf8");
   const sites = enumerateSites(surface.sourcePath, text, surface.operators);
   const { mutants } = generateMutants(surface.sourcePath, text, surface.operators, sites);
   const suites = surface.suitePaths.length;
   return mutants.length + surface.accepted.length * (suites - 1) + suites;
+}
+
+export function weightOf(surface: GuardSurface): number {
+  return bootsOf(surface);
 }
 
 export function sourceShardAssignment(

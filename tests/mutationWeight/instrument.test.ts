@@ -9,6 +9,8 @@ import {
   type ModelledBoots,
   type Snapshot,
   bindingLeg,
+  bootCountHistory,
+  bootRatioStability,
   driftReport,
   legSeconds,
   lpt,
@@ -16,6 +18,7 @@ import {
   reconcile,
   seamMagnitude,
   seedRates,
+  suiteMedians,
   verdictDelta,
 } from "@/lib/mutationWeight/weights";
 
@@ -46,19 +49,27 @@ const measured = (over: Partial<Measured> & { surfaceId: string }): Measured => 
   };
 };
 
+/**
+ * A modelled-boots dump.
+ *
+ * `boots` DEFAULTS to its own formula rather than to a constant, because
+ * `reconcile` now requires a dump's parts to compose into its total and a fixture
+ * that violated that would red every unrelated case. Passing `boots` explicitly is
+ * how the inconsistency arm itself is exercised.
+ */
 const modelled = (
   o: Record<string, Partial<ModelledBoots extends ReadonlyMap<string, infer V> ? V : never>>,
 ): ModelledBoots =>
   new Map(
-    Object.entries(o).map(([k, v]) => [
-      k,
-      {
-        boots: v.boots ?? 1,
-        mutants: v.mutants ?? 1,
-        accepted: v.accepted ?? 0,
-        suites: v.suites ?? 1,
-      },
-    ]),
+    Object.entries(o).map(([k, v]) => {
+      const mutants = v.mutants ?? 1;
+      const accepted = v.accepted ?? 0;
+      const suites = v.suites ?? 1;
+      return [
+        k,
+        { boots: v.boots ?? mutants + accepted * (suites - 1) + suites, mutants, accepted, suites },
+      ];
+    }),
   );
 
 const snap = (label: string, sha: string, surfaces: Measured[], m: ModelledBoots): Snapshot => ({
@@ -70,7 +81,7 @@ const snap = (label: string, sha: string, surfaces: Measured[], m: ModelledBoots
 
 describe("readRun", () => {
   /** A record directory shaped exactly like the artifacts the nightly uploads. */
-  const layout = (opts: { elapsed?: string } = {}): string => {
+  const layout = (opts: { elapsed?: string; emptyElapsedDir?: boolean } = {}): string => {
     const dir = mkdtempSync(join(tmpdir(), "fx-readrun-"));
     mkdirSync(join(dir, "mutation-records-source-shards-2"), { recursive: true });
     writeFileSync(
@@ -97,9 +108,10 @@ describe("readRun", () => {
         ],
       }),
     );
-    if (opts.elapsed !== undefined) {
+    if (opts.elapsed !== undefined || opts.emptyElapsedDir === true) {
       mkdirSync(join(dir, "elapsed-source-shards-2"), { recursive: true });
-      writeFileSync(join(dir, "elapsed-source-shards-2", "elapsed.txt"), opts.elapsed);
+      if (opts.elapsed !== undefined)
+        writeFileSync(join(dir, "elapsed-source-shards-2", "elapsed.txt"), opts.elapsed);
     }
     return dir;
   };
@@ -140,14 +152,21 @@ describe("readRun", () => {
   it("reads a leg's elapsed stamp, and reports an ABSENT one as absent rather than zero", () => {
     // A leg that never reported is not a leg that took no time, and the budget
     // check draws the same distinction for the same reason.
+    //
+    // THREE layouts, because the interesting one is the middle: an artifact
+    // DIRECTORY with no `elapsed.txt` inside it, which is what an upload from a
+    // leg that died before stamping leaves behind. A fixture with no directory at
+    // all never reaches the code that decides, so it cannot tell absent from zero
+    // -- and did not, until a planted defect escaped this case.
     const withStamp = layout({ elapsed: "4242\n" });
-    const without = layout();
+    const dirNoFile = layout({ emptyElapsedDir: true });
+    const noDir = layout();
     try {
       expect(readRun(withStamp).elapsed.get(2)).toBe(4242);
-      expect(readRun(without).elapsed.has(2)).toBe(false);
+      expect(readRun(dirNoFile).elapsed.has(2)).toBe(false);
+      expect(readRun(noDir).elapsed.has(2)).toBe(false);
     } finally {
-      rmSync(withStamp, { recursive: true, force: true });
-      rmSync(without, { recursive: true, force: true });
+      for (const d of [withStamp, dirNoFile, noDir]) rmSync(d, { recursive: true, force: true });
     }
   });
 });
@@ -328,7 +347,7 @@ describe("reconcile", () => {
     // A single surface lands on leg 0 whatever it weighs, so membership and legs
     // both agree while the weight itself moved. This is the arm a partition-level
     // check cannot have, and its absence was a blocking review finding.
-    const r = reconcile(one, modelled({ a: { boots: 12, mutants: 12 } }), 4);
+    const r = reconcile(one, modelled({ a: { mutants: 12 } }), 4);
     expect(r.ok).toBe(false);
     expect(r.weightDisagreement).toEqual([
       { surfaceId: "a", field: "mutants", modelled: 12, observed: 1 },
@@ -343,17 +362,30 @@ describe("reconcile", () => {
     expect(r.duplicated).toEqual(["a"]);
   });
 
+  it("flags a dump whose own parts do not compose into its own total", () => {
+    // `accepted` is the third input to the boot formula and the records cannot
+    // witness it: moving it changes `boots` while the mutant count, the suite bound
+    // and the assignment all still agree. Requiring the dump to be internally
+    // consistent is the only way to catch that, and it is what makes a hand-edited
+    // or differently-generated dump fail rather than pass.
+    const r = reconcile(one, modelled({ a: { boots: 99 } }), 4);
+    expect(r.ok).toBe(false);
+    expect(r.weightDisagreement).toEqual([
+      { surfaceId: "a", field: "boots", modelled: 99, observed: 2 },
+    ]);
+  });
+
   it("does NOT flag a surface that entered fewer suites than it declares", () => {
     // The short-circuit means a surface whose every mutant dies in suite one never
     // spawns a child for suites two and three. Observed distinct suites is a LOWER
     // bound on the declared count; treating it as an equality flags ordinary runs.
-    const r = reconcile(one, modelled({ a: { suites: 3, mutants: 1, boots: 1 } }), 4);
+    const r = reconcile(one, modelled({ a: { suites: 3, mutants: 1 } }), 4);
     expect(r.weightDisagreement).toEqual([]);
   });
 
   it("DOES flag a run that entered a suite the registry does not declare", () => {
     const m = measured({ surfaceId: "a", children: [child("one.ts", 1), child("two.ts", 1)] });
-    const r = reconcile([m], modelled({ a: { suites: 1, mutants: 1, boots: 1 } }), 4);
+    const r = reconcile([m], modelled({ a: { suites: 1, mutants: 1 } }), 4);
     expect(r.weightDisagreement).toContainEqual({
       surfaceId: "a",
       field: "suites",
@@ -433,6 +465,96 @@ describe("verdictDelta", () => {
     const d = verdictDelta(before, after);
     expect(d.sharedSiteIds).toBe(1);
     expect(d.moved).toEqual([{ surfaceId: "a", siteId: "s1", from: "KILLED", to: "SURVIVED" }]);
+  });
+});
+
+describe("bootRatioStability", () => {
+  // These three helpers produce figures the spec cites, so they are logic and not
+  // reporting. Enrolled and uncovered they would be guaranteed survivors on a
+  // surface declaring an empty ledger, which is how the first enrolment of this
+  // module would have failed its own gate.
+  const snapOf = (label: string, sha: string, obs: number, mod: number): Snapshot =>
+    snap(
+      label,
+      sha,
+      [measured({ surfaceId: "a", children: Array.from({ length: obs }, () => child("s", 1000)) })],
+      modelled({ a: { boots: mod, mutants: mod } }),
+    );
+
+  it("reports the ratio of OBSERVED children to MODELLED boots", () => {
+    const r = bootRatioStability([snapOf("n", "s", 8, 2)], 1.05);
+    expect(r.latest).toMatchObject({ min: 4, median: 4, max: 4, maxSurface: "a" });
+  });
+
+  it("reports a surface whose ratio MOVED, oldest first", () => {
+    // Oldest-first deliberately, matching `bootCountHistory`, so a reader comparing
+    // the two blocks is not silently reading one of them backwards.
+    const r = bootRatioStability([snapOf("new", "b", 8, 2), snapOf("old", "a", 2, 2)], 1.05);
+    expect(r.moved).toEqual([{ surfaceId: "a", ratios: [1, 4], factor: 4 }]);
+  });
+
+  it("stays silent about a ratio that moved less than the threshold", () => {
+    expect(
+      bootRatioStability([snapOf("new", "b", 8, 2), snapOf("old", "a", 8, 2)], 1.05).moved,
+    ).toEqual([]);
+  });
+});
+
+describe("bootCountHistory", () => {
+  const withBoots = (label: string, boots: Record<string, number>): Snapshot =>
+    snap(
+      label,
+      label,
+      [],
+      modelled(Object.fromEntries(Object.entries(boots).map(([k, b]) => [k, { boots: b }]))),
+    );
+
+  it("lists a surface whose modelled boot count changed, oldest first", () => {
+    const h = bootCountHistory([withBoots("new", { a: 12 }), withBoots("old", { a: 10 })]);
+    expect(h.changed).toEqual([{ surfaceId: "a", boots: [10, 12] }]);
+  });
+
+  it("separates an ARRIVAL from a change, because only one of them is unpriceable", () => {
+    const h = bootCountHistory([withBoots("new", { a: 10, b: 5 }), withBoots("old", { a: 10 })]);
+    expect(h.arrived).toEqual(["b"]);
+    expect(h.changed).toEqual([{ surfaceId: "b", boots: [undefined, 5] }]);
+  });
+
+  it("says nothing about a surface whose count never moved", () => {
+    expect(
+      bootCountHistory([withBoots("new", { a: 10 }), withBoots("old", { a: 10 })]).changed,
+    ).toEqual([]);
+  });
+});
+
+describe("suiteMedians", () => {
+  it("groups children by suite and reports each MEDIAN, slowest first", () => {
+    // SKEWED deliberately: 1000/2000/30000 has a median of 2000 and a mean of
+    // 11000. An earlier fixture used two values, and for two values the mean and
+    // the median are always equal — so it passed under a mean implementation, which
+    // is the same defect shape as the tie-break fixture that could not express its
+    // own difference. A fixture that cannot distinguish the rules tests neither.
+    const m = measured({
+      surfaceId: "a",
+      children: [
+        child("slow.ts", 1000),
+        child("slow.ts", 2000),
+        child("slow.ts", 30_000),
+        child("fast.ts", 500),
+      ],
+    });
+    expect(suiteMedians(m)).toEqual([
+      { suite: "slow.ts", children: 3, medianMs: 2000 },
+      { suite: "fast.ts", children: 1, medianMs: 500 },
+    ]);
+  });
+
+  it("averages the middle pair for an EVEN count, where the median is not a sample", () => {
+    const m = measured({
+      surfaceId: "a",
+      children: [child("s", 1000), child("s", 2000), child("s", 3000), child("s", 100_000)],
+    });
+    expect(suiteMedians(m)[0]).toEqual({ suite: "s", children: 4, medianMs: 2500 });
   });
 });
 

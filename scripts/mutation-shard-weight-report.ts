@@ -22,6 +22,7 @@
  * trees is not a weaker result, it is a different question, and printing it
  * anyway is how a cross-tree number gets quoted as a measurement.
  */
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 
@@ -48,32 +49,52 @@ import { SOURCE_SHARD_COUNT, weightOf } from "../tests/mutation/source/shardPart
 
 const N = SOURCE_SHARD_COUNT;
 
+/** Set by --emit-registry; see the note at its call site. */
+let REPORT_TO_STDERR = false;
+const say = (line: string): void => {
+  if (REPORT_TO_STDERR) process.stderr.write(`${line}\n`);
+  else process.stdout.write(`${line}\n`);
+};
+
 const row = (label: string, legs: readonly number[]): string =>
   `  ${label.padEnd(52)} [${legs.map((x) => String(Math.round(x))).join(", ")}]` +
   `  binding ${String(Math.round(bindingLeg(legs)))}s  spread ${(bindingLeg(legs) / Math.min(...legs)).toFixed(3)}x`;
 
-function modelledFrom(file: string | undefined): ModelledBoots {
+type Dump = { sha: string; surfaces: Record<string, ModelledSurface> };
+
+/** The dump AND the sha it was taken at, which is not recoverable from its path. */
+function modelledFrom(file: string | undefined): { modelled: ModelledBoots; sha: string } {
   if (file !== undefined) {
-    const raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, ModelledSurface>;
-    return new Map(Object.entries(raw));
+    const raw = JSON.parse(readFileSync(file, "utf8")) as Dump;
+    if (typeof raw.sha !== "string" || raw.sha.length === 0 || raw.surfaces === undefined) {
+      // A dump without a sha cannot be grouped, and guessing one from the filename
+      // is what this replaced: two dumps of one tree under different names would
+      // not be medianed, and one name reused across trees would group unrelated
+      // dumps. Refused rather than defaulted.
+      throw new Error(`${file}: not a weight dump — expected { sha, surfaces }`);
+    }
+    return { modelled: new Map(Object.entries(raw.surfaces)), sha: raw.sha };
   }
   // The checked-out registry. `weightOf` IS the boot count until the rate
   // multiplies it, so the parts are recovered from the surface's own fields.
-  return new Map(
-    GUARD_SURFACES.map((s) => {
-      const boots = weightOf(s);
-      const suites = s.suitePaths.length;
-      return [
-        s.id,
-        {
-          boots,
-          mutants: boots - s.accepted.length * (suites - 1) - suites,
-          accepted: s.accepted.length,
-          suites,
-        },
-      ];
-    }),
-  );
+  return {
+    sha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+    modelled: new Map(
+      GUARD_SURFACES.map((s) => {
+        const boots = weightOf(s);
+        const suites = s.suitePaths.length;
+        return [
+          s.id,
+          {
+            boots,
+            mutants: boots - s.accepted.length * (suites - 1) - suites,
+            accepted: s.accepted.length,
+            suites,
+          },
+        ];
+      }),
+    ),
+  };
 }
 
 function parseRuns(argv: readonly string[]): { dir: string; modelledFile?: string }[] {
@@ -102,7 +123,7 @@ function describe(
   modelled: ModelledBoots,
 ): Snapshot {
   const { surfaces, elapsed } = art;
-  console.log(`\n=== ${label} — ${String(surfaces.length)} surfaces ===`);
+  say(`\n=== ${label} — ${String(surfaces.length)} surfaces ===`);
 
   const rec = reconcile(surfaces, modelled, N);
   if (!rec.ok) {
@@ -133,17 +154,17 @@ function describe(
     );
     process.exit(1);
   }
-  console.log("  reconciliation: records and modelled weights agree on all surfaces and all legs");
+  say("  reconciliation: records and modelled weights agree on all surfaces and all legs");
 
   const observed = new Array<number>(N).fill(0);
   for (const m of surfaces) observed[m.leg] = (observed[m.leg] ?? 0) + m.seconds;
-  console.log(row("OBSERVED (the partition CI actually ran)", observed));
+  say(row("OBSERVED (the partition CI actually ran)", observed));
 
   if (elapsed.size > 0) {
     const parts = [...elapsed]
       .sort((a, b) => a[0] - b[0])
       .map(([leg, secs]) => `${String(Math.round((100 * (observed[leg] ?? 0)) / secs))}%`);
-    console.log(
+    say(
       `  children explain ${parts.join(" / ")} of each leg's own elapsed.txt ` +
         `(${[...elapsed]
           .sort((a, b) => a[0] - b[0])
@@ -151,26 +172,26 @@ function describe(
           .join(" / ")}s)`,
     );
   } else {
-    console.log("  elapsed-source-shards-* not downloaded, so leg coverage is UNMEASURED here");
+    say("  elapsed-source-shards-* not downloaded, so leg coverage is UNMEASURED here");
   }
 
   const loads = new Array<number>(N).fill(0);
   for (const m of surfaces)
     loads[m.leg] = (loads[m.leg] ?? 0) + (modelled.get(m.surfaceId)?.boots ?? 0);
-  console.log(row("  ...its MODELLED loads (what the optimiser balanced)", loads));
+  say(row("  ...its MODELLED loads (what the optimiser balanced)", loads));
 
   const rates = surfaces
     .map((m) => ({ id: m.surfaceId, r: ratePerModelledBoot(m, modelled) }))
     .filter((x): x is { id: string; r: number } => x.r !== undefined);
   const lo = rates.reduce((a, b) => (b.r < a.r ? b : a));
   const hi = rates.reduce((a, b) => (b.r > a.r ? b : a));
-  console.log(
+  say(
     `  ms per MODELLED boot: min ${String(Math.round(lo.r))} (${lo.id})  max ${String(Math.round(hi.r))} (${hi.id})` +
       `  spread ${(hi.r / lo.r).toFixed(1)}x`,
   );
   const modelledTotal = [...modelled.values()].reduce((a, b) => a + b.boots, 0);
   const observedTotal = surfaces.reduce((a, m) => a + m.observedBoots, 0);
-  console.log(
+  say(
     `  boots: modelled ${String(modelledTotal)} vs observed children ${String(observedTotal)} ` +
       `(${(observedTotal / modelledTotal).toFixed(2)}x) — the rate absorbs this, which is why it is calibrated per MODELLED boot`,
   );
@@ -179,7 +200,7 @@ function describe(
   // Uniformly scaling modelled boots is not a distinct candidate: LPT is invariant
   // under a positive scale factor, so "boots x one global rate" IS the shipped
   // partition and is deliberately not listed as a third row.
-  console.log(
+  say(
     row(
       "  static proxy: mutant count alone",
       legSeconds(
@@ -196,7 +217,7 @@ function describe(
   const cheapest = surfaces
     .filter((m) => m.children.length > 0)
     .reduce((a, m) => a + Math.min(...m.children.map((c) => c.durationMs)), 0);
-  console.log(
+  say(
     `  one cheapest boot per surface totals ${String(Math.round(cheapest / 1000))}s ` +
       `(what a measure-at-partition-time pre-pass would cost)`,
   );
@@ -209,20 +230,18 @@ function main(): void {
   if (specs.length === 0)
     throw new Error("usage: --run <dir>[:<modelledJson>] [--run ...] [--emit-registry]");
 
-  const snaps: Snapshot[] = specs.map((s) =>
-    // The sha defaults to the dump path when not given: two runs sharing a dump
-    // share a sha by construction, which is exactly the case the median covers.
-    describe(
-      basename(s.dir),
-      s.modelledFile ?? "working-tree",
-      readRun(s.dir),
-      modelledFrom(s.modelledFile),
-    ),
-  );
+  // With --emit-registry the REPORT goes to stderr so stdout carries the JSON and
+  // nothing else. A consumer piping this into a file should get a table, not a
+  // table with a report glued to the front of it.
+  REPORT_TO_STDERR = argv.includes("--emit-registry");
+  const snaps: Snapshot[] = specs.map((s) => {
+    const { modelled, sha } = modelledFrom(s.modelledFile);
+    return describe(basename(s.dir), sha, readRun(s.dir), modelled);
+  });
 
   if (snaps.length >= 2) {
-    console.log(`\n=== HELD OUT: a rate seeded on one run, scored on a LATER one ===`);
-    console.log(
+    say(`\n=== HELD OUT: a rate seeded on one run, scored on a LATER one ===`);
+    say(
       "  Scored on the LATER run's own seconds, so the seed never sees the run it is judged on.\n" +
         "  An arrival the seed run never saw is priced by its enrolling author, which is what the\n" +
         "  required field buys and what a bolt-on table cannot have.",
@@ -259,12 +278,12 @@ function main(): void {
         scored,
         N,
       );
-      console.log(
+      say(
         `\n  seed ${earlier.label} -> score ${later.label}  (${String(scored.length)} surfaces scored)`,
       );
-      console.log(row("    seconds-calibrated weight", mine));
-      console.log(row("    shipped modelled-boots weight", shipped));
-      console.log(
+      say(row("    seconds-calibrated weight", mine));
+      say(row("    shipped modelled-boots weight", shipped));
+      say(
         `    binding leg ${bindingLeg(mine) <= bindingLeg(shipped) ? "IMPROVED" : "REGRESSED"} by ` +
           `${String(Math.round(Math.abs(bindingLeg(shipped) - bindingLeg(mine))))}s` +
           `; EXCLUDED as unpriceable held-out: ` +
@@ -274,12 +293,12 @@ function main(): void {
       );
     }
 
-    console.log(`\n=== VERDICTS across consecutive runs — the bar AC-1 has to clear ===`);
+    say(`\n=== VERDICTS across consecutive runs — the bar AC-1 has to clear ===`);
     for (let i = 0; i < snaps.length - 1; i += 1) {
       const later = snaps[i] as Snapshot;
       const earlier = snaps[i + 1] as Snapshot;
       const d = verdictDelta(earlier.surfaces, later.surfaces);
-      console.log(
+      say(
         `  ${earlier.label} -> ${later.label}: ${String(d.moved.length)} of ${String(d.sharedSiteIds)} shared siteIds moved ` +
           `across ${String(d.sharedSurfaces)} shared surfaces` +
           (d.moved.length > 0
@@ -307,7 +326,7 @@ function main(): void {
       proposed,
       N,
     );
-    console.log(
+    say(
       `\n=== SEAM: ${String(seam.length)} of ${String(newest.modelled.size)} surfaces ` +
         `(${String(Math.round((100 * seam.length) / newest.modelled.size))}%) change leg under the new weight ===\n  ${seam.join(", ")}`,
     );
@@ -318,17 +337,17 @@ function main(): void {
       newest.modelled,
       2,
     );
-    console.log(
+    say(
       `\n=== DRIFT of a ${prior.label} table against ${newest.label} — every surface, ranked ===`,
     );
     // EVERY row. An earlier version printed eight and said the rest were "named in
     // full output", which was simply untrue: there was no fuller output anywhere.
     for (const d of drifted)
-      console.log(
+      say(
         `  ${d.actionable ? "ACTIONABLE" : "          "} ${d.surfaceId.padEnd(28)} ` +
           `declared ${String(d.declaredMillis).padStart(6)}ms  observed ${String(d.observedMillis).padStart(6)}ms  ${d.ratio.toFixed(2)}x`,
       );
-    console.log(
+    say(
       `  ${String(drifted.length)} surfaces named, ${String(drifted.filter((d) => d.actionable).length)} actionable; ` +
         `declared but unmeasured: ${unmeasured.length > 0 ? unmeasured.join(", ") : "none"}; ` +
         `measured but undeclared: ${undeclared.length > 0 ? undeclared.join(", ") : "none"}`,
@@ -340,26 +359,26 @@ function main(): void {
     // here, so "one command prints every figure" is a fact about this file rather
     // than an aspiration. A claim with no line in this block does not belong in
     // the document.
-    console.log(`\n=== PROVENANCE ===`);
+    say(`\n=== PROVENANCE ===`);
     const stab = bootRatioStability(snaps, 1.05);
-    console.log(
+    say(
       `  observed/modelled boot ratio, newest run: min ${stab.latest.min.toFixed(2)} ` +
         `median ${stab.latest.median.toFixed(2)} max ${stab.latest.max.toFixed(2)} (${stab.latest.maxSurface})`,
     );
-    console.log(
+    say(
       `  ratio moved by >5% across ${String(snaps.length)} runs, oldest first: ${String(stab.moved.length)} surface(s)` +
         (stab.moved.length > 0
           ? ` — ${stab.moved.map((x) => `${x.surfaceId} ${x.ratios.map((r) => r.toFixed(2)).join("->")}`).join(", ")}`
           : ""),
     );
     const hist = bootCountHistory(snaps);
-    console.log(
+    say(
       `  modelled boot count moved or arrived, oldest-first: ${String(hist.changed.length)} surface(s)` +
         (hist.changed.length > 0
           ? `\n${hist.changed.map((c) => `    ${c.surfaceId.padEnd(26)} ${c.boots.map((b) => (b === undefined ? "-" : String(b))).join(" ")}`).join("\n")}`
           : ""),
     );
-    console.log(
+    say(
       `  of those, ARRIVALS (unpriceable by a bolt-on table): ${hist.arrived.join(", ") || "none"}`,
     );
 
@@ -381,7 +400,7 @@ function main(): void {
         if (rates.length > 0) timeMedian.set(m.surfaceId, rates[Math.floor(rates.length / 2)] ?? 0);
       }
       const scoredByTimeMedian = newestSnap.surfaces.filter((m) => timeMedian.has(m.surfaceId));
-      console.log(
+      say(
         row(
           "  DECLINED seed rule: median across ALL prior runs",
           legSeconds(
@@ -418,7 +437,7 @@ function main(): void {
         const m = (sn as Snapshot).surfaces.find((x) => x.surfaceId === d.surfaceId);
         if (m === undefined) continue;
         const timeouts = m.children.filter((c) => c.kind === "timeout").length;
-        console.log(
+        say(
           `  ${d.surfaceId} @ ${label}: ${String(m.mutants)} mutants, ${String(timeouts)} timeout children; ` +
             suiteMedians(m)
               .map((x) => `${x.suite} median ${String(x.medianMs)}ms over ${String(x.children)}`)

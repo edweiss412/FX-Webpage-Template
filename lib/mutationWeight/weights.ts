@@ -137,7 +137,7 @@ export type Reconciliation = {
    */
   weightDisagreement: {
     surfaceId: string;
-    field: "mutants" | "suites";
+    field: "mutants" | "suites" | "accepted" | "boots";
     modelled: number;
     observed: number;
   }[];
@@ -203,6 +203,26 @@ export function reconcile(
         field: "suites",
         modelled: dump.suites,
         observed: suites,
+      });
+  }
+
+  // The dump against ITSELF. `accepted` is the third input to the boot formula and
+  // nothing above can witness it: moving it changes `boots` while the mutant count,
+  // the suite bound and the assignment can all still agree, which is a dump from a
+  // different tree passing as one from this one. There is no observable for
+  // `accepted` in the records, so it is checked the only way it can be -- by
+  // requiring the dump's own parts to compose into its own total. A dump whose
+  // `boots` does not equal `mutants + accepted * (suites - 1) + suites` was either
+  // produced by a different formula or hand-edited, and neither is a tree this
+  // comparison can speak about.
+  for (const [id, dump] of modelled) {
+    const composed = dump.mutants + dump.accepted * (dump.suites - 1) + dump.suites;
+    if (composed !== dump.boots)
+      weightDisagreement.push({
+        surfaceId: id,
+        field: "boots",
+        modelled: dump.boots,
+        observed: composed,
       });
   }
   // The partition is recomputed over the MODELLED set, never over the overlap:

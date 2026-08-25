@@ -399,6 +399,16 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // tests/mutation/source/shardPartition.test.ts, so a row appearing here later
   // is a coverage regression to repair, not a number to bump.
   sourceShardPartition: {},
+  // mutationWeightRecords / mutationWeightWeights: the shard-weight instrument,
+  // enrolled 2026-08-25 with the arc that wrote it. EMPTY ledgers, deliberately.
+  // One suite decides both modules, and it is paired with
+  // scripts/mutation-weight-plant.mjs, which plants fifteen named defects into a
+  // copy and requires that suite to go red on each -- so an unkilled mutant here
+  // is a coverage gap to repay with a case, not a number to bump. The plant
+  // harness reports ANCHOR-FAIL when nothing was planted and BROKEN-PLANT when the
+  // mutant did not compile, because either would otherwise read as a pass.
+  mutationWeightRecords: {},
+  mutationWeightWeights: {},
   // shardBudget: the module is pure decision logic with the CLI deliberately in
   // a separate file, so every branch is reachable through the referring suite
   // and a row appearing here is a gap to repay. The separation is not a style

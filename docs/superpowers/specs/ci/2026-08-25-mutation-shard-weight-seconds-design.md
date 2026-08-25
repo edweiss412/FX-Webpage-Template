@@ -5,21 +5,25 @@
 **Every figure in this document is printed by one command.** `scripts/mutation-shard-weight-report.ts` reads the `mutation-records-source-shards-*` and `elapsed-source-shards-*` artifacts the nightly already uploads. Nothing below is retyped from a session transcript.
 
 ```
-# 1. each run needs the MODELLED boots of ITS OWN sha, dumped from a checkout at it
+# 1. each run needs the MODELLED boots of ITS OWN sha, dumped from a checkout at it.
+#    The dump records the sha from git rather than leaving it to be guessed from a
+#    filename: rates are medianed across dumps sharing a sha, and a pathname is not one.
 for sha in 9b1bd6715 50ca72a56 2f1071b28; do
   git worktree add --detach ../bw-$sha $sha
   ln -s "$PWD/node_modules" "../bw-$sha/node_modules"
   cat > "../bw-$sha/dump.mts" <<'EOF'
+import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { GUARD_SURFACES } from "./tests/mutation/source/registry";
 import { weightOf } from "./tests/mutation/source/shardPartition";
-const out = {};
+const sha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+const surfaces = {};
 for (const s of GUARD_SURFACES) {
   const boots = weightOf(s), suites = s.suitePaths.length;
-  out[s.id] = { boots, mutants: boots - s.accepted.length * (suites - 1) - suites,
-                accepted: s.accepted.length, suites };
+  surfaces[s.id] = { boots, mutants: boots - s.accepted.length * (suites - 1) - suites,
+                     accepted: s.accepted.length, suites };
 }
-writeFileSync(process.argv[2], JSON.stringify(out, null, 1));
+writeFileSync(process.argv[2], JSON.stringify({ sha, surfaces }, null, 1));
 EOF
   (cd "../bw-$sha" && ./node_modules/.bin/tsx dump.mts "<dir>/modelled-$sha.json")
 done
@@ -44,9 +48,12 @@ The per-sha dump is not ceremony, and neither is the reconciliation the script r
 | a surface in the registry only | the run predates one, or a leg died holding it |
 | a surface on a leg it does not recompute to | the partition itself differs |
 | the dump and the records disagree on a surface's MUTANT count | a weight moved WITHOUT moving the partition |
+| the dump's own parts do not compose into its own total | the third input, `accepted`, has no observable in the records at all |
 | more than one record for a surface | collapsing them by id silently doubles that surface's seconds |
 
-The mutant-count arm is the one a partition-level check cannot have, and its absence was a blocking review finding: a single surface lands on the same leg whatever it weighs, so membership and legs can both agree while the weight moved. The suite count is compared as a BOUND rather than an equality, because the runner short-circuits at the first rejecting suite: a surface whose every mutant dies in suite one never enters suites two and three, so `citationIntent` running one of three declared suites is ordinary rather than a defect. Only the other direction is impossible on one tree.
+The mutant-count arm is the one a partition-level check cannot have, and its absence was a blocking review finding: a single surface lands on the same leg whatever it weighs, so membership and legs can both agree while the weight moved.
+
+The self-consistency arm covers what remains. `bootsOf` takes THREE inputs and the records witness only two: `accepted` can move, changing `boots`, while the mutant count, the suite bound and the assignment all still agree. There is no observable for it, so the dump is checked against ITSELF — `boots` must equal `mutants + accepted * (suites - 1) + suites`. A dump failing that was produced by a different formula or edited by hand, and neither is a tree this comparison can speak about. The suite count is compared as a BOUND rather than an equality, because the runner short-circuits at the first rejecting suite: a surface whose every mutant dies in suite one never enters suites two and three, so `citationIntent` running one of three declared suites is ordinary rather than a defect. Only the other direction is impossible on one tree.
 
 A comparison across two trees is not a weaker measurement; it is a different question, and printing it anyway is how a cross-tree number gets quoted as a fact.
 
@@ -187,7 +194,9 @@ Every out-of-range input is named, because a weight that silently degrades is th
 | `0` or negative | Rejected by `validateSurface`, by surface id. A weightless surface is invisible to LPT and lands wherever the tie-break puts it, which is §1.3's guess in a new costume. |
 | `NaN` | Rejected. `NaN` poisons every comparison in `lptAssign`, so one makes the whole partition arbitrary rather than one surface wrong. |
 | non-integer | Rejected. The integer property (AC-6) is why milliseconds were chosen. |
-| above `MUTANT_TIMEOUT_MS` | Rejected: no child can outlast the timeout bounding it, so such a value is a typo rather than a measurement. |
+| above `SHARD_BUDGET_SECONDS * 1000` | Rejected: no single boot can legitimately cost the whole shard budget. |
+
+**The upper bound is the SHARD BUDGET, not the mutant timeout, and the difference is this document's own evidence.** An earlier draft bounded the rate by `MUTANT_TIMEOUT_MS`, reasoning that no child can outlast the timeout that bounds it. That is true of a CHILD and false of this field, because the rate is per MODELLED boot and one modelled boot stands for up to 4.60 observed children (§1.6). Two honest 100-second children charged to one modelled boot give 200,000 ms per modelled boot while neither child approaches a 180,000 ms timeout — so the tighter bound would have failed an ordinary enrolment after an ordinary suite slowdown. The budget bound is looser and true, which is the correct trade for a guard whose false positive is refusing a real measurement.
 
 The guard extends `validateSurface` (`tests/mutation/source/registry.ts:56-82`), which already returns a problems list and already range-guards `scoreFloor` in exactly this shape, and which `tests/mutation/_metaGuardSurfaceRegistry.test.ts:41` already runs over every surface. It runs over the whole registry, so a surface enrolled later is covered without an edit.
 
@@ -240,15 +249,25 @@ So the case for most-recent is not that the average collapses. It is that an ave
 
 A median WITHIN one sha is a different operation with a different justification — a noise filter over repeated measurements of one program — and it is reachable in practice, since the 2026-08-23 and 2026-08-24 nightlies both ran at `50ca72a56`.
 
-`--emit-registry` checks completeness BEFORE it emits anything and exits non-zero naming any enrolled surface it cannot price. Order matters: writing and then failing leaves on disk the exact partial table this refuses to produce, and the next reader cannot tell it from a complete one. It writes to stdout rather than to a file, so it cannot dirty whatever directory the caller happened to be in.
+`--emit-registry` checks completeness BEFORE it emits anything and exits non-zero naming any enrolled surface it cannot price. Order matters: writing and then failing leaves on disk the exact partial table this refuses to produce, and the next reader cannot tell it from a complete one. It writes the table to STDOUT and sends the whole report to stderr, so `> rates.json` yields a file that parses — an earlier version printed the report to stdout first, which made the JSON unconsumable while still calling itself an emitter.
+
+Its refusal is live today and is not hypothetical: this arc enrolled two surfaces that have never been measured, so the emitter names them and writes nothing.
 
 ### §2.4.1 Where an author's FIRST rate comes from
 
 A required field removes the guess only if there is somewhere to get the number. Read carelessly there is a loop — the runner runs what the registry lists, so a surface has no measurement until it is enrolled — and an author who hits that loop will commit a guess, which is the exact failure the required field exists to prevent. The loop is not real:
 
 1. Add the row in the WORKING TREE with any placeholder rate. Nothing is committed.
-2. Run the surface. `.mutation-records/` is written on local runs as well as CI, so the record lands on disk.
-3. Read the rate off that record, replace the placeholder, commit.
+2. Run `scripts/mutation-score-surfaces.ts <id>` under `pnpm heavy`. It scores the surface through `runSurface` + `evaluateGate` and prints the measured rate directly:
+
+   ```
+   VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm tsx \
+     scripts/mutation-score-surfaces.ts mutationWeightWeights
+   ```
+
+3. Copy the printed `millisPerBoot`, replace the placeholder, commit.
+
+**Step 2 is a named command and not an instruction to improvise, because the obvious reading of "read the rate off the record" is not executable.** A local run writes a FLAT `.mutation-records/` directory while `readRun` recognises only the sharded `mutation-records-source-shards-N/` layout CI uploads; and a record carries durations but neither a modelled boot count nor a rate, so an author following the shorter version would have to invent an extraction, a boot count and a rounding rule. The tool owns all three, which is also why it reports the rate beside the score rather than leaving them in two places.
 
 The placeholder exists for exactly one uncommitted step, and the committed row has never carried a guess. The author's number is measured on the author's machine while the seeds this arc commits were measured on GitHub-hosted runners (L-4), so the first nightly after an enrolment is EXPECTED to move that surface's rate. Saying so here is what stops it reading as a defect the first time it happens.
 
@@ -304,7 +323,7 @@ Its own arm is the reconciliation described at the top of this document, proven 
   | population | derived by | the claim |
   | --- | --- | --- |
   | (i) surfaces whose `sourcePath` this diff does not touch | the diff, at claim time | the mutant set is identical and EVERY verdict matches the old-weight baseline |
-  | (ii) `sourceShardPartition`, whose source this diff edits | named, and it is the only one | its mutant set moves; the claim is that no survivor is left unaccepted |
+  | (ii) `sourceShardPartition`, whose source this diff edits | named, and it is the only one | its mutant set moves, so verdict equality is unavailable; the claim is the score floor AND an empty unaccepted-survivor set, which is the full gate contract rather than half of it |
   | (iii) `mutationWeightRecords`, `mutationWeightWeights`, newly enrolled | named | no prior verdict exists; the claim is the score floor with an empty unaccepted-survivor set |
 
   Only (i) is verdict neutrality. (ii) and (iii) are ordinary gate obligations and are stated separately so neither can be mistaken for it.
@@ -338,7 +357,7 @@ Its own arm is the reconciliation described at the top of this document, proven 
 
 - **AC-6 — integer arithmetic is preserved.** Every weight `sourceShardAssignment` hands `lptAssign` is an integer, so the platform-independence the packer documents stays true.
 
-- **AC-7 — no verdict-deciding input moves.** The diff touches no operator, mutant generator, suite path, ledger row or score floor.
+- **AC-7 — no verdict-deciding input moves FOR AN EXISTING SURFACE.** The diff changes no operator, mutant generator, suite path, ledger row or score floor on any surface enrolled before it. The scoping is not a hedge: this arc ENROLS two surfaces, and a new row necessarily declares all four of those things. Stated unscoped, the criterion would be contradicted by the diff that is meant to satisfy it.
 
 Every guard added for these carries both arms: the passing case and a deliberately broken input that makes it fail, including the ordering and position variants where the guard reads a list.
 
@@ -360,7 +379,9 @@ Every guard added for these carries both arms: the passing case and a deliberate
 | `readRun`, `ratePerModelledBoot`, `lpt`, `legSeconds`, `bindingLeg`, `verdictDelta`, `seamMagnitude` | `tests/mutationWeight/instrument.test.ts` | shipped with this arc, 28 cases |
 | `reconcile` is total in both directions, checks the weight's parts, and fails | same suite | shipped |
 | `seedRates` takes the newest sha and medians within it | same suite | shipped |
-| the suite DISCRIMINATES on every claim it makes | `scripts/mutation-weight-plant.mjs` | shipped, 15 planted defects, 15 caught |
+| the provenance helpers behind L-5, L-6 and the arrival history | same suite | shipped — enrolled logic the suite must decide, or it is a guaranteed survivor |
+| the suite DISCRIMINATES on every claim it makes | `scripts/mutation-weight-plant.mjs` | shipped, 26 planted defects, 26 caught |
+| an author can obtain a first rate at all (§2.4.1) | `scripts/mutation-score-surfaces.ts` | shipped |
 | `lib/mutationWeight/*` enrolled and scored | `tests/mutation/source/registry.ts` rows `mutationWeightRecords`, `mutationWeightWeights` | shipped |
 | `weightOf` returns boots × rate; weights are integers | `tests/mutation/source/shardPartition.test.ts` | existing case rewritten, integrality new |
 | rate range and required-ness (AC-4) | `tests/mutation/_metaGuardSurfaceRegistry.test.ts` | existing `reject(patch)` harness extended |
