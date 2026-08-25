@@ -97,6 +97,13 @@ const DECLARED: [file: string, nearLine: number, what: string][] = [
   ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 353, "§6 item 2, the canonical record"],
   ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 566, "disposition rows 6-8"],
   ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 623, "the limits list"],
+  // Added at diff round 19. The matcher had been REPORTING this block as a candidate
+  // all along while DECLARED omitted it, so the gate passed on seven while an eighth
+  // claim site stood unsuperseded. A candidate the matcher finds but DECLARED does not
+  // list is the one shape this gate cannot catch by itself - it proves supersession
+  // only over what it is told to check. Probed: the plain and mixed spellings each
+  // return one hit for a .yml path at HEAD where this plan asserts zero.
+  ["docs/superpowers/plans/2026-08-17-shell-binding-mixed-quoted-value.md", 674, "the documented-limit specimen in the step-1 test block"],
 ];
 const MARKER = /BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE|Superseded in part, 2026-08-22/;
 const MARKER_WINDOW = 12;
