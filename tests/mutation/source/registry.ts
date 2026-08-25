@@ -2437,7 +2437,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // nothing.
     // Re-keying is the cheap half. Each ARGUMENT was re-read at its new site,
     // and one had genuinely STOPPED being true: the split-reading filter row
-    // (now relational-boundary:2632:72) rested on every caller trimming the
+    // (now relational-boundary:3213:72) rested on every caller trimming the
     // value's IFS edges, and arm 2 added a caller that did not. Repaired by
     // trimming the candidate where it is produced, with the separating input
     // recorded on that row and pinned in the deciding suite. None of the 24 is
@@ -2636,7 +2636,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "regex-quantifier-bound:3262:21:{1,2}>{1,3}",
         kind: "equivalent",
         reason:
-          "The dash run in INTERPRETER_POSITIONAL_BINDING is followed by [A-Za-z-]*, a character class that ALREADY contains a dash, so -{1,2}[A-Za-z-]* and -{1,3}[A-Za-z-]* denote the same language: one dash followed by any run of letters and dashes. Every extra dash the widened quantifier could consume is a dash the class consumes instead, so no input matches one and not the other, and the pattern is only ever consulted through .test (scan.ts, symbol INTERPRETER_POSITIONAL_BINDING, used in scanShellIndirection). Its twin at 2372:38 has the follower class [A-Za-z0-9], which contains no dash - that one is killed by a test rather than blessed here. Boundary pin: 'an extra dash in the -c spelling still reports the positional binding'.",
+          "The dash run in INTERPRETER_POSITIONAL_BINDING is followed by [A-Za-z-]*, a character class that ALREADY contains a dash, so -{1,2}[A-Za-z-]* and -{1,3}[A-Za-z-]* denote the same language: one dash followed by any run of letters and dashes. Every extra dash the widened quantifier could consume is a dash the class consumes instead, so no input matches one and not the other, and the pattern is only ever consulted through .test (scan.ts, symbol INTERPRETER_POSITIONAL_BINDING, used in scanShellIndirection). Its twin at 3211:38 has the follower class [A-Za-z0-9], which contains no dash - that one is killed by a test rather than blessed here. Boundary pin: 'an extra dash in the -c spelling still reports the positional binding'.",
       },
       {
         siteId: "relational-boundary:3762:54:<><=",
@@ -2719,22 +2719,24 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "relational-boundary:1102:26:<><=",
         kind: "equivalent",
         reason:
-          "See the SHARED INVARIANT on relational-boundary:1050:29 - one argument, four sites, voided together.  APPLIED HERE: the ANSI-C close-quote scan inside `attachedTargetEnd`.",
+          "See the SHARED INVARIANT on relational-boundary:1056:29 - one argument, four sites, voided together.  APPLIED HERE: the ANSI-C close-quote scan inside `attachedTargetEnd`.",
       },
       {
         siteId: "relational-boundary:1116:26:<><=",
         kind: "equivalent",
         reason:
-          "See the SHARED INVARIANT on relational-boundary:1050:29 - one argument, four sites, voided together.  APPLIED HERE: the double-quoted span walk inside `attachedTargetEnd`, which is where the accept-set recurses.",
+          "See the SHARED INVARIANT on relational-boundary:1056:29 - one argument, four sites, voided together.  APPLIED HERE: the double-quoted span walk inside `attachedTargetEnd`, which is where the accept-set recurses.",
       },
       {
         siteId: "relational-boundary:1164:12:<><=",
         kind: "equivalent",
         reason:
-          "See the SHARED INVARIANT on relational-boundary:1050:29 - one argument, four sites, voided together.  APPLIED HERE: `attachedTargetEnd`'s own top-level walk, the one whose `end` the caller consumes.",
+          "See the SHARED INVARIANT on relational-boundary:1056:29 - one argument, four sites, voided together.  APPLIED HERE: `attachedTargetEnd`'s own top-level walk, the one whose `end` the caller consumes.",
       },
       // The surface carries NO accepted gap. It carried one - the `spliced`
-      // continuation bound, then at relational-boundary:2167:54 - and cross-model
+      // continuation bound, at what was THEN relational-boundary:2167:54 (a HISTORICAL
+      // coordinate - that site no longer exists and must NOT be re-keyed; doing so
+      // would assert a live row where the 2026-08-17 repair removed one) - and cross-model
       // review refuted the argument, so a test killed it instead: `PG='psql'\` at
       // end of input binds `psql\`, which is not the psql command, while the
       // mutant deleted the backslash and reported a binding the shell never makes.
