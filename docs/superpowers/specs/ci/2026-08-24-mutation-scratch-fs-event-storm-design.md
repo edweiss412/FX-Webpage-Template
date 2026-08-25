@@ -77,6 +77,8 @@ Over `git ls-files tests/`: **108 files create scratch directories, 62 register 
 
 Every one of those roots persists, because none of the six files removes what it makes. That is the whole finding; no multiplication is needed to act on it.
 
+**Implementation found two more, and the way it found them is the argument for a behavioral guard.** `tests/cross-cutting/psqlStartupFileSuppression.test.ts` and `tests/docs/interactionTimingScan.test.ts` clean up correctly on a passing run and leak specific roots when a case FAILS, because each root is created BEFORE the `try` whose `finally` removes it. A textual census sees an `rmSync` in those files and passes them; only running a suite with a failure injected after a root exists reveals the gap. Both are repaired here — eight files, not the six this section derived.
+
 `tests/mutation/source/premiseScan.test.ts` is the counterexample and the model: one root for the whole file (`tests/mutation/source/premiseScan.test.ts:23`), removed in `afterAll` (`tests/mutation/source/premiseScan.test.ts:24`), rewriting one path per case rather than adding a directory.
 
 The remaining **56 files (106 call sites)** create roots without removing them but are named by no enrolled surface, so no mutant loop multiplies them. They are filed as peers in §9.
