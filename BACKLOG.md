@@ -657,20 +657,6 @@ gh api -X POST repos/edweiss412/FX-Webpage-Template/branches/main/protection/req
 Run it, confirm with `gh api repos/edweiss412/FX-Webpage-Template/branches/main/protection/required_status_checks --jq '.contexts'`,
 then archive this entry. Nothing else is owed.
 
-## BL-SWITCH-PERSON-GOOGLE-LOOPBACK — menu "Switch person" is ineffective for a Google-authenticated viewer
-
-**Status:** IN PROGRESS · **Branch:** feat/switch-person-google-signout · **Severity:** low · **Class:** UX correctness / product decision · **Surfaced:** `fix/auth-picker-hardening` spec R1-F1 (2026-08-15) · **Effort:** M
-
-For a viewer whose access derives from a live Google session (not a cookie-only picker identity), tapping "Not you? Switch person" clears the picker cookie entry but the next resolve re-mints the SAME identity via bootstrap, so the control appears to do nothing. This is pre-existing behavior, distinct from the silent-failure defect `fix/auth-picker-hardening` fixes, and out of that arc's scope (class-sweep disposition exception (a): needs a product decision).
-
-**Reachability: PROBED.** `lib/auth/picker/resolveShowPageAccess.ts:246` — a Google `success` with a missing or mismatched picker entry returns `needs_picker_bootstrap`, which re-mints the identity; clearing the cookie entry does not end the Google session, so the loop closes back to the same person.
-
-**Open decision:** whether menu switch-person should sign a Google viewer out (Supabase `scope: "local"`) as part of the clear, or whether the control should be hidden/relabelled for Google-authed viewers. Documented as a limit in the arc spec §4.7 / §7.
-
-**Trigger:** the next auth/picker UX pass, or a product call on Google-viewer switch semantics.
-
----
-
 ## BL-E2E-COVERAGE-SCANNER-EXCLUSION-FILTERS — audit other workflows now that paths-ignore counts as a filter
 
 **Status:** OPEN · **Severity:** low · **Surfaced:** `fix/picker-flow-app-bugs` review round 5 (2026-07-25) · **Effort:** S
@@ -1271,14 +1257,6 @@ Two rules in `docs/agents/writing-plans.md` are stated but unchecked, and the sa
 Both land on one surface (`lib/specLint/**` over `docs/superpowers/plans/**`), which is why they are one entry rather than two. **First scheduled step:** run the proposed column-sum check over the committed plan corpus and count how many existing plans it would fire on — a rule that reds a third of the corpus on day one is a corpus-correction task before it is a lint.
 
 ---
-
-## BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE — should the show-review snapshot read absorb one bounded retry before throwing to the boundary?
-
-**Status:** IN PROGRESS · **Branch:** feat/switch-person-google-signout · **Severity:** LOW (rare, recoverable via the boundary's own Retry) · **Class:** product posture decision · **Effort:** S · **Filed:** 2026-08-15
-
-A transient gateway 502 on `get_admin_show_review_snapshot` currently throws `show_review_snapshot_failed` to the `/admin` error boundary (`app/admin/_showReviewModal.tsx`, `snapResult.kind === "infra_error"` branch) — a real admin sees the boundary flash and must click Retry. Evidence: two CI occurrences with exact-timestamp server-log correlation in spec `docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md` §2.1, plus a same-class unmasked witness (`An invalid response was received from the upstream server`, the Kong 502 body). A single bounded server-side retry on this READ would spare that flash; the loader's other reads already fail open.
-
-**Deferral reason (a):** reverses the ratified fail-hard posture (`app/admin/_showReviewModal.tsx:25-30` — "infra faults still THROW to the error boundary") — a product decision the test-infra arc could not settle. The decision needs an owner ruling on whether a read-retry weakens the fail-loud contract or merely debounces it.
 
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
 
