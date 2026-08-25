@@ -241,3 +241,18 @@ Snapshot written under the gitignored `.impeccable/critique/` tree, slug `feat-u
 | P3 | `components/admin/BellPanel.tsx` — `GHOST_RESOLVE` still carries a non-token `text-[13px]`. Pre-existing; this diff edited the constant without normalising it. | **RECORDED, out of scope**, so the next sweep does not read it as new. |
 
 No P0 or P1 is outstanding, so no `DEFERRED.md` entry is owed.
+
+### Cross-model diff review
+
+**Round 1: NEEDS-ATTENTION, 4 findings, all admissible, none relitigating a fenced decision.** Corpus row in `docs/review-rounds/feat/ui-polish-class-sweep/58b40e0548d5.jsonl`. Every one was a mismatch between something this document CLAIMED and something the tree actually did:
+
+| # | Finding | Repair |
+|---|---|---|
+| F1 | T12 promised every repaired tap target at 390px and computed colours at every repaired site; the spec ran at 375px and measured two of three targets. | Viewport corrected to 390. All three targets mounted for real and measured. T12's claim narrowed to what a browser uniquely settles, with the reason the rest does not need one. |
+| F2 | §1's D4 said three sites kept and one moved; the shipped split is two and two. `SourceLink`'s module contract still described classes it had stopped rendering. | §1 corrected, §11 now owns the change, the contract rewritten. |
+| F3 | L1 claimed a fail-by-default arm the guard did not have — and as worded the claim was also WRONG, since a neutral-ground control beside a plate control is correct. | The arm now pins each registered file's neutral count. L1 says what the guard does. |
+| F4 | The Transition Inventory said the chevrons rotate instantly with no transition class; all four carry `transition-transform duration-normal`. | Row corrected, including the real reason reduced motion is free. |
+
+**Three more were found by self-review while the tree was frozen for that round**, all in guards this branch added, all fixed in the same commit: an outline predicate that counted a divider as emphasis (whose *first* repair also failed its own probe), a comment mask that would skip a `<summary>` sharing a line with a closing `*/`, and a guard naming a compensating screenshot the PR body did not link.
+
+**The shape across all seven is one thing:** every finding was a claim this branch made about itself that the tree did not support. None was a defect in the shipped UI. That is the failure mode a self-assessed critique is least able to catch, and it is exactly what the cross-model round was for.
