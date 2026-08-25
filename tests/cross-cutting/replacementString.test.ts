@@ -6,7 +6,7 @@
 // population and is the standing gate; it contributes no kills.
 import { describe, expect, it } from "vitest";
 
-import { judgeSource, notInPopulationCount } from "./replacementString/scan";
+import { judgeSource, notInPopulationCount, population, scanFiles } from "./replacementString/scan";
 
 /** One call per fixture, so a case can never pass on another case's finding. */
 const one = (src: string) => judgeSource("f.ts", src);
@@ -110,4 +110,55 @@ describe("judgeSource — chained calls (AC-1b)", () => {
     // only this way.
     expect(one(`s.replace(a, v).replace(b, "lit")`)).toHaveLength(1);
   });
+});
+
+describe("population — derived from disk, stated as a subtraction (AC-4)", () => {
+  it("keeps every JS/TS extension the sweep covers", () => {
+    const files = ["a.ts", "b.tsx", "c.js", "d.jsx", "e.mjs", "f.cjs", "g.mts", "h.cts"];
+    expect(population(files)).toEqual(files);
+  });
+
+  it("drops non-JS/TS files", () => {
+    expect(population(["a.md", "b.json", "c.css", "d.ts"])).toEqual(["d.ts"]);
+  });
+
+  it("subtracts node_modules/** and docs/**", () => {
+    expect(population(["node_modules/x/a.ts", "docs/b.ts", "lib/c.ts"])).toEqual(["lib/c.ts"]);
+  });
+
+  it("INCLUDES a file under a top-level directory that appears nowhere in this repo", () => {
+    // The failure this catches: someone rewrites the subtraction as an allowlist of known
+    // directories, and a directory added later is silently unscanned.
+    expect(population(["quokka-ledger/nested/deep.ts"])).toEqual(["quokka-ledger/nested/deep.ts"]);
+  });
+});
+
+describe("scanFiles — there is no text prefilter (AC-4b)", () => {
+  it("STRUCTURAL: reads every file it is given, never gating on source text", () => {
+    const seen: string[] = [];
+    const files = ["a.ts", "b.ts", "c.ts"];
+    scanFiles(files, (f) => {
+      seen.push(f);
+      return "const x = 1;\n"; // no `.replace` anywhere
+    });
+    expect(seen, "a file is parsed, not pre-screened by a regex over its text").toEqual(files);
+  });
+
+  const spellings: [string, string][] = [
+    ["baseline", `a.path.replace("$C", v)`],
+    ["wrapped callee", `(a.path.replace)("$C", v)`],
+    ["space after the dot", `a.path. replace("$C", v)`],
+    ["newline after the dot", 'a.path.\n  replace("$C", v)'],
+    ["block comment after the dot", `a.path./* why */replace("$C", v)`],
+    ["line comment after the dot", 'a.path.// why\n  replace("$C", v)'],
+    ["escaped identifier", `a.path.repl\\u0061ce("$C", v)`],
+  ];
+  for (const [label, src] of spellings) {
+    it(`BEHAVIOURAL: reports a ${label}`, () => {
+      expect(
+        judgeSource("f.ts", src),
+        `${label} is a .replace call with a runtime replacement`,
+      ).toHaveLength(1);
+    });
+  }
 });

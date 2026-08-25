@@ -13,6 +13,15 @@ import ts from "typescript";
 
 import { skipTransparent } from "../../_shared/outerExpressions";
 
+/** Extensions the sweep covers. */
+const SCANNED_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/;
+
+/**
+ * The subtraction, and it is written as one on purpose: a top-level directory added later is
+ * scanned by default rather than needing an edit here to be seen.
+ */
+const EXCLUDED = /^(node_modules|docs)\//;
+
 export type Finding = {
   /** Repo-relative path of the file the call is in. */
   file: string;
@@ -115,4 +124,31 @@ export function notInPopulationCount(filePath: string, source: string): number {
     if (verdict === "not-in-population") n++;
   });
   return n;
+}
+
+/**
+ * The population, as a SUBTRACTION rather than a list of included directories.
+ *
+ * Stated this way so a new top-level directory is covered by default instead of being silently
+ * exempt. `docs/**` is excluded because its JS/TS files are dated probe and spike artifacts whose
+ * value is that they record what was run; the judge reports the excluded count so the exclusion
+ * cannot grow in silence.
+ *
+ */
+export function population(files: readonly string[]): string[] {
+  return files.filter((f) => SCANNED_EXT.test(f) && !EXCLUDED.test(f));
+}
+
+/**
+ * Scan a file set, reading each through the supplied reader.
+ *
+ * There is NO text prefilter: every file in the population is parsed. A cheap regex deciding
+ * which files to parse is the obvious optimization and cost this arc two review rounds — every
+ * version of it missed the next spelling, and an escaped identifier (`s.repl\u0061ce(...)`) is a
+ * PropertyAccessExpression no source-text regex can ever match. Measured at ~700ms for the whole
+ * corpus. The safest optimization is the one that is not there (spec §3.2).
+ *
+ */
+export function scanFiles(files: readonly string[], read: (file: string) => string): Finding[] {
+  return files.flatMap((file) => judgeSource(file, read(file)));
 }
