@@ -30,27 +30,27 @@ Each decision below is settled, with the evidence that settled it. Verify the ci
 
 - **The `--` repair to the shared shell seam ships in this PR.** `scripts/spec-lint.ts:864` spawns `sh` with no `--`. It is the same defect class as the arm's own trap, in the one seam the arm calls, and the class-sweep disposition rule's default is repair every instance in the same PR. "Same defect, different file" is explicitly not a sufficient reason to defer it.
 - **EVERY non-blank span in a command cell must parse, not just the first** (round-1 finding 1). A command cell may therefore not carry backticked text that is not a command. An aside belongs outside the code span. Section 6.3 measures what that costs on the live corpus.
-- **Arm (b) matches a WHOLE ARGUMENT, never a substring** (round-1 finding 2).
+- **Arm (b) tests a LEXICAL PATH BOUNDARY and claims nothing about shell words** (round-1 finding 2, superseded by the round-3 repair). An earlier draft of this bullet said "whole argument", which the round-3 repair expressly abandoned; the surviving statement is section 8.2.2 and L-6.
 - **Arm (b) validates, it does not discover.** Documented limit L-2, with the reason. Do not file "arm (b) would not have caught r4 F2" as a finding; this spec says so first.
 - **Thirty-three corpus tables go unlinted on day one.** Documented limit L-3, accepted deliberately as the price of refusing a recognizer.
 - **remark parses the markdown; the arm hand-rolls no grammar.** Section 8.3, with the ratification it rests on. Do not propose a regex for any pipe, whitespace, backslash or delimiter question — those were three rounds of findings and the class is closed by delegation, not by another pattern.
 - **Arm (b) tests a lexical path boundary and stops there.** Section 8.2.2 and L-6. A shell lexer for an advisory is refused; the quoting families file to documented limits under the threat fence.
 - **The six true corpus instances in section 6.3 are not repaired here.** Class-sweep disposition exception (c): the repair spans a tree this PR does not otherwise touch, and each is a judgment call about what that plan's third column means.
 
-### 1.2 The incidents, recovered verbatim
+### 1.2 The incidents, recovered verbatim, per blob
 
-Recovered from the plan's own history rather than restated from the ledger row. Command: `git show <sha>:docs/superpowers/plans/2026-08-21-pane-compaction-send-authorization.md`.
+Recovered from the plan's own history rather than restated from the ledger row, and stated PER BLOB, because a cell's text changes at every repair and an earlier draft attributed one blob's text to another. Command: `git show <sha>:docs/superpowers/plans/2026-08-21-pane-compaction-send-authorization.md`.
 
-| Round | AC | The command cell as authored | Shape |
-| --- | --- | --- | --- |
-| r2 F4 | AC-3 | `task commits carry the outputs` | (a) prose |
-| r2 F4 | AC-14 | `adapter suite + meta-test` | (a) prose |
-| r2 F4 | AC-15 | `the three red commands` | (a) prose |
-| r2 F4 | AC-12 | ``​`pnpm heavy` mutation run, backgrounded`` | (a) variant: a code span that is not the producing command |
-| r3 F5 | AC-5 | `both red commands above` | (a) prose |
-| r4 F2 | AC-14 | a runnable command whose file list omitted `tests/paneCompaction/driver.test.ts` | (b) blind command; the pin is `tests/paneCompaction/driver.test.ts:72` |
+| Round | AC | The command cell, at the blob the round reviewed | Shape | Caught? |
+| --- | --- | --- | --- | --- |
+| r2 F4 | AC-3 | `task commits carry the outputs` (`173bfccfe`) | (a) prose | yes |
+| r2 F4 | AC-14 | `adapter suite + meta-test` (`173bfccfe`) | (a) prose | yes |
+| r2 F4 | AC-15 | `both red commands` (`173bfccfe`); `the three red commands` after the r1 repair (`08fa33bbf`) | (a) prose | yes |
+| r2 F4 | AC-12 | ``​`pnpm heavy` mutation run, backgrounded`` (`173bfccfe`) | (a) variant: a span that parses but is not the producing command | **no — L-1** |
+| r3 F5 | AC-5 | `both red commands above` (`173bfccfe` and still at `b1db667e0`) | (a) prose | yes |
+| r4 F2 | AC-14 | a runnable command whose file list omitted `tests/paneCompaction/driver.test.ts` | (b) blind command; the pin is `tests/paneCompaction/driver.test.ts:72` | **no — L-2** |
 
-Blobs: `173bfccfe` (as authored), `b1db667e0` (r2 repaired), `f921a138b` (r3 repaired), `b3705cebd` (r4 repaired).
+Blobs: `173bfccfe` (as authored), `08fa33bbf` (r1 repaired), `b1db667e0` (r2 repaired), `f921a138b` (r3 repaired), `b3705cebd` (r4 repaired).
 
 ## 2. Probe 1: the AC-table grammar is NOT stable, and the ledger row's first scheduled step is why
 
@@ -118,11 +118,13 @@ HEAD:      rows=16 0 hard, 0 advisory
 | `b3705cebd` | r4 repaired | 0 | 0 | clean |
 | `HEAD` | shipped | 0 | 0 | clean |
 
-The arm reproduces r2 F4 exactly (4 of 4) and r3 F5 exactly (1 of 1), and reports clean at every point the arc itself reported clean. It does **not** reproduce r4 F2, for a reason stated as a limit in section 7 rather than papered over.
+**The four at `173bfccfe` are NOT r2 F4's four, and the earlier draft's "reproduces r2 F4 exactly" was an identity substitution behind a coincidental count** (round-4 finding 2). Read against section 1.2: the four caught are AC-3, AC-5, AC-14 and AC-15. Three of those are r2 F4 instances; the fourth, AC-5, is the instance r3 F5 raised a round LATER and which was already present at the authored blob. r2 F4's own fourth instance, AC-12, is not caught and is documented limit L-1.
+
+So the honest statement is: **three of r2 F4's four, all of r3 F5's one, and r3 F5's instance surfaced one round earlier than the reviewer found it.** The arm reports clean at every point the arc reported clean, and does not reproduce r4 F2, for the reason stated as L-2. Two of the six incidents are accepted misses with named limits, which is a weaker and truer claim than the count alone suggests.
 
 ## 5. Probe 4: plant-both, on the shipped fixture
 
-Each plant is a single-cell edit to the live fixture, applied by the tracked generator so the anchors are asserted unique rather than eyeballed. The unplanted fixture scores 0 hard, 0 advisory, so the criterion moves on every plant and on no correct form. Six of the nine are review findings kept as regression cases.
+Each plant is a single-cell edit to the live fixture, applied by the tracked generator so the anchors are asserted unique rather than eyeballed. The unplanted fixture scores 0 hard, 0 advisory, so the criterion moves on every plant and on no correct form. Seven of the nine are review findings kept as regression cases: (c) and (d) from round 1, (c2), (e) and (f) from round 2, (a2) and (g) from round 3.
 
 ```
 $ node docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.mjs plants
@@ -240,7 +242,7 @@ before a table. `N` is a 1-based column index. One field, because everything els
 
 Grammar, matching the strictness of the existing marker grammars (`MARKER_ANY` at `lib/specLint/taskContract.ts:32`, `GATE` at `lib/specLint/redContract.ts:37`, `WAIVER` at `lib/specLint/parse.ts:35`): `^ {0,3}<!-- ac-coverage: command-col=([1-9][0-9]*) -->[ \t]*$`. A line matching `^ {0,3}<!-- ac-coverage:` and not the full grammar is `AC_COVERAGE_MALFORMED`, on the same "there is no third form" rule that governs `TASK_MARKER_MALFORMED`. A declaration inside a fence is inert, as every marker is.
 
-**A declaration governs the next TABLE, and adjacency is the parser's question, not a rule here.** In the AST a declaration is an `html` node and the table it governs is the next `table` sibling, whatever whitespace sits between them. An earlier draft said "the line immediately preceding", which failed on this document's own example because prettier had put a blank line there; that rule no longer exists to fail. A declaration with no following table draws `AC_COVERAGE_NO_TABLE`.
+**A declaration governs the next TABLE, and adjacency is the parser's question, not a rule here.** In the AST a declaration is an `html` node, and it governs the next `table` block in document order PROVIDED no other declaration lies between them; a declaration with another declaration before the next table draws `AC_COVERAGE_NO_TABLE`. The proviso is load-bearing and was self-found by probe: without it, two consecutive declarations both bind to the same table and check it against contradictory command columns, which is what section 8.2.1's row already promised would not happen. Whitespace between a declaration and its table is irrelevant, because blocks are the unit. An earlier draft said "the line immediately preceding", which failed on this document's own example because prettier had put a blank line there; that rule no longer exists to fail. A declaration with no following table draws `AC_COVERAGE_NO_TABLE`.
 
 A document may carry SEVERAL declarations, each governing its own table. One plan corpus document already carries two AC coverage tables (section 6.4).
 

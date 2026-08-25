@@ -24,7 +24,7 @@ tables in the PLAN CORPUS using the fixture's exact header: 1
 
 ## Q2. Does the arm reproduce the three review rounds it was filed for?
 
-Yes: r2 F4's four cells at the authored blob, r3 F5's one remaining cell after the r2 repair, and clean at every point the arc was clean. r4 F2 is not reproduced, for the reason stated as the spec's L-2. These counts are unchanged across every repair round, including the mdast rewrite.
+Partly, and the spec's section 4 states which part. The four hard findings at `173bfccfe` are AC-3, AC-5, AC-14 and AC-15 — THREE of r2 F4's four, plus the instance r3 F5 raised a round later. r2 F4's fourth (AC-12) is documented limit L-1 and r4 F2 is L-2, so two of the six incidents are accepted misses. The counts are unchanged across every repair round, including the mdast rewrite.
 
 ```
 $ node docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.mjs blobs <dir of the five blobs>
@@ -42,7 +42,7 @@ HEAD: rows=16 0 hard, 0 advisory
 
 ## Q3. Does every plant move the criterion, and does no correct form?
 
-Yes. Six of the nine plants are review findings kept as regression cases.
+Yes. Seven of the nine plants are review findings kept as regression cases: (c) and (d) from round 1, (c2), (e) and (f) from round 2, (a2) and (g) from round 3.
 
 `f_prose_in_a_row_without_leading_pipe` removes the leading pipe AND makes the command cell prose. Removing the pipe alone moves nothing, because the row still holds a valid command, so that plant would have been decoration.
 
