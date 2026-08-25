@@ -254,7 +254,9 @@ prototype flipped two declared-limit rows at
 `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5153-5157` from their pinned zero to one hit
 each: `- run: "PG=psql; $PG -qAt mydb"` and its `PG=p'sql'` spelling. That is the improving
 direction, and the predecessor arc predicted it: its own spec says recall there needs YAML-aware value extraction on a different surface
-(`docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md:322-328`).
+(the **Quoted YAML `run:` scalars, plain or mixed** documented-limit bullet in
+`docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md`, lines 325-331
+at time of writing -- the bold phrase identifies it, the range only locates it).
 
 **The corpus was swept for every other place asserting that zero, and the first sweep was WRONG in
 the way this arc keeps finding.** It was two greps. One required the fixture text and
@@ -276,7 +278,8 @@ Narrowing the matcher back to an earlier form makes the self-test abort naming t
 the self-test is itself non-vacuous.
 
 TWO declared sites are exempt from the self-test, each saying so in the script. The first is the
-documented-limit bullet at lines 322-328 of the predecessor spec: it wraps its claim across three
+**Quoted YAML `run:` scalars** documented-limit bullet in the predecessor spec (lines 325-331 at
+time of writing): it wraps its claim across three
 lines and the matcher's window is two. The second is the executable pin at
 `psqlStartupFileSuppression.test.ts:5156`, and its reason generalises rather than being an accident
 of this matcher — the discovery arm finds an executable claim by its zero-assertion, and repairing
@@ -292,7 +295,7 @@ Result: 50 hits over 4111 files. The ones that are claims about this scanner's c
 | --- | --- |
 | `tests/cross-cutting/psqlStartupFiles/scan.ts` line 232 — the module header's own limits list, "This covers a quoted YAML `run:` scalar read as one word" | SUPERSEDE. The guard's own header describing behaviour this task removes. |
 | predecessor spec, line 292 — "the quoted workflow `run:` scalar ... stays ZERO" | SUPERSEDE. Present tense, falsified. |
-| predecessor spec, lines 322-328 — the documented-limit bullet | SUPERSEDE by cross-reference. |
+| predecessor spec — the **Quoted YAML `run:` scalars** documented-limit bullet (lines 325-331 at time of writing) | SUPERSEDE by cross-reference. |
 | predecessor spec, line 346 — §6 item 2 | SUPERSEDE. The canonical record; carries the note. |
 | 2026-08-20 spec, lines 565-566, disposition rows 6-8, which leave the pin alone and give the flag criterion as the reason | SUPERSEDE the reason clause by cross-reference. The rows record that arc's action truthfully; the clause asserts current behaviour. |
 | 2026-08-20 spec, lines 615-616 — "including a quoted YAML `run:` scalar ... Unchanged." | SUPERSEDE. A live limits list. |
@@ -309,7 +312,7 @@ The edits, all in this task's commit:
 3. Add a "Superseded in part, 2026-08-22" note to §6 item 2 of the predecessor spec, naming this row
    — the same form item 1 of that section already carries from 2026-08-20. The flag criterion for
    `.sh` input is untouched and stands.
-4. Point line 292 and the lines 322-328 bullet at that note, so no present-tense "stays ZERO"
+4. Point line 292 and the **Quoted YAML `run:` scalars** bullet at that note, so no present-tense "stays ZERO"
    survives uncorrected. One canonical record, cross-references everywhere else — not independent
    rewrites that can drift apart.
 5. Correct the module header at `tests/cross-cutting/psqlStartupFiles/scan.ts` line 232. This one

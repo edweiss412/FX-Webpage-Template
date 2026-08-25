@@ -366,7 +366,8 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
    item stands — a quoted DIRECTORY component carrying IFS whitespace (`PG='/tmp/x y/psql'`) is
    still declined, and `MSG="psql failed to connect"` is still prose.
 
-   This is the YAML-aware value extraction the bullet at lines 322-328 predicted would be needed;
+   This is the YAML-aware value extraction the **Quoted YAML `run:` scalars** bullet above predicted
+   would be needed;
    it landed on `scanShellIndirection` rather than the `resolveRunShells` family named there.
 3. `PG=$(x)psql`-shaped values (expansion-prefixed psql suffix) report as bindings — a
    conservative over-report, matching the trailing-path reading of `isPsqlCommandWord`.

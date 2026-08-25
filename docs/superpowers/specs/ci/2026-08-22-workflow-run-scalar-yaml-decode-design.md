@@ -281,7 +281,9 @@ needs to know its one silent failure direction -- which is exactly the reason no
    predecessor arc `fix/shell-binding-mixed-quoted-value` declared quoted YAML `run:` scalars a
    documented miss for its binding family, and said in as many words that "recall here needs
    YAML-aware value extraction, a different surface"
-   (`docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md:322-328`). This
+   (the **Quoted YAML `run:` scalars, plain or mixed** documented-limit bullet in
+   `docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md`, lines 325-331
+   at time of writing). This
    arc IS that surface, so the miss becomes a hit — the improving direction. It was found by running
    the deciding suite under a throwaway prototype, not by reading: `spec:lint`'s
    `DECLARED_LIMIT_PIN_UNNAMED` arm named a DIFFERENT pin and was silent on this one. AC-10 is the
