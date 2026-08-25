@@ -151,3 +151,120 @@ Spec and plan rounds are recorded under `docs/review-rounds/fix/shell-brace-cros
 sha, so the diff stage opens a NEW file at `300a9f937b8a.jsonl` numbered from 1. That reset is a
 merge-timing artifact and not headroom: the arc's true round count is the sum across both files, and
 the diff-stage filing will cross-reference the predecessor rather than present itself as a fresh arc.
+
+---
+
+## Task 3 — the walk delegates, and the prose moves with it
+
+Commit `bf476ad0e`. Three production functions changed, plus two new per-context
+helpers, exactly as the plan's opening paragraph predicted.
+
+### The red, and why its shape is the point
+
+Eleven of the twenty-two accept-set rows failed against the merge-base walk — the
+seven `R*` spellings, `Q2`, `Q3`, `P4`, `P5`, which is the plan's prediction row for row.
+**SIX of those eleven failed while still reporting a site**, and that is the whole
+argument for the attribution rule:
+
+| row | merge-base | expected | visible to a count-only assertion? |
+|---|---|---|---|
+| `R1-attached`, `R1-detached` | 0 sites | 1 site, `nested: true` | yes |
+| `Q2-backtick-inside-subst` | 0 sites | 1 site, `nested: true` | yes |
+| `R2-attached`, `R2-detached`, `R1-bare-word`, `R2-bare-word`, `R1-attached-nodq` | 1 site, `nested: FALSE` | 1 site, `nested: true` | **no** |
+| `Q3-subst-inside-backtick-in-brace` | 0 sites, 1 ADVISORY | 0 sites, 0 advisories | **no**, on sites alone |
+| `P4`, `P5` | 1 site fabricated | 0 sites | yes |
+
+A count-shaped assertion would have gone green on six of the eleven. The rule is
+not thoroughness; it is the only thing that discriminates a boundary defect.
+
+### What shipped
+
+- `matchBraceSpan` delegates over a **default-denied** accept-set. An opener nobody
+  listed terminates nothing and keeps today's reading, which is what makes the axis
+  closable instead of an open grammar.
+- **Two recognizers, never one flag.** `foreignConstructEnd` is the bare alphabet
+  where both quote forms open; `doubleQuotedEnd` is the narrower one where `'`,
+  `$'` and `$"` are literal, because bash's is.
+- The `$$` rule in **all three** recognizers, one guard per lexical context.
+- An unclosed foreign construct **fails** its enclosing span.
+
+### The probe abort, which is the most useful thing that happened in this task
+
+`weaker-walks.mts` ABORTED on its first run: `w1`'s hunk matched zero times, because
+the probe's hunks encode the PROTOTYPE's shape and this implementation had been
+written differently. The handover's instruction is to re-derive the hunk from the
+candidate and never to relax the match.
+
+**The implementation was aligned to the probe's shape instead, and that is the
+weaker-looking choice for the stronger reason.** Re-deriving eight hunks by hand
+against a shape I had just invented risks exactly one thing: a hunk that silently
+no-ops yields a CLONE of the candidate, which passes every row and reads as "no
+impostor here". The probe exists to catch impostors; hand-authoring its transforms
+to fit my own code puts the instrument's soundness in my hands at the moment it is
+supposed to be checking me. Aligning the code costs nothing — spec §3.3 leaves the
+structure to the plan under one constraint, two recognizers, which this satisfies.
+
+After alignment, all eight walks build from THIS candidate and **every one dies to
+exactly its declared killers**, scores matching the plan's table row for row.
+Four of the eight score a clean 22/22 on the accept-set and are caught only by the
+limit rows or the bash-rejected rows.
+
+### The registry re-key was not mechanical
+
+All 30 `equivalent` rows moved. **22 of them had AMBIGUOUS candidates** from
+`pnpm mutation:sites` (one row offered `788` and `4377`), so each new site was
+derived by locating its ORIGINAL line content in the new source. Taking the first
+candidate would have mis-keyed many of them.
+
+**One argument had genuinely stopped being true.** The `matchBraceSpan` loop-bound
+row argued from "the body compares `character` against backslash, the active quote,
+double quote, single quote, and the open/close delimiters" — and this rewrite deletes
+the `quote` variable entirely. The conclusion survives, the premise did not, so the
+row was REWRITTEN rather than carried across, and the new argument is probe-backed:
+`foreignConstructEnd` reads the same undefined character at `i === text.length`,
+matches none of its five branches and returns null without indexing further.
+Verified over ten truncated-input boundaries, no throw.
+
+## Task 4 — the documented-limit surface, red against a NAMED MUTANT
+
+The `#`-comment widening of design §2.1b, applied to `scan.ts` and never committed.
+
+```
+RED   L2-comment-hides-paren  ... MOVED
+      4/5 documented-limit rows UNCHANGED
+      FAIL under --expect-repaired: 0 accept-set row(s) unmet, 1 documented-limit row(s) MOVED
+      exit 1
+GREEN 22/22 accept-set, 5/5 documented-limit UNCHANGED, 4/4 bash-rejected, exit 0
+```
+
+**Under the mutant the accept-set still scores a clean 22/22.** That is the finding
+worth keeping: the population carrying AC-1 cannot see this change at all, and only
+the merge-base comparison catches it.
+
+The mutant is an IMPROVEMENT in bash fidelity — a `#` inside `$()` really does
+comment out the rest of the line — and it is still refused. A fence that only rejects
+mistakes is easy; this one rejects an improvement, which is what makes the
+no-parser-growth rule executable rather than aspirational.
+
+**Reverted byte-identically, proven not assumed:** `git hash-object` reads
+`b1f22571af047bcddac935419784ea10e7ebb577` before and after, and `git status` is
+clean on the file, so no re-key is owed for this task.
+
+## Task 5 — the digest and the cost bound, a MEASUREMENT task with no red
+
+| criterion | result |
+|---|---|
+| AC-5 | `baseline-corpus.mts --expect 8ebe8b08…` → `PASS` over 76 rows, exit 0 |
+| AC-6 | merge-base median CPU **14127 ms**, candidate **13687 ms**, same session → **0.97×** against a 1.5× bound, exit 0 |
+| `consumers.mts --expect-repaired` | 7/7 unmoved routes IDENTICAL, the one declared movement still moves, exit 0 |
+
+**AC-6 is the ledger row's close condition (b), and it lands comfortably.** The row
+recorded a construct-aware prototype taking 400s where the shipped walk took 13s,
+and concluded the repair was not viable as written. Measured on this implementation,
+the construct-aware walk costs nothing detectable over the live corpus. What the
+number establishes is the SIGN, not the digit: the live corpus's spans are too short
+for the delegation to be paid for, and a ratio slightly under 1.0 is contention
+noise rather than a speed-up.
+
+The digest held identical across all three timing runs, which the probe requires
+before it will report a timing number at all.

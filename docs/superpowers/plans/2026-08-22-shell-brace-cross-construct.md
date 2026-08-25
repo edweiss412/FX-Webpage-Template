@@ -698,27 +698,37 @@ rg -n 'matchBraceSpan|matchBraceEnd|only ever wanted the index|blind spot|expans
   tests/cross-cutting/psqlStartupFiles/scan.ts tests/cross-cutting/psqlStartupFileSuppression.test.ts BACKLOG.md
 ```
 
-**THIRTEEN hits at `300a9f937b8a`, re-run by Task 1 on 2026-08-25.** It was twelve at
-`50ca72a56`; the thirteenth arrived with `arc-yamlquote`'s merge and belongs to a DIFFERENT ledger
-row, disposed below. That the count moved without anyone touching this arc is the argument for the
-sweep being the channel and §6 a reading of it: a checklist of eight cannot notice a hit that a
-sibling merge introduced. **Every row marked MOVES except the ledger one is repaired in Task 3
-step 5b**; re-running the command here must show each of them already updated, and a hit still
-describing the pre-repair walk means step 5b was incomplete:
+**TWENTY-TWO hits at `300a9f937b8a`, re-run 2026-08-25 AFTER the Task 3 repair landed**, each
+disposed. The count has moved twice and neither move was a mistake, which is the argument for the
+sweep being the channel rather than §6 being the list: it was TWELVE when the plan was written,
+THIRTEEN after `arc-yamlquote` merged a hit into a sibling ledger row that nobody here touched, and
+TWENTY-TWO once Task 3 step 5b wrote the repaired prose — the repair's own comments name the
+symbols, so a sweep keyed on those symbols must find them. **Every §6 row below is verified ALREADY
+UPDATED; a hit still describing the pre-repair walk would mean step 5b was incomplete.**
+
+**The line numbers in this table are the SWEEP'S OUTPUT at commit `bf476ad0e`, not base-stamped
+citations, and they are a dated record of one run rather than a claim about HEAD.** Everywhere else
+this plan cites by base stamp and resolves by symbol, because a citation into a file your own tasks
+edit drifts silently while still resolving. A sweep table cannot be base-stamped — its whole content
+is where the hits are NOW — so it is pinned to the commit that produced it instead, and re-running
+the command is what re-derives it. Each row is identified by its content in the disposition text,
+which is what survives the next edit.
 
 | hit | disposition |
 | --- | --- |
-| `scan.ts:372` | **MOVES** — §6 site 4, the lexer header's ONE-blind-spot claim. True again only after the repair. |
-| `scan.ts:986` | **MOVES** — §6 site 1, `matchBraceSpan`'s block comment and its quoted-`)` example. |
-| `scan.ts:1021` | **MOVES** — §6 site 2. The measured figure is SIX callers, not four. |
-| `scan.ts:1023`, `scan.ts:1039`, `scan.ts:1144` | **no action** — call sites, not prose. |
-| `scan.ts:1038` | **MOVES** — §6 site 3, `matchBraceEnd`'s comment, which describes the walk it delegates to. |
-| `scan.ts:1579` | **MOVES** — §6 site 5, the `${…}` branch on consuming the expansion whole. |
-| `psqlStartupFileSuppression.test.ts:5348` | **MOVES — NOT IN §6.** The suite-side twin of site 5, same claim about consuming a `${…}` expansion whole. Found by this sweep, added to design §6 as site 7. |
-| `psqlStartupFileSuppression.test.ts:6689` | **MOVES — NOT IN §6.** A diff-round-1 comment describing what `matchBraceEnd` asked of a character. Found by this sweep, added to design §6 as site 8. |
+| `scan.ts:372`, `scan.ts:375`, `scan.ts:376` | **MOVED, verified** — §6 site 4, the lexer header's ONE-blind-spot claim. It was FALSE from 2026-08-21 to 2026-08-25 and is true again; the two lines after it are the repair's own record of that, added by step 5b. |
+| `scan.ts:1002`, `scan.ts:1004` | **MOVED, verified** — §6 site 1, `matchBraceSpan`'s block comment. The quoted-`)` example is still the right one and is now correct for a different reason: the quote is not special-cased, it is one member of the accept-set. |
+| `scan.ts:1127`, `scan.ts:1128`, `scan.ts:1130` | **MOVED, verified** — §6 site 2. The measured figure is SIX call sites, and the comment now carries the command that measures it rather than a number to be trusted. |
+| `scan.ts:1155` | **MOVED, verified** — §6 site 3, `matchBraceEnd`'s comment, extended with why reading the walk's OWN `closed` flag is what keeps it correct now that the walk delegates. |
+| `scan.ts:1714` | **MOVED, verified** — §6 site 5, the `${…}` branch on consuming the expansion whole. |
+| `scan.ts:1080`, `scan.ts:1113` | **no action — NEW call sites** created by this arc: the two RECURSIVE `matchBraceSpan` calls inside `foreignConstructEnd` and `doubleQuotedEnd`. Code, not prose. |
+| `scan.ts:1135`, `scan.ts:1156`, `scan.ts:1266` | **no action** — pre-existing call sites, not prose. |
+| `psqlStartupFileSuppression.test.ts:5348`, `psqlStartupFileSuppression.test.ts:5355` | **MOVED, verified** — §6 site 7, the suite-side twin. The `${…}`-whole property is PRESERVED; what moved is where the expansion ends, and the comment now says so. |
+| `psqlStartupFileSuppression.test.ts:6694` | **MOVED, verified** — §6 site 8, the diff-round-1 comment on what `matchBraceEnd` asked of a character. |
+| `psqlStartupFileSuppression.test.ts:6753` | **no action — NEW**, the header of the accept-set case block Task 3 step 1 authored. It describes the pre-repair walk deliberately, in the past tense, as the reason those cases exist. |
 | `BACKLOG.md:299` | **MOVES — in THIS task**, §6 site 6, the ledger row archived at closeout. The only §6 site that is not a source edit. |
+| `BACKLOG.md:357` | **no action, and it is NOT this arc's row.** It belongs to `BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES`, which states that `matchBraceEnd` "returns `-1` when a span never closed, so the suppression precedent already exists in the file". The repair does NOT falsify it: §1.2 row 5 and §3.2 both ratify that `matchBraceEnd` keeps reading the walk's OWN `closed` flag and that `matchBrace`'s return contract is unchanged for its six index-only consumers. True before and after. Recorded because the sweep found it and a reader is owed the reason it survives untouched. |
 | `BACKLOG.md:2154` | **false positive, no action** — an unrelated `probe:citations` entry using "blind spot" in its ordinary sense. Recorded rather than filtered out of the pattern, because a sweep that is tuned until it returns only true positives has been tuned against its own corpus. |
-| `BACKLOG.md:357` | **NEW at this base, no action, and it is NOT this arc's row.** It belongs to `BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES`, which states that `matchBraceEnd` "returns `-1` when a span never closed, so the suppression precedent already exists in the file". The repair does NOT falsify it: §1.2 row 5 and §3.2 both ratify that `matchBraceEnd` keeps reading the walk's OWN `closed` flag and that `matchBrace`'s return contract is unchanged for its six index-only consumers. The sentence is true before and after. Recorded because the sweep found it and a reader is owed the reason it survives untouched. |
 
 **Two of the eight prose sites were found by the sweep and not by §6**, which settles what the sweep
 is for: it is the channel, and §6 is a reading of it that was two sites short. The thirteenth hit
