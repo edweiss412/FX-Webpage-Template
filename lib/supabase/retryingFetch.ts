@@ -16,7 +16,9 @@
  *                not help a hung admin gate at all.
  *
  * On exhaustion the FIRST attempt's outcome is replayed, so a fully-failed request surfaces
- * exactly what it surfaces today (spec §3.4). See lib/supabase/replayFirstAttempt.ts.
+ * exactly what it surfaces today (spec §3.4). That replay is the `!eligible || attempt >=
+ * maxRetries` branch in `makeRetryingFetch` below, not a separate module: an earlier draft of
+ * this header cited `lib/supabase/replayFirstAttempt.ts`, which has never existed.
  *
  * not-subject-to-meta: transport policy, not an auth helper gating a trust decision (invariant 9).
  */
