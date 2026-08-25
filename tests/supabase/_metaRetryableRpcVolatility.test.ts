@@ -20,6 +20,10 @@
  * NOT in PARALLEL_TEST_GLOBS and therefore runs in the serial project, which is the tier that
  * boots Supabase.
  */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
@@ -66,6 +70,58 @@ describe("RETRYABLE_RPCS — premises", () => {
 
   test("the product-tree walk found literals", () => {
     premise("string literals in the product tree", literalsInProductTree().size, 0);
+  });
+});
+
+describe("the product-tree walk skips what it claims to skip", () => {
+  /**
+   * Written because the mutation gate found BOTH of this walker's guards deletable with every
+   * test green: flipping `node_modules || dot-dir` to `&&` skips nothing, and removing the
+   * `continue` after recursing falls through to the extension test. Neither changed a result,
+   * because the real roots (`app`, `lib`, `components` — 262 directories) happen to contain no
+   * node_modules, no dot-directory, and no directory named `*.ts`.
+   *
+   * "Happens to contain none today" is a fact about the tree, not a property of the walker, and
+   * an `equivalent` row resting on it would expire the first time someone nests a dependency.
+   * A fixture makes the guards observable, so the walker is pinned by construction instead.
+   */
+  test("node_modules and dot-directories are not descended into", () => {
+    const root = mkdtempSync(join(tmpdir(), "walk-fixture-"));
+    premise("fixture directories the walk can descend into", 3, 0);
+    try {
+      mkdirSync(join(root, "node_modules"), { recursive: true });
+      mkdirSync(join(root, ".hidden"), { recursive: true });
+      writeFileSync(join(root, "kept.ts"), 'const a = "KEPT_LITERAL";\n');
+      writeFileSync(join(root, "node_modules", "dep.ts"), 'const b = "NODE_MODULES_LITERAL";\n');
+      writeFileSync(join(root, ".hidden", "h.ts"), 'const c = "HIDDEN_LITERAL";\n');
+
+      const found = literalsInProductTree([root]);
+
+      // The premise: the walk reached the fixture at all. Without it, a walker that returned an
+      // empty set would satisfy both exclusions vacuously.
+      expect(found.has("KEPT_LITERAL")).toBe(true);
+      expect(found.has("NODE_MODULES_LITERAL")).toBe(false);
+      expect(found.has("HIDDEN_LITERAL")).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a DIRECTORY whose name ends in .ts is recursed, never read as a file", () => {
+    // The `continue` after `walk(full)` is what stops a directory from reaching readFileSync.
+    // Remove it and a directory named `x.ts` passes the extension test and throws EISDIR.
+    const root = mkdtempSync(join(tmpdir(), "walk-dirts-"));
+    premise("a nested .ts-named directory to recurse into", 1, 0);
+    try {
+      mkdirSync(join(root, "nested.ts"), { recursive: true });
+      writeFileSync(join(root, "nested.ts", "inner.ts"), 'const d = "INNER_LITERAL";\n');
+
+      const found = literalsInProductTree([root]);
+
+      expect(found.has("INNER_LITERAL")).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

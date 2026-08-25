@@ -19,6 +19,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import {
   MAX_SUPABASE_RETRIES,
+  PER_ATTEMPT_TIMEOUT_MS,
   RETRYABLE_STATUSES,
   makeRetryingFetch,
 } from "@/lib/supabase/retryingFetch";
@@ -270,5 +271,203 @@ describe("retrying fetch — abort provenance", () => {
     });
     await expect(makeRetryingFetch(inner, instant)(INSERT, { method: "POST" })).rejects.toBe(boom);
     expect(inner).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * THE DEFAULTS, EXERCISED — the gap the mutation gate found and no review round would have.
+ *
+ * Every case above injects `sleep`, `random`, `timeoutMs`, `maxRetries` and `onRetry`, which is
+ * what makes them fast and deterministic. It also means the wrapper's OWN defaults were never
+ * executed, so ten mutants lived: MAX_SUPABASE_RETRIES 2->3, PER_ATTEMPT_TIMEOUT_MS 2000->2001,
+ * the whole default `log.warn` emit DELETED, the backoff `await sleep(...)` DELETED, and the
+ * backoff arithmetic (250, 2, attempt-1, jitter 250, attempt+1).
+ *
+ * The emit one is the sharpest: it was added because CI proved AC-5 vacuous WITHOUT it, and made
+ * injectable so the record is assertable without a log sink — and that injectability is exactly
+ * why its default form went unguarded. A seam added to make something testable removed the only
+ * thing that tested the default.
+ *
+ * These cases take the defaults and drive fake timers, so they stay fast without injecting the
+ * values under test.
+ */
+describe("retrying fetch — the caller's signal is left as it was found", () => {
+  test("every abort listener the wrapper adds is removed again", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected; nothing real is read.
+    //
+    // The wrapper subscribes to the CALLER's signal once per attempt so a caller cancellation can
+    // interrupt a retry loop. Each subscription must be undone, or a long-lived signal accumulates
+    // one dead listener per attempt for the life of the request.
+    //
+    // Written because the mutation gate found `removeEventListener` DELETABLE with every test still
+    // green: nothing observed the balance, so the leak was invisible. Counting is the observation.
+    const caller = new AbortController();
+    const sig = caller.signal;
+    let added = 0;
+    let removed = 0;
+    const realAdd = sig.addEventListener.bind(sig);
+    const realRemove = sig.removeEventListener.bind(sig);
+    Object.defineProperty(sig, "addEventListener", {
+      configurable: true,
+      value: (...args: Parameters<typeof realAdd>) => {
+        added += 1;
+        return realAdd(...args);
+      },
+    });
+    Object.defineProperty(sig, "removeEventListener", {
+      configurable: true,
+      value: (...args: Parameters<typeof realRemove>) => {
+        removed += 1;
+        return realRemove(...args);
+      },
+    });
+
+    const inner = vi.fn(async () => (inner.mock.calls.length < 3 ? bad(502) : ok()));
+    await makeRetryingFetch(inner, instant)(RPC, { method: "POST", signal: sig });
+
+    // The premise: the wrapper subscribed at all. Without it a zero-zero balance would pass
+    // vacuously on a wrapper that never touched the signal.
+    expect(added).toBeGreaterThan(0);
+    expect(removed).toBe(added);
+  });
+});
+
+describe("retrying fetch — timedOut is the source of truth, even when BOTH aborts happen", () => {
+  test("a timeout that also trips the caller's signal is still retried, not rethrown", async () => {
+    // no-premise: the transport is an injected stub and the timeout is injected; nothing real is read.
+    //
+    // THE CASE `timedOut` EXISTS FOR, and the mutation gate found it missing: deleting
+    // `timedOut = true` left every test green. The flag only discriminates when a caller abort and
+    // our own timeout are BOTH true at the catch — with the flag the wrapper knows the abort was
+    // ITS timer and retries; without it, `!timedOut` is true and it hands the caller's own abort
+    // back after one attempt.
+    //
+    // The existing cases cover each half alone (a caller abort with no timeout; a stall with no
+    // caller signal), and each half passes either way. Only the overlap tells them apart.
+    const caller = new AbortController();
+    let attempts = 0;
+    const inner = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          attempts += 1;
+          if (attempts > 1) {
+            resolve(ok());
+            return;
+          }
+          // When OUR per-attempt timer aborts, trip the CALLER's signal too, so the catch sees
+          // callerSignal.aborted === true alongside timedOut === true.
+          init?.signal?.addEventListener("abort", () => {
+            caller.abort();
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+        }),
+    );
+
+    const res = await makeRetryingFetch(inner as unknown as typeof fetch, {
+      ...instant,
+      timeoutMs: 5,
+    })(RPC, { method: "POST", signal: caller.signal });
+
+    // Retried and recovered. Without the flag this rethrows the AbortError after one attempt.
+    expect(res.status).toBe(200);
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("retrying fetch — the DEFAULTS, not the injected harness", () => {
+  test("with NO options at all, the default budget makes exactly 1 + MAX_SUPABASE_RETRIES attempts", async () => {
+    // no-premise: the transport is an injected stub and the clock is faked, so this case reads no socket, file, real clock or environment variable.
+    vi.useFakeTimers();
+    try {
+      const inner = vi.fn(async () => bad(502));
+      const p = makeRetryingFetch(inner)(RPC, { method: "POST" });
+      await vi.runAllTimersAsync();
+      await p;
+      // Pins the CONSTANT, not a value this test supplied: 2 -> 3 makes this 4 and fails.
+      expect(inner).toHaveBeenCalledTimes(1 + MAX_SUPABASE_RETRIES);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("the default onRetry reaches log.warn with the forensic fields", async () => {
+    // no-premise: the transport is an injected stub and the log module is mocked; nothing real is read.
+    vi.resetModules();
+    const warn = vi.fn();
+    vi.doMock("@/lib/log", () => ({
+      log: { warn, error: vi.fn(), info: vi.fn(), debug: vi.fn() },
+    }));
+    const { makeRetryingFetch: fresh } = await import("@/lib/supabase/retryingFetch");
+    vi.useFakeTimers();
+    try {
+      const inner = vi.fn(async () => (inner.mock.calls.length === 1 ? bad(502) : ok()));
+      const p = fresh(inner)(RPC, { method: "POST" });
+      await vi.runAllTimersAsync();
+      await p;
+      // Deleting the default emit body leaves this at zero — the mutant that lived.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![1]).toMatchObject({
+        code: "SUPABASE_UPSTREAM_RETRY",
+        fn: "is_admin",
+        status: 502,
+        attempt: 1,
+      });
+    } finally {
+      vi.useRealTimers();
+      vi.doUnmock("@/lib/log");
+      vi.resetModules();
+    }
+  });
+
+  test("the default backoff actually sleeps, and by the documented amounts", async () => {
+    // no-premise: the transport is an injected stub and the clock is faked; nothing real is read.
+    vi.useFakeTimers();
+    const delays: number[] = [];
+    const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: () => void,
+      ms?: number,
+    ) => {
+      // The per-attempt stall guard also uses setTimeout; only backoff sleeps are recorded here,
+      // and the guard's is PER_ATTEMPT_TIMEOUT_MS, which the next case pins separately.
+      if (ms !== undefined && ms < 2000) delays.push(ms);
+      fn();
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout);
+    try {
+      const inner = vi.fn(async () => bad(502));
+      // random is STILL injected, but NOT as 0. A zero jitter multiplies the 250 BOUND away, so
+      // `random() * 250` and `random() * 251` are both 0 and the bound is invisible — the first
+      // version of this test asserted [250, 500] and the 250->251 mutant survived it. Pinning a
+      // near-1 value makes the bound observable: floor(.999*250)=249 vs floor(.999*251)=250.
+      await makeRetryingFetch(inner, { random: () => 0.999 })(RPC, { method: "POST" });
+      expect(delays).toEqual([250 + 249, 500 + 249]);
+    } finally {
+      spy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  test("the default per-attempt timeout is PER_ATTEMPT_TIMEOUT_MS", async () => {
+    // no-premise: the transport is an injected stub and setTimeout is spied; nothing real is read.
+    const seen: number[] = [];
+    const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: () => void,
+      ms?: number,
+    ) => {
+      if (ms !== undefined) seen.push(ms);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout);
+    try {
+      const inner = vi.fn(async () => ok());
+      await makeRetryingFetch(inner)(RPC, { method: "POST" });
+      // The LITERAL, not the imported constant. Asserting `toContain(PER_ATTEMPT_TIMEOUT_MS)`
+      // compares the constant to ITSELF: mutate 2000 to 2001 and the expectation moves with it,
+      // which is why that mutant survived the first version of this test. Pinning the number
+      // fails the mutant, and the equality below pins the exported value the docs quote.
+      expect(PER_ATTEMPT_TIMEOUT_MS).toBe(2000);
+      expect(seen).toContain(2000);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

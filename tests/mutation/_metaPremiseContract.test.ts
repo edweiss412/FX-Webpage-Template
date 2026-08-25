@@ -38,13 +38,17 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // The volatility suite genuinely reaches the catalog, and its five catalog-reading
   // cases carry their own in-body premises — a premise in the shared beforeAll runs
   // but is not attributable, since the scanner reads the test BODY.
-  // 16, and the number moved once: the AC-3 attempt-once table added FIVE cases but only TWO
+  // 22 now, and the number has moved TWICE. First the AC-3 attempt-once table (+2, four cases
+  // from one call site). Then the mutation gate's repair: the defaults, the both-aborts case and
+  // the listener-balance case (+6). A count derived from a measurement moves whenever the measured
+  // thing does, which on this arc has been every time the guard got stronger.
+  // Original note: the AC-3 attempt-once table added FIVE cases but only TWO
   // to this count, because four of them are generated from a single `test(` call site inside a
   // loop and the classifier counts CALL SITES, not generated cases. Re-measured with
   // classifyTests rather than adjusted by hand.
-  "tests/supabase/retryingFetch.test.ts": 16,
+  "tests/supabase/retryingFetch.test.ts": 22,
   "tests/supabase/retryingFetch.failureMode.test.ts": 3,
-  "tests/supabase/_metaRetryableRpcVolatility.test.ts": 9,
+  "tests/supabase/_metaRetryableRpcVolatility.test.ts": 11,
   // The claim-sweep suites, enrolled 2026-08-20. Counts are MEASURED, not
   // guessed: each is what the classifier reports today, declared independently
   // so a recognizer that silently stops matching drops them to zero and reds

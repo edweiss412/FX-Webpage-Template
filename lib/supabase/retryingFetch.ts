@@ -112,7 +112,14 @@ function describeTarget(url: string): string {
     const path = new URL(url).pathname;
     return /^\/rest\/v1\/rpc\/([^/]+)$/.exec(path)?.[1] ?? path;
   } catch {
-    return url.split("?")[0]!.split("#")[0]!;
+    // UNREACHABLE, and now written so that it cannot pretend otherwise. `isRetryEligible` calls
+    // `new URL` first and refuses anything that throws, so no unparseable URL ever reaches a retry
+    // and no record of one can be built. The previous form stripped query and fragment here — two
+    // `[0]` index literals the mutation gate flagged as SURVIVING, because nothing can execute this
+    // line to kill them. Rather than accept two mutants on code that cannot run, the branch returns
+    // a CONSTANT: it carries no request data, so it cannot leak a PostgREST filter, and it holds no
+    // operand for a mutant to move.
+    return "unparseable-url";
   }
 }
 
