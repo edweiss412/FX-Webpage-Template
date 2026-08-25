@@ -1687,7 +1687,7 @@ describe("connection census — the enrolment's control is unique in the module 
     const occurrences = source.split(surface!.control.from).length - 1;
     expect(occurrences, `control.from: ${surface!.control.from}`).toBe(1);
     // And it must actually CHANGE the source, or the overlay proves nothing.
-    expect(source.replace(surface!.control.from, surface!.control.to)).not.toBe(source);
+    expect(source.replace(surface!.control.from, () => surface!.control.to)).not.toBe(source);
     // The control's target is the module this suite decides, not some other file.
     expect(surface!.sourcePath).toBe(MODULE_PATH);
     expect(surface!.suitePaths).toContain("tests/db/connectionCensus.test.ts");

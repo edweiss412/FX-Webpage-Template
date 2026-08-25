@@ -119,10 +119,17 @@ export function chipLabel(grant: GrantableFlag): string {
 
 /** "Applies to anyone whose role says <TOKEN> — …" with the raw word filled in. */
 export function scopeLine(token: string): string {
-  return SCOPE_LINE.replace("<TOKEN>", token);
+  // Replacer function, not a replacement string: the token is free text from the sheet, and a
+  // string replacement would parse `$&`, `` $` ``, `$'` and `$$` in it as a substitution grammar.
+  return SCOPE_LINE.replace("<TOKEN>", () => token);
 }
 
 /** "People with <TOKEN> now see <SUMMARY>." — the applied saved-card summary. */
 export function savedSummary(token: string, grants: readonly GrantableFlag[]): string {
-  return SAVED_SUMMARY.replace("<TOKEN>", token).replace("<SUMMARY>", grantsSummary(grants));
+  // Both replacements are functions. The chained shape is why the string form was especially bad
+  // here: `$'` in the token spliced the sentence tail into the middle, displacing the text the
+  // SECOND .replace was going to match, so an unreplaced `<SUMMARY>` marker reached the screen.
+  return SAVED_SUMMARY.replace("<TOKEN>", () => token).replace("<SUMMARY>", () =>
+    grantsSummary(grants),
+  );
 }

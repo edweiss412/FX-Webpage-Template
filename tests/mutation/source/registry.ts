@@ -3316,9 +3316,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
    * wrapper's 40 sites, 13 of the scan's 18), so the declared score would have
    * ranged over a strict subset while reading as the surface's score.
    *
-   * `lib/supabase/retryEligibility.ts` is deliberately NOT enrolled: 3 sites
-   * total, and its defect class is set membership, which no operator reaches.
-   * Enrolling it would report coverage while proving nothing.
+   * `lib/supabase/retryEligibility.ts` was deliberately NOT enrolled at first, and that reasoning
+   * is kept here because it was correct then and is instructive now: 3 sites, defect class set
+   * membership, nothing an operator reaches. Round 4 changed the module rather than the argument.
+   * Repairing that round's P0 moved the ownership decision INTO it — `basePathOf` and
+   * `rpcFunctionName` do prefix matching, slicing and a segment check — and the wrapper's own
+   * mutant count fell 47 to 46 as those sites left it. A module that decides "is this request ours
+   * to retry" is no longer a set lookup, so it is enrolled below.
    */
   {
     id: "supabaseRetryingFetch",
@@ -3372,6 +3376,32 @@ export const GUARD_SURFACES: GuardSurface[] = [
     control: {
       from: "if (set.has(name) || hasReasonedEntry(exclusions, name)) continue;",
       to: "if (set.has(name) && hasReasonedEntry(exclusions, name)) continue;",
+    },
+    accepted: [],
+  },
+  {
+    id: "replacementString",
+    sourcePath: "tests/cross-cutting/replacementString/scan.ts",
+    suitePaths: ["tests/cross-cutting/replacementString.test.ts"],
+    // All six declared operators, deliberately. A scoped subset leaves the excluded operators'
+    // sites unscored, and the round-1 diff brief's `OPERATORS:` tail would then have to say so.
+    operators: [
+      "relational-boundary",
+      "equality-flip",
+      "logical-connector",
+      "integer-literal",
+      "regex-quantifier-bound",
+      "statement-removal",
+    ],
+    scoreFloor: 0.9,
+    // Drops ArrowFunction from the accept-set, so a case whose expected verdict is ACCEPTED
+    // starts reporting. Chosen over anchoring on the callee-name check, which would make the
+    // judge match nothing at all — the repo-wide assertion reads that as zero offenders and
+    // PASSES, so it would prove the overlay applied by way of a gate that cannot fail.
+    // Unique on the current source: `grep -c -F 'ts.isArrowFunction(a) ||'` = 1.
+    control: {
+      from: "ts.isArrowFunction(a) ||",
+      to: "",
     },
     accepted: [],
   },

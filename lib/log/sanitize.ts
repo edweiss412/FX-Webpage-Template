@@ -3,7 +3,9 @@ const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const REDACTED = "[email-redacted]";
 
 export function redactEmails(input: string): string {
-  return input.replace(EMAIL_RE, REDACTED);
+  // Replacer function: REDACTED carries no `$` today, so this changes nothing now and cannot
+  // start changing something if the placeholder is ever edited (spec §6, the hygiene wraps).
+  return input.replace(EMAIL_RE, () => REDACTED);
 }
 
 type Json = string | number | boolean | null | Json[] | { [k: string]: Json };
