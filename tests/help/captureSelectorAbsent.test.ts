@@ -161,9 +161,16 @@ describe("the catch is NARROWED to the selector wait, not wrapped around the fun
       selectorTimeoutMs: 700,
       stableMs: 4_000,
     });
+    // The handler is attached BEFORE the close, not after. The rejection fires
+    // the moment the page goes away, and attaching `.catch` afterwards leaves a
+    // window in which it is unhandled -- which vitest reports as an unhandled
+    // error even though the test does eventually catch it. This only became
+    // visible once layer 0 stopped swallowing non-timeout rejections: the old
+    // untyped catch converted this into a refusal, so nothing ever rejected here.
+    const settled = pending.catch((e: unknown) => e);
     await page.close();
 
-    const error = await pending.catch((e: unknown) => e);
+    const error = await settled;
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(SelectorAbsentError);
     expect((error as { refusedReason?: string }).refusedReason).toBeUndefined();

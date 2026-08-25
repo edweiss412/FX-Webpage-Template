@@ -155,7 +155,7 @@ export async function captureAll(): Promise<void> {
         } catch (error: unknown) {
           // A refusal still records an entry — the outcome most in need of
           // evidence is the one that would otherwise leave none — then aborts.
-          entries.push(refusedEntry(entry.key, theme, error));
+          entries.push(refusedEntry(entry, theme, error));
           refusal = error;
           break outer;
         } finally {
@@ -200,12 +200,23 @@ export async function captureAll(): Promise<void> {
   }
 }
 
-function refusedEntry(key: string, theme: CaptureTheme, error: unknown): CapturedEntry {
+function refusedEntry(
+  entry: { key: string; frozenClockInstant: string },
+  theme: CaptureTheme,
+  error: unknown,
+): CapturedEntry {
   const selectorAbsent = error instanceof SelectorAbsentError;
   return {
-    key,
+    key: entry.key,
     theme,
     capturedAtUtc: new Date().toISOString(),
+    frozenClockInstant: entry.frozenClockInstant,
+    // Spec section 4.2.1 and plan Task 3 both require the MISSING SELECTOR in the
+    // entry, not only in the throw's message. `SelectorAbsentError` has carried
+    // it as a field all along and the record discarded it, so an operator
+    // triaging a refused capture from the artifact alone could not tell WHICH
+    // selector failed to resolve without parsing prose.
+    ...(selectorAbsent ? { absentSelector: error.selector } : {}),
     pixelWidth: null,
     pixelHeight: null,
     pixelSha256: null,

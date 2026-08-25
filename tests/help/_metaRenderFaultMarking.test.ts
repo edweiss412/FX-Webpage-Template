@@ -73,6 +73,8 @@ const FLAG_RESIDUE: Record<string, string> = {
     "reaches no manifest capture today (/admin/dev/telemetry is unrouted), but renders Unavailable / Health check failed. MARKED BY HAND via the renderFault prop.",
   "components/admin/telemetry/TelemetryOverviewStrip.tsx:EventsCard.isInfra":
     "same surface, renders Unavailable. MARKED BY HAND via the renderFault prop.",
+  "components/admin/IgnoredSheetsDisclosure.tsx:degraded":
+    'reaches dashboard-overview and IS captured: Dashboard derives `degraded` from `ignoredResult.kind === "infra_error"` (Dashboard.tsx:489) and passes it here, where a `degraded ?` ternary renders a visible Couldn\'t-load chip on /admin. MARKED BY HAND via data-render-fault. Not scanner-reachable because the guard is a bare prop, so classifyExpression returns null and the ConditionalExpression arm drops it. Found by whole-diff review r1, which is the point worth recording: the residue registry named the ASSIGNMENT site in Dashboard and missed that the RENDER lives in another component.',
   "app/admin/layout.tsx:inOnboarding":
     "assigns a routing flag and returns no JSX from that branch; fails open by design.",
 };

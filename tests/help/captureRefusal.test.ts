@@ -31,7 +31,13 @@ async function pageWith(html: string): Promise<Page> {
   return page;
 }
 
-const ENTRY = { key: "dashboard-overview", captureSelector: '[data-testid="root"]' };
+const ENTRY = {
+  key: "dashboard-overview",
+  captureSelector: '[data-testid="root"]',
+  // Every manifest entry carries one, and the evidence entry records it per
+  // spec section 5, so the fixture has to supply it too.
+  frozenClockInstant: "2026-03-24T15:00:00.000Z",
+};
 
 describe("a marked fault refuses BEFORE anything is written", () => {
   // The failure this catches: placing the check after encodeWebp/writeFile

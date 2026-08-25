@@ -68,8 +68,19 @@ export async function quiesceWithLayer0(
         state: "visible",
         ...(opts.selectorTimeoutMs !== undefined ? { timeout: opts.selectorTimeoutMs } : {}),
       });
-  } catch {
-    // Trigger 1. Narrowed deliberately: only this await is covered.
+  } catch (error) {
+    // Trigger 1, narrowed on BOTH axes. The scope narrowing (only this await is
+    // covered) was always here; the TYPE narrowing was not, and without it every
+    // rejection from the wait became `selector-absent`. A malformed selector, a
+    // present-but-hidden element, a crashed page and a genuine absence all
+    // rejected here, and all four were attributed to absence -- a confidently
+    // wrong reason is worse than an unhandled one, because it sends the operator
+    // looking for a missing element that is present.
+    //
+    // Only a TimeoutError means "waited the full budget and it never became
+    // visible", which is the claim `selector-absent` makes. Anything else keeps
+    // its own name and propagates, and the capture still writes no bytes.
+    if (!(error instanceof Error) || error.name !== "TimeoutError") throw error;
     return await refuse(page, attributedSelector);
   }
 

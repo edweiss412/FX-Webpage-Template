@@ -42,6 +42,14 @@ export type CapturedEntry = {
   key: string;
   theme: string;
   capturedAtUtc: string;
+  /**
+   * The manifest entry's frozen clock, recorded per entry because spec section 5
+   * requires it per entry and because it is what PROVES the frozen clock applied
+   * to this capture. Without it the record cannot distinguish a capture taken
+   * under the frozen clock from one taken under a live one, which is precisely
+   * the class of drift this instrument exists to reason about.
+   */
+  frozenClockInstant: string;
   pixelWidth: number | null;
   pixelHeight: number | null;
   pixelSha256: string | null;
@@ -49,12 +57,14 @@ export type CapturedEntry = {
   webpSha256: string | null;
   faultHits: string[];
   refusedReason: string | null;
+  /** Present only on a `selector-absent` refusal: the selector that never resolved (spec section 4.2.1). */
+  absentSelector?: string;
   geometrySkippedReason?: string;
 };
 
 export async function captureOrRefuse(
   page: Page,
-  entry: { key: string; captureSelector?: string },
+  entry: { key: string; captureSelector?: string; frozenClockInstant: string },
   theme: string,
   outDir: string,
   baselinePath?: string,
@@ -82,6 +92,7 @@ export async function captureOrRefuse(
     key: entry.key,
     theme,
     capturedAtUtc,
+    frozenClockInstant: entry.frozenClockInstant,
     pixelWidth: meta.width ?? null,
     pixelHeight: meta.height ?? null,
     pixelSha256: await pixelSha256(pngBuffer),

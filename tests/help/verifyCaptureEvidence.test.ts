@@ -1,7 +1,12 @@
 // @vitest-environment node
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { absentRecordProblem, verifyEvidence } from "@/scripts/verify-capture-evidence";
+import {
+  absentRecordProblem,
+  verifyEvidence,
+  verifyStagingHashes,
+} from "@/scripts/verify-capture-evidence";
 
 const HEADER = {
   eventName: "pull_request",
@@ -17,6 +22,7 @@ function entry(key: string, theme: string, over: Record<string, unknown> = {}) {
     key,
     theme,
     capturedAtUtc: "2026-08-24T10:00:00.000Z",
+    frozenClockInstant: "2026-03-24T15:00:00.000Z",
     pixelWidth: 1216,
     pixelHeight: 1463,
     pixelSha256: "a".repeat(64),
@@ -220,5 +226,87 @@ describe("a non-object record is its own failure, not a crash", () => {
     }).not.toThrow();
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain("not a JSON object");
+  });
+});
+
+describe("AC-5 identity EQUALITY, not just the missing half", () => {
+  it("rejects a clean run that recorded an identity the manifest never asked for", () => {
+    // The failure this catches: a record describing captures nobody requested
+    // satisfied every check, because only the missing direction was tested.
+    const extra = [...CLEAN, entry("ghost", "light")];
+    const problems = verifyEvidence({ ...HEADER, entries: extra }, EXPECTED, {});
+    expect(problems.some((p) => p.includes("does not expect") && p.includes("ghost-light"))).toBe(
+      true,
+    );
+  });
+
+  it("rejects a refused run whose completed prefix is not the manifest order", () => {
+    // A refusal legitimately truncates the record, but the part BEFORE the
+    // refusal still has to be the run the manifest asked for, in order.
+    const wrong = [entry("two", "light"), entry("one", "dark", { refusedReason: "render-fault" })];
+    const problems = verifyEvidence({ ...HEADER, entries: wrong }, EXPECTED, {});
+    expect(problems.some((p) => p.includes("completed prefix"))).toBe(true);
+  });
+});
+
+describe("schema completeness, so a record cannot describe nothing", () => {
+  it("rejects entries missing the always-present fields", () => {
+    const stripped = CLEAN.map(({ capturedAtUtc: _a, faultHits: _b, ...rest }) => rest);
+    const problems = verifyEvidence({ ...HEADER, entries: stripped }, EXPECTED, {});
+    expect(problems.some((p) => p.includes("is missing capturedAtUtc"))).toBe(true);
+    expect(problems.some((p) => p.includes("is missing faultHits"))).toBe(true);
+  });
+
+  it("rejects an entry with no frozenClockInstant", () => {
+    // Spec section 5 requires it per entry: without it the record cannot show
+    // the capture ran under the frozen clock rather than a live one.
+    const stripped = CLEAN.map(({ frozenClockInstant: _f, ...rest }) => rest);
+    const problems = verifyEvidence({ ...HEADER, entries: stripped }, EXPECTED, {});
+    expect(problems.some((p) => p.includes("is missing frozenClockInstant"))).toBe(true);
+  });
+
+  it("rejects a header without the machine fields, even locally", () => {
+    // These are read from the runner directly rather than forwarded through
+    // docker, so `--local` does not waive them.
+    const { cpuModel: _m, cpuCount: _c, ...header } = HEADER as Record<string, unknown>;
+    const problems = verifyEvidence({ ...header, entries: CLEAN }, EXPECTED, { local: true });
+    expect(problems.some((p) => p.includes("cpuModel is missing"))).toBe(true);
+    expect(problems.some((p) => p.includes("cpuCount is missing"))).toBe(true);
+  });
+
+  it("rejects hash fields that are present but are not sha256 digests", () => {
+    // Presence alone proved nothing about the bytes the hash claims to identify.
+    const bogus = CLEAN.map((e) => ({ ...e, pixelSha256: "nope", webpSha256: "nah" }));
+    const problems = verifyEvidence({ ...HEADER, entries: bogus }, EXPECTED, {});
+    expect(problems.some((p) => p.includes("not a sha256 digest"))).toBe(true);
+  });
+
+  it("still accepts a genuine clean record", () => {
+    // The premise for every rejection above: none of them fires on a good run.
+    expect(verifyEvidence({ ...HEADER, entries: CLEAN }, EXPECTED, {})).toEqual([]);
+  });
+});
+
+describe("AC-5's staging artifact hash comparison", () => {
+  const sha = (b: string) => createHash("sha256").update(Buffer.from(b)).digest("hex");
+
+  it("passes when every claimed digest matches the staged bytes", () => {
+    const entries = [entry("one", "light", { webpSha256: sha("ONE-LIGHT") })];
+    const problems = verifyStagingHashes(entries, "/stage", () => Buffer.from("ONE-LIGHT"));
+    expect(problems).toEqual([]);
+  });
+
+  it("rejects a digest that matches no bytes on disk", () => {
+    // The failure this catches: a record naming digests belonging to no file
+    // this run produced. Presence and shape both pass; only the comparison does not.
+    const entries = [entry("one", "light", { webpSha256: sha("EXPECTED") })];
+    const problems = verifyStagingHashes(entries, "/stage", () => Buffer.from("SOMETHING ELSE"));
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("does not match its staging artifact");
+  });
+
+  it("skips refused entries, which wrote no bytes by design", () => {
+    const entries = [entry("one", "light", { refusedReason: "render-fault", webpSha256: null })];
+    expect(verifyStagingHashes(entries, "/stage", () => Buffer.from("x"))).toEqual([]);
   });
 });

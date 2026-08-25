@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expectedIdentities } from "./capture-evidence";
+import { STAGING_DIR_NAME } from "./capture-evidence";
 import { EVIDENCE_FILENAME } from "./help-screenshots";
 
 /** The four fields that reach the capture only through a docker passthrough. */
@@ -8,6 +10,26 @@ const PASSTHROUGH_FIELDS = ["eventName", "runnerName", "runnerArch", "runnerOs"]
 
 const PRE_ENCODE = ["pixelWidth", "pixelHeight", "pixelSha256"] as const;
 const POST_ENCODE = ["webpBytes", "webpSha256"] as const;
+
+/**
+ * Fields every entry carries whatever the outcome, refused or complete.
+ *
+ * Separate from PRE_ENCODE/POST_ENCODE because those are legitimately null on a
+ * refusal, while these are not: a refusal still happened at a time, still ran
+ * under a frozen clock, and still reports whatever markers were found. Their
+ * absence was accepted silently until whole-diff review r1 probed for it.
+ */
+const ALWAYS_PRESENT = ["capturedAtUtc", "frozenClockInstant", "faultHits"] as const;
+
+/**
+ * Header fields describing the machine. NOT passthroughs: these are read from
+ * the runner directly rather than forwarded through docker, so `--local` does
+ * not waive them and a record without them cannot say what produced it.
+ */
+const MACHINE_FIELDS = ["cpuModel", "cpuCount"] as const;
+
+/** A sha256 hex digest, which is what both hash fields claim to be. */
+const SHA256 = /^[0-9a-f]{64}$/;
 
 type Entry = Record<string, unknown> & { key?: unknown; theme?: unknown };
 
@@ -58,6 +80,12 @@ export function verifyEvidence(
   const run = record as Record<string, unknown>;
   const entries = (Array.isArray(run.entries) ? run.entries : []) as Entry[];
 
+  for (const field of MACHINE_FIELDS) {
+    if (run[field] === null || run[field] === undefined || run[field] === "") {
+      problems.push(`${field} is missing; the record cannot say what machine produced it`);
+    }
+  }
+
   if (opts.local !== true) {
     for (const field of PASSTHROUGH_FIELDS) {
       if (typeof run[field] !== "string" || run[field] === "") {
@@ -77,11 +105,30 @@ export function verifyEvidence(
   const refusedAt = entries.findIndex(isRefused);
 
   if (refusedAt === -1) {
+    // AC-5 asks for identity EQUALITY, and equality has two directions. Checking
+    // only the missing half accepts a record describing captures the manifest
+    // never asked for, which is the same defect the capture's own oracle had.
     const missing = expected.filter((id) => !identities.includes(id));
     if (missing.length > 0) {
       problems.push(`clean run is missing identities: ${missing.join(", ")}`);
     }
+    const unexpected = identities.filter((id) => !expected.includes(id));
+    if (unexpected.length > 0) {
+      problems.push(
+        `clean run recorded identities the manifest does not expect: ${unexpected.join(", ")}`,
+      );
+    }
   } else {
+    // A refused run's COMPLETED PREFIX still has to match the manifest in order,
+    // or the record describes a different run that happened to stop somewhere.
+    const prefix = identities.slice(0, refusedAt);
+    const expectedPrefix = expected.slice(0, refusedAt);
+    if (prefix.join("|") !== expectedPrefix.join("|")) {
+      problems.push(
+        `refused run's completed prefix does not match the manifest order: ` +
+          `got ${prefix.join(", ") || "none"}, expected ${expectedPrefix.join(", ") || "none"}`,
+      );
+    }
     if (refusedAt !== entries.length - 1) {
       problems.push(
         `entries recorded after the refused entry ${identityOf(entries[refusedAt]!)}: ` +
@@ -105,12 +152,30 @@ export function verifyEvidence(
     }
   }
 
+  // EVERY entry, refused or not, carries these. A refusal still happened at a
+  // time, still ran under a frozen clock, and still reports its markers.
+  for (const entry of entries) {
+    for (const field of ALWAYS_PRESENT) {
+      if (entry[field] === null || entry[field] === undefined) {
+        problems.push(`${identityOf(entry)} is missing ${field}`);
+      }
+    }
+  }
+
   const completeThrough = refusedAt === -1 ? entries.length : refusedAt;
   const completed = entries.slice(0, completeThrough);
   for (const entry of completed) {
     for (const field of [...PRE_ENCODE, ...POST_ENCODE]) {
       if (entry[field] === null || entry[field] === undefined) {
         problems.push(`${identityOf(entry)} is complete but ${field} is missing`);
+      }
+    }
+    // Presence is not enough: a non-hash string satisfied every check above
+    // while proving nothing about the bytes it claims to identify.
+    for (const field of ["pixelSha256", "webpSha256"] as const) {
+      const value = entry[field];
+      if (typeof value === "string" && !SHA256.test(value)) {
+        problems.push(`${identityOf(entry)} has a ${field} that is not a sha256 digest: ${value}`);
       }
     }
   }
@@ -138,6 +203,53 @@ export function verifyEvidence(
     );
   }
 
+  return problems;
+}
+
+/**
+ * AC-5's staging-artifact hash comparison, as its own exported decision.
+ *
+ * The record claims a `webpSha256` per completed entry. Nothing checked that
+ * claim against the bytes actually produced, so a record could name digests
+ * belonging to no file on disk and still pass. The staging directory is the
+ * right comparison target rather than the published one: it is emptied at the
+ * START of every run and never at the end, so what sits in it is exactly what
+ * THIS run wrote, which is the provenance property the published directory
+ * cannot offer.
+ *
+ * Exported and pure so it is testable without a capture; `main` supplies the
+ * real directory.
+ */
+export function verifyStagingHashes(
+  entries: readonly Entry[],
+  stagingDir: string,
+  // Returns null for an artifact that is not there. ONE injected accessor rather
+  // than a reader plus a real `existsSync`: a hidden filesystem call inside a
+  // function documented as pure is untestable, and the first version had exactly
+  // that, so a fake path short-circuited before any comparison ran.
+  readArtifact: (path: string) => Buffer | null,
+): string[] {
+  const problems: string[] = [];
+  for (const entry of entries) {
+    if (isRefused(entry)) continue;
+    const claimed = entry.webpSha256;
+    if (typeof claimed !== "string") continue;
+    const artifact = join(stagingDir, `${identityOf(entry)}.webp`);
+    const bytes = readArtifact(artifact);
+    if (bytes === null) {
+      problems.push(
+        `${identityOf(entry)} claims a webpSha256 but no staging artifact exists at ${artifact}`,
+      );
+      continue;
+    }
+    const actual = createHash("sha256").update(bytes).digest("hex");
+    if (actual !== claimed) {
+      problems.push(
+        `${identityOf(entry)} webpSha256 does not match its staging artifact: ` +
+          `record says ${claimed}, bytes hash to ${actual}`,
+      );
+    }
+  }
   return problems;
 }
 
@@ -173,11 +285,24 @@ function main(): void {
     process.exit(1);
   }
 
+  const record: unknown = JSON.parse(readFileSync(path, "utf8"));
+  const stagingDir = join(process.cwd(), STAGING_DIR_NAME);
+  const stagingProblems = existsSync(stagingDir)
+    ? verifyStagingHashes((record as { entries?: Entry[] })?.entries ?? [], stagingDir, (f) =>
+        existsSync(f) ? readFileSync(f) : null,
+      )
+    : local
+      ? []
+      : [
+          `no staging directory at ${stagingDir}; AC-5's artifact hash comparison could not run. ` +
+            "It is emptied at the start of a capture and left in place, so its absence means no capture ran here",
+        ];
+
   const problems = verifyEvidence(
-    JSON.parse(readFileSync(path, "utf8")),
+    record,
     expectedIdentities(),
     local ? { local: true } : {},
-  );
+  ).concat(stagingProblems);
 
   if (problems.length > 0) {
     console.error(`capture evidence record is not acceptable (${path}):`);
