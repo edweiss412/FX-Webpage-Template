@@ -225,7 +225,7 @@ Snapshot written under the gitignored `.impeccable/critique/` tree, slug `feat-u
 |---|---|---|---|
 | 1 | Accessibility | 4 | The diff's purpose. Removes two sub-floor contrast states, repairs an accessible-name defect, makes three tap targets real, takes N-1 carousel slides out of the accessibility tree, announces the current slide, adds four fold cues. One P1 found **and fixed inside this gate** — see below. |
 | 2 | Performance | 3 | Nothing costly added: only `transition-colors` / `-opacity` / `-transform`, no layout-property animation, no new images or dependencies, and reduced motion is free through the project's global duration collapse. Scored 3 rather than 4 because the announcement effect gained an `activeIndex` dependency and therefore re-runs per navigation — correct, but not measured, and an unmeasured claim is not an excellent one. |
-| 3 | Responsive Design | 4 | Tap floors measured as real boxes at 375px and 1280px; no fixed widths added; the ShareHub repair exists specifically for sub-640px. |
+| 3 | Responsive Design | 4 | All three repaired tap floors measured as real boxes at 390px and 1280px; no fixed widths added; the ShareHub repair exists specifically for sub-640px. |
 | 4 | Theming | 4 | One new token declared at all four theme sites with its ratios asserted as relations rather than constants. Zero raw palette colours, zero new arbitrary values. |
 | 5 | Anti-Patterns | 4 | Detector clean of genuine findings. No side-stripe, no gradient text, no glass, no hero-metric block, no eyebrow scaffolding added. |
 | **Total** | | **19/20** | Excellent — minor polish. |

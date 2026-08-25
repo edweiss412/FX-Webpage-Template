@@ -61,6 +61,19 @@ const RESTING_OUTLINE =
   /(^|\s)border-(text-faint|border|border-strong|control-outline-tinted)(\s|$)/;
 const TINTED_RING_OFFSET = /(^|\s)focus-visible:ring-offset-(warning-bg|info-bg|danger-bg)(\s|$)/;
 
+/**
+ * Source with comments removed, for counting CLASSES rather than prose.
+ *
+ * This branch hit the same bug four times: a comment that NAMES a token is not
+ * an element that wears it. Two guards over-counted, one walker over-masked,
+ * and this counting arm caught its own instance the moment it shipped — the
+ * comment two lines above `ARCHIVED_TAB_BTN` explaining which ground gets
+ * `border-text-faint` was itself counted as an occurrence of it.
+ */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^[^\n]*?\/\/[^\n]*$/gm, " ");
+}
+
 function has(strings: readonly string[], token: string): boolean {
   const whole = new RegExp(`(^|\\s)${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`);
   return strings.some((s) => whole.test(s));
@@ -128,6 +141,11 @@ type RegistryRow = {
    * means adding one fails here and forces the author to answer the only
    * question that matters: is the new control standing on a plate?
    *
+   * The recorded numbers are CODE-ONLY, counted with comments stripped. The
+   * first draft counted raw text and was inflated by prose in two files — the
+   * very bug this branch hit three times elsewhere. If one of these looks too
+   * low, check whether the occurrence you are thinking of is in a comment.
+   *
    * Not "an unregistered occurrence is a defect" — a neutral-ground control in
    * a file that also has a plate control is perfectly correct, and
    * `RoleMappingRow` is exactly that (its edit button is on the row card, its
@@ -149,13 +167,23 @@ const REGISTRY: readonly RegistryRow[] = [
   },
   {
     file: "components/admin/wizard/archivedTabOffer.tsx",
-    anchor: "export const ARCHIVED_TAB_BTN",
-    window: 4,
+    anchor: "className={cn(ARCHIVED_TAB_BTN",
+    window: 2,
     plate: "warning-bg",
     carries: TINTED,
     invisibleBecause:
-      "the file declares no ring-offset at all. The constant itself moves rather than its call sites, because BOTH card tones are tinted (`cardTone` is warning-bg when changed, info-bg otherwise), so there is no untinted use of this button to protect.",
+      "the file declares no ring-offset at all. The override is at the CALL SITES and not in `ARCHIVED_TAB_BTN`, and that is a correction: the colour was briefly moved into the constant on the reasoning that both card tones are tinted, which is true of this file's two sites and false of the constant — `components/admin/review/PublishedArchivedTabOffer.tsx` uses it at two more, both on `bg-surface-sunken`.",
     neutralFaintCount: 0,
+  },
+  {
+    file: "components/admin/review/PublishedArchivedTabOffer.tsx",
+    anchor: "className={cn(ARCHIVED_TAB_BTN",
+    window: 2,
+    plate: "warning-bg",
+    carries: "border-text-faint",
+    invisibleBecause:
+      "registered for the OPPOSITE reason to every other row: it shares `ARCHIVED_TAB_BTN` with a tinted caller, so it is the file most likely to be swept onto the plate token by accident — as it briefly was. Its two sites stand on `bg-surface-sunken`, a neutral ground, and must keep the shared outline. `carries` therefore pins the NEUTRAL token here, which is the claim worth defending.",
+    neutralFaintCount: 2,
   },
   {
     file: "app/admin/settings/roles/RoleMappingRow.tsx",
@@ -185,7 +213,7 @@ const REGISTRY: readonly RegistryRow[] = [
     carries: "SECONDARY_ACTION_ON_TINTED_CLASS",
     invisibleBecause:
       "the shared treatment lives in `lib/` and is neutral at every call site but one, so the plate is a prop rather than a class the scanner could read off this element. Pinned on the NEXT LINK rather than the token: this file selects a treatment, it does not name a colour.",
-    neutralFaintCount: 1,
+    neutralFaintCount: 0,
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
@@ -195,7 +223,7 @@ const REGISTRY: readonly RegistryRow[] = [
     carries: "onTintedPlate",
     invisibleBecause:
       "the control is a <RescanSheetButton> child, so the plate lives on the enclosing div and the button's own class string never mentions it. This is the site that passes the plate, and it is pinned on the prop for the same reason the link above is pinned on the constant.",
-    neutralFaintCount: 6,
+    neutralFaintCount: 4,
   },
 ];
 
@@ -281,8 +309,9 @@ describe("a registered file's neutral-ground count is pinned", () => {
   it.each(REGISTRY.map((r) => [r.file, r] as const))(
     "%s keeps exactly its recorded number of neutral-ground outlines",
     (_label, row) => {
-      const src = readFileSync(join(ROOT, row.file), "utf8");
-      const found = (src.match(/border-text-faint/g) ?? []).length;
+      const found = (
+        stripComments(readFileSync(join(ROOT, row.file), "utf8")).match(/border-text-faint/g) ?? []
+      ).length;
       expect(
         found,
         `${row.file} now has ${found} \`border-text-faint\` occurrences, recorded ${row.neutralFaintCount}. ` +

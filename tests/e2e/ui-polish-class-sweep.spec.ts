@@ -18,7 +18,7 @@
  *      depended on the viewport. No class-list assertion can see that: only a
  *      browser with the compiled stylesheet at a real width can say what colour
  *      the control actually paints. That is why the measurement below runs at
- *      375px as well as 1280px.
+ *      390px as well as 1280px.
  *
  * WHAT THE `classString` CASES ARE. For surfaces whose props are a page's worth
  * of fixture, the spec reads the class string out of the shipped source and

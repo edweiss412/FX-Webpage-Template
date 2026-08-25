@@ -63,24 +63,36 @@ const SITES: Site[] = (() => {
     // names the tag while explaining why its marker is hidden, and both were
     // reported as unrepaired sites until this mask existed. Tracked across
     // lines rather than stripped, so the line numbers stay real.
+    // A `<summary` is inside a comment iff, in the text BEFORE it on its line,
+    // a `/*` is still unclosed, or a block carried from an earlier line has not
+    // closed yet, or a `//` precedes it.
+    //
+    // Two rounds of repair converged here. The first version masked whatever
+    // followed a closing `*/`; the second still masked code after a block that
+    // OPENED AND CLOSED on the same line (`/* note */ <summary>`, and its JSDoc
+    // spelling), which round 2 caught. Reasoning about the head of the line
+    // rather than about the line as a whole is what makes both cases fall out.
+    //
+    // Documented limit: a `//` inside a string literal before a `<summary` on
+    // the same line would over-mask. No such line exists in this corpus, and
+    // over-masking is the direction that HIDES a site, so if one ever appears
+    // the walk's population premise below is what catches it.
     const commented: boolean[] = [];
     let inBlock = false;
     for (const line of lines) {
-      const opens = line.lastIndexOf("/*");
-      const closes = line.lastIndexOf("*/");
       const tag = line.indexOf("<summary");
-      const slashes = line.indexOf("//");
-      // The line carrying the CLOSING `*/` is not itself inside the comment:
-      // anything after that `*/` is code. Treating it as commented over-masks by
-      // one line, which is a fail-OPEN in a walked guard — a `<summary` sharing
-      // that line would be skipped and reported clean. Probed: a three-line
-      // block masked as [false, true, true] where the truth is
-      // [false, true, false].
-      const closedHere = closes >= 0 && closes > opens;
-      const insideAtTag = inBlock && !(closedHere && tag > closes);
-      if (opens >= 0 && opens > closes) inBlock = true;
-      else if (closedHere) inBlock = false;
-      commented.push(insideAtTag || (opens >= 0 && tag > opens) || (slashes >= 0 && tag > slashes));
+      if (tag < 0) {
+        commented.push(false);
+      } else {
+        const head = line.slice(0, tag);
+        const lastOpen = head.lastIndexOf("/*");
+        const lastClose = head.lastIndexOf("*/");
+        commented.push(lastOpen > lastClose || (inBlock && lastClose < 0) || head.includes("//"));
+      }
+      const lineOpen = line.lastIndexOf("/*");
+      const lineClose = line.lastIndexOf("*/");
+      if (lineOpen > lineClose) inBlock = true;
+      else if (lineClose > lineOpen) inBlock = false;
     }
     for (let i = 0; i < lines.length; i++) {
       if (!lines[i]!.includes("<summary") || commented[i]) continue;

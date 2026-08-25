@@ -69,15 +69,28 @@ const NEUTRAL_FILL = /(^|\s)bg-(bg|surface|surface-sunken|surface-raised)(\s|$)/
  * itself a side token. A pill could then have won the ladder on the strength of
  * a rule underline.
  */
-const SIDE_WIDTH = /^border-(t|b|l|r|x|y)(-\d+)?$/;
+/**
+ * A SIDE utility is `border-<side>` followed by anything: a width (`border-b-2`)
+ * or a colour ON that side (`border-t-border`). Round 2 caught the first repair
+ * recognising only STANDALONE physical widths, so three families still scored as
+ * emphasis: physical side colours (`border-t-border`), logical side colours
+ * (`border-s-border`), and logical side widths (`border-s`, `border-e-2`).
+ * Logical sides are ordinary Tailwind authoring, not an exotic spelling.
+ *
+ * Everything else after `border-` is a full-box colour, including colours whose
+ * NAMES begin with a side letter — `border-text-faint` and `border-border` both
+ * have to keep counting, which is why the pattern requires a hyphen after the
+ * side letter rather than just the letter.
+ */
+const SIDE = /^border-(t|r|b|l|x|y|s|e)(-.*)?$/;
 const FULL_WIDTH = /^border(-\d+)?$/;
-const BORDER_COLOUR = /^border-(?!t$|b$|l$|r$|x$|y$)[a-z][a-z0-9-]*$/;
 function hasOutline(classes: string): boolean {
   const tokens = classes.split(/\s+/).filter(Boolean);
-  const colour = tokens.some((t) => BORDER_COLOUR.test(t) && !SIDE_WIDTH.test(t));
+  const colour = tokens.some(
+    (t) => t.startsWith("border-") && !SIDE.test(t) && !FULL_WIDTH.test(t),
+  );
   if (!colour) return false;
-  const sideOnly =
-    tokens.some((t) => SIDE_WIDTH.test(t)) && !tokens.some((t) => FULL_WIDTH.test(t));
+  const sideOnly = tokens.some((t) => SIDE.test(t)) && !tokens.some((t) => FULL_WIDTH.test(t));
   return !sideOnly;
 }
 
@@ -184,6 +197,15 @@ describe("the outline predicate does not count a divider as emphasis", () => {
     ["border border-warning-text bg-warning-bg", true],
     ["rounded-pill border border-text-faint bg-surface-sunken", true],
     ["border border-b-2 border-text-faint", true],
+    ["border-text-faint", true],
+    ["border-border", true],
+    ["border-t-border", false],
+    ["border-b-border", false],
+    ["border-x-border", false],
+    ["border-s-border", false],
+    ["border-e-border", false],
+    ["border-s", false],
+    ["border-e-2", false],
     ["border-b", false],
     ["border-t border-border", false],
     ["border-b-2 border-accent", false],

@@ -46,13 +46,17 @@ export function deriveArchivedOffers(
 // bordered button that mirrors RescanSheetButton; the dismiss ("Keep skipped") is
 // a quieter ghost so a glancing operator reads the primary action first (impeccable
 // critique P2 — hierarchy WITHIN the neutral palette, never spending the ≤10% orange).
-// The outline is the TINTED-plate token, not the shared one, and it belongs in
-// the constant rather than at the call sites because BOTH card tones are
-// tinted: `cardTone` below is warning-bg when the tab changed and info-bg
-// otherwise, so there is no untinted use of this button to protect.
+// No border COLOUR here, and the reason is a correction worth keeping. The
+// colour was briefly moved INTO this constant on the reasoning that both card
+// tones are tinted — true of the two call sites in THIS file, and false of the
+// constant, which `components/admin/review/PublishedArchivedTabOffer.tsx` also
+// uses at two sites standing on `bg-surface-sunken`. That file is not in the
+// diff that changed it, which is exactly the blast radius a shared constant
+// has. Each call site supplies its own colour: the plate token on a tinted
+// card, `border-text-faint` on a neutral one.
 // DESIGN §1.2a; design doc 2026-08-25-ui-polish-class-sweep-design.md D2.
 export const ARCHIVED_TAB_BTN = cn(
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-control-outline-tinted bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
 );
 // Resting color is text-text (NOT text-subtle — DESIGN §1.1a keeps subtle off
 // action targets outside its three carve-outs, which this button does not claim);
@@ -174,7 +178,7 @@ export function ArchivedTabOffer(props: ArchivedTabOfferProps) {
           onClick={accept}
           disabled={pending}
           aria-busy={pending}
-          className={ARCHIVED_TAB_BTN}
+          className={cn(ARCHIVED_TAB_BTN, "border-control-outline-tinted")}
         >
           {pending ? "Including…" : "Use this show’s gear"}
         </button>
@@ -261,7 +265,7 @@ export function ArchivedTabIncludedNote({
         onClick={revoke}
         disabled={pending}
         aria-busy={pending}
-        className={ARCHIVED_TAB_BTN}
+        className={cn(ARCHIVED_TAB_BTN, "border-control-outline-tinted")}
       >
         {pending ? "Revoking…" : "Revoke"}
       </button>
