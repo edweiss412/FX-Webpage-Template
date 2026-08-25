@@ -479,14 +479,24 @@ dark, and §9 says so rather than leaving it implied.
 - **The cause of the connection reset is not diagnosed, and this spec no longer tries.** It absorbs
   the fault; attribution is descoped to `BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY` (§7).
 
-- **Faults outside §7.1's four boundaries stay dark until that row lands.** Said plainly rather than
-  left implied. A 502 that a consumer swallows without logging, on any path other than those four,
-  produces no record and no job failure, so nothing attributes it. Round 5 established the class is
-  larger than any list drawn from the retry population — it includes VOLATILE RPCs
-  (`lib/admin/bellFeed.ts`, search `get_bell_feed_rows`) and plain table reads — and this spec
-  deliberately does not enumerate it, because three rounds showed that enumeration is the wrong shape
-  for the question. The retry still works on every path it covers; what is missing is the record, not
-  the repair.
+- **Faults outside §7.1's four boundaries stay dark until that row lands — but the dark set is
+  SMALLER than this limit originally claimed, and the correction is measured.** As first written this
+  said a 502 that a consumer swallows, on any path other than those four, "produces no record". That
+  was true of the design it described; it is not true of what shipped. The transport emit (§6) fires
+  on the wrapper itself, so ANY retried request leaves a `SUPABASE_UPSTREAM_RETRY` record naming the
+  function, whatever its consumer does with the error. The probe record's addendum is the evidence:
+  the first green run carrying the emit attributed background faults on `readfinalizeowned_b2`,
+  `viewer_version_token` and plain table reads — none of which is one of the four boundaries, and none
+  of which any consumer logged.
+
+  What genuinely stays dark, stated as the residue rather than the whole class: a fault on a request
+  the eligibility rule REFUSES (a write, or a `VOLATILE` RPC such as `get_bell_feed_rows` in
+  `lib/admin/bellFeed.ts`) never reaches a retry and so never emits; and any client the wrapper does
+  not cover — the service-role client (§6.1's recursion fence) and the browser client — is outside it
+  entirely. Round 5 established that the swallowing class is larger than any list drawn from the retry
+  population, and this spec still declines to enumerate it, because three rounds showed enumeration is
+  the wrong shape for the question. The retry works on every path it covers; what is missing is the
+  record on the paths it deliberately does not.
 - **The per-attempt stall guard bounds the HEADER phase, not the body read.** The wrapper must return
   its `Response` for the caller to consume, so its timer is cleared when `fetch()` resolves. If headers
   arrive and the body then stalls, that read is unbounded and no retry fires. Bounding it would mean
