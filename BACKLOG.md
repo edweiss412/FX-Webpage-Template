@@ -1270,7 +1270,7 @@ A transient gateway 502 on `get_admin_show_review_snapshot` currently throws `sh
 
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
 
-**Effort:** S
+**Status:** IN PROGRESS · **Branch:** feat/fitwithinclip-measure-class · **Effort:** S
 
 Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02), and pinned by
 `tests/components/admin/useFitWithinClip.test.tsx` case (g), which asserts the count is 2 so a
@@ -1293,7 +1293,7 @@ a surface with many simultaneous overlays. Not worth a standalone change at two 
 
 ## BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK — `findClippingAncestor` walks the tree twice per effect run
 
-**Effort:** S
+**Status:** IN PROGRESS · **Branch:** feat/fitwithinclip-measure-class · **Effort:** S
 
 Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
 
