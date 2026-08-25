@@ -19,6 +19,26 @@ const FORBIDDEN = /["'`]node:(fs|child_process|process)(\/[A-Za-z/]+)?["'`]/;
  * (import OR export, value OR `import type`), a bare side-effect import,
  * `require()`, and dynamic `import()`. One alternation rather than four scans,
  * matching the shape of `FORBIDDEN` above.
+ *
+ * DOCUMENTED LIMIT, probed rather than assumed. This scan catches every specifier
+ * form tried against it -- `from` clause, bare side-effect import, `require()`,
+ * dynamic `import()`, `export ... from`, `export * from`, `import type`,
+ * multi-line `from`, `import x = require()`, a template-literal specifier, a
+ * newline inside `import(...)`, an indented bare import, and a package subpath:
+ * thirteen forms, ZERO missed. It has two false positives: `from "pkg"` sitting
+ * inside a STRING or TEMPLATE literal is flagged, because comments are stripped
+ * here and strings are not.
+ *
+ * That class is currently UNREACHABLE, which is why it is recorded rather than
+ * repaired: `lib/specLint/**` contains zero `from "` inside a string literal --
+ * every occurrence is ``from `x` `` in JSDoc, which `stripCommentsSafely` removes.
+ * Moving this scan onto the TypeScript AST would remove the class, and is
+ * deliberately NOT taken: a recognizer upgrade for an input that cannot occur is
+ * the ratchet this arc's convergence criterion exists to refuse.
+ *
+ * RE-FILE TRIGGER: the first core file that needs `from "..."` inside a string
+ * literal. A dynamic `import(variable)` is likewise unmatched and unmatchable
+ * statically.
  */
 const SPECIFIER =
   /(?:from\s*["'`]([^"'`]+)["'`])|(?:^\s*import\s+["'`]([^"'`]+)["'`])|(?:require\(\s*["'`]([^"'`]+)["'`]\s*\))|(?:import\(\s*["'`]([^"'`]+)["'`]\s*\))/gm;

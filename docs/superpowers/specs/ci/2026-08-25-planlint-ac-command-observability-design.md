@@ -249,6 +249,17 @@ Stated here, not discovered in a review round.
 
 **L-6. Arm (b) tests a lexical path boundary, and knows nothing about shell words.** Two directions of cost, both accepted deliberately (section 8.2.2). It draws an advisory it does not deserve when a command reaches the pin's file through a glob, a variable, or a path relative to another directory. And it withholds one it should give when a correctly-bounded path sits inside quotes, after an escaped space, or behind a `#` — round-3 finding 2's four families. Deciding those needs a shell lexer, this repo has measured what shell lexers cost, and the arm is ADVISORY. The threat fence puts deliberately-constructed cases out of scope; an ordinary contributor dropping a file from a command's list is what the advisory catches, and it does.
 
+**L-7. One mutant is scored KILLED by a wall-clock ceiling, not by an assertion.**
+`integer-literal:77:50` turns `i !== -1` into `i !== -2` in `pinUnobserved`'s scan, so
+`commandText.indexOf(path, i + 1)` re-finds the first match forever. The harness reports
+it as `TIMEOUT-KILL` after 180s and says plainly that the verdict "is NOT evidence the
+suite rejected the mutant". It is counted in `killed`, so a reader of the bare number
+cannot see it; it is recorded here so the score is read honestly. No assertion can catch
+a non-terminating mutant -- a wall-clock ceiling is the only instrument that can -- so
+this is a limit of the method rather than a gap in the suite. **Re-file trigger:** a
+harness that distinguishes `TIMEOUT` from `KILLED` in the score, at which point the
+denominator should exclude it rather than count it as a kill.
+
 ## 8. Design
 
 ### 8.1 The declaration
