@@ -84,7 +84,7 @@ export const CENSUS: readonly CensusRow[] = [
   // instance of the tinted-plate problem; moved to the plate token 2026-08-25.
   {
     file: "components/admin/StagedPreviewBanner.tsx",
-    line: 72,
+    line: 79,
     outline: "control-outline-tinted",
   },
   // spec §4.2 row 10

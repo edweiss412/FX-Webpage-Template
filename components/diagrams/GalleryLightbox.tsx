@@ -770,7 +770,13 @@ export function GalleryLightbox({
                     <div
                       aria-hidden="true"
                       data-testid="lightbox-demote-chip"
-                      className="pointer-events-none absolute inset-x-0 bottom-2 z-dropdown mx-auto w-fit rounded-pill border border-border-strong bg-surface-raised px-4 py-1.5 text-sm font-medium text-text-strong shadow-tile transition-opacity duration-fast ease-out-quart starting:opacity-0"
+                      // border-text-faint, not border-border-strong: this chip
+                      // shares its rounded-pill bg-surface-raised recipe with
+                      // the Reset chip and can be on screen at the same time,
+                      // so §1.2a's pairing clause gives it that control's
+                      // weight (D3). It is still non-interactive chrome, so
+                      // this is hierarchy, not SC 1.4.11.
+                      className="pointer-events-none absolute inset-x-0 bottom-2 z-dropdown mx-auto w-fit rounded-pill border border-text-faint bg-surface-raised px-4 py-1.5 text-sm font-medium text-text-strong shadow-tile transition-opacity duration-fast ease-out-quart starting:opacity-0"
                     >
                       Full detail unavailable
                     </div>

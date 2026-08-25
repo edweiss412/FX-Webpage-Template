@@ -225,11 +225,29 @@ put, so each is now the quieter half of a visible pair: the lightbox's
 `rounded-pill bg-surface-raised` as the Reset chip it can share a frame with) and
 the staged-preview banner's `aria-current` chip
 (`components/admin/StagedPreviewBanner.tsx:65`, standing in a row of picker links
-that moved). Both are non-interactive chrome and both are therefore CORRECT under
-the scope paragraph below — recorded here rather than implied away, because the
-2026-08-14 rationale for moving six controls was that a control they render WITH
-had already moved, and that reason now points the other way. Whether chrome that visually
-pairs with a control should follow it is `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
+that moved). Both are non-interactive chrome, so the scope paragraph below made them
+correct in isolation — and the 2026-08-14 rationale for moving six controls was
+that a control they render WITH had already moved, which points the other way.
+That contradiction was filed as `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
+
+**The pairing clause, ruled 2026-08-25.** Chrome rendered in-frame with a
+control of the same recipe takes that control's outline weight. A rule rather
+than two judgments: a per-site call closes neither site and says nothing about
+the third one. Both chips moved — the lightbox demote chip to
+`--color-text-faint` (its twin the Reset chip's token) and the staged-preview
+`aria-current` chip to `--color-control-outline-tinted` (its twin the picker
+link's, because that row stands on the banner's `warning-bg` plate). Note what
+the clause does: it points at the TWIN, not at a named colour, so a pair cannot
+drift apart later by the control moving again.
+
+This is HIERARCHY, not accessibility. Neither element is interactive, so SC
+1.4.11 does not reach either one and there was never a contrast failure here to
+argue. What was wrong is that the chip a reader is meant to read as the current
+state read lighter than the control beside it, inverting the hierarchy the swap
+was making. Both pairs are pinned in
+`tests/styles/pairedChromeOutline.test.ts`, which reads the CONTROL side out of
+the live tree so the guard fails on the pair rather than on a colour. Reasoning:
+`docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md` D3.
 
 **`border-border` on a control's resting outline takes the text ramp too
 (ruled 2026-08-18).** The 2026-08-16 swap moved only `border-border-strong`, and
