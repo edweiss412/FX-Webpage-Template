@@ -6,6 +6,12 @@
 
 ## 0. What this ships, in one paragraph
 
+**Line numbers in this document are anchored at the merge-base `300a9f937`** unless a HEAD
+position is given beside them. A design doc argues from the tree that motivated it, and this
+PR moves several of the lines it cites, including the shell seam it repairs. Where the delta
+matters the HEAD position is stated inline; the plan's section 3 table carries it for every
+citation the work relocates.
+
 A new `spec:lint` arm, `acCoverage`, over PLAN documents. A plan opts one markdown table in by writing a declaration comment above it that names which column holds the producing command. In a declared table the arm asserts, hard, that every data row's command cell carries commands and that every one of them parses, and advises, softly, when a row cites an executable pin under `tests/` that the command cannot reach. The arm recognizes nothing in open English. It reads a declaration, an integer, markdown table structure, and inline code spans.
 
 ## 1. The defect class
@@ -28,7 +34,7 @@ Each decision below is settled, with the evidence that settled it. Verify the ci
   Advisory for (b) — a criterion can legitimately be proved by a new case the plan authors — hard for (a).
   ```
 
-- **The `--` repair to the shared shell seam ships in this PR.** `scripts/spec-lint.ts:864` spawns `sh` with no `--`. It is the same defect class as the arm's own trap, in the one seam the arm calls, and the class-sweep disposition rule's default is repair every instance in the same PR. "Same defect, different file" is explicitly not a sufficient reason to defer it.
+- **The `--` repair to the shared shell seam ships in this PR.** `scripts/spec-lint.ts:864` spawns `sh` with no `--` (line number at `300a9f937`, the anchor section 2 uses; the repair ships here, so at HEAD the seam is `scripts/spec-lint.ts:902` and carries the `--`). It is the same defect class as the arm's own trap, in the one seam the arm calls, and the class-sweep disposition rule's default is repair every instance in the same PR. "Same defect, different file" is explicitly not a sufficient reason to defer it.
 - **EVERY non-blank span in a command cell must parse, not just the first** (round-1 finding 1). A command cell may therefore not carry backticked text that is not a command. An aside belongs outside the code span. Section 6.3 measures what that costs on the live corpus.
 - **Arm (b) tests a LEXICAL PATH BOUNDARY and claims nothing about shell words** (round-1 finding 2, superseded by the round-3 repair). An earlier draft of this bullet said "whole argument", which the round-3 repair expressly abandoned; the surviving statement is section 8.2.2 and L-6.
 - **Arm (b) validates, it does not discover.** Documented limit L-2, with the reason. Do not file "arm (b) would not have caught r4 F2" as a finding; this spec says so first.
@@ -171,7 +177,7 @@ $ sh -c -- 'echo NORMAL_OK'
 NORMAL_OK                     (exit 0)
 ```
 
-The failure is reported as unparsable, which is indistinguishable from a genuine syntax error and is the wrong verdict. **This bug is live in the shipped red arm today**, at `scripts/spec-lint.ts:864`, which spawns `sh` with `[mode === "parse" ? "-nc" : "-c", command]` and no `--`. No current `red=` command begins with `-`, so it is latent rather than firing:
+The failure is reported as unparsable, which is indistinguishable from a genuine syntax error and is the wrong verdict. **This bug was live in the shipped red arm at `300a9f937`**, at `scripts/spec-lint.ts:864`, which spawned `sh` with `[mode === "parse" ? "-nc" : "-c", command]` and no `--`. This PR repairs it; at HEAD the seam sits at `scripts/spec-lint.ts:902` and passes `--`. No current `red=` command begins with `-`, so it is latent rather than firing:
 
 ```
 $ node docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.mjs markers origin/main
@@ -327,12 +333,12 @@ The AST port IS the sanctioned resolution — grammar questions go to the parser
 
 `remark` and `remark-gfm` are declared dependencies, and `lib/reviewRounds/filing.ts:60` is the live lib-layer call site with the synchronous pattern (`remark().use(remarkGfm)`, then `parser.parse(text)` at `lib/reviewRounds/filing.ts:183`).
 
-**mdast lives in the ADAPTER, and the arm receives a view.** `lib/specLint/*.ts` imports no third-party package today; every import is relative. `tests/specLint/_metaPureCore.test.ts:12` forbids only `node:fs`, `node:child_process` and `node:process`, so a remark import there would be legal, but the module's own architecture is better (`lib/specLint/types.ts:118-120`): data the adapter resolves and INJECTS, so nothing foreign crosses the purity boundary. `scripts/spec-lint.ts` parses and injects an ordered list of `{kind:"html", line, value}` and `{kind:"table", line, rows}` where each cell carries its rendered text and its `inlineCode` values. The arm decides everything from that shape, unit tests construct it directly, and `lib/specLint` keeps its zero-third-party-import property.
+**mdast lives in the ADAPTER, and the arm receives a view.** `lib/specLint/*.ts` imports no third-party package today; every import is relative. `tests/specLint/_metaPureCore.test.ts:12` forbids only `node:fs`, `node:child_process` and `node:process`, so a remark import there would be legal, but the module's own architecture is better (`lib/specLint/types.ts:120-122`): data the adapter resolves and INJECTS, so nothing foreign crosses the purity boundary. `scripts/spec-lint.ts` parses and injects an ordered list of `{kind:"html", line, value}` and `{kind:"table", line, rows}` where each cell carries its rendered text and its `inlineCode` values. The arm decides everything from that shape, unit tests construct it directly, and `lib/specLint` keeps its zero-third-party-import property.
 
 Other seams:
 
 - **Citation classification.** `classifySpan` at `lib/specLint/citations.ts:28` is the authority, per section 8.2.2. This matters because the fixture's own pin is bare text, not a span: `the executable payload pin at tests/paneCompaction/driver.test.ts:72`.
-- **Shell parse check, and its own results type.** `scripts/spec-lint.ts` owns every subprocess. `synthesizeParseFindings` at `lib/specLint/redContract.ts:510` already branches on `ParseCheckEntry.source`, so a third branch there is the obvious move, and it is refused: `ExecResults.outcomes` is keyed by LINE ALONE (`lib/specLint/types.ts:179`), which has always held for `red=` and `gate` because a line carries one marker. An AC row contributes one entry PER SPAN, so a line-keyed store keeps only the last — round-2 finding 2's probe showed exits `[2, 0, 0]` collapsing to a single clean entry, silently accepting a broken first command. `acCoverage` therefore owns its own entry type, its own results map keyed by `(line, spanIndex)`, and its own synthesizer. The adapter runs a second spawn loop with the same `sh -nc --` invocation, so the `--` repair still lands once, and `ParseResults` and the red arm are untouched. The AC entries are NOT fed to `parseFailedLines` (`lib/specLint/run.ts:141`), whose job is excluding red markers from EXECUTION; AC commands are never executed.
+- **Shell parse check, and its own results type.** `scripts/spec-lint.ts` owns every subprocess. `synthesizeParseFindings` at `lib/specLint/redContract.ts:510` already branches on `ParseCheckEntry.source`, so a third branch there is the obvious move, and it is refused: `ExecResults.outcomes` is keyed by LINE ALONE (`lib/specLint/types.ts:179`), which has always held for `red=` and `gate` because a line carries one marker. An AC row contributes one entry PER SPAN, so a line-keyed store keeps only the last — round-2 finding 2's probe showed exits `[2, 0, 0]` collapsing to a single clean entry, silently accepting a broken first command. `acCoverage` therefore owns its own entry type, its own results map keyed by `(line, spanIndex)`, and its own synthesizer. The adapter runs a second spawn loop with the same `sh -nc --` invocation, so the `--` repair still lands once, and `ParseResults` and the red arm are untouched. The AC entries are NOT fed to `parseFailedLines` (`lib/specLint/run.ts:154`), whose job is excluding red markers from EXECUTION; AC commands are never executed.
 
 ### 8.4 Where the arm registers
 

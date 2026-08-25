@@ -8,7 +8,7 @@ impeccable-gate: N/A — no UI surface
 
 | Meta-test | CREATES / EXTENDS / covered by default | Why |
 | --- | --- | --- |
-| `tests/specLint/_metaPureCore.test.ts` | **EXTENDS** | its walker covers the new module by default (`tests/specLint/_metaPureCore.test.ts:11`), but its only assertion forbids three `node:` modules (`tests/specLint/_metaPureCore.test.ts:15`), so a direct `remark` import in the pure core passes it. Round-1 finding 3: AC-15 was claimed by a command that cannot enforce it. Task 8 adds a relative-imports-only assertion, with a planted `remark` import as its red. |
+| `tests/specLint/_metaPureCore.test.ts` | **EXTENDS** | its walker covers the new module by default (`tests/specLint/_metaPureCore.test.ts:37`), but its only assertion forbids three `node:` modules (`tests/specLint/_metaPureCore.test.ts:15`), so a direct `remark` import in the pure core passes it. Round-1 finding 3: AC-15 was claimed by a command that cannot enforce it. Task 8 adds a relative-imports-only assertion, with a planted `remark` import as its red. |
 | the `acCoverageSuiteDerivation` meta-test | **CREATES** | round-2 finding 2: the plan promised a bidirectional `suitePaths`-versus-disk assertion and named nowhere for it to live, so an implementer could enrol four suites, score them, and leave a fifth silently unscored. Modelled on `tests/mutation/_metaClaimSweepSuiteDerivation.test.ts`, which is named OUTSIDE its own glob deliberately so it does not have to enrol itself. |
 | `tests/mutation/source/expectedLedgerKinds.ts` | **EXTENDS** | round-1 finding 4. `tests/mutation/_metaLedgerKindsDeclarationParity.test.ts:94` asserts SET EQUALITY in both directions between its keys and `GUARD_SURFACES` ids, so enrolling a surface without an entry fails. Probing `claimSweep` gives this artifact kind's full fan-out: mutation registry, ledger kinds, premise map, suite-derivation meta-test. |
 | `tests/mutation/_metaPremiseContract.test.ts` | EXTENDS | it walks the enrolled suites with a per-suite expected premise count; each newly enrolled suite needs its row (Task 11). |
@@ -63,7 +63,11 @@ The repair is to RE-POINT, never to waive (Task 12), and two rules make the re-p
 
 Task 2's row names an ABSENCE rather than a symbol, deliberately and stated: its red is that no branch reads a declaration at all, so there is no line to cite until Task 3 creates one. Task 12 records that as the reading rather than hunting for a symbol that should not exist.
 
-## 4. Pre-draft code-verification pass, run against the live tree
+## 4. Pre-draft code-verification pass, run against the tree at plan time (`300a9f937`)
+
+Every anchor below is a line number **at the merge-base `300a9f937`**, not at HEAD. This is a
+census of what existed before the work, so re-pointing it to HEAD would destroy what it records.
+Three of these lines are ones this plan itself moves; §3's table carries their HEAD positions.
 
 | Name | Anchor | Verified |
 | --- | --- | --- |
@@ -242,7 +246,7 @@ This task EXTENDS that walker with a second assertion: every import specifier in
 
 ## Task 9 — the `--` repair to the shared shell seam
 
-One token at `scripts/spec-lint.ts:864`. Tested in both directions: a command beginning with `-` no longer reports unparsable, and a genuinely malformed command still does. `red-state` is `authored` and not `live`, because the suite passes today (88 tests, run at plan time) and the failing case is one this task writes.
+One token at `scripts/spec-lint.ts:902`. Tested in both directions: a command beginning with `-` no longer reports unparsable, and a genuinely malformed command still does. `red-state` is `authored` and not `live`, because the suite passes today (88 tests, run at plan time) and the failing case is one this task writes.
 
 <!-- task: red=`pnpm vitest run tests/specLint/redExec.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:902` why=`the spawnSync("sh", …) parse invocation passes no --, so sh reads a command beginning with a dash as an option and exits 2, which the arm reports as a syntax error` ac=AC-2 -->
 
@@ -250,7 +254,7 @@ One token at `scripts/spec-lint.ts:864`. Tested in both directions: a command be
 
 Adds the one declaration line above the AC coverage table in `docs/superpowers/plans/2026-08-21-pane-compaction-send-authorization.md`, and adds the case to the corpus suite that both declaring plans report zero. Sweep B is re-run and its output pasted into the commit.
 
-<!-- task: red=`pnpm vitest run tests/specLint/acCoverageCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-21-pane-compaction-send-authorization.md:363` why=`the AC coverage table's header row carries no declaration above it, so the arm reads nothing there and the two-declaring-plans assertion finds one` ac=AC-10 -->
+<!-- task: red=`pnpm vitest run tests/specLint/acCoverageCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-21-pane-compaction-send-authorization.md:363` why=`this line was the table's header row with no declaration above it, so the arm read nothing here and the two-declaring-plans assertion found one; the declaration that closed the red now occupies this line` ac=AC-10 -->
 
 ## Task 11 — mutation enrolment and the scored run
 
