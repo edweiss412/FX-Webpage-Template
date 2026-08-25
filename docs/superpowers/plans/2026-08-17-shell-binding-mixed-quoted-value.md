@@ -676,6 +676,19 @@ git commit -m "fix(infra): assignment bindings read lexed words — mixed-quoted
   });
 ```
 
+> **Superseded in part, 2026-08-22 (`BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE`).** The
+> documented-limit rows in the block above — the plain and mixed spellings of a QUOTED
+> `run:` scalar — no longer hold for YAML. That arc decodes a quoted scalar's YAML
+> quoting before the shell lexer sees it, so both spellings now report one hit in a
+> `.github/workflows/*.yml` file where this plan expected zero. Probed at HEAD:
+> `- run: "PG=psql; $PG -qAt mydb"` and its mixed spelling each return one hit when the
+> scanned path ends in .yml, and zero hits when it ends in .sh. (Those paths are synthetic
+> probe inputs, deliberately not written as citations - no such files are tracked.)
+>
+> The limit therefore stands for NON-YAML inputs and is retired only for YAML, which is
+> narrower than "retired". The specimen above is left exactly as written: it is the dated
+> record of a shipped arc, and rewriting it to match a later one is how two copies drift.
+
 - [ ] **Step 2: Run to verify the red set.**
 
 Run: `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "multiword binding value"`

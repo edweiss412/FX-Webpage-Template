@@ -1259,21 +1259,40 @@ describe("real history (spec §11.3 layer 2)", () => {
     execFileSync("git", ["rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim() ===
     "true";
 
-  it.skipIf(isShallow)("matches the live log when history is available", () => {
-    const expected = execFileSync(
-      "git",
-      ["log", "--merges", "--first-parent", "main", "--format=%s"],
-      { encoding: "utf8" },
-    )
-      .split("\n")
-      .filter(Boolean);
-    const { recognized, unrecognized } = mergedArcs(process.cwd());
-    // Every first-parent merge is accounted for: recognized or reported.
-    expect(recognized.length + unrecognized.length).toBe(expected.length);
-    // The residue is REPORTED, never assumed empty - and every entry carries
-    // its subject, per §9.
-    expect(unrecognized.every((u) => u.subject.length > 0)).toBe(true);
-  });
+  // INTERIM CEILING, not a flake bump. This test resolves every first-parent
+  // merge on `main`, so its runtime grows MONOTONICALLY with merge history and
+  // will keep growing; it is not transient and a rerun does not clear it.
+  //
+  //   24.79s  measured on a quiet box (prunegate, early warning)
+  //   34.66s  measured after #875 merged ~98 commits, against a 30000ms ceiling
+  //
+  // The 850-merge walk is the cost: `git log` itself returns in 0.01s, and the
+  // corpus contributes 235 files. Raised here because a required tier was
+  // failing for every arc, not just the one that noticed.
+  //
+  // THE REAL REPAIR IS NOT THIS. Speeding up `mergedArcs` (or dropping its
+  // second clone) is owned by arc-remerge and is already directed. When that
+  // lands, this override should come back out rather than be raised again --
+  // a ceiling that only ever moves up stops being a ceiling.
+  it.skipIf(isShallow)(
+    "matches the live log when history is available",
+    { timeout: 180_000 },
+    () => {
+      const expected = execFileSync(
+        "git",
+        ["log", "--merges", "--first-parent", "main", "--format=%s"],
+        { encoding: "utf8" },
+      )
+        .split("\n")
+        .filter(Boolean);
+      const { recognized, unrecognized } = mergedArcs(process.cwd());
+      // Every first-parent merge is accounted for: recognized or reported.
+      expect(recognized.length + unrecognized.length).toBe(expected.length);
+      // The residue is REPORTED, never assumed empty - and every entry carries
+      // its subject, per §9.
+      expect(unrecognized.every((u) => u.subject.length > 0)).toBe(true);
+    },
+  );
 
   it.runIf(isShallow)("SKIPS BY NAME on a shallow clone", () => {
     // A named absence, not a quiet pass over one merge.

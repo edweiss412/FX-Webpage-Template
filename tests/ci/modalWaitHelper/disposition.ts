@@ -469,7 +469,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a crew page, picker, sign-in, help or schedule route held in a variable; the /admin?show= snapshot loader is not on its path",
     },
-    expectedCount: 18,
+    // 17 since batch 2 (2026-08-22): no-raw-codes' route walk now navigates
+    // through crawlTargetFor(routePath), which moves that site to the
+    // route-census-loops rule below, where it always belonged.
+    expectedCount: 17,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -484,12 +487,17 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     disposition: {
       kind: "exclusion",
       reason:
-        "a whole-route census or auth-gate sweep over many routes; the loop asserts a status code or a font, never modal content",
+        "a whole-route census or auth-gate sweep over many routes; the loop asserts a status code, a font, or the absence of raw §12.4 codes, never modal content",
     },
-    expectedCount: 5,
+    expectedCount: 6,
     match: (c) =>
-      (inFile(c, "font-rendering-census.spec.ts") || inFile(c, "help-auth.spec.ts")) &&
-      /goto\(route\)?/.test(c.matchLineText),
+      ((inFile(c, "font-rendering-census.spec.ts") || inFile(c, "help-auth.spec.ts")) &&
+        /goto\(route\)?/.test(c.matchLineText)) ||
+      // no-raw-codes walks every discovered static route and scans the rendered
+      // DOM for catalog codes; the telemetry route goes through a helper that
+      // appends an empty-log filter (batch 2 R8), so the target is a call, not a
+      // bare variable.
+      (inFile(c, "no-raw-codes.spec.ts") && /goto\(crawlTargetFor\(/.test(c.matchLineText)),
   },
   {
     id: "b/crew-second-context",
