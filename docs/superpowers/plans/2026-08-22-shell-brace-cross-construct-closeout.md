@@ -268,3 +268,113 @@ noise rather than a speed-up.
 
 The digest held identical across all three timing runs, which the probe requires
 before it will report a timing number at all.
+
+## Task 6 — the score, and the one survivor it found
+
+Commit `706306f76`. The scoped shard earned its keep here: it went RED on a real
+finding before the full gate was ever paid for, which is the entire reason the
+plan separates an iteration channel from the acceptance channel.
+
+### The survivor
+
+```
+unaccepted-survivor: 1 survivor(s) with no ledger row: relational-boundary:1098:24:<><=
+below-floor: psqlStartupScan: score 0.9804 < floor 1
+```
+
+`0.9804` is `50/51`: 81 mutants, 30 accepted-equivalent, 51 counted, 50 killed.
+The site is `doubleQuotedEnd`'s loop header — code this arc introduces as the
+second of its two per-context recognizers. **Its existence was predicted before
+the run**, in the ship-state marker, which named that loop bound as the expected
+new site; the equivalence argument was not, and the row says so.
+
+### Rungs 1-3, each failed with a reason rather than an assertion
+
+- **Delete** — REFUSED. The bound is the loop's only terminator, so removing it
+  moves termination into the predicate, where an equality-flip mutant spins
+  forever and costs the whole measurement. This surface already records that
+  refusal for four sibling bounds. It is also exactly why the family's *fifth*
+  member could be deleted and this one cannot: that one sat in a removable
+  dangling-backslash branch, this is a loop header.
+- **Totalise** — already done; the loop terminates in its own header.
+- **Kill it with a test** — ATTEMPTED, and this is the half that would be easy to
+  skip. Ten inputs were constructed, every one driving an unterminated
+  double-quoted span to the very end of the text, which is the only place the two
+  readings can disagree:
+
+  | input | what it probes |
+  |---|---|
+  | `cat >"$(echo ${A:-)}; psql -c 'x')` | the crossing inside an unterminated dq |
+  | `cat >"` | dq opens at the last character |
+  | `cat >"$(` | dq then an unterminated substitution at EOF |
+  | `cat >"\` | dq then a dangling escape at EOF |
+  | ``cat >"` `` | dq then an unterminated backtick at EOF |
+  | `cat >"$` | dq then a lone `$` at EOF |
+  | `cat >"$$` | dq then `$$` at EOF |
+  | `cat >"${OUT:-$(echo }; psql -c 'x')}` | the crossing, one layer deeper |
+  | `cat >"x"; psql -c 'x'` | control: the dq DOES terminate |
+  | `echo "$(psql -c 'x')"` | control: well-formed |
+
+  Sites, advisories, offsets, `nested`, `nestedInBacktick` and tokens are
+  **identical on every row**. Separately, under the mutant the deciding suite
+  still reports 1046 passed, `shapes --expect-repaired` still reports 22/22 +
+  5/5 + 4/4, and the AC-5 digest is unmoved.
+
+So the equivalence is a PROOF rather than a failure of imagination: at
+`k === text.length` the five branches test `undefined` against backslash, the
+closing double quote, a backtick, and `$` twice, and `undefined` equals none of
+them. `expectedLedgerKinds` goes 30 → 31 carrying the coverage-regression
+explanation that file demands. The mutant was reverted byte-identically, proven
+by blob hash (`b1f22571`), so no re-key was owed for it.
+
+**Scoped gate after the row: 7 passed (7).**
+
+### The authored red closed here too
+
+The temporary shard — a file matching the deliberately untracked
+`guardSurfaces.shardTmp*` pattern — put `_metaSourceShardIntegrity`
+red BY DESIGN — exit 1, naming the file, exactly as the task marker's `why=`
+claims. Deleting it returned the shard set to its canonical five and the guard to
+22 passed. That pattern is already covered by an ignore rule in the repository's
+root ignore file, so the repo anticipates this workflow and the shard cannot be
+committed by accident, while the guard still sees it on disk.
+
+## Absorbing main, twice, and what it cost
+
+This arc had to absorb main **twice mid-implementation**, and both absorbs killed
+an in-flight AC-7 run. That is recorded here because the reason is structural
+rather than bad luck.
+
+| merge | touched this gate's inputs |
+|---|---|
+| #885 shotsdrift (`9f8da68b0`) | the deciding suite, `registry.ts`, `expectedLedgerKinds.ts` |
+| #883 replsweep (`dce1e5e2f`) | all three of those, **plus `surfaceCases.ts`, the gate harness itself** |
+
+A score is a pure function of (source, operators, deciding suites). Both merges
+moved that tuple, so in both cases the running gate was measuring a tree that was
+about to be superseded and its number could not have been reported. Killing was
+cheaper than finishing. Each kill was verified rather than assumed — no process
+with this worktree's cwd survived, and the slot's recorded pid went DEAD.
+
+**Main merged three times inside one gate duration** (#879, #885, #883), and the
+full gate takes 1-2 hours. That tension was raised with the orchestrator rather
+than silently absorbed, because it is not solvable inside one arc.
+
+### A main-side red found on the way, and deliberately not repaired here
+
+Absorbing #883 turned `tests/cross-cutting/replacementString.test.ts` red:
+`expected [] got ["tests/help/manifestRoutes.test.ts:45"]`. **Proven to be main's,
+not this arc's**, in a clean detached worktree at `origin/main` carrying none of
+this branch's changes: 1 failed / 48 passed there.
+
+The mechanism is a seam between two sibling merges. #885 added
+`manifestRoutes.test.ts` (`f90ce11a4`) with a `String.replace` whose replacement
+argument is a template literal; #883 added the repo-wide AST judge and its
+`EXPECTED_OFFENDERS` inventory (`45b9068c3`), built before #885 landed. Neither
+branch contained the other, so neither arc's CI could see the pair.
+
+**Ownership needed provenance, not diff membership.** A naive check says both
+files are in this branch's diff — they are, but only because the merge brought
+them in. `git log --diff-filter=A` settles it: both are main-side commits and this
+branch authored neither. The orchestrator dispatched a hotfix; repairing it here
+would have conflicted with that at the seam and hidden a red that belongs on main.
