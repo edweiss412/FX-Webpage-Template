@@ -12,13 +12,32 @@
  * established why that forward guard was CUT rather than shipped.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { premise } from "../_shared/premise";
 import { CENSUS, DIVIDERS, resolveCensus } from "./controlOutlineScan";
 import { allStrings, scanInteractiveElements, type ScanElement } from "./interactiveScanCore";
+
+/**
+ * Scratch roots this file creates, removed together in `afterAll`.
+ *
+ * `afterAll` rather than per-case: vitest runs it even when a case fails, and a
+ * cleanup that only runs on success leaks exactly when a suite is being
+ * debugged, which is when it runs most. Guard:
+ * `tests/mutation/_metaScratchRootCleanup.test.ts`. Row:
+ * BL-MUTATION-SCRATCH-FS-EVENT-STORM.
+ */
+const scratchRoots: string[] = [];
+function trackScratch(root: string): string {
+  scratchRoots.push(root);
+  return root;
+}
+afterAll(() => {
+  for (const root of scratchRoots) rmSync(root, { recursive: true, force: true });
+  scratchRoots.length = 0;
+});
 
 /**
  * ONE root, read by BOTH the premise and the resolver.
@@ -76,7 +95,7 @@ function everyPathCarries(element: ScanElement, token: string): boolean {
  * rather than exporting it from a module the mutation registry already enrols.
  */
 function scanFixture(source: string): ScanElement[] {
-  const dir = mkdtempSync(join(tmpdir(), "control-outline-fixture-"));
+  const dir = trackScratch(mkdtempSync(join(tmpdir(), "control-outline-fixture-")));
   const path = join(dir, "components/Fx.tsx");
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, source);

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { type Child, type Measured, readRun } from "@/lib/mutationWeight/records";
 import {
@@ -87,9 +87,32 @@ const snap = (label: string, sha: string, surfaces: Measured[], m: ModelledBoots
 });
 
 describe("readRun", () => {
+  /**
+   * Every scratch root this describe creates, removed after each case.
+   *
+   * The per-case `finally` blocks below are NOT sufficient on their own, and the
+   * gap is narrow enough to be worth naming: `layout()` creates its root and then
+   * keeps writing, so a failure anywhere after `mkdtempSync` throws out of the
+   * helper before the caller can bind `dir` and enter its `try`. The root then
+   * outlives the run with nothing holding a reference to it. The same applies to
+   * the case that builds three layouts in sequence, where a throw in the second
+   * strands the first.
+   *
+   * Registering the root the instant it exists closes both, because cleanup stops
+   * depending on control ever returning to the caller. Found by the scratch-root
+   * cleanup guard, which injects a throw into the Nth filesystem call precisely so
+   * the failure lands AFTER a root exists -- a failing assertion never reproduces
+   * it, since that path does reach the `finally`.
+   */
+  const roots: string[] = [];
+  afterEach(() => {
+    for (const d of roots.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
   /** A record directory shaped exactly like the artifacts the nightly uploads. */
   const layout = (opts: { elapsed?: string; emptyElapsedDir?: boolean } = {}): string => {
     const dir = mkdtempSync(join(tmpdir(), "fx-readrun-"));
+    roots.push(dir);
     mkdirSync(join(dir, "mutation-records-source-shards-2"), { recursive: true });
     writeFileSync(
       join(dir, "mutation-records-source-shards-2", "surf.run.json"),

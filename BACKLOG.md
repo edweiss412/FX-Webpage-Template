@@ -461,6 +461,25 @@ A native checkbox or radio is normally targeted through its `<label>`, and the t
 
 **First scheduled step:** decide the FINANCIALS shape — either a `<label>` wrapping only the checkbox and its short caption with the caution outside it, or padding on the existing sibling label — then apply the same answer to both files, and settle the staged-review list separately.
 
+## BL-MUTATION-SCANNER-CACHE-INVALIDATION — the scan cache is frozen by absolute path on purpose, and fixture suites pay for it in scratch roots
+
+**Status:** OPEN · **Filed:** 2026-08-24 (`fix/mutation-scratch-fs-event-storm`, split out of that arc at plan review round 2 by orchestrator ruling) · **Severity:** MEDIUM (a cost and a blocked follow-up, never a wrong answer — the frozen parse is currently CORRECT for every shipped consumer) · **Class:** harness cost / test design · **Effort:** M · **Facing:** process · **Incident:** the parent arc's own review corpus, `docs/review-rounds/fix/mutation-scratch-fs-event-storm/` — spec rounds 1-4 and plan rounds 1-2 (28 findings), of which plan r1 finding 7 and plan r2 findings 1, 2, 5 and 6 are all this surface. Round 2 named four wrong implementations a five-case matrix still admits after round 1 had already grown it from four cases, which is one new family per round with no decay. · **Reachability:** PROBED — the staleness, the contract, and the cost are each measured below, not inferred.
+
+**The cache and the contract it is protected by.** `tests/styles/interactiveScanCore.ts:479` holds a module-level `Map<string, ts.SourceFile>` keyed by absolute path, read at `:482` and written at `:492`; those three lines are its only references, so nothing invalidates it. That is DELIBERATE and asserted: `tests/styles/interactiveScanCore.test.ts:444` is `it("parses each file ONCE per process, by path")`, which writes a file, scans, rewrites it, scans again and asserts the FIRST content comes back. Its comment calls the freeze "a real contract, because every consumer of this module scans a tree that does not change under it, and the alternative (an mtime check) buys nothing any caller needs."
+
+**Why it is filed rather than fixed.** The premise is true of every SHIPPED consumer and false of fixture-writing suites, which change the tree under it between scans — and they work around it by building a fresh scratch root per case, which is the churn the parent arc measured. Retiring an asserted contract is a design decision, so it gets its own spec instead of riding along as a task.
+
+**Inputs the successor should not have to re-derive:**
+
+- **The performance rationale is already refuted.** Statting all 254 corpus `.tsx` files takes about 1 ms, and three scans also about 1 ms. The cache is protecting against re-PARSING, which an mtime or content check preserves; "an mtime check buys nothing" was true only while no caller wanted one.
+- **The four wrong implementations a five-case matrix still admits** (plan r2): `Math.trunc(mtimeMs)` passes a same-length rewrite only when it crosses an integer-millisecond boundary and fails on the ordinary 0.034 ms rewrites measured; a one-sided `newMtime > oldMtime` compare serves stale content after a backward timestamp adjustment; a one-sided size compare passes whichever growth direction the case chooses; and `basename(path)` plus metadata aliases common corpus filenames across both scanned trees. Any successor's case matrix starts by rejecting these four.
+- **Only two suites would convert** — `tests/styles/interactiveScanCore.test.ts` and `tests/styles/_metaControlOutlineFill.test.ts` — worth 50 of the 230 roots created per run. The other four in-scope suites build throwaway repository roots whose paths are semantic and are not the cache's problem.
+- **Root reuse must rewrite the SAME path.** A distinct filename per case also reuses one root and never enters the invalidation branch, so the cache work would be dead code no criterion could catch.
+
+**Downstream trigger chain, named because it is not obvious:** `docs/control-outline-forward-guard`'s excluded thirty-two-form case (commit `67471884a`) was excluded precisely because roots could not be shared. Its re-inclusion, and the mutation kills that case alone would restore, wait on THIS row rather than on the parent arc.
+
+**First scheduled step:** decide whether the contract is retired or scoped — an invalidating cache for every caller, versus an opt-in the fixture helpers request — because that choice, not the key's shape, is what the successor spec is actually about.
+
 ## BL-HEAVY-REAP-REPORT-OBSERVABILITY — the reaper's reporting surface is specified but not exhaustively observed
 
 **Status:** OPEN · **Severity:** LOW (a coverage limit, never a safety one: by the design's consequence bound a reporting defect cannot cause a kill, so the worst case is an operator running `--all` to see something the default should have shown) · **Class:** test coverage · **Effort:** S · **Filed:** 2026-08-16 (`chore/heavy-orphan-reaper`, as the deliberate fence that ended a 16-round plan review) · **Reachability: INFERRED, NOT PROBED** — no round of that review found a reporting BEHAVIOR that was wrong; every finding was a case that could not observe one. The probe that would settle whether any residue matters is a mutation run over the reporter, named below.
@@ -2176,19 +2195,3 @@ Each candidate resolves to the line it names, so a human can separate a live cla
 **Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
 
 **First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
-
-### BL-SPECLINT-PLANT-ANCHOR-UNIQUENESS — a plan declares a plant anchor the harness would refuse, and it reads as certified
-
-**Status:** OPEN · **Severity:** LOW · **Class:** plan lint · **Facing:** process · **Filed:** 2026-08-25 (`fix/mutation-shard-weight-seconds`, plan rounds 2-4) · **Effort:** S
-
-**Incident:** three consecutive review rounds on one arc spent findings on this, and the corpus rows are the evidence: `docs/review-rounds/fix/mutation-shard-weight-seconds/300a9f937b8a.jsonl`, plan rounds 2, 3 and 4 (8, 7 and 8 findings, BLOCKING each). Round 2 rejected five plant declarations whose `from` column held prose; round 3 rejected four more written in block-comment style against a `//` header, plus one naming an ABSENCE as its anchor; round 4 found three guessed literals in a table authored before the arc's own Form A/B rule and not revisited when it landed, and separately found an EXISTING plant orphaned by a repair that moved the code out from under it.
-
-**Probe, run rather than theorized.** `scripts/mutation-weight-plant.mjs` substitutes literal text — `text.split(from)` to count and `text.replace(from, to)` to apply — and refuses anything not occurring exactly once. A sweep of the arc's declared anchors against the live tree returned `12` for `scoreFloor: 0.9,` and `0` for the orphaned `legSeconds` anchor; every other anchor returned `1`. Both would have reported ANCHOR-FAIL, which the harness correctly declines to score as a pass — but only when it RUNS. On the page they read as certified plants, and that is the defect: the plan asserted a baseline of "37 plants, 0 escaped" that was false at the commit it cited.
-
-**The check needs no judgment.** For every plan table row declaring a literal plant anchor, assert the string occurs exactly once in the file the row names. Pure text, decidable, and the same shape as the existing `red-target` citation arms in `spec:lint`. The natural companion is a warning when a repair commit touches a file that any live plant list targets, since that is how the orphaned anchor happened.
-
-**Why it is filed rather than fixed here.** Class-sweep disposition exception (c): the repair is a new `spec:lint` arm with its own grammar for locating plant tables in arbitrary plan documents, which is a surface this arc does not otherwise touch. What DID land in-branch is the scoped form — a Form A/B declaration rule plus a uniqueness sweep run and pasted at plan time — so the arc is not deferring its own defect, only the generalisation of it.
-
-**Reachability:** PROBED — the two counts above are from the live tree at `b539765c9`.
-
----

@@ -18,7 +18,7 @@
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 
 import { premiseHolds } from "@/tests/_shared/premise";
 import {
@@ -31,6 +31,28 @@ import {
   universeFiles,
   UNIVERSE_ROOTS,
 } from "@/scripts/scan-interaction-timings";
+
+/**
+ * Scratch roots this file creates, removed together in `afterAll`.
+ *
+ * The per-case `finally` blocks below stay and are still the primary cleanup;
+ * this is the backstop for the gap they cannot cover. Each root is created
+ * BEFORE the `try` that removes it, so a failure between those two lines leaks
+ * it — which is exactly what the failure arm of
+ * `tests/mutation/_metaScratchRootCleanup.test.ts` found here. `rmSync` with
+ * `force` is idempotent, so removing an already-removed root is a no-op.
+ * Row: BL-MUTATION-SCRATCH-FS-EVENT-STORM.
+ */
+const scratchRoots: string[] = [];
+function trackScratch(root: string): string {
+  scratchRoots.push(root);
+  return root;
+}
+afterAll(() => {
+  for (const root of scratchRoots) rmSync(root, { recursive: true, force: true });
+  scratchRoots.length = 0;
+});
+
 
 const F = "components/Probe.tsx";
 const scan = (src: string) => scanTimingSites(src, F);
@@ -274,7 +296,7 @@ describe("scanRepo over a synthetic tree", () => {
   };
 
   function tree(files: Record<string, string>): string {
-    const root = mkdtempSync(join(tmpdir(), "timing-scan-"));
+    const root = trackScratch(mkdtempSync(join(tmpdir(), "timing-scan-")));
     for (const [rel, body] of Object.entries(files)) write(root, rel, body);
     return root;
   }

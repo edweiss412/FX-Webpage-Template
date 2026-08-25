@@ -1,12 +1,31 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 import { collectSurfaceUnits } from "./enumerate";
 import { discoveryGaps } from "./totality";
 
+/**
+ * Scratch roots this file creates, removed together in `afterAll`.
+ *
+ * `afterAll` rather than per-case: vitest runs it even when a case fails, and a
+ * cleanup that only runs on success leaks exactly when a suite is being
+ * debugged, which is when it runs most. Guard:
+ * `tests/mutation/_metaScratchRootCleanup.test.ts`. Row:
+ * BL-MUTATION-SCRATCH-FS-EVENT-STORM.
+ */
+const scratchRoots: string[] = [];
+function trackScratch(root: string): string {
+  scratchRoots.push(root);
+  return root;
+}
+afterAll(() => {
+  for (const root of scratchRoots) rmSync(root, { recursive: true, force: true });
+  scratchRoots.length = 0;
+});
+
 function makeFixture(relPath: string, contents: string): string {
-  const root = mkdtempSync(join(tmpdir(), "totality-"));
+  const root = trackScratch(mkdtempSync(join(tmpdir(), "totality-")));
   const full = join(root, relPath);
   mkdirSync(dirname(full), { recursive: true });
   writeFileSync(full, contents, "utf8");
@@ -20,7 +39,7 @@ const gapsFor = (rel: string, src: string): string[] => {
 
 /** A fixture tree of several files, for the cases one file cannot express. */
 function makeTree(files: Record<string, string>): string {
-  const root = mkdtempSync(join(tmpdir(), "totality-tree-"));
+  const root = trackScratch(mkdtempSync(join(tmpdir(), "totality-tree-")));
   for (const [rel, contents] of Object.entries(files)) {
     const full = join(root, rel);
     mkdirSync(dirname(full), { recursive: true });
