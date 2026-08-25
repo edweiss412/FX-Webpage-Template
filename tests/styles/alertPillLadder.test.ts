@@ -42,12 +42,12 @@
  * RE-FILE TRIGGER: a fourth pill state, or a design that ranks two states at
  * the same count.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { premise } from "../_shared/premise";
+import { premise, premiseHolds } from "../_shared/premise";
 
 const FILE = "components/admin/showpage/PublishedReviewModal.tsx";
 const src = readFileSync(join(process.cwd(), FILE), "utf8");
@@ -84,8 +84,45 @@ const NEUTRAL_FILL = /(^|\s)bg-(bg|surface|surface-sunken|surface-raised)(\s|$)/
  */
 const SIDE = /^border-(t|r|b|l|x|y|s|e)(-.*)?$/;
 const FULL_WIDTH = /^border(-\d+)?$/;
+
+/**
+ * A Tailwind class is `[variant:]... [!]utility[!]`, and only the utility says
+ * what is painted. Round 3 caught the predicate classifying the WHOLE token, so
+ * every decorated spelling of a full-box colour fell out of the colour test by
+ * failing `startsWith("border-")` — and then read as "no outline at all".
+ *
+ * That was a false PASS waiting to happen, not a loud failure. `emphasis()`
+ * feeds a ladder of urgent OVER monitoring: an uncounted outline on the URGENT
+ * arm fails loudly, but an uncounted outline on the MONITORING arm widens the
+ * gap and the ladder passes while the real ladder is flat.
+ *
+ * Rounds 1, 2 and 3 each answered this by naming one more family — first
+ * standalone physical widths, then side colours and logical sides, then the
+ * important marker. That is an accept-list on an open grammar, and it fails
+ * CLOSED on every spelling nobody has thought of yet. So this normalizes
+ * instead: strip the decoration, classify the bare utility. It closes variants,
+ * the v3 leading `!` and the v4 trailing `!` in one move, and it makes the
+ * existing rules FEWER rather than more.
+ *
+ * It also fixes a right-answer-wrong-mechanism case. `hover:border-t-border`
+ * was already rejected, but for the wrong reason: it never reached the side
+ * test, it just failed to look like a colour. Now it normalizes to
+ * `border-t-border` and is rejected as the divider edge it is.
+ *
+ * Variants are stripped at the LAST `:` before any `[`, so an arbitrary value
+ * that contains a colon (`dark:border-[color:var(--x)]`) keeps its brackets
+ * intact instead of being cut in half.
+ */
+function bare(token: string): string {
+  const bracket = token.indexOf("[");
+  const head = bracket < 0 ? token : token.slice(0, bracket);
+  const lastColon = head.lastIndexOf(":");
+  const utility = lastColon < 0 ? token : token.slice(lastColon + 1);
+  return utility.replace(/^!/, "").replace(/!$/, "");
+}
+
 function hasOutline(classes: string): boolean {
-  const tokens = classes.split(/\s+/).filter(Boolean);
+  const tokens = classes.split(/\s+/).filter(Boolean).map(bare);
   const colour = tokens.some(
     (t) => t.startsWith("border-") && !SIDE.test(t) && !FULL_WIDTH.test(t),
   );
@@ -212,7 +249,80 @@ describe("the outline predicate does not count a divider as emphasis", () => {
     ["border", false],
     ["border-2", false],
     ["rounded-pill px-2.5", false],
+    // Round 3. A decorated full-box colour is still a full-box colour. The
+    // first three are the important marker in both spellings the ecosystem
+    // uses; the rest are variants, which are ordinary authoring here.
+    ["!border-warning-text", true],
+    ["border-warning-text!", true],
+    ["hover:border-border-strong", true],
+    ["sm:border-border", true],
+    ["max-sm:border-text-faint", true],
+    ["dark:hover:border-accent", true],
+    ["dark:border-[color:var(--x)]", true],
+    // ...and a decorated DIVIDER is still a divider. This one was already
+    // rejected before round 3, but by the wrong mechanism: it never reached
+    // the side test, it just failed to look like a colour at all.
+    ["hover:border-t-border", false],
+    ["max-sm:border-b-2", false],
+    ["!border-s", false],
   ])("%s -> %s", (classes, expected) => {
     expect(hasOutline(classes as string)).toBe(expected);
+  });
+});
+
+/**
+ * The cases above are an enumeration, and an enumeration re-opens the moment
+ * somebody writes a spelling nobody listed — which is exactly how rounds 1, 2
+ * and 3 each found one more. This is the derived half: it reads every border
+ * utility the app ACTUALLY uses and asserts normalization leaves a bare
+ * utility, so a new decoration fails here without anyone adding a case.
+ *
+ * It asserts against the real corpus rather than a fixture, and it states its
+ * own premise first: a walk that silently matched nothing would pass every
+ * assertion under it.
+ */
+describe("normalization covers the decorations the app really uses", () => {
+  const used = new Set<string>();
+  const stack = [join(process.cwd(), "app"), join(process.cwd(), "components")];
+  while (stack.length) {
+    const dir = stack.pop()!;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else if (/\.(tsx?|mdx)$/.test(entry.name)) {
+        for (const m of readFileSync(full, "utf8").matchAll(/[\w:!-]*\bborder-[\w[\]().:-]+!?/g)) {
+          used.add(m[0]);
+        }
+      }
+    }
+  }
+
+  it("premise: the walk found the decorated spellings this repo is known to use", () => {
+    premise("border utilities found across app/ and components/", used.size, 20);
+    // Named because each was found live in the tree; if the walk stopped
+    // seeing them the assertions below would pass on an empty set.
+    premiseHolds(
+      "a hover: variant border is in use",
+      [...used].some((c) => c.startsWith("hover:border-")),
+    );
+    premiseHolds(
+      "a max-sm: variant border is in use",
+      [...used].some((c) => c.startsWith("max-sm:border-")),
+    );
+  });
+
+  it("leaves no variant prefix or important marker on any utility in use", () => {
+    const leftover = [...used]
+      .map((c) => [c, bare(c)] as const)
+      // An arbitrary value legitimately keeps a colon INSIDE its brackets.
+      .filter(
+        ([, b]) => (b.includes(":") && !b.includes("[")) || b.startsWith("!") || b.endsWith("!"),
+      );
+    expect(leftover).toEqual([]);
+  });
+
+  it("is idempotent, so normalizing twice cannot change a verdict", () => {
+    const unstable = [...used].filter((c) => bare(bare(c)) !== bare(c));
+    expect(unstable).toEqual([]);
   });
 });

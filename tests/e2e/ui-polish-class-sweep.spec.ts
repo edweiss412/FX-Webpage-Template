@@ -31,7 +31,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+
+// `test`/`expect` come from the shared font-fidelity fixture, not from
+// @playwright/test: this spec calls compileEntryCss, and the fixture is what
+// attaches the font oracle to the documents it renders. Binding them straight
+// from @playwright/test compiles and runs, but silently drops that oracle --
+// pinned by tests/e2e/_metaFontFidelityWiring.test.ts.
+import { expect, test } from "./helpers/fontFidelityFixture";
 
 import { bundleLiveEntry, compileEntryCss } from "./helpers/liveEntryToolchain";
 
