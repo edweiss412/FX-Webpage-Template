@@ -179,26 +179,50 @@ export async function captureAll(): Promise<void> {
   // operator was left diagnosing a half-republished baseline set -- and "the
   // capture overwrites in place" is exactly why a was-a-file-created check
   // cannot see this class.
-  const produced = completedIdentities(stagingDir).sort();
-  const expected = expectedIdentities().sort();
-  if (produced.join("|") !== expected.join("|")) {
-    const missing = expected.filter((id) => !produced.includes(id));
-    const unexpected = produced.filter((id) => !expected.includes(id));
-    throw new Error(
-      `capture produced ${produced.length} identities, expected ${expected.length}: ` +
-        `missing ${missing.join(", ") || "none"}` +
-        // Without this arm a count mismatch with nothing missing reports
-        // "missing none", which reads as a contradiction. Two manifest entries
-        // sharing key+theme collide in staging and land exactly there.
-        (unexpected.length > 0 ? `; unexpected ${unexpected.join(", ")}` : ""),
-    );
-  }
+  assertCompleteCapture(stagingDir, expectedIdentities());
+  publishStaging(stagingDir, OUTPUT_DIR);
+}
 
-  // The byte gate reads OUTPUT_DIR, unchanged.
-  mkdirSync(OUTPUT_DIR, { recursive: true });
-  for (const name of readdirSync(stagingDir)) {
-    copyFileSync(join(stagingDir, name), join(OUTPUT_DIR, name));
+/**
+ * The identity oracle, EXPORTED so it is executable without a browser.
+ *
+ * It ran only inside `captureAll`, which launches Chromium and needs a seeded
+ * database, so nothing exercised it: the scoped tests scan this file's SOURCE
+ * TEXT and never run the chain. Whole-diff review r4a named the consequence --
+ * a one-edit no-op of the publish below leaves staging and the evidence
+ * verifier green while the byte gate compares untouched committed baselines,
+ * so real drift ships silently.
+ */
+export function assertCompleteCapture(stagingDir: string, expectedIds: readonly string[]): void {
+  const produced = completedIdentities(stagingDir).sort();
+  const expected = [...expectedIds].sort();
+  if (produced.join("|") === expected.join("|")) return;
+
+  const missing = expected.filter((id) => !produced.includes(id));
+  const unexpected = produced.filter((id) => !expected.includes(id));
+  throw new Error(
+    `capture produced ${produced.length} identities, expected ${expected.length}: ` +
+      `missing ${missing.join(", ") || "none"}` +
+      // Without this arm a count mismatch with nothing missing reports
+      // "missing none", which reads as a contradiction. Two manifest entries
+      // sharing key+theme collide in staging and land exactly there.
+      (unexpected.length > 0 ? `; unexpected ${unexpected.join(", ")}` : ""),
+  );
+}
+
+/**
+ * Publish staging into the directory the byte gate reads. Returns the names
+ * copied, so a caller (and a test) can tell "published nothing" from
+ * "published everything" -- the void version could not, which is what made a
+ * no-op invisible.
+ */
+export function publishStaging(stagingDir: string, outputDir: string): string[] {
+  mkdirSync(outputDir, { recursive: true });
+  const names = readdirSync(stagingDir);
+  for (const name of names) {
+    copyFileSync(join(stagingDir, name), join(outputDir, name));
   }
+  return names;
 }
 
 function refusedEntry(

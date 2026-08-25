@@ -186,16 +186,44 @@ export function verifyEvidence(
           "spec section 4.2.1 requires the missing selector in the entry",
       );
     }
-    if (
-      isNonEmptyString(refused.refusedReason) &&
-      refused.refusedReason !== "selector-absent" &&
-      isStringArray(refused.faultHits) &&
-      refused.faultHits.length === 0
-    ) {
-      problems.push(
-        `${refusedIdentity} refused as ${refused.refusedReason} but records no faultHits; ` +
-          "a fault refusal without a fault names no cause",
-      );
+    // Each reason's obligation, ENUMERATED rather than expressed as "everything
+    // except selector-absent". That negation was wrong for three of the five
+    // shapes the capture actually emits, and it made the always-run CI verifier
+    // reject VALID records:
+    //
+    //   selector-absent        markers, possibly empty (an unmarked replacement
+    //                          still refuses) -> needs absentSelector, checked above
+    //   RenderFaultError       reasons, non-empty by construction -> needs faultHits
+    //   GeometryMismatchError  no hits, carries dimensions instead -> needs geometry
+    //   any other error.name   no hits (navigation, post-selector quiescence,
+    //                          screenshot, encode, file-write) -> no extra obligation
+    //   "unknown"              a non-Error throw -> no extra obligation
+    //
+    // Writing it as a table is the point: a negation silently acquires every new
+    // reason, and gets it wrong by default.
+    if (refused.refusedReason === "RenderFaultError") {
+      if (!isStringArray(refused.faultHits) || refused.faultHits.length === 0) {
+        problems.push(
+          `${refusedIdentity} refused as RenderFaultError but records no faultHits; ` +
+            "that reason means a marked fault was seen, so the markers are the evidence for it",
+        );
+      }
+    }
+    if (refused.refusedReason === "GeometryMismatchError") {
+      const g = refused.geometry;
+      const dims = typeof g === "object" && g !== null ? (g as Record<string, unknown>) : null;
+      const bad =
+        dims === null ||
+        !["baselineWidth", "baselineHeight", "capturedWidth", "capturedHeight"].every((k) =>
+          isPositiveInt(dims[k]),
+        );
+      if (bad) {
+        problems.push(
+          `${refusedIdentity} refused as GeometryMismatchError but carries no usable geometry: ` +
+            `${JSON.stringify(refused.geometry)}. Spec section 6 makes the observed dimensions the ` +
+            "narrowing evidence a geometry refusal exists to provide",
+        );
+      }
     }
     for (const field of POST_ENCODE) {
       if (refused[field] !== null) {

@@ -374,10 +374,14 @@ describe("round 2: the validator checks TYPE and DOMAIN, not just presence", () 
     expect(problems.some((p) => p.includes("names no absentSelector"))).toBe(true);
   });
 
-  it("rejects a fault refusal carrying no fault evidence", () => {
-    // A refusal has to carry the evidence its own reason promises.
+  it("rejects a RenderFaultError refusal carrying no fault evidence", () => {
+    // A refusal carries the evidence ITS OWN reason promises, and only that.
+    // `RenderFaultError` is the one reason that means a marked fault was seen,
+    // so its markers are the evidence for it. This test previously used a
+    // reason string the capture never emits, which is why it passed against a
+    // rule that was wrong for three of the five real shapes.
     const problems = verifyEvidence(
-      { ...HEADER, entries: [refusal({ refusedReason: "render-fault", faultHits: [] })] },
+      { ...HEADER, entries: [refusal({ refusedReason: "RenderFaultError", faultHits: [] })] },
       EXPECTED,
       {},
     );
@@ -393,5 +397,65 @@ describe("round 2: the validator checks TYPE and DOMAIN, not just presence", () 
       () => null,
     );
     expect(problems.some((p) => p.includes("cannot be compared"))).toBe(true);
+  });
+});
+
+describe("round 4a: each refusal reason carries ITS OWN obligation, not a blanket one", () => {
+  const GEOM = {
+    baselineWidth: 1216,
+    baselineHeight: 1443,
+    capturedWidth: 1216,
+    capturedHeight: 1500,
+  };
+  const refused = (over: Record<string, unknown>) =>
+    entry("one", "light", {
+      pixelWidth: null,
+      pixelHeight: null,
+      pixelSha256: null,
+      webpBytes: null,
+      webpSha256: null,
+      faultHits: [],
+      ...over,
+    });
+  const check = (over: Record<string, unknown>) =>
+    verifyEvidence({ ...HEADER, entries: [refused(over)] }, EXPECTED, {});
+
+  // The regression this pins: an earlier repair required faultHits on EVERY
+  // non-selector-absent refusal. Geometry and infra refusals legitimately carry
+  // none, so the always-run CI verifier rejected two VALID record shapes. A
+  // negation silently acquires each new reason and gets it wrong by default;
+  // the reasons are now enumerated with one obligation each.
+  it.each([
+    [
+      "a geometry refusal carrying its dimensions",
+      { refusedReason: "GeometryMismatchError", geometry: GEOM },
+    ],
+    ["a post-selector infra timeout", { refusedReason: "TimeoutError" }],
+    ["a non-Error throw", { refusedReason: "unknown" }],
+  ])("accepts %s", (_label, over) => {
+    expect(check(over)).toEqual([]);
+  });
+
+  it("requires the observed dimensions on a geometry refusal", () => {
+    // The opposite edge, also open before: any non-empty faultHits made missing
+    // or malformed geometry pass, leaving spec section 6's narrowing evidence
+    // unenforced.
+    expect(
+      check({ refusedReason: "GeometryMismatchError", faultHits: ["x"] }).some((p) =>
+        p.includes("no usable geometry"),
+      ),
+    ).toBe(true);
+    expect(
+      check({
+        refusedReason: "GeometryMismatchError",
+        geometry: { ...GEOM, capturedHeight: -5 },
+      }).some((p) => p.includes("no usable geometry")),
+    ).toBe(true);
+    expect(
+      check({
+        refusedReason: "GeometryMismatchError",
+        geometry: { ...GEOM, baselineWidth: "1216" },
+      }).some((p) => p.includes("no usable geometry")),
+    ).toBe(true);
   });
 });
