@@ -97,6 +97,23 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
       "from a generated report. Renaming it to dodge the name scan would leave the " +
       "behaviour and lose the record that the question was asked.",
   },
+  {
+    file: "tests/mutation/source/registry.ts",
+    family: "startswith-filter",
+    marker: "#",
+    reason:
+      "NOT comment handling, and not code at all: this is the acCoverage surface's " +
+      "MUTATION CONTROL, whose `from`/`to` are the verbatim source text of " +
+      "`carriesCommand` in lib/specLint/acCoverage.ts so the control mutant can be " +
+      "applied by exact substring match. Rewriting either string to dodge this scan " +
+      "would stop the control from applying and silently retire the surface's " +
+      "positive control. The `#` is a SHELL COMMENT MARKER inside an AC table cell -- " +
+      "`carriesCommand` refuses a cell that is a comment rather than a command -- " +
+      "which is a different question from stripping comments out of TypeScript, SQL, " +
+      "CSS or MDX source, and one the shared module cannot answer: it parses source " +
+      "files, and the input here is one markdown table cell. Flagged twice because " +
+      "the control carries the fragment in both the `from` and the `to`.",
+  },
   ...(["/*", "*/"] as const).map((marker) => ({
     file: "tests/specLint/declaredLimitPins.test.ts",
     family: "two-char-literal" as const,

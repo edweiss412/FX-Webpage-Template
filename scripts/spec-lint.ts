@@ -4,6 +4,11 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+
+import { remark } from "remark";
+import remarkGfm from "remark-gfm";
+
+import { blocksFrom } from "./lib/acCoverageBlocks";
 import {
   spliceFixturePlanForText,
   synthesizeFixtureFindings,
@@ -22,6 +27,8 @@ import {
   parseRepairSpans,
   type ClaimSweepDeclaration,
 } from "../lib/specLint/claimSweep";
+import { acCommandPlan } from "../lib/specLint/acCoverage";
+import { acKey, type AcParseResults } from "../lib/specLint/types";
 import { exitCodeForResult, runLint } from "../lib/specLint/run";
 import { CHECK_ORDER } from "../lib/specLint/types";
 // The adapter may import from tests/ — established by scripts/print-mutation-sites.ts,
@@ -146,6 +153,9 @@ interface CliOutput {
   stderr: string;
   exitCode: number;
 }
+
+/** One synchronous parser, the pattern at lib/reviewRounds/filing.ts:60. */
+const AC_PARSER = remark().use(remarkGfm);
 
 // fs error codes that mean "this file is unreadable" (file-local, expected class);
 // anything else thrown by readFileBytes on a cited read is an infra fault → exit 2.
@@ -656,6 +666,26 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
     // parse pass disqualified.
     const excluded = parseFailedLines(parsePlan, parseResults);
 
+    // ---- AC coverage: the view, then its OWN parse-check spawn loop ----
+    // remark answers every markdown-grammar question (spec §8.3); the pure core
+    // names no mdast type, so its relative-imports-only guard stays absolute.
+    const acBlocks = blocksFrom(AC_PARSER.parse(text));
+    // Keyed by (line, spanIndex), NOT by line: an AC row contributes one entry
+    // per span, and a line-keyed store keeps only the last, which silently
+    // accepts a broken FIRST command.
+    let acParse: AcParseResults | null = null;
+    if (docKind === "plan") {
+      const outcomes = new Map<string, ExecOutcome>();
+      for (const { line, spanIndex, command } of acCommandPlan(acBlocks, docKind)) {
+        const r = deps.spawn(command, root, timeoutMs, "parse");
+        // Through `classifySpawnResult`, never `r.status ?? 1`: that coerces "no
+        // status observed" into a non-zero exit, and the arm would then report a
+        // malformed command on the strength of a spawn fault.
+        outcomes.set(acKey(line, spanIndex), classifySpawnResult(r));
+      }
+      acParse = { outcomes };
+    }
+
     // Execution: sequential, doc order, repo-root cwd, stdout discarded and
     // the stderr tail trimmed here so the core never sees raw output.
     let execResults: ExecResults | null = null;
@@ -770,6 +800,7 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       // sound at this boundary once `prepareSuiteText` shipped.
       { surfaces: enrolledSurfaces, dispositions: NOT_A_PIN, prepareSuite: prepareSuiteText },
       sweepInput,
+      { blocks: acBlocks, parse: acParse },
     );
     return {
       stdout: json ? JSON.stringify(result) + "\n" : renderText(result),
@@ -861,7 +892,14 @@ export function nodeDeps(root: string): CliDeps {
     spawn: (command, cwd, timeoutMs, mode) => {
       // `-nc` is the parse check: sh reads the whole command for syntax and
       // executes none of it. `-c` is the ordinary run.
-      const r = spawnSync("sh", [mode === "parse" ? "-nc" : "-c", command], {
+      //
+      // `--` ends sh's OWN option parsing, so a command string beginning with a
+      // dash is the operand rather than a flag. Without it `sh -nc '--stat'`
+      // exits 2 with "invalid option", which this arm reports as a syntax error
+      // — the wrong verdict, and indistinguishable from a real one. Latent when
+      // repaired (no tracked `red=` begins with a dash) and reachable from the
+      // AC coverage arm, which calls this same seam.
+      const r = spawnSync("sh", [mode === "parse" ? "-nc" : "-c", "--", command], {
         cwd,
         timeout: timeoutMs,
         encoding: "utf8",
