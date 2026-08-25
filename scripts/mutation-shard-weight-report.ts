@@ -41,6 +41,7 @@ import {
   lpt,
   median,
   ratePerModelledBoot,
+  recoverModelled,
   reconcile,
   seamMagnitude,
   seedRates,
@@ -89,15 +90,11 @@ function modelledFrom(file: string | undefined): { modelled: ModelledBoots; sha:
       GUARD_SURFACES.map((s) => {
         const boots = bootsOf(s);
         const suites = s.suitePaths.length;
-        return [
-          s.id,
-          {
-            boots,
-            mutants: boots - s.accepted.length * (suites - 1) - suites,
-            accepted: s.accepted.length,
-            suites,
-          },
-        ];
+        // The RATE goes in too. `reconcile` weights by boots x millisPerBoot, so
+        // omitting it would leave the consumer correct and its producer silent: every
+        // reconciliation would fall back to a rate of 1 and quietly compare a priced
+        // run against a boots partition.
+        return [s.id, recoverModelled(boots, s.accepted.length, suites, s.millisPerBoot)];
       }),
     ),
   };

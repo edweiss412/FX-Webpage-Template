@@ -383,6 +383,35 @@ export function buildSeedTable(
  * reproduce that run's seconds exactly, so the surface scores itself. An earlier
  * version did that and quietly contaminated two of three pairs.
  */
+/**
+ * The modelled parts of ONE surface, recovered from the fields the registry holds.
+ *
+ * Extracted so the recovery is testable at all. It lived inside the report's
+ * `modelledFrom`, which nothing drives, so the plant that claimed to cover it named a
+ * suite that cannot see the report — it reported CAUGHT while the mutation ran against
+ * code the decider never loads. A plant caught for the wrong reason is worse than no
+ * plant, because it reads as coverage.
+ *
+ * `boots` MUST be the boot count, never a priced weight: the mutant total is recovered
+ * by subtracting the ledger and suite terms from it, so a priced input yields a count
+ * wrong by a factor of the rate — and it is that recovered count the reconciliation
+ * compares against what actually ran.
+ */
+export function recoverModelled(
+  boots: number,
+  acceptedCount: number,
+  suites: number,
+  millisPerBoot: number,
+): ModelledSurface {
+  return {
+    boots,
+    mutants: boots - acceptedCount * (suites - 1) - suites,
+    accepted: acceptedCount,
+    suites,
+    millisPerBoot,
+  };
+}
+
 export function heldOutMargin(
   seed: ReadonlyMap<string, number>,
   laterSurfaces: readonly Measured[],

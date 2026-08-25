@@ -17,6 +17,7 @@ import {
   lpt,
   median,
   ratePerModelledBoot,
+  recoverModelled,
   reconcile,
   seamMagnitude,
   seedRates,
@@ -418,6 +419,36 @@ describe("bindingLeg and legSeconds", () => {
     // array would misalign every leg after the gap.
     const surfaces = [measured({ surfaceId: "a", children: [child("s", 2000)] })];
     expect(legSeconds(new Map([["a", 2]]), surfaces, 3)).toEqual([0, 0, 2]);
+  });
+});
+
+describe("recoverModelled", () => {
+  it("recovers the mutant count by removing the ledger and suite terms", () => {
+    // boots = mutants + accepted*(suites-1) + suites, so with 2 accepted over 3
+    // suites: mutants = boots - 2*2 - 3.
+    const m = recoverModelled(20, 2, 3, 1015);
+    expect(m.mutants).toBe(20 - 4 - 3);
+    expect(m.boots).toBe(20);
+    expect(m.accepted).toBe(2);
+    expect(m.suites).toBe(3);
+  });
+
+  it("carries the rate through, or the reconciliation silently falls back to one", () => {
+    // The producer half. `reconcile` weights by boots x millisPerBoot and defaults a
+    // missing rate to 1 — correct for an OLD dump, and wrong here, where it would
+    // compare a priced run against a boots partition and report most of the corpus
+    // as moved.
+    expect(recoverModelled(20, 2, 3, 1015).millisPerBoot).toBe(1015);
+  });
+
+  it("is fed BOOTS, and a priced weight would corrupt the count it derives", () => {
+    // The defect this exists to catch, stated as arithmetic: hand it a weight already
+    // multiplied by the rate and the recovered mutant total is wrong by that factor.
+    // Nothing downstream can notice, because the number still looks like a count.
+    const boots = 20;
+    const rate = 1015;
+    expect(recoverModelled(boots, 2, 3, rate).mutants).toBe(13);
+    expect(recoverModelled(boots * rate, 2, 3, rate).mutants).not.toBe(13);
   });
 });
 

@@ -506,7 +506,21 @@ assertion actually catches is the validator's integrality arm being weakened lat
 is why it belongs in the suite even though it cannot fail today.
 
 **The consumer that reads a weight as a boot count is pinned here, because it was already
-wrong.** `modelledFrom` in the report called `weightOf` and treated the result as raw
+wrong — and the FIRST attempt to pin it was itself false certification, which is worth
+recording rather than quietly fixing.** That draft declared a plant mutating
+`scripts/mutation-shard-weight-report.ts` and named `shardPartition.test.ts` as its
+decider. Nothing drives the report, and that suite does not import it, so the mutation ran
+against code the decider never loads. Probed at implementation: with the mutation applied
+by hand, `shardPartition.test.ts` reports 11/11 passing. A plant whose decider cannot see
+it is worse than no plant, because it reads as coverage — and this one was never even
+added to the harness, so the plan asserted a Form A entry that did not exist.
+
+The repair is not a better plant but a testable surface: the per-surface recovery is
+extracted to `recoverModelled` in `lib/mutationWeight/weights.ts`, where the instrument
+suite drives it directly and the two plants above mutate the code that suite actually
+loads.
+
+**The consumer itself:** `modelledFrom` in the report called `weightOf` and treated the result as raw
 boots, under a comment noting the two agree "until the rate multiplies it" — which is this
 task. Repaired at `75e63a2a2` to call `bootsOf`; the assertion that keeps it repaired runs
 the report's own reconciliation over a registry whose rate is not one, then requires
@@ -537,7 +551,8 @@ they act on text this task rewrites.
 
 | form | defect | file | anchor | becomes | suite |
 | --- | --- | --- | --- | --- | --- |
-| A | consumer reads a priced weight as boots | `scripts/mutation-shard-weight-report.ts` | `const boots = bootsOf(s);` | `const boots = weightOf(s);` | `shardPartition.test.ts` |
+| A | `recoverModelled` derives the mutant count from a PRICED weight | `lib/mutationWeight/weights.ts` | `boots - acceptedCount * (suites - 1) - suites` | the same with `boots * millisPerBoot` | `instrument.test.ts` |
+| A | `recoverModelled` drops the rate, so reconciliation falls back to 1 | `lib/mutationWeight/weights.ts` | the trailing `millisPerBoot,` of its return | `millisPerBoot: undefined,` | `instrument.test.ts` |
 | B | rate dropped from the product | `tests/mutation/source/shardPartition.ts` | written at implementation | written at implementation | `shardPartition.test.ts` |
 | B | rate added rather than multiplied | `tests/mutation/source/shardPartition.ts` | written at implementation | written at implementation | `shardPartition.test.ts` |
 | B | stale weight-table claim restored verbatim | `tests/mutation/source/shardPartition.ts` | written at implementation | written at implementation | `shardPartition.test.ts` |

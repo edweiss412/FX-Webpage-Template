@@ -63,6 +63,18 @@ const DEFECTS = [
     "(v.millisPerBoot ?? 0)",
   ],
   [
+    "recoverModelled derives the mutant count from a PRICED weight",
+    "weights.ts",
+    "boots - acceptedCount * (suites - 1) - suites",
+    "boots * millisPerBoot - acceptedCount * (suites - 1) - suites",
+  ],
+  [
+    "recoverModelled drops the rate, so every reconciliation falls back to 1",
+    "weights.ts",
+    "    millisPerBoot,\n  };\n}",
+    "    millisPerBoot: undefined,\n  };\n}",
+  ],
+  [
     "reconcile applies the rate to the mutant count rather than to boots",
     "weights.ts",
     "v.boots * (v.millisPerBoot ?? 1)",
