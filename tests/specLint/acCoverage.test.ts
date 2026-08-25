@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -21,6 +23,30 @@ const CODES = [
   "AC_COMMAND_PIN_UNOBSERVED",
   "AC_COMMAND_PARSE_UNOBSERVED",
 ] as const;
+
+/**
+ * The catalog AS THE SPEC STATES IT, read from the spec document.
+ *
+ * AC-13's assertion compared `CODES` to itself — `expect([...CODES].sort())
+ * .toEqual([...CODES].sort())` — and read no spec at all, so adding, removing or
+ * renaming a catalog entry could not fail it (whole-diff review round 2 finding
+ * 2). Both sides are now derived from OUTSIDE this file: one from the spec's
+ * section 8.2 table, one from the arm's own source. `CODES` above is asserted
+ * against them rather than standing in for either.
+ */
+const SPEC = "docs/superpowers/specs/ci/2026-08-25-planlint-ac-command-observability-design.md";
+const specCatalogCodes = (): string[] => {
+  const rows = [
+    ...readFileSync(SPEC, "utf8").matchAll(/^\| `(AC_[A-Z_]+)` \| (fail|advisory) \|/gm),
+  ];
+  return rows.map((m) => m[1]!).sort();
+};
+
+/** The codes the ARM can actually emit, read from its source. */
+const sourceEmittedCodes = (): string[] => {
+  const src = readFileSync("lib/specLint/acCoverage.ts", "utf8");
+  return [...new Set([...src.matchAll(/"(AC_[A-Z_]+)"/g)].map((m) => m[1]!))].sort();
+};
 
 const codesOf = (md: string, kind: "spec" | "plan" = "plan"): string[] =>
   checkAcCoverage(viewOf(md), kind).map((f) => f.code);
@@ -280,10 +306,15 @@ describe("acCoverage — the declaration", () => {
   });
 
   it("AC-13: every code the arm can emit is in the spec's catalog and vice versa", () => {
-    // The arm's own emitted set is asserted per-case above; this pins the LIST so
-    // a code added in code without a catalog row, or a catalog row with no code,
-    // is a failure rather than a silent divergence.
-    expect([...CODES].sort()).toEqual([...CODES].sort());
+    // Both sides read from OUTSIDE this file, so the assertion can fail: the spec's
+    // section 8.2 table, and the arm's own source. A catalog entry added, removed or
+    // renamed on either side now reds this test.
+    const fromSpec = specCatalogCodes();
+    const fromSource = sourceEmittedCodes();
+    expect(fromSpec.length).toBeGreaterThanOrEqual(9); // the table was found and parsed at all
+    expect(fromSource).toEqual(fromSpec);
+    // and the convenience list used by the rest of this file agrees with both
+    expect([...CODES].sort()).toEqual(fromSpec);
     expect(new Set(CODES).size).toBe(CODES.length);
   });
 });
@@ -301,6 +332,69 @@ describe("acCoverage — the skips and boundaries the arm depends on", () => {
     expect(pinUnobserved("pnpm vitest run tests/a.test.ts", "tests/a.test.ts")).toBe(false);
     // a superstring is NOT an observation, at index 0 or anywhere else
     expect(pinUnobserved("tests/a.test.tsx", "tests/a.test.ts")).toBe(true);
+  });
+
+  it.each([
+    ["an inline link", "[driver](tests/paneCompaction/driver.test.ts:72)"],
+    ["a reference link", "[driver][ref]"],
+    ["an image", "![driver](tests/paneCompaction/driver.test.ts:72)"],
+    ["a raw HTML anchor", '<a href="tests/paneCompaction/driver.test.ts:72">driver</a>'],
+    ["bare text", "tests/paneCompaction/driver.test.ts:72"],
+  ])("sees a pin cited as %s, not just as bare text", (_label, cell) => {
+    // The cell view collected `text` and `inlineCode` only, so a link reduced to
+    // its LABEL and the destination was dropped: a row citing its criterion's
+    // pin as an ordinary Markdown link read as citing nothing, and the advisory
+    // could never fire on it (whole-diff review round 2 finding 1). Writing a
+    // pin as a link is ordinary authoring, so that was a silent miss. Every form
+    // here is a regression case; `bare text` is the control that always worked,
+    // and it is present so a repair that broke it would fail rather than pass.
+    const md = [
+      "<!-- ac-coverage: command-col=3 -->",
+      "",
+      "| AC | Pin | Cmd |",
+      "| --- | --- | --- |",
+      `| AC-14 | ${cell} | \`pnpm vitest run tests/paneCompaction/adapter.test.ts\` |`,
+      "",
+      "[ref]: tests/paneCompaction/driver.test.ts:72",
+    ].join("\n");
+    const view = viewOf(md);
+    const plan = acCommandPlan(view, "plan");
+    const parse = {
+      outcomes: new Map(
+        plan.map((e) => [acKey(e.line, e.spanIndex), { kind: "exit" as const, code: 0 }]),
+      ),
+    };
+    expect(checkAcCoverage(view, "plan", parse).map((f) => f.code)).toContain(
+      "AC_COMMAND_PIN_UNOBSERVED",
+    );
+  });
+
+  it("a pin the command DOES name stays silent through every citation form", () => {
+    // The other half: the repair must not make every linked pin draw. Same forms,
+    // command now naming the cited file.
+    for (const cell of [
+      "[driver](tests/paneCompaction/driver.test.ts:72)",
+      "![driver](tests/paneCompaction/driver.test.ts:72)",
+      '<a href="tests/paneCompaction/driver.test.ts:72">driver</a>',
+    ]) {
+      const md = [
+        "<!-- ac-coverage: command-col=3 -->",
+        "",
+        "| AC | Pin | Cmd |",
+        "| --- | --- | --- |",
+        `| AC-14 | ${cell} | \`pnpm vitest run tests/paneCompaction/driver.test.ts\` |`,
+      ].join("\n");
+      const view = viewOf(md);
+      const plan = acCommandPlan(view, "plan");
+      const parse = {
+        outcomes: new Map(
+          plan.map((e) => [acKey(e.line, e.spanIndex), { kind: "exit" as const, code: 0 }]),
+        ),
+      };
+      expect(checkAcCoverage(view, "plan", parse).map((f) => f.code)).not.toContain(
+        "AC_COMMAND_PIN_UNOBSERVED",
+      );
+    }
   });
 
   it("a malformed pin candidate is skipped before anything reads its path", () => {

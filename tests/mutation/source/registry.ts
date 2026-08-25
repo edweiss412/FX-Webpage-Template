@@ -1249,15 +1249,24 @@ export const GUARD_SURFACES: GuardSurface[] = [
       to: 'return s !== "" && s.startsWith("#");',
     },
     /**
-     * THREE rows, all `equivalent`, each unreachable for a reason OUTSIDE this
-     * module rather than a reason about its tests. Written AFTER the first scored
-     * run named them, so each is a prediction with a falsifier: if a later run
-     * KILLS one, the argument is wrong and the row comes out — reconciliation
-     * reports a killed accepted site as STALE without anyone remembering to check.
+     * FOUR rows, all `equivalent`, each unreachable for a reason OUTSIDE this
+     * module rather than a reason about its tests. Written AFTER a scored run
+     * named them, so each is a prediction with a falsifier: if a later run KILLS
+     * one, the argument is wrong and the row comes out — reconciliation reports a
+     * killed accepted site as STALE without anyone remembering to check.
      *
-     * The run's other two survivors were NOT accepted, they were KILLED: one case
-     * asserting every finding's column and the conditional presence of `detail`,
-     * hand-probed against both mutants before this ledger was written.
+     * This count is the human-facing half of an executable fact and drifted from
+     * it once: it read THREE after the fourth row landed, so the audit a reader
+     * performs disagreed with the audit the gate performs (whole-diff review
+     * round 2 finding 4). `expectedLedgerKinds.ts` carries the same number and is
+     * asserted against this array, so the executable pair cannot drift; only this
+     * sentence can, which is why it names the count rather than implying it.
+     *
+     * NOT every survivor is accepted. Across the two scored runs, six survivors
+     * were REPAIRED rather than ledgered — four killed by tests each planted
+     * against its own mutant, and one deleted outright as a dead line whose
+     * comparator could not reorder anything. A row here means the mutant cannot
+     * be killed by any assertion, never that killing it was inconvenient.
      */
     accepted: [
       {

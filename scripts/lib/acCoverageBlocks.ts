@@ -15,8 +15,29 @@ import type { Root, RootContent } from "mdast";
 
 import type { AcBlocks, AcCell, AcHtmlBlock, AcRow, AcTableBlock } from "../../lib/specLint/types";
 
-/** A cell's rendered text and its inlineCode values. remark decides both. */
-function cellView(node: RootContent): AcCell {
+/**
+ * A cell's strings and its inlineCode values. remark decides both.
+ *
+ * `text` is EVERY string mdast carries in the cell, not just `text` nodes. An
+ * earlier version collected `text` and `inlineCode` only, and therefore DROPPED
+ * a link's destination: `[driver](tests/x.test.ts:72)` reduced to `driver`, so a
+ * row citing its criterion's pin as an ordinary Markdown link read as citing
+ * nothing and `AC_COMMAND_PIN_UNOBSERVED` could never fire on it (whole-diff
+ * review round 2 finding 1). Writing a pin as a link is ordinary authoring, well
+ * inside the threat fence, so that was a silent miss rather than a documented
+ * limit.
+ *
+ * The repair is NOT a recognizer: every string added here is one remark already
+ * parsed, and the arm keeps scanning `text` exactly as before. Reference forms
+ * resolve through the document's own `definition` nodes, which is why the caller
+ * threads them in. Raw inline HTML contributes its VERBATIM value -- remark does
+ * not parse an `<a href>`, and rather than teach this module to, the href is left
+ * inside the string the pin scan already reads.
+ *
+ * `codes` is unchanged and still holds inlineCode only: a URL is not a command,
+ * and admitting one there would let a link masquerade as a runnable cell.
+ */
+function cellView(node: RootContent, defs: ReadonlyMap<string, string>): AcCell {
   let text = "";
   const codes: string[] = [];
   const walk = (n: RootContent): void => {
@@ -24,11 +45,29 @@ function cellView(node: RootContent): AcCell {
     else if (n.type === "inlineCode") {
       text += n.value;
       codes.push(n.value);
+    } else if (n.type === "link" || n.type === "image") {
+      text += ` ${n.url} `;
+    } else if (n.type === "linkReference" || n.type === "imageReference") {
+      text += ` ${defs.get(n.identifier.toLowerCase()) ?? n.identifier} `;
+    } else if (n.type === "html") {
+      text += ` ${n.value} `;
     }
+    if (n.type === "image" && n.alt) text += n.alt;
     for (const c of ("children" in n ? n.children : []) as RootContent[]) walk(c);
   };
   walk(node);
   return { text, codes };
+}
+
+/** Every `definition` in the document, so reference links resolve to a URL. */
+function definitionsOf(root: Root): ReadonlyMap<string, string> {
+  const out = new Map<string, string>();
+  const walk = (n: Root | RootContent): void => {
+    if (n.type === "definition") out.set(n.identifier.toLowerCase(), n.url);
+    for (const c of ("children" in n ? n.children : []) as RootContent[]) walk(c);
+  };
+  walk(root);
+  return out;
 }
 
 /**
@@ -41,6 +80,7 @@ function cellView(node: RootContent): AcCell {
  */
 export function blocksFrom(root: Root): AcBlocks {
   const out: (AcHtmlBlock | AcTableBlock)[] = [];
+  const defs = definitionsOf(root);
   const walk = (n: Root | RootContent): void => {
     if (n.type === "html") {
       out.push({ kind: "html", line: n.position?.start.line ?? 0, value: n.value });
@@ -52,11 +92,11 @@ export function blocksFrom(root: Root): AcBlocks {
         out.push({
           kind: "table",
           line: n.position?.start.line ?? 0,
-          header: header.children.map(cellView),
+          header: header.children.map((c) => cellView(c, defs)),
           rows: rows.map(
             (r): AcRow => ({
               line: r.position?.start.line ?? 0,
-              cells: r.children.map(cellView),
+              cells: r.children.map((c) => cellView(c, defs)),
             }),
           ),
         });
