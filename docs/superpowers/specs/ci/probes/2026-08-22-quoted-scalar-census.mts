@@ -12,7 +12,7 @@
 // YAML-quoting defect.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { parseDocument, visit, isPair, isScalar } from "yaml";
+import { isPair, isScalar, isSeq, parseDocument, visit } from "yaml";
 
 const EXECUTABLE_KEYS = new Set(["run", "shell", "entrypoint", "args"]);
 const QUOTED = new Set(["QUOTE_SINGLE", "QUOTE_DOUBLE"]);
@@ -47,12 +47,30 @@ for (const file of files) {
         type?: string;
         range?: [number, number, number];
       };
+      // A SEQUENCE under an executable key is the normal shape for `args:` and
+      // `entrypoint:`, and the scanner descends into it — `CONTAINER_ARGV_KEYS`
+      // collects each item. Returning early on a non-scalar therefore certified
+      // a NARROWER input class than the scanner handles, so this census could
+      // report zero on a file the scanner reads. Diff review round 3 found it.
+      //
+      // Measured when it was fixed: the live corpus holds ZERO sequences under
+      // an executable key, so this widening does not move AC-6's answer. It
+      // makes the same answer true of a wider class instead of true by luck.
+      const record = (node: { type?: string; range?: [number, number, number] }) => {
+        const type = node.type ?? "UNKNOWN";
+        const row = `${key}:${type}`;
+        tally.set(row, (tally.get(row) ?? 0) + 1);
+        if (QUOTED.has(type) && node.range)
+          quoted.push(`${file}:${source.slice(0, node.range[0]).split("\n").length} ${row}`);
+      };
+      if (isSeq(value as never)) {
+        for (const item of (value as unknown as { items?: unknown[] }).items ?? []) {
+          if (isScalar(item as never)) record(item as never);
+        }
+        return;
+      }
       if (!isScalar(value as never)) return;
-      const type = value.type ?? "UNKNOWN";
-      const row = `${key}:${type}`;
-      tally.set(row, (tally.get(row) ?? 0) + 1);
-      if (QUOTED.has(type) && value.range)
-        quoted.push(`${file}:${source.slice(0, value.range[0]).split("\n").length} ${row}`);
+      record(value);
     },
   });
 }
