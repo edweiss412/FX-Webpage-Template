@@ -25,6 +25,7 @@ import {
 } from "@/lib/supabase/retryingFetch";
 
 const RPC = "http://127.0.0.1:54321/rest/v1/rpc/is_admin";
+const AUTH = "http://127.0.0.1:54321/auth/v1";
 const VOLATILE_RPC = "http://127.0.0.1:54321/rest/v1/rpc/rotate_show_share_token";
 const INSERT = "http://127.0.0.1:54321/rest/v1/shows";
 
@@ -574,14 +575,34 @@ describe("retrying fetch — exactly one retrying layer, never two", () => {
     expect(inner).toHaveBeenCalledTimes(1);
   });
 
-  test("a 502 on an idempotent method is still absorbed — PostgREST does not retry it", async () => {
-    // no-premise: as above. This is the arc's OWN fault, so declining 503 must not disarm it.
+  test("a 502 on the arc's own path — POST to an rpc — is still absorbed", async () => {
+    // no-premise: as above.
+    //
+    // Rewritten for per-request ownership. Every `.rpc()` in this repo is a POST (no caller passes
+    // `{ get: true }`, and `rpcCallsAreNotGet` fails if that changes), and PostgREST never retries
+    // POST — so this path has no second layer and is entirely ours. It is the fault the arc exists
+    // to absorb.
     const inner = vi.fn(async () => (inner.mock.calls.length < 2 ? bad(502) : ok()));
 
-    const res = (await makeRetryingFetch(inner, instant)(RPC, { method: "GET" })) as Response;
+    const res = (await makeRetryingFetch(inner, instant)(RPC, { method: "POST" })) as Response;
 
     expect(res.status).toBe(200);
     expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  test("a GET to the same rpc is PostgREST's, so we pass it through untouched", async () => {
+    // no-premise: as above.
+    //
+    // The other half, and the documented limit made observable: under per-request ownership a
+    // GET-served rpc belongs to PostgREST, which does NOT retry 502. One call, the 502 returned
+    // exactly as the transport gave it. Round 3 measured why adjudicating this per-outcome instead
+    // composes both loops back to twelve calls.
+    const inner = vi.fn(async () => bad(502));
+
+    const res = (await makeRetryingFetch(inner, instant)(RPC, { method: "GET" })) as Response;
+
+    expect(res.status).toBe(502);
+    expect(inner).toHaveBeenCalledTimes(1);
   });
 
   test("a 503 on a NON-idempotent method is still ours — PostgREST only retries GET/HEAD/OPTIONS", async () => {
@@ -607,18 +628,14 @@ describe("retrying fetch — exactly one retrying layer, never two", () => {
   });
 });
 
-describe("our own timeout stays ours, even on the methods PostgREST retries", () => {
-  test("a per-attempt timeout on a GET is retried here, not handed to PostgREST", async () => {
+describe("the timeout is armed only for requests we own", () => {
+  test("a timeout on an OWNED request is retried here", async () => {
     // no-premise: the transport is an injected stub and sleep/random/timeoutMs are injected.
     //
-    // FOUND BY PLANTING, not by review. Every other timeout case uses POST, so the method check in
-    // `postgrestOwnsRetry` short-circuits before the abort test — and hardcoding `abortShaped` to
-    // false left all 39 cases green. The detection was doing real work with nothing pinning it.
-    //
-    // The path is not hypothetical: PostgREST serves `GET /rest/v1/rpc/<fn>` for NON-VOLATILE
-    // functions, which is precisely what every member of RETRYABLE_RPCS is. So a broken abort test
-    // would make a timed-out admin RPC fail after ONE attempt instead of three — PostgREST refuses
-    // to retry an abort, and we would have just declined it as "theirs".
+    // Replaces a case built around the per-pair abort test, which round 3 removed along with the
+    // rest of that adjudication. The property still matters for what we DO own: our per-attempt
+    // timeout must produce a retry rather than a caller-visible failure. POST to an rpc is the
+    // arc's own path and has no second layer.
     let attempts = 0;
     const inner = vi.fn(
       (_input: RequestInfo | URL, init?: RequestInit) =>
@@ -637,23 +654,77 @@ describe("our own timeout stays ours, even on the methods PostgREST retries", ()
     const res = (await makeRetryingFetch(inner as unknown as typeof fetch, {
       ...instant,
       timeoutMs: 5,
-    })(RPC, { method: "GET" })) as Response;
+    })(RPC, { method: "POST" })) as Response;
 
     expect(res.status).toBe(200);
-    // Two calls: the timed-out attempt and its retry. One call means we deferred to a layer that
-    // will not retry an abort, and the request simply died.
     expect(inner).toHaveBeenCalledTimes(2);
   });
 
-  test("a NON-abort transport error on a GET is still PostgREST's, so the two stay distinguishable", async () => {
-    // no-premise: as above. The companion direction — without this, "retry every GET error" would
-    // also pass the case above while reintroducing the multiplication.
-    const boom = new TypeError("fetch failed");
-    const inner = vi.fn(async () => {
-      throw boom;
-    });
+  test("an INELIGIBLE slow write is never aborted, because no timer is armed for it", async () => {
+    // no-premise: as above.
+    //
+    // Round 3's most damaging finding, and it predated the ownership work: the timer was armed for
+    // EVERY request, so a slow write that had already COMMITTED server-side was aborted client-side
+    // and the caller was told it failed. Measured `bare 201, wrapped AbortError, commits=1` on both
+    // sides — the write happened and the caller could not know.
+    //
+    // A request this wrapper does not retry must come back exactly as it would with no wrapper.
+    let committed = 0;
+    const inner = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          committed += 1;
+          // Slower than the injected timeout by an order of magnitude.
+          setTimeout(() => resolve(new Response("", { status: 201 })), 60);
+        }),
+    );
 
-    await expect(makeRetryingFetch(inner, instant)(RPC, { method: "GET" })).rejects.toBe(boom);
+    const res = (await makeRetryingFetch(inner as unknown as typeof fetch, {
+      ...instant,
+      timeoutMs: 5,
+    })("http://127.0.0.1:54321/rest/v1/shows", { method: "POST" })) as Response;
+
+    expect(res.status).toBe(201);
+    expect(committed).toBe(1);
+    expect(inner).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("owning a request is not the same as retrying every failure of it", () => {
+  test("an Auth GET is OURS and its 503 is retried", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected.
+    //
+    // Round 3 measured this dying at `calls=1 emits=0`: ownership was decided without looking at
+    // the URL, so an Auth failure was handed to PostgREST's loop — which is not in Auth's call
+    // chain at all. Nothing retried it and nothing recorded it.
+    const inner = vi.fn(async () => (inner.mock.calls.length < 3 ? bad(503) : ok()));
+
+    const res = (await makeRetryingFetch(inner, instant)(`${AUTH}/user`, {
+      method: "GET",
+    })) as Response;
+
+    expect(res.status).toBe(200);
+    expect(inner.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  test("a 520 is not absorbed anywhere, and that is policy rather than an orphan", async () => {
+    // no-premise: as above.
+    //
+    // Worth pinning because it LOOKS like the orphan above and is not. We own this request — we do
+    // not hand it to a layer that cannot see it — but 520 is outside RETRYABLE_STATUSES, which the
+    // spec fixes at 502/503/504. Nothing absorbed a 520 before this arc either, so the behaviour is
+    // unchanged rather than lost.
+    //
+    // Deliberately NOT widening the set to cover it: 520 is a Cloudflare code, it is not the
+    // recorded fault this arc exists for, and widening a recognizer under review pressure is the
+    // move that produced round 3's findings in the first place.
+    const inner = vi.fn(async () => bad(520));
+
+    const res = (await makeRetryingFetch(inner, instant)(`${AUTH}/user`, {
+      method: "GET",
+    })) as Response;
+
+    expect(res.status).toBe(520);
     expect(inner).toHaveBeenCalledTimes(1);
   });
 });

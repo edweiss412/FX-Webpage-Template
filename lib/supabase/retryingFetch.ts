@@ -24,7 +24,7 @@
  */
 import { log } from "@/lib/log";
 
-import { isRetryEligible, postgrestOwnsRetry } from "./retryEligibility";
+import { isRetryEligible, postgrestWillRetry } from "./retryEligibility";
 
 /** Retries AFTER the first attempt. Two, not the sibling's three: this path is a page render. */
 export const MAX_SUPABASE_RETRIES = 2;
@@ -188,7 +188,22 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
     init?: RequestInit,
   ): Promise<Response> {
     const { url, method } = describeRequest(input, init);
-    const eligible = isRetryEligible(url, method);
+
+    // ONE ownership decision, before the first attempt, for the whole request.
+    //
+    // Round 3 measured why this cannot be per-outcome. A request is a SEQUENCE: a 502 this wrapper
+    // retried followed by a 503 it declined composed both retry loops back to twelve calls, and the
+    // caller's final error stopped matching what an unwrapped call produces. Per-pair exclusivity
+    // bounds a pair; only per-request ownership bounds a request.
+    //
+    // Not owning a request means NOT TOUCHING IT — no retry and, critically, NO TIMER. Arming the
+    // per-attempt timeout on every request aborted slow INELIGIBLE writes that had already
+    // committed server-side: measured `bare 201, wrapped AbortError, commits=1` on both sides. A
+    // request this wrapper does not retry must come back exactly as it would with no wrapper at all.
+    const owned = isRetryEligible(url, method) && !postgrestWillRetry(url, method);
+    if (!owned) return inner(input, init);
+
+    const eligible = true;
     // A caller can hand us its signal two ways: `fetch(url, { signal })`, or a `Request` that
     // already carries one. Reading only `init.signal` meant the second form was invisible, so an
     // aborted Request still went out to the transport and came back 200 where a bare fetch rejects.
@@ -269,20 +284,6 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
       // signal is part of the composed signal the body streams under, so the cancellation lands
       // on the body read where a bare fetch also lands it.
       if (isAborted(callerSignal)) {
-        if (error !== undefined) throw error;
-        return response!;
-      }
-
-      // PostgREST retries some of these itself, and two retrying layers MULTIPLY rather than add:
-      // round-2 review measured a 503 on a GET turning into TWELVE transport calls against a
-      // ratified budget of three, with only eight of eleven transitions emitting a record because
-      // PostgREST's retries never reach `onRetry`. Declining what it owns leaves exactly one
-      // retrying layer per (method, failure) pair. See `postgrestOwnsRetry` for the full argument.
-      const abortShaped =
-        error !== undefined &&
-        ((error as { name?: string }).name === "AbortError" ||
-          (error as { code?: string }).code === "ABORT_ERR");
-      if (postgrestOwnsRetry(method, response?.status, error !== undefined, abortShaped)) {
         if (error !== undefined) throw error;
         return response!;
       }

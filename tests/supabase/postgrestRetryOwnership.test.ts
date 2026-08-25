@@ -1,127 +1,169 @@
 /**
  * tests/supabase/postgrestRetryOwnership.test.ts
  *
- * The narrowing's safety property, over the WHOLE input space rather than a handful of cases.
+ * Which layer owns a REQUEST, over the whole input space — including the dimension that was missing.
  *
- * `postgrestOwnsRetry` exists because two retrying layers multiply: round-2 review measured a 503 on
- * a GET becoming twelve transport calls against a budget of three. Declining what PostgREST already
- * retries fixes that — but a decline is only safe if PostgREST actually picks it up. A failure this
- * wrapper declines and PostgREST also declines is a request that simply dies, and that is the
- * failure mode a narrowing fix introduces if it is even slightly too wide.
+ * The first version of this file crossed methods with outcomes and reported 0 double-retries and 0
+ * orphaned declines. Round 3 found a real orphan anyway, because ownership was decided per (method,
+ * outcome) while the wrapper is installed as the WHOLE CLIENT's fetch. PostgREST's retry loop lives
+ * in PostgrestBuilder and only runs for `/rest/v1/` requests, so declining an Auth GET handed it to
+ * a layer that is not in its call chain: measured `calls=1 emits=0` on `auth.getUser()` for 503, 520
+ * and a network rejection. A table that does not model URL cannot see that, and mine did not.
  *
- * So the table asserts BOTH directions across every (method, outcome) pair:
- *   - no pair where both layers retry      → the multiplication cannot come back
- *   - no pair this wrapper declines and PostgREST does not → no orphaned request
+ * It also could not see round 3's other finding: a request is a SEQUENCE of outcomes, so per-pair
+ * exclusivity bounds a pair and not a request. A 502 we retried followed by a 503 we declined
+ * composed both loops back to twelve calls.
  *
- * PostgREST's behaviour is restated here INDEPENDENTLY of the mirror in retryEligibility.ts. If the
- * table imported the same constant it checks, it would be a tautology; written out separately, a
- * mistake in the mirror shows up as a disagreement. `postgrestRetryContract.test.ts` is what keeps
- * this restatement honest against the installed package.
+ * Ownership is therefore decided ONCE PER REQUEST, from (url, method) alone, and this file asserts
+ * that over the cross product of both dimensions.
  */
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, test } from "vitest";
 
-import { postgrestOwnsRetry } from "@/lib/supabase/retryEligibility";
-import { RETRYABLE_STATUSES } from "@/lib/supabase/retryingFetch";
+import { isRetryEligible, postgrestWillRetry } from "@/lib/supabase/retryEligibility";
 import { premise } from "../_shared/premise";
 
+const H = "http://127.0.0.1:54321";
+const URLS = [
+  { label: "rpc (retryable)", url: `${H}/rest/v1/rpc/is_admin`, postgrest: true },
+  { label: "rpc (not in set)", url: `${H}/rest/v1/rpc/some_writer`, postgrest: true },
+  { label: "table read", url: `${H}/rest/v1/shows?select=*`, postgrest: true },
+  { label: "auth getUser", url: `${H}/auth/v1/user`, postgrest: false },
+  { label: "auth token", url: `${H}/auth/v1/token?grant_type=refresh_token`, postgrest: false },
+  { label: "storage", url: `${H}/storage/v1/object/x`, postgrest: false },
+] as const;
 const METHODS = ["GET", "HEAD", "OPTIONS", "POST", "PATCH", "DELETE"] as const;
 
-type Outcome = { label: string; status?: number; err: boolean; abort: boolean };
-const OUTCOMES: readonly Outcome[] = [
-  { label: "200", status: 200, err: false, abort: false },
-  { label: "502", status: 502, err: false, abort: false },
-  { label: "503", status: 503, err: false, abort: false },
-  { label: "504", status: 504, err: false, abort: false },
-  { label: "520", status: 520, err: false, abort: false },
-  { label: "429", status: 429, err: false, abort: false },
-  { label: "network error", err: true, abort: false },
-  { label: "our timeout abort", err: true, abort: true },
-];
+/** The wrapper's rule, mirrored from its call site: own it only if eligible AND PostgREST will not. */
+const weOwn = (url: string, method: string): boolean =>
+  isRetryEligible(url, method) && !postgrestWillRetry(url, method);
 
-/** PostgREST's own rule, restated rather than imported. See the file header for why. */
-function postgrestWouldRetry(m: string, o: Outcome): boolean {
-  if (!["GET", "HEAD", "OPTIONS"].includes(m)) return false;
-  if (o.abort) return false; // it rethrows aborts rather than retrying them
-  if (o.err) return true;
-  return o.status !== undefined && [520, 503].includes(o.status);
-}
-
-/** What this wrapper does with the outcome once the decline check has run. */
-function weWouldRetry(m: string, o: Outcome): boolean {
-  if (postgrestOwnsRetry(m, o.status, o.err, o.abort)) return false;
-  return o.err || (o.status !== undefined && RETRYABLE_STATUSES.has(o.status));
-}
-
-describe("exactly one layer owns each retry", () => {
-  test("the table is non-degenerate", () => {
-    // no-premise: the table is built from literals in this file.
-    premise("(method, outcome) pairs covered", METHODS.length * OUTCOMES.length, 1);
-    // And the two rules genuinely disagree somewhere, or the table proves nothing: if they agreed
-    // everywhere, "no overlap" would hold for a wrapper that retried nothing at all.
-    const disagreements = METHODS.flatMap((m) =>
-      OUTCOMES.filter((o) => postgrestWouldRetry(m, o) !== weWouldRetry(m, o)),
-    );
-    expect(disagreements.length).toBeGreaterThan(0);
+describe("ownership is decided per REQUEST, across url AND method", () => {
+  test("the table is non-degenerate on both dimensions", () => {
+    // no-premise: literal inputs.
+    premise("url x method pairs", URLS.length * METHODS.length, 1);
+    // Both dimensions must actually change the answer, or the table proves nothing about either.
+    const byUrl = new Set(URLS.map((u) => weOwn(u.url, "GET")));
+    // The rpc path, not a table path: on a TABLE url the answer is false for every method (writes
+    // are ineligible, reads are PostgREST's), so a table would make this pass vacuously. On an rpc
+    // url POST is ours and GET is PostgREST's, which is exactly the discrimination being claimed.
+    const byMethod = new Set(METHODS.map((m) => weOwn(`${H}/rest/v1/rpc/is_admin`, m)));
+    expect(byUrl.size, "url must matter").toBeGreaterThan(1);
+    expect(byMethod.size, "method must matter").toBeGreaterThan(1);
   });
 
-  test("NO pair is retried by both layers — the multiplication cannot return", () => {
-    // no-premise: as above.
-    const both = METHODS.flatMap((m) =>
-      OUTCOMES.filter((o) => postgrestWouldRetry(m, o) && weWouldRetry(m, o)).map(
-        (o) => `${m} ${o.label}`,
+  test("PostgREST's loop is claimed ONLY for /rest/v1/ requests", () => {
+    // no-premise: literal inputs. This is the assertion the old table could not express, and the
+    // one whose absence orphaned every Auth GET failure.
+    for (const u of URLS) {
+      for (const m of METHODS) {
+        const idempotent = ["GET", "HEAD", "OPTIONS"].includes(m);
+        expect(postgrestWillRetry(u.url, m), `${u.label} ${m}`).toBe(u.postgrest && idempotent);
+      }
+    }
+  });
+
+  test("NO request is left to a layer that is not in its call chain", () => {
+    // no-premise: literal inputs.
+    //
+    // The orphan direction, now stated over urls: a request we decline must be one PostgREST
+    // actually handles. Auth and storage are never PostgREST's, so we must never decline them.
+    const orphaned = URLS.flatMap((u) =>
+      METHODS.filter(
+        (m) => isRetryEligible(u.url, m) && !weOwn(u.url, m) && !postgrestWillRetry(u.url, m),
+      ).map((m) => `${u.label} ${m}`),
+    );
+    expect(orphaned).toEqual([]);
+  });
+
+  test("NO request is claimed by both layers", () => {
+    // no-premise: literal inputs. Per REQUEST, so a sequence of outcomes cannot compose them.
+    const both = URLS.flatMap((u) =>
+      METHODS.filter((m) => weOwn(u.url, m) && postgrestWillRetry(u.url, m)).map(
+        (m) => `${u.label} ${m}`,
       ),
     );
     expect(both).toEqual([]);
   });
 
-  test("NO decline is orphaned — everything we decline, PostgREST retries", () => {
-    // no-premise: as above.
-    //
-    // The direction a narrowing fix gets wrong. Declining too widely does not multiply anything; it
-    // silently drops requests, which is worse and much harder to notice.
-    const orphaned = METHODS.flatMap((m) =>
-      OUTCOMES.filter(
-        (o) => postgrestOwnsRetry(m, o.status, o.err, o.abort) && !postgrestWouldRetry(m, o),
-      ).map((o) => `${m} ${o.label}`),
-    );
-    expect(orphaned).toEqual([]);
-  });
-
-  test("an ABSENT method is treated as GET, because that is what fetch does", () => {
+  test("the arc's own path stays ours: POST to a retryable rpc", () => {
     // no-premise: literal inputs.
     //
-    // `fetch(url)` with no init carries no method and IS a GET, so `method ?? "GET"` is the whole
-    // reason such a request gets declined to PostgREST at all. Found by planting on this module,
-    // which no mutation score covers: changing the default to "POST" passed all 57 cases, and under
-    // it a plain `fetch(url)` returning 503 would be retried by BOTH layers — the multiplication
-    // back, for exactly the request shape the wrapper is installed for.
-    expect(postgrestOwnsRetry(undefined, 503, false, false)).toBe(true);
-    expect(postgrestOwnsRetry(undefined, 502, false, false)).toBe(false);
-    // And it must agree with what the wrapper itself concludes for the same absent method.
-    expect(postgrestOwnsRetry("GET", 503, false, false)).toBe(
-      postgrestOwnsRetry(undefined, 503, false, false),
-    );
+    // The whole point of the wrapper. Every caller in this repo invokes .rpc() without { get: true },
+    // so these are POSTs, and PostgREST never retries POST — no overlap has ever existed here.
+    expect(weOwn(`${H}/rest/v1/rpc/is_admin`, "POST")).toBe(true);
+    expect(postgrestWillRetry(`${H}/rest/v1/rpc/is_admin`, "POST")).toBe(false);
   });
 
-  test("the method comparison is case-insensitive", () => {
+  test("Auth GETs are ours, because nothing else would retry them", () => {
+    // no-premise: literal inputs. Declining these is what round 3 measured as calls=1 emits=0.
+    expect(weOwn(`${H}/auth/v1/user`, "GET")).toBe(true);
+    expect(postgrestWillRetry(`${H}/auth/v1/user`, "GET")).toBe(false);
+  });
+
+  test("a PostgREST table read is theirs alone", () => {
+    // no-premise: literal inputs. Reverting these to PostgREST is the pre-arc behaviour and is what
+    // removes the multiplication at the root instead of adjudicating it per outcome.
+    expect(weOwn(`${H}/rest/v1/shows?select=*`, "GET")).toBe(false);
+    expect(postgrestWillRetry(`${H}/rest/v1/shows?select=*`, "GET")).toBe(true);
+  });
+
+  test("DOCUMENTED LIMIT: a GET-served retryable rpc would be PostgREST's, which does not retry 502", () => {
     // no-premise: literal inputs.
     //
-    // A caller may pass "get". Without the case fold the lookup misses, nothing is declined, and
-    // both layers retry it. Cheap to pin and invisible until it happens.
-    for (const m of ["get", "Get", "hEaD", "options"]) {
-      expect(postgrestOwnsRetry(m, 503, false, false), m).toBe(true);
-    }
-    // The negative direction too, so this cannot pass by declining everything.
-    for (const m of ["post", "Patch", "delete"]) {
-      expect(postgrestOwnsRetry(m, 503, false, false), m).toBe(false);
-    }
+    // The narrowing's honest edge. PostgREST serves `GET /rest/v1/rpc/<fn>` for non-volatile
+    // functions, and under per-request ownership such a call belongs to PostgREST — which retries
+    // 503 and 520 but NOT 502, the very fault this arc exists to absorb.
+    //
+    // It cannot arise today: no caller passes `{ get: true }`, so every .rpc() is a POST, and
+    // `rpcCallsAreNotGet` below fails the moment that stops being true. Recording the limit here
+    // rather than widening ownership to cover a case nothing produces — widening is what round 3
+    // showed composes the loops back together.
+    expect(weOwn(`${H}/rest/v1/rpc/is_admin`, "GET")).toBe(false);
+    expect(postgrestWillRetry(`${H}/rest/v1/rpc/is_admin`, "GET")).toBe(true);
   });
 
-  test("our own timeout is never declined, on any method", () => {
-    // no-premise: as above. PostgREST rethrows aborts, so declining one orphans it by construction.
-    const abort = OUTCOMES.find((o) => o.abort)!;
-    for (const m of METHODS) {
-      expect(postgrestOwnsRetry(m, abort.status, abort.err, abort.abort), m).toBe(false);
+  test("an unparseable url is kept, never orphaned", () => {
+    // no-premise: literal inputs. Guessing PostgREST is involved would hand it to nobody.
+    expect(postgrestWillRetry("not a url", "GET")).toBe(false);
+  });
+});
+
+describe("the documented limit stays unreachable", () => {
+  test("rpcCallsAreNotGet: no caller turns an rpc into a GET", () => {
+    // The limit above is only harmless while every `.rpc()` is a POST. PostgREST serves
+    // `GET /rest/v1/rpc/<fn>` when the caller asks for it, and such a call becomes PostgREST's
+    // under per-request ownership — where a 502 is NOT retried by anyone.
+    //
+    // Walked from disk rather than listed, so a NEW call site is covered by default. The premise is
+    // that the walk found rpc calls at all: an empty scan would satisfy the assertion vacuously.
+    const roots = ["app", "lib"];
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) {
+          if (entry === "node_modules" || entry.startsWith(".")) continue;
+          walk(full);
+          continue;
+        }
+        if (/\.tsx?$/.test(entry)) files.push(full);
+      }
+    };
+    for (const r of roots) walk(r);
+
+    const rpcFiles = files.filter((f) => readFileSync(f, "utf8").includes(".rpc("));
+    premise("files containing an .rpc( call", rpcFiles.length, 0);
+
+    const offenders: string[] = [];
+    for (const f of rpcFiles) {
+      const text = readFileSync(f, "utf8");
+      // `get: true` anywhere in a file that also calls .rpc( is enough to warrant a human look;
+      // this guard is a tripwire for a decision, not a parser.
+      if (/\bget\s*:\s*true\b/.test(text)) offenders.push(f);
     }
+    expect(offenders).toEqual([]);
   });
 });

@@ -100,21 +100,31 @@ export const POSTGREST_RETRYABLE_METHODS: ReadonlySet<string> = new Set(["GET", 
 export const POSTGREST_RETRYABLE_STATUSES: ReadonlySet<number> = new Set([520, 503]);
 
 /**
- * Whether PostgREST's own retry loop will retry this outcome, meaning this wrapper must not.
+ * Whether PostgREST's OWN retry loop will handle this REQUEST.
  *
- * `aborted` is the caller's own cancellation OR this wrapper's per-attempt timeout. PostgREST never
- * retries an abort (`fetchError?.name === 'AbortError' || fetchError?.code === 'ABORT_ERR'` rethrows),
- * so a timeout stays THIS layer's to retry and does not stack.
+ * Keyed on the request, not on an outcome, and that is the whole point. Round-2 review found two
+ * layers multiplying and this declined per (method, status) pair — which round 3 then showed does
+ * not bound anything, because a REQUEST is a SEQUENCE of outcomes. A 502 we retried followed by a
+ * 503 we declined composed both loops right back to twelve calls, and the caller's final error
+ * stopped matching what an unwrapped call would have produced.
+ *
+ * Deciding once, before the first attempt, makes the layers exclusive by construction: either this
+ * wrapper owns every failure of the request or it touches none of them.
+ *
+ * The path test is load-bearing and its absence was a real defect. This wrapper is installed as the
+ * WHOLE CLIENT's fetch, so it also sees Auth traffic — and PostgREST's retry loop lives in
+ * PostgrestBuilder, which only ever runs for `/rest/v1/` requests. Declining an Auth GET handed it
+ * to a layer that is not in its call chain at all, so the request simply died: measured at
+ * `calls=1 emits=0` on `auth.getUser()` for 503, 520 and a network rejection.
  */
-export function postgrestOwnsRetry(
-  method: string | undefined,
-  status: number | undefined,
-  hadError: boolean,
-  aborted: boolean,
-): boolean {
-  if (!POSTGREST_RETRYABLE_METHODS.has((method ?? "GET").toUpperCase())) return false;
-  if (aborted) return false;
-  // A non-abort transport rejection is retried by PostgREST on an idempotent method.
-  if (hadError) return true;
-  return status !== undefined && POSTGREST_RETRYABLE_STATUSES.has(status);
+export function postgrestWillRetry(url: string, method: string | undefined): boolean {
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    // Unparseable: assume PostgREST is NOT involved, so we keep ownership rather than orphaning.
+    return false;
+  }
+  if (!path.startsWith("/rest/v1/")) return false;
+  return POSTGREST_RETRYABLE_METHODS.has((method ?? "GET").toUpperCase());
 }
