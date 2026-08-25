@@ -360,6 +360,8 @@ the whole-diff review approves (the arming window, AGENTS.md invariant 12 ruling
 
 ## AC coverage — every criterion names its proving task and command
 
+<!-- ac-coverage: command-col=3 -->
+
 | AC | Proved by | Producing command |
 | --- | --- | --- |
 | AC-1 (one read-once pass; read-member spy) | Task 2 structural cover | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |

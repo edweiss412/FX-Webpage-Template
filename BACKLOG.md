@@ -2205,16 +2205,6 @@ Both runs were from the repo root with the paths valid and readable; relative an
 
 **First scheduled step:** confirm the behaviour against the current upstream release, then decide wrapper-versus-report — a local wrapper is worth it either way, since this repo's gate cannot wait on an upstream fix.
 
-## BL-PLANLINT-AC-COMMAND-OBSERVABILITY — an AC row can name a command that runs green yet cannot observe its criterion
-
-**Status:** OPEN · **Filed:** 2026-08-21 (`feat/pane-compaction-send-auth`, plan rounds r2 F4 / r3 F5 / r4 F2 — three consecutive rounds each landing an instance of this one class) · **Severity:** MEDIUM (the AC table is the plan's proof surface; a row whose command cannot see its criterion certifies the criterion unobserved, in the silent direction) · **Class:** plan lint · **Effort:** M · **Facing:** process · **Incident:** three review rounds on `feat/pane-compaction-send-auth` each burned a finding on this class — r2 F4 (two rows with non-runnable command cells, plus two vague cells the sweep caught), r3 F5 (one remaining prose cell), r4 F2 (a runnable command whose file list omitted the suite holding the criterion's executable pin, `tests/paneCompaction/driver.test.ts:72`) — corpus rows in `docs/review-rounds/feat/pane-compaction-send-auth/e5d1d723d69c.jsonl`, filing §"plan — 4 rounds". · **Reachability:** PROBED — the three findings above are live instances, each verified against the plan text at its dispatch head.
-
-**The shape.** A plan's AC coverage table asserts per row: criterion, proving task, producing command. Two failure modes recurred: (a) a cell that is prose, not a command (`task commits carry the outputs`, `both red commands above`, `the three red commands`) — runnable by nobody; (b) a runnable command whose resolved file list does not include the file holding the row's criterion-specific pin, so the command passes while the criterion goes unobserved.
-
-**Shape of the repair.** A plan-lint arm over documents carrying an AC coverage table: (a) every producing-command cell must parse as a command (`sh -nc`, the existing red-arm machinery); (b) when the row's cited pin names a `file:line`, that file must appear in the command's argument list. Advisory for (b) — a criterion can legitimately be proved by a new case the plan authors — hard for (a). Reuses `spec-lint`'s existing table walker and command parser; no new recognizer over open English.
-
-**First scheduled step:** confirm the AC-table grammar is stable across the plan corpus (`rg -l '^\| AC-' docs/superpowers/plans/`), then draft the arm against this arc's plan as the fixture.
-
 ## BL-SPECLINT-DOC-BARE-LINE-NUMBERS-UNCOVERED — a document's raw line numbers rot where the citation oracle cannot look
 
 **Status:** OPEN · **Filed:** 2026-08-21 (`feat/speclint-red-reason-verification`, from that arc's diff rounds 2 and 5) · **Facing:** process · **Severity:** LOW (prose rots; nothing ships wrong) · **Class:** spec-lint gate · **Effort:** S

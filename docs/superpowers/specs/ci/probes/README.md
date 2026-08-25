@@ -17,6 +17,7 @@ Written under the probe-before-argue rule in [`../../../../agents/spec-self-revi
 | [`2026-08-22-quoted-run-claim-sweep.mts`](./2026-08-22-quoted-run-claim-sweep.mts) | Which sites still assert, in the present tense, the declared limit this arc retires? | [`../2026-08-22-workflow-run-scalar-yaml-decode-design.md`](../2026-08-22-workflow-run-scalar-yaml-decode-design.md) AC-10 |
 | [`2026-08-22-seam-check.mjs`](./2026-08-22-seam-check.mjs) | Does this arc's diff touch only the declarations it is allowed to, leaving the delimiter walk to the arc that follows it? | [`../2026-08-22-workflow-run-scalar-yaml-decode-design.md`](../2026-08-22-workflow-run-scalar-yaml-decode-design.md) AC-8 |
 | [`2026-08-22-derived-number-population-census.md`](./2026-08-22-derived-number-population-census.md) | Are the figures these records state derived or hand-carried, and is that classification stable enough to gate on? | `BL-DERIVED-NUMBERS-IN-DOCS-ROT` |
+| [`2026-08-25-ac-coverage-prototype-probes.md`](./2026-08-25-ac-coverage-prototype-probes.md) | Is the AC-table grammar stable enough to key a lint arm on, and does the declaration-driven arm reproduce the three review rounds it was filed for? | [`../2026-08-25-planlint-ac-command-observability-design.md`](../2026-08-25-planlint-ac-command-observability-design.md) §2, §4, §5, §6 |
 
 ## Stating a figure
 

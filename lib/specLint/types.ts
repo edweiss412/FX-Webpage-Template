@@ -7,7 +7,8 @@ export type Check =
   | "sections"
   | "taskContract"
   | "universals"
-  | "claimSweep";
+  | "claimSweep"
+  | "acCoverage";
 
 /**
  * RENDER ORDER for `Check`, and ORDER ONLY.
@@ -39,6 +40,7 @@ export const CHECK_ORDER = [
   "taskContract",
   "universals",
   "claimSweep",
+  "acCoverage",
 ] as const satisfies readonly Check[];
 
 /** `true` only when every `Check` appears in `CHECK_ORDER`; otherwise a type error. */
@@ -242,3 +244,69 @@ export interface FixtureResults {
    */
   unavailable?: string;
 }
+
+/**
+ * The AC coverage arm's injected view (`docs/superpowers/specs/ci/2026-08-25-planlint-ac-command-observability-design.md` §8.3).
+ *
+ * Lives here with `ExecResults` and `SweepDocument` because it is the same kind
+ * of thing: data the ADAPTER resolves and INJECTS, so nothing foreign crosses the
+ * purity boundary. The adapter parses with remark; this module names no mdast
+ * type, so `lib/specLint/` keeps its zero-third-party-import property and the
+ * guard over it needs no type-only exemption.
+ */
+
+/** One table cell, as remark rendered it. */
+export interface AcCell {
+  /** Concatenated `text` and `inlineCode` content, in document order. */
+  text: string;
+  /** Every `inlineCode` value in this cell, in document order. */
+  codes: string[];
+}
+
+export interface AcRow {
+  /** 1-based source line. Findings anchor here. */
+  line: number;
+  cells: AcCell[];
+}
+
+export interface AcTableBlock {
+  kind: "table";
+  /** 1-based source line of the header row. */
+  line: number;
+  header: AcCell[];
+  rows: AcRow[];
+}
+
+export interface AcHtmlBlock {
+  kind: "html";
+  line: number;
+  /** The html node's raw value, verbatim. */
+  value: string;
+}
+
+/**
+ * Every `html` and `table` block of the document, in DOCUMENT ORDER.
+ *
+ * Order is the whole contract: a declaration governs the next `table` block, so
+ * the adapter must not filter, sort or coalesce. Blocks nested in blockquotes and
+ * list items are included, flattened, because a declaration inside one should
+ * still govern the table beside it. A declaration inside a FENCE never appears at
+ * all, since a fenced block parses as `code` — inert by construction, not by rule.
+ */
+export type AcBlocks = readonly (AcHtmlBlock | AcTableBlock)[];
+
+/**
+ * Outcomes of the AC parse-check spawn, keyed by `(line, spanIndex)`.
+ *
+ * Deliberately NOT `ExecResults`, whose map is keyed by line alone: that has
+ * always held for `red=` and `gate` because a line carries one marker, but an AC
+ * row contributes one entry PER SPAN, so a line-keyed store keeps only the last
+ * and silently accepts a broken FIRST command (spec round-2 finding 2).
+ */
+export interface AcParseResults {
+  /** Key is `acKey(line, spanIndex)`. The value is the SAME `ExecOutcome` the red
+   *  arm uses, so an unobserved outcome can never be mistaken for an exit. */
+  outcomes: ReadonlyMap<string, ExecOutcome>;
+}
+
+export const acKey = (line: number, spanIndex: number): string => `${line}#${spanIndex}`;
