@@ -25,6 +25,9 @@ const FORCE_HEADERS = {
   authorization: "Bearer fxav-m3-test-auth-2026-DO-NOT-SHIP",
 } as const;
 
+// ADMIN_SESSION_LOOKUP_FAILED's operator copy, verbatim from lib/messages/catalog.ts:2970.
+const BOUNDARY_COPY = "This admin page couldn't load";
+
 test.describe("admin gate absorbs a forced upstream 502", () => {
   test("the admin page renders through an injected gateway fault", async ({ page }) => {
     await signInAs(page, ADMIN_FIXTURE);
@@ -35,12 +38,41 @@ test.describe("admin gate absorbs a forced upstream 502", () => {
     // The page renders normally. Without the retry the admin gate would throw and this would
     // be the error boundary instead — which is precisely the recorded failure mode.
     await expect(page.locator("main")).toBeVisible();
-    await expect(page.getByText("This admin page couldn't load")).toHaveCount(0);
+    await expect(page.getByText(BOUNDARY_COPY)).toHaveCount(0);
+  });
 
-    // AND the fault was actually ABSORBED rather than never injected. The first version of
-    // this spec asserted only the render, and CI proved that insufficient: the run went green
-    // with no SUPABASE_UPSTREAM_RETRY anywhere, because the emit did not exist yet. A render
-    // assertion alone passes when the injector misfires, so the arc verifies the emit from the
-    // run's own server output — see the AC-5 evidence step in the plan's Task 7.
+  // The budget's exact boundary, and the reason this file does not settle AC-5 by grepping the
+  // run's log for SUPABASE_UPSTREAM_RETRY. It tried that first, and run 32804414458 showed why
+  // it cannot work: nine emits landed in one green job, and three of them are provably not this
+  // spec's — two at 03:23:46 during admin-changes-feed-layout, one at 03:24:04 during
+  // dev-capture, both windows outside this test entirely. The code appearing in the log is
+  // therefore satisfied by background faults alone, and would still be satisfied if the
+  // injector here never fired.
+  //
+  // These two cases settle it from page-observable behavior instead. The wrapper takes
+  // MAX_SUPABASE_RETRIES = 2 retries, so it makes three attempts in total: two forced faults
+  // are absorbed on the third attempt, and three exhaust the budget and replay the first
+  // attempt's 502, which is the recorded failure mode. Neither case can pass without the retry
+  // running the exact number of times claimed — a wrapper that never retried would fail the
+  // absorbed case, and one that retried more would fail the exhausted case.
+  test("two forced faults are absorbed on the last attempt the budget allows", async ({ page }) => {
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({ ...FORCE_HEADERS, "x-test-force-upstream-502": "2" });
+
+    await page.goto("/admin");
+
+    await expect(page.locator("main")).toBeVisible();
+    await expect(page.getByText(BOUNDARY_COPY)).toHaveCount(0);
+  });
+
+  test("three forced faults exhaust the budget and reach the error boundary", async ({ page }) => {
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({ ...FORCE_HEADERS, "x-test-force-upstream-502": "3" });
+
+    await page.goto("/admin");
+
+    // Asserting the boundary is PRESENT is also what makes the other two cases mean anything:
+    // their toHaveCount(0) would pass just as happily against a misspelled selector.
+    await expect(page.getByText(BOUNDARY_COPY)).toBeVisible();
   });
 });
