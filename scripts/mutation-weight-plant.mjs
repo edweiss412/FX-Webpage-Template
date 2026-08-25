@@ -19,16 +19,26 @@
  * Usage: node scripts/mutation-weight-plant.mjs
  */
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 const ROOT = process.cwd();
-const SRC = join(ROOT, "lib/mutationWeight");
-const SUITE = join(ROOT, "tests/mutationWeight/instrument.test.ts");
+// Defaults for an entry that names neither: a bare filename resolves under this
+// root, and an entry with no suite is decided by this one. Both are what the
+// original entries rely on, so generalising the harness left them untouched.
+const DEFAULT_ROOT = "lib/mutationWeight";
+const DEFAULT_SUITE = "tests/mutationWeight/instrument.test.ts";
 
 /** file, a unique anchor, and what it becomes. */
 const DEFECTS = [
+  [
+    "bootsOf miscomposes the boot count",
+    "tests/mutation/source/shardPartition.ts",
+    "return mutants.length + surface.accepted.length * (suites - 1) + suites;",
+    "return mutants.length + surface.accepted.length * suites + suites;",
+    "tests/mutation/source/shardPartition.test.ts",
+  ],
   [
     "seedRates averages over time instead of taking the newest sha",
     "weights.ts",
@@ -258,34 +268,91 @@ const DEFECTS = [
   ],
 ];
 
+/**
+ * Two entries that MUST be refused, used by `--self-test`.
+ *
+ * The orphaned-anchor class is why this exists. A repair moved `legSeconds` out
+ * from under an entry whose anchor then matched zero times, and because nobody
+ * ran the harness the arc went on asserting a "37 plants, 0 escaped" baseline
+ * that was false at the commit it cited. The harness DID have the refusal, so
+ * the missing piece was never the check -- it was any executable statement that
+ * the check still fires. These two entries are that statement, and they cost
+ * nothing to run because both refusals short-circuit before vitest is spawned.
+ */
+const SELF_TEST_DEFECTS = [
+  [
+    "SELF-TEST: a target that does not exist is refused",
+    "lib/mutationWeight/there-is-no-such-file.ts",
+    "anything",
+    "anything else",
+  ],
+  [
+    "SELF-TEST: an anchor that matches nothing is refused",
+    "weights.ts",
+    "this string does not occur in weights.ts",
+    "nor does this",
+  ],
+];
+
+const SELF_TEST = process.argv.includes("--self-test");
+const ENTRIES = SELF_TEST ? SELF_TEST_DEFECTS : DEFECTS;
+
 let caught = 0;
 const bad = [];
+/** Why each `bad` entry was bad. A refusal and an escape are NOT the same outcome. */
+const reason = new Map();
 /** Files written under tests/ for one case, removed in that case's finally. */
 const planted = [];
-for (const [name, file, from, to] of DEFECTS) {
+for (const entry of ENTRIES) {
+  const [name, file, from, to, suitePath] = entry;
+  // A bare filename means the default root, which is what the original 37 entries
+  // use and why they neither move nor get rewritten. Anything containing a slash
+  // is repo-relative, which is how an entry reaches outside lib/mutationWeight.
+  const repoRel = file.includes("/") ? file : `${DEFAULT_ROOT}/${file}`;
+  const srcDir = dirname(repoRel);
+  const suiteRel = suitePath ?? DEFAULT_SUITE;
   const dir = mkdtempSync(join(tmpdir(), "fx-weight-plant-"));
   try {
-    cpSync(SRC, join(dir, "mutationWeight"), { recursive: true });
-    const target = join(dir, "mutationWeight", file);
+    // The whole containing directory, not the single file: a target imports its
+    // siblings by relative specifier, and a lone copy cannot resolve them.
+    cpSync(join(ROOT, srcDir), join(dir, "src"), { recursive: true });
+    const target = join(dir, "src", basename(repoRel));
+    // An unresolvable target is a RED RUN, never a silent drop from the count.
+    // Before this, a target outside the copied root threw ENOENT out of the loop
+    // and killed the process mid-sweep; the entries after it were never attempted
+    // and the printed total simply did not mention them. Reporting it in the
+    // harness's own vocabulary and pushing it to `bad` is what makes the premise
+    // executable rather than assumed.
+    if (!existsSync(target)) {
+      console.log(`  ANCHOR-FAIL  ${name} (target ${repoRel} not found)`);
+      bad.push(name);
+      reason.set(name, "ANCHOR-FAIL");
+      continue;
+    }
     const text = readFileSync(target, "utf8");
     const hits = text.split(from).length - 1;
     if (hits !== 1) {
       console.log(`  ANCHOR-FAIL  ${name} (anchor occurs ${hits} times)`);
       bad.push(name);
+      reason.set(name, "ANCHOR-FAIL");
       continue;
     }
     writeFileSync(target, text.replace(from, to));
-    // Point the suite at the copy. The `@/lib/mutationWeight/...` specifier is what
-    // the suite imports, so rewriting it is the whole redirection.
-    const suite = readFileSync(SUITE, "utf8").replaceAll(
-      "@/lib/mutationWeight/",
-      `${join(dir, "mutationWeight")}/`,
-    );
+    // Point the suite at the copy. Two specifier shapes reach a target: the
+    // `@/`-aliased form the instrument suite uses, and the relative form a suite
+    // sitting beside its subject uses.
+    const stem = basename(repoRel).replace(/\.ts$/, "");
+    const suite = readFileSync(join(ROOT, suiteRel), "utf8")
+      .replaceAll(`@/${srcDir}/`, `${join(dir, "src")}/`)
+      .replaceAll(`from "./${stem}"`, `from "${join(dir, "src", stem)}"`);
     // INSIDE tests/, because vitest's project includes are `tests/**` globs: a
     // suite written to a tmpdir matches no project, runs zero tests, and every
     // planted defect then reports as an escape. That is how the first version of
     // this harness scored 0 caught out of 15 while the suite was perfectly healthy.
-    const copy = join(ROOT, "tests/mutationWeight", `__plant__.test.ts`);
+    // Written BESIDE its original, so the suite's OTHER relative imports still
+    // resolve -- moving it to one fixed directory would break every sibling import
+    // a suite outside tests/mutationWeight happens to have.
+    const copy = join(ROOT, dirname(suiteRel), `__plant__.test.ts`);
     writeFileSync(copy, suite);
     planted.push(copy);
     let out = "";
@@ -301,17 +368,41 @@ for (const [name, file, from, to] of DEFECTS) {
     if (/Error: Transform failed|SyntaxError|TS\d+:|Failed to load/.test(out)) {
       console.log(`  BROKEN-PLANT ${name}`);
       bad.push(name);
+      reason.set(name, "BROKEN-PLANT");
     } else if (/Tests\s+\d+ failed/.test(out) || /FAIL/.test(out)) {
       console.log(`  CAUGHT       ${name}`);
       caught += 1;
     } else {
       console.log(`  ESCAPED      ${name}`);
       bad.push(name);
+      reason.set(name, "ESCAPED");
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
     for (const f of planted.splice(0)) rmSync(f, { force: true });
   }
+}
+if (SELF_TEST) {
+  // Inverted on purpose: here a refusal is the PASS. The harness is healthy when
+  // both synthetic entries were refused and neither was scored as a success.
+  // The REASON is the assertion, not the count. Both a refusal and an ESCAPE land
+  // in `bad`, so a self-test that counted `bad.length` passed while the anchor
+  // guard was deleted outright: the mismatched entry simply fell through to a
+  // no-op replace, ran green, and was recorded as an escape instead. Found by
+  // planting that deletion, which is the only reason this line says ANCHOR-FAIL.
+  const refused = SELF_TEST_DEFECTS.filter(([n]) => reason.get(n) === "ANCHOR-FAIL");
+  // The length check is not enough on its own: with SELF_TEST_DEFECTS emptied,
+  // `0 === 0` reports OK and the self-test certifies a harness it never exercised.
+  // A guard that passes when its own premise is absent is the shape this whole
+  // Task exists to remove, so the premise is asserted rather than assumed.
+  const ok =
+    SELF_TEST_DEFECTS.length > 0 && refused.length === SELF_TEST_DEFECTS.length && caught === 0;
+  const seen = SELF_TEST_DEFECTS.map(([n]) => reason.get(n) ?? "SCORED").join(", ");
+  console.log(
+    `\nself-test: ${refused.length}/${SELF_TEST_DEFECTS.length} refused as ANCHOR-FAIL ` +
+      `[${seen}], ${caught} scored — ${ok ? "OK" : "HARNESS BROKEN"}`,
+  );
+  process.exit(ok ? 0 : 1);
 }
 console.log(`\ncaught ${caught}, not caught ${bad.length}`);
 if (bad.length > 0) process.exit(1);
