@@ -160,6 +160,17 @@ jobs:
         run: echo "SHARD_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+      # Browser install, chromium only. The registry enrols `captureRenderFault`
+      # (tests/mutation/source/registry.ts) whose deciding suite,
+      # tests/help/renderFaultDetector.test.ts, launches chromium. #885 added
+      # this pair to unit-suite-nodb and missed this job, so the shard holding
+      # that surface fails its baseline run (BaselineNotGreenError) on every PR
+      # and the harness refuses to score. `run:` steps, not actions, so the
+      # integrity guard's step accounting is untouched
+      # (tests/mutation/_metaSourceShardIntegrity.test.ts). source-gates needs
+      # nothing: its one child runs an inert fixture, never a deciding suite.
+      - run: pnpm exec playwright install-deps chromium
+      - run: pnpm exec playwright install chromium
       - name: Run source-mutation shard ${{ matrix.shard }}
         env:
           VITEST_INCLUDE_MUTATION_HARNESS: "1"
