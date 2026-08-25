@@ -30,6 +30,17 @@ const ROOT = join(__dirname, "..", "..");
  * Same shape and same reason as EXPECTED_LEDGER_KINDS in source/expectedLedgerKinds.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
+  // BL-ADMIN-LOADER-CI-TRANSIENT (2026-08-24). Counts MEASURED with classifyTests
+  // against this tree, not estimated. The two wrapper suites drive an INJECTED stub
+  // transport with injected sleep/random and touch nothing real; every case in them
+  // carries a `no-premise:` exemption rather than a premise, because the classifier
+  // reports them touching for what the wrapper CAN reach, not what the test does.
+  // The volatility suite genuinely reaches the catalog, and its five catalog-reading
+  // cases carry their own in-body premises — a premise in the shared beforeAll runs
+  // but is not attributable, since the scanner reads the test BODY.
+  "tests/supabase/retryingFetch.test.ts": 14,
+  "tests/supabase/retryingFetch.failureMode.test.ts": 3,
+  "tests/supabase/_metaRetryableRpcVolatility.test.ts": 9,
   // The claim-sweep suites, enrolled 2026-08-20. Counts are MEASURED, not
   // guessed: each is what the classifier reports today, declared independently
   // so a recognizer that silently stops matching drops them to zero and reds

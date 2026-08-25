@@ -34,6 +34,7 @@ const instant = { sleep: async () => {}, random: () => 0 };
 
 describe("retrying fetch — the recorded fault is absorbed", () => {
   test("502 then 200 resolves, and the caller sees only the 200", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     const calls: string[] = [];
     const inner = vi.fn(async () => {
       calls.push("attempt");
@@ -45,6 +46,7 @@ describe("retrying fetch — the recorded fault is absorbed", () => {
   });
 
   test("ANTI-TAUTOLOGY: with the cap at zero the same stub still surfaces the 502", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     const inner = vi.fn(async () => bad(502));
     const res = await makeRetryingFetch(inner, { ...instant, maxRetries: 0 })(RPC, {
       method: "POST",
@@ -57,6 +59,7 @@ describe("retrying fetch — the recorded fault is absorbed", () => {
 describe("retrying fetch — the status SET, not one member", () => {
   for (const status of [502, 503, 504]) {
     test(`${status} is retried`, async () => {
+      // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
       const inner = vi.fn(async () => (inner.mock.calls.length === 1 ? bad(status) : ok()));
       const res = await makeRetryingFetch(inner, instant)(RPC, { method: "POST" });
       expect(res.status).toBe(200);
@@ -66,6 +69,7 @@ describe("retrying fetch — the status SET, not one member", () => {
 
   for (const status of [500, 429]) {
     test(`${status} is NOT retried — a deliberate divergence from the Drive sibling`, async () => {
+      // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
       const inner = vi.fn(async () => bad(status));
       const res = await makeRetryingFetch(inner, instant)(RPC, { method: "POST" });
       expect(res.status).toBe(status);
@@ -80,12 +84,14 @@ describe("retrying fetch — the status SET, not one member", () => {
 
 describe("retrying fetch — eligibility bounds every retry", () => {
   test("a VOLATILE RPC is attempted once even on a retryable status", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     const inner = vi.fn(async () => bad(502));
     await makeRetryingFetch(inner, instant)(VOLATILE_RPC, { method: "POST" });
     expect(inner).toHaveBeenCalledTimes(1);
   });
 
   test("an insert is attempted once even on a retryable status", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     const inner = vi.fn(async () => bad(502));
     await makeRetryingFetch(inner, instant)(INSERT, { method: "POST" });
     expect(inner).toHaveBeenCalledTimes(1);
@@ -94,6 +100,7 @@ describe("retrying fetch — eligibility bounds every retry", () => {
 
 describe("retrying fetch — the per-attempt stall guard", () => {
   test("a fetch that stays pending until aborted is retried with a fresh budget", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     let attempts = 0;
     const inner = vi.fn(
       (_input: RequestInfo | URL, init?: RequestInit) =>
@@ -113,6 +120,7 @@ describe("retrying fetch — the per-attempt stall guard", () => {
   });
 
   test("a stall that persists across every attempt exhausts and surfaces a failure", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     const inner = vi.fn(
       (_input: RequestInfo | URL, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
@@ -128,6 +136,7 @@ describe("retrying fetch — the per-attempt stall guard", () => {
   });
 
   test("the timer is cleared on the resolved path", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     const clearSpy = vi.spyOn(globalThis, "clearTimeout");
     const inner = vi.fn(async () => ok());
     await makeRetryingFetch(inner, instant)(RPC, { method: "POST" });
@@ -138,6 +147,7 @@ describe("retrying fetch — the per-attempt stall guard", () => {
 
 describe("retrying fetch — a retry is never silent (spec §6)", () => {
   test("each retry emits SUPABASE_UPSTREAM_RETRY with the function, status and attempt", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     // Found by CI, not by this suite: the e2e proof passed while NO emit existed anywhere,
     // because it asserted only that the page rendered. An absorbed fault that leaves no record
     // is indistinguishable from a fault that never happened.
@@ -158,6 +168,7 @@ describe("retrying fetch — a retry is never silent (spec §6)", () => {
   });
 
   test("a request that never retries emits nothing", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     const emitted: unknown[] = [];
     const inner = vi.fn(async () => ok());
     await makeRetryingFetch(inner, { ...instant, onRetry: () => emitted.push(1) })(RPC, {
@@ -169,6 +180,7 @@ describe("retrying fetch — a retry is never silent (spec §6)", () => {
 
 describe("retrying fetch — abort provenance", () => {
   test("a CALLER abort is attempted once and rethrown as itself", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     const controller = new AbortController();
     const callerError = Object.assign(new Error("caller went away"), { name: "AbortError" });
     const inner = vi.fn(
@@ -187,6 +199,7 @@ describe("retrying fetch — abort provenance", () => {
   });
 
   test("a TRANSPORT rejection IS retried — spec §3.2 clause 1", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     // Corrected in flight: the first draft of this case asserted the opposite, contradicting
     // the spec it implements. A connection reset on a request the database has proven cannot
     // write is exactly what this wrapper exists to absorb; refusing to retry it would leave
@@ -204,6 +217,7 @@ describe("retrying fetch — abort provenance", () => {
   });
 
   test("a transport rejection on an INELIGIBLE request is rethrown, unretried", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     const boom = new TypeError("fetch failed");
     const inner = vi.fn(async () => {
       throw boom;

@@ -65,6 +65,7 @@ describe("exhausted mixed failures replay the FIRST attempt (spec §3.4)", () =>
 
   for (const c of cases) {
     test(`${c.name} surfaces the FIRST attempt's error to the consumer`, async () => {
+      // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double for the client
       const result = await readShowReviewSnapshot(clientFor(c.sequence) as any, "some-show-id");
       expect(result.kind).toBe("infra_error");
@@ -74,6 +75,7 @@ describe("exhausted mixed failures replay the FIRST attempt (spec §3.4)", () =>
     });
 
     test(`${c.name} — the raw client sees the FIRST attempt's message, not the last`, async () => {
+      // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
       const { error } = await clientFor(c.sequence).rpc("get_admin_show_review_snapshot", {
         p_show_id: "some-show-id",
       });
@@ -82,6 +84,7 @@ describe("exhausted mixed failures replay the FIRST attempt (spec §3.4)", () =>
   }
 
   test("PLANT: replaying the LAST attempt would flip the two mixed cases", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     // The mixed sequences are the discriminating ones: if the wrapper surfaced the last
     // attempt instead, "502 then reject" would report a transport failure and "reject then
     // 502" would report the gateway body. Both assertions above would fail, which is what

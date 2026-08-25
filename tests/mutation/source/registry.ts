@@ -3045,4 +3045,50 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  /**
+   * BL-ADMIN-LOADER-CI-TRANSIENT (2026-08-24): both surfaces enrolled BEFORE
+   * the first diff dispatch, per the AGENTS.md convergence rule. The defect
+   * class is exactly "reports OK while the output moved" — the wrapper decides
+   * whether a request is retried and how many times, and the scan decides
+   * whether a retryable RPC is allowed into the set at all.
+   *
+   * Both take `[...OPERATOR_NAMES]`. A scoped subset was the plan's first
+   * draft and it was wrong in the expensive direction: `statement-removal` was
+   * undeclared and is the LARGEST operator on both surfaces (14 of the
+   * wrapper's 40 sites, 13 of the scan's 18), so the declared score would have
+   * ranged over a strict subset while reading as the surface's score.
+   *
+   * `lib/supabase/retryEligibility.ts` is deliberately NOT enrolled: 3 sites
+   * total, and its defect class is set membership, which no operator reaches.
+   * Enrolling it would report coverage while proving nothing.
+   */
+  {
+    id: "supabaseRetryingFetch",
+    sourcePath: "lib/supabase/retryingFetch.ts",
+    suitePaths: [
+      "tests/supabase/retryingFetch.test.ts",
+      "tests/supabase/retryingFetch.failureMode.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Spends one more attempt than the budget allows. Probed before enrolment:
+    // 2 of 27 tests fail, so the suite does notice.
+    control: { from: "attempt >= maxRetries", to: "attempt > maxRetries" },
+    accepted: [],
+  },
+  {
+    id: "retryableRpcVolatilityScan",
+    sourcePath: "tests/supabase/retryableRpcVolatilityScan.ts",
+    suitePaths: ["tests/supabase/_metaRetryableRpcVolatility.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Demands a name be BOTH retryable and excluded to pass the completeness
+    // arm, so the two legitimate exclusions start reporting as violations.
+    // Probed before enrolment: 1 of 9 tests fails.
+    control: {
+      from: "if (set.has(name) || exclusions.has(name)) continue;",
+      to: "if (set.has(name) && exclusions.has(name)) continue;",
+    },
+    accepted: [],
+  },
 ];

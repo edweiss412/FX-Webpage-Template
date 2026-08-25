@@ -63,6 +63,7 @@ describe("RETRYABLE_RPCS — premises", () => {
 
 describe("RETRYABLE_RPCS — safety arm", () => {
   test("every member is non-VOLATILE in the live catalog", () => {
+    premise("catalog rows to judge the set against", catalog.size, 0);
     expect(safetyViolations(RETRYABLE_RPCS, catalog)).toEqual([]);
   });
 
@@ -73,10 +74,14 @@ describe("RETRYABLE_RPCS — safety arm", () => {
   });
 
   test("PLANT: a name absent from the catalog fails rather than being skipped", () => {
+    // The premise is the catalog being NON-empty: against an empty one every name is
+    // unresolvable, so this plant would pass for the wrong reason.
+    premise("catalog rows the planted name is genuinely absent from", catalog.size, 0);
     expect(safetyViolations(["no_such_function_anywhere"], catalog)).toHaveLength(1);
   });
 
   test("every member completes inside a READ ONLY transaction", async () => {
+    premise("members to execute inside the READ ONLY transaction", RETRYABLE_RPCS.size, 0);
     for (const name of RETRYABLE_RPCS) {
       const args = await sql<{ n: number }[]>`
         select count(*)::int as n from pg_proc p
@@ -95,6 +100,7 @@ describe("RETRYABLE_RPCS — safety arm", () => {
   });
 
   test("PLANT: a STABLE function that writes through a VOLATILE callee fails the READ ONLY arm", async () => {
+    premise("a live connection to build the planted pair on", catalog.size, 0);
     // This is the plant that discriminates the READ ONLY arm from volatility-only checking.
     // Without it, deleting the arm entirely would leave this suite green, because every real
     // member is genuinely read-only.
@@ -120,6 +126,7 @@ describe("RETRYABLE_RPCS — safety arm", () => {
 
 describe("RETRYABLE_RPCS — completeness arm", () => {
   test("every non-VOLATILE name in the product tree is retryable or excluded", () => {
+    premise("literals walked out of the product tree", literalsInProductTree().size, 0);
     expect(
       completenessViolations(literalsInProductTree(), catalog, RETRYABLE_RPCS, EXCLUSIONS),
     ).toEqual([]);
