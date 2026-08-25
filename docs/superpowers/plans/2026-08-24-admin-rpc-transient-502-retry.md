@@ -99,24 +99,41 @@ rule to the volatility-only rule §4.2 already rejected. The fixture is the spec
 `lib/supabase/retryingFetch.ts (new)` follows `withDriveRetry`: a named max-retries constant, exponential
 backoff with jitter, `sleep` and `random` injectable so no test sleeps.
 
-**The budget the spec delegates here, stated as a number.** `MAX_SUPABASE_RETRIES = 2` (the sibling's
-`DEFAULT_MAX_DRIVE_RETRIES` is 3; two is chosen because this path is a user-visible page render rather
-than a background sync). Backoff follows the sibling's shape, `250ms * 2^(n-1)` plus up to 250ms
-jitter, so the delays are at most 500ms and 750ms and the WORST-CASE ADDED LATENCY IS 1250ms on a
-fully-failing request.
+**A per-attempt stall guard, because backoff alone bounds nothing.** The sibling states the trap
+directly (`lib/drive/fetch.ts`, search `Per-attempt wall-clock budget`): `withDriveRetry` "only
+retries a *thrown* 429/5xx, and a silent socket stall never throws". The same is true here — this
+wrapper retries a 5xx RESPONSE or a REJECTION, and a hung fetch produces neither. So without a
+per-attempt timeout the wrapper does not help a stalled admin gate at all, and the latency has no
+finite bound to state.
 
-Both comparisons the spec asks for, stated rather than implied. Against the admin gate: `requireAdmin`
-resolves `is_session_live` and `is_admin` in parallel, so 1250ms is the ceiling added to one admin page
-render in the worst case, and only on a request that was going to fail outright anyway. Against CI:
+Each attempt therefore runs under an `AbortController` with a `PER_ATTEMPT_TIMEOUT_MS = 2000` budget,
+the abort surfacing as a retryable transport failure exactly as the sibling surfaces its abort as a
+transient `DriveFetchError(504)`. The timer is cleared in a `finally` and `unref`'d, so a resolved
+request never holds the event loop open.
+
+**The budget, computed in the sibling's own form** (`timeout * (1 + maxRetries) + backoff`):
+`MAX_SUPABASE_RETRIES = 2` (the sibling's default is 3; two, because this path is a user-visible page
+render rather than a background sync), backoff `250ms * 2^(n-1)` plus up to 250ms jitter, so delays of
+at most 500ms and 750ms. **Worst case: 2000 * 3 + 1250 = 7250ms.**
+
+Both comparisons the spec asks for, against that number rather than against the backoff alone. Against
+the admin gate: `requireAdmin` resolves `is_session_live` and `is_admin` in parallel, so 7250ms is the
+ceiling added to one admin page render, and only on a request that was going to fail outright — today
+the same stall is UNBOUNDED, so this is a strict improvement rather than a new cost. Against CI:
 `.github/workflows/app-e2e.yml` sets `timeout-minutes: 30` on a job measured at 435s, so even a
-pathological run of retries cannot approach the job ceiling.
+pathological run cannot approach the job ceiling.
 
 The emit's code needs a decision, not an assumption. Spec §6 says `SUPABASE_UPSTREAM_RETRY` needs no
 §12.4 catalog row, which is true and incomplete: forensic-only codes are also tracked in
 `NEW_FORENSIC_CODES` (`tests/log/_auditableMutations.ts`, search `export const NEW_FORENSIC_CODES`),
 whose own comment reads "Every NEW forensic-only code this feature introduces" and which
 `tests/log/_metaAdminOutcomeContract.test.ts` consumes. "No catalog row" and "no registry row at all"
-are different claims. This task decides which applies and records the answer either way.
+are different claims. **This task ADDS `SUPABASE_UPSTREAM_RETRY` to `NEW_FORENSIC_CODES`**, rather than deciding and
+recording. "Decide either way" was insufficient for the same reason as the enrolment red above:
+`tests/log/_metaAdminOutcomeContract.test.ts` checks only codes already registered and has no
+completeness arm, so an omission stays green forever. The list's own comment — "Every NEW
+forensic-only code this feature introduces" — describes this code exactly, so the answer is not
+actually open.
 
 `RETRYABLE_STATUSES = {502, 503, 504}` is a named export, and this task's red pins the SET rather than
 one member: 502, 503 and 504 each retry, and 500 and 429 do NOT. The sibling treats both as transient
@@ -163,7 +180,18 @@ Both existing contract suites run here and must pass unmodified.
 
 ## Task 6 — Registry enrolment and the score run
 
-<!-- task: red=`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/mutation/enrolmentPresence.test.ts` ac=AC-4 -->
+
+**The red must fail for ABSENCE, and none of the existing guards does that.**
+`_metaGuardSurfaceRegistry.test.ts` validates entries already present in `GUARD_SURFACES` and never
+discovers unenrolled modules — the registry says enrolment is opt-in in as many words
+(`tests/mutation/source/registry.ts`, search `Enrollment is opt-in`). So both new modules can exist
+outside the registry with that suite green, and the companion parity suites can only fail AFTER rows
+exist. Every guard here validates what is declared; none checks for what is missing.
+
+The task therefore brings its own red: `tests/mutation/enrolmentPresence.test.ts (new file)` asserts that
+`GUARD_SURFACES` contains both ids with the `sourcePath` each names. That fails before the rows exist
+and passes after, which is what the other three cannot do.
 
 **Enrolment has its OWN fan-out of THREE tables, and the earlier red pointed at a file that does not
 exist** (`tests/mutation/source/registry.test.ts — no such file`), which made it the missing-file state this plan's
