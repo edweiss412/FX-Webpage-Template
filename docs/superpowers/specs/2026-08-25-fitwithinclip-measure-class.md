@@ -270,7 +270,7 @@ Existing containment cases (`tests/e2e/popover-clip-fit.spec.ts:310`, `tests/e2e
 
 Carried verbatim into every review brief for this arc.
 
-**Consequence bound.** Every overlay this hook serves is capped correctly on mount and on every re-measure signal, or the miss is surfaced by the existing floor-clamp diagnostic (`useFitWithinClip.ts:118-131`). A conservative fit plus a surfaced warning is a documented limit, not a finding.
+**Consequence bound.** Every overlay this hook serves is capped correctly on mount and on every re-measure signal, or the miss is surfaced by the existing floor-clamp diagnostic (`useFitWithinClip.ts:118-131`). Correct or signaled, never silently wrong: there is no third outcome, and that is the acceptance posture rather than a wish. A conservative fit plus a surfaced warning is a DOCUMENTED LIMIT, not a finding. The arc is done when every event in the §0.1 table holds its stated count and no overlay in the probe domain is capped wrongly without the diagnostic firing — a finite, measured condition, not an absence of imaginable inputs.
 
 **Probe domain.** The five live call sites, across three components — `components/admin/ReSyncButton.tsx:111-113` (three of them), `components/admin/PublishedToggle.tsx:132`, `components/admin/showpage/AttentionMenu.tsx:72` — plus the fixtures in `tests/components/admin/useFitWithinClip.test.tsx` and `tests/e2e/popover-clip-fit.spec.ts`. A probe outside that set, or more than one ordinary edit from an input in it, files to documented limits.
 
