@@ -47,5 +47,29 @@ export default defineConfig({
     // One mutant, one suite: reporters and watchers are pure overhead here, and
     // the exit code is the entire signal we consume.
     reporters: [["dot", {}]],
+    // Stop at the first failing case.
+    //
+    // THE CONTRACT, and why this cannot move a verdict: the exit code is the
+    // entire signal the harness consumes (`childRun` returns it and nothing
+    // else). `bail` changes WHEN a failing run stops, never WHETHER it failed,
+    // so a mutant the suite rejects still exits non-zero and is still KILLED. A
+    // SURVIVING mutant fails nothing, so bail never fires and it pays for its
+    // whole suite exactly as before. Both halves are pinned behaviorally, not by
+    // asserting this literal, in `tests/mutation/_metaOverlayConfigParity.test.ts`
+    // ("the per-mutant child bails on the first failure, and only on a failure").
+    //
+    // What it buys: a killed mutant currently runs every remaining case after the
+    // one that killed it. On `controlOutlineResidue` that is 236 of 250 mutants
+    // each paying ~39s to re-learn what the first failure already settled, and
+    // three mutants on a single line ground for 25, 57 and 125 minutes -- 207 of
+    // that run's 335 -- because a late, expensive case kept running under a mutant
+    // that had already been rejected. Measured on three killed mutants: 39s->11s,
+    // 37s->13s, ~39s->3s.
+    //
+    // It also shrinks the wall-clock-ceiling class: a killed mutant that stops at
+    // its first failure has far less opportunity to reach the ceiling and be
+    // recorded as a timeout-kill, which `gate.ts` itself calls "NOT evidence the
+    // suite rejected the mutant".
+    bail: 1,
   },
 });
