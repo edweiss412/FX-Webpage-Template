@@ -426,15 +426,23 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // is a coverage regression to repair, not a number to bump.
   sourceShardPartition: {},
   // mutationWeightRecords / mutationWeightWeights: the shard-weight instrument,
-  // enrolled 2026-08-25 with the arc that wrote it. EMPTY ledgers, deliberately.
-  // One suite decides both modules, and it is paired with
-  // scripts/mutation-weight-plant.mjs, which plants fifteen named defects into a
-  // copy and requires that suite to go red on each -- so an unkilled mutant here
-  // is a coverage gap to repay with a case, not a number to bump. The plant
-  // harness reports ANCHOR-FAIL when nothing was planted and BROKEN-PLANT when the
-  // mutant did not compile, because either would otherwise read as a pass.
-  mutationWeightRecords: {},
-  mutationWeightWeights: {},
+  // enrolled 2026-08-25 with the arc that wrote it. One suite decides both modules,
+  // and it is paired with scripts/mutation-weight-plant.mjs, which plants named
+  // defects into a copy and requires that suite to go red on each -- so an unkilled
+  // mutant here is a coverage gap to repay with a case, not a number to bump. The
+  // plant harness reports ANCHOR-FAIL when nothing was planted and BROKEN-PLANT when
+  // the mutant did not compile, because either would otherwise read as a pass.
+  //
+  // The rows below are what SURVIVED that treatment. The first score returned 31
+  // survivors and sixteen were repaid with cases, including every boundary and every
+  // counter; what remains is coalesces the compiler REQUIRES and no input evaluates.
+  // Each carries its own reachability argument rather than a shared one: the blanket
+  // "noUncheckedIndexedAccess forces it, so it cannot matter" claim was tried on this
+  // arc and was FALSE at three sites in legSeconds, one of which returned NaN for the
+  // binding leg. Two coalesces four lines apart in heldOutMargin land on opposite
+  // sides of that line, which is why they are argued separately.
+  mutationWeightRecords: { equivalent: 1 },
+  mutationWeightWeights: { equivalent: 8 },
   // shardBudget: the module is pure decision logic with the CLI deliberately in
   // a separate file, so every branch is reachable through the referring suite
   // and a row appearing here is a gap to repay. The separation is not a style

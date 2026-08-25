@@ -3533,7 +3533,19 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // `mutation-records-source-shards-2` and asserts the leg comes from the
     // DIRECTORY, so a constant defeats it.
     control: { from: "const leg = Number(rec[1]);", to: "const leg = 0;" },
-    accepted: [],
+    accepted: [
+      {
+        siteId: "statement-removal:86:7:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "The early exit after a records directory is consumed. Removing it falls through " +
+          "to the elapsed-directory branch, and the two patterns are anchored regexes whose " +
+          "literal prefixes differ at the first character -- mutation-records- against " +
+          "elapsed- -- so no entry can match both and the fall-through can never take that " +
+          "branch. Probed: zero strings match both. The statement is kept because deleting " +
+          "it would make correctness depend implicitly on that disjointness.",
+      },
+    ],
   },
   {
     id: "mutationWeightWeights",
@@ -3546,7 +3558,73 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // criterion the weight change is judged on, so inverting it is the defect that
     // would matter most and the suite pins it directly.
     control: { from: "Math.max(...legs)", to: "Math.min(...legs)" },
-    accepted: [],
+    accepted: [
+      {
+        siteId: "integer-literal:20:42:0>1",
+        kind: "equivalent",
+        reason:
+          "median returns early on an empty array, so `mid` is a valid index whenever this " +
+          "line is reached and `v[mid]` is never undefined. noUncheckedIndexedAccess demands " +
+          "the coalesce; no input evaluates it.",
+      },
+      {
+        siteId: "integer-literal:20:63:0>1",
+        kind: "equivalent",
+        reason:
+          "The even-length branch, so length is at least 2 and `mid` is at least 1, making " +
+          "`v[mid - 1]` a valid index. Argued separately from its neighbours because the " +
+          "reason differs: this one turns on mid >= 1, not on the early return.",
+      },
+      {
+        siteId: "integer-literal:20:79:0>1",
+        kind: "equivalent",
+        reason:
+          "Same line as the first, second occurrence: `v[mid]` in the even branch, where the " +
+          "early return already guarantees the index.",
+      },
+      {
+        siteId: "integer-literal:116:42:0>1",
+        kind: "equivalent",
+        reason:
+          "`new Array(n).fill(0)` to `.fill(1)` offsets every bin by the same amount. The " +
+          "only reads compare bins against each other to find the least loaded, and a " +
+          "uniform offset preserves that order, so the returned assignment is identical. " +
+          "The bins array itself is never returned.",
+      },
+      {
+        siteId: "integer-literal:120:52:0>1",
+        kind: "equivalent",
+        reason:
+          "`bins` is Array(n).fill(0), so every index in [0, n) is defined and the loop " +
+          "index runs 1..n-1. At n = 0 the loop body never executes at all. Unreachable in " +
+          "both regimes.",
+      },
+      {
+        siteId: "integer-literal:120:72:0>1",
+        kind: "equivalent",
+        reason:
+          "`bins[best]` with best in [0, n) for n >= 1. At n = 0 the inner loop never runs, " +
+          "so best stays 0 and every key is assigned bin 0 whatever this default is -- the " +
+          "returned map is identical, which is the only observable.",
+      },
+      {
+        siteId: "integer-literal:121:33:0>1",
+        kind: "equivalent",
+        reason:
+          "The accumulation read, same index argument as the comparison above. At n = 0 it " +
+          "writes a bins entry nothing reads, since best is pinned at 0 and the map records " +
+          "best rather than the load.",
+      },
+      {
+        siteId: "integer-literal:431:62:0>1",
+        kind: "equivalent",
+        reason:
+          "`scored` is `laterSurfaces.filter((m) => seed.has(m.surfaceId))`, so every surface " +
+          "reaching this line is one `seed` contains and `seed.get` cannot return undefined. " +
+          "The sibling coalesce four lines up is NOT equivalent and is killed by a test: " +
+          "modelled boots can genuinely be missing where a seed rate cannot.",
+      },
+    ],
   },
   {
     id: "replacementString",

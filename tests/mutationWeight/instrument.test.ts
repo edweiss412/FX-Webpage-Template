@@ -13,6 +13,7 @@ import {
   bootCountHistory,
   bootRatioStability,
   driftReport,
+  heldOutMargin,
   legSeconds,
   lpt,
   median,
@@ -625,6 +626,35 @@ describe("survivor kills — the stability and seam reports", () => {
     // one; a fabricated 1 would read as a measured ratio.
     const r = bootRatioStability([], 1.5);
     expect(r.latest.min).toBe(0);
+  });
+
+  it("weights a seeded surface the later run never modelled at ZERO", () => {
+    // Killed: `laterModelled.get(id)?.boots ?? 0` moved to `?? 1`. A surface can be in
+    // the SEED and absent from the later run's modelled dump -- the two come from
+    // different shas -- and pricing it at one boot gives it a real weight derived from
+    // nothing. Zero keeps it in the scored set, where its measured seconds still count
+    // against the leg, while contributing no weight it did not earn.
+    // Weights at zero: a=1, b=1, u=0, packing a,u | b, so the seconds legs are 5 and 2.
+    // With the fabricated boot u weighs 100, takes a leg alone, and the legs become
+    // 4 and 3. Computed both ways rather than hoped, because a uniform change would
+    // be invisible.
+    const seed = new Map([
+      ["a", 1],
+      ["b", 1],
+      ["u", 100],
+    ]);
+    const later = [
+      measured({ surfaceId: "a", children: [child("s", 1000)] }),
+      measured({ surfaceId: "b", children: [child("s", 2000)] }),
+      measured({ surfaceId: "u", children: [child("s", 4000)] }),
+    ];
+    const r = heldOutMargin(seed, later, modelled({ a: { mutants: 0 }, b: { mutants: 0 } }), 2);
+    // `u` is seeded, so it is SCORED -- its seconds still count against whatever leg
+    // it lands on. What it must not have is weight derived from a boot count nobody
+    // recorded.
+    expect(r.scored.map((m) => m.surfaceId).sort()).toEqual(["a", "b", "u"]);
+    expect(r.excluded).toEqual([]);
+    expect(r.seconds).toEqual([5, 2]);
   });
 
   it("counts a surface as moved only when BOTH partitions place it", () => {
