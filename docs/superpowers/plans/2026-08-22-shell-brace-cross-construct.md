@@ -1,7 +1,7 @@
 # Plan — the delimiter walk delegates to the constructs it crosses
 
 Design: `docs/superpowers/specs/ci/2026-08-22-shell-brace-cross-construct-design.md`.
-Ledger row: `BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND` (`BACKLOG.md:263`).
+Ledger row: `BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND` (`BACKLOG.md:299`).
 Probes: `docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/`.
 
 **Three production functions change**, all in `tests/cross-cutting/psqlStartupFiles/scan.ts`, plus
@@ -12,30 +12,33 @@ first design and false from spec round 4 onward — the whole point of that roun
 lexical context means THREE recognizers. Everything else in this plan is the apparatus that proves
 they changed the right thing and nothing else.
 
-**This plan is executed by a DIFFERENT session than the one that wrote it, and not yet.**
-`arc-yamlquote` (`fix/yaml-run-scalar-quoting-decode`) edits the same file's YAML decode path and
-merges first. Task 1 is the rebase-and-re-key that opens the arc; every number below is stamped to
-`50ca72a56` and Task 1 is what re-establishes them on the merged tree.
+**This plan is executed by a DIFFERENT session than the one that wrote it.** `arc-yamlquote`
+(`fix/yaml-run-scalar-quoting-decode`) edited the same file's YAML decode path and merged first, as
+#879 on 2026-08-24. Task 1 — the rebase-and-re-key that opens the arc — ran on 2026-08-25 and is
+DONE: the base is now `300a9f937b8a` and every number below has been re-established on the merged
+tree. **The re-key CONFIRMED the figures rather than replacing them**, which was not the expected
+outcome and is the more useful one: `scan.ts` moved 293 insertions and 20 deletions, and the
+crossing did not budge.
 
 ## Anchors, base-stamped, symbol-identified
 
-Every citation is stamped at `50ca72a56`, where `scan.ts` is blob `61adf448c344`. **There is
+Every citation is stamped at `300a9f937b8a`, where `scan.ts` is blob `65a7cdcd2505`. **There is
 deliberately no HEAD column.** Task 3 edits `matchBraceSpan`, so every line below it moves, and a
 re-verified HEAD column is stale within the hour — the sibling arc wrote one, verified it by reading,
 and watched its own later repairs invalidate it. The durable identity is the SYMBOL; resolve any
 row by grepping it.
 
-| symbol | at base |
+| symbol | at base `300a9f937b8a` |
 | --- | --- |
-| `matchBraceSpan` | `tests/cross-cutting/psqlStartupFiles/scan.ts:973` |
-| `matchBrace` | `tests/cross-cutting/psqlStartupFiles/scan.ts:1009` |
-| `matchBraceEnd` | `tests/cross-cutting/psqlStartupFiles/scan.ts:1025` |
-| `closingBacktick` | `tests/cross-cutting/psqlStartupFiles/scan.ts:1042` |
-| `attachedTargetEnd`, and its private `closeDoubleQuoted` | `tests/cross-cutting/psqlStartupFiles/scan.ts:1085`, `tests/cross-cutting/psqlStartupFiles/scan.ts:1102` |
-| `acceptedExpansionOperand`'s whole-span boundary test | `tests/cross-cutting/psqlStartupFiles/scan.ts:1975` |
-| the six `matchBrace` call sites | `tests/cross-cutting/psqlStartupFiles/scan.ts:1561`, `tests/cross-cutting/psqlStartupFiles/scan.ts:1600`, `tests/cross-cutting/psqlStartupFiles/scan.ts:1630`, `tests/cross-cutting/psqlStartupFiles/scan.ts:1728`, `tests/cross-cutting/psqlStartupFiles/scan.ts:1745`, `tests/cross-cutting/psqlStartupFiles/scan.ts:1975` |
-| the one `matchBraceEnd` call site | `tests/cross-cutting/psqlStartupFiles/scan.ts:1131` |
-| the two nearest pin blocks in the deciding suite | `tests/cross-cutting/psqlStartupFileSuppression.test.ts:6674`, `tests/cross-cutting/psqlStartupFileSuppression.test.ts:6700` |
+| `matchBraceSpan` | `tests/cross-cutting/psqlStartupFiles/scan.ts:986` |
+| `matchBrace` | `tests/cross-cutting/psqlStartupFiles/scan.ts:1022` |
+| `matchBraceEnd` | `tests/cross-cutting/psqlStartupFiles/scan.ts:1038` |
+| `closingBacktick` | `tests/cross-cutting/psqlStartupFiles/scan.ts:1055` |
+| `attachedTargetEnd`, and its private `closeDoubleQuoted` | `tests/cross-cutting/psqlStartupFiles/scan.ts:1098`, `tests/cross-cutting/psqlStartupFiles/scan.ts:1115` |
+| `acceptedExpansionOperand`'s whole-span boundary test | `tests/cross-cutting/psqlStartupFiles/scan.ts:1988` |
+| the six `matchBrace` call sites | `tests/cross-cutting/psqlStartupFiles/scan.ts:1574`, `tests/cross-cutting/psqlStartupFiles/scan.ts:1613`, `tests/cross-cutting/psqlStartupFiles/scan.ts:1643`, `tests/cross-cutting/psqlStartupFiles/scan.ts:1741`, `tests/cross-cutting/psqlStartupFiles/scan.ts:1758`, `tests/cross-cutting/psqlStartupFiles/scan.ts:1988` |
+| the one `matchBraceEnd` call site | `tests/cross-cutting/psqlStartupFiles/scan.ts:1144` |
+| the two nearest pin blocks in the deciding suite | `tests/cross-cutting/psqlStartupFileSuppression.test.ts:6699`, `tests/cross-cutting/psqlStartupFileSuppression.test.ts:6725` |
 
 ## Global constraints
 
@@ -68,7 +71,7 @@ row by grepping it.
   spellings put the sibling arc's deciding suite red and its gate into `BaselineNotGreenError`.
   `git status --short` before believing a red baseline. This arc's own probes live under `docs/`,
   which the walk skips at the root — measured, not assumed: with all SEVEN present the AC-5 digest is
-  unchanged at 76 rows / `8ebe8b08…` (re-measured 2026-08-24, after `weaker-walks.mts` was added).
+  unchanged at 76 rows / `8ebe8b08…` (re-measured 2026-08-25 by Task 1 on the rebased tree).
 - **Mutation-operator families are closed at two**, `relational-boundary` and
   `regex-quantifier-bound`, as the registry row ratifies. A third family is a registry change
   carrying its own before/after numbers, not a finding on this plan.
@@ -134,11 +137,11 @@ pins from disk knows the set, and a hand-built list is the enumeration this repo
 
 | pin | disposition under this plan |
 | --- | --- |
-| `a construct whose LAST character is its delimiter without closing is REPORTED, not resolved` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6674`) | **HELD.** Six rows, each 0 sites / 1 advisory. The FIRING CONDITION is unchanged; which spans are undelimitable does move (design §3.2), and none of these six is among them. Task 3 asserts all six unmoved. |
-| `a quote character that is LITERAL inside a double-quoted target does not open a span` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6700`) | **HELD**, and it is the nearest neighbour: it pins the per-context alphabet on the TARGET path that Task 3 introduces on the WALK path. |
-| `documented limits - quote-concatenated spellings outside the assignment family` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6165`) | **HELD.** Unrelated family (assignment values); named because it is a declared-limit block on the same suite. |
-| `R40 — hypothetical gaps closed cheaply; the rest are documented limits` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:4151`) | **HELD.** |
-| `each quote-concatenated keyword/operand spelling is a declared miss` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6173`) | **HELD.** Named because `spec:lint`'s own arm named it and my hand-built table had guessed the enclosing block heading instead — which is exactly why this table is reconciled against `DECLARED_LIMIT_PIN_UNNAMED` output rather than assembled from a reading of the suite. Unrelated family (quote-concatenated assignment spellings); the crossing repair does not reach it. |
+| `a construct whose LAST character is its delimiter without closing is REPORTED, not resolved` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6699`) | **HELD.** Six rows, each 0 sites / 1 advisory. The FIRING CONDITION is unchanged; which spans are undelimitable does move (design §3.2), and none of these six is among them. Task 3 asserts all six unmoved. |
+| `a quote character that is LITERAL inside a double-quoted target does not open a span` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6725`) | **HELD**, and it is the nearest neighbour: it pins the per-context alphabet on the TARGET path that Task 3 introduces on the WALK path. |
+| `documented limits - quote-concatenated spellings outside the assignment family` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6190`) | **HELD.** Unrelated family (assignment values); named because it is a declared-limit block on the same suite. |
+| `R40 — hypothetical gaps closed cheaply; the rest are documented limits` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:4154`) | **HELD.** |
+| `each quote-concatenated keyword/operand spelling is a declared miss` (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6198`) | **HELD.** Named because `spec:lint`'s own arm named it and my hand-built table had guessed the enclosing block heading instead — which is exactly why this table is reconciled against `DECLARED_LIMIT_PIN_UNNAMED` output rather than assembled from a reading of the suite. Unrelated family (quote-concatenated assignment spellings); the crossing repair does not reach it. |
 | the five NEW limits of design §7 (`L1`–`L5`) | **ALREADY TRACKED** as `shapes.mts` limit rows (`L1-ansi-c-inside-subst` through `L5-squote-in-brace-in-dquote`); what Task 4 authors is the temporary MUTANT that proves they discriminate, not the rows (round 3 finding 3). ONE named widening mutant proves the population discriminates: under the `#`-comment rule `L2` reports `MOVED` and the run exits 1. The other four are pinned but NOT individually mutant-proved — they share one instrument, so a mutant that moves any row proves the channel for all five, and claiming five separate proofs was round 1 finding 5. Design §7's items 6 and 7 are deliberately NOT in this population: item 6 is asserted by `syntax-error-class.mts` and item 7 by the AC-5 digest. |
 
 ## Wrong implementations, and the fixture that kills each
@@ -232,8 +235,8 @@ was itself defeated by presence. The candidate half now carries the full attribu
 
 **Two count-based assertions are deliberately outside this rule, named so the heading is not read
 wider than it is** (round 3 finding 3). The two nearest declared-limit pin blocks
-(`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6674` and
-`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6700`) are PRE-EXISTING and
+(`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6699` and
+`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6725`) are PRE-EXISTING and
 count-shaped; this plan asserts them UNMOVED rather than rewriting them, and rewriting them would be
 scope creep on a surface the repair does not otherwise touch. And `syntax-error-class.mts` asserts a
 POPULATION count — five of five ordinary syntax errors still fabricate — which is the right shape for
@@ -331,14 +334,20 @@ number in the design was measured before `arc-yamlquote` merged.
 
 ## Task 2: pin the base (executed at plan time, re-executed by Task 1)
 
-Outputs, not intentions, at `50ca72a56`. **Every figure carries the command that produced it**, per
-the derived-numbers provenance convention now on main (`BL-...`-archived with #876): a stated number
-either names its producing command or is script-assembled. Re-verified 2026-08-24 except where noted.
+Outputs, not intentions, at `300a9f937b8a`. **Every figure carries the command that produced it**,
+per the derived-numbers provenance convention now on main (`BL-...`-archived with #876): a stated
+number either names its producing command or is script-assembled. **Re-executed by Task 1 on
+2026-08-25 against the rebased tree**, which is what the figures below are stamped to; where a
+figure MOVED across the base change it is shown as `50ca72a56 → 300a9f937b8a` rather than silently
+overwritten, because a pin that changes without saying so is indistinguishable from one that was
+never re-measured.
 
-- **Deciding suite: 1009 passed (1009).**
+- **Deciding suite: 1009 → 1045 passed (1045).** The one pin the base change MOVED: `arc-yamlquote`
+  added 36 cases to this suite. Nothing was removed and no pinned zero moved.
   `pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts`
 - **Live census: 76 sites, 0 indirections, 0 unreadable**, digest
-  `8ebe8b08d43e6308aa471112d9f086d0118e6238`.
+  `8ebe8b08d43e6308aa471112d9f086d0118e6238` — UNCHANGED across the base move, and separately
+  confirmed by the AC-5 instrument (`--expect 8ebe8b08…` exits 0, `PASS` over 76 rows).
   `pnpm exec tsx …/probes/2026-08-22-shell-brace-cross-construct/corpus-time.mts --runs 1`
   (reads `TOTAL ROWS` and `DIGEST`), or the AC-5 instrument
   `pnpm exec tsx …/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts`.
@@ -347,7 +356,10 @@ either names its producing command or is script-assembled. Re-verified 2026-08-2
   next `id: "` and counting within that slice — a bare grep spans neighbouring surfaces and reports
   three. The two `accepted-gap` matches inside the slice are both PROSE in comments, not rows.
 - **`shapes.mts` against the shipped walk: 11/22 accept-set**, limits VACUOUS (the shipped walk IS
-  the merge-base, so that population certifies nothing until Task 3 lands), **2/4 bash-rejected**.
+  the merge-base, so that population certifies nothing until Task 3 lands), **2/4 bash-rejected**,
+  `ROWS: 31 total = 22 + 5 + 4`, and the bash oracle clean on every row. **All four tallies are
+  UNCHANGED across the base move**, which is the headline of Task 1: `scan.ts` moved 293 insertions
+  and 20 deletions and not one row of the crossing population shifted.
   `pnpm exec tsx …/probes/2026-08-22-shell-brace-cross-construct/shapes.mts` with no `SCAN_MODULE`.
   The eleven unmet rows are the seven `R*` spellings, `Q2`, `Q3`, `P4`, `P5`.
 - **Median CPU over the live corpus: NOT PINNED HERE, deliberately.** An earlier draft carried
@@ -362,7 +374,7 @@ either names its producing command or is script-assembled. Re-verified 2026-08-2
 
 ## Task 3: the walk delegates to the constructs it crosses, and the prose moves with it
 
-<!-- task: red=`pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:1000` why=`matchBraceSpan counts ONLY its own delimiter pair. The target line is the depth-decrement inside the else-if on the closing character - VERIFIED BY READING it at the base commit 50ca72a56, not merely by confirming the citation resolves, which establishes nothing: the line above it is the matching depth-increment and an off-by-one would still have resolved. Cited by CONTENT because this task edits that function. It tracks quotes and escapes and knows no other construct, so a } belonging to a nested $() decrements the ${ walk to zero. Step 1 authors every accept-set case of design section 2.1 in the deciding suite, each ALONE, each asserting sites AND nested/nestedInBacktick because a presence assertion cannot discriminate a delimiting defect. Step 2 observes them red against that counting: re-measured 2026-08-24, ELEVEN of the twenty-two accept-set rows fail on the merge-base walk, several reporting a site with the wrong nested value rather than no site at all, which is why the assertions are attribution-shaped. Step 3 adds the delegation plus the two per-context helpers. Step 4 re-runs the SAME command green and asserts both nearest pin blocks unmoved. Steps 5 and 6 then run the probe channel that AC-1 and AC-2 actually name, and re-key the enrolled surface this task's own edit invalidated` ac=AC-1,AC-2,AC-4 -->
+<!-- task: red=`pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:1013` why=`matchBraceSpan counts ONLY its own delimiter pair. The target line is the depth-decrement inside the else-if on the closing character - VERIFIED BY READING it at the base commit 300a9f937b8a, re-read after Task 1's rebase, not merely by confirming the citation resolves, which establishes nothing: the line above it is the matching depth-increment and an off-by-one would still have resolved. Cited by CONTENT because this task edits that function. It tracks quotes and escapes and knows no other construct, so a } belonging to a nested $() decrements the ${ walk to zero. Step 1 authors every accept-set case of design section 2.1 in the deciding suite, each ALONE, each asserting sites AND nested/nestedInBacktick because a presence assertion cannot discriminate a delimiting defect. Step 2 observes them red against that counting: re-measured 2026-08-24, ELEVEN of the twenty-two accept-set rows fail on the merge-base walk, several reporting a site with the wrong nested value rather than no site at all, which is why the assertions are attribution-shaped. Step 3 adds the delegation plus the two per-context helpers. Step 4 re-runs the SAME command green and asserts both nearest pin blocks unmoved. Steps 5 and 6 then run the probe channel that AC-1 and AC-2 actually name, and re-key the enrolled surface this task's own edit invalidated` ac=AC-1,AC-2,AC-4 -->
 
 RED: the §2.1 accept-set cases authored in the deciding suite, failing against `matchBraceSpan`'s
 bare `depth--`. GREEN: the delegation.
@@ -434,7 +446,7 @@ the argument as well as the key.
 
 ## Task 4: the documented-limit surface, red against a NAMED MUTANT, and every impostor killed
 
-<!-- task: red=`SCAN_MODULE=tests/cross-cutting/psqlStartupFiles/scan.ts pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/shapes.mts --expect-repaired` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:973` why=`every documented-limit row pins behaviour that is CORRECT today and must not move, so a non-regression pin cannot go red against correct code. Its red is authored against a NAMED MUTANT applied to the function at the target line above, matchBraceSpan, cited by SYMBOL because this arc moves it: the comment-rule widening of design section 2.1b, which makes a # inside $() close the construct the way bash does. Step 2 applies it and observes L2 report MOVED with exit 1, proving the limit rows discriminate scope creep rather than merely printing. Step 3 reverts the mutant - it is never committed - and Step 4 re-runs the SAME command green. The mutant is deliberately an IMPROVEMENT in bash fidelity and is still refused, which is what makes the no-parser-growth fence executable` ac=AC-3 -->
+<!-- task: red=`SCAN_MODULE=tests/cross-cutting/psqlStartupFiles/scan.ts pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/shapes.mts --expect-repaired` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:986` why=`every documented-limit row pins behaviour that is CORRECT today and must not move, so a non-regression pin cannot go red against correct code. Its red is authored against a NAMED MUTANT applied to the function at the target line above, matchBraceSpan, cited by SYMBOL because this arc moves it: the comment-rule widening of design section 2.1b, which makes a # inside $() close the construct the way bash does. Step 2 applies it and observes L2 report MOVED with exit 1, proving the limit rows discriminate scope creep rather than merely printing. Step 3 reverts the mutant - it is never committed - and Step 4 re-runs the SAME command green. The mutant is deliberately an IMPROVEMENT in bash fidelity and is still refused, which is what makes the no-parser-growth fence executable` ac=AC-3 -->
 
 The FIVE documented-limit rows `L1`–`L5` pin behaviour that is CORRECT today and must stay, so a
 non-regression pin cannot red against correct code. (Design §7 lists seven limits; items 6 and 7 are
@@ -623,7 +635,7 @@ round-1 diff brief's `GUARD SURFACE:` line carries come from THIS run, not from 
 suites), so `git hash-object` settles whether a re-run is needed more cheaply than the re-run does.
 
 **The temp shard is a `.ts` inside the scanned tree, and that is the peer of round 2 finding 3 on
-this task.** `SCANNED_EXTENSIONS` (`tests/cross-cutting/psqlStartupFiles/scan.ts:474`) covers
+this task.** `SCANNED_EXTENSIONS` (`tests/cross-cutting/psqlStartupFiles/scan.ts:487`) covers
 `.ts`, so a file placed under `tests/mutation/` is walked like any other source — which is how a
 sibling arc's scratch probe put its deciding suite red and its gate into `BaselineNotGreenError`.
 Keep the shard free of psql spellings, and because it is created AND deleted inside this task, no
@@ -686,25 +698,32 @@ rg -n 'matchBraceSpan|matchBraceEnd|only ever wanted the index|blind spot|expans
   tests/cross-cutting/psqlStartupFiles/scan.ts tests/cross-cutting/psqlStartupFileSuppression.test.ts BACKLOG.md
 ```
 
-Twelve hits at `50ca72a56`, run 2026-08-24, each disposed. **Every row marked MOVES except the
-ledger one is repaired in Task 3 step 5b**; re-running the command here must show each of them
-already updated, and a hit still describing the pre-repair walk means step 5b was incomplete:
+**THIRTEEN hits at `300a9f937b8a`, re-run by Task 1 on 2026-08-25.** It was twelve at
+`50ca72a56`; the thirteenth arrived with `arc-yamlquote`'s merge and belongs to a DIFFERENT ledger
+row, disposed below. That the count moved without anyone touching this arc is the argument for the
+sweep being the channel and §6 a reading of it: a checklist of eight cannot notice a hit that a
+sibling merge introduced. **Every row marked MOVES except the ledger one is repaired in Task 3
+step 5b**; re-running the command here must show each of them already updated, and a hit still
+describing the pre-repair walk means step 5b was incomplete:
 
 | hit | disposition |
 | --- | --- |
-| `scan.ts:359` | **MOVES** — §6 site 4, the lexer header's ONE-blind-spot claim. True again only after the repair. |
-| `scan.ts:973` | **MOVES** — §6 site 1, `matchBraceSpan`'s block comment and its quoted-`)` example. |
-| `scan.ts:1008` | **MOVES** — §6 site 2. The measured figure is SIX callers, not four. |
-| `scan.ts:1010`, `scan.ts:1026`, `scan.ts:1131` | **no action** — call sites, not prose. |
-| `scan.ts:1025` | **MOVES** — §6 site 3, `matchBraceEnd`'s comment, which describes the walk it delegates to. |
-| `scan.ts:1566` | **MOVES** — §6 site 5, the `${…}` branch on consuming the expansion whole. |
-| `psqlStartupFileSuppression.test.ts:5323` | **MOVES — NOT IN §6.** The suite-side twin of site 5, same claim about consuming a `${…}` expansion whole. Found by this sweep, added to design §6 as site 7. |
-| `psqlStartupFileSuppression.test.ts:6664` | **MOVES — NOT IN §6.** A diff-round-1 comment describing what `matchBraceEnd` asked of a character. Found by this sweep, added to design §6 as site 8. |
-| `BACKLOG.md:263` | **MOVES — in THIS task**, §6 site 6, the ledger row archived at closeout. The only §6 site that is not a source edit. |
-| `BACKLOG.md:1800` | **false positive, no action** — an unrelated `probe:citations` entry using "blind spot" in its ordinary sense. Recorded rather than filtered out of the pattern, because a sweep that is tuned until it returns only true positives has been tuned against its own corpus. |
+| `scan.ts:372` | **MOVES** — §6 site 4, the lexer header's ONE-blind-spot claim. True again only after the repair. |
+| `scan.ts:986` | **MOVES** — §6 site 1, `matchBraceSpan`'s block comment and its quoted-`)` example. |
+| `scan.ts:1021` | **MOVES** — §6 site 2. The measured figure is SIX callers, not four. |
+| `scan.ts:1023`, `scan.ts:1039`, `scan.ts:1144` | **no action** — call sites, not prose. |
+| `scan.ts:1038` | **MOVES** — §6 site 3, `matchBraceEnd`'s comment, which describes the walk it delegates to. |
+| `scan.ts:1579` | **MOVES** — §6 site 5, the `${…}` branch on consuming the expansion whole. |
+| `psqlStartupFileSuppression.test.ts:5348` | **MOVES — NOT IN §6.** The suite-side twin of site 5, same claim about consuming a `${…}` expansion whole. Found by this sweep, added to design §6 as site 7. |
+| `psqlStartupFileSuppression.test.ts:6689` | **MOVES — NOT IN §6.** A diff-round-1 comment describing what `matchBraceEnd` asked of a character. Found by this sweep, added to design §6 as site 8. |
+| `BACKLOG.md:299` | **MOVES — in THIS task**, §6 site 6, the ledger row archived at closeout. The only §6 site that is not a source edit. |
+| `BACKLOG.md:2154` | **false positive, no action** — an unrelated `probe:citations` entry using "blind spot" in its ordinary sense. Recorded rather than filtered out of the pattern, because a sweep that is tuned until it returns only true positives has been tuned against its own corpus. |
+| `BACKLOG.md:357` | **NEW at this base, no action, and it is NOT this arc's row.** It belongs to `BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES`, which states that `matchBraceEnd` "returns `-1` when a span never closed, so the suppression precedent already exists in the file". The repair does NOT falsify it: §1.2 row 5 and §3.2 both ratify that `matchBraceEnd` keeps reading the walk's OWN `closed` flag and that `matchBrace`'s return contract is unchanged for its six index-only consumers. The sentence is true before and after. Recorded because the sweep found it and a reader is owed the reason it survives untouched. |
 
 **Two of the eight prose sites were found by the sweep and not by §6**, which settles what the sweep
-is for: it is the channel, and §6 is a reading of it that was two sites short.
+is for: it is the channel, and §6 is a reading of it that was two sites short. The thirteenth hit
+makes the same point a second way and from outside: it entered the corpus through a sibling arc's
+merge, so no reading of §6 — however careful — could have anticipated it.
 
 `syntax-error-class.mts` runs here too: it ASSERTS that all five ordinary syntax errors still
 fabricate, and a failure means §7 limit 6's scope claim has stopped being true and must be re-read
