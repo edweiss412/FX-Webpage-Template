@@ -45,9 +45,7 @@ describe("acCoverage — the live plan corpus", () => {
     }
     premise("undeclared documents actually scanned", undeclared, 30);
     expect(noisy).toEqual([]);
-  }, // on this machine; the bound is generous so a slower runner does not produce a // A corpus scan over ~700 documents, each parsed with remark. Measured at ~11s
-  // timeout that reads like a finding.
-  60_000);
+  }, 60_000); // timeout that reads like a finding. // on this machine; the bound is generous so a slower runner does not produce a // A corpus scan over ~700 documents, each parsed with remark. Measured at ~11s
 
   it("both declaring PLANS are found, and the arm reports zero over each", () => {
     const declaring = docs.filter((f) => DECLARED.test(readFileSync(f, "utf8")));
