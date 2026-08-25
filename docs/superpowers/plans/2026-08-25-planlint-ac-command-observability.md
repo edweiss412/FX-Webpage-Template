@@ -86,24 +86,30 @@ Task 2's row names an ABSENCE rather than a symbol, deliberately and stated: its
 
 **Sweep A — RETIRED at spec round 3, and recorded so nobody re-derives it.** Earlier drafts counted the inputs a hand-rolled table reader had to survive (75 rows with an escaped pipe, 675 with leading whitespace, 17 with a code span holding an unescaped pipe). The reader is gone; remark answers every one of those, and no task below carries a rule for any of them. The sweep that replaced it is the corpus population and the one structural fact the arm still owns:
 
+**The census is SELF-REFERENTIAL, so it is pinned to a rev.** This plan lives in `docs/superpowers/plans/`, so the corpus it measures grows every time this branch commits — round 3 read 933/7590 against a transcript recording 929/7551, and both were correct for the tree they ran on. The number quoted is therefore taken at `origin/main`, the corpus WITHOUT this arc, and the working-tree figure is given beside it so the difference is explained rather than drifting:
+
 ```
+at origin/main (the corpus the arm ranges over today)
+tables: 929  rows: 7551
+
 $ node docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.mjs hazards
-tables in the plan corpus, per remark:        929
-data rows across them:                        7551
+tables in the plan corpus, per remark:        933
+data rows across them:                        7590
 documents carrying MORE THAN ONE AC table:    1
    docs/superpowers/plans/ci/2026-08-20-browser-child-lifetime.md (2)
 every pipe/whitespace/backslash question above is remark's, not this arm's
 ```
 
-**Sweep B — the declaring-document population.** After Task 10 it must return exactly two documents, both PLANS: the fixture and this plan. Run at plan time:
+The delta is this plan's own tables. Neither claim the census supports — the population's size, and that one document already carries two AC tables — turns on four tables either way.
+
+**Sweep B — the declaring-document population.** Round-3 finding 1: the loose substring grep also matches the spec's own prose describing the grammar, so "exactly two after Task 10" was unsatisfiable by the command as written — it would return three. The sweep's command is the ANCHORED one, matching the declaration grammar rather than the substring:
 
 ```
-$ grep -rl 'ac-coverage: command-col=' docs/
+$ grep -rlE '^ {0,3}<!-- ac-coverage: command-col=[1-9][0-9]* -->[[:space:]]*$' docs/
 docs/superpowers/plans/2026-08-25-planlint-ac-command-observability.md
-docs/superpowers/specs/ci/2026-08-25-planlint-ac-command-observability-design.md
 ```
 
-The spec hit is its own prose describing the grammar, not a declaration — the spec carries no AC-table declaration, because the arm is plan-only (spec §8.6). Task 10 adds the fixture and the assertion becomes: two plan documents declare, and the arm reports zero over both.
+One document declares today: this plan. After Task 10 the anchored grep must return exactly two, both PLANS — the fixture and this one — and the arm must report zero over both. The loose grep is kept out of the plan entirely, because a sweep whose command cannot produce its stated result is worse than no sweep.
 
 **Sweep C — the mutation-surface fan-out, RUN.** Round-2 finding 2: this sweep named two of four registries and was described rather than executed. The artifact kind is a guard surface enrolled in `GUARD_SURFACES`; the member probed is `claimSweep`; the four sites are what the probe returns, not what I remembered.
 
@@ -142,12 +148,19 @@ The builder lives under `tests/` deliberately: a suite may import remark, the pu
 
 remark under this repo's vitest config is PROVEN, not assumed: `tests/docs/agentsHeavyPhaseRule.test.ts` imports it and passes 68 tests, run at plan time.
 
+<!-- spec-lint: ignore — created by this plan's implementation; not yet tracked -->
+**`blocksFrom` is ONE function, and it lives on the adapter side at `scripts/lib/acCoverageBlocks.ts`.** The builder must not be a second implementation — two builders drift, which is spec §8.3's argument one level down — so the adapter and the suites call the same one, and `tests/specLint/acCoverageView.ts` is a thin re-export plus a `viewOf(text)` convenience. It sits under `scripts/` and not in the pure core because it takes an mdast `Root`, and even `import type { Root } from "mdast"` is a third-party specifier that Task 8's guard would otherwise have to exempt. Keeping it out means the guard stays absolute. `AcBlocks` in `lib/specLint/types.ts` is plain interfaces with no mdast types at all.
+
+Both halves are established convention rather than invention: tests already import from `scripts/` (five from `scripts/spec-lint` alone), `scripts/lib/` already holds TypeScript modules, and nothing under `lib/` imports a type from a third-party package today.
+
 <!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts` why=`checkAcCoverage is a stub returning [], so the first declaration assertion fails on the arm's output rather than on module resolution` ac=AC-4 -->
 
 ## Task 2 — the live-corpus zero case, authored BEFORE declaration discovery
 
 <!-- spec-lint: ignore — created by this plan's implementation; not yet tracked -->
 Creates `tests/specLint/acCoverageCorpus.test.ts`. Walks `docs/superpowers/plans/` from disk, builds a view per document, and asserts the arm contributes zero findings to every document carrying no declaration. Carries a `premise` that the walk found more than 30 documents, stated unconditionally relative to what it guards and never inside a `.each` callback, so an empty walk cannot report a pass.
+
+The bound is DERIVED and its failure direction is loud: `find docs/superpowers/plans -name '*.md' | wc -l` returns 695 today, so 30 is a floor with roughly 23x headroom, and it can only ever fail by the walk collapsing — which is exactly the degenerate case the premise exists to catch. A too-SMALL floor here cannot pass silently, because the assertion it guards is the presence of a population, not its size.
 
 **Authored here and not later, because later it cannot go red** (round-1 finding 2). Its discriminating case plants a declaration into a copy of a walked document and asserts the finding count MOVES. Once Task 3 lands declaration discovery that case passes, so the red must be observed now, while nothing reads a declaration at all.
 
@@ -188,7 +201,16 @@ Adds all NINE plants of spec §5, seven of which are reviewer probes kept as reg
 
 `scripts/spec-lint.ts` gains the remark parse (`remark().use(remarkGfm)`, the pattern at `lib/reviewRounds/filing.ts:60`), the view it injects, and a SECOND spawn loop for the AC plan keyed by `(line, spanIndex)`. `lib/specLint/run.ts` gains the import, the `CHECK_ORDER` entry and the invocation.
 
-**`runLint`'s parameter list is a KNOWN collision site and the new parameter goes LAST.** `lib/specLint/run.ts:105-112` carries the history in a comment: two arms once appended to the same slot on their own branches, and the one that had not yet merged is the one that moved. Measured at plan time: **22 `runLint(` occurrences across 9 files**, 14 of them passing positionally past the second argument. The arm therefore takes ONE new trailing parameter, not two — `acCoverage?: { blocks: AcBlocks; parse: AcParseResults | null } | null` — because two slots double the collision surface against any sibling arc doing this in the same week.
+**`runLint`'s parameter list is a KNOWN collision site and the new parameter goes LAST.** `lib/specLint/run.ts:105-112` carries the history in a comment: two arms once appended to the same slot on their own branches, and the one that had not yet merged is the one that moved. Measured at plan time by AST walk, because round-3 finding 2 caught the first attempt mixing textual occurrences with call expressions and undercounting by three:
+
+```
+$ node -e '<ts.createSourceFile over lib/ scripts/ tests/; count CallExpressions named runLint>'
+textual occurrences: 23 across 9 files
+AST call expressions: 22 across 8 files
+calls passing MORE than two arguments: 17
+```
+
+**22 call expressions across 8 files, 17 of them passing more than two arguments.** The textual count is 23 because it also matches the `export function runLint(` definition, and the ninth file is `lib/specLint/run.ts` itself, which declares rather than calls. The arm therefore takes ONE new trailing parameter, not two — `acCoverage?: { blocks: AcBlocks; parse: AcParseResults | null } | null` — because two slots double the collision surface against any sibling arc doing this in the same week.
 
 <!-- spec-lint: ignore — created by this plan's implementation; not yet tracked -->
 The `CHECK_ORDER` entry is compiler-enforced (`lib/specLint/types.ts:45`); the `runLint` invocation is not, and that is the half this task's red pins. `tests/specLint/acCoverageCli.test.ts` runs the CLI over a document with a prose cell and asserts both that the finding appears in the rendered report and that the process exits 1 — the exact defect `lib/specLint/types.ts:12-33` records for `claimSweep`.
