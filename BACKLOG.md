@@ -319,24 +319,6 @@ they are separate paths and one repair need not reach both. All three rows above
 deciding cases, row 1 as the control that must STAY at zero, and the census re-run to
 confirm no live workflow changes classification.
 
-## BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE — a QUOTED workflow `run:` scalar is scanned as if its YAML quoting were shell, fabricating a site on one spelling and going silent on another
-
-**Status:** IN PROGRESS · **Branch:** fix/yaml-run-scalar-quoting-decode · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 5 - raised against that diff, REFUTED against it, and true of the tree either way) · **Severity:** MEDIUM (one spelling FABRICATES a `PsqlSite` for a command bash never runs, which is a forbidden direction; the other is silent, which is the other forbidden direction) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — the repair belongs to the YAML decode path (`scanSource`'s workflow reader), a surface the attached-redirection arc does not otherwise touch, and it needs the scanner to distinguish YAML quoting from shell quoting before the shell lexer ever sees the value. · **Reachability:** PROBED — three spellings, each run against bash and against `scan.ts` at both revisions. · **Incident:** it consumed diff round 5 of this arc (corpus row at `docs/review-rounds/fix/shell-attached-redirection-target/0ba72c23774f.jsonl`), where it was raised as a finding against a diff that does not cause it. The round is the cost event; the defect is real and outlives the refutation.
-
-Production passes the whole YAML file to the scanner, which reads `run:` values. When the scalar is QUOTED, the quoting belongs to YAML and not to the shell, and the scanner does not make that distinction.
-
-| `run:` scalar | bash                        | scanner                                   |
-| ------------- | --------------------------- | ----------------------------------------- |
-| single-quoted | exits 2, never invokes psql | **0 sites, 0 hits** — silently unsignaled |
-| double-quoted | exits 2, never invokes psql | **1 site** — a FABRICATED `PsqlSite`      |
-| plain         | exits 2, never invokes psql | 0 sites, 1 advisory — correct             |
-
-**PRE-EXISTING, proven rather than assumed.** All three spellings were run against `scan.ts` at the merge-base as well as HEAD. The two failing rows are BYTE-IDENTICAL at both revisions. The plain-scalar row is where the attached-redirection arc CHANGED behaviour, and it changed it in the right direction: base is silent, HEAD emits the advisory.
-
-**Why the fabricated site is the worse half.** A silent miss on the single-quoted spelling is the familiar direction and the census bounds it. The double-quoted spelling asserts a psql call site that the shell will never execute — the guard telling a reader that code runs when it does not, which is the direction every other row on this surface treats as forbidden.
-
-Close condition: the workflow reader decodes a `run:` scalar's YAML quoting BEFORE handing the value to the shell lexer, with the three spellings above as its acceptance and bash as the oracle for each.
-
 ## BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR — four controls rest one rung BELOW the token this arc retired
 
 **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** colour policy completeness. **Effort:** S-M. **Class-sweep exception:** (a) — whether a control may rest at the faint rung is a design decision, and the census this arc shipped was ratified around one token. **Reachability:** PROBED — all four sites read from the live tree.
@@ -1748,7 +1730,7 @@ The filter is not loose by accident — it covers the eight parser shard files, 
 
 ## BL-REVIEW-ROUND-REPORT-TEST-TIMEOUT-GROWTH — a review-round test derives its expectation from main's merge log, so it slows down with every merge and will eventually time out
 
-**Status:** IN PROGRESS · **Branch:** fix/yaml-run-scalar-quoting-decode · **Filed:** 2026-08-16 (`docs/mutation-ledger-accuracy`, on behalf of #833, which reported it batch-wide and did not file it) · **Severity:** MEDIUM (a latent flake on a full local clone; CI is structurally immune) · **Class:** test durability · **Effort:** S
+**Status:** OPEN · **Filed:** 2026-08-16 (`docs/mutation-ledger-accuracy`, on behalf of #833, which reported it batch-wide and did not file it) · **Severity:** MEDIUM (a latent flake on a full local clone; CI is structurally immune) · **Class:** test durability · **Effort:** S
 
 `tests/reviewRounds/report.test.ts` — the case `matches the live log when history is available` — builds its expectation by shelling out to `git log --merges --first-parent main --format=%s` (`tests/reviewRounds/report.test.ts:1263-1266`) and comparing it against `mergedArcs(process.cwd())`. Its cost therefore grows with main's merge history, permanently and in one direction, against the fixed `TEST_TIMEOUT_MS = 30_000` (`vitest.projects.ts:179`).
 
