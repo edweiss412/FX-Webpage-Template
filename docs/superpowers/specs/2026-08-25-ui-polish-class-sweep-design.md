@@ -185,4 +185,41 @@ Recorded here rather than folded silently into §1, because two of the eleven de
 
 ## 12. Close-out
 
-impeccable-gate: critique=PENDING audit=PENDING p0=0 p1=0 dispositions=none
+impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=1 dispositions=recorded
+
+### Why both halves are RAN-DEGRADED
+
+The critique contract requires Assessment A and Assessment B to run as two isolated sub-agents. **Four sub-agent dispatches were made — two for A, two for B.** All four ran to completion and went idle **without their final message ever reaching the parent**, and their transcripts were not recoverable from disk (searched the project's transcript directory by content and by recency; the in-process agents write no file there). A delivery request was sent to each; none answered.
+
+Both assessments were therefore run inline, and both halves are declared `RAN-DEGRADED` rather than `RAN`. The detector half loses nothing to this — it is deterministic, and the numbers are the numbers. The design-review half loses genuine independence, and that is the honest cost: the same context that wrote the diff judged it. Recorded here so a reader weights the 32/40 accordingly rather than reading it as a fresh-eyes score.
+
+### Critique — Design Health 32/40 (Good, top of band)
+
+Snapshot: `.impeccable/critique/2026-08-25T19-41-23Z__feat-ui-polish-class-sweep-diff.md`. First run for this slug, no trend yet.
+
+- **AI-slop verdict: not slop.** Nothing decorative; one token added with its ratios measured in both themes; the only motion is a 90° chevron rotation on a token duration.
+- **Detector: exit 0, 9 findings, 9 false positives.** All nine are the literal string `<img>` inside code comments or docstrings; the detector's markup scan does not strip comments. Zero sit on a line this diff adds.
+- **P0: none. P1: none** (from the critique half).
+
+### Audit — Health 19/20 (Excellent)
+
+| # | Dimension | Score | Key finding |
+|---|---|---|---|
+| 1 | Accessibility | 4 | The diff's purpose. Removes two sub-floor contrast states, repairs an accessible-name defect, makes three tap targets real, takes N-1 carousel slides out of the accessibility tree, announces the current slide, adds four fold cues. One P1 found **and fixed inside this gate** — see below. |
+| 2 | Performance | 3 | Nothing costly added: only `transition-colors` / `-opacity` / `-transform`, no layout-property animation, no new images or dependencies, and reduced motion is free through the project's global duration collapse. Scored 3 rather than 4 because the announcement effect gained an `activeIndex` dependency and therefore re-runs per navigation — correct, but not measured, and an unmeasured claim is not an excellent one. |
+| 3 | Responsive Design | 4 | Tap floors measured as real boxes at 375px and 1280px; no fixed widths added; the ShareHub repair exists specifically for sub-640px. |
+| 4 | Theming | 4 | One new token declared at all four theme sites with its ratios asserted as relations rather than constants. Zero raw palette colours, zero new arbitrary values. |
+| 5 | Anti-Patterns | 4 | Detector clean of genuine findings. No side-stripe, no gradient text, no glass, no hero-metric block, no eyebrow scaffolding added. |
+| **Total** | | **19/20** | Excellent — minor polish. |
+
+### Findings and dispositions
+
+| Sev | Finding | Disposition |
+|---|---|---|
+| P1 | `components/crew/primitives/SourceLink.tsx` — raising the resting colour to `text-text` broke the link's only focus cue. Its focus indicator was a colour step, a visible 3.35:1 → 6.8:1 before, and 17.2:1 → 19:1 after: effectively invisible, failing WCAG 2.4.11. **This branch caused it.** | **FIXED** in `0112ffb46`. Added the `focus-visible` ring its peer `CardReportTrigger` already carries, so the two controls that sit on the same cards now focus the same way. |
+| P2 | The crew source link may now be louder than the card wants (3.35:1 → ~17:1) on a surface PRODUCT.md wants to "breathe". A third option — arguing the site into a §1.1a carve-out family and resting at `text-text-subtle`, which clears AA *and* stays quiet — was never weighed. | **SURFACED TO THE OWNER** as D4 in the PR body, flagged as a knowing override of a deliberate crew-surface choice. Not deferred silently. |
+| P2 | The FINANCIALS caution lost its indent when the checkbox and caption moved inside a label, so it read as a note about the panel rather than about that row. | **FIXED** in `51ae701c7` (`pl-7`, re-aligned under the caption). |
+| P3 | `components/crew/sections/TodaySection.tsx` — the chevron attaches to the eyebrow label rather than the row's trailing edge, where a disclosure cue is conventionally read. | **ACCEPTED.** Legible and consistent with the other three; a preference, not a defect. |
+| P3 | `components/admin/BellPanel.tsx` — `GHOST_RESOLVE` still carries a non-token `text-[13px]`. Pre-existing; this diff edited the constant without normalising it. | **RECORDED, out of scope**, so the next sweep does not read it as new. |
+
+No P0 or P1 is outstanding, so no `DEFERRED.md` entry is owed.
