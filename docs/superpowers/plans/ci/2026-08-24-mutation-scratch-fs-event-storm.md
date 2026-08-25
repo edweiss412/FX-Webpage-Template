@@ -7,7 +7,9 @@ impeccable-gate: N/A — no UI surface
 
 ## 1. Scope, derived rather than enumerated
 
-A file is in scope if it creates a scratch root, registers no removal, and is named in some enrolled surface's `suitePaths` — so a mutant loop re-runs it. Re-running the derivation is how a reader checks the set, and a newly-enrolled surface joins automatically instead of being silently exempt.
+A file is in scope if it **creates scratch roots** and is named in some enrolled surface's `suitePaths` — so a mutant loop re-runs it.
+
+**"Creates roots" and NOT "registers no removal", and the difference is load-bearing.** An earlier draft defined the subject set by the absence of cleanup, which is the one predicate Task 1 falsifies for every member: the set would empty out as the repair landed, the guard would pass over nothing, and the same command could not go green for the reason it went red. Creating roots stays true after the repair — the six still create them, they simply no longer leak them — so the subject set is fixed and only the assertion flips.
 
 Run at plan time over `git ls-files tests/`: 108 files create scratch directories, **62 register no `rmSync` anywhere** (117 call sites). Six of those are named by an enrolled surface:
 
@@ -17,6 +19,8 @@ Run at plan time over `git ls-files tests/`: 108 files create scratch directorie
 | 46 | `tests/styles/interactiveScanCore.test.ts` (+2 in set) | interactiveScanCore |
 | 30 | `tests/ci/_metaModalWaitHelper.test.ts`, `tests/ci/_metaModalWaitCandidateV2.test.ts` | modal-wait-helper-scan, modal-wait-disposition |
 | 4 | `tests/styles/_metaControlOutlineFill.test.ts` | controlOutlineScan |
+
+**The six split by CAUSE, and only two are the cache's.** Just `tests/styles/interactiveScanCore.test.ts` and `tests/styles/_metaControlOutlineFill.test.ts` import `interactiveScanCore`; the other four build throwaway repository roots whose paths are SEMANTIC — a per-case e2e spec path under `tests/e2e/`, module locations, `use server` files — and are part of what those suites assert. They create a root per case because each case needs its own file layout, not because a cache forces it. Tier 3's reuse conversion therefore applies to the two cache-bound suites ONLY; forcing the other four onto one path would change their inputs. All six still get cleanup in Task 1, and since those four carry 180 of the 230 roots per run, cleanup is where most of the leak is fixed.
 
 Roots per SUITE-SET RUN is the only unit stated, here and in the spec. No per-pass product, percentage or rate appears in this plan: spec §1.3 records why (`runSuiteRecorded` returns on the first nonzero suite, `tests/mutation/source/runner.ts:221`, so a multi-suite surface does not run every suite for every mutant, and `bail: 1` truncates inside a suite as well). Three spec rounds returned an arithmetic finding against such a product and a fourth returned another; the plan does not reopen that axis.
 
@@ -29,7 +33,10 @@ Roots per SUITE-SET RUN is the only unit stated, here and in the spec. No per-pa
   ```
   tests/mutation/_metaScratchRootCleanup.test.ts   (new)
   ```
- **Behavioral, not a text pattern:** it runs each in-scope suite-set in a child with an isolated `TMPDIR` and asserts that directory is empty afterward. A "does the file contain `rmSync`" check is satisfied by an `rmSync` for something else, and any text recognizer over test source ratchets one spelling per round; asserting the property directly is total over it and has nothing to widen. Cost is measured: the four sets run in 1.9 + 1.7 + 3.0 + 1.7 = 8.3 s.
+
+  **Two arms, because one cannot do both jobs.** The BEHAVIORAL arm runs each subject suite-set in a child with an isolated `TMPDIR` and asserts that directory is empty afterward — total over "removes what it makes", with nothing for a recognizer to widen. The MEMBERSHIP arm is a cheap static check that every enrolled deciding-suite file calling `mkdtempSync` appears in the behavioral arm's subject list. That second arm IS a text scan, deliberately, and its claim is only "this file is enrolled in the behavioral check" — a far weaker claim than "this file cleans up correctly", which is the claim a text scan cannot carry. Its failure is loud and its repair is one line, so a newly-enrolled scratch-creating surface cannot go silently uncovered.
+
+  **AC-5 gets its own failing arm rather than riding on the passing suites.** The behavioral arm only ever runs suites that pass, so cleanup registered per-case-on-success would satisfy it while still leaking on failure. A purpose-built fixture suite in the guard's own fixtures creates a root and then throws; the guard asserts its `TMPDIR` is empty too. That proves the `afterAll` SHAPE the six adopt, which is the thing that makes the property hold under failure. **Behavioral, not a text pattern:** it runs each in-scope suite-set in a child with an isolated `TMPDIR` and asserts that directory is empty afterward. A "does the file contain `rmSync`" check is satisfied by an `rmSync` for something else, and any text recognizer over test source ratchets one spelling per round; asserting the property directly is total over it and has nothing to widen. Cost is measured: the four sets run in 1.9 + 1.7 + 3.0 + 1.7 = 8.3 s.
 - **EXTENDS** `tests/scripts/withHeavySlot.test.ts` — admission cases AC-2, AC-2b, AC-2c, AC-2d, AC-2e.
 - **EXTENDS** `tests/styles/interactiveScanCore.test.ts` — the four cache cases of AC-1c.
 - No other registry applies: no Supabase call boundary, no admin mutation surface, no advisory lock, no `admin_alerts` catalog, no tile rendering.
@@ -46,7 +53,7 @@ Roots per SUITE-SET RUN is the only unit stated, here and in the spec. No per-pa
 
 ## 4. RED shapes
 
-All four REDs are `red-state=authored`; none asserts the current tree already fails, so none is run at plan time. Task 1's is collection-shaped (the guard file does not exist yet) and is the only one declared so. Tasks 2 and 3 add cases to existing suites whose failure comes from a named production defect verified present on the live tree. Task 4's is the mutation gate, red because until Task 3 lands there is no reuse to switch on.
+**THREE tasks carry a `red=`; Task 4 deliberately does not** (see its heading for why). All three are `red-state=authored`: none asserts the current tree already fails, so none is run at plan time. Task 1's is collection-shaped — the guard file does not exist yet — and is the only one declared so. Tasks 2 and 3 add cases to existing suites whose failure comes from a named production defect verified present on the live tree.
 
 Each `red-target=` was verified by READING the cited line and matching it to the symbol its `why=` names, not by confirming it resolves. That caught one drift while drafting: `scripts/with-heavy-slot.py:683` is a comment, and the acquisition the `why=` describes is at `scripts/with-heavy-slot.py:707`.
 
@@ -106,7 +113,7 @@ Cases, and each names what it catches that the others do not:
 - **AC-2** two direct class acquirers serialize; an ordinary acquirer still proceeds while a slot is free.
 - **AC-2b** a nested invocation under an inherited slot marker exits non-zero with the message. It asserts the EXIT and the message, not that the process waits — round 2's finding was that "waits" is satisfied by a deadlock.
 - **AC-2c** the round-2 cycle constructed at `FX_HEAVY_SLOTS=1`; all three participants must reach a terminal state within a bounded time. Regression case for the repair review rejected.
-- **AC-2d** drives `pnpm heavy:mutation` end to end. Every other case exercises the wrapper's Python path and passes whether or not the shipped script delivers the flag — which is exactly how the first draft's broken invocation would have shipped green.
+- **AC-2d** drives `pnpm heavy:mutation` end to end, **at `FX_HEAVY_SLOTS=2` with an overlap-capable fixture**. The slot count is the discriminator: at one slot two invocations serialize whether or not the flag arrives, so the case would pass on the exact broken script it exists to catch. With two slots free, they overlap unless the class is actually taken. Every other case exercises the wrapper's Python path and passes whether or not the shipped script delivers the flag.
 - **AC-2e** an unknown class value exits 2 naming the accepted set. An implementation accepting both `mutation` and `mutaton` under separate locks satisfies every other case while two runs proceed.
 - **AC-3** at `FX_HEAVY_SLOTS=2`, one class holder plus two ordinary acquirers: at most two run at once. Under the rejected second-directory design that count is three, so the case discriminates the designs rather than exercising the shipped one.
 
@@ -120,16 +127,17 @@ The suite already has the template: `runWrapped(env, argv, wrapperArgs)` (`tests
 
 Key on `(path, mtimeMs, size)`. **Probed at plan time rather than left open:** 2,000 tight rewrites alternating two SAME-LENGTH contents produced zero collisions, and consecutive writes differ by about 0.034 ms (200 pairs, zero zero-deltas), so APFS mtime resolution separates back-to-back writes. The probe carries its own control — the predicate compared against a stat and itself, which must and does report a collision — because a negative from a predicate that can never fire is not evidence. The key depends on a filesystem property, so the guard ASSERTS it: `premiseHolds("consecutive writes receive distinct mtimeMs", delta !== 0)`. A coarse-granularity filesystem fails the premise loudly instead of the cache silently serving a stale parse. Content hashing is the named fallback, declined because it is O(file size) across every file of an `app/` and `components/` walk to buy nothing this measurement does not.
 
-**Four cases, and the fourth is the one that matters:**
+**Five cases, and each names the wrong implementation it alone rejects.** `parse` and `sourceCache` are module-private and `scanInteractiveElements` builds fresh result objects, so output equality cannot tell a cache hit from an unconditional reparse. The suite therefore needs an observable: a **parse counter** incremented where `ts.createSourceFile` is actually called, exported for the test. Without it case 2 has no oracle and an implementation that always reparses passes it.
 
-1. a file rewritten in place is re-parsed;
-2. a file untouched is served from cache;
-3. a file whose SIZE changes but whose mtime is forced equal is re-parsed;
-4. a file rewritten to the SAME LENGTH with a genuinely changed mtime is re-parsed.
+1. **rewritten in place is re-parsed** — rejects a cache with no invalidation at all.
+2. **untouched is served from cache** — asserted on the PARSE COUNTER, which must not increase. Output equality proves nothing here.
+3. **SIZE changes, mtime forced equal, is re-parsed** — rejects a key that ignores size.
+4. **rewritten to the SAME LENGTH, IN PLACE, with a changed mtime, is re-parsed, and the case asserts `birthtimeMs` is UNCHANGED across the rewrite** — rejects `(path, birthtimeMs, size)`. The birthtime assertion is what makes the case discriminate: a delete-and-recreate fixture changes birthtime too, so without it the wrong implementation passes. Rewrite in place; do not unlink.
+5. **two DIFFERENT paths whose `(mtimeMs, size)` are identical do not share a parse** — rejects an implementation keyed on metadata alone with the path dropped, which passes all four single-path cases above and then serves one file's `SourceFile` for another, producing a wrong scan and a wrong verdict.
 
-A `(path, birthtimeMs, size)` implementation — one character from the intended one — passes 1 through 3 whenever the rewrite changes length, then serves a stale parse on a same-length rewrite, which can move a mutation verdict. Only case 4 tells the two apart.
+Cases 4 and 5 exist because cases 1 to 3 admit two distinct wrong implementations that a reviewer, not a mutation operator, has to find: the registry's operators mutate code that exists, and neither `birthtimeMs` nor a dropped path component is a construct this code ever distinguished.
 
-**Invalidation alone buys nothing, so this task also converts the six in-scope files to reuse one root, rewriting the SAME path per case.** A distinct filename per case would also reuse one root and is the WRONG conversion: every parse would be a cold miss, the invalidation branch would never execute, and the cache work would be dead code no criterion could catch. That was round 2's third finding.
+**Invalidation alone buys nothing, so this task also converts the TWO cache-bound suites — `tests/styles/interactiveScanCore.test.ts` and `tests/styles/_metaControlOutlineFill.test.ts` — to reuse one root, rewriting the SAME path per case.** The other four in-scope suites are NOT converted: they build throwaway repository roots whose paths are semantic (a per-case e2e spec path under `tests/e2e/`, module locations, `use server` files) and are part of what they assert, so forcing them onto one path would change the input under test rather than the layout. They are fixed by Task 1's cleanup, which is where 180 of the 230 roots per run actually are. A distinct filename per case would also reuse one root and is the WRONG conversion: every parse would be a cold miss, the invalidation branch would never execute, and the cache work would be dead code no criterion could catch. That was round 2's third finding.
 
 The six are edited twice across this plan, here and in Task 1, and that is deliberate. Task 1 must be able to ship ALONE: it is the cheapest tier, it addresses the accumulation limb no other tier touches, and if this task stalls on review the leak is still fixed. Collapsing them would make the largest, safest win wait on the only verdict-risky change in the plan.
 
@@ -148,7 +156,15 @@ Compare **mutant sets and per-mutant verdicts as SETS**, never counts — an equ
 
 **Measured cost, so this is scheduled rather than guessed.** One cold run of `interactiveScanCore`'s three deciding suites is 1.7 s and `controlOutlineScan`'s is 1.1 s. Upper bounds before `bail: 1` truncates: the `interactiveScanCore` re-score is about 8 min, a `controlOutlineScan` arm about 2 min, and the five compared surfaces plus the re-score land near an hour of wall clock.
 
-Then re-run the P2 probe on the four in-scope SUITE-SETS and record before and after, both from the same probe on the same idle checkout (AC-6).
+Then re-run the cost probe on the four in-scope SUITE-SETS and record before and after, both from the same probe on the same idle checkout (AC-6). **The probe is a committed script, not a scratchpad artifact**, so AC-6 has a runnable command:
+
+```
+node scripts/probes/scratch-fs-cost.mjs tests/styles/_metaControlOutlineFill.test.ts
+```
+
+It emits JSON with `roots`, `fsops` and `secs`. Verified at plan time to reproduce §1's figures for that set exactly: `roots: 4, fsops: 18`.
+
+**AC-6 covers the reuse limb that no `red=` observes.** Task 3's red watches `interactiveScanCore.test.ts` alone, so a conversion omitted in `_metaControlOutlineFill.test.ts` would not turn it red; the probe's roots-per-run figure for that set is what catches it, which is why AC-6 names each set separately rather than reporting a sum.
 
 Run ONE score at a time, wrapped, never concurrent with another arc's score run, coordinated through bl-orch, with the shard number re-derived from the merged tree at launch. This arc is fixing the storm and must not become it.
 
@@ -156,6 +172,6 @@ Run ONE score at a time, wrapped, never concurrent with another arc's score run,
 
 ## 5. Pre-dispatch obligations
 
-- Every `red=` is `sh -nc` parse-checked (all four pass). No `red-state=live` marker exists, so nothing is run at plan time to prove a pre-existing failure; §4 states why each red is `authored`.
+- Every `red=` is `sh -nc` parse-checked (all THREE pass). No `red-state=live` marker exists, so nothing is run at plan time to prove a pre-existing failure; §4 states why each red is `authored`.
 - The new guard file needs no config change, verified against `vitest.projects.ts` rather than inferred from a console banner: the `mutation` project's file list names only `tests/mutation/guardSurfaces.shard*.test.ts` (`vitest.projects.ts:90`), `tests/mutation/guardSurfaces.gates.test.ts` (`vitest.projects.ts:91`) and `tests/mutation/browser/browserSurfaces.gate.test.ts` (`vitest.projects.ts:95`), so any other file under `tests/mutation/` lands in the default unit project and runs on every `pnpm test`.
 - Every embedded snippet typechecked against the strict tsconfig (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`).
