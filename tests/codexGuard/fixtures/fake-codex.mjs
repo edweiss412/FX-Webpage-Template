@@ -60,7 +60,10 @@ async function main() {
         await sleep(a.ms);
       }
     } else if (a.type === "writeFile") {
-      writeFileSync(a.path.replace("$CODEX_HOME", process.env.CODEX_HOME ?? ""), a.text);
+      writeFileSync(
+        a.path.replace("$CODEX_HOME", () => process.env.CODEX_HOME ?? ""),
+        a.text,
+      );
     } else if (a.type === "grandchild") {
       // The grandchild writes its own pid file AFTER registering the SIGTERM handler —
       // the file's existence proves the handler is live (a fixture-side write races the

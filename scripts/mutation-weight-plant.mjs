@@ -355,14 +355,28 @@ for (const entry of ENTRIES) {
       reason.set(name, "ANCHOR-FAIL");
       continue;
     }
-    writeFileSync(target, text.replace(from, to));
+    // REPLACER FUNCTIONS, not replacement strings, at all three sites below.
+    //
+    // Every replacement here is computed at runtime -- a mutant body from the
+    // table, and two scratch paths -- and a replacement STRING gives `$` special
+    // meaning: `$&` inserts the match, `` $` `` everything before it, and `$'`
+    // everything AFTER it, which silently duplicates the remainder of the file
+    // into itself. A function's return value is inserted literally, so the class
+    // cannot arise. No entry carries a `$` today, and that is not the argument:
+    // this harness exists to plant arbitrary code, and a mutant that touches a
+    // template literal carries `${` by construction.
+    writeFileSync(
+      target,
+      text.replace(from, () => to),
+    );
     // Point the suite at the copy. Two specifier shapes reach a target: the
     // `@/`-aliased form the instrument suite uses, and the relative form a suite
     // sitting beside its subject uses.
     const stem = basename(repoRel).replace(/\.ts$/, "");
+    const scratch = join(dir, "src");
     const suite = readFileSync(join(ROOT, suiteRel), "utf8")
-      .replaceAll(`@/${srcDir}/`, `${join(dir, "src")}/`)
-      .replaceAll(`from "./${stem}"`, `from "${join(dir, "src", stem)}"`);
+      .replaceAll(`@/${srcDir}/`, () => `${scratch}/`)
+      .replaceAll(`from "./${stem}"`, () => `from "${join(scratch, stem)}"`);
     // INSIDE tests/, because vitest's project includes are `tests/**` globs: a
     // suite written to a tmpdir matches no project, runs zero tests, and every
     // planted defect then reports as an escape. That is how the first version of

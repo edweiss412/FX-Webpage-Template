@@ -873,7 +873,10 @@ function apply(mutation) {
     // impossible state rather than the retune being tested.
     if (hits > 1 && !all)
       return `anchor is AMBIGUOUS (${hits} hits) in ${file}: ${find.slice(0, 60)}`;
-    writeFileSync(p, all ? src.split(find).join(replace) : src.replace(find, replace));
+    // Replacer function on the single-site branch. The `all` branch already uses split/join,
+    // which has no substitution grammar at all. `replace` here is authored edit text written
+    // straight to disk.
+    writeFileSync(p, all ? src.split(find).join(replace) : src.replace(find, () => replace));
   }
   return null;
 }

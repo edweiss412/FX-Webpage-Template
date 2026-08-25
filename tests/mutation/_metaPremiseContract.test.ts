@@ -43,6 +43,11 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // must classify at least one test" case below is what keeps this zero from being
   // satisfied vacuously by a file the scanner cannot parse.
   "tests/mutationWeight/instrument.test.ts": 0,
+  // The replacement-string guard, enrolled 2026-08-24. MEASURED via classifyTests over this
+  // suite, not guessed: exactly two of its eighteen tests read the real tree — the premise
+  // ("looked at all") and the repo-wide inventory assertion. Both do so deliberately; the sixteen
+  // fixture cases are pure functions of a source string, which is what lets them kill mutants.
+  "tests/cross-cutting/replacementString.test.ts": 2,
   "tests/specLint/claimSweepNumeric.test.ts": 3,
   "tests/specLint/claimSweepNamed.test.ts": 0,
   "tests/specLint/claimSweepNotFound.test.ts": 0,

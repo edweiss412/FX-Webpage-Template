@@ -38,9 +38,9 @@ export function walksAt(row: ConcreteRow, vp: WalkerViewport): boolean {
 // passes them in. Non-placeholder routes pass through unchanged (R4 pin).
 export function routeForPure(row: ConcreteRow, fixtures: WalkerFixtures): string {
   return row.sourceRoute
-    .replace("rpas-central-2026", fixtures.slug)
-    .replace("eric-weiss", fixtures.crewId)
-    .replace("STAGED_ID_PLACEHOLDER", fixtures.stagedId);
+    .replace("rpas-central-2026", () => fixtures.slug)
+    .replace("eric-weiss", () => fixtures.crewId)
+    .replace("STAGED_ID_PLACEHOLDER", () => fixtures.stagedId);
 }
 
 // Which admin-state prep a row needs before navigation. Keys on the PARSED
