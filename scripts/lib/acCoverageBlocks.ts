@@ -62,7 +62,14 @@ function cellView(node: RootContent, defs: ReadonlyMap<string, DefinitionStrings
   let text = "";
   const codes: string[] = [];
   const walk = (n: RootContent): void => {
-    for (const [key, value] of Object.entries(n)) {
+    // `for...in` rather than `Object.entries`, which allocates a pair-array per
+    // node. Same default-include semantics, no allocation. It is NOT why the
+    // corpus suite needed a larger bound: measured over the 699-document plan
+    // corpus, remark's parse is 20578ms and this whole view builder is 223ms, so
+    // the walk is 99% parser. Recorded because the tempting story -- "the new
+    // collection made it slow" -- is the one the measurement refutes.
+    for (const key in n) {
+      const value = (n as unknown as Record<string, unknown>)[key];
       if (typeof value !== "string" || value === "" || STRUCTURAL_FIELDS.has(key)) continue;
       // `text`/`inlineCode` values join the flow directly so rendered prose reads
       // as written; every other string is delimited, because a URL abutting the

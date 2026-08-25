@@ -45,7 +45,18 @@ describe("acCoverage — the live plan corpus", () => {
     }
     premise("undeclared documents actually scanned", undeclared, 30);
     expect(noisy).toEqual([]);
-  }, 60_000); // timeout that reads like a finding. // on this machine; the bound is generous so a slower runner does not produce a // A corpus scan over ~700 documents, each parsed with remark. Measured at ~11s
+    // A corpus scan over every plan document, each parsed once with remark. The
+    // bound is deliberately generous, because a timeout here reads like a finding
+    // about the ARM when it is a fact about the corpus size and the runner.
+    //
+    // MEASURED, not guessed, on 2026-08-25 over 699 documents: remark's parse is
+    // 20578ms, this arm's view builder 223ms and `checkAcCoverage` 11ms -- the
+    // walk is 99% parser. Under vitest the same work clocked 96.8s, so the 60s
+    // bound this test shipped with was already marginal and three absorbs of main
+    // in one day pushed it over. 180s leaves headroom for a slower CI runner
+    // without hiding a real regression: a change that doubled the ARM's share
+    // would still land far under it, so this bound cannot mask one.
+  }, 180_000);
 
   it("both declaring PLANS are found, and the arm reports zero over each", () => {
     const declaring = docs.filter((f) => DECLARED.test(readFileSync(f, "utf8")));
