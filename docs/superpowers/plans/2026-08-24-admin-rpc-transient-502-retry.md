@@ -252,14 +252,32 @@ companion tables gate the same change:
 Both new surfaces need rows in all three. Adding only the registry rows leaves two merge-gating
 contracts red.
 
-**Two registry rows, not one.** The runner overlays exactly ONE `surface.sourcePath`
+**MEASURED CORRECTION: ONE surface, not two.** Sites were enumerated before requesting the score
+slot, without executing anything:
+
+| surface | declared operators | sites |
+| --- | --- | --- |
+| `lib/supabase/retryingFetch.ts` | relational-boundary, integer-literal, equality-flip, logical-connector | 24 |
+| `lib/supabase/retryEligibility.ts` | equality-flip, logical-connector | **1** |
+
+The predicate's defect class is SET MEMBERSHIP and PATH SHAPE, which the declared operators barely
+reach: `equality-flip` finds a single `!== null`, `logical-connector` finds nothing because the
+predicate contains no `&&` or `||`, and neither arithmetic operator has anything to act on. So the
+predicate is NOT enrolled, and its re-disposition is recorded with the probe that shows why — the
+same move the step3 arc made when the registry could not express a Playwright surface, rather than
+enrolling symbolically.
+
+Enrolling it anyway would buy a one-mutant surface whose score says almost nothing while LOOKING like
+coverage, which is the exact shape of claim this arc spent five spec rounds removing from the design.
+
+**So: one registry row.** The runner overlays exactly ONE `surface.sourcePath`
 (`tests/mutation/source/runner.ts`, search `const target = resolve(root, surface.sourcePath)`), so one
 row cannot reach arithmetic living in another module. The predicate (`equality-flip`,
 `logical-connector`) and the wrapper's backoff arithmetic (`relational-boundary`, `integer-literal`)
 are separate surfaces with separate rows, each with its own `control` and deciding suite. Declaring
 four operators on one row would report them while scoring none of the backoff sites.
 
-**Each row's `suitePaths` must NAME its own suite.** The runner overlays a target only when a Vitest
+**The row's `suitePaths` must NAME its own deciding suite.** The runner overlays a target only when a Vitest
 suite imports it, so a row pointing elsewhere yields a surface where every mutant survives for reasons
 that have nothing to do with the guard's quality. Closing that loop at the row is the entire reason
 Task 1 authors the predicate as an importable module rather than inline.
