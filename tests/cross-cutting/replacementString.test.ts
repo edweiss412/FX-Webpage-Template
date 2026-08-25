@@ -51,6 +51,30 @@ describe("judgeSource — the accept-set (AC-1)", () => {
   }
 });
 
+describe("a finding carries the location and text a human dispositions it by", () => {
+  // The inventory renders findings as `file:line`, and the failure output IS the work list, so
+  // both fields are load-bearing rather than cosmetic. Nothing else in this suite pins them: the
+  // fixture cases assert HOW MANY findings a source yields, and the inventory compares an already
+  // rendered list, so an off-by-one in the line or a change to the truncation length is invisible
+  // to every other case here.
+
+  it("reports the 1-indexed line the call starts on, not the 0-indexed one", () => {
+    const found = judgeSource("f.ts", "const a = 1;\nconst b = 2;\ns.replace(x, v);\n");
+    expect(found[0]?.line, "line 3 of three, counting from 1").toBe(3);
+  });
+
+  it("carries the file it was given", () => {
+    expect(judgeSource("some/path.ts", `s.replace(x, v)`)[0]?.file).toBe("some/path.ts");
+  });
+
+  it("truncates the call text for legibility and collapses its whitespace", () => {
+    const long = `s.replace(x, ${"averyLongIdentifierName".repeat(12)})`;
+    const text = judgeSource("f.ts", long)[0]?.text ?? "";
+    expect(text.length, "truncated so a finding stays one readable line").toBe(110);
+    expect(judgeSource("f.ts", "s.replace(\n  x,\n  v,\n)")[0]?.text).toBe("s.replace( x, v, )");
+  });
+});
+
 describe("judgeSource — transparent wrappers resolve (AC-2)", () => {
   const wrapped: [string, string][] = [
     ["parentheses", `s.replace(a, ("lit"))`],
