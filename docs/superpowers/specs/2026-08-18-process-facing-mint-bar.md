@@ -69,6 +69,14 @@ discipline, directly after the 2026-08-04 filing-bar bullet). Load-bearing eleme
 volume but selects rows by arrival order rather than evidence quality — a speculative row filed
 early would crowd out an incident-backed one filed late. Do not re-propose without new measurement.
 
+## §2.1 Superseded for rows filed from 2026-08-25 — process mint freeze
+
+The incident-admission clause (item 3) and the `ratified-scope` exception (item 4) no longer admit
+a process-facing row `Filed` on or after 2026-08-25. Policy text is the AGENTS.md bullet
+**"Process mint freeze (2026-08-25)"**, directly under the mint-bar bullet; it is the single copy
+and this section only points at it. Items 1, 2 and 5, the `Facing` taxonomy, and the `invariant`
+exception are unchanged. Rows filed 2026-08-19 through 2026-08-24 keep §2 as written.
+
 ## §3 Enforcement
 
 `tests/docs/_metaLedgerMintBar.test.ts`. Shape mirrors the sizing guard
