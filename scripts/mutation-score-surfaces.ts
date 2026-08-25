@@ -12,11 +12,21 @@
 // the gate's own conditions are what decide pass or fail, and a scoped substitute
 // that re-implements them measures a different thing from the gate it stands in for.
 //
-// HEAVY. This spawns one vitest child per mutant, so it is a mutation-class phase
-// and runs under `pnpm heavy` at the OUTERMOST entry:
+// HEAVY, and specifically MUTATION-CLASS. It spawns one vitest child per mutant, so
+// it wraps at the OUTERMOST entry through the mutation class and NOT through plain
+// `pnpm heavy`:
 //
-//   VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm tsx \
-//     scripts/mutation-score-surfaces.ts mutationWeightRecords mutationWeightWeights
+//   VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx \
+//     scripts/mutation-score-surfaces.ts <surfaceId> [...]
+//
+// The distinction is not bookkeeping. `pnpm heavy` takes an ordinary slot and NOTHING
+// else, so two score runs can hold two ordinary slots and generate scratch churn
+// concurrently -- the exact shape of the 2026-08-24 swap emergency that dropped the
+// semaphore to one slot. `heavy:mutation` additionally takes the single-slot mutation
+// admission, which is what serialises scores against each other while leaving total
+// concurrency unchanged. An earlier version of this header said "mutation-class phase"
+// and then prescribed `pnpm heavy` in the very next line; the prose was right and the
+// command was wrong.
 //
 // The env prefix is load-bearing and is not decoration copied from a sibling: the
 // mutation vitest project is opt-in, and without it the run dies on "no projects

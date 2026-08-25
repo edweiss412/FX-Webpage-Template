@@ -98,7 +98,7 @@ an aside, and it is sequenced before any task that plants through it.
 | `check-shard-budget.ts` deliberately decides nothing and takes env, not argv | that file's header |
 | the `budget` job's only step runs the budget checker | `.github/workflows/mutation-harness.yml:280` |
 | the workflow's PR path filter names `scripts/check-shard-budget.ts` but nothing under `lib/mutationWeight` | `.github/workflows/mutation-harness.yml:43-53` |
-| `mutationWeightWeights` carries `scoreFloor: 0.9` | `tests/mutation/source/registry.ts:3342` |
+| `mutationWeightWeights` carries `scoreFloor: 0.9` | `tests/mutation/source/registry.ts:3467` |
 | no file under `lib/` imports `tests/` | `rg` over `lib/` |
 | enrolling a surface owes TWO further registrations | `tests/mutation/source/expectedLedgerKinds.ts` (per surface) and `tests/mutation/_metaPremiseContract.test.ts:32` (per suite) — both caught this arc by failing |
 
@@ -315,12 +315,28 @@ middle of a heavy turn. So the list comes from the tree:
 pnpm tsx scripts/mutation-shard-weight-report.ts --run <newest records dir> --emit-registry
 #   -> exits non-zero listing "ENROLLED BUT UNMEASURED, so no rate can be emitted for: ..."
 
-VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm tsx \
+VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx \
   scripts/mutation-score-surfaces.ts <every id that refusal named>
 ```
 
 The refusal already names exactly the set, so the emitter that blocks the bootstrap is
-also what scopes it. Each rate is recorded with the run that produced it named beside the
+also what scopes it. **Run at `d3c6520a3`, after absorbing `#887`, it says:**
+
+```
+ENROLLED BUT UNMEASURED, so no rate can be emitted for: captureRenderFault,
+reviewRoundInstant, mutationWeightRecords, mutationWeightWeights, replacementString.
+Run the surface and read its rate, rather than guessing one. Nothing was written.
+```
+
+**FIVE surfaces, not the two an earlier draft hardcoded**, and only two of them are this
+arc's. `replacementString` arrived with `#883`, `reviewRoundInstant` and
+`captureRenderFault` with `#887`, and `#882` will add two more that are not in this list
+yet. Deriving the set is what makes that a non-event instead of a mid-turn refusal.
+
+Note the invocation needs the run's own modelled dump — `--run <dir>:<modelledJson>` —
+because records taken at an older sha do not reconcile against today's registry, and
+`reconcile` refuses rather than comparing a record set to a tree it did not come from.
+That refusal is correct and is the same guard Task 4 makes rate-aware. Each rate is recorded with the run that produced it named beside the
 value.
 **Two turns is the honest count and the plan states it rather than claiming one.** The
 bootstrap measures a tree that cannot yet be final (the rate is not applied until Task 3),
@@ -885,7 +901,7 @@ recorded field, plus the deletion.
 
 ## Task 7 — re-score every surface this diff moved
 
-<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm tsx scripts/mutation-score-surfaces.ts sourceShardPartition mutationWeightRecords mutationWeightWeights` red-state=live red-target=`tests/mutation/source/registry.ts:3342` why=`mutationWeightWeights scored 0.7279 against this 0.90 floor with 37 unaccepted survivors, observed 2026-08-25` ac=AC-7 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx scripts/mutation-score-surfaces.ts sourceShardPartition mutationWeightRecords mutationWeightWeights` red-state=live red-target=`tests/mutation/source/registry.ts:3467` why=`mutationWeightWeights scored 0.7279 against this 0.90 floor with 37 unaccepted survivors, observed 2026-08-25` ac=AC-7 -->
 
 **Files:** whatever the triage reaches, which is not knowable before the run. Declaring
 only the ledger files would have presupposed the outcome, and it contradicted this task's
