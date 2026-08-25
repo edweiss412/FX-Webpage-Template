@@ -110,6 +110,19 @@ const PROP_SIDES: Readonly<Record<string, readonly Side[]>> = {
   "border-inline-end-color": ["right"],
   "border-block-start-color": ["top"],
   "border-block-end-color": ["bottom"],
+  // The shorthands, which paint the same sides under a property that does not end in `-color`.
+  // Same logical-to-physical mapping as above, for the same reason.
+  border: ALL_SIDES,
+  "border-top": ["top"],
+  "border-right": ["right"],
+  "border-bottom": ["bottom"],
+  "border-left": ["left"],
+  "border-inline": ["left", "right"],
+  "border-block": ["top", "bottom"],
+  "border-inline-start": ["left"],
+  "border-inline-end": ["right"],
+  "border-block-start": ["top"],
+  "border-block-end": ["bottom"],
 };
 
 /**
@@ -223,8 +236,25 @@ export function ownDeclarations(css: string): string {
 
 /** Every paint property: the border family minus the radii (shape, not paint), and background. */
 const PAINT_PROP = /(?:^|[;{\s])((?:border(?!-[a-z-]*radius)[a-z-]*|background[a-z-]*))\s*:/g;
+/**
+ * Every border declaration that can carry a colour: the `-color` longhands AND the shorthands.
+ *
+ * `-color` is OPTIONAL because `border: 1px solid var(--color-border-strong)` paints the named weak
+ * colour under a property that does not end in `-color`. Keyed to the longhand alone, the recognizer
+ * saw such a token as IN the key — its `props` are non-empty, so it shapes the residue key — while
+ * contributing no weak side, which is a SILENT WRONG CLEAR (diff round 1, CORE F1).
+ *
+ * Widening the PROPERTY set is closed: it is the finite CSS border family, not an open grammar. The
+ * VALUE stays unwidened, because `classifyValue` already fails closed — a shorthand whose colour it
+ * cannot classify returns `unclassified`, which `isWeakValue` counts as weak. So no shorthand-value
+ * parser is introduced here, and none should be.
+ *
+ * Alternation is LONGEST-FIRST so a match never depends on backtracking. `border-width:` and
+ * `border-radius:` still cannot match, because a side or `-color` must be followed immediately by
+ * the colon.
+ */
 const BORDER_COLOUR_DECL =
-  /(border(?:-(?:top|right|bottom|left|inline|block|inline-start|inline-end|block-start|block-end))?-color)\s*:\s*([^;}]+)/g;
+  /(border(?:-(?:inline-start|inline-end|block-start|block-end|inline|block|top|right|bottom|left))?(?:-color)?)\s*:\s*([^;}]+)/g;
 const BACKGROUND_COLOUR_DECL = /background-color\s*:\s*([^;}]+)/g;
 
 export type TokenPaint = {

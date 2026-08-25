@@ -302,12 +302,30 @@ function rowFor(
 function ratioProblems(row: ResidueRow, paint: Map<string, TokenPaint | null>): string[] {
   const stated = /(\d\.\d\d):1 light \/ (\d\.\d\d):1 dark/.exec(row.reason);
   if (!stated) return [`${row.file}: switch-track reason states no ratio`];
-  const off = row.paint
+  // Identify the OFF alternative, or decline to. `find` used to take the FIRST weak alternative,
+  // and `projectionsOf` SORTS them, so "first" is a lexical accident that coincides with OFF only
+  // while exactly one alternative is weak. Half-swap a ternary and both go weak, and the row was
+  // then validated against the ON state — a reason stating the ON ratio passed silently while
+  // claiming to record the OFF ring.
+  //
+  // Nothing in the projection positively marks OFF: the switch-track bar itself says both
+  // alternatives carry one fill and one outline. So this does not guess harder. It reports that the
+  // OFF state is not identifiable, which is a conservative demote plus a surfaced signal rather than
+  // a silent wrong accept, and leaves the ratio unrecomputed rather than recomputed against the
+  // wrong pair.
+  const weakAlternatives = row.paint
     .map((p) => p.split(" ").filter(Boolean))
-    .find((alternative) =>
+    .filter((alternative) =>
       alternative.some((t) => [...(paint.get(t)?.sides.values() ?? [])].some(Boolean)),
     );
-  if (!off) return [`${row.file}: no alternative carries the weak outline`];
+  if (weakAlternatives.length === 0)
+    return [`${row.file}: no alternative carries the weak outline`];
+  if (weakAlternatives.length > 1)
+    return [
+      `${row.file}: ${weakAlternatives.length} alternatives carry a weak outline, so the OFF state is not identifiable`,
+    ];
+  const off = weakAlternatives[0];
+  if (off === undefined) return [`${row.file}: no alternative carries the weak outline`];
   const outline = off.map((t) => paint.get(t)?.outlineColourVar).find((v) => v != null);
   const fill = off.map((t) => paint.get(t)?.fillColourVar).find((v) => v != null);
   if (outline == null || fill == null)
@@ -706,6 +724,50 @@ describe("category bars: refusals (spec §1.5, AC-4)", () => {
     ]);
   });
 
+  // covers: AC-5, W9
+  it("refuses a half-swapped track where BOTH alternatives are weak, rather than picking one", () => {
+    // `ratioProblems` used to take the FIRST alternative carrying any weak declaration. The
+    // alternatives are SORTED, so "first" is a lexical accident that happens to be the OFF state
+    // only while exactly one alternative is weak. The ordinary fence edit
+    // `border-accent-edge` -> `border-border-strong` makes BOTH weak, and the check then validated
+    // the row against the ON state: a reason stating the ON ratio passed, silently, while claiming
+    // to record the OFF ring (diff round 1, CORE F2).
+    //
+    // The repair does NOT guess harder. Nothing in the projection positively marks which
+    // alternative is OFF - the bar itself says both carry one fill and one outline - so inventing a
+    // discriminator ("the one whose fill is not the accent") would hardcode a colour the rulings do
+    // not name. It declines to identify an OFF state it cannot identify, and says so.
+    //
+    // The stated ratio is DERIVED from the ON pair rather than typed, so the case cannot rot into
+    // asserting a number the theme no longer produces.
+    const on = recordedRatio("border-strong", "accent", css);
+    const halfSwapped: ResidueRow = {
+      file: PT,
+      tag: "button",
+      paint: [
+        "bg-accent border border-border-strong",
+        "bg-surface-sunken border border-border-strong",
+      ],
+      category: "switch-track",
+      reason: `the OFF ring is the ruled exemption (DESIGN.md §1.2a); ${on.light.toFixed(2)}:1 light / ${on.dark.toFixed(2)}:1 dark`,
+    };
+    expect(ratioProblems(halfSwapped, LIVE.paint)).toEqual([
+      `${PT}: 2 alternatives carry a weak outline, so the OFF state is not identifiable`,
+    ]);
+
+    // Paired per §5.4: the UNEDITED track still recomputes clean, so the repair cannot pass by
+    // reporting ambiguity unconditionally.
+    const unedited: ResidueRow = {
+      ...halfSwapped,
+      paint: [
+        "bg-accent border border-accent-edge",
+        "bg-surface-sunken border border-border-strong",
+      ],
+      reason: TRACK_REASON,
+    };
+    expect(ratioProblems(unedited, LIVE.paint)).toEqual([]);
+  });
+
   // covers: AC-4, W8
   it("refuses a switch-track alternative carrying two fills (the R2 shape)", () => {
     const row: ResidueRow = {
@@ -970,6 +1032,45 @@ describe("paired fixtures: every expect-clean case sits beside a report (§5.4)"
     expect(residue.map((e) => allStrings(e).join(" "))).toEqual([
       "border border-border-strong/50 bg-surface",
     ]);
+  });
+
+  // covers: W4, W22
+  it("every CSS border shorthand is classified, not just the -color longhands", () => {
+    // The recognizer reads a COMPILED property name. `border: 1px solid var(--color-border-strong)`
+    // paints the named weak colour on all four sides under a property that does not end in
+    // `-color`, so a recognizer keyed to the longhand sees a token that is IN the key (its `props`
+    // are non-empty, so it shapes the residue key) yet contributes no weak side. That is a SILENT
+    // WRONG CLEAR, the one outcome the consequence bound forbids, and it is reachable by an
+    // ordinary contributor writing an arbitrary-value class.
+    //
+    // Paired per §5.4: each property is asserted BOTH ways in one fixture, so the case cannot pass
+    // on a recognizer that simply calls everything residue.
+    const FAMILY = [
+      "border",
+      "border-top",
+      "border-right",
+      "border-bottom",
+      "border-left",
+      "border-inline",
+      "border-inline-start",
+      "border-inline-end",
+      "border-block",
+      "border-block-start",
+      "border-block-end",
+    ];
+    const rows = FAMILY.map((prop) => {
+      const weak = `[${prop}:1px_solid_var(--color-border-strong)]`;
+      const strong = `[${prop}:1px_solid_var(--color-surface-raised)]`;
+      const { found, residue } = fixtureResidue(
+        twoButtons(`${weak} bg-surface`, `${strong} bg-surface`),
+      );
+      premise(`${prop}: fixture produced both elements`, found.length, 1);
+      return [
+        prop,
+        residue.map((e) => (allStrings(e).join(" ").includes(weak) ? "weak" : "strong")),
+      ] as const;
+    });
+    expect(rows).toEqual(FAMILY.map((prop) => [prop, ["weak"]]));
   });
 
   // covers: W10
