@@ -1233,6 +1233,25 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "The same `^ {0,3}` bound in DECL, the full-grammar match, with the same argument and the same probe. DECL is only ever applied to a value DECL_ANY has already matched, so the fourth space is unreachable twice over.",
       },
       {
+        siteId: "logical-connector:97:35:||>&&",
+        kind: "equivalent",
+        reason:
+          '`cls.kind !== "citation" || cls.start === undefined` in citedTestPins, with the ' +
+          "`||` flipped to `&&`. The two operands are never independent on the reachable " +
+          "domain, so the connective cannot matter. Every span reaching classifySpan here is a " +
+          "PIN_CANDIDATE match, and PIN_CANDIDATE REQUIRES `:[0-9]+`; a match whose coordinates " +
+          "are a real line number classifies `citation` and always carries `start`, and one " +
+          "whose coordinates are not (`:0`, `:01`, `:12-0`) classifies `malformed`, which " +
+          "carries neither `path` nor `start`. So `kind !== citation` and `start === undefined` " +
+          "are TRUE together and FALSE together, and `||` and `&&` agree on both. A citation " +
+          "with `start` absent is the path-only form, which PIN_CANDIDATE cannot produce. " +
+          "Probed over the candidate set, and confirmed by planting: the mutant leaves all 46 " +
+          "tests across the four deciding suites green. The clause is kept rather than deleted " +
+          "because `start?: number` is genuinely optional in SpanClass and the narrowing is " +
+          "load-bearing if PIN_CANDIDATE ever admits the path-only form. Falsifier: a later run " +
+          "that KILLS this site means PIN_CANDIDATE widened, and the row comes out.",
+      },
+      {
         siteId: "integer-literal:77:87:1>2",
         kind: "equivalent",
         reason:

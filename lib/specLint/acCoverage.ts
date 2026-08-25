@@ -220,7 +220,16 @@ export function acCommandPlan(blocks: AcBlocks, kind: "spec" | "plan"): AcComman
       });
     }
   }
-  return out.sort((a, b) => a.line - b.line || a.spanIndex - b.spanIndex);
+  // NO SORT. `readDeclaredTables` yields tables in document order, `table.rows`
+  // is document order, and `forEach` assigns `spanIndex` ascending, so `out` is
+  // ALREADY ordered by `(line, spanIndex)` when it is built. A trailing
+  // `.sort((a, b) => a.line - b.line || a.spanIndex - b.spanIndex)` stood here
+  // and could not reorder anything: the source-mutation gate flipped its `||` to
+  // `&&` and no suite could tell the difference, which is the signature of a dead
+  // line rather than a missing assertion. `acCommandPlan is emitted in document
+  // order` in tests/specLint/acCoverage.test.ts pins the property the sort was
+  // pretending to provide.
+  return out;
 }
 
 /**

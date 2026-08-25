@@ -47,12 +47,12 @@ The repair is to RE-POINT, never to waive (Task 12), and two rules make the re-p
 ```
 | Task | red-target at BASE (plan time)                            | What the why= names, by symbol            | HEAD (Task 12) |
 | ---- | --------------------------------------------------------- | ----------------------------------------- | -------------- |
-| 1    | lib/specLint/acCoverage.ts (untracked)                    | `checkAcCoverage`, the stub this creates  | :231           |
+| 1    | lib/specLint/acCoverage.ts (untracked)                    | `checkAcCoverage`, the stub this creates  | :240 (+9)      |
 | 2    | lib/specLint/acCoverage.ts                                | the absence of any declaration-reading branch | :118       |
 | 3    | lib/specLint/acCoverage.ts                                | `readDeclaredTables`                      | :118           |
 | 4    | lib/specLint/acCoverage.ts                                | `commandSpansOf`                          | :60            |
 | 5    | lib/specLint/acCoverage.ts                                | `acCommandPlan`                           | :211           |
-| 6    | lib/specLint/acCoverage.ts                                | `AC_COMMAND_PIN_UNOBSERVED`               | :305           |
+| 6    | lib/specLint/acCoverage.ts                                | `AC_COMMAND_PIN_UNOBSERVED`               | :314 (+9)      |
 | 7    | lib/specLint/run.ts:44 (tracked)                          | `CHECK_ORDER`                             | :47 (+3)       |
 | 8    | tests/specLint/_metaPureCore.test.ts:12 (tracked)         | `FORBIDDEN`                               | :15 (+3)       |
 | 9    | scripts/spec-lint.ts:864 (tracked)                        | the `spawnSync("sh", …)` parse invocation | :902           |
@@ -157,7 +157,7 @@ remark under this repo's vitest config is PROVEN, not assumed: `tests/docs/agent
 
 Both halves are established convention rather than invention: tests already import from `scripts/` (five from `scripts/spec-lint` alone), `scripts/lib/` already holds TypeScript modules, and nothing under `lib/` imports a type from a third-party package today.
 
-<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts:231` why=`checkAcCoverage is a stub returning [], so the first declaration assertion fails on the arm's output rather than on module resolution` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts:240` why=`checkAcCoverage is a stub returning [], so the first declaration assertion fails on the arm's output rather than on module resolution` ac=AC-4 -->
 
 ## Task 2 — the live-corpus zero case, authored BEFORE declaration discovery
 
@@ -199,7 +199,7 @@ Four pre-dispatch mutants, run and recorded in the commit, for each string-prese
 
 Adds all NINE plants of spec §5, seven of which are reviewer probes kept as regression cases. Each plant carries a `premiseHolds` proven on that case's OWN inputs, stating that the unplanted form of the same fixture scores zero. Two plants are repairs rather than additions and say so inline: (c2) mirrors (c)'s span ordering, and (f) plants prose as well as removing the leading pipe.
 
-<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts:305` why=`no branch emits AC_COMMAND_PIN_UNOBSERVED, so a tests/-rooted pin the command cannot reach draws nothing, while a components/ pin, an appended character and a prepended segment must each keep drawing exactly what the accept-set says` ac=AC-5,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts:314` why=`no branch emits AC_COMMAND_PIN_UNOBSERVED, so a tests/-rooted pin the command cannot reach draws nothing, while a components/ pin, an appended character and a prepended segment must each keep drawing exactly what the accept-set says` ac=AC-5,AC-7 -->
 
 ## Task 7 — the adapter: remark, the view, the AC spawn loop, and the CLI
 

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { acCommandPlan, checkAcCoverage } from "../../lib/specLint/acCoverage";
+import {
+  acCommandPlan,
+  checkAcCoverage,
+  citedTestPins,
+  pinUnobserved,
+} from "../../lib/specLint/acCoverage";
 import { acKey } from "../../lib/specLint/types";
 import { viewOf } from "./acCoverageView";
 
@@ -64,6 +69,17 @@ describe("acCoverage — the declaration", () => {
     expect(codesOf(`<!-- ac-coverage: command-col=3 -->\n\n${TABLE}\n`, "spec")).toEqual([
       "AC_COVERAGE_NOT_A_PLAN",
     ]);
+  });
+
+  it("a spec-kind declaration governs NO table — the code alone does not prove that", () => {
+    // The assertion above passes whether or not the declaration still BINDS its
+    // table, because the code is pushed before the binding search either way.
+    // Deleting the `continue` that ends the not-a-plan branch leaves the code in
+    // place and starts governing the table anyway, so a spec would silently be
+    // parse-checked. Pin the binding itself: a spec plans no spawn at all.
+    const md = `<!-- ac-coverage: command-col=3 -->\n\n${TABLE}\n`;
+    expect(acCommandPlan(viewOf(md), "spec")).toEqual([]);
+    expect(acCommandPlan(viewOf(md), "plan")).toHaveLength(1);
   });
 
   it("a declaration inside a fence is inert BY CONSTRUCTION — remark yields no html node", () => {
@@ -269,5 +285,78 @@ describe("acCoverage — the declaration", () => {
     // is a failure rather than a silent divergence.
     expect([...CODES].sort()).toEqual([...CODES].sort());
     expect(new Set(CODES).size).toBe(CODES.length);
+  });
+});
+
+describe("acCoverage — the skips and boundaries the arm depends on", () => {
+  it("a pin at index 0 is OBSERVED — nothing is read before the start of the string", () => {
+    // `i === 0 ? "" : commandText[i - 1]` exists so the first character has no
+    // predecessor. Read the predecessor anyway and you get `commandText[-1]`,
+    // which is `undefined`; `PATH_CHAR.test(undefined)` is TRUE because the
+    // regex stringifies it to "undefined". The boundary then looks like a path
+    // character, the pin reads as unobserved, and a correct row draws a false
+    // advisory. This is the ONLY position where that branch is exercised.
+    expect(pinUnobserved("tests/a.test.ts --run", "tests/a.test.ts")).toBe(false);
+    // and the ordinary interior position still behaves
+    expect(pinUnobserved("pnpm vitest run tests/a.test.ts", "tests/a.test.ts")).toBe(false);
+    // a superstring is NOT an observation, at index 0 or anywhere else
+    expect(pinUnobserved("tests/a.test.tsx", "tests/a.test.ts")).toBe(true);
+  });
+
+  it("a malformed pin candidate is skipped before anything reads its path", () => {
+    // `tests/x.test.ts:0` matches PIN_CANDIDATE (it has `:` and digits) but
+    // classifies as MALFORMED, because 0 is not a line number -- so it carries no
+    // `path` at all. The guard's `continue` is what stops the next line reading
+    // `cls.path.startsWith(...)` on `undefined` and throwing. A test that only
+    // feeds well-formed citations never reaches that.
+    expect(citedTestPins([{ text: "see tests/x.test.ts:0", codes: [] }])).toEqual([]);
+    // the well-formed neighbour still resolves, so the skip is not over-broad
+    expect(citedTestPins([{ text: "see tests/x.test.ts:12", codes: [] }])).toEqual([
+      "tests/x.test.ts",
+    ]);
+  });
+
+  it("a row with no command draws NOT_RUNNABLE alone, never also an unobserved pin", () => {
+    // With no command there is no command text, so the pin check would compare
+    // every cited pin against the empty string and call all of them unobserved.
+    // The `continue` after NOT_RUNNABLE is what prevents that second, false
+    // accusation on a row already reported for the real defect.
+    const md = [
+      "<!-- ac-coverage: command-col=3 -->",
+      "",
+      "| AC | Proved by | Cmd |",
+      "| --- | --- | --- |",
+      "| AC-1 | `tests/a.test.ts:12` | prose, not a command |",
+    ].join("\n");
+    expect(codesOf(md)).toEqual(["AC_COMMAND_CELL_NOT_RUNNABLE"]);
+  });
+
+  it("acCommandPlan is emitted in document order, which is why it needs no sort", () => {
+    // Tables come in document order, rows in document order, and `spanIndex` is
+    // assigned by `forEach`, so the result is ordered when it is built. A sort
+    // stood here and could not reorder anything; this pins the property it was
+    // pretending to provide, over two tables and multi-span rows.
+    const md = [
+      "<!-- ac-coverage: command-col=2 -->",
+      "",
+      "| AC | Cmd |",
+      "| --- | --- |",
+      "| AC-1 | `a` and `b` |",
+      "| AC-2 | `c` |",
+      "",
+      "<!-- ac-coverage: command-col=2 -->",
+      "",
+      "| AC | Cmd |",
+      "| --- | --- |",
+      "| AC-3 | `d` and `e` |",
+    ].join("\n");
+    const plan = acCommandPlan(viewOf(md), "plan");
+    expect(plan.map((e) => `${e.line}#${e.spanIndex}:${e.command}`)).toEqual([
+      "5#0:a",
+      "5#1:b",
+      "6#0:c",
+      "12#0:d",
+      "12#1:e",
+    ]);
   });
 });
