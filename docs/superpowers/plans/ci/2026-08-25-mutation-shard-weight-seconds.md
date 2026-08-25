@@ -369,15 +369,25 @@ The third is Form A because that refusal exists today at
 weaken, and planting it proves the MERGED table is still checked rather than merely
 assembled.
 
-**RED:** the marker's command with all six arms and the `@ts-expect-error` case added and
-`validateSurface` untouched. Expect the five rejects to fail, since nothing rejects, and
-the `@ts-expect-error` to fail as an unused directive. Then the report CLI cases with
-`--seed-rate` unimplemented: expect the flag to be rejected or ignored, and the
+**The requiredness guard needs `pnpm typecheck`, and the marker's command cannot run it.**
+Vitest strips types, so an unused `@ts-expect-error` does not fail
+`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` — the directive is
+simply invisible to it. Declaring the type case under a Vitest-only command would have left
+the requiredness half of AC-4 provable by nothing: making `millisPerBoot` optional would
+keep every arm, every plant and every named command green. So the compile-time arm is
+carried by `pnpm typecheck`, named explicitly in both steps below, and the marker's command
+covers the runtime arms only.
+
+**RED, two commands.** `pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts`
+with all six arms added and `validateSurface` untouched: expect the five rejects to fail,
+since nothing rejects. Then `pnpm typecheck` with the `@ts-expect-error` case added and the
+field still optional: expect it to fail as an unused directive. Then the report CLI cases
+with `--seed-rate` unimplemented: expect the flag to be rejected or ignored, and the
 completeness refusal still firing for the two enrolled rows.
 
-**GREEN:** the same commands, with all six arms, the type case and the four flag
-obligations passing, plus `node scripts/mutation-weight-plant.mjs` reporting CAUGHT for
-all three entries above.
+**GREEN:** all three commands — the Vitest run with six arms passing, `pnpm typecheck`
+clean with the field required, and the four flag obligations passing — plus
+`node scripts/mutation-weight-plant.mjs` reporting CAUGHT for all three entries above.
 
 **Commit:** `feat(mutation): require a per-surface millisPerBoot and range-guard it`
 
@@ -522,7 +532,7 @@ product is required, and all three pairs to report equal binding legs where a st
 margin was required.
 
 **GREEN:** the same two commands, everything passing with the tabulated margins, and
-`node scripts/mutation-weight-plant.mjs` reporting CAUGHT for all eleven entries above.
+`node scripts/mutation-weight-plant.mjs` reporting CAUGHT for all ten entries above.
 
 **Commit:** `feat(mutation): price the shard weight in milliseconds per boot`
 
@@ -556,11 +566,16 @@ spec's dump command records it whenever the field exists.
 
 **Plants:**
 
-| defect | file | anchor | becomes | suite |
-| --- | --- | --- | --- | --- |
-| rate ignored in the recomputation | `lib/mutationWeight/weights.ts` | `w: v.boots * (v.millisPerBoot ?? 1)` | `w: v.boots` | `instrument.test.ts` |
-| missing rate defaults to zero | `lib/mutationWeight/weights.ts` | `(v.millisPerBoot ?? 1)` | `(v.millisPerBoot ?? 0)` | `instrument.test.ts` |
-| rate applied to the wrong factor | `lib/mutationWeight/weights.ts` | `v.boots * (v.millisPerBoot ?? 1)` | `v.mutants * (v.millisPerBoot ?? 1)` | `instrument.test.ts` |
+All three are Form B: this task writes the weighting expression they mutate, so no anchor
+written now can match it. An earlier draft supplied guessed literals here — written before
+the Form A/B rule existed and not revisited when it landed — and none of them appears in
+the uniqueness sweep above, which is exactly the tell.
+
+| form | defect | file | anchor | becomes | suite |
+| --- | --- | --- | --- | --- | --- |
+| B | rate ignored in the recomputation | `lib/mutationWeight/weights.ts` | written at implementation | written at implementation | `instrument.test.ts` |
+| B | missing rate defaults to zero | `lib/mutationWeight/weights.ts` | written at implementation | written at implementation | `instrument.test.ts` |
+| B | rate applied to the wrong factor | `lib/mutationWeight/weights.ts` | written at implementation | written at implementation | `instrument.test.ts` |
 
 The second is the one that matters most: a zero fallback silently collapses every
 old-dump surface to weight 0, which reads as a perfectly balanced partition rather than
@@ -597,9 +612,18 @@ weighting by `v.boots`. Expect the priced case to report the surfaces as moved a
 false.
 
 **GREEN:** the same command with all three passing, plus
-`node scripts/mutation-weight-plant.mjs` reporting CAUGHT for the three entries above and
-`pnpm tsx scripts/mutation-shard-weight-report.ts` reconciling clean against the committed
-held-out fixtures.
+`node scripts/mutation-weight-plant.mjs` reporting CAUGHT for the three entries above, plus
+the report reconciling clean against a committed held-out fixture — which requires the flag
+the command takes:
+
+```
+pnpm tsx scripts/mutation-shard-weight-report.ts --run <held-out fixture dir>
+```
+
+A bare invocation is not a weaker check, it is no check: `main` throws its usage error
+immediately when no `--run` is supplied
+(`scripts/mutation-shard-weight-report.ts:235`), so the earlier form would have failed for
+a reason having nothing to do with reconciliation.
 
 **Commit:** `fix(mutation): reconcile a partition priced in milliseconds per boot`
 
@@ -670,7 +694,9 @@ implementation and the task's GREEN requires CAUGHT for each.
 | --- | --- | --- | --- |
 | B | drift changes the process exit status | scripts/check-rate-drift.ts | rateDrift.test.ts |
 | B | declared-but-unmeasured folded in with drifted | scripts/check-rate-drift.ts | rateDrift.test.ts |
+| B | measured-but-undeclared omitted from the output | scripts/check-rate-drift.ts | rateDrift.test.ts |
 | B | a required environment value gains a default | scripts/check-rate-drift.ts | rateDrift.test.ts |
+| B | a malformed required value is accepted instead of exiting 2 | scripts/check-rate-drift.ts | rateDrift.test.ts |
 | B | only actionable surfaces reported, the rest dropped | scripts/check-rate-drift.ts | rateDrift.test.ts |
 
 **The five wiring pins get planted broken arms of their own, and an earlier draft had
@@ -680,29 +706,45 @@ whole claim a pin makes. The workflow exists, so four of these are Form A with l
 anchors, and the two path-filter entries are Form B because the lines they must match are
 added by this task:
 
-| form | what is weakened | file | anchor | becomes |
-| --- | --- | --- | --- | --- |
-| A | budget step's env mapping, to prove the pin is not vacuous | `.github/workflows/mutation-harness.yml` | `SHARD_BUDGET_SECONDS: "3600"` | `SHARD_BUDGET_SECONDS: "7200"` |
-| A | a shell prefix shadows the step env | `.github/workflows/mutation-harness.yml` | `run: pnpm tsx scripts/check-shard-budget.ts` | `run: SHARD_BUDGET_SECONDS=1 pnpm tsx scripts/check-shard-budget.ts` |
-| B | drift step's `if: always()` removed | `.github/workflows/mutation-harness.yml` | written at implementation | |
-| B | records artifact pattern changed | `.github/workflows/mutation-harness.yml` | written at implementation | |
-| B | records artifact destination changed | `.github/workflows/mutation-harness.yml` | written at implementation | |
-| B | the new script's path-filter entry deleted | `.github/workflows/mutation-harness.yml` | written at implementation | |
-| B | `lib/mutationWeight/**` path-filter entry deleted | `.github/workflows/mutation-harness.yml` | written at implementation | |
+**Every one of these is Form B, and an earlier draft got that wrong in a way worth naming.**
+It declared two Form A plants that mutate the EXISTING budget step — its `env` mapping and
+its `run` command. Both are already caught by the assertions at
+`tests/mutation/_metaSourceShardIntegrity.test.ts:266`, which have been green since long
+before this arc. So they would have reported CAUGHT while demonstrating nothing about the
+NEW pins this task adds: the drift step's pins could be missing entirely and those two
+plants would still pass. A plant that is caught by a pre-existing assertion proves that
+assertion, not the one being added.
 
-The second Form A row is the shell-shadow case stated as a mutation rather than as prose:
-a `run:` prefix that shadows the step's `env:` must fail the whole-command equality pin, and
-if it does not, the pin reads the mapping only and is fail-open. The malformed-environment
-arm gets a plant too, in the script's Form B set above, since a direct test of an unplanted
-guard demonstrates the guard runs, not that it discriminates.
+| form | what is weakened | file | suite |
+| --- | --- | --- | --- |
+| B | drift step's own `env:` mapping changed | `.github/workflows/mutation-harness.yml` | `_metaSourceShardIntegrity.test.ts` |
+| B | drift step's own `run:` command changed | `.github/workflows/mutation-harness.yml` | `_metaSourceShardIntegrity.test.ts` |
+| B | a shell prefix in the drift step's `run:` shadows its `env:` | `.github/workflows/mutation-harness.yml` | `_metaSourceShardIntegrity.test.ts` |
+| B | drift step's `if: always()` removed | `.github/workflows/mutation-harness.yml` | `_metaSourceShardIntegrity.test.ts` |
+| B | records artifact pattern changed | `.github/workflows/mutation-harness.yml` | `_metaSourceShardIntegrity.test.ts` |
+| B | records artifact destination changed | `.github/workflows/mutation-harness.yml` | `_metaSourceShardIntegrity.test.ts` |
+| B | the new script's path-filter entry deleted | `.github/workflows/mutation-harness.yml` | `_metaSourceShardIntegrity.test.ts` |
+| B | `lib/mutationWeight/**` path-filter entry deleted | `.github/workflows/mutation-harness.yml` | `_metaSourceShardIntegrity.test.ts` |
 
-**RED:** the marker's command, with the suite committed and the drift script absent.
-Expect a module-resolution failure naming the missing script; then, once the script exists
-as a stub, the arms failing.
+The third row is the shell-shadow case as a mutation rather than as prose: a `run:` prefix
+that shadows the step's `env:` must fail the whole-command equality pin, and if it does
+not, the pin reads the mapping only and is fail-open.
 
-**GREEN:** the same command with every arm passing, plus
+**RED, and the collection failure does NOT count as one.** An earlier draft offered a
+module-resolution failure naming the missing script as its first red. That is a command
+that never reached a deciding assertion, and the project's red-validity rule rejects it for
+exactly that reason — an unresolved import is indistinguishable from a mistyped path, which
+is the failure mode `--exec-red`'s collection probe exists to name. So the script is
+committed as a STUB first, exporting the right shape and returning nothing useful, and the
+observed red is the marker's command with all six arms failing against it. Every one of
+those failures is an assertion that ran.
+
+**GREEN:** the marker's command with every arm passing, plus
 `pnpm vitest run tests/mutation/_metaSourceShardIntegrity.test.ts` green over all five
-pins and `node scripts/mutation-weight-plant.mjs` green over the four plants.
+pins, plus `node scripts/mutation-weight-plant.mjs` reporting CAUGHT for ALL FOURTEEN
+entries this task declares — the six script plants and the eight wiring plants. An earlier
+draft's completion condition said "the four plants" while the task declared eleven, which
+left the wiring demonstrations outside the condition that closes the task.
 
 **Commit:** `feat(ci): report per-surface rate drift beside the shard budget`
 
@@ -743,31 +785,67 @@ the live set minus the snapshot set must equal exactly the two ids this arc enro
 enrolment appearing here fails, which is correct — it would be a registry change this plan
 never reviewed.
 
+**The snapshot and both Form A anchors are generated AFTER the registry seam closes, not
+now.** Two other arcs are live registry writers — `#882` enrols two surfaces, and
+`feat/review-round-arc-sum` enrols a new instant-rounds module at `651c21c13` — and the
+orchestrator's ruling is that every registry and partition commit holds until BOTH merge
+and this branch absorbs them. That has a consequence specific to this task, beyond the
+ordering: the merge base MOVES, so a snapshot taken today would pin a registry that is not
+the one this diff is measured against, and the guard would then report every absorbed
+surface as an unexpected addition. Both Form A anchors need re-verifying at the same point
+for the same reason — `scoreFloor: 0.94,` is unique across today's 45 rows, and a surface
+arriving with that floor makes it non-unique and the plant unpasteable. The uniqueness
+sweep is re-run after the absorb, not trusted from this document.
+
 **Placed BEFORE the re-score deliberately.** The guard exists to constrain the triage in
 Task 7, where the temptation to lower a floor or ledger a row on `sourceShardPartition` is
 strongest. A guard that lands after the work it constrains is documentation.
 
 **Plants** — Form A, since every anchor is a live registry row today:
 
-| form | defect | file | anchor | becomes |
-| --- | --- | --- | --- | --- |
-| A | an existing floor lowered | `tests/mutation/source/registry.ts` | `scoreFloor: 0.94,` | `scoreFloor: 0.5,` |
-| A | an existing surface deleted | `tests/mutation/source/registry.ts` | `id: "mutationWeightRecords",` | `id: "mutationWeightRecordsX",` |
+**One plant per recorded field, because a guard that compares six fields and demonstrates
+one has demonstrated one.** An earlier draft planted `scoreFloor` alone and left
+`operators`, `suitePaths`, `accepted`, `sourcePath` and `control` asserted but never
+exercised. Every anchor below is Form A on `specLintUniversals`, a surface enrolled well
+before this diff and therefore in the merge-base snapshot; its `scoreFloor: 0.94,` is the
+registry's only occurrence of that value, which is what makes the row addressable by a
+unique literal at all.
 
-The first is the case the score command cannot see, and its anchor is `0.94` rather than
-`0.9` for a mechanical reason worth recording: `scoreFloor: 0.9,` occurs TWELVE times in
-the registry, so it is not a valid Form A anchor at all — the harness would refuse it as
-non-unique and report ANCHOR-FAIL. `0.94` occurs exactly once, on `specLintUniversals`,
-which is enrolled well before this diff and therefore in the snapshot. The second entry
-proves the two-sided check rather than the subset check: renaming an id removes one from
-the snapshot's view and adds an unexpected one to the live set, so a one-sided guard
-reports clean.
+| form | field exercised | file | anchor | becomes |
+| --- | --- | --- | --- | --- |
+| A | `scoreFloor` lowered | `tests/mutation/source/registry.ts` | `scoreFloor: 0.94,` | `scoreFloor: 0.5,` |
+| A | a pre-existing surface DELETED | `tests/mutation/source/registry.ts` | `id: "specLintUniversals",` | `id: "specLintUniversalsRenamed",` |
+| B | `operators` narrowed | `tests/mutation/source/registry.ts` | that row's operator list | a scoped subset | — |
+| B | `suitePaths` shortened | `tests/mutation/source/registry.ts` | that row's suite list | one path dropped | — |
+| B | `accepted` gains a row | `tests/mutation/source/registry.ts` | that row's accepted list | one row added | — |
+| B | `sourcePath` repointed | `tests/mutation/source/registry.ts` | that row's source path | a different file | — |
+| B | `control` anchor altered | `tests/mutation/source/registry.ts` | that row's control string | one token changed | — |
+
+The five Form B rows are Form B for a mechanical reason rather than a temporal one: their
+anchors are field values shared across many rows — `operators: [...OPERATOR_NAMES],` alone
+occurs 38 times — so no unique literal exists for them until the entry names enough
+surrounding text to disambiguate, which is written when the plant is applied. The rule's
+exactly-once requirement is what forces this, and it is the same requirement that caught
+the `scoreFloor: 0.9,` anchor.
+
+The first row is the case the score command cannot see: a LOWERED floor makes that command
+greener. Its anchor is `0.94` and not `0.9` for a mechanical reason worth recording, since
+it is what the uniqueness sweep exists to catch — `scoreFloor: 0.9,` occurs TWELVE times in
+the registry, so it is not a valid Form A anchor at all and the harness would refuse it.
+
+The second row proves the two-sided check rather than the subset check, and it must rename
+a PRE-EXISTING surface to do so. An earlier draft renamed `mutationWeightRecords`, which
+this branch enrols: that surface is absent from the merge-base snapshot, so renaming it
+exercises the allowed-additions comparison and never the deletion arm at all. Renaming
+`specLintUniversals` removes a snapshot row from the live set, which is the deletion a
+one-sided guard would report clean.
 
 **RED:** the marker's command with the suite and the merge-base snapshot committed, and one
 plant applied. Expect a failure naming the changed field and surface.
 
 **GREEN:** the same command passing on the unplanted tree, plus
-`node scripts/mutation-weight-plant.mjs` reporting CAUGHT for both entries.
+`node scripts/mutation-weight-plant.mjs` reporting CAUGHT for all seven entries — one per
+recorded field, plus the deletion.
 
 **Commit:** `test(mutation): pin every pre-existing surface against the merge base`
 

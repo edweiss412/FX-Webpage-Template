@@ -200,8 +200,8 @@ const DEFECTS = [
   [
     "legSeconds attributes every surface's seconds to leg 0",
     "weights.ts",
-    "  for (const [id, leg] of assign) bins[leg] = (bins[leg] ?? 0) + (secs.get(id) ?? 0);",
-    "  for (const [id] of assign) bins[0] = (bins[0] ?? 0) + (secs.get(id) ?? 0);",
+    "    totals.set(leg, (totals.get(leg) ?? 0) + (secs.get(id) ?? 0));",
+    "    totals.set(0, (totals.get(0) ?? 0) + (secs.get(id) ?? 0));",
   ],
   [
     "seamMagnitude reports surfaces that did NOT change leg",

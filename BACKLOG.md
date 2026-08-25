@@ -2176,3 +2176,19 @@ Each candidate resolves to the line it names, so a human can separate a live cla
 **Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
 
 **First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
+
+### BL-SPECLINT-PLANT-ANCHOR-UNIQUENESS — a plan declares a plant anchor the harness would refuse, and it reads as certified
+
+**Status:** OPEN · **Severity:** LOW · **Class:** plan lint · **Facing:** process · **Filed:** 2026-08-25 (`fix/mutation-shard-weight-seconds`, plan rounds 2-4) · **Effort:** S
+
+**Incident:** three consecutive review rounds on one arc spent findings on this, and the corpus rows are the evidence: `docs/review-rounds/fix/mutation-shard-weight-seconds/300a9f937b8a.jsonl`, plan rounds 2, 3 and 4 (8, 7 and 8 findings, BLOCKING each). Round 2 rejected five plant declarations whose `from` column held prose; round 3 rejected four more written in block-comment style against a `//` header, plus one naming an ABSENCE as its anchor; round 4 found three guessed literals in a table authored before the arc's own Form A/B rule and not revisited when it landed, and separately found an EXISTING plant orphaned by a repair that moved the code out from under it.
+
+**Probe, run rather than theorized.** `scripts/mutation-weight-plant.mjs` substitutes literal text — `text.split(from)` to count and `text.replace(from, to)` to apply — and refuses anything not occurring exactly once. A sweep of the arc's declared anchors against the live tree returned `12` for `scoreFloor: 0.9,` and `0` for the orphaned `legSeconds` anchor; every other anchor returned `1`. Both would have reported ANCHOR-FAIL, which the harness correctly declines to score as a pass — but only when it RUNS. On the page they read as certified plants, and that is the defect: the plan asserted a baseline of "37 plants, 0 escaped" that was false at the commit it cited.
+
+**The check needs no judgment.** For every plan table row declaring a literal plant anchor, assert the string occurs exactly once in the file the row names. Pure text, decidable, and the same shape as the existing `red-target` citation arms in `spec:lint`. The natural companion is a warning when a repair commit touches a file that any live plant list targets, since that is how the orphaned anchor happened.
+
+**Why it is filed rather than fixed here.** Class-sweep disposition exception (c): the repair is a new `spec:lint` arm with its own grammar for locating plant tables in arbitrary plan documents, which is a surface this arc does not otherwise touch. What DID land in-branch is the scoped form — a Form A/B declaration rule plus a uniqueness sweep run and pasted at plan time — so the arc is not deferring its own defect, only the generalisation of it.
+
+**Reachability:** PROBED — the two counts above are from the live tree at `b539765c9`.
+
+---
