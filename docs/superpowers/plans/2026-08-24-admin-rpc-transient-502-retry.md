@@ -5,6 +5,16 @@ Row: `BL-ADMIN-LOADER-CI-TRANSIENT`.
 
 Every task is TDD: failing test first, minimal implementation, passing test, one commit.
 
+**Before adding an artifact of a kind this repo already has, grep an existing instance and see
+everywhere it appears.** Every fan-out this plan needed was found that way and none by recall. Three
+of the nine tasks add such an artifact, and each turned out to have companion tables: a new app-e2e
+spec touches FOUR registries (Task 7), a new mutation surface touches THREE (Task 6), and a new
+forensic log code touches at least one (Task 3).
+
+Fan-outs are themselves a class. When one registry in a diff proves to have satellite tables, every
+other registry in that diff gets asked the same question, unprompted — this plan needed two review
+rounds to learn that, having swept the fan-out it was shown and not the one it was not.
+
 **"Red" means the AUTHORED test failing, never the missing-file state.** `vitest run` on a path that
 does not exist exits 1 with "No test files found", which is indistinguishable by exit code from a real
 red — so a task could otherwise be "satisfied" by never writing its test. Each red below is the state
@@ -100,6 +110,13 @@ resolves `is_session_live` and `is_admin` in parallel, so 1250ms is the ceiling 
 render in the worst case, and only on a request that was going to fail outright anyway. Against CI:
 `.github/workflows/app-e2e.yml` sets `timeout-minutes: 30` on a job measured at 435s, so even a
 pathological run of retries cannot approach the job ceiling.
+
+The emit's code needs a decision, not an assumption. Spec §6 says `SUPABASE_UPSTREAM_RETRY` needs no
+§12.4 catalog row, which is true and incomplete: forensic-only codes are also tracked in
+`NEW_FORENSIC_CODES` (`tests/log/_auditableMutations.ts`, search `export const NEW_FORENSIC_CODES`),
+whose own comment reads "Every NEW forensic-only code this feature introduces" and which
+`tests/log/_metaAdminOutcomeContract.test.ts` consumes. "No catalog row" and "no registry row at all"
+are different claims. This task decides which applies and records the answer either way.
 
 `RETRYABLE_STATUSES = {502, 503, 504}` is a named export, and this task's red pins the SET rather than
 one member: 502, 503 and 504 each retry, and 500 and 429 do NOT. The sibling treats both as transient
