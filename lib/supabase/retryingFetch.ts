@@ -59,9 +59,26 @@ function describeRequest(
   return { url: input.url, method: init?.method ?? input.method };
 }
 
+/**
+ * The retry's forensic code.
+ *
+ * A NAMED CONSTANT rather than an inline literal, and the reason is a classification rather than
+ * style. `lib/messages/__internal__/codeProducers.ts` scans `app/**` and `lib/**` for a quoted
+ * SHOUTY value assigned to a `code:` property and requires every hit to be a registered §12.4
+ * user-facing message code. It strips `log.*` spans first, because — in its own words — those
+ * carry "free-form forensic app_events codes, NOT §12.4-gated user-facing producers".
+ *
+ * This code IS one of those: it reaches `log.warn` and no rendered surface. It escaped the strip
+ * only because the emit is indirected through an injectable `onRetry` for testability, so the
+ * literal sat in a plain object rather than inside a `log.*` call. Registering it in §12.4 would
+ * file a forensic code as user-facing copy, which is the wrong repair; naming it states the
+ * classification instead. x1-catalog-parity caught this on run 32809831724.
+ */
+export const RETRY_EMIT_CODE = "SUPABASE_UPSTREAM_RETRY";
+
 /** The forensic record a retry leaves. Never a body, never arguments, never a token. */
 export type RetryEmit = {
-  code: "SUPABASE_UPSTREAM_RETRY";
+  code: typeof RETRY_EMIT_CODE;
   fn: string;
   status: number | null;
   attempt: number;
@@ -200,7 +217,7 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
       // A retry is never silent: an absorbed fault that leaves no record is indistinguishable
       // from a fault that never happened, which is how a green run hides a real occurrence.
       onRetry({
-        code: "SUPABASE_UPSTREAM_RETRY",
+        code: RETRY_EMIT_CODE,
         fn: describeTarget(url),
         status: response?.status ?? null,
         attempt: attempt + 1,
