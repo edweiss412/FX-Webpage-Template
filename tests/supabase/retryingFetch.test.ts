@@ -136,6 +136,37 @@ describe("retrying fetch — the per-attempt stall guard", () => {
   });
 });
 
+describe("retrying fetch — a retry is never silent (spec §6)", () => {
+  test("each retry emits SUPABASE_UPSTREAM_RETRY with the function, status and attempt", async () => {
+    // Found by CI, not by this suite: the e2e proof passed while NO emit existed anywhere,
+    // because it asserted only that the page rendered. An absorbed fault that leaves no record
+    // is indistinguishable from a fault that never happened.
+    const emitted: Array<{ message: string; fields: Record<string, unknown> }> = [];
+    const inner = vi.fn(async () => (inner.mock.calls.length === 1 ? bad(502) : ok()));
+    await makeRetryingFetch(inner, {
+      ...instant,
+      onRetry: (fields) => emitted.push({ message: "retry", fields }),
+    })(RPC, { method: "POST" });
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.fields).toMatchObject({
+      code: "SUPABASE_UPSTREAM_RETRY",
+      fn: "is_admin",
+      status: 502,
+      attempt: 1,
+    });
+  });
+
+  test("a request that never retries emits nothing", async () => {
+    const emitted: unknown[] = [];
+    const inner = vi.fn(async () => ok());
+    await makeRetryingFetch(inner, { ...instant, onRetry: () => emitted.push(1) })(RPC, {
+      method: "POST",
+    });
+    expect(emitted).toHaveLength(0);
+  });
+});
+
 describe("retrying fetch — abort provenance", () => {
   test("a CALLER abort is attempted once and rethrown as itself", async () => {
     const controller = new AbortController();

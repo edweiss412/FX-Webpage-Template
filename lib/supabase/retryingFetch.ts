@@ -20,6 +20,8 @@
  *
  * not-subject-to-meta: transport policy, not an auth helper gating a trust decision (invariant 9).
  */
+import { log } from "@/lib/log";
+
 import { isRetryEligible } from "./retryEligibility";
 
 /** Retries AFTER the first attempt. Two, not the sibling's three: this path is a page render. */
@@ -55,12 +57,32 @@ function describeRequest(
   return { url: input.url, method: init?.method ?? input.method };
 }
 
+/** The forensic record a retry leaves. Never a body, never arguments, never a token. */
+export type RetryEmit = {
+  code: "SUPABASE_UPSTREAM_RETRY";
+  fn: string;
+  status: number | null;
+  attempt: number;
+};
+
 export type RetryingFetchOptions = {
   maxRetries?: number;
   timeoutMs?: number;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
+  /** Injectable so the emit is assertable without a log sink. Defaults to `log.warn`. */
+  onRetry?: (fields: RetryEmit) => void;
 };
+
+/** `/rest/v1/rpc/<fn>` → `<fn>`, else the path, so the record names WHAT was retried. */
+function describeTarget(url: string): string {
+  try {
+    const path = new URL(url).pathname;
+    return /^\/rest\/v1\/rpc\/([^/]+)$/.exec(path)?.[1] ?? path;
+  } catch {
+    return url;
+  }
+}
 
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -81,6 +103,17 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
   const timeoutMs = options.timeoutMs ?? PER_ATTEMPT_TIMEOUT_MS;
   const sleep = options.sleep ?? defaultSleep;
   const random = options.random ?? Math.random;
+  // Defaults to `log.warn`, which PERSISTS — safe here and only here: the durable sink writes
+  // through the service-role client, which this wrapper does not cover (spec §6.1). A wrapper
+  // installed on that client could not use warn without recursing.
+  const onRetry =
+    options.onRetry ??
+    ((fields: RetryEmit) => {
+      void log.warn("supabase upstream fault retried", {
+        source: "supabase.retryingFetch",
+        ...fields,
+      });
+    });
 
   return async function retryingFetch(
     input: RequestInfo | URL,
@@ -149,6 +182,14 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
         return firstResponse!;
       }
 
+      // A retry is never silent: an absorbed fault that leaves no record is indistinguishable
+      // from a fault that never happened, which is how a green run hides a real occurrence.
+      onRetry({
+        code: "SUPABASE_UPSTREAM_RETRY",
+        fn: describeTarget(url),
+        status: response?.status ?? null,
+        attempt: attempt + 1,
+      });
       await sleep(backoffMs(attempt + 1, random));
     }
   };
