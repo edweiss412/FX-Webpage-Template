@@ -59,6 +59,21 @@ const MINT_BAR_CUTOFF = "2026-08-19";
 
 const RECOGNIZED_EXCEPTIONS = ["invariant", "ratified-scope"] as const;
 
+/**
+ * Process mint freeze (AGENTS.md "Process mint freeze (2026-08-25)"). From this
+ * date a process-facing row enters the open queue only under one of these two
+ * exceptions; an Incident on its own no longer admits it, and `ratified-scope`
+ * is retired for process rows. `product-blocked` additionally requires the
+ * Incident that names the blocked product arc.
+ */
+const PROCESS_MINT_FREEZE = "2026-08-25";
+const FREEZE_EXCEPTIONS = ["invariant", "product-blocked"] as const;
+
+/** Leading lowercase token of a `Mint-exception` value; undefined when absent. */
+function exceptionToken(raw: string): string | undefined {
+  return /^\s*([a-z-]+)\b/i.exec(raw)?.[1]?.toLowerCase();
+}
+
 /** Leading `YYYY-MM-DD` of a `Filed` value; null when absent or unparseable. */
 function filedDate(raw: string | undefined): string | null {
   const m = /^\s*(\d{4}-\d{2}-\d{2})/.exec(raw ?? "");
@@ -82,9 +97,33 @@ export function mintBarVerdict(fields: Record<string, string>): Verdict {
   if (facing[1]!.toLowerCase() === "product") return { ok: true };
 
   const incident = (fields.Incident ?? "").trim();
+  const exception = (fields["Mint-exception"] ?? "").trim();
+
+  if (filed >= PROCESS_MINT_FREEZE) {
+    const token = exceptionToken(exception);
+    if (!token || !(FREEZE_EXCEPTIONS as readonly string[]).includes(token)) {
+      return {
+        ok: false,
+        why:
+          `process-facing row filed ${filed}, under the process mint freeze (AGENTS.md ` +
+          `"Process mint freeze (2026-08-25)"): an Incident alone no longer admits a process row. ` +
+          `File it to the owning surface's documented-limits record with a re-file trigger, ` +
+          `or name a freeze exception (${FREEZE_EXCEPTIONS.join(" | ")}); got: ${exception || "(absent)"}`,
+      };
+    }
+    if (token === "product-blocked" && incident === "") {
+      return {
+        ok: false,
+        why:
+          `process-facing row filed ${filed} under **Mint-exception:** product-blocked with no ` +
+          `**Incident:** naming the blocked product arc (its branch plus the CI run, corpus row, or commit)`,
+      };
+    }
+    return { ok: true };
+  }
+
   if (incident !== "") return { ok: true };
 
-  const exception = (fields["Mint-exception"] ?? "").trim();
   if (exception === "") {
     return {
       ok: false,
@@ -95,7 +134,7 @@ export function mintBarVerdict(fields: Record<string, string>): Verdict {
         `or file the finding to the owning surface's documented-limits record instead`,
     };
   }
-  const token = /^\s*([a-z-]+)\b/i.exec(exception)?.[1]?.toLowerCase();
+  const token = exceptionToken(exception);
   if (!token || !(RECOGNIZED_EXCEPTIONS as readonly string[]).includes(token)) {
     return {
       ok: false,
@@ -158,6 +197,52 @@ describe("process-facing mint bar", () => {
       // process-facing under each recognized exception
       "**Filed:** 2026-08-19 · **Facing:** process · **Mint-exception:** invariant (defends invariant 2) · **Effort:** S",
       "**Filed:** 2026-08-19 · **Facing:** process · **Mint-exception:** ratified-scope (spec §4 limit 8) · **Effort:** S",
+    ]) {
+      expect(mintBarVerdict(fixtureFields(line)), line).toEqual({ ok: true });
+    }
+  });
+
+  // Process mint freeze (AGENTS.md "Process mint freeze (2026-08-25)"): from the
+  // freeze date an Incident alone no longer admits a process row, and
+  // `ratified-scope` no longer admits one at all.
+  it("premise: a post-freeze process row with an incident but no freeze exception is rejected", () => {
+    const v = mintBarVerdict(
+      fixtureFields(
+        "**Filed:** 2026-08-25 (`fix/x`) · **Facing:** process · **Incident:** diff round 3 corpus row · **Effort:** S",
+      ),
+    );
+    expect(v.ok).toBe(false);
+    expect((v as { why: string }).why).toMatch(/freeze/);
+  });
+
+  it("premise: a post-freeze process row under ratified-scope is rejected", () => {
+    const v = mintBarVerdict(
+      fixtureFields(
+        "**Filed:** 2026-08-25 · **Facing:** process · **Mint-exception:** ratified-scope (spec §4) · **Effort:** S",
+      ),
+    );
+    expect(v.ok).toBe(false);
+  });
+
+  it("premise: a post-freeze product-blocked row without an incident is rejected", () => {
+    const v = mintBarVerdict(
+      fixtureFields(
+        "**Filed:** 2026-08-25 · **Facing:** process · **Mint-exception:** product-blocked (`feat/crew-x`) · **Effort:** S",
+      ),
+    );
+    expect(v.ok).toBe(false);
+  });
+
+  it("premise: the post-freeze accept branches admit exactly the documented shapes", () => {
+    for (const line of [
+      // the day before the freeze, the 2026-08-18 bar still applies unchanged
+      "**Filed:** 2026-08-24 · **Facing:** process · **Incident:** run 32149575319 red on main · **Effort:** S",
+      "**Filed:** 2026-08-24 · **Facing:** process · **Mint-exception:** ratified-scope (spec §4) · **Effort:** S",
+      // product-facing needs nothing further, before or after
+      "**Filed:** 2026-08-25 · **Facing:** product · **Effort:** S",
+      // the two surviving process exceptions
+      "**Filed:** 2026-08-25 · **Facing:** process · **Mint-exception:** invariant (defends invariant 2) · **Effort:** S",
+      "**Filed:** 2026-08-25 · **Facing:** process · **Mint-exception:** product-blocked (`feat/crew-x`) · **Incident:** `feat/crew-x` diff round 2, corpus row docs/review-rounds/feat/crew-x/abc.jsonl · **Effort:** S",
     ]) {
       expect(mintBarVerdict(fixtureFields(line)), line).toEqual({ ok: true });
     }
