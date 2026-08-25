@@ -39,6 +39,55 @@ const PULL_REQUEST = /^Merge pull request #\d+ from [^/\s]+\/(.+)$/;
  */
 const SECOND_SPELLING = /^Merge PR #\d+: (\S+\/\S+)/;
 
+/** A first-parent merge, classified by SUBJECT only — no base resolved. */
+export type ClassifiedMerge = { sha: string; branch: string; mergedAt: string };
+export type ClassifiedResult = {
+  shallow: boolean;
+  recognized: ClassifiedMerge[];
+  unrecognized: UnrecognizedMerge[];
+};
+
+/**
+ * The cheap half of `mergedArcs`: ONE `git log`, no per-merge process spawns.
+ *
+ * `mergedArcs` costs one `git merge-base` PROCESS per recognized merge, and main
+ * carries roughly 850 first-parent merges, so its cost grows monotonically with
+ * the repository's merge count. Measured 2026-08-24 as a live fleet blocker:
+ * 24.79s on a quiet box, then 34.66s after one day's merges landed, against a
+ * 30s default test ceiling — it will red every arc's suite from now on, and
+ * raising the ceiling only moves the date.
+ *
+ * Callers that need the ACCOUNTING — every first-parent merge is either
+ * recognized or reported, never dropped — do not need a base at all, and should
+ * use this. `mergedArcs` stays for callers that genuinely consume `baseSha`,
+ * which is the silent-arc join in `scripts/review-economy.ts`.
+ */
+export function classifyFirstParentMerges(repoRoot: string): ClassifiedResult {
+  if (git(repoRoot, ["rev-parse", "--is-shallow-repository"]) === "true") {
+    return { shallow: true, recognized: [], unrecognized: [] };
+  }
+  const log = git(repoRoot, [
+    "log",
+    "--merges",
+    "--first-parent",
+    "main",
+    "--format=%H%x1f%s%x1f%cI",
+  ]);
+  const recognized: ClassifiedMerge[] = [];
+  const unrecognized: UnrecognizedMerge[] = [];
+  for (const line of (log ?? "").split("\n")) {
+    if (line.trim() === "") continue;
+    const fields = line.split(FIELD_SEP);
+    const sha = fields[0] ?? "";
+    const subject = fields[1] ?? "";
+    const mergedAt = fields[2] ?? "";
+    const branch = PULL_REQUEST.exec(subject)?.[1] ?? SECOND_SPELLING.exec(subject)?.[1] ?? null;
+    if (branch === null) unrecognized.push({ sha, subject });
+    else recognized.push({ sha, branch, mergedAt });
+  }
+  return { shallow: false, recognized, unrecognized };
+}
+
 export function mergedArcs(repoRoot: string): MergedArcsResult {
   // First, and unconditional. A shallow clone presents truncated history as
   // complete, and depth-1 is the NORMAL CI state - a scan that answers from it

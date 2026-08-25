@@ -3,9 +3,10 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { adoptionBoundary, ROUND_THRESHOLD, isCountedStage } from "../lib/reviewRounds/constants";
-import { readArcs } from "../lib/reviewRounds/corpus";
+import { arcSumTotals, type ArcSumTotal, readArcs } from "../lib/reviewRounds/corpus";
 import { countedRounds, recordedRounds } from "../lib/reviewRounds/count";
 import { mergedArcs, type MergedArc } from "../lib/reviewRounds/mergedArcs";
+import { atOrBefore, instant, strictlyBefore } from "../lib/reviewRounds/instant";
 import type { ReviewRoundRow } from "../lib/reviewRounds/row";
 
 export type StageCounts = { counted: number; recorded: number };
@@ -17,6 +18,12 @@ export type Report = {
    *  data, and disclosure is what separates a partial answer from one labelled
    *  complete. */
   malformedRows: { arc: string; file: string; line: number }[];
+  /** One row per `(branch directory, stage)` whose rounds SUMMED across every
+   *  base reach the threshold. `marked` comes from the gate's own predicate and
+   *  is never recomputed here: a second copy of an obligation rule drifts from
+   *  the first silently, which is what both spec-review findings on this report
+   *  were. */
+  arcTotals: ArcSumTotal[];
   triggerRateByMonth: Record<string, { population: number; triggered: number; rate: number }>;
   findingsByStage: Record<string, { total: number; declaredRows: number; undeclaredRows: number }>;
   /** null means WITHHELD - a shallow clone or an unset boundary. Never [] for
@@ -53,84 +60,13 @@ const arcKey = (branch: string, baseSha: string): string => `${branch}\u0000${ba
 // ---------------------------------------------------------------------------
 
 /**
- * The accept-set for a `startedAt`, keyed on STRUCTURE (spec §3.2).
- *
- *  - An EXPLICIT offset, because a timezone-less string parses host-dependently:
- *    `2026-08-31T23:00:00` against the boundary `2026-09-01T00:00:00.000Z` is
- *    PRE-boundary under `TZ=UTC` and POST-boundary under `TZ=America/New_York`,
- *    so the same accepted row silently flips the advisory by environment.
- *  - The offset hour and minute BOUNDED to the real range. An unbounded
- *    `[+-]\d{2}:\d{2}` admits `+24:00` and `+00:60`, which `Date.parse` maps to
- *    NaN AFTER the structural test has already said "placeable" - every
- *    comparison then returns false with no note, which is silent invisibility.
- *  - Fractional seconds capped at MILLISECONDS, because ECMAScript compares at
- *    millisecond precision: a `.0001` past a `.000` merge parses EQUAL, and a
- *    chronologically-later row silently slips inside the exclusion cap.
+ * Timestamp placement and ordering moved to `lib/reviewRounds/instant.ts` at
+ * diff R3, unchanged in behaviour. It lived here, reachable only from
+ * `scripts/`, while `lib/reviewRounds/corpus.ts` needed the same judgement and
+ * used a bare `Date.parse` instead. One copy, in the layer both can import.
+ * `tests/reviewRounds/advisoryComparatorTopology.test.ts` scans this module and
+ * that one together, so a site added to either is covered.
  */
-const PLACEABLE =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,3})?(Z|[+-](?:0\d|1[0-3]):[0-5]\d|[+-]14:00)$/;
-
-const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
-const isLeapYear = (y: number): boolean => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-
-/**
- * The instant a timestamp denotes, or `null` when it cannot be placed. `null`
- * is the ONLY not-placeable signal: a NaN returned into a comparison makes
- * every `<=` false, which reads exactly like "compared and cleared".
- *
- * Three conditions, all of which must hold. The finite-parse net at the end is
- * what makes "placeable implies comparable" true BY CONSTRUCTION rather than by
- * enumerating parser quirks - any residual string the parser cannot place falls
- * out here rather than into a comparison.
- */
-function instant(value: string | null): number | null {
-  if (value === null) return null;
-  const m = PLACEABLE.exec(value);
-  if (m === null) return null;
-  const year = Number(m[1]);
-  const month = Number(m[2]);
-  const day = Number(m[3]);
-  // Calendar validity, because `Date.parse` SILENTLY NORMALIZES an impossible
-  // date: `2026-02-30T00:00:00.000Z` becomes Mar 2 and then compares as a real
-  // instant nobody wrote.
-  if (month < 1 || month > 12) return null;
-  const days = month === 2 && isLeapYear(year) ? 29 : (DAYS_IN_MONTH[month - 1] ?? 0);
-  if (day < 1 || day > days) return null;
-  if (Number(m[4]) > 23 || Number(m[5]) > 59 || Number(m[6]) > 59) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-/**
- * The two ordering helpers, and the ONLY way this module compares timestamps
- * (spec §3.1). TWO, not one: `<` and `<=` are both load-bearing - the strict
- * boundary check and the inclusive time cap - and collapsing them behind a
- * single helper would need a MODE parameter, which is a discriminating
- * parameter a mutant can flip, added to save a word.
- *
- * What makes this structural rather than per-site is the TYPE, not the count.
- * Both take `number | null` and `instant` is their only producer, so a
- * later-added site that forgets to parse is a COMPILE error rather than a
- * silent lexical compare - and valid ISO-8601 timestamps with non-Z offsets
- * order differently lexically than chronologically, so a lexical site is wrong
- * only under offsets, which is exactly the failure that ships unnoticed.
- * `tests/reviewRounds/advisoryComparatorTopology.test.ts` pins both halves: no
- * timestamp string is ever an operand of a relational operator here, and no
- * ordering helper accepts anything but parsed values.
- *
- * (This comment used to claim "The ONE comparator", two lines above the second
- * one. Corrected 2026-08-09 from the whole-diff review; the guard exists so the
- * claim cannot drift from the code again.)
- *
- * `null` on either side means NOT COMPARABLE, and the caller gets `false` -
- * never "equal", never "earlier".
- */
-const atOrBefore = (a: number | null, b: number | null): boolean =>
-  a !== null && b !== null && a <= b;
-
-const strictlyBefore = (a: number | null, b: number | null): boolean =>
-  a !== null && b !== null && a < b;
 
 export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report {
   const notes: string[] = [];
@@ -176,32 +112,44 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
   // A pair is bucketed by its FIRST counted row's month and counts as triggered
   // if it EVER crossed - a stage that began in one month and crossed in the next
   // must not land in two buckets, which is how a monthly rate exceeds 1.
+  // Straight from the gate's predicate, never a second copy of the rule.
+  const arcTotals = arcSumTotals(arcs);
+
   const triggerRateByMonth: Report["triggerRateByMonth"] = {};
+  // Population is (branch DIRECTORY, stage) pairs, not (branch, baseSha, stage).
+  // A re-merge opens a second file for the same arc, so counting per base
+  // splits one review into two population entries and halves the rate. A pair
+  // is bucketed by its DIRECTORY-WIDE first counted row and counts as triggered
+  // if the ARC SUM ever crossed - a stage that began in one month and crossed
+  // in the next must not land in two buckets, which is how a monthly rate
+  // exceeds 1.
+  const rowsByDirStage = new Map<string, ReviewRoundRow[]>();
   for (const arc of arcs) {
-    const byStage = new Map<string, ReviewRoundRow[]>();
     for (const row of arc.rows) {
       if (row.status !== "verdict" || !isCountedStage(row.stage)) continue;
-      const group = byStage.get(row.stage);
+      const key = `${arc.branch}\u0000${row.stage}`;
+      const group = rowsByDirStage.get(key);
       if (group) group.push(row);
-      else byStage.set(row.stage, [row]);
-    }
-    for (const rows of byStage.values()) {
-      const stamps = rows
-        .map((r) => r.startedAt)
-        .filter((s): s is string => s !== null)
-        .sort();
-      const month = (stamps[0] ?? "unknown").slice(0, 7);
-      const bucket = triggerRateByMonth[month] ?? { population: 0, triggered: 0, rate: 0 };
-      bucket.population += 1;
-      if (new Set(rows.map((r) => r.round)).size >= ROUND_THRESHOLD) bucket.triggered += 1;
-      bucket.rate = bucket.triggered / bucket.population;
-      triggerRateByMonth[month] = bucket;
+      else rowsByDirStage.set(key, [row]);
     }
   }
+  for (const rows of rowsByDirStage.values()) {
+    const stamps = rows
+      .map((r) => r.startedAt)
+      .filter((s): s is string => s !== null)
+      .sort();
+    const month = (stamps[0] ?? "unknown").slice(0, 7);
+    const bucket = triggerRateByMonth[month] ?? { population: 0, triggered: 0, rate: 0 };
+    bucket.population += 1;
+    // The ARC sum, so a stage that reached the threshold only ACROSS bases
+    // counts as triggered - the very case this change exists for.
+    if (new Set(rows.map((r) => `${r.baseSha}\u0000${r.round}`)).size >= ROUND_THRESHOLD) {
+      bucket.triggered += 1;
+    }
+    bucket.rate = bucket.triggered / bucket.population;
+    triggerRateByMonth[month] = bucket;
+  }
 
-  // --- finding totals by stage ----------------------------------------------
-  // `null` is EXCLUDED and counted on its own. Folding it into zero understates
-  // every total and is indistinguishable from "no findings found".
   const findingsByStage: Report["findingsByStage"] = {};
   for (const arc of arcs) {
     for (const row of arc.rows) {
@@ -256,7 +204,7 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
       // post-adoption branch and the report listed the adoption merge itself as
       // silent. The contract goes live WITH that merge, not before it, so the
       // merge that establishes the boundary cannot be obliged by it.
-      if (Date.parse(merge.mergedAt) <= Date.parse(boundary)) {
+      if (atOrBefore(instant(merge.mergedAt), instant(boundary))) {
         // Reported as a COUNT, never enumerated (documented limit 7).
         preAdoption += 1;
         continue;
@@ -356,6 +304,7 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
     arcs: arcRows,
     malformedRows,
     triggerRateByMonth,
+    arcTotals,
     findingsByStage,
     silentArcs,
     preAdoptionMergeCount,
@@ -392,7 +341,27 @@ export function render(report: Report): string {
     for (const m of report.malformedRows) out.push(`  ${m.file}:${m.line}  (${m.arc})`);
   }
 
-  out.push("", `filing threshold: ${ROUND_THRESHOLD} counted rounds in one stage`, "");
+  out.push(
+    "",
+    `filing threshold: ${ROUND_THRESHOLD} counted rounds in one stage, summed across every merge base of one arc`,
+    "",
+  );
+
+  // L1 and L2. The totals line is the reason this report changed: without it
+  // a reader sees two bases at 2 and 2 and no number anywhere equals the 4
+  // the gate is about to oblige them for. The frozen count is STATED at zero
+  // rather than omitted, so an empty exemption set reads as a measurement.
+  out.push("rounds summed across every base of one arc:");
+  for (const t of report.arcTotals) {
+    const mark = t.marked ? "  OWES A FILING" : t.frozen ? "  frozen" : "";
+    out.push(`  ${t.branch}  ${t.stage}  ${t.arcSum} across ${t.bases} bases${mark}`);
+  }
+  if (report.arcTotals.length === 0) out.push("  (none at threshold by sum)");
+  out.push(
+    "",
+    `frozen by the arc-sum grandfather set: ${report.arcTotals.filter((t) => t.frozen).length}`,
+  );
+  out.push("");
   out.push("trigger rate by month (triggered / population):");
   for (const month of Object.keys(report.triggerRateByMonth).sort()) {
     const r = report.triggerRateByMonth[month]!;

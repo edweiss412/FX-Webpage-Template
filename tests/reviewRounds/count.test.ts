@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
-import { countedRounds, recordedRounds, roundGaps } from "../../lib/reviewRounds/count";
+import {
+  arcCountedRounds,
+  countedRounds,
+  recordedRounds,
+  roundGaps,
+} from "../../lib/reviewRounds/count";
 import type { ReviewRoundRow } from "../../lib/reviewRounds/row";
 
 const row = (over: Partial<ReviewRoundRow>): ReviewRoundRow => ({
@@ -88,5 +93,82 @@ describe("counting rule (spec §5.4) - exactly two conjuncts", () => {
       row({ round: 3 }),
     ];
     expect(roundGaps(rows)).toEqual([]);
+  });
+});
+
+describe("arcCountedRounds (spec §5.2) - the sum across every base of one arc", () => {
+  // THE defect this test exists for, and the whole reason the arc exists: a
+  // re-merge moves the merge base, the corpus opens a second file, and the
+  // per-base counter restarts at 1. Four rounds were burned; the gate sees
+  // three and obliges nothing. The renumbered row is a FOURTH distinct
+  // (baseSha, round) pair where countedRounds sees only three round values.
+  it("sums distinct (baseSha, round) pairs across bases, where countedRounds restarts", () => {
+    const rows = [
+      ...[1, 2, 3].map((n) => row({ round: n, baseSha: "aaaaaaaaaaaa" })),
+      row({ round: 1, baseSha: "bbbbbbbbbbbb" }),
+    ];
+    expect(arcCountedRounds(rows).get("diff")).toBe(ROUND_THRESHOLD);
+    // The contrast IS the defect - same rows, the per-base reader is short.
+    expect(countedRounds(rows).get("diff")).toBe(ROUND_THRESHOLD - 1);
+  });
+
+  // K1/`round`. Failure caught: a set keyed on baseSha alone, which collapses
+  // every round of one base to 1 and reports a four-round arc as two.
+  it("varies round with the base held fixed", () => {
+    const rows = [
+      ...[1, 2].map((n) => row({ round: n, baseSha: "aaaaaaaaaaaa" })),
+      ...[1, 2].map((n) => row({ round: n, baseSha: "bbbbbbbbbbbb" })),
+    ];
+    expect(arcCountedRounds(rows).get("diff")).toBe(4);
+  });
+
+  // Failure caught: a sum over ROWS rather than over distinct pairs, which
+  // taxes the split tight-scope reviews AGENTS.md recommends - a parallel
+  // wave shares one round number within one base and must count once.
+  it("counts a pair once, so a parallel wave within one base counts once", () => {
+    const rows = [
+      row({ round: 1, baseSha: "aaaaaaaaaaaa" }),
+      row({ round: 1, baseSha: "aaaaaaaaaaaa", label: "second-shard" }),
+    ];
+    expect(arcCountedRounds(rows).get("diff")).toBe(1);
+    expect(recordedRounds(rows).get("diff")).toBe(2);
+  });
+
+  // Failure caught: the two counting conjuncts dropped on the way across
+  // bases, so infra deaths and non-review dispatches manufacture obligation.
+  it("carries both counting conjuncts across bases", () => {
+    const rows = [
+      row({ round: 1, baseSha: "aaaaaaaaaaaa" }),
+      row({
+        round: 2,
+        baseSha: "cccccccccccc",
+        status: "no_verdict",
+        verdict: null,
+        failureReason: "total_timeout",
+      }),
+      row({ round: 3, baseSha: "cccccccccccc", stage: "task" }),
+    ];
+    expect(arcCountedRounds(rows).get("diff")).toBe(1);
+    expect(arcCountedRounds(rows).get("task")).toBeUndefined();
+  });
+
+  // K1/`stage`. Failure caught: a map keyed on the (baseSha, round) pair
+  // alone and not the stage. Every case above still passes, and a spec round
+  // at a third base silently inflates diff's count into an obligation.
+  it("keeps stages independent across bases", () => {
+    const rows = [
+      ...[1, 2, 3].map((n) => row({ round: n, baseSha: "aaaaaaaaaaaa" })),
+      row({ round: 1, baseSha: "cccccccccccc", stage: "spec" }),
+    ];
+    expect(arcCountedRounds(rows).get("diff")).toBe(3);
+    expect(arcCountedRounds(rows).get("spec")).toBe(1);
+  });
+
+  // Failure caught: an empty corpus read as a missing key that a caller then
+  // treats as an obligation rather than as zero.
+  it("returns an empty map for no rows, reading as zero", () => {
+    const empty = arcCountedRounds([]);
+    expect(empty.size).toBe(0);
+    expect(empty.get("diff") ?? 0).toBe(0);
   });
 });

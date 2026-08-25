@@ -2,8 +2,10 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 import { CORPUS_DIR } from "./arc";
+import { ARC_SUM_FREEZE, isArcSumGrandfathered } from "./arcSumGrandfather";
+import { instant, strictlyBefore } from "./instant";
 import { COUNTED_STAGES, isCountedStage, ROUND_THRESHOLD, type Stage } from "./constants";
-import { countedRounds, recordedRounds, roundGaps } from "./count";
+import { arcCountedRounds, countedRounds, recordedRounds, roundGaps } from "./count";
 import { parseFiling, type FilingSection } from "./filing";
 import { MECHANIZABLE_GRANDFATHERED } from "./mechanizableGrandfather";
 import { parseRow, type ReviewRoundRow } from "./row";
@@ -21,7 +23,8 @@ export type ProblemKind =
   | "duplicate_section"
   | "orphan_filing"
   | "unrecognized_corpus_file"
-  | "mechanizable_untracked";
+  | "mechanizable_untracked"
+  | "missing_arc_filing";
 
 export type Problem = { kind: ProblemKind; message: string };
 
@@ -184,7 +187,20 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
     });
   }
 
-  for (const arc of readArcs(root)) {
+  // Bound once: clause A walks each arc alone, clause B groups the SAME arcs
+  // by branch directory. Re-reading would let the two clauses disagree about
+  // what the corpus holds.
+  const arcs = readArcs(root);
+  // `(branch, stage)` pairs clause A has already reported, so clause B stays
+  // RESIDUAL - one duty is announced once, never twice.
+  const clauseAReported = new Set<string>();
+  // Stages already discharged by a filing SOMEWHERE in each branch directory,
+  // gathered from the sections clause A has parsed anyway.
+  // Parsed once here and handed to clause B: parsing every filing a second
+  // time pushed the live-corpus check from 2.5s past its 30s timeout.
+  const sectionsByArc = new Map<Arc, FilingSection[]>();
+
+  for (const arc of arcs) {
     for (const bad of arc.malformed) {
       // A malformed row swallowed as an empty corpus reads as "this arc ran no
       // rounds", which reports an obliged arc as compliant.
@@ -227,6 +243,8 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
       else byStage.set(section.stage, [section]);
     }
 
+    sectionsByArc.set(arc, sections);
+
     const filingPath = `${arc.corpusPath.slice(0, -".jsonl".length)}.md`;
     // The Mechanizable-parity rule binds NEW filings only (enforcement-pair
     // spec §3.3): filings are immutable evidence, so paths frozen in the
@@ -237,6 +255,7 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
       if ((byStage.get(stage) ?? []).length > 0) continue;
       // The baseSha is in the message so a reused branch name cannot leave a
       // reader guessing WHICH arc owes the filing.
+      clauseAReported.add(`${arc.branch}\u0000${stage}`);
       problems.push({
         kind: "missing_filing",
         message: `${arc.branch} ${arc.baseSha}: stage ${stage} burned ${n} counted rounds and has no filing section (expected ${filingPath})`,
@@ -385,5 +404,137 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
       }
     }
   }
+
+  // Clause B (spec §3.1): the RESIDUAL obligation, summed across every base.
+  // The predicate itself lives in `arcSumTotals` so the report can IMPORT it
+  // rather than restate it - both spec-review findings on the report were that
+  // one class, a second copy of an obligation rule drifting from the first.
+  for (const total of arcSumTotals(arcs, sectionsByArc, clauseAReported)) {
+    if (!total.marked) continue;
+    problems.push({ kind: "missing_arc_filing", message: total.detail });
+  }
+
   return problems;
+}
+
+/** One `(branch directory, stage)` pair whose rounds, summed across every base
+ *  of the arc, reach `ROUND_THRESHOLD`. `marked` is the obligation clause B
+ *  reports; `frozen` is the grandfather exemption. */
+export type ArcSumTotal = {
+  branch: string;
+  stage: string;
+  arcSum: number;
+  bases: number;
+  marked: boolean;
+  frozen: boolean;
+  /** The gate's message for this pair, so the two consumers cannot word one
+   *  obligation two ways. */
+  detail: string;
+};
+
+/**
+ * Clause B's predicate, in one place because it has two consumers: the merge
+ * gate reports `marked` pairs, and `pnpm review:economy` renders all of them.
+ * A report with its own copy of this rule drifts from the gate silently, which
+ * is what both of the spec stage's report findings were.
+ *
+ * `sections` and `clauseAReported` are passed in when the caller has already
+ * computed them (the gate has, walking clause A); a caller that has not, such
+ * as the report, omits them and pays one parse.
+ */
+export function arcSumTotals(
+  arcs: Arc[],
+  sections?: Map<Arc, FilingSection[]>,
+  clauseAReported?: Set<string>,
+): ArcSumTotal[] {
+  const sectionsOf = (arc: Arc): FilingSection[] =>
+    sections?.get(arc) ?? (arc.filingText === null ? [] : parseFiling(arc.filingText));
+
+  const byBranch = new Map<string, Arc[]>();
+  for (const arc of arcs) {
+    const group = byBranch.get(arc.branch);
+    if (group) group.push(arc);
+    else byBranch.set(arc.branch, [arc]);
+  }
+
+  // When the caller did not walk clause A, derive it here from the same arcs:
+  // a base at the per-base threshold with no section of its own is clause A's
+  // to report, and clause B must stay residual to it.
+  const reportedByA =
+    clauseAReported ??
+    new Set(
+      arcs.flatMap((arc) => {
+        const filedHere = new Set(sectionsOf(arc).map((section) => section.stage));
+        return [...countedRounds(arc.rows)]
+          .filter(([stage, n]) => n >= ROUND_THRESHOLD && !filedHere.has(stage))
+          .map(([stage]) => `${arc.branch}\u0000${stage}`);
+      }),
+    );
+
+  const totals: ArcSumTotal[] = [];
+  for (const [branch, group] of byBranch) {
+    // Satisfaction is DIRECTORY-WIDE and per stage: the obligation is attached
+    // to no single base, so any one section for that stage discharges it
+    // (spec §4 limit 2). Scoped by stage - a `## spec` section cannot
+    // discharge a `diff` duty.
+    const filedStages = new Set(group.flatMap((arc) => sectionsOf(arc).map((s) => s.stage)));
+
+    for (const [stage, arcSum] of arcCountedRounds(group.flatMap((arc) => arc.rows))) {
+      // Deliberately NOT the `n < ROUND_THRESHOLD` phrasing clause A uses:
+      // that exact line is a mutation control string
+      // (`tests/mutation/source/registry.ts:1775`) and must stay a unique
+      // substring of this file.
+      if (arcSum < ROUND_THRESHOLD) continue;
+
+      // Exemption is the CONJUNCTION of list membership AND an arc whose
+      // counted rounds all predate the freeze (spec §3.3). Either half alone
+      // lets the set grow: membership alone makes the list the whole
+      // mechanism, and age alone exempts most of the corpus. Compared as
+      // INSTANTS, never as strings: `2026-08-21T23:30:00-05:00` denotes an
+      // instant AFTER the freeze while sorting lexically before it, so a
+      // string compare would keep an aged pair grandfathered (diff R1 P1).
+      // Placed through `instant`, never `Date.parse`: a timezone-less string is
+      // not an instant but an instant PER HOST, and `Date.parse` also
+      // normalizes an impossible date into a real one. Both used to answer,
+      // host-dependently and silently, which is diff R3 P1. Unplaceable is
+      // `null`, `strictlyBefore` returns false on it, and the row counts
+      // against the exemption - cannot be PROVEN older.
+      let freezeViolation = "";
+      let frozen = false;
+      if (isArcSumGrandfathered(branch, stage)) {
+        const notProvenOld = group
+          .flatMap((arc) => arc.rows)
+          .filter((r) => r.stage === stage && r.status === "verdict")
+          .filter((r) => !strictlyBefore(instant(r.startedAt), instant(ARC_SUM_FREEZE)));
+        if (notProvenOld.length === 0) frozen = true;
+        else
+          freezeViolation =
+            `; listed in the grandfather set, but ${notProvenOld.length} counted ` +
+            `round(s) do not predate the freeze at ${ARC_SUM_FREEZE}`;
+      }
+
+      const perBase = group
+        .map((arc) => [arc.baseSha, countedRounds(arc.rows).get(stage) ?? 0] as const)
+        .filter(([, n]) => n > 0)
+        .map(([baseSha, n]) => `${baseSha} ${n}`)
+        .join(", ");
+
+      const marked =
+        !frozen && !reportedByA.has(`${branch}\u0000${stage}`) && !filedStages.has(stage);
+
+      totals.push({
+        branch,
+        stage,
+        arcSum,
+        bases: group.length,
+        marked,
+        frozen,
+        detail:
+          `${branch}: stage ${stage} burned ${arcSum} counted rounds across ` +
+          `${group.length} merge bases and has no filing section for it in ` +
+          `${CORPUS_DIR}/${branch} (${perBase})${freezeViolation}`,
+      });
+    }
+  }
+  return totals;
 }

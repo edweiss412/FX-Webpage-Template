@@ -20,6 +20,13 @@
  *   2. Every ordering helper in the module accepts parsed values only, so a
  *      later-added site that forgets to parse is a COMPILE error rather than a
  *      silent lexical compare. A third comparator taking `string` fails here.
+ *   3. No relational operand is a bare `Date.parse(...)` call. Added at diff
+ *      R3, which found what properties 1 and 2 both let through: `Date.parse`
+ *      of a timezone-less string SUCCEEDS and returns a host-dependent
+ *      instant, and of an impossible date returns a normalized one. Property 1
+ *      deliberately treats a call result as "already parsed", so the shape
+ *      `Date.parse(a) < Date.parse(b)` was legitimate to it. ONE predicate,
+ *      deliberately: the recognizer does not grow a grammar per round.
  *
  * SELF-TEST SHAPES, POSITIVE AND NEGATIVE, per the repair-economy rule
  * (`docs/agents/writing-plans.md`): a scanner's claims are planted as
@@ -27,7 +34,7 @@
  * shape a scanner that flags EVERY relational operator would pass its positive
  * case and be worthless.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import ts from "typescript";
@@ -37,6 +44,25 @@ import { premiseHolds } from "../_shared/premise";
 
 const FILE = "scripts/review-economy.ts";
 const SRC = readFileSync(join(process.cwd(), FILE), "utf8");
+
+/**
+ * The scan's scope is DERIVED, not listed. It was one hardcoded path, and
+ * diff R1 found the predictable consequence: a lexical compare added to
+ * `lib/reviewRounds/corpus.ts` was outside the only file the scanner read, so
+ * the guard passed while the class it names shipped. An enumerated cover
+ * re-opens the moment someone adds a site, which is exactly what happened.
+ *
+ * `lib/reviewRounds/` is walked from disk, so a NEW module in it is covered by
+ * default rather than by remembering to register it.
+ */
+const SCANNED: readonly { file: string; src: string }[] = [
+  { file: FILE, src: SRC },
+  ...readdirSync(join(process.cwd(), "lib/reviewRounds"), { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith(".ts"))
+    .map((e) => `lib/reviewRounds/${e.name}`)
+    .sort()
+    .map((file) => ({ file, src: readFileSync(join(process.cwd(), file), "utf8") })),
+];
 
 /**
  * Identifiers that hold a timestamp STRING. A relational operator on any of
@@ -149,6 +175,41 @@ export function comparatorsAcceptingUnparsed(fileName: string, src: string): Fin
   return found;
 }
 
+/** A direct `Date.parse(...)` call, which is the only shape property 3 knows. */
+const isDateParseCall = (n: ts.Node): boolean =>
+  ts.isCallExpression(n) &&
+  ts.isPropertyAccessExpression(n.expression) &&
+  ts.isIdentifier(n.expression.expression) &&
+  n.expression.expression.text === "Date" &&
+  n.expression.name.text === "parse";
+
+/**
+ * Property 3: a relational operator applied to a bare `Date.parse(...)` result.
+ * `Date.parse` answers questions it cannot settle - a timezone-less string gets
+ * a host-dependent instant, an impossible date gets a normalized one - so its
+ * result is not "parsed" in the sense properties 1 and 2 mean. Ordering goes
+ * through `instant`, whose not-placeable answer is `null`.
+ */
+export function bareDateParseComparisons(fileName: string, src: string): Finding[] {
+  const sf = parse(fileName, src);
+  const found: Finding[] = [];
+  const visit = (n: ts.Node): void => {
+    if (
+      ts.isBinaryExpression(n) &&
+      RELATIONAL.has(n.operatorToken.kind) &&
+      (isDateParseCall(n.left) || isDateParseCall(n.right))
+    ) {
+      found.push({
+        line: sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1,
+        text: n.getText(sf),
+      });
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return found;
+}
+
 describe("boundary-advisory comparator topology (2026-08-07 spec §3.1)", () => {
   it("PREMISE: both scanners flag a planted violation, and neither flags a legitimate comparison", () => {
     // POSITIVE — the exact regression §3.1 forbids: a later-added site that
@@ -167,18 +228,85 @@ describe("boundary-advisory comparator topology (2026-08-07 spec §3.1)", () => 
       `const at = (s: string): number | null => Date.parse(s);\n` +
       `export const ok = (a: number | null, b: number | null): boolean =>\n` +
       `  a !== null && b !== null && a <= b;\n` +
+      // Legitimate to properties 1 and 2 by design, and a POSITIVE for
+      // property 3 below - which is the gap R3 found.
       `export const alsoOk = Date.parse(startedAt) <= Date.parse(boundary);\n` +
       `export const notATimestamp = (month: number): boolean => month < 1 || month > 12;\n`;
     expect(lexicalTimestampComparisons("planted.ts", good)).toEqual([]);
     expect(comparatorsAcceptingUnparsed("planted.ts", good)).toEqual([]);
   });
 
-  it("compares no timestamp STRING with a relational operator", () => {
+  it("PREMISE: property 3 flags a bare Date.parse comparison and nothing else", () => {
+    // POSITIVE — the exact shape that shipped and that properties 1 and 2 both
+    // cleared, in both operand positions and under every relational operator.
+    expect(
+      bareDateParseComparisons(
+        "planted.ts",
+        `export const a = Date.parse(x) < Date.parse(y);\n` +
+          `export const b = parsed <= Date.parse(y);\n` +
+          `export const c = Date.parse(x) > t;\n` +
+          `export const d = Date.parse(x) >= t;\n`,
+      ),
+    ).toHaveLength(4);
+
+    // NEGATIVE — without these the property is "flags any Date.parse" or
+    // "flags any relational operator", either of which pins nothing. Parsing
+    // into a variable, calling the real helper, and comparing non-timestamps
+    // are all correct.
+    expect(
+      bareDateParseComparisons(
+        "planted.ts",
+        `const t = Date.parse(x);\n` +
+          `export const ok = strictlyBefore(instant(x), instant(y));\n` +
+          `export const alsoOk = Number.isFinite(Date.parse(x)) ? t : null;\n` +
+          `export const notATimestamp = (month: number): boolean => month < 1;\n`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("PREMISE: the scope reaches the module diff R1 caught, and flags the ACTUAL defect there", () => {
+    // Two properties, because either alone is satisfiable while the guard is
+    // useless. SCOPE: a scan narrowed back to one file passes every assertion
+    // below it while covering nothing. POWER: a scope that reaches the file
+    // proves nothing if the scanner cannot see the shape that shipped.
+    const corpus = SCANNED.find(({ file }) => file === "lib/reviewRounds/corpus.ts");
+    expect(corpus, "the walk must reach corpus.ts — R1's finding lived there").toBeDefined();
+
+    const shipped =
+      ".filter((r) => !strictlyBefore(instant(r.startedAt), instant(ARC_SUM_FREEZE)));";
+    const lexical = ".filter((r) => r.startedAt === null || !(r.startedAt < ARC_SUM_FREEZE));";
+    // Replacer FUNCTION, not a replacement string, per the #883 class sweep:
+    // the function form has no substitution grammar at all, so a `$&` or `$1`
+    // appearing in the regressed source can never be interpreted. `lexical` is
+    // a literal today and carries none, which is exactly why the shape rather
+    // than the value is what gets fixed.
+    const regressed = corpus!.src.replace(shipped, () => lexical);
+    premiseHolds("the repaired line is still present to regress", regressed !== corpus!.src);
+    expect(lexicalTimestampComparisons(corpus!.file, regressed).length).toBeGreaterThan(0);
+  });
+
+  it("compares no timestamp STRING with a relational operator, in ANY scanned module", () => {
     premiseHolds(
-      "the report module is non-empty and parses, so an empty scan means 'none found' rather than 'nothing read'",
-      SRC.length > 0 && parse(FILE, SRC).statements.length > 0,
+      "every scanned module is non-empty and parses, so an empty scan means 'none found' rather than 'nothing read'",
+      SCANNED.length > 1 &&
+        SCANNED.every(({ file, src }) => src.length > 0 && parse(file, src).statements.length > 0),
     );
-    expect(lexicalTimestampComparisons(FILE, SRC)).toEqual([]);
+    const found = SCANNED.flatMap(({ file, src }) =>
+      lexicalTimestampComparisons(file, src).map((f) => `${file}:${f.line} ${f.text}`),
+    );
+    expect(found).toEqual([]);
+  });
+
+  it("applies no relational operator to a bare Date.parse result, in ANY scanned module", () => {
+    premiseHolds(
+      "every scanned module is non-empty and parses, so an empty scan means 'none found' rather than 'nothing read'",
+      SCANNED.length > 1 &&
+        SCANNED.every(({ file, src }) => src.length > 0 && parse(file, src).statements.length > 0),
+    );
+    const found = SCANNED.flatMap(({ file, src }) =>
+      bareDateParseComparisons(file, src).map((f) => `${file}:${f.line} ${f.text}`),
+    );
+    expect(found).toEqual([]);
   });
 
   it("declares every ordering helper over PARSED instants, so an unparsed site cannot compile", () => {
@@ -187,10 +315,21 @@ describe("boundary-advisory comparator topology (2026-08-07 spec §3.1)", () => 
     // boundary check and the inclusive time cap — and collapsing them behind a
     // mode parameter would add a discriminating parameter, not remove a risk.
     // What matters is that NEITHER accepts a string, and neither does a third.
+    // Ranged over the whole scan, not one file. The helpers moved to
+    // `lib/reviewRounds/instant.ts` at R3, and a premise pinned to
+    // `scripts/review-economy.ts` went vacuous the moment they left - which the
+    // premise helper reported rather than passing quietly.
     premiseHolds(
-      "the module really does contain ordering helpers for this assertion to range over",
-      comparatorsAcceptingUnparsed(FILE, SRC.replace(/: number \| null/g, ": string")).length > 0,
+      "some scanned module really does contain ordering helpers for this assertion to range over",
+      SCANNED.some(
+        ({ file, src }) =>
+          comparatorsAcceptingUnparsed(file, src.replace(/: number \| null/g, ": string")).length >
+          0,
+      ),
     );
-    expect(comparatorsAcceptingUnparsed(FILE, SRC)).toEqual([]);
+    const unparsed = SCANNED.flatMap(({ file, src }) =>
+      comparatorsAcceptingUnparsed(file, src).map((f) => `${file}:${f.line} ${f.text}`),
+    );
+    expect(unparsed).toEqual([]);
   });
 });
