@@ -73,6 +73,7 @@ function CheckpointInfraErrorPlaceholder() {
   return (
     <main
       data-testid="admin-checkpoint-infra-error"
+      data-render-fault="finalize-checkpoint-read"
       className="mx-auto flex max-w-2xl flex-col gap-section-gap"
     >
       <header className="flex flex-col gap-2">

@@ -127,7 +127,7 @@ export function AppHealthPopover({
           ) : emptyButActive ? (
             <p className="text-sm text-text">{EMPTY_SUMMARY_FALLBACK}</p>
           ) : rollup.kind === "infra_error" ? (
-            <p className="text-sm text-text-subtle">
+            <p data-render-fault="app-health-rollup" className="text-sm text-text-subtle">
               Couldn&rsquo;t check system health right now.
             </p>
           ) : (

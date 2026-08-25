@@ -1038,6 +1038,24 @@ describe("spec registration detector (spec §3.1)", () => {
       ["playwright.screenshots.config.ts"],
     "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test -c playwright.screenshots.config.ts --project=screenshots-help --project=screenshots-help-capture":
       ["playwright.screenshots.config.ts"],
+    // The four RUNNER_*/GITHUB_EVENT_NAME passthroughs are this arc's addition:
+    // the capture's evidence record names the machine that produced the bytes,
+    // and a byte gate whose record cannot say which runner captured them cannot
+    // tell a real drift from a runner difference. Docker does not inherit the
+    // host environment, so each one is forwarded explicitly.
+    //
+    // The registry is keyed by the invocation's EXACT text, so adding those
+    // flags staled this row and the census reported the line as undeclared —
+    // fail-closed, which is the design. Updating the key is the whole repair.
+    'docker run --rm --platform linux/amd64 --network host -v "$PWD:/work" -w /work -e CI=true -e RUNNER_NAME -e RUNNER_ARCH -e RUNNER_OS -e GITHUB_EVENT_NAME mcr.microsoft.com/playwright:v1.59.1-jammy bash -lc "apt-get update && apt-get install -y postgresql-client && corepack enable && pnpm screenshot:help"':
+      [],
+    // The SAME capture without the passthroughs, in screenshots-regen.yml. Two
+    // rows because two invocations genuinely exist: regen is a
+    // workflow_dispatch baseline rebuild whose evidence record is gitignored
+    // and read by nothing, so it has no reason to carry runner identity, while
+    // the drift gate's record is the artifact an operator reads to tell a real
+    // drift from a runner difference. Collapsing them by editing regen to match
+    // would change a workflow this arc has no reason to touch.
     'docker run --rm --platform linux/amd64 --network host -v "$PWD:/work" -w /work -e CI=true mcr.microsoft.com/playwright:v1.59.1-jammy bash -lc "apt-get update && apt-get install -y postgresql-client && corepack enable && pnpm screenshot:help"':
       [],
     'git commit -m "test(infra): regen admin nav/settings screenshot baselines (amd64 CI runner)" -m "Regenerated from the pinned mcr.microsoft.com/playwright:v1.59.1-jammy image on a native-amd64 runner after the M12.2 B1 /admin chrome redesign (screenshots-regen workflow_dispatch job), so the bytes match the screenshots-drift gate capture environment."':

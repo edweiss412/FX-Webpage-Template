@@ -263,6 +263,17 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // child_process, ledger-git, or process.env.
   "tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts": 0,
   "tests/help/_metaUiLabelCrosswalk.test.ts": 0,
+  // renderFaultDetector, enrolled 2026-08-24 with the captureRenderFault surface.
+  // Declared 0, and the zero needs its reason on the record: this suite launches a
+  // real Chromium in `beforeAll` and drives it from every case, which is
+  // environment-touching in the ordinary sense of the words. It is 0 under THIS
+  // classifier because the launch is a `@playwright/test` call, and the traversal
+  // deliberately does not resolve into node_modules -- without that boundary every
+  // verdict collapses. So read this 0 as "reaches no first-party environment sink",
+  // NOT as "this suite is pure". If it ever drops other suites to 0 alongside it,
+  // that is the recognizer breaking, which is exactly what the declaration exists
+  // to surface.
+  "tests/help/renderFaultDetector.test.ts": 0,
   // Enrolled by specLintNumerics (2026-08-11). Pure, and the declaration is
   // honest rather than convenient: every case drives checkNumerics or runLint
   // over literal fixture text with a hand-built FileResolver, so it reaches no

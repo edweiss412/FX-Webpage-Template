@@ -730,6 +730,7 @@ export function RecentAutoAppliedStrip({
     return (
       <section
         data-testid="recent-auto-applied-strip"
+        data-render-fault="recent-auto-applied-read"
         className="flex flex-col gap-2"
         aria-labelledby={headingId}
       >

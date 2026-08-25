@@ -8,6 +8,51 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
+## BL-SPECLINT-AC-UNCLAIMED — a plan can declare an acceptance criterion that no task is scheduled to prove
+
+**Status:** OPEN · **Filed:** 2026-08-22 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** LOW (an unwritten assertion; caught downstream by review rather than shipped) · **Class:** spec-lint arm · **Effort:** S · **Incident:** plan review round 1 of this arc raised "AC-2 has no executable owner" as a BLOCKING finding against a plan `pnpm spec:lint` had just passed at **0 hard**; the round is recorded in `docs/review-rounds/fix/screenshots-drift-instrument/50ca72a566b0.jsonl`. · **Reachability:** PROBED — the asymmetry is at `lib/specLint/taskContract.ts:376`, and the missing direction was written and run against this arc's own plan before filing.
+
+`spec:lint` checks marker to AC but not AC to marker. `TASK_AC_UNRESOLVED` fires when a task marker cites an `ac=` id that appears nowhere in the plan's text. Nothing fires when a plan DECLARES an acceptance criterion in its own list and no task marker claims it — which means no task is scheduled to write that assertion, and the plan still lints clean.
+
+**The check is the existing traversal read in the other direction**, and it was executed rather than proposed: collect the ids from every `ac=` field, collect the ids declared in the plan's acceptance-criteria list, report the set difference both ways. Run against this arc's pre-repair plan it reproduces the finding (AC-2 declared, unclaimed); run against the repaired plan it reports clean in both directions.
+
+**The reverse direction is a second real defect,** not a symmetry nicety. `TASK_AC_UNRESOLVED` fires on an id absent from the plan's TEXT, which a passing mention in prose satisfies — so a marker may cite `ac=AC-9` against a plan that merely mentions AC-9 in a sentence, without AC-9 ever being a declared criterion.
+
+## BL-ADMIN-LOADER-INFRA-ERROR-TELEMETRY-SILENT — the loader is telemetry-silent on the fault this instrument measures
+
+**Status:** OPEN · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** MEDIUM (a diagnosable fault leaves no trace in the job log) · **Class:** observability · **Effort:** S · **Incident:** this arc's own diagnosis. `lib/admin/loadRecentAutoApplied.ts` imports `log` (`:28`) and none of its five `infra_error` return sites (`:145`, `:170`, `:176`, `:231`, `:241`) emit anything, so attributing run 32528532727 required downloading the failure artifact inside its 7-day retention window rather than reading a log. A code-carrying emit would have named it from the log. · **Reachability:** PROBED — the five return sites are read directly.
+
+**Class-sweep exception (c).** The repair is an emit in `lib/admin/**`, which pulls application review
+surface into a PR whose brief scopes it to workflow, scripts and docs.
+
+## BL-SERVER-TIME-GUARD-EXCLUDES-LIB — the server-time guard's population never walks `lib/`
+
+**Status:** OPEN · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** LOW · **Class:** guard fidelity · **Effort:** M · **Incident:** `lib/admin/loadAppEvents.ts:45` calls `new Date(Date.now() - sinceH * 3_600_000)` and is a LIVE UNWAIVED SURVIVOR of `tests/help/_metaServerTimeGuard.test.ts` — `discoverScanRoots()` (`:11`) seeds with `"components"` plus manifest-derived `app/<segment>` roots, so `lib/**` is never walked. The guard reports clean over a population that excludes the survivor. · **Reachability:** PROBED — the survivor is named above and the seeding is read at `:11`.
+
+**Class-sweep exception (c).** Widening to `lib/**` is a redesign of a guard this PR does not otherwise
+touch, and it pulls an unbounded waiver population into a CI-fidelity diff.
+
+## BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY — the marking scanner's ternary arm drops what its if-arm reports
+
+**Status:** OPEN · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** MEDIUM · **Class:** guard fidelity · **Effort:** M · **Incident:** the defect shipped INTO this arc's own registry and was caught pre-merge by its self-review. `tests/help/_metaRenderFaultMarking.test.ts` declared `Dashboard.tsx:ignoredDegraded` and `Dashboard.tsx:dataGapsDegraded` as flag-shaped residue on the stated ground that "the guard site returns no JSX". Both are ternaries whose `whenTrue` IS the JSX (`components/admin/Dashboard.tsx:674`, `:858`), so the recorded justification was false and the two entries were filed under the wrong cause. A registry whose reasons are wrong is worse than one with gaps, because it is read as settled. · **Reachability:** PROBED — see the probe below.
+
+**The asymmetry.** `scanCandidates` (`tests/help/_renderFaultScan.ts`) gives its `IfStatement` arm a
+vocabulary fallback: an unclassifiable guard matching `/error|fail|infra|degrad|unavailable|corrupt/i`
+is pushed as `unknown` and lands in `REPORTED_RESIDUE`. The `ConditionalExpression` arm has no fallback
+and does a bare `continue` at `:395`. A ternary whose `whenTrue` is JSX is exactly the shape layer 1
+claims to reach, so this is a gap INSIDE the claimed coverage, not the documented ceiling at spec §4.2.
+
+**Probe** (ts-morph over `scannedFiles()`, live tree, 2026-08-24): **714** ternaries under the derived
+roots return JSX in `whenTrue`; **91** of those carry a fault-vocabulary guard. The classifiable ones are
+enforced; the rest are dropped in silence rather than reported. Reported residue today is 5, every one of
+them from an `IfStatement`.
+
+**Class-sweep exception (c).** Adding the fallback means declaring a reason for every unclassifiable
+ternary it surfaces. Hand-writing that population reduces the registry to boilerplate and destroys the
+signal residue exists to carry, so the repair is a redesign of the recognizer's residue model rather than
+a one-line symmetry fix. Sizing it, and deciding whether the vocabulary probe is even the right filter on
+this arm, is the first scheduled step.
+
 ## BL-SPECLINT-MATRIX-BARE-NA — a completeness-matrix cell that says only `N/A` hides the claim it should have had to make
 
 **Status:** OPEN · **Severity:** LOW (no shipped defect; review-economy waste) · **Class:** spec lint / author discipline · **Effort:** S · **Filed:** 2026-08-22 (`feat/validation-prune-db-side-gate`, spec review R2 P1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a rule inside `lib/specLint/`, a surface this arc does not otherwise touch · **Reachability:** PROBED — the failing document is a committed blob on this branch and the two false cells are quoted below.
@@ -67,36 +112,6 @@ The suite agrees: run against a green baseline, the mutant reds `ledgerClaimsChe
 **Close condition, and what would NOT close it.** Raising timeouts does not close either class — the ceiling is a function of machine load and load is not bounded, so it moves the threshold and leaves the conflation. Scoring a ceiling-terminated child as its own `indeterminate` verdict addresses class 1 and does NOTHING for class 2, which never reaches the ceiling. What closes both: re-run any mutant against a GREEN baseline before the gate reports its ledger row stale, and treat disagreement between the two runs as an infrastructure fault rather than a verdict.
 
 **A cheap first step available today, and it covers the class that announces nothing.** Fail the surface when a kill lands on a site carrying an `equivalent` or `accepted-gap` row, instead of reporting that row stale. That is exactly where a false verdict does active harm, it needs no new signal from the harness, and unlike the `TIMEOUT-KILL` filter it does not depend on the mechanism being self-disclosing.
-
-## BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM — the byte gate fails on a diff that changes no render input, and the same branch passed an hour earlier
-
-**Status:** OPEN · **Filed:** 2026-08-21 (reported by the `fix/shell-attached-redirection-target` arc; probed further here) · **Facing:** process · **Severity:** MEDIUM (a merge-blocking gate firing on arcs that touch nothing it measures; no shipped-behavior defect) · **Class:** CI gate fidelity · **Effort:** M · **Incident:** run [32528532727](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32528532727) FAILED screenshots-drift on 2026-08-21 at 21:26Z while the nightly backstop on `main`, run [32472312764](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32472312764), PASSED the same day at 10:22Z. · **Reachability:** PROBED — see the same-branch pair below.
-
-The failing job recaptured `public/help/screenshots/review-queues-empty-state-light.webp` at **11408 bytes against a committed baseline of 6148** — a near-doubling of an EMPTY-STATE image. The reporting arc's diff touches ZERO render inputs: nothing under `app/`, `components/`, `lib/`, `fixtures/`, `supabase/` or `public/`.
-
-**The decisive evidence is a SAME-BRANCH pair, not the nightly comparison.** The nightly rules out a stale baseline and no more; it runs on different content, so a defender can always say the branch is what differs. That objection does not survive this:
-
-| run                                                                                       | sha            | conclusion  | at                |
-| ----------------------------------------------------------------------------------------- | -------------- | ----------- | ----------------- |
-| [32523151283](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32523151283) | `f51a96457190` | **success** | 2026-08-21 20:21Z |
-| [32528532727](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32528532727) | `be5d3d810db2` | **failure** | 2026-08-21 21:26Z |
-
-`git diff --name-only f51a96457190..be5d3d810db2` filtered to render inputs returns NOTHING — the eight changed files are two ledger files, three docs, and three files under `tests/`. One branch, no render input moved, sixty-five minutes apart, pass then fail. Whatever varies is not in the repository.
-
-**THIS IS THE SECOND OCCURRENCE OF A CLASS ALREADY FILED.** `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` (filed 2026-08-18) records a `dashboard-overview-light.webp` flip at a fixed tree that nine dispatched runs could not reproduce, and it is filed `INFERRED, NOT PROBED` with its first scheduled step waiting on a recurrence. This is that recurrence, on a different image, with a same-branch pair the earlier occurrence never had. The two rows are ONE class and must be worked together; neither should be scheduled alone.
-
-**TWO CANDIDATE MECHANISMS, and the reporting arc's is not obviously the stronger.**
-
-1. **A time-of-day or date-dependent capture** (the reporting arc's hypothesis, labelled as one). A near-doubled EMPTY-STATE image reads like the queue was not empty at the 21:38Z capture, which follows if the fixture's emptiness depends on a comparison against the wall clock.
-2. **Runner-population bimodality** (the predecessor row's leading candidate, and the repository already carries this as a known byte-gate lesson). A capture environment where some fraction of runners encode differently produces exactly this: same tree, same inputs, different bytes, no reproduction on demand.
-
-Both fit every fact here. The same-branch pair narrows the variable to something outside the repository and does not choose between them.
-
-**The probe settles both at once, and it is the first scheduled step:** at the next capture, record runner identity — `Runner.Name` plus CPU model from the runner context — alongside the wall-clock time, on BOTH outcomes, and capture the same baseline twice from one unchanged tree at two well-separated times of day. Time-varying bytes on one runner names mechanism 1; identical bytes across times but differing bytes across runner identities names mechanism 2; neither is a third thing worth knowing before any repair is designed. This is the predecessor row's scheduled capture with a time axis added, not a new instrument.
-
-**Exposure, which is why this is not merely one arc's bad luck.** screenshots-drift is path-filtered, and `scripts/ci/**` is in its allow-list. The reporting arc tripped the job only because it added a closeout gate under that path. **Any arc adding a file under `scripts/ci/` pays for this job**, and if the capture is genuinely nondeterministic, any of them can draw the failure while changing nothing the gate measures.
-
-**DO NOT recapture the baseline from a branch.** The byte-pin discipline stands: baselines are regenerated from the pinned amd64 Docker image, never from a host, and never as a way to make a red gate green. A recapture here would overwrite the pinned bytes with whatever the nondeterminism produced and destroy the evidence that something varies.
 
 ## BL-LEDGER-FIGURE-PROVENANCE — the rot the probe-record row was filed from happened in ledger entries, and nothing sizes that population
 
@@ -823,21 +838,46 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
-## BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED — one `dashboard-overview-light.webp` byte drift that a nine-run probe could not reproduce
+## BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED — one `dashboard-overview-light.webp` byte drift, now measured as rasterization variance with the population question still open
 
-**Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** S (the first step is a capture, not a repair) · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, as the surviving half of `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`) · **Reachability:** INFERRED, NOT PROBED.
+**Status:** OPEN · **Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** M (the instrument shipped; the open step is a population comparison) · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, as the surviving half of `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`) · **Facing:** process · **Reachability:** PROBED for the mechanism; the runner-population reading remains unprobed and is what this row now schedules.
 
-`screenshots-drift` failed once on `dashboard-overview-light.webp` at `b5aa6ef7` — Bin 77670 to 82600 — and passed at a head whose only delta was one markdown file. Nine `workflow_dispatch` runs at one fixed sha, distinct-ref method, then returned **0/9** reproductions.
+**MECHANISM NAMED, and it is NOT the sibling's.** The artifact was replayed inside its retention window
+(`fix/screenshots-drift-instrument`, 2026-08-24). Geometry identical at 1216x1463 both; 45293 of 1779008
+pixels differ; 93% of the differing pixels are delta 0-31; run lengths concentrate at 1-2px on glyph
+edges; best vertical shift alignment is offset 0, so a uniform shift is refuted. Cropped and inspected:
+identical layout, identical text, identical dates and counts. **Sub-pixel text rasterization variance.**
 
-**Why this is a ledger row and not a documented limit.** The observed failure is real and unexplained, and its worst case is not conservative: a byte-comparison gate that flips at a fixed tree teaches operators to ignore it, which is how a genuine capture regression ships unnoticed. That is a live consequence, not a surfaced-signal-plus-safe-fallback.
+The hard part is that it happened at all: the capture already pins the image tag AND passes
+`--platform linux/amd64`, so the variance survived both pins the byte-comparison discipline prescribes.
 
-**Why it is filed unprobed.** A 0/9 sample rules out a per-run coin flip but cannot rule out a rare runner-population effect — a bimodal capture environment where some fraction of runners encode differently. The nine runs are evidence about rate, not about mechanism, and no instrument in the arc could distinguish the two readings.
+**The 0/9 non-reproduction was a MIS-SAMPLE, which is a sharper correction than "uninformative".** Probed
+2026-08-24 against the workflow's own run list. Both failures are `pull_request` runs — occurrence A is
+run 32528532727 on `be5d3d810db2`, this row's is run 31930558546 on `b5aa6ef7`, one run per sha,
+`run_attempt` 1. The nine non-reproducing probes are every one `workflow_dispatch`, and every one on
+`119895a7c756`, a descendant of `b5aa6ef7` whose `public/help/screenshots/` tree is byte-identical to it.
+So the probes never sampled the population either failure came from, and the baseline is not the
+difference — the trigger is. 0/9 was never weak evidence AGAINST a runner-population effect; it is not
+evidence about the failing population at all.
 
-**Reachability: INFERRED, NOT PROBED.** The probe that settles it is capturing runner identity — `Runner.Name` plus CPU model, from the runner context — on BOTH outcomes at the next recurrence, and comparing the populations. That capture, not a repair, is the first scheduled step; it is cheap, and it is the only thing that turns the leading reading into a testable one.
+This names no mechanism and must not be read as naming one. Nine dispatches is a small sample and the two
+triggers may well share a runner pool.
 
-**Do NOT open a screenshots repair on the current evidence.** Regenerating or re-pinning a baseline against one unreproduced drift would destroy the signal the capture needs.
+**What shipped, and what it deliberately does not do.** The instrument now records, on BOTH outcomes,
+`eventName` from `GITHUB_EVENT_NAME`, the three runner fields, `cpuModel`/`cpuCount`, and a
+`pixelSha256` over DECODED RGB rather than the PNG container — a container hash reports a render change
+whenever only the encoding moved, which is precisely the confusion this row sits in. The upload runs on
+success as well as failure, because a passing run must leave a record or the comparison population can
+never be built.
 
-**RECURRENCE OBSERVED 2026-08-21 — the capture this row schedules now has an occurrence to run against.** `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM` records a second flip, on `review-queues-empty-state-light.webp`, with something this row's occurrence lacked: a SAME-BRANCH pass/fail pair sixty-five minutes apart with zero render inputs changed between the two shas. That pair does what 0/9 dispatched runs could not — it establishes that the varying input is outside the repository — while still not choosing between this row's runner-population reading and the new row's time-of-day one. The two rows are one class. Schedule the identity capture described above TOGETHER with the new row's time axis; running either alone can only half-answer it.
+**The open step is a POPULATION COMPARISON, not a repair.** Collect records across both triggers and
+compare `cpuModel` and `runnerName` between a reproducing and a non-reproducing run. Only then does the
+runner-population reading become testable.
+
+**Do NOT open a screenshots repair on the current evidence.** The two candidate repairs are different
+products with different failure modes — pin the rasterization environment harder, or stop requiring byte
+equality and compare within a perceptual tolerance — and choosing between them needs the population data
+the instrument has only just begun collecting.
 
 ## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 6 app-dependent e2e specs are named by no CI workflow
 
