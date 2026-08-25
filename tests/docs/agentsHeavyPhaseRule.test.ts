@@ -823,7 +823,7 @@ describe("AGENTS.md heavy-phase rule", () => {
   const editRule =
     (find: string, replace: string) =>
     (text: string): string =>
-      withinRule(text, (rule) => rule.replace(find, replace));
+      withinRule(text, (rule) => rule.replace(find, () => replace));
 
   const OPERATORS: Array<[string, (text: string) => string]> = [
     ["delete the whole bullet", (text) => withinRule(text, () => "")],
