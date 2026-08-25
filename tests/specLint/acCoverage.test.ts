@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { checkAcCoverage } from "../../lib/specLint/acCoverage";
+import { acCommandPlan, checkAcCoverage } from "../../lib/specLint/acCoverage";
 import { viewOf } from "./acCoverageView";
 
 /** Codes the arm may emit, per spec §8.2. AC-13 pins this against the spec. */
@@ -77,9 +77,12 @@ describe("acCoverage — the declaration", () => {
       TABLE,
     ].join("\n");
     // The first is followed by a declaration, not a table, so it reports; the
-    // second governs. Without the proviso both bind and the table is checked
-    // twice against contradictory columns.
-    expect(codesOf(md)).toEqual(["AC_COVERAGE_NO_TABLE"]);
+    // second governs, and the table's column 2 holds "T" with no code span. The
+    // SECOND code is what proves the second declaration is the one applied:
+    // without the proviso both bind, and column 3 (`a`) would report nothing
+    // while column 2 reported, so the pair would be indistinguishable from one
+    // declaration governing badly.
+    expect(codesOf(md)).toEqual(["AC_COVERAGE_NO_TABLE", "AC_COMMAND_CELL_NOT_RUNNABLE"]);
   });
 
   it("several declarations each govern their own table", () => {
@@ -97,6 +100,48 @@ describe("acCoverage — the declaration", () => {
 
   it("a document with no declaration draws nothing and reads no tables", () => {
     expect(codesOf(`${TABLE}\n`)).toEqual([]);
+  });
+
+  it("plans EVERY command-carrying span of a cell, not just the first", () => {
+    // Kills the first-span mutant. The every-span rule is otherwise observable
+    // only through AC_COMMAND_UNPARSABLE, which needs the adapter's outcomes, so
+    // without this the restriction survives every pure test.
+    const md = [
+      "<!-- ac-coverage: command-col=3 -->",
+      "",
+      "| AC | Proved by | Cmd |",
+      "| --- | --- | --- |",
+      "| AC-1 | T | `one`; `two`; `three` |",
+    ].join("\n");
+    const plan = acCommandPlan(viewOf(md), "plan");
+    expect(plan.map((e) => e.command)).toEqual(["one", "two", "three"]);
+    expect(plan.map((e) => e.spanIndex)).toEqual([0, 1, 2]);
+    // One line, three entries: a line-keyed store would hold one of them.
+    expect(new Set(plan.map((e) => e.line)).size).toBe(1);
+  });
+
+  it("a blank or comment-only span carries no command and is not planned", () => {
+    const md = [
+      "<!-- ac-coverage: command-col=3 -->",
+      "",
+      "| AC | Proved by | Cmd |",
+      "| --- | --- | --- |",
+      "| AC-1 | T | `# both red commands above` |",
+    ].join("\n");
+    expect(acCommandPlan(viewOf(md), "plan")).toEqual([]);
+    expect(codesOf(md)).toEqual(["AC_COMMAND_CELL_NOT_RUNNABLE"]);
+  });
+
+  it("a short row is reported and contributes NO spawn entry", () => {
+    const md = [
+      "<!-- ac-coverage: command-col=3 -->",
+      "",
+      "| AC | Proved by | Cmd |",
+      "| --- | --- | --- |",
+      "| AC-1 | T |",
+    ].join("\n");
+    expect(codesOf(md)).toEqual(["AC_COVERAGE_COL_OUT_OF_RANGE"]);
+    expect(acCommandPlan(viewOf(md), "plan")).toEqual([]);
   });
 
   it("AC-13: every code the arm can emit is in the spec's catalog and vice versa", () => {
