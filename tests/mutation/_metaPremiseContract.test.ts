@@ -30,10 +30,44 @@ const ROOT = join(__dirname, "..", "..");
  * Same shape and same reason as EXPECTED_LEDGER_KINDS in source/expectedLedgerKinds.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
+  // BL-ADMIN-LOADER-CI-TRANSIENT (2026-08-24). Counts MEASURED with classifyTests
+  // against this tree, not estimated. The two wrapper suites drive an INJECTED stub
+  // transport with injected sleep/random and touch nothing real; every case in them
+  // carries a `no-premise:` exemption rather than a premise, because the classifier
+  // reports them touching for what the wrapper CAN reach, not what the test does.
+  // The volatility suite genuinely reaches the catalog, and its five catalog-reading
+  // cases carry their own in-body premises — a premise in the shared beforeAll runs
+  // but is not attributable, since the scanner reads the test BODY.
+  // 22 now, and the number has moved TWICE. First the AC-3 attempt-once table (+2, four cases
+  // from one call site). Then the mutation gate's repair: the defaults, the both-aborts case and
+  // the listener-balance case (+6). A count derived from a measurement moves whenever the measured
+  // thing does, which on this arc has been every time the guard got stronger.
+  // Original note: the AC-3 attempt-once table added FIVE cases but only TWO
+  // to this count, because four of them are generated from a single `test(` call site inside a
+  // loop and the classifier counts CALL SITES, not generated cases. Re-measured with
+  // classifyTests rather than adjusted by hand.
+  "tests/supabase/retryingFetch.test.ts": 49,
+  "tests/supabase/retryingFetch.failureMode.test.ts": 3,
+  "tests/supabase/retryEligibility.test.ts": 0,
+  "tests/supabase/_metaRetryableRpcVolatility.test.ts": 22,
+  "tests/supabase/_metaRetryableRpcVolatilityWalk.test.ts": 0,
   // The claim-sweep suites, enrolled 2026-08-20. Counts are MEASURED, not
   // guessed: each is what the classifier reports today, declared independently
   // so a recognizer that silently stops matching drops them to zero and reds
   // instead of reporting a clean corpus it no longer understands.
+  // The AC coverage suites, enrolled 2026-08-25. Counts are MEASURED against this
+  // tree rather than reasoned about: the CLI suite's two are what the classifier
+  // reports, and the other three declare 0. The corpus suite reads the plan tree
+  // from disk and still classifies as 0 — worth stating, because "it touches the
+  // filesystem so it must be non-zero" is the guess this row would otherwise
+  // encode, and the declaration is independent of the classification on purpose.
+  // Where a case IS environment-touching it carries its own premise in its own
+  // body; the scanner reads the test BODY, so a premise in a shared helper
+  // executes but is not attributable.
+  "tests/specLint/acCoverage.test.ts": 0,
+  "tests/specLint/acCoverageCli.test.ts": 2,
+  "tests/specLint/acCoverageCorpus.test.ts": 0,
+  "tests/specLint/acCoverageIncidents.test.ts": 0,
   // The replacement-string guard, enrolled 2026-08-24. MEASURED via classifyTests over this
   // suite, not guessed: exactly two of its eighteen tests read the real tree — the premise
   // ("looked at all") and the repo-wide inventory assertion. Both do so deliberately; the sixteen
@@ -228,7 +262,10 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/specLint/citationIntentWiring.test.ts": 0,
   "tests/specLint/citationIntentCorpus.test.ts": 0,
   "tests/specLint/redContract.test.ts": 0,
-  "tests/specLint/redExec.test.ts": 0,
+  // 0 until this arc; the three parse-invocation cases Task 9 added drive the
+  // ADAPTER's own spawn rather than a local sh call, which is what makes them
+  // environment-touching and what makes them a test of the repair.
+  "tests/specLint/redExec.test.ts": 3,
   "tests/specLint/taskContract.test.ts": 0,
   // Enrolled by main as taskContract's second suite (2026-08-05). Pure: it
   // exercises compareFindings over literal fixtures and reads no environment.

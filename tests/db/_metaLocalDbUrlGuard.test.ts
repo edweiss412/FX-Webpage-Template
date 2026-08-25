@@ -431,8 +431,11 @@ describe(
           "endpoint is asserted loopback too) " +
           "+ tests/db/pruneGate.db.test.ts (the database-side prune posture gate, 2026-08-22; it " +
           "flips destructive_reset_gate and calls both global prune functions, every call inside " +
-          "a transaction that is always rolled back, local-only)",
-      ).toBe(73);
+          "a transaction that is always rolled back, local-only) " +
+          "+ tests/supabase/_metaRetryableRpcVolatility.test.ts (the RETRYABLE_RPCS volatility " +
+          "guard, 2026-08-24; it reads pg_proc and executes each member inside a READ ONLY " +
+          "transaction that is always rolled back, local-only)",
+      ).toBe(74);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {
