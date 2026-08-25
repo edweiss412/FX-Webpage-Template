@@ -33,6 +33,7 @@ import {
   type Snapshot,
   bindingLeg,
   bootCountHistory,
+  buildSeedTable,
   bootRatioStability,
   driftReport,
   legSeconds,
@@ -454,20 +455,54 @@ function main(): void {
   }
 
   if (argv.includes("--emit-registry")) {
-    const seed = seedRates(snaps);
-    // Completeness FIRST. Writing and then failing leaves on disk the exact partial
-    // table this refuses to emit, and the next reader has no way to tell it apart
-    // from a complete one.
-    const missing = GUARD_SURFACES.filter((s) => !seed.has(s.id)).map((s) => s.id);
-    if (missing.length > 0) {
-      console.error(
-        `ENROLLED BUT UNMEASURED, so no rate can be emitted for: ${missing.join(", ")}. ` +
-          `Run the surface and read its rate, rather than guessing one. Nothing was written.`,
-      );
+    // `--seed-rate <id>=<millis>`, repeatable: the bootstrap for a surface enrolled
+    // since the last nightly, which therefore has no records to be priced from. Stated
+    // explicitly rather than defaulted, because a guessed rate is indistinguishable
+    // from a measured one once it is in the table.
+    const overrides = new Map<string, number>();
+    for (let i = 0; i < argv.length; i += 1) {
+      if (argv[i] !== "--seed-rate") continue;
+      const spec = argv[i + 1] ?? "";
+      const eq = spec.indexOf("=");
+      const id = eq < 0 ? "" : spec.slice(0, eq);
+      const millis = Number(spec.slice(eq + 1));
+      if (id === "" || !Number.isInteger(millis) || millis <= 0) {
+        console.error(
+          `--seed-rate expects <id>=<positive integer millis>, got "${spec}". Nothing was written.`,
+        );
+        process.exit(1);
+      }
+      overrides.set(id, millis);
+    }
+
+    // Completeness is judged by `buildSeedTable` over the MERGED table, and writing
+    // happens only after it says ok. Writing and then failing leaves on disk the exact
+    // partial table this refuses to emit, and the next reader cannot tell it apart from
+    // a complete one.
+    const built = buildSeedTable(
+      seedRates(snaps),
+      overrides,
+      GUARD_SURFACES.map((s) => s.id),
+    );
+    if (!built.ok) {
+      if (built.unmatched.length > 0) {
+        console.error(
+          `--seed-rate names no such surface: ${built.unmatched.join(", ")}. ` +
+            `Check the spelling against the registry. Nothing was written.`,
+        );
+      }
+      if (built.missing.length > 0) {
+        console.error(
+          `ENROLLED BUT UNMEASURED, so no rate can be emitted for: ${built.missing.join(", ")}. ` +
+            `Run the surface and read its rate, rather than guessing one. Nothing was written.`,
+        );
+      }
       process.exit(1);
     }
     // stdout, not a file in whatever directory the caller happened to be in.
-    process.stdout.write(`${JSON.stringify(Object.fromEntries([...seed].sort()), null, 1)}\n`);
+    process.stdout.write(
+      `${JSON.stringify(Object.fromEntries([...built.table].sort()), null, 1)}\n`,
+    );
   }
 }
 

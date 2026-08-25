@@ -9,6 +9,7 @@ import {
   type ModelledBoots,
   type Snapshot,
   bindingLeg,
+  buildSeedTable,
   bootCountHistory,
   bootRatioStability,
   driftReport,
@@ -417,6 +418,59 @@ describe("bindingLeg and legSeconds", () => {
     // array would misalign every leg after the gap.
     const surfaces = [measured({ surfaceId: "a", children: [child("s", 2000)] })];
     expect(legSeconds(new Map([["a", 2]]), surfaces, 3)).toEqual([0, 0, 2]);
+  });
+});
+
+describe("buildSeedTable", () => {
+  // The four obligations of the bootstrap flag, none of which any command exercised
+  // before: repeatable parsing lands upstream, and these are what the table itself owes.
+
+  it("prices every surface from the records when nothing is overridden", () => {
+    const r = buildSeedTable(
+      new Map([
+        ["a", 100],
+        ["b", 200],
+      ]),
+      new Map(),
+      ["a", "b"],
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok)
+      expect([...r.table].sort()).toEqual([
+        ["a", 100],
+        ["b", 200],
+      ]);
+  });
+
+  it("MERGES the override BEFORE judging completeness, which is the whole point", () => {
+    // `b` has no record. Judged first and merged second, it is reported missing and the
+    // bootstrap can never close -- a surface explicitly given a rate would still be
+    // called unmeasured. This case is the order, stated as behaviour.
+    const r = buildSeedTable(new Map([["a", 100]]), new Map([["b", 4963]]), ["a", "b"]);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.table.get("b")).toBe(4963);
+  });
+
+  it("still refuses a surface that neither the records nor an override can price", () => {
+    // The override must not weaken the guard it is merged into.
+    const r = buildSeedTable(new Map([["a", 100]]), new Map([["b", 4963]]), ["a", "b", "c"]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.missing).toEqual(["c"]);
+  });
+
+  it("refuses an override naming a surface the registry does not have", () => {
+    // A rate matching no row is a typo in a hand-typed bootstrap value, and silently
+    // dropping it would leave the real surface unpriced under a different spelling.
+    const r = buildSeedTable(new Map([["a", 100]]), new Map([["typo", 4963]]), ["a"]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.unmatched).toEqual(["typo"]);
+  });
+
+  it("lets an override REPLACE a recorded rate rather than being ignored", () => {
+    // Otherwise a stale record silently wins over a freshly measured bootstrap value.
+    const r = buildSeedTable(new Map([["a", 100]]), new Map([["a", 999]]), ["a"]);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.table.get("a")).toBe(999);
   });
 });
 

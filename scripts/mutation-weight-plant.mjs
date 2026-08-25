@@ -33,6 +33,24 @@ const DEFAULT_SUITE = "tests/mutationWeight/instrument.test.ts";
 /** file, a unique anchor, and what it becomes. */
 const DEFECTS = [
   [
+    "buildSeedTable judges completeness BEFORE merging the bootstrap overrides",
+    "weights.ts",
+    "const missing = surfaceIds.filter((id) => !table.has(id)).sort();",
+    "const missing = surfaceIds.filter((id) => !fromRecords.has(id)).sort();",
+  ],
+  [
+    "buildSeedTable drops the override instead of applying it",
+    "weights.ts",
+    "for (const [id, rate] of overrides) if (ids.has(id)) table.set(id, rate);",
+    "for (const [id, rate] of overrides) if (!ids.has(id)) table.set(id, rate);",
+  ],
+  [
+    "buildSeedTable silently ignores an override naming no such surface",
+    "weights.ts",
+    "const unmatched = [...overrides.keys()].filter((id) => !ids.has(id)).sort();",
+    "const unmatched = [];",
+  ],
+  [
     "reconcile ignores the declared rate and weights by boots alone",
     "weights.ts",
     "w: v.boots * (v.millisPerBoot ?? 1)",

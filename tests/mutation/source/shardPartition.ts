@@ -25,8 +25,10 @@ import { GUARD_SURFACES, type GuardSurface } from "./registry";
 /** Four: max load is pinned by the heaviest surface from n=4 on (spec §2.4). */
 export const SOURCE_SHARD_COUNT = 4;
 
-/** SECONDS, not minutes -- an integer-minute record cannot express 60m59s. */
-export const SHARD_BUDGET_SECONDS = 60 * 60;
+// Re-exported from its leaf module so every existing importer is untouched. It moved
+// because the registry now needs it to bound `millisPerBoot`, and this file imports the
+// registry -- see the note in `budget.ts` for why that cycle would have failed silently.
+export { SHARD_BUDGET_SECONDS } from "./budget";
 
 /**
  * MODELLED child boots for one surface.

@@ -336,6 +336,40 @@ export type Drift = {
  * promise still stands in the spec. The threshold decides what is ACTIONABLE; it
  * does not decide what is visible.
  */
+/**
+ * The seed table the registry is written from, or a refusal naming what it cannot price.
+ *
+ * A PURE function rather than logic inside the CLI, because the property that matters is
+ * an ORDER: the bootstrap overrides must be merged BEFORE completeness is judged, or a
+ * surface that was explicitly given a rate is still reported as unmeasured and the
+ * bootstrap can never close. Order inside a main() is provable only by spawning it;
+ * order inside a function is provable by calling it.
+ */
+export function buildSeedTable(
+  fromRecords: ReadonlyMap<string, number>,
+  overrides: ReadonlyMap<string, number>,
+  surfaceIds: readonly string[],
+):
+  | { ok: true; table: Map<string, number> }
+  | { ok: false; missing: string[]; unmatched: string[] } {
+  const ids = new Set(surfaceIds);
+  // An override naming no row is refused rather than dropped. A bootstrap rate is
+  // hand-typed from a score run, so the realistic failure is a misspelled id, and
+  // silently ignoring it leaves the REAL surface unpriced under a different spelling —
+  // reported as "unmeasured" while its rate sits right there in the invocation.
+  const unmatched = [...overrides.keys()].filter((id) => !ids.has(id)).sort();
+
+  // MERGE FIRST. Overrides go in on top of the records, and completeness is judged
+  // against the merged table below. Judged first, a surface explicitly given a rate is
+  // still called unmeasured and the bootstrap can never close.
+  const table = new Map(fromRecords);
+  for (const [id, rate] of overrides) if (ids.has(id)) table.set(id, rate);
+
+  const missing = surfaceIds.filter((id) => !table.has(id)).sort();
+  if (missing.length > 0 || unmatched.length > 0) return { ok: false, missing, unmatched };
+  return { ok: true, table };
+}
+
 export function driftReport(
   declared: ReadonlyMap<string, number>,
   surfaces: readonly Measured[],
