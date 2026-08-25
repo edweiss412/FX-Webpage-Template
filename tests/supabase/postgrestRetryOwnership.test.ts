@@ -87,6 +87,36 @@ describe("exactly one layer owns each retry", () => {
     expect(orphaned).toEqual([]);
   });
 
+  test("an ABSENT method is treated as GET, because that is what fetch does", () => {
+    // no-premise: literal inputs.
+    //
+    // `fetch(url)` with no init carries no method and IS a GET, so `method ?? "GET"` is the whole
+    // reason such a request gets declined to PostgREST at all. Found by planting on this module,
+    // which no mutation score covers: changing the default to "POST" passed all 57 cases, and under
+    // it a plain `fetch(url)` returning 503 would be retried by BOTH layers — the multiplication
+    // back, for exactly the request shape the wrapper is installed for.
+    expect(postgrestOwnsRetry(undefined, 503, false, false)).toBe(true);
+    expect(postgrestOwnsRetry(undefined, 502, false, false)).toBe(false);
+    // And it must agree with what the wrapper itself concludes for the same absent method.
+    expect(postgrestOwnsRetry("GET", 503, false, false)).toBe(
+      postgrestOwnsRetry(undefined, 503, false, false),
+    );
+  });
+
+  test("the method comparison is case-insensitive", () => {
+    // no-premise: literal inputs.
+    //
+    // A caller may pass "get". Without the case fold the lookup misses, nothing is declined, and
+    // both layers retry it. Cheap to pin and invisible until it happens.
+    for (const m of ["get", "Get", "hEaD", "options"]) {
+      expect(postgrestOwnsRetry(m, 503, false, false), m).toBe(true);
+    }
+    // The negative direction too, so this cannot pass by declining everything.
+    for (const m of ["post", "Patch", "delete"]) {
+      expect(postgrestOwnsRetry(m, 503, false, false), m).toBe(false);
+    }
+  });
+
   test("our own timeout is never declined, on any method", () => {
     // no-premise: as above. PostgREST rethrows aborts, so declining one orphans it by construction.
     const abort = OUTCOMES.find((o) => o.abort)!;
