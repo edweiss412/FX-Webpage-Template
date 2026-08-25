@@ -1029,6 +1029,57 @@ First scheduled step: decide whether the ratified open-time recovery (the change
 extended to a page-segment boundary at all, or whether the runner's Supabase bootstrap is what needs
 hardening. Both are fleet decisions; neither belongs to a wiring arc. **`notify-toggles` now carries the second red on one spec that is batch 1's drop threshold, and it is wired on `main`,** so that step now also has to say what the threshold means for a member no batch owns: the choices are the recovery above, a targeted wait on that one server-action settle, or accepting a known-flaky required check on `main`. A wiring arc can record the occurrence, which is what this row is; it cannot choose between those three.
 
+## BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY — a transient upstream 5xx can be swallowed by its consumer, leaving the occurrence unattributable
+
+**Status:** OPEN · **Filed:** 2026-08-24 (`fix/admin-loader-ci-transient`, descoped out of that spec by orchestrator ruling after the attribution design drew twelve of eighteen findings across three review rounds) · **Facing:** process · **Severity:** MEDIUM (it does not break a shipped surface; it means the NEXT occurrence of an already-recurring CI class is diagnosed by inference again) · **Class:** observability · **Effort:** M · **Reachability:** PROBED — the four boundaries below were each read at their error branch, and the shipping spec's §7.1 repairs the four while explicitly claiming no completeness. · **Incident:** `BL-ADMIN-LOADER-CI-TRANSIENT`'s own arc. Five counted spec review rounds, eighteen declared findings, twelve of them against three successive attribution designs (`docs/review-rounds/fix/admin-loader-ci-transient/bcd3d088ec76.md` and its `.jsonl`). Separately, that row's occurrence list is a set of CI reds whose mechanism had to be inferred from app logs because nothing captured the gateway's own state.
+
+**What is missing.** A 502 from the local Supabase gateway is recorded only if the consumer that
+receives it chooses to log the message. Many do not: two log a code without the message, one returns
+it inside `infra_error` and never logs it, one discards it and returns a bare 500, and others swallow
+it entirely (`components/admin/Dashboard.tsx` maps both a returned error and a throw to "Held";
+`lib/admin/bellFeed.ts` returns `infra_error` without logging). The class is NOT bounded by the retry
+population — it includes VOLATILE RPCs and plain table reads — which is precisely why enumerating
+consumers failed three times.
+
+**Honest state after the shipping PR.** `fix/admin-loader-ci-transient` repairs FOUR boundaries as
+invariant-9 defects (`lib/admin/loadAlertSummary.ts`, `lib/admin/loadTelemetryStats.ts`,
+`lib/admin/loadRecentAutoApplied.ts`, `app/api/show/[slug]/version/route.ts`) and claims nothing
+beyond them. **Every other swallowing path stays dark until this row lands.** That is stated here so a
+reader does not mistake the stopgap for the solution.
+
+**The design this arc already paid for, so it is not re-derived.** Each item below cost at least one
+review round:
+
+- **Observe at the transport, not at the consumer.** A hook on the server-side client factories sees
+  every call and no consumer can swallow it. Enumerating consumers is the wrong shape.
+- **The recursion fence belongs on the LOG LEVEL, not on a client scope.** The durable sink persists
+  `warn`/`error` through `createSupabaseServiceRoleClient` (`lib/log/persist.ts`), so an observer on
+  that client emitting at `warn` observes its own persist write, without bound. `debug` reaches the
+  console chokepoint synchronously and can NEVER persist — the `app_events` level CHECK admits only
+  info/warn/error, and `tests/log/logger.test.ts` pins that `persist: true` on a debug call is inert.
+  A property anchored in a database constraint survives a later scope change; a fence written about
+  one mechanism did not survive being restated about a sibling.
+- **Plant FOUR transport states, not two.** 5xx records; success is invisible with identical bytes; a
+  rejected fetch rethrows the same error unwrapped (a hook written around `response.status` can throw
+  its own TypeError and change the failure class); the body is never read or cloned (reading it
+  consumes the stream and hands the consumer an empty response, a symptom that looks nothing like a
+  logging change).
+- **The workflow must CAPTURE the signal.** A later step cannot read an earlier step's stdout. Four
+  mechanics, each with a failure mode worse than the one it prevents: `set -o pipefail` under
+  `shell: bash` (without it the step's status is `tee`'s and a FAILING app-e2e reports success — a
+  required check that cannot go red is worse than the flake it instruments), `2>&1` before the pipe
+  (the records travel on stderr), `if: always()` on the grep step (else it is skipped exactly when the
+  run failed), and an `id:` (the dump's condition references `steps.<id>.outputs.<name>`).
+  `.github/workflows/x-audits.yml` already does all of this in four places.
+- **Coverage is enforced, not asserted.** Three server-side clients are constructed directly rather
+  than through a factory (`app/api/test-auth/set-session/route.ts` twice,
+  `lib/dev/materialize/client.ts`). Each is exempt on a stated ground, and a walked meta-test makes a
+  FOURTH fail by default.
+
+**First scheduled step:** decide observer versus a capture-only approach on the evidence, then build
+the plant-four harness BEFORE the spec, since three prose designs in a row each introduced the next
+round's defect.
+
 ## BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE — a 0.5px equality on a webkit text-derived box flakes, and the job that would notice is dark on `main`
 
 **Status:** OPEN · **Filed:** 2026-08-24 (`ci/app-e2e-batch2`, from that arc's own CI) · **Facing:** product · **Severity:** MEDIUM (the assertion guards the 44px tap-target floor, a crew-facing a11y contract; a guard that reds on identical bytes gets rerun by habit, and a guard rerun by habit stops being read) · **Class:** e2e flake / a11y guard fidelity · **Effort:** M · **Reachability:** PROBED — the byte diff below, taken across the two consecutive heads that disagree. · **Incident:** run 32760376685 on head `4be690393` red on an arc whose diff contains no rendering code at all, costing a diagnosis cycle and a rerun during a deep-queue window.

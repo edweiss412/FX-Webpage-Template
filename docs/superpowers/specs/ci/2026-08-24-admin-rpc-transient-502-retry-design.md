@@ -45,7 +45,7 @@ the request it landed on.
 | Volatility alone is NOT the answer to the double-execution axis. It is one of two arms, and the reason is a probe, not a preference. Round 1 raised this and the spec had already reached the same place independently. | §4 |
 | On exhaustion the wrapper replays the FIRST attempt's outcome, so the caller-visible failure is what it is today. This is the answer to the mixed-failure axis, not an omission of it. | §3.4 |
 | Discovery matches string literals against the catalog's non-`VOLATILE` set; it does not recognize call sites. Two call-site rules failed one round apart. | §4.4 |
-| §7's dump triggers on the FAULT, recorded by a transport observer, not on a retry emit and not on a consumer's own logging. | §7.1 |
+| Attribution is DESCOPED to `BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY`. Three trigger designs each drew the next round's finding; the retry was cleared in round 4 and untouched since. | §7 |
 
 ## 2. Convergence criterion for review of this spec
 
@@ -339,8 +339,8 @@ catalog row. The sibling forensic code `ADMIN_SHOW_VERSION_TOKEN_READ_FAILED` ap
 `lib/messages/catalog.ts` nor the master spec, verified by grep at authoring time.
 
 The emit is a SECONDARY signal for §7, not its trigger: it tells a reader of the artifact whether the
-fault was absorbed. §7 keys on the transport observer's `SUPABASE_UPSTREAM_FAULT` instead, because an
-emit only exists where the wrapper runs and the fault also occurs where it does not.
+fault was absorbed. It is not an attribution mechanism: an emit exists only where the wrapper runs,
+and the fault also occurs where it does not, which is one of the reasons attribution is descoped (§7).
 
 ### 6.1 The emit cannot re-enter the wrapper
 
@@ -358,136 +358,51 @@ The §9 limit excluding the service-role client is therefore load-bearing rather
 conservative: widening the wrapper to that client re-opens the recursion. The plan carries a test that
 a retry's own emit cannot re-enter the wrapper.
 
-## 7. Making the next occurrence attributable
+## 7. Attribution is a separate subject, and it leaves this spec
 
-The runs capture nothing from inside the containers, so today's mechanism is inferred from the app's
-own logs. `.github/workflows/app-e2e.yml` gains a step that dumps, for the Supabase containers, the
-gateway and PostgREST logs plus each container's restart count and `OOMKilled` state, uploaded with the
-existing artifact.
+The runs capture nothing from inside the containers, so the mechanism behind the reset is inferred
+rather than observed. Three drafts of this section tried to fix that here, and all three were wrong in
+a different way: keying on the retry emit missed every client the wrapper does not cover, keying on
+the fault string missed every fault a retry absorbed, and the transport observer that replaced both
+re-opened a recursion fence this same spec had written down one round earlier.
 
-**It does not run only on failure, and it does not key on the retry either.** Both of those triggers
-go dark exactly when they are most needed.
+The pattern is the argument. Across review rounds 3, 4 and 5 this section drew twelve of eighteen
+findings while the retry itself — §3.4's replay rule, §4's two-arm volatility rule, §3.2's status set,
+AC-5's determinism — was cleared in round 4 and untouched in round 5. Each redesign introduced the next
+round's defect, which is the spec-side three-round trigger for a design vector: stop patching prose,
+and descope, prototype, or mark unratified.
 
-Failure-only goes dark because most 502-bearing jobs are already green (probe §Finding 2), and a
-working retry moves still more occurrences onto the green path.
+**So attribution is descoped and filed as `BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY`.** It is a
+different subject from this row: the retry is a repair, attribution is diagnosis. It wants its own
+evidence, its own acceptance, and its own review, and it will be strictly better specified after an arc
+of its own than after a sixth round grafted onto this one.
 
-Retry-keyed goes dark for a subtler reason that round 3 of review found, and it is worth stating
-because the earlier draft got it wrong. A retry emit only exists where the wrapper runs, and the
-wrapper is scoped to one client (§3.1). Four non-`VOLATILE` RPCs are called through the excluded
-service-role client and degrade silently rather than failing anything: `admin_alert_summary`
-(`lib/admin/loadAlertSummary.ts`) and `admin_event_stats_24h` (`lib/admin/loadTelemetryStats.ts`)
-return `infra_error`; `roster_shift_counts` (`lib/admin/loadRecentAutoApplied.ts`) returns
-`infra_error` and the dashboard deliberately keeps rendering; and the version route
-(`app/api/show/[slug]/version/route.ts`) returns 500, which `ShowRealtimeBridge`
-(`components/realtime/ShowRealtimeBridge.tsx`, search `transient_failure`) classifies as transient
-and swallows. A 502 on any of those leaves the job green AND produces no emit.
+The row carries what this arc learned, so none of it is re-derived: the log-LEVEL recursion fence
+(`debug` cannot persist, by the `app_events` level CHECK), the capture mechanics (`pipefail` under
+`shell: bash`, `2>&1` before the pipe, `if: always()`, an `id:`, and the arm that a planted failing run
+must still red the job), the four transport states an observer must be planted against, and the walked
+meta-test that makes a newly added bypassing client fail by default.
 
-**So the trigger keys on the FAULT, not on the repair.** The step runs when the run FAILED, or when
-the run's own output carries a `SUPABASE_UPSTREAM_FAULT` record. §7.1 is where that record comes
-from, and the point of putting it at the transport is that it exists whichever client made the call,
-whether or not a retry followed, and whether or not the consumer chose to say anything.
+### 7.1 What still ships here, and what it does NOT claim
 
-### 7.1 The fault is logged where it is first observable, not where a consumer chooses to
+Four call boundaries drop an infra fault's message today: `lib/admin/loadAlertSummary.ts` and
+`lib/admin/loadTelemetryStats.ts` log a code without the message, `lib/admin/loadRecentAutoApplied.ts`
+returns the message inside `infra_error` and never logs it, and
+`app/api/show/[slug]/version/route.ts` discards `error.message` and returns a bare 500.
 
-Two earlier drafts of this section got the trigger wrong in opposite directions, and both errors had
-the same root: they asked a CONSUMER to reveal the fault.
+Those four repairs stay in this PR. **They are invariant-9 defect repairs, not attribution coverage,
+and the distinction is the whole reason they can ship here.** An infra fault that arrives and loses its
+message is a defect on its own terms, at that boundary, whether or not any instrument ever reads it.
+That claim is local and checkable.
 
-The first keyed on the retry emit. That misses every fault on a client the wrapper does not cover.
-The second keyed on Kong's body appearing in the log, and round 4 showed it misses the case the
-instrument exists for: on a successful 502-then-200 retry the emit carries the function, status and
-attempt but NOT Kong's body, so an absorbed fault on a WRAPPED client leaves a green job with the
-string nowhere in the output. Fixing the service-role paths had broken the wrapped ones.
+What they explicitly do NOT claim is completeness. They are not a table of "every path where a 502 goes
+unrecorded", and this spec makes no such enumeration: round 5 demonstrated that the class is larger
+than any list drawn from the retry population, since it includes VOLATILE RPCs and plain table reads.
+Framing these four as attribution coverage would re-import exactly the completeness question the
+descope exists to shed, and would invite the same finding a sixth time.
 
-Enumerating consumers is also the wrong shape, and this is the third time in this arc that lesson has
-arrived. §7.1 previously scoped its table to non-`VOLATILE` RPCs, which is the RETRY population. The
-INSTRUMENT's population is different and strictly larger: any Supabase call that can receive a 502 and
-be swallowed, including VOLATILE RPCs and plain table reads. Round 4 named two such paths
-(`components/admin/Dashboard.tsx`, search `readfinalizeowned_b2`, which maps both a returned error and
-a throw to "Held"; and `lib/admin/bellFeed.ts`, search `get_bell_feed_rows`, which returns
-`infra_error` without logging). `get_bell_feed_rows` is VOLATILE, so it was never in the retry census
-at all, which is exactly how the conflation stayed invisible.
-
-**So the fault is recorded at the transport, where every call passes and no consumer can swallow it.**
-An OBSERVE-ONLY hook on the server-side client factories records `SUPABASE_UPSTREAM_FAULT` with the
-status and the request path whenever an upstream 5xx arrives. It retries nothing, changes no
-eligibility, and returns the response untouched; §4's rules are unaffected in both directions.
-
-**It records at `log.debug`, and that choice is load-bearing rather than stylistic.** The durable sink
-persists every `warn` and `error` (`lib/log/logger.ts`, search `function shouldPersist`) by writing
-`app_events` through `createSupabaseServiceRoleClient` (`lib/log/persist.ts`, search
-`createSupabaseServiceRoleClient`). An observer on the service-role client that emitted at `warn`
-would therefore observe its own persist write: a 5xx on that insert emits again, which writes again,
-without bound. Awaiting it would block the original response; not awaiting it would leave an unbounded
-background chain. Either one changes caller-visible behavior.
-
-`debug` closes that by construction rather than by care. It reaches the same console chokepoint
-synchronously (`lib/log/logger.ts`, search `The ONE intentional console chokepoint`), so CI still sees
-it, and it can NEVER persist: the `app_events` level CHECK admits only info, warn and error, so
-`persist: true` on a debug call is deliberately inert and `tests/log/logger.test.ts` pins that with
-"debug never persists even with { persist:true }".
-
-This is the §6.1 recursion fence re-derived one layer out. §6.1 warned that widening the WRAPPER to the
-service-role client would re-open the recursion; widening the OBSERVER to it does the same thing, and
-the earlier draft of this section walked into exactly that. The fence now rests on a property of the
-log LEVEL, which no future client-scope change can quietly undo.
-
-Three consequences, and the third is the one that argues for this over the alternatives:
-
-- It covers the wrapped client and the service-role client, which are the two the measured faults
-  used. It does NOT cover a client constructed directly rather than through a factory, and three exist:
-  `app/api/test-auth/set-session/route.ts` builds both a service-role and a cookie-bound client
-  (search `createClient(` and `createServerClient(`), and `lib/dev/materialize/client.ts` builds one.
-  The first two run on the app-e2e runner, because `ENABLE_TEST_AUTH` is set in the workflow env.
-
-  All three are exempt on a stated ground rather than by oversight: a 5xx in the test-auth route breaks
-  `signInAs`, which fails every spec that depends on it, so the run goes red and §7's FAILURE arm
-  attributes it; `lib/dev/materialize` is not a request path. Neither is a silent-attribution hole.
-
-  Defensible is not recorded, though, and a FOURTH site added later would inherit neither the observer
-  nor the reasoning. So a structural meta-test walks the tree and asserts every server-side
-  `createClient` / `createServerClient` construction either routes through an observed factory or
-  carries an explicit exemption with a reason. A new site fails by default.
-- It fires BEFORE a retry, so an absorbed 502 is recorded even when the caller only ever sees a 200.
-- **It makes the diff smaller.** The four consumer log-line repairs the previous draft required stop
-  being load-bearing and are dropped. A choke point no consumer can bypass replaces four edits that
-  each had to be remembered, and it covers the two paths round 4 found plus every path nobody has
-  enumerated yet.
-
-`SUPABASE_UPSTREAM_RETRY` remains a separate emit on the retry path, telling a reader whether the
-recorded fault was absorbed.
-
-**The hook must be provably pass-through, and that is asserted in both directions.** An observer that
-alters what the caller receives would be a worse defect than the one it reports, so AC-7 plants both
-cases: with a fault planted the hook logs, and with a success planted the hook is INVISIBLE, with the
-response bytes identical either way. A hook proved only on the fault path is a hook whose quiet path
-nobody checked.
-
-### 7.2 The workflow has to CAPTURE the signal, not assume it
-
-A later step cannot condition on an earlier step's stdout. GitHub Actions passes data forward only
-through explicit outputs, and the current job streams Playwright's output straight to the hosted log
-(`.github/workflows/app-e2e.yml`, search `pnpm exec playwright test`), with the only artifact
-condition being `failure() || github.event_name == 'workflow_dispatch'`.
-
-So the run step captures its output to a file, a following step greps that file for
-`SUPABASE_UPSTREAM_FAULT` and writes the result to `$GITHUB_OUTPUT`, and the dump step conditions on
-`failure()` or that output. Without the capture the trigger has no value to read, which makes it inert
-rather than merely imprecise.
-
-Four mechanics are load-bearing, and each has a failure mode worse than the one it prevents:
-
-- **`set -o pipefail`, with `shell: bash`.** Actions runs `run:` under `bash -e`; pipefail is NOT set,
-  so a pipeline's status is `tee`'s and a FAILING app-e2e would report success. A required check that
-  cannot go red is worse than the flake this spec exists to fix. `.github/workflows/x-audits.yml`
-  already does exactly this in four places (search `set -o pipefail`); follow it rather than restate it.
-- **`2>&1` before the pipe.** The records travel on stderr: the logger's console chokepoint dispatches
-  by level, and Playwright forwards web-server stderr to the reporter's own stderr. A stdout-only tee
-  leaves the marker in the hosted log and absent from the file, so the grep answers false on exactly
-  the green 502-bearing run the dump exists for.
-- **`if: always()` on the grep step**, or it is skipped precisely when the run failed, which is one of
-  the two cases the dump serves.
-- **an `id:` on the grep step**, because the dump's condition references `steps.<id>.outputs.<name>`.
-  Without it there is nothing to reference, which is this same defect one layer down.
+The total solution is the filed row's job. Until it lands, faults on paths outside these four stay
+dark, and §9 says so rather than leaving it implied.
 
 ## 8. Acceptance
 
@@ -517,47 +432,26 @@ Four mechanics are load-bearing, and each has a failure mode worse than the one 
   carry proof it cannot bear. The executed-count oracle (`scripts/check-app-e2e-executed.mjs`) is
   unchanged and green. A natural `SUPABASE_UPSTREAM_RETRY` emit during these runs is recorded when it
   appears and is NOT required; its absence is not evidence either way and blocks nothing.
-- **AC-7. The fault is recorded no matter who swallows it.** Executable, with a stubbed transport
-  returning a 502: (a) a consumer that discards the error entirely still produces a
-  `SUPABASE_UPSTREAM_FAULT` record; (b) a 502-then-200 retry on the wrapped client produces one too,
-  proving the observer fires ahead of the retry and covers the absorbed case round 4 found; (c) the
-  service-role client produces one. Each case is a consumer the previous design depended on and this
-  one does not.
-- **AC-7a. The observer is provably pass-through, in all FOUR transport states.** Plant each and assert
-  the caller's observable outcome is identical to the no-observer baseline, and that a record appears
-  ONLY where one should:
-  1. **5xx** — records; the response is returned unread and its body still readable by the caller.
-  2. **success** — INVISIBLE; no record, response bytes identical.
-  3. **rejected fetch** — the SAME error is rethrown, unwrapped. A hook written around
-     `response.status` can throw its own TypeError here and convert a network error into a different
-     failure class, which would also break §3.4's replay rule, since that rule needs the rejection to
-     arrive intact.
-  4. **unread body** — the observer never reads or clones the body. Reading one to inspect it consumes
-     the stream and hands the consumer an empty response; the symptom would look nothing like a
-     logging change.
-
-  States 3 and 4 are here because each is a property a future edit can silently violate, which is the
-  criterion for owing an executable arm rather than a sentence.
-- **AC-7c. The observer cannot recurse.** A stubbed 5xx on the durable sink's own `app_events` write
-  produces exactly one record and no unbounded chain, which is the `log.debug` contract in §7.1
-  asserted rather than trusted.
-- **AC-7b. The workflow can read the signal, and STILL FAILS when it should (§7.2).** Asserted against
-  the workflow file: the run step sets `pipefail` under `shell: bash` and redirects `2>&1` before the
-  pipe, the grep step carries `if: always()` and an `id:`, and the dump step's condition references
-  that id's output by name.
-
-  The arm that matters most is the one about the gate rather than the dump: **a planted failing test
-  run must still turn the job red with the capture in place.** Without `pipefail` the step's status is
-  `tee`'s, and a required check that cannot go red is worse than the flake this spec exists to fix. It
-  is plant-both applied to the gate itself: prove the instrument reports, and prove it did not cost the
-  job its ability to fail.
+- **AC-7. The four boundaries in §7.1 no longer drop the fault's message.** Executable per boundary
+  with a stubbed client returning an upstream 502: the emitted log line contains the error message,
+  and for the version route a log line exists at all. Scoped to those four by name; this AC asserts a
+  local repair and makes no claim about any other path.
 - **AC-8. Invariant 9 suites pass unmodified** (`tests/auth/_metaInfraContract.test.ts`,
   `tests/admin/_metaInfraContract.test.ts`).
 
 ## 9. Documented limits
 
-- **The cause of the connection reset is not diagnosed.** This spec absorbs the fault and instruments
-  it (§7). If the dump later shows a container restart, that is a different repair on a different row.
+- **The cause of the connection reset is not diagnosed, and this spec no longer tries.** It absorbs
+  the fault; attribution is descoped to `BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY` (§7).
+
+- **Faults outside §7.1's four boundaries stay dark until that row lands.** Said plainly rather than
+  left implied. A 502 that a consumer swallows without logging, on any path other than those four,
+  produces no record and no job failure, so nothing attributes it. Round 5 established the class is
+  larger than any list drawn from the retry population — it includes VOLATILE RPCs
+  (`lib/admin/bellFeed.ts`, search `get_bell_feed_rows`) and plain table reads — and this spec
+  deliberately does not enumerate it, because three rounds showed that enumeration is the wrong shape
+  for the question. The retry still works on every path it covers; what is missing is the record, not
+  the repair.
 - **A 502 that outlasts the retry budget still reds.** The budget is bounded on purpose; an outage is
   supposed to surface, and by §3.4 it surfaces exactly as it does today.
 - **Read-only execution proves it for the arguments exercised.** §4.3's arm runs each member inside a
@@ -607,8 +501,8 @@ Four mechanics are load-bearing, and each has a failure mode worse than the one 
   Not retrying the service-role paths is deliberate and unchanged: the measured incident is on the
   session client, and widening the wrapper across that client's many callers would buy retry coverage
   for paths that already degrade without failing anything. What the exclusion must NOT cost is
-  attribution, and §7.1's transport observer is what stops it costing that, on every client at once
-  rather than per path.
+  attribution — and this spec does not pay that cost back, it files it (§7). The service-role paths
+  keep their exclusion from the retry AND remain unattributed until the filed row lands.
 
 - **Every client construction site, and its disposition.** Stated as a census rather than an adjective,
   because a reader can check a census:
@@ -645,6 +539,12 @@ Four mechanics are load-bearing, and each has a failure mode worse than the one 
   delays reaching that fail-open path by the backoff budget; it does not change the posture.
 
 ## 10. Out of scope
+
+The attribution instrument in every form this spec tried — a retry-emit trigger, a fault-string
+trigger, and a transport observer — together with its capture mechanics, its four transport states,
+and its construction-site meta-test. All of it is filed as
+`BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY` (§7). Re-proposing any of it here is a re-scope decision,
+not a review finding.
 
 Restoring the four members dropped from batch 2 (batch 3's question, §1.1). Changing AC-3's five-green
 bar or the batch-1 drop threshold. Promoting `app-e2e` into the required set on `main`. Any change to
