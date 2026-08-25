@@ -33,6 +33,24 @@ const DEFAULT_SUITE = "tests/mutationWeight/instrument.test.ts";
 /** file, a unique anchor, and what it becomes. */
 const DEFECTS = [
   [
+    "reconcile ignores the declared rate and weights by boots alone",
+    "weights.ts",
+    "w: v.boots * (v.millisPerBoot ?? 1)",
+    "w: v.boots",
+  ],
+  [
+    "reconcile prices a rate-less OLD dump at zero instead of one",
+    "weights.ts",
+    "(v.millisPerBoot ?? 1)",
+    "(v.millisPerBoot ?? 0)",
+  ],
+  [
+    "reconcile applies the rate to the mutant count rather than to boots",
+    "weights.ts",
+    "v.boots * (v.millisPerBoot ?? 1)",
+    "v.mutants * (v.millisPerBoot ?? 1)",
+  ],
+  [
     "bootsOf miscomposes the boot count",
     "tests/mutation/source/shardPartition.ts",
     "return mutants.length + surface.accepted.length * (suites - 1) + suites;",

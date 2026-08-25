@@ -68,7 +68,13 @@ const modelled = (
       const suites = v.suites ?? 1;
       return [
         k,
-        { boots: v.boots ?? mutants + accepted * (suites - 1) + suites, mutants, accepted, suites },
+        {
+          boots: v.boots ?? mutants + accepted * (suites - 1) + suites,
+          mutants,
+          accepted,
+          suites,
+          ...(v.millisPerBoot === undefined ? {} : { millisPerBoot: v.millisPerBoot }),
+        },
       ];
     }),
   );
@@ -388,6 +394,80 @@ describe("bindingLeg and legSeconds", () => {
     // array would misalign every leg after the gap.
     const surfaces = [measured({ surfaceId: "a", children: [child("s", 2000)] })];
     expect(legSeconds(new Map([["a", 2]]), surfaces, 3)).toEqual([0, 0, 2]);
+  });
+});
+
+describe("reconcile against a PRICED partition", () => {
+  // Every fixture here is built so the two weightings DISAGREE. A fixture where
+  // boots-weighting and rate-weighting happen to pack identically cannot tell the
+  // fix from the defect, and would pass in both directions.
+
+  it("reproduces a partition the registry priced, rather than one weighted by boots", () => {
+    // a: boots 10, rate 1   -> priced 10
+    // b: boots  1, rate 100 -> priced 100
+    // Weighted by BOOTS the heavier surface is `a`, so LPT puts a on leg 0 and b
+    // on leg 1. Weighted by the PRICE that inverts: b is heaviest and takes leg 0.
+    // The observed legs below are the priced answer, which is what a real run on
+    // this registry would have produced.
+    const surfaces = [
+      measured({ surfaceId: "a", leg: 1, mutants: 9 }),
+      measured({ surfaceId: "b", leg: 0, mutants: 0 }),
+    ];
+    const r = reconcile(
+      surfaces,
+      modelled({
+        a: { mutants: 9, suites: 1, millisPerBoot: 1 },
+        b: { mutants: 0, suites: 1, millisPerBoot: 100 },
+      }),
+      2,
+    );
+    expect(r.moved).toEqual([]);
+    expect(r.ok).toBe(true);
+  });
+
+  it("prices an OLD dump with no rate at one, which is what that tree did", () => {
+    // Four surfaces over two legs with unequal boots, chosen so an all-zero
+    // weighting packs DIFFERENTLY: at zero every bin ties and LPT fills them in
+    // turn (a, c to leg 0; b, d to leg 1), while by boots the heavy `a` takes one
+    // leg alone and b, c, d share the other. A fixture with one surface per leg
+    // places identically either way and proves nothing, which is why this one has
+    // more surfaces than legs.
+    const surfaces = [
+      measured({ surfaceId: "a", leg: 0, mutants: 99 }),
+      measured({ surfaceId: "b", leg: 1, mutants: 0 }),
+      measured({ surfaceId: "c", leg: 1, mutants: 0 }),
+      measured({ surfaceId: "d", leg: 1, mutants: 0 }),
+    ];
+    const r = reconcile(
+      surfaces,
+      modelled({
+        a: { mutants: 99, suites: 1 },
+        b: { mutants: 0, suites: 1 },
+        c: { mutants: 0, suites: 1 },
+        d: { mutants: 0, suites: 1 },
+      }),
+      2,
+    );
+    expect(r.moved).toEqual([]);
+    expect(r.ok).toBe(true);
+  });
+
+  it("applies the rate to BOOTS, not to the mutant count", () => {
+    // The same fixture as the first case, read for a different mutant. By
+    // mutants*rate the weights are 9 and 0, so `a` is heaviest and takes leg 0 --
+    // the exact inverse of the priced answer the records carry.
+    const r = reconcile(
+      [
+        measured({ surfaceId: "a", leg: 1, mutants: 9 }),
+        measured({ surfaceId: "b", leg: 0, mutants: 0 }),
+      ],
+      modelled({
+        a: { mutants: 9, suites: 1, millisPerBoot: 1 },
+        b: { mutants: 0, suites: 1, millisPerBoot: 100 },
+      }),
+      2,
+    );
+    expect(r.ok).toBe(true);
   });
 });
 

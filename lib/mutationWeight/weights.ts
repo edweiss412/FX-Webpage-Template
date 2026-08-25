@@ -29,7 +29,21 @@ export function median(xs: readonly number[]): number {
  * `mutants` and `suites` are both observable in the records, so they are the two
  * places a dump from a different sha shows itself.
  */
-export type ModelledSurface = { boots: number; mutants: number; accepted: number; suites: number };
+export type ModelledSurface = {
+  boots: number;
+  mutants: number;
+  accepted: number;
+  suites: number;
+  /**
+   * Milliseconds per modelled boot, as the registry declared it at that sha.
+   *
+   * OPTIONAL, and the absence is meaningful rather than missing: a dump taken
+   * before the rate existed describes a tree that really did partition by boots
+   * alone. Reproducing it needs a factor of 1, which is a correct model of that
+   * tree and not a default standing in for a value someone forgot to record.
+   */
+  millisPerBoot?: number;
+};
 export type ModelledBoots = ReadonlyMap<string, ModelledSurface>;
 
 /**
@@ -267,7 +281,18 @@ export function reconcile(
   // The partition is recomputed over the MODELLED set, never over the overlap:
   // a surface the records lack still consumes a leg and displaces its neighbours.
   const recomputed = lpt(
-    [...modelled].map(([key, v]) => ({ key, w: v.boots })),
+    // Weighted by what the registry PRICED, not by the boot count alone. Once
+    // production partitions by `bootsOf * millisPerBoot`, a run's observed legs
+    // come from the priced weight, and recomputing from boots reports most of the
+    // corpus as moved: measured on this arc's own registry, 29 of 43 surfaces
+    // change leg. `ok` then goes false, the report stops before any verdict
+    // comparison, and the neutrality evidence it exists to produce never appears.
+    //
+    // A dump with no rate is priced at 1 rather than refused. That dump was taken
+    // before the field existed, at a sha whose partition really was by boots
+    // alone, so 1 reproduces that tree exactly. It is a correct model of an old
+    // tree and not a fallback for a value someone forgot to write down.
+    [...modelled].map(([key, v]) => ({ key, w: v.boots * (v.millisPerBoot ?? 1) })),
     shardCount,
   );
   const moved = [...observed]
