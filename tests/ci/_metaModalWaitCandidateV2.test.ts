@@ -17,10 +17,10 @@
  * derives its expectation from its own constructed corpus, never from the live
  * tree, so none of them can pass by accident of what the repo happens to hold.
  */
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 
 import { premise, premiseHolds } from "../_shared/premise";
 import {
@@ -39,6 +39,25 @@ import {
 } from "./modalWaitHelper/disposition";
 
 /**
+ * Scratch roots this file creates, removed together in `afterAll`.
+ *
+ * `afterAll` rather than per-case: vitest runs it even when a case fails, and a
+ * cleanup that only runs on success leaks exactly when a suite is being
+ * debugged, which is when it runs most. Guard:
+ * `tests/mutation/_metaScratchRootCleanup.test.ts`. Row:
+ * BL-MUTATION-SCRATCH-FS-EVENT-STORM.
+ */
+const scratchRoots: string[] = [];
+function trackScratch(root: string): string {
+  scratchRoots.push(root);
+  return root;
+}
+afterAll(() => {
+  for (const root of scratchRoots) rmSync(root, { recursive: true, force: true });
+  scratchRoots.length = 0;
+});
+
+/**
  * A throwaway repo root holding BOTH trees.
  *
  * NOT the bare spec-only fixture: origin (d) derives its testid prefixes from a
@@ -49,7 +68,7 @@ import {
  * case states the premise executably before asserting.
  */
 function twoTreeRoot(name: string, specBody: string): string {
-  const root = mkdtempSync(join(tmpdir(), "modal-wait-v2-"));
+  const root = trackScratch(mkdtempSync(join(tmpdir(), "modal-wait-v2-")));
   mkdirSync(join(root, "tests", "e2e"), { recursive: true });
   mkdirSync(join(root, "components"), { recursive: true });
   writeFileSync(

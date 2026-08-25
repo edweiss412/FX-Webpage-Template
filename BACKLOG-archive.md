@@ -21,6 +21,53 @@ scheduled together. Working them together was right and is what surfaced both me
 together would have shipped a false certification: the sibling occurrence changed no geometry, no layout
 and no content, and the repair shipped here would never fire on it. The sibling stays open.
 
+## BL-MUTATION-SCRATCH-FS-EVENT-STORM — mutation scratch roots are created per mutant, and the filesystem event volume melts the box — CLOSED 2026-08-25
+
+**Status:** SHIPPED 2026-08-25 · **Shipped by:** `fix/mutation-scratch-fs-event-storm` (PR #881) · **Effort (as shipped):** M · **Filed:** 2026-08-24 (bl-orch, swap-emergency post-mortem) · **Severity:** HIGH (machine-wide outage vector, not a wrong answer) · **Class:** harness cost / capacity · **Effort:** M · **Facing:** process · **Incident:** 2026-08-24 ~13:30–17:00 CDT — two concurrent mutation-score runs generated sustained create/delete storms from per-mutant scratch roots (~43 roots × ~11MB per case run × 250 mutants on one surface alone); fseventsd ballooned to 7GB RSS / 85% CPU (it journals every Data-volume event, no per-path exclusion exists, and it does not return the memory), swap peaked 22GB, load-average peaked 492 on 12 cores, the fleet lost ~3h of wall clock, one 3-hour single-path score run was lost, and recovery required killing every session plus a sudo kill of fseventsd. Measured throughout by three arcs and the orchestrator; the near-identical 2026-08-10 jetsam incident (12 vm-compressor JetsamEvents, hard reset) is the same class with the memory face forward. · **Reachability:** PROBED — the incident is the probe.
+
+**Root cause, localized by probe.** The path-keyed cache is `tests/styles/interactiveScanCore.ts:479` — a module-level `Map<string, ts.SourceFile>` keyed by absolute path, read at `:482` and written at `:492`. Those three lines are its only references in the repository, so no invalidation path exists. Probed both directions: a suite that writes two different fixtures to one reused root gets the FIRST parse back for both, while two separate roots return the two parses correctly (the negative control, which is what proves the probe can see the difference). Tailwind is NOT the cache and is exonerated by its own probe — `__unstable__loadDesignSystem` re-reads the same path fresh, shown by removing a theme token and watching the candidate go null. A root therefore cannot be reused while the cache stands, which is what 67471884a measured when it excluded the thirty-two-form case.
+
+**The churn has two limbs, and the filed incident only named one.** The transient limb is create/delete volume during a run, proportional to mutants x roots-per-suite-run, since the harness runs the whole deciding suite once per mutant (`tests/mutation/source/childRun.ts:30`; the harness's own scratch is modest — one root per surface at `tests/mutation/source/runner.ts:229`, cleaned at `:269`). Measured on main: 4,360 mutants across 42 surfaces, with churn concentrated in four of them — premiseScan at 1,896 filesystem-mutating calls per suite run (365,928 per scored pass), mutationSurfaceEnumerate 116,532, ledgerGit 113,949, interactiveScanCore 74,528, and most surfaces at the vitest floor of six. The DURABLE limb is accumulation: four of five sampled producers create a root per case and never remove it (zero `rmSync` in `tests/log/mutationSurface/enumerate.test.ts`, `tests/styles/interactiveScanCore.test.ts`, `tests/ci/_metaModalWaitHelper.test.ts` and `tests/styles/_metaControlOutlineFill.test.ts`; `premiseScan.test.ts` is the one that cleans, and also the one already reusing a single root). The machine currently holds 781,949 leaked directories in one flat TMPDIR — 408,864 `mutation-surface-`, 249,666 `scan-fixture-`, 30,000 `modal-wait-guard-` — mostly EMPTY, so this costs inodes, directory entries and fseventsd journal volume rather than disk. Enumerating that directory now exceeds three minutes, and every later `mkdtempSync` pays for its size. fseventsd is the amplifier on both limbs.
+
+**Repair shape, two tiers ship, a third is split out.** (1) CLEANUP, the cheapest and largest single win: every scratch-creating suite gets a matching removal in a `finally` or `afterAll`. This addresses the accumulation limb, which nothing else touches, and needs no cache work. (2) ADMISSION: a single-slot class for mutation-score runs so at most ONE generates churn at a time, ordinary suites keeping their own class. Note the design trap — a second slot DIRECTORY is two independent semaphores and would RAISE total concurrency, so the class must be an ADDITIONAL lock acquired class-first, and a nested mutation run REFUSES rather than queueing behind a lock it cannot win. (3) Cache invalidation and root reuse are SPLIT OUT to `BL-MUTATION-SCANNER-CACHE-INVALIDATION` by orchestrator ruling at plan review round 2: it retires an asserted contract, its case matrix grew a wrong-implementation family per round, it converts only two of six suites, and it was the only verdict-risky tier. Dropping it means this arc edits no enrolled source at all.
+
+**Non-repairs, fenced:** fseventsd cannot be excluded per-directory (no such mechanism); /tmp placement dodges Spotlight but not fseventsd; RAM disks move I/O but the daemon still processes the events. Do not relitigate these.
+
+**Resolution — tiers 1 and 2 shipped; tier 3 split out on evidence, which made the remaining claims stronger.**
+Tier 1, CLEANUP: eight scratch-creating suites got a tracked-roots array and an `afterAll` removal. The
+plan scoped six; the guard's own failure arm found the other two (`psqlStartupFileSuppression`,
+`interactionTimingScan`), which clean up on success and leak precisely when a case fails — the moment a
+suite is being debugged, and the moment it runs most. Tier 2, ADMISSION: `scripts/with-heavy-slot.py`
+gained a `mutation` class taken alongside an ordinary slot, acquired CLASS-FIRST, with a nested run
+REFUSING rather than waiting. Class-first is not a preference: the reverse order deadlocks, and the
+round-1 repair for this very row shipped that deadlock before spec R2 caught it. Exposed as
+`pnpm heavy:mutation` — `pnpm heavy --class mutation` cannot work, because the `heavy` script already
+ends in `--` and `split_argv` swallows the flag.
+
+**Tier 3 was a rescope, not a retreat.** The path-keyed cache at `tests/styles/interactiveScanCore.ts:479`
+turned out to be an ASSERTED contract: `interactiveScanCore.test.ts:444` writes a file, scans, rewrites,
+scans again and asserts the FIRST content returns, calling the freeze "a real contract." Changing it is a
+contract decision, not a cleanup, so it left as `BL-MUTATION-SCANNER-CACHE-INVALIDATION` carrying its own
+terms. Narrowing the scope on evidence is what let tiers 1 and 2 close cleanly.
+
+**Verified by two independent instruments that agree.** A scoped gate over the eight surfaces whose
+deciding suites this arc edits, run through the harness's own `runSurface` + `evaluateGate`, scored SEVEN
+at 1.0000 with zero unaccepted survivors (`interactiveScanCore` 261/272, `mutationSurfaceEnumerate`
+246/249, `psqlStartupScan` 49/79, `controlOutlineScan` 65/65, `modal-wait-helper-scan` 95/97,
+`interactionTimingScan` 131/148, `mutationSurfaceTotality` 20/20). CI's four `source-shards` scored the
+FULL partition at the same head with no shard-level bail: 0, 1 and 3 PASS. The single unaccepted survivor
+anywhere in the partition was INHERITED — `modal-wait-disposition`, `logical-connector:500:42:&&>||`, from
+`291ca4fc4` via #875, proven not this arc's by a three-run controlled experiment (baseline 41/41; mutant
+at HEAD 41/41, surviving; mutant with this arc's two suite edits reverted to merge-base 41/41, still
+surviving). It is unreachable-on-corpus rather than equivalent, so its repair is one constructed-corpus
+case, not a ledger blessing. Reported to the owning arc with probe and repair.
+
+**The accumulation limb was larger than the filed incident named.** 781,949 leaked directories, nearly all
+empty — an inode and fsevents cost rather than a disk one. An approved one-time purge removed 780,888 and
+took enumeration of that tree from 76.0s to 0.6s. The derived "12 dirs/sec" leak RATE was RETRACTED: the
+measurement window contained another arc's score run, so the premise "no score run in progress" was never
+verified on a shared machine.
+
 ## BL-VALIDATION-PRUNE-DB-SIDE-GATE — gate prune_sync_log / prune_app_events on the validation project at the database, not the client — CLOSED 2026-08-24
 
 **Status:** SHIPPED 2026-08-24 · **Effort (as shipped):** M · **Class:** DB safety posture · **Facing:** product · **Shipped by:** `feat/validation-prune-db-side-gate`

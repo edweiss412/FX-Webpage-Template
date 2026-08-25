@@ -18,7 +18,7 @@
  * documented limits 5 and 7, never to guard growth. The threat model is an
  * ordinary contributor copy-pasting an existing pattern, not an adversary.
  */
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
@@ -38,6 +38,25 @@ import {
   N_WAIT_SITES,
   reconcileNWaitSites,
 } from "./modalWaitHelper/disposition";
+
+/**
+ * Scratch roots this file creates, removed together in `afterAll`.
+ *
+ * `afterAll` rather than per-case: vitest runs it even when a case fails, and a
+ * cleanup that only runs on success leaks exactly when a suite is being
+ * debugged, which is when it runs most. Guard:
+ * `tests/mutation/_metaScratchRootCleanup.test.ts`. Row:
+ * BL-MUTATION-SCRATCH-FS-EVENT-STORM.
+ */
+const scratchRoots: string[] = [];
+function trackScratch(root: string): string {
+  scratchRoots.push(root);
+  return root;
+}
+afterAll(() => {
+  for (const root of scratchRoots) rmSync(root, { recursive: true, force: true });
+  scratchRoots.length = 0;
+});
 
 const REPO_ROOT = process.cwd();
 
@@ -65,7 +84,7 @@ const tempRoots: string[] = [];
 
 /** A throwaway repo root holding one `tests/e2e/<name>.spec.ts` with `body`. */
 function fixtureRoot(name: string, body: string): string {
-  const root = mkdtempSync(join(tmpdir(), "modal-wait-guard-"));
+  const root = trackScratch(mkdtempSync(join(tmpdir(), "modal-wait-guard-")));
   tempRoots.push(root);
   mkdirSync(join(root, "tests", "e2e"), { recursive: true });
   writeFileSync(join(root, "tests", "e2e", `${name}.spec.ts`), body, "utf8");
@@ -289,7 +308,7 @@ describe("modal-wait guard — the live corpus", () => {
       );
     };
     const rootAt = (body: string): string => {
-      const root = mkdtempSync(join(tmpdir(), "modal-wait-product-"));
+      const root = trackScratch(mkdtempSync(join(tmpdir(), "modal-wait-product-")));
       tempRoots.push(root);
       mkdirSync(join(root, "components"), { recursive: true });
       mkdirSync(join(root, "tests", "e2e"), { recursive: true });
@@ -324,7 +343,7 @@ describe("modal-wait guard — the live corpus", () => {
   test("a product surface reports the line it was actually found on", () => {
     // Repays the `line: index + 1` -> `index + 2` survivor. Nothing consumed the
     // line number, so an off-by-one in it was invisible.
-    const root = mkdtempSync(join(tmpdir(), "modal-wait-line-"));
+    const root = trackScratch(mkdtempSync(join(tmpdir(), "modal-wait-line-")));
     tempRoots.push(root);
     mkdirSync(join(root, "components"), { recursive: true });
     mkdirSync(join(root, "tests", "e2e"), { recursive: true });
