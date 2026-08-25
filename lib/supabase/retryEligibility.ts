@@ -44,7 +44,22 @@ export const RETRYABLE_RPCS: ReadonlySet<string> = new Set([
  * rule keyed on the trailing path segment would retry a write into any table sharing a name
  * with a retryable function.
  */
-const RPC_PATH = /^\/rest\/v1\/rpc\/([^/]+)$/;
+/**
+ * The PostgREST RPC path, located ANYWHERE in the URL's path rather than anchored at its root.
+ *
+ * Anchoring at `^` was wrong and round-4 review probed it with a real client: a Supabase base URL
+ * carrying a path, `http://host/proxy/`, produces `/proxy/rest/v1/rpc/is_admin`, which the anchored
+ * form rejected. The consequences ran in BOTH directions — a prefixed retryable RPC POST was passed
+ * through unretried (the arc's own fault, unabsorbed: `calls=1 emits=0 status=502`), while a
+ * prefixed PostgREST GET was treated as ours and multiplied with PostgREST's loop (`calls=12`).
+ *
+ * The leading slash is load-bearing: `/myrest/v1/rpc/x` must NOT match, and it does not, because
+ * the character before `rest` is `y` rather than `/`.
+ */
+const RPC_PATH = /(?:^|\/)rest\/v1\/rpc\/([^/]+)$/;
+
+/** The PostgREST mount point, located the same way and for the same reason. */
+const POSTGREST_PREFIX = "/rest/v1/";
 
 /** Methods that are idempotent by HTTP contract, so a non-RPC request under one is a read. */
 const IDEMPOTENT_METHODS = new Set(["GET", "HEAD"]);
@@ -125,6 +140,8 @@ export function postgrestWillRetry(url: string, method: string | undefined): boo
     // Unparseable: assume PostgREST is NOT involved, so we keep ownership rather than orphaning.
     return false;
   }
-  if (!path.startsWith("/rest/v1/")) return false;
+  // `includes`, not `startsWith`: see RPC_PATH above. A base-path deployment puts the mount point
+  // after a prefix, and anchoring here made every prefixed PostgREST GET look like ours to retry.
+  if (!path.includes(POSTGREST_PREFIX)) return false;
   return POSTGREST_RETRYABLE_METHODS.has((method ?? "GET").toUpperCase());
 }

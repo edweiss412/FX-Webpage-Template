@@ -690,6 +690,50 @@ describe("the timeout is armed only for requests we own", () => {
   });
 });
 
+describe("a later failure never replaces the caller's original one", () => {
+  // Round-4 review probed this against a real client: a 502 followed by a 401 surfaced as 401,
+  // where an unwrapped call — which makes exactly ONE request — surfaces the 502. The wrapper was
+  // inventing a failure the caller could not otherwise have seen. Spec §3.4 says a failed request
+  // surfaces what it would have surfaced today.
+  //
+  // I fixed it and verified by probe, then PLANTED the fix away and all 44 cases still passed:
+  // the repair rested on nothing. These are that gap closed.
+  for (const later of [401, 400, 404, 409, 500]) {
+    test(`a 502 followed by ${later} still surfaces the 502`, async () => {
+      // no-premise: the transport is an injected stub and sleep/random are injected.
+      const inner = vi.fn(async () => (inner.mock.calls.length < 2 ? bad(502) : bad(later)));
+
+      const res = (await makeRetryingFetch(inner, instant)(RPC, { method: "POST" })) as Response;
+
+      expect(res.status).toBe(502);
+      expect(inner).toHaveBeenCalledTimes(2);
+    });
+  }
+
+  test("but a 502 followed by SUCCESS surfaces the success", async () => {
+    // no-premise: as above. The control that stops the rule above from being satisfied by a wrapper
+    // that simply always replays the first attempt, which would discard every recovery.
+    const inner = vi.fn(async () => (inner.mock.calls.length < 2 ? bad(502) : ok()));
+
+    const res = (await makeRetryingFetch(inner, instant)(RPC, { method: "POST" })) as Response;
+
+    expect(res.status).toBe(200);
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  test("a transport rejection followed by a non-retryable status still surfaces the rejection", async () => {
+    // no-premise: as above. The error-first half of the same class.
+    const boom = new TypeError("fetch failed");
+    const inner = vi.fn(async () => {
+      if (inner.mock.calls.length < 2) throw boom;
+      return bad(401);
+    });
+
+    await expect(makeRetryingFetch(inner, instant)(RPC, { method: "POST" })).rejects.toBe(boom);
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("owning a request is not the same as retrying every failure of it", () => {
   test("an Auth GET is OURS and its 503 is retried", async () => {
     // no-premise: the transport is an injected stub and sleep/random are injected.

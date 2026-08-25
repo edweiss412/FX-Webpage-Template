@@ -290,10 +290,23 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
       const transient =
         error !== undefined || (response !== undefined && RETRYABLE_STATUSES.has(response.status));
 
-      // Nothing to absorb: a success, or a status outside the set. THIS attempt's outcome is
-      // the answer — replaying the first here would hand back a 502 that a later attempt
-      // already recovered from.
+      // Nothing left to absorb. WHICH attempt answers depends on whether this one succeeded.
+      //
+      // A success is this attempt's to report: replaying the first here would hand back a 502 that
+      // this attempt already recovered from, which is the whole point of retrying.
+      //
+      // A FAILURE is not. Round-4 review probed it against a real client: a 502 followed by a 401
+      // surfaced as 401, where an unwrapped call — which makes exactly one request — surfaces the
+      // 502. The wrapper was inventing a failure the caller could not otherwise have seen, across
+      // the whole class of non-retryable statuses (400, 401, 403, 404, 409, 422, 429, 500 all
+      // probed). Spec §3.4 says a failed request surfaces what it would have surfaced today, so the
+      // FIRST failure is the answer whenever this attempt is also a failure.
       if (!transient) {
+        if (error === undefined && response !== undefined && response.ok) return response;
+        if (haveFirst) {
+          if (firstError !== undefined) throw firstError;
+          if (firstResponse !== undefined) return firstResponse;
+        }
         if (error !== undefined) throw error;
         return response!;
       }
