@@ -1006,6 +1006,14 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason:
           "headRepo's three inputs all end at the same answer under `&&`: an unset GITHUB_EVENT_PATH still returns null (existsSync(undefined) is false, not a throw), a set-but-missing path falls through to readFileSync, which throws into the function's own catch and returns null, and a readable path takes the identical branch either way",
       },
+      // ---- accepted-gap: killable, but not from CI's checkout ------------
+      {
+        siteId: "logical-connector:259:20:&&>||",
+        kind: "accepted-gap",
+        ref: "BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT",
+        reason:
+          "NOT equivalent, and killed locally: the regex has two mandatory groups, so the forms agree whenever `m` is non-null and diverge only when it is NULL, where the mutant evaluates `m[2]` on null and throws. `m` is null on every call, because splitting on a trailing newline always yields an empty final line the regex rejects. PREMISE, which is what makes this a gap rather than a kill: the only reader of this line in either registered suite is ledgerClaimsCheck.test.ts:570, which calls `resolveClaims(realGitSurface(), { fetch: false })` against the AMBIENT checkout, and `fileOids` runs once per `refs/remotes/origin/*` ref. CI checks out with none, so the function never executes there. Measured 2026-08-24 by instrumenting `fileOids` with one variable changed: 14 calls and a kill against the live worktree, 0 calls and a survivor against a constructed zero-ref repo. The other three `realGitSurface()` reads in these suites (:443, :487, and :811 inside `atRepo`) all run under a constructed LEDGER_GIT_ROOT, so :570 is the sole ambient reader and this is the sole site the surface's environment-independence claim fails at. FALSIFIER: give any case a constructed repository carrying one `refs/remotes/origin/*` ref and drive `resolveClaims` through it. One call is enough, and the mutant is then killable in every environment, at which point this row is wrong and must be deleted rather than re-reasoned",
+      },
     ],
   },
   /**
@@ -2378,6 +2386,173 @@ export const GUARD_SURFACES: GuardSurface[] = [
       to: "scanned.find(() => true) ?? null",
     },
     accepted: [],
+  },
+  /**
+   * The control-outline RESIDUE CENSUS: the derived population of interactive elements whose own
+   * Tailwind utilities paint a weak outline, keyed by content and reasons-required
+   * (BL-CONTROL-OUTLINE-FORWARD-GUARD, Outcome C). Enrolled BEFORE the arc's first diff-review
+   * round per the AGENTS.md contract.
+   */
+  {
+    id: "controlOutlineResidue",
+    sourcePath: "tests/styles/controlOutlineResidue.ts",
+    suitePaths: ["tests/styles/_metaControlOutlineResidue.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Detaches the KEY from its paint projection: every residue element collapses to
+    // `(file, tag, [])`, so twelve distinct keys become as few as eleven and the census reads as
+    // if it had checked content when it checked nothing but the file and the tag. That is the
+    // failure a census reader can actually have. The oracle's own liveness is not this control's
+    // job: AC-15 asserts it at module scope, before any census case runs.
+    // Verified unique on the current source (`grep -c -F` = 1); re-verify after any refactor that
+    // duplicates the line, because a text-keyed control expires the moment it is copied.
+    control: {
+      from: "return el.paths.map((p) => paintProjection(p, paint)).sort();",
+      to: "return [] as string[];",
+    },
+    accepted: [
+      // ---- three loop bounds where the extra index reads `undefined` (§4.1) ----
+      // `token[i]`/`raw[i]`/`chain[i]` at i === length is `undefined`, and every branch in the
+      // body compares it against a one-character literal, so none can fire. The extra iteration
+      // appends nothing and mutates no counter. Falsifier: a body branch testing for `undefined`,
+      // or one reading a property of the character.
+      {
+        siteId: "relational-boundary:45:21:<><=",
+        kind: "equivalent",
+        reason:
+          "utilityOf's scan: token[token.length] is undefined and every branch compares against a one-char literal, so the extra iteration is inert; §4.1",
+      },
+      {
+        siteId: "relational-boundary:62:21:<><=",
+        kind: "equivalent",
+        reason:
+          "variantsOf's cut scan: raw[raw.length] is undefined, same inert extra iteration; §4.1",
+      },
+      {
+        siteId: "relational-boundary:80:21:<><=",
+        kind: "equivalent",
+        reason:
+          "the chain split's scan: chain[chain.length] is undefined, and the post-loop push reads `start` which the extra iteration cannot move; §4.1",
+      },
+
+      // ---- a sentinel comparison whose two branches coincide ----
+      // `cut === -1` becomes `cut === -2`, which no value of `cut` satisfies: it is either -1 or a
+      // valid index. So the ternary always takes `token.slice(cut + 1)` — and when cut is -1 that
+      // is `slice(0)`, which returns the token itself, exactly the branch the mutant skipped.
+      // Falsifier: any `cut` value below -1, which the scan cannot produce.
+      {
+        siteId: "integer-literal:51:20:1>2",
+        kind: "equivalent",
+        reason:
+          "cut === -2 is unsatisfiable, and the branch it forces (slice(cut + 1) with cut === -1) is slice(0), which equals the branch it skipped; §4.1",
+      },
+
+      // ---- guards over MANDATORY capture groups ----
+      // Both groups of BORDER_COLOUR_DECL are mandatory, so on a successful match neither is
+      // undefined: the guard is a narrowing formality and both disjuncts are constantly false.
+      // `false || false` and `false && false` are both false. Falsifier: making either group
+      // optional in the pattern.
+      {
+        siteId: "logical-connector:307:30:||>&&",
+        kind: "equivalent",
+        reason:
+          "BORDER_COLOUR_DECL's groups 1 and 2 are both mandatory, so both disjuncts are constantly false and || and && agree; §4.2",
+      },
+      // PAINT_PROP's group 1 is mandatory, so `prop !== undefined` is constantly true and the flip
+      // reduces to dropping the dedup. `props` is read at exactly two sites, both `length > 0`
+      // (controlOutlineResidue.ts:385 and the same predicate in classify's consumer), and a
+      // repeated entry cannot move a `> 0`. Falsifier: any consumer reading props by identity,
+      // index, or set membership.
+      {
+        siteId: "logical-connector:321:30:&&>||",
+        kind: "equivalent",
+        reason:
+          "PAINT_PROP group 1 is mandatory so the left conjunct is constantly true; the flip only drops the dedup, and both reads of props are `length > 0`, which a duplicate cannot move; §4.2",
+      },
+
+      // ---- `??` fallbacks whose left side is never nullish ----
+      // classify passes getClassOrder the same token list it just compiled and getClassOrder
+      // returns one entry per input, so `order.get(token)` is never undefined at this site.
+      // Falsifier: a candidate that compiles but is absent from getClassOrder's result.
+      {
+        siteId: "integer-literal:324:41:0>1",
+        kind: "equivalent",
+        reason:
+          "order.get(token) is never undefined here — classify queries getClassOrder with the tokens it just compiled — so the BigInt fallback is unreachable; §4.3",
+      },
+      // Same shape: validateRow classifies `alternatives.flat()` and then indexes rowPaint with
+      // tokens drawn from that same list, so the optional chain never yields undefined.
+      // Falsifier: a token reaching this filter that was not in the classify call above it.
+      {
+        siteId: "integer-literal:659:82:0>1",
+        kind: "equivalent",
+        reason:
+          "rowPaint is built from alternatives.flat() and indexed with tokens from that same list, so the ?? fallback is unreachable; §4.3",
+      },
+
+      // ---- a tie-break over a total order ----
+      // Tailwind's class order is a total order with a distinct position per class, and the two
+      // sides of this comparison are always DIFFERENT tokens (the held one and the candidate), so
+      // p.order === held.paint.order cannot hold and `>` and `>=` agree on every reachable pair.
+      // Falsifier: two distinct classes sharing one order value.
+      {
+        siteId: "relational-boundary:373:60:>>>=",
+        kind: "equivalent",
+        reason:
+          "getClassOrder is a total order with a distinct position per class and the compared tokens are always distinct, so the tie the mutant redirects cannot occur; §4.4",
+      },
+
+      // ---- a pre-filter dominated by the conjunct beside it ----
+      // `t.length > 0 && (paint.get(t)?.props.length ?? 0) > 0`. Every token the boundary could
+      // admit or exclude — the empty string, a one-character token — has no paint entry, so the
+      // SECOND conjunct is false for it either way and the conjunction's value is unchanged.
+      // Falsifier: a one-character Tailwind utility that paints.
+      {
+        siteId: "relational-boundary:415:29:>>>=",
+        kind: "equivalent",
+        reason:
+          "the length test is a pre-filter and the props conjunct beside it excludes every token the boundary could admit, so the conjunction is unchanged; §4.5",
+      },
+      {
+        siteId: "integer-literal:415:31:0>1",
+        kind: "equivalent",
+        reason:
+          "same conjunction: a one-char token has no paint entry, so the props conjunct excludes it whichever way the length boundary falls; §4.5",
+      },
+
+      // ---- the same domination, one step downstream ----
+      // validateRow's split has no second conjunct, so the boundary really does change the token
+      // LIST. It cannot change any VERDICT: every consumer of `alternatives` reads paint, and both
+      // the empty string and a one-character token carry none. Probed in both directions on a live
+      // side-divider row — identical problem lists for a clean, a double-spaced and a one-char
+      // paint string. Falsifier: a consumer reading token spelling or counting tokens directly.
+      {
+        siteId: "relational-boundary:591:81:>>>=",
+        kind: "equivalent",
+        reason:
+          "an empty token admitted by >= 0 carries no paint, and every consumer of alternatives reads paint; probed against a live divider row with identical output; §4.6",
+      },
+      {
+        siteId: "integer-literal:591:83:0>1",
+        kind: "equivalent",
+        reason:
+          "a one-char token dropped by > 1 carries no paint, same probe, same identical output; §4.6",
+      },
+
+      // ---- a float boundary outside the function's domain ----
+      // relLuminance feeds `lin` only values of the form b/255 for an integer b in 0..255, because
+      // its sole caller is `ch(i) = parseInt(<two hex digits>, 16) / 255`. The boundary is
+      // 0.03928, and 0.03928 * 255 = 10.0164 is not an integer: enumerating all 256 values, NONE
+      // equals it (nearest is 10/255 = 0.0392156862745098, which is strictly below under both
+      // spellings). `<=` and `<` therefore agree on the whole domain. Falsifier: a caller passing
+      // a value not of the form b/255.
+      {
+        siteId: "relational-boundary:504:33:<=><",
+        kind: "equivalent",
+        reason:
+          "lin's domain is {b/255 : b in 0..255} and 0.03928*255 = 10.0164 is not an integer, so no input reaches the boundary — all 256 enumerated; §4.7",
+      },
+    ],
   },
   /**
    * Derivation of the destructive-file analyzer's execution-method core from the
