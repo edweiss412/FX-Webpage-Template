@@ -1106,7 +1106,7 @@ so a live gate was reading prose nothing verified.
 
 ## BL-ADMIN-LOADER-CI-TRANSIENT — admin page and modal loaders fault transiently on the app-e2e runner, and the failure is indistinguishable from a spec defect
 
-**Status:** IN PROGRESS · **Branch:** fix/admin-loader-ci-transient · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, from the counted runs of that arc's five-green loop) · **Facing:** process · **Severity:** MEDIUM (it costs a full five-green restart per occurrence, and read per-spec it drops members that are not defective) · **Class:** CI flake · **Effort:** M · **Reachability:** PROBED — the runs listed below, each with the failing page's own snapshot or its error text; three of them also carry a local CI-posture reproduction that passes, and which three is stated rather than implied. · **Incident:** the runs listed below died on this shape in one evening, across two PRs, and three batch-2 members left under AC-4 because of it. Those are cost events that already happened.
+**Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, from the counted runs of that arc's five-green loop) · **Facing:** process · **Severity:** MEDIUM (it costs a full five-green restart per occurrence, and read per-spec it drops members that are not defective) · **Class:** CI flake · **Effort:** M · **Reachability:** PROBED — the runs listed below, each with the failing page's own snapshot or its error text; three of them also carry a local CI-posture reproduction that passes, and which three is stated rather than implied. · **Incident:** the runs listed below died on this shape in one evening, across two PRs, and three batch-2 members left under AC-4 because of it. Those are cost events that already happened.
 
 Every run below is one occurrence, and the list is the count, which is why this sentence no longer restates it: counted runs of PR #875's own AC-3 loop plus one from an unrelated branch (`feat/destructive-guard-discovery-by-connection`), so TWO PRs, one shape — an admin loader faulting, never
 resolving, or leaving a server round-trip unsettled, while the rest of the page renders fine. The
@@ -1153,6 +1153,20 @@ on a SECOND red for one spec, which is batch 1's threshold and the ruling's boun
 re-adding them tonight would be churn on an arc whose bar is five consecutive green
 runs. Their restoration is **batch 3's first question**, and their allowlist rows already carry every
 run id a batch-3 reader needs.
+
+**What `fix/admin-loader-ci-transient` (PR #882) closed, and what it did not.** It ships a bounded
+retry at the Supabase RPC boundary plus the instrumentation that makes the fault visible, so the ONE
+mechanism this row's log finally named — `AdminInfraError: requireAdmin: is_admin RPC failed: An
+invalid response was received from the upstream server`, an upstream 502 on the admin gate (run 32763990640) — is absorbed and, when it recurs, leaves a durable `SUPABASE_UPSTREAM_RETRY` record
+instead of being inferred from app logs.
+
+The row stays OPEN because it is a CLASS and that is one member of it. Not every occurrence listed
+above is an RPC 502: `notify-toggles` is a server action plus `router.refresh()` failing to settle
+inside a 10 s poll, and `telemetry-layout` is a loader that never resolves at all, with the sidebar
+and log at zero rects. Neither is a request the retry wrapper sees. The remaining scope is therefore
+exactly the decision below, unchanged by this PR, plus the descoped
+`BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY` — and the shipping spec's §7.1 repairs four consumer
+boundaries while explicitly claiming no completeness.
 
 First scheduled step: decide whether the ratified open-time recovery (the changes-feed helper) can be
 extended to a page-segment boundary at all, or whether the runner's Supabase bootstrap is what needs
