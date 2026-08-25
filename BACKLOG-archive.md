@@ -329,6 +329,66 @@ round, cleared because the spec's was a subtractive prose narrowing and the plan
 facts. Four spec rounds (3/2/3/1) and four plan rounds (5/5/5/2) are recorded at
 `docs/review-rounds/feat/pane-compaction-send-auth/`.
 
+## BL-REVIEW-ROUND-COUNT-RESETS-ON-REMERGE — an arc's round accounting restarts at every re-merge, so the cap is avoidable for free — CLOSED 2026-08-25
+
+**Status:** SHIPPED 2026-08-25 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (the gate under-reported rather than mis-fired; nothing shipped wrong, but the economy's only enforcement point stopped firing exactly on the arcs it was built for) · **Class:** review-round economy · **Facing:** process · **Shipped by:** `feat/review-round-arc-sum`
+
+**Resolution.** `arcCountedRounds` sums a stage's distinct `(baseSha, round)` pairs across every
+base file under one branch directory, and a residual clause-B obligation fires when that sum
+reaches `ROUND_THRESHOLD` with no single base having reached it. Distinct PAIRS, not distinct
+`round` values, because a rebase renumbers and `round` alone collides across bases — one of the two
+details the filing said the implementation had to settle rather than assume. The other, an arc that
+re-bases onto a much later main, is settled the same way the row proposed: the branch directory is
+the accounting unit and how far the base moved is never consulted.
+
+The per-base obligation, the per-base contiguity rule, and the per-base filing location are all
+untouched. The change is MONOTONE — the arc rule only ever adds problems — so no corpus that passes
+today can fail on a per-base ground it passed on before, and every arc obliged today stays obliged.
+That is pinned executably rather than asserted.
+
+**Both failure directions are now measured, on the same afternoon.** The filing
+evidence was one arc, `feat/pane-compaction-send-auth`, whose filing was written
+voluntarily. Two more landed live on 2026-08-24, and they fail in OPPOSITE
+directions, which is what makes the pair worth citing rather than just the count:
+
+- `feat/validation-prune-db-side-gate` merged main mid-arc, its diff rounds split
+  `[1]` at the old base and `[2,3,4]` at the new, and the new file's
+  non-contiguous start red the required unit-suite as a MERGE BLOCKER. Loud, and
+  unavoidable by construction.
+- `feat/scratchstorm` split its spec rounds 2+2 across `8bf8709914a3.jsonl` and
+  `bcd3d088ec76.jsonl`. Neither file reaches the threshold of 4 though the arc has
+  burned four. Silent, and in the UNDERCOUNTING direction — the arc owes nothing
+  and nothing says so. The same arc then hit the contiguity split as a merge
+  blocker, resolved by the same ruled relabel-and-cross-reference prunegate used,
+  so one arc exhibited BOTH directions within an afternoon.
+
+The second is this row's own defect, observed after it was filed and before its
+repair merged. The first is why the interim rule could not just be "renumber and
+move on".
+
+**The interim rule is retired.** "File where the rounds actually happened, name the reset as a
+merge-timing artifact inside the filing, and never time a re-merge to dodge a filing" was the
+filer's obligation while the gate could not sum. The gate sums now, so the first two clauses are
+mechanical and the third is enforced rather than promised. Filing location staying per-base means
+the habit the interim rule built is still the right one; it is simply no longer voluntary.
+
+**11 `(branch, stage)` pairs newly owe, and all 11 are merged with no branch on origin** — so an
+advisory list naming them could never drain, and a dated hardening step would have arrived with all
+11 still owing. They go in a frozen never-added set, the shape this gate already ships for the
+Mechanizable parity rule, for the same reason: filings and corpus rows are immutable evidence, so a
+rule that cannot be complied with retroactively binds forward only. Ratified over advisory-first
+2026-08-22.
+
+**The one hazard the repair introduces is at zero live instances.** Summing per directory means a
+reused branch name would sum two unrelated PRs. Four names in history have been merged more than
+once; none has a corpus directory. The git-ancestry partition that would rule it out exactly is not
+implementable here — `mergedArcs` declines on a shallow clone and CI checks out at depth 1 — so it
+stands as a documented limit with the direction of error named (over-obligation) rather than as an
+unbounded risk.
+
+Spec: `docs/superpowers/specs/ci/2026-08-22-review-round-arc-sum.md`. Amends the 2026-08-04
+round-economy spec at §4.3, §5.2, §8.3 limit 3.
+
 ## BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION — a command substitution inside an ATTACHED redirection target hides an executing psql from both scanners
 
 **Status:** RESOLVED 2026-08-21 (`fix/shell-attached-redirection-target`, PR #873) · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, spec adversarial round 1 finding 1) · **Facing:** process · **Severity:** MEDIUM · **Class:** guard coverage · **Effort:** M

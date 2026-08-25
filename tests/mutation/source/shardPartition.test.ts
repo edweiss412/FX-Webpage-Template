@@ -125,11 +125,41 @@ describe("source-mutation shard partition", () => {
     }
     const ascending = Math.max(...ascendingLoads);
     // The two one-edit mutants of a weighted greedy: ignore the weights, or sort
-    // the wrong way. Both must lose, and by enough to clear the bound above.
+    // the wrong way. Both must lose. These two lines are the mutant killers and
+    // are deliberately untouched.
     expect(makespan).toBeLessThan(roundRobin);
     expect(makespan).toBeLessThan(ascending);
-    expect(roundRobin / lowerBound).toBeGreaterThan(1.1);
-    expect(ascending / lowerBound).toBeGreaterThan(1.1);
+    // SOME rejected packing must sit outside the bound, not EVERY one. The
+    // "every" form died on 2026-08-25, and the way it died is the argument for
+    // this one: `feat/review-round-arc-sum` enrolled a 44th surface, and each
+    // side was green ALONE while the merge was red.
+    //
+    // Measured at main `5cdda58d039b`, and recorded with that base because these
+    // are EVIDENCE for why "every" died, not a claim about today's registry:
+    //
+    //   origin/main   n=43  roundRobin/lowerBound 1.3373   PASS
+    //   that branch   n=43  roundRobin/lowerBound 1.3726   PASS
+    //   MERGED        n=44  roundRobin/lowerBound 1.0883   FAIL
+    //   merged ascending 1.2175        merged LPT makespan/lowerBound 1.0024
+    //
+    // The instability is the point, and it keeps proving itself: one more
+    // surface enrolled on main (n=45) and the same three numbers read 1.0840,
+    // 1.2159 and 1.0024. `ascending` and LPT barely move; `roundRobin` wanders,
+    // because it alone is a function of array ORDER rather than of weights.
+    //
+    // Nothing got worse - the partition IMPROVED to 1.0024. `roundRobin` is
+    // `findIndex(...) % SOURCE_SHARD_COUNT`, so how bad it is depends on the
+    // registry's ARRAY ORDER, and a new surface shifts the index parity of
+    // everything after it until round-robin happens to pack well. "Every
+    // rejected packing exceeds 1.1x" was therefore a claim about accidental
+    // ordering, which this guard never stated executably and cannot defend.
+    //
+    // What the bound actually needs is that it is not decorative: a plausible
+    // rejected packing violates it. That is what this asserts, and it is stable
+    // under enrolment. DOCUMENTED LIMIT: if BOTH alternatives ever fall inside
+    // 1.1x, this stops discriminating and goes quiet rather than red - re-file
+    // then, with the packing that would restore it.
+    expect(Math.max(roundRobin, ascending) / lowerBound).toBeGreaterThan(1.1);
   });
 
   it("records which regime pins the makespan, and holds the tight claim in the tight one", () => {

@@ -1,0 +1,103 @@
+/**
+ * Shared reader for the `BL-REVIEW-ROUND-COUNT-RESETS-ON-REMERGE` probes
+ * (spec `docs/superpowers/specs/ci/2026-08-22-review-round-arc-sum.md` §2).
+ *
+ * Every probe reads the corpus through `readArcs` — the SAME reader the gate
+ * uses — rather than re-parsing JSONL. A probe with its own parser measures its
+ * own parser, and the one number that would then differ from the gate's is
+ * exactly the number the spec is deciding on.
+ */
+import {
+  COUNTED_STAGES,
+  ROUND_THRESHOLD,
+  type CountedStage,
+} from "../../../lib/reviewRounds/constants";
+import { readArcs, type Arc } from "../../../lib/reviewRounds/corpus";
+import { parseFiling } from "../../../lib/reviewRounds/filing";
+
+export { COUNTED_STAGES, ROUND_THRESHOLD, type CountedStage };
+
+export type BranchDir = {
+  branch: string;
+  /** The arcs (one per base) under this branch directory. */
+  arcs: Arc[];
+  /** stage -> distinct `${baseSha}\u0000${round}` pairs across every base. */
+  arcPairs: Map<CountedStage, Set<string>>;
+  /** baseSha -> stage -> distinct round values within that one base file. */
+  perBase: Map<string, Map<CountedStage, Set<number>>>;
+  /** Stages carrying a filing section anywhere under the directory. */
+  filedStages: Set<string>;
+};
+
+function isCounted(stage: string): stage is CountedStage {
+  return (COUNTED_STAGES as readonly string[]).includes(stage);
+}
+
+/** Every branch directory in the corpus, with both counts already derived. */
+export function readBranchDirs(root: string): BranchDir[] {
+  const byBranch = new Map<string, BranchDir>();
+  for (const arc of readArcs(root)) {
+    let dir = byBranch.get(arc.branch);
+    if (dir === undefined) {
+      dir = {
+        branch: arc.branch,
+        arcs: [],
+        arcPairs: new Map(),
+        perBase: new Map(),
+        filedStages: new Set(),
+      };
+      byBranch.set(arc.branch, dir);
+    }
+    dir.arcs.push(arc);
+
+    const stagesHere = new Map<CountedStage, Set<number>>();
+    dir.perBase.set(arc.baseSha, stagesHere);
+    for (const row of arc.rows) {
+      if (row.status !== "verdict" || !isCounted(row.stage)) continue;
+      let pairs = dir.arcPairs.get(row.stage);
+      if (pairs === undefined) {
+        pairs = new Set();
+        dir.arcPairs.set(row.stage, pairs);
+      }
+      pairs.add(`${arc.baseSha}\u0000${row.round}`);
+      let rounds = stagesHere.get(row.stage);
+      if (rounds === undefined) {
+        rounds = new Set();
+        stagesHere.set(row.stage, rounds);
+      }
+      rounds.add(row.round);
+    }
+
+    if (arc.filingText !== null) {
+      for (const section of parseFiling(arc.filingText)) dir.filedStages.add(section.stage);
+    }
+  }
+  return [...byBranch.values()].sort((a, b) => a.branch.localeCompare(b.branch));
+}
+
+/** The largest single-base count for a stage — what the CURRENT gate sees. */
+export function maxPerBase(dir: BranchDir, stage: CountedStage): number {
+  let max = 0;
+  for (const stages of dir.perBase.values()) max = Math.max(max, stages.get(stage)?.size ?? 0);
+  return max;
+}
+
+/**
+ * Stages this directory would newly owe under the arc sum: at threshold across
+ * its bases, no single base at threshold (that case the current gate already
+ * catches), and no filing section anywhere under the directory.
+ */
+export function newlyOwing(dir: BranchDir): CountedStage[] {
+  const out: CountedStage[] = [];
+  for (const [stage, pairs] of dir.arcPairs) {
+    if (pairs.size < ROUND_THRESHOLD) continue;
+    if (maxPerBase(dir, stage) >= ROUND_THRESHOLD) continue;
+    if (dir.filedStages.has(stage)) continue;
+    out.push(stage);
+  }
+  return out.sort();
+}
+
+export function repoRoot(): string {
+  return process.argv[2] ?? process.cwd();
+}
