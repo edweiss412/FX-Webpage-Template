@@ -207,14 +207,8 @@ describe("the repo-wide walk states its premise executably (AC-6)", () => {
  * the assertion IS the zero-offender gate (AC-5).
  */
 const EXPECTED_OFFENDERS: readonly string[] = [
-  "components/admin/roleRecognizeCopy.ts:122",
-  "components/admin/roleRecognizeCopy.ts:127",
-  "components/admin/roleRecognizeCopy.ts:127",
   "lib/log/sanitize.ts:6",
   "lib/parser/personalization.ts:248",
-  "lib/sync/feed/shapeHoldEntry.ts:29",
-  "lib/sync/feed/shapeHoldEntry.ts:29",
-  "lib/sync/feed/shapeHoldEntry.ts:29",
   "lib/test/serialAudit.ts:19",
   "lib/test/serialAudit.ts:19",
   "lib/test/serialAudit.ts:19",
@@ -260,29 +254,6 @@ const EXPECTED_OFFENDERS: readonly string[] = [
   "tests/styles/_metaNewTabAnnouncement.test.ts:3697",
 ];
 
-/**
- * The offender sites reachable ONLY through a matched call's receiver.
- *
- * `a.replace(x, y).replace(z, w)` nests the inner call inside the outer call's callee, so a
- * visitor that classifies a call and stops descending never sees these. Named explicitly because
- * a stop-early walker reports 44 of 56 and would otherwise fail with a bare count that says
- * nothing about WHY.
- */
-const RECEIVER_ONLY: readonly string[] = [
-  "components/admin/roleRecognizeCopy.ts:127",
-  "lib/sync/feed/shapeHoldEntry.ts:29",
-  "lib/sync/feed/shapeHoldEntry.ts:29",
-  "lib/test/serialAudit.ts:19",
-  "lib/test/serialAudit.ts:19",
-  "scripts/audit-cn-operand-kinds.mjs:1019",
-  "tests/cross-cutting/psqlStartupFileSuppression.test.ts:2697",
-  "tests/docs/agentsHeavyPhaseRule.test.ts:914",
-  "tests/e2e/_pendingDiscardHarness.tsx:175",
-  "tests/e2e/helpers/liveEntryToolchain.ts:191",
-  "tests/e2e/helpers/walkerRoutes.ts:40",
-  "tests/e2e/helpers/walkerRoutes.ts:40",
-];
-
 describe("the repo-wide scan against the declared inventory (AC-1b, AC-5)", () => {
   const files = population(
     execFileSync("git", ["ls-files"], { encoding: "utf8", maxBuffer: 64 << 20 })
@@ -293,13 +264,13 @@ describe("the repo-wide scan against the declared inventory (AC-1b, AC-5)", () =
     .map((x) => `${x.file}:${x.line}`)
     .sort();
 
+  // The stop-early walker — one that classifies a call and never descends into its receiver —
+  // is caught by the CHAINED FIXTURE cases above, not here. A live-corpus list of the twelve
+  // receiver-only sites was tried and removed: it has to shrink as those sites are repaired, so
+  // by the time the sweep succeeds it is empty and `arrayContaining([])` passes for any walker at
+  // all. A guard that evaporates exactly when the thing it guards starts mattering is worse than
+  // no guard, because it still reads like one.
   it("reports exactly the declared offenders", () => {
     expect(found).toEqual([...EXPECTED_OFFENDERS].sort());
-  });
-
-  it("sees every site reachable only through a receiver", () => {
-    // The discriminating half: a walker that stops descending after classifying a call passes a
-    // bare count comparison against its own output and fails THIS.
-    expect(found).toEqual(expect.arrayContaining([...RECEIVER_ONLY]));
   });
 });
