@@ -269,6 +269,52 @@ Two observable shapes, both with bash confirming the command really runs:
 
 Close condition: a construct-aware delimiter walk that (a) resolves all four shapes above, (b) completes the live-corpus scan within the shipped walk's order of magnitude, and (c) leaves the AC-5 finding-set digest unmoved — the third is currently unprovable for the prototype, because it cannot finish.
 
+## BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES - an UNTERMINATED process substitution is scanned as executable, while the `$(` form is correctly suppressed
+
+**Status:** OPEN · **Facing:** product · **Filed:** 2026-08-24 (`fix/yaml-run-scalar-quoting-decode`, diff round 13 finding 1) · **Severity:** MEDIUM (fabricates a site; bounded by the census below) · **Reachability:** PROBED
+
+An unterminated `$(` reports zero sites, which is right. An unterminated process
+substitution `>(` or `<(` reports one, which is not. `bash -n` exits 2 on every
+spelling below, so nothing runs and every reported site is fabricated.
+
+| `run:` scalar             | bash -n | scanner                       |
+| ------------------------- | ------- | ----------------------------- |
+| `echo >$(psql -qAt mydb`  | exit 2  | 0 sites - correct suppression |
+| `echo >(psql -qAt myd`    | exit 2  | **1 site**, `["-qAt","myd"]`  |
+| `echo >\$(psql -qAt mydb` | exit 2  | **1 site**, `["-qAt","mydb"]` |
+
+The escaped-dollar spelling is a route in, not a separate defect: `\$` decodes to a
+literal `$` followed by a bare `(`, landing on the same path as row two. The
+single- and double-quoted forms of it behave identically.
+
+**Mechanism, isolated rather than guessed.** The branch handling `$(`, backticks and
+process substitution closes its span with `matchBrace`, which returns the LAST INDEX
+whether or not the span closed. `matchBraceEnd`, sitting beside it in the same file,
+returns `-1` for exactly this case and is already the precedent for suppression. Why
+the `$(` spelling escapes the bug at all is the part worth confirming before repair -
+the two arms share this closer, so the divergence is downstream of it, and a fix
+applied at `matchBrace` on the strength of this row alone would be a guess.
+
+**PRE-EXISTING, proven rather than assumed.** All spellings were run against `scan.ts`
+at `fix/yaml-run-scalar-quoting-decode`'s merge-base and at HEAD; the outputs are
+identical. The arc that found it changes the YAML decode path, not the shell lexer.
+
+**Not repaired in the finding arc, and the reason is scope.** It surfaced at diff round
+13 of that arc, in a sub-surface the arc does not otherwise touch. Editing the shell
+lexer there would have widened a thirteen-round diff into new territory, which is the
+recognizer-growth shape that arc had already paid for twice. Recorded as documented
+limit 9 of `docs/superpowers/specs/ci/2026-08-22-workflow-run-scalar-yaml-decode-design.md`.
+
+**Same function as `BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND`, different defect** -
+that row is about `matchBrace` counting only its own delimiter pair across other
+constructs; this one is about what it returns when the pair never closes. Filed
+separately because a construct-aware rewrite could satisfy that row's close condition
+and leave this one standing.
+
+Close condition: an unterminated substitution of any spelling reports zero sites, with
+all three rows above as deciding cases, and the census re-run to confirm no live
+workflow changes classification.
+
 ## BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE — a QUOTED workflow `run:` scalar is scanned as if its YAML quoting were shell, fabricating a site on one spelling and going silent on another
 
 **Status:** IN PROGRESS · **Branch:** fix/yaml-run-scalar-quoting-decode · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 5 - raised against that diff, REFUTED against it, and true of the tree either way) · **Severity:** MEDIUM (one spelling FABRICATES a `PsqlSite` for a command bash never runs, which is a forbidden direction; the other is silent, which is the other forbidden direction) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — the repair belongs to the YAML decode path (`scanSource`'s workflow reader), a surface the attached-redirection arc does not otherwise touch, and it needs the scanner to distinguish YAML quoting from shell quoting before the shell lexer ever sees the value. · **Reachability:** PROBED — three spellings, each run against bash and against `scan.ts` at both revisions. · **Incident:** it consumed diff round 5 of this arc (corpus row at `docs/review-rounds/fix/shell-attached-redirection-target/0ba72c23774f.jsonl`), where it was raised as a finding against a diff that does not cause it. The round is the cost event; the defect is real and outlives the refutation.

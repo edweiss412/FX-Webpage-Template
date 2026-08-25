@@ -342,6 +342,34 @@ needs to know its one silent failure direction -- which is exactly the reason no
 
 ---
 
+9. **An UNTERMINATED process substitution fabricates a site, and this arc does not
+   repair it.** `- run: echo >(psql -qAt mydb` reports one `PsqlSite` with tokens
+   `["-qAt","mydb"]` while `bash -n` exits 2 — a syntax error that runs nothing.
+   The escaped-dollar spellings reach the same place: `\$(` decodes to a literal
+   `$` followed by a bare `(`, so `- run: echo >\$(psql -qAt mydb` and its
+   single- and double-quoted forms all fabricate the same site. Probed on all
+   three spellings plus the bare-paren form.
+
+   The mechanism is narrow. An unterminated `$(` IS suppressed correctly (the
+   canonical `echo >$(psql -qAt mydb` reports zero sites); an unterminated
+   process substitution is not, because that branch closes its span with
+   `matchBrace`, which returns the last index either way, rather than
+   `matchBraceEnd`, which returns `-1` when the span never closed.
+
+   **Not repaired here, and the reason is scope rather than difficulty.** The
+   behaviour is IDENTICAL at this arc's merge-base and at HEAD, so the arc
+   neither introduces nor worsens it; it lives in the shell lexer's
+   substitution-termination handling, not in the YAML decode path this arc
+   changes. Repairing it means editing the lexer at the end of a thirteen-round
+   review, which is the recognizer-growth shape this arc already paid for twice
+   on AC-8. Filed as `BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES` with
+   the probe attached.
+
+   Stated plainly because it qualifies the arc's consequence bound: within this
+   arc's declared one-edit-neighbour probe domain there exists an input that is
+   silently wrong in the FABRICATING direction. The bound holds for the quoting
+   decode this arc repairs; it does not hold for this pre-existing lexer path.
+
 ## 5. Convergence criterion
 
 **Closed criterion.** The three spellings of §2.1 are each correct with bash as the oracle: the
