@@ -3,7 +3,12 @@
 Implements `docs/superpowers/specs/ci/2026-08-24-admin-rpc-transient-502-retry-design.md`.
 Row: `BL-ADMIN-LOADER-CI-TRANSIENT`.
 
-Every task is TDD: failing test first, minimal implementation, passing test, one commit. The order is
+Every task is TDD: failing test first, minimal implementation, passing test, one commit.
+
+**"Red" means the AUTHORED test failing, never the missing-file state.** `vitest run` on a path that
+does not exist exits 1 with "No test files found", which is indistinguishable by exit code from a real
+red — so a task could otherwise be "satisfied" by never writing its test. Each red below is the state
+after the test is authored and before the implementation exists. The order is
 chosen so each red is REPRODUCING rather than aspirational: the predicate is red against the method
 census before any wrapper exists, and the wrapper is red against a stub transport before it is
 installed anywhere.
@@ -13,7 +18,7 @@ installed anywhere.
 | invariant | disposition |
 | --- | --- |
 | 2, advisory locks | N/A. No sync path in the diff. |
-| 8, impeccable pair | N/A — no UI surface. No file under `app/` or `components/` changes. |
+| 8, impeccable pair | N/A — no UI surface, and checkable rather than asserted: the only `app/` path this plan edits is `app/api/show/[slug]/version/route.ts`, and the rule scopes a UI surface to `app/` EXCEPT `app/api/**`. No `components/` file changes. |
 | 9, call-boundary discipline | The wrapper is transport, not an auth helper, so it takes no `_metaInfraContract` row and carries an inline `// not-subject-to-meta:` comment with its reason. Both contract suites must pass UNMODIFIED. |
 | 10, mutation-surface observability | N/A. No new mutating route, no new server action. Verified by running the meta-test in Task 9, not assumed. |
 | migration parity | N/A. No `supabase/migrations/**` change. |
@@ -28,7 +33,7 @@ installed anywhere.
 Authored as its own module from the start because it is enrolled in the source-mutation registry in
 Task 6, and the runner can only overlay a target a suite imports.
 
-Cases come from the spec's method census, all seven rows, plus the discrimination case that census
+Cases come from every row of the spec's method census, plus the discrimination case that census
 exposed: an insert into a table NAMED after a retryable function must not be retried. That case is
 what pins the rule to the full `/rest/v1/rpc/<fn>` shape rather than to a trailing segment.
 
@@ -59,9 +64,16 @@ failures. A row-count assertion would be tautological (zero rows passes triviall
 (an unauthenticated `my_share_tokens_for_email` is CORRECTLY empty) at the same time, and fixture
 state must never be able to move this verdict.
 
-Anti-tautology: the task plants both failures before implementing. A `VOLATILE` name added to the set
-must fail the safety arm, and a non-`VOLATILE` call site removed from the set must fail the
-completeness arm. A guard that cannot be made to fail is not a guard. Premises are executable
+Anti-tautology: the task plants THREE failures before implementing, and the third is the one that
+matters. A `VOLATILE` name added to the set must fail the safety arm; a non-`VOLATILE` call site
+removed from the set must fail the completeness arm; and **a non-`VOLATILE` function that WRITES
+through a volatile callee must fail the READ ONLY arm specifically.**
+
+Without that third plant the arm is undetectable: every current member is genuinely read-only
+(`readfinalizeowned_b2` included — its body is an `is_admin` check and two `exists(select ...)`), so
+deleting the READ ONLY execution entirely would leave this task GREEN and silently reduce the safety
+rule to the volatility-only rule §4.2 already rejected. The fixture is the spec's own §4.2 probe, a
+`stable` function that writes through a `volatile` callee, created and rolled back inside the test. A guard that cannot be made to fail is not a guard. Premises are executable
 (`tests/_shared/premise.ts`): the catalog query must return rows and the walk must find call sites.
 
 ## Task 3 — The wrapper, in the shape this codebase already uses
@@ -81,6 +93,13 @@ wrapper that never retried anything.
 
 All four exhausted two-attempt sequences: 502 then 502, 502 then reject, reject then 502, reject then
 reject.
+
+The wrapper is not installed in the factory until Task 5, so this task reaches it the way this repo
+already does: `vi.mock("@/lib/supabase/server", ...)` returning a client built with the wrapper (the
+idiom in `tests/cross-cutting/resolve-show-page-access-exhaustiveness.test.ts` and others). Without
+that, a consumer builds an UNWRAPPED client internally and the red fails for the wrong reason. A
+reorder would also work and is worse: it would put installation before any test of the contract
+installation is meant to preserve.
 
 The assertion is against the CONSUMER's emitted forensic code, not against the wrapper's return value.
 A wrapper that returns a plausible shape for the wrong reason still fails this task. The ten branches
@@ -106,6 +125,18 @@ Both existing contract suites run here and must pass unmodified.
 
 <!-- task: red=`pnpm vitest run tests/mutation/source/registry.test.ts` ac=AC-4 -->
 
+**Two registry rows, not one.** The runner overlays exactly ONE `surface.sourcePath`
+(`tests/mutation/source/runner.ts`, search `const target = resolve(root, surface.sourcePath)`), so one
+row cannot reach arithmetic living in another module. The predicate (`equality-flip`,
+`logical-connector`) and the wrapper's backoff arithmetic (`relational-boundary`, `integer-literal`)
+are separate surfaces with separate rows, each with its own `control` and deciding suite. Declaring
+four operators on one row would report them while scoring none of the backoff sites.
+
+**Each row's `suitePaths` must NAME its own suite.** The runner overlays a target only when a Vitest
+suite imports it, so a row pointing elsewhere yields a surface where every mutant survives for reasons
+that have nothing to do with the guard's quality. Closing that loop at the row is the entire reason
+Task 1 authors the predicate as an importable module rather than inline.
+
 Enrol `lib/supabase/retryEligibility.ts (new)` with a `control` the suite must notice. Declared operators:
 `equality-flip` and `logical-connector` for the predicate, `relational-boundary` and
 `integer-literal` for the backoff arithmetic.
@@ -117,6 +148,14 @@ not taken: one run fleet-wide at a time.
 ## Task 7 — The deterministic runner proof
 
 <!-- task: red=`sh -c 'BASELINE_SERVER_ONLY=1 pnpm exec playwright test tests/e2e/admin-upstream-retry.spec.ts --project=desktop-chromium'` ac=AC-5 -->
+
+**Wiring comes FIRST in this task, or the red is unreachable.** A new spec file is selected by
+nothing: `playwright.config.ts`'s `desktop-chromium` project matches an explicit basename allowlist,
+and `.github/workflows/app-e2e.yml` runs an explicit file list. `admin-upstream-retry` appears in
+NEITHER today (verified: zero occurrences in each). So the task adds the basename to the project's
+`testMatch` and the path to the workflow's list BEFORE authoring the test — otherwise the red reports
+no selected tests, which is indistinguishable from a passing run, and CI would never exercise AC-5 at
+all.
 
 A CI-only forced upstream fault, gated exactly as `x-test-force-infra-fail` is: `ENABLE_TEST_AUTH`,
 the Bearer secret, and a request-scoped header. It cannot fire in production.
@@ -138,8 +177,18 @@ than only returned, and `app/api/show/[slug]/version/route.ts` gains a `log.erro
 
 **These are invariant-9 defect repairs, not attribution coverage, and the task must not drift into
 claiming otherwise.** An infra fault that arrives and loses its message is a defect at that boundary on
-its own terms. The red asserts, per boundary, that a stubbed client returning an upstream 502 produces
-a log line containing the error message, and for the version route that a line exists at all. It
+its own terms. The red EXERCISES each boundary: it calls the function with a stubbed client returning an upstream
+502 and inspects the EMITTED record. It does not scan source. A test that greps these four files for
+`error.message` would pass while the runtime path never emits it, which is the tautology rule reaching
+a logging change — source presence is not the property, emission is.
+
+The version route gets the SAME assertion as the other three, not a weaker one: its emitted line must
+CONTAIN the error message. An earlier draft asked only that a line exist there, which a code-only log
+satisfies while still discarding `error.message` — the exact defect this task names. Both of that
+route's branches, the returned error and the thrown one, discard it today.
+
+The four are named rather than derived, and that is correct here rather than a drifting enumeration:
+this task makes no completeness claim, so there is nothing for the list to stand proxy for. It
 asserts nothing about any other path: the total solution is
 `BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY`'s job, and spec §9 records that every other swallowing path
 stays dark until then.
@@ -153,6 +202,11 @@ would drag four read paths into a mutation registry.
 ## Task 9 — Graduation, closeout, invariant sweep
 
 <!-- task: red=`sh -c '! grep -q "^## BL-ADMIN-LOADER-CI-TRANSIENT" BACKLOG.md'` ac=AC-6 -->
+
+**AC-6's five consecutive green `app-e2e` runs are part of THIS task's completion, not a crosswalk
+footnote.** The task's own red proves only that the backlog heading is gone, so without this stated
+the task could close and commit before the regression evidence exists. The five runs are stated in
+advance, counted on the PR, and recorded here before the marker comes off.
 
 Archive the row. Run `tests/log/_metaMutationSurfaceObservability.test.ts` to verify the invariant-10
 N/A rather than assert it. The in-progress marker comes off in this commit, the PR's last before the

@@ -12,7 +12,7 @@ Every measurement quoted below is sourced there and is not restated with fresh n
 
 A required check on `main` (`app-e2e`) reds transiently, and the red is indistinguishable from a spec
 defect. The ledger row's occurrence list is its count, and that list is the incident record. On
-2026-08-24 the class nearly cost a shipped batch member and burned hours of AC-3 re-rolling.
+2026-08-24 the class nearly cost a shipped batch member and burned hours of re-rolling batch 2's AC-3 five-green loop.
 
 The row reads the fault as an admin-loader fault, because every occurrence quotes
 `AdminInfraError: requireAdmin: is_admin RPC failed: An invalid response was received from the upstream server`.
@@ -37,7 +37,7 @@ the request it landed on.
 | --- | --- |
 | The occurrence list on the row IS its count. This spec appends no occurrences and restates no total. | `BACKLOG.md`, search `the list is the count` |
 | The per-spec red counter advances only on a red that REPRODUCES on the same bytes. | `BACKLOG.md`, search `RATIFIED 2026-08-24` |
-| `notify-toggles` is not dropped: it is a member of batch 1 wired on `main`, and AC-4 names artifacts a wiring arc does not own. | `BACKLOG.md`, search `AC-4 removes _a member_` |
+| `notify-toggles` is not dropped: it is a member of batch 1 wired on `main`, and batch 2's AC-4 names artifacts a wiring arc does not own. | `BACKLOG.md`, search `AC-4 removes _a member_` |
 | `admin-parse-panel`, `warning-panel-polish`, `telemetry-layout`, `published-show-attention` stay dropped for batch 2; restoration is batch 3's first question. | `BACKLOG.md`, search `stay dropped for batch 2` |
 | Option (b), a targeted wait on the server-action settle, is dead by measurement, not by preference. | probe §Finding 6 |
 | The `x-test-force-infra-fail` hook is deliberate test-only machinery and is not a defect. | `lib/auth/requireAdmin.ts`, search `maybeForceTestInfraFail` |
@@ -546,7 +546,7 @@ and its construction-site meta-test. All of it is filed as
 `BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY` (§7). Re-proposing any of it here is a re-scope decision,
 not a review finding.
 
-Restoring the four members dropped from batch 2 (batch 3's question, §1.1). Changing AC-3's five-green
+Restoring the four members dropped from batch 2 (batch 3's question, §1.1). Changing batch 2's AC-3 five-green
 bar or the batch-1 drop threshold. Promoting `app-e2e` into the required set on `main`. Any change to
 the `x-test-force-infra-fail` hook's existing behavior. Diagnosing
 `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` beyond noting it is the same fault family.
