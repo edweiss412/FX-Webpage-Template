@@ -109,9 +109,11 @@ already carries at `tests/cross-cutting/psqlStartupFiles/scan.ts:1115`). Recursi
 **The perf bound, stated before the design and measured after it.** The walk visits each character
 once per ENCLOSING construct, so its cost is **O(n · d)** where `d` is construct nesting depth — no
 re-entrant rescan of a span already passed, and no back-tracking. `d` is what turns that into a
-claim rather than a hope, so `d` is measured: the live corpus's deepest file reports **20** by a
-deliberately over-counting census (§2.5), and the whole distribution sits at 12 or below apart from
-two files. The bound this design accepts is §4's AC-6: **the repaired walk's median CPU over the
+claim rather than a hope, so `d` is measured: the live corpus's deepest file reports **20** (§2.5),
+and the whole distribution sits at 12 or below apart from two files. **That census is an INDICATOR
+and NOT an upper bound** — diff review round 2 showed it can under-count as well as over-count, and
+§2.5 carries the demonstration. The O(n · d) reasoning is therefore motivation for the design, not
+its proof; what PROVES the cost claim is AC-6's measured same-session ratio. The bound this design accepts is §4's AC-6: **the repaired walk's median CPU over the
 live corpus is within 1.5× the shipped walk's, both measured in the same session**, because a
 machine running nine arcs against two heavy slots cannot compare a number today against one
 recorded yesterday.
@@ -450,9 +452,21 @@ introduces. On the WIDE family, which is the shape the live corpus actually has,
 
 `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/depth.mts` measures `d` over the surfaces production reads: **the deepest file
 is `.github/workflows/mutation-harness.yml` at 20**, and every other file sits at 15 or below with
-the mass at 12 and under. That census counts an unmatched backtick in embedded JavaScript as an
-opener, so it OVER-approximates — which is the conservative direction for a bound and is stated
-rather than quietly enjoyed.
+the mass at 12 and under.
+
+**That figure is an INDICATOR, not an upper bound, and diff review round 2 is why this paragraph no
+longer claims otherwise.** An earlier draft said the census OVER-approximates — counting an
+unmatched backtick in embedded JavaScript as an opener — and called that the conservative direction
+for a bound. The over-count is real but the claim was still wrong, because the same probe can also
+UNDER-count: `depthOf` ignores quotes yet decrements on a quoted `)` or `}`, and it does not count
+the `<(`/`>(` openers the walk now admits. Round 2 demonstrated it on a bash-valid one-insertion
+variant of `C5`, where the probe reported max depth 1 against an actual matcher depth of 2. A
+measurement that can err in BOTH directions cannot bound anything.
+
+**Nothing in §4 rests on it, which is why the honest repair is to narrow the claim rather than grow
+the probe.** `depth.mts` is a REPORTER (§2.1b): it aborts on an empty read and otherwise only
+prints. The cost claim is carried by AC-6, which is a MEASURED same-session ratio over the live
+corpus — 0.97× against a 1.5× ceiling — and that gate is unaffected by how `d` is counted.
 
 ---
 
@@ -479,6 +493,7 @@ defect the sibling arc measured when `'` inside a double-quoted target was read 
 | `` ` `` | `closingBacktick` (`tests/cross-cutting/psqlStartupFiles/scan.ts:1055`), which is escape-aware | |
 | `${` | this walk, recursively, on `{`/`}` | |
 | `$(` | this walk, recursively, on `(`/`)` | |
+| `<(`, `>(` | this walk, recursively, on `(`/`)` — the PROCESS SUBSTITUTIONS. Added by diff review round 1: `lexShellWords` already treats both as constructs that EXECUTE their body, and the walk did not, so `echo ${OUT:->(echo }; psql -c 'x')}` ran psql once and was reported at top level with `nested: false`. Same `(`/`)` matcher as `$(`, so no new grammar arrives | |
 | the counted pair | `depth++` / `depth--`, exactly as today | |
 | anything else | ordinary text | lowest |
 
@@ -491,6 +506,7 @@ defect the sibling arc measured when `'` inside a double-quoted target was read 
 | `` ` ``, `${`, `$(` | as context 1 |
 | `"` | CLOSES the span |
 | `'`, `$'`, `$"` | **literal text — not openers** |
+| `<(`, `>(` | **literal text — not openers.** Bash performs no process substitution inside a double-quoted span, so admitting them here would import an opener the shell does not honour. The asymmetry with context 1 is deliberate |
 
 **`$$` is required in THREE recognizers, and each round found one more of them.** Round 1 put it in
 this walk; round 3 found `attachedTargetEnd`'s recognizer still missing it; round 4 found that a

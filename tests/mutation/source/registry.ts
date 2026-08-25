@@ -2777,7 +2777,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // nothing.
     // Re-keying is the cheap half. Each ARGUMENT was re-read at its new site,
     // and one had genuinely STOPPED being true: the split-reading filter row
-    // (now relational-boundary:3213:72) rested on every caller trimming the
+    // (now relational-boundary:3382:72) rested on every caller trimming the
     // value's IFS edges, and arm 2 added a caller that did not. Repaired by
     // trimming the candidate where it is produced, with the separating input
     // recorded on that row and pinned in the deciding suite. None of the 24 is
@@ -2896,7 +2896,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "relational-boundary:1011:25:<><=",
         kind: "equivalent",
         reason:
-          "matchBraceSpan's scan loop indexes text[i], so the widened bound adds one iteration at i === text.length where text[i] is undefined. RE-READ AT ITS NEW SITE 2026-08-25 and REWRITTEN, not carried across: BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND replaced this body, and the previous wording enumerated an `active quote` variable that no longer exists, so the old argument was stale in its PREMISE even though its conclusion held. The body now compares `character` against backslash and against the open/close delimiters its callers pass, then DELEGATES to foreignConstructEnd. At i === text.length all three comparisons are against undefined and none match; foreignConstructEnd reads the same undefined character, matches none of its five branches (`$$`, single quote, double quote, backtick, `${`/`$(`) and returns null WITHOUT indexing further, so the extra iteration moves neither depth nor i and the function still falls through to its text.length - 1 fallback (scan.ts, symbol matchBraceSpan). The delimiter alphabet is still exactly `{`/`}` and `(`/`)`: the six matchBrace call sites, the one matchBraceEnd call site, and the two RECURSIVE call sites this arc added inside foreignConstructEnd and doubleQuotedEnd all pass one of those two pairs. VOIDS THIS ROW: a caller passing a delimiter pair that can be undefined, or a foreignConstructEnd branch that indexes text[i+1] before testing text[i]. Boundary pin: 'an unclosed command substitution still exposes the psql call inside it'.",
+          "matchBraceSpan's scan loop indexes text[i], so the widened bound adds one iteration at i === text.length where text[i] is undefined. RE-READ AT ITS NEW SITE 2026-08-25 and REWRITTEN, not carried across: BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND replaced this body, and the previous wording enumerated an `active quote` variable that no longer exists, so the old argument was stale in its PREMISE even though its conclusion held. The body now compares `character` against backslash and against the open/close delimiters its callers pass, then DELEGATES to foreignConstructEnd. At i === text.length all three comparisons are against undefined and none match; foreignConstructEnd reads the same undefined character, matches none of its SIX branches (`$$`, single quote, double quote, backtick, `${`/`$(`, and the `<(`/`>(` process substitutions diff review round 1 added) and returns null WITHOUT indexing further, so the extra iteration moves neither depth nor i and the function still falls through to its text.length - 1 fallback (scan.ts, symbol matchBraceSpan). The delimiter alphabet is still exactly `{`/`}` and `(`/`)`: the six matchBrace call sites, the one matchBraceEnd call site, and the THREE RECURSIVE call sites this arc added -- two inside foreignConstructEnd, for `${`/`$(` and for `<(`/`>(`, and one inside doubleQuotedEnd -- all pass one of those two pairs. VOIDS THIS ROW: a caller passing a delimiter pair that can be undefined, or a foreignConstructEnd branch that indexes text[i+1] before testing text[i]. Boundary pin: 'an unclosed command substitution still exposes the psql call inside it'.",
       },
       {
         siteId: "relational-boundary:1120:24:<><=",
@@ -2982,7 +2982,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "regex-quantifier-bound:3431:21:{1,2}>{1,3}",
         kind: "equivalent",
         reason:
-          "The dash run in INTERPRETER_POSITIONAL_BINDING is followed by [A-Za-z-]*, a character class that ALREADY contains a dash, so -{1,2}[A-Za-z-]* and -{1,3}[A-Za-z-]* denote the same language: one dash followed by any run of letters and dashes. Every extra dash the widened quantifier could consume is a dash the class consumes instead, so no input matches one and not the other, and the pattern is only ever consulted through .test (scan.ts, symbol INTERPRETER_POSITIONAL_BINDING, used in scanShellIndirection). Its twin at 3211:38 has the follower class [A-Za-z0-9], which contains no dash - that one is killed by a test rather than blessed here. Boundary pin: 'an extra dash in the -c spelling still reports the positional binding'.",
+          "The dash run in INTERPRETER_POSITIONAL_BINDING is followed by [A-Za-z-]*, a character class that ALREADY contains a dash, so -{1,2}[A-Za-z-]* and -{1,3}[A-Za-z-]* denote the same language: one dash followed by any run of letters and dashes. Every extra dash the widened quantifier could consume is a dash the class consumes instead, so no input matches one and not the other, and the pattern is only ever consulted through .test (scan.ts, symbol INTERPRETER_POSITIONAL_BINDING, used in scanShellIndirection). Its twin at 3380:38 has the follower class [A-Za-z0-9], which contains no dash - that one is killed by a test rather than blessed here. Boundary pin: 'an extra dash in the -c spelling still reports the positional binding'.",
       },
       {
         siteId: "relational-boundary:3931:54:<><=",
@@ -3065,19 +3065,19 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "relational-boundary:1241:26:<><=",
         kind: "equivalent",
         reason:
-          "See the SHARED INVARIANT on relational-boundary:1056:29 - one argument, four sites, voided together.  APPLIED HERE: the ANSI-C close-quote scan inside `attachedTargetEnd`.",
+          "See the SHARED INVARIANT on relational-boundary:1195:29 - one argument, four sites, voided together.  APPLIED HERE: the ANSI-C close-quote scan inside `attachedTargetEnd`.",
       },
       {
         siteId: "relational-boundary:1255:26:<><=",
         kind: "equivalent",
         reason:
-          "See the SHARED INVARIANT on relational-boundary:1056:29 - one argument, four sites, voided together.  APPLIED HERE: the double-quoted span walk inside `attachedTargetEnd`, which is where the accept-set recurses.",
+          "See the SHARED INVARIANT on relational-boundary:1195:29 - one argument, four sites, voided together.  APPLIED HERE: the double-quoted span walk inside `attachedTargetEnd`, which is where the accept-set recurses.",
       },
       {
         siteId: "relational-boundary:1308:12:<><=",
         kind: "equivalent",
         reason:
-          "See the SHARED INVARIANT on relational-boundary:1056:29 - one argument, four sites, voided together.  APPLIED HERE: `attachedTargetEnd`'s own top-level walk, the one whose `end` the caller consumes.",
+          "See the SHARED INVARIANT on relational-boundary:1195:29 - one argument, four sites, voided together.  APPLIED HERE: `attachedTargetEnd`'s own top-level walk, the one whose `end` the caller consumes.",
       },
       // The surface carries NO accepted gap. It carried one - the `spliced`
       // continuation bound, at what was THEN relational-boundary:2167:54 (a HISTORICAL
