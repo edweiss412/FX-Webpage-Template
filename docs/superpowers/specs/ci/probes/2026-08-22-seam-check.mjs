@@ -54,15 +54,37 @@ const PERMITTED = new Set([
 // HEAD under the same local name. Additions pass; a rename, a re-alias, a swap,
 // or a removal does not, and the line then falls back to being denied like any
 // other unowned change.
+//
+// The key carries the MODULE SPECIFIER and the TYPE-ONLY flag alongside the
+// imported name, and default imports are recorded too. An earlier version keyed
+// on the imported name alone and read only `NamedImports`, so review round 2 at
+// this base showed four prohibited edits passing: changing an import's module
+// source, deleting the `typescript` default import, renaming it, and making the
+// yaml import `import type`. Each of those is exactly the "same bindings, from
+// somewhere else" substitution the allowance exists to deny, and each was
+// invisible because the thing that changed was not in the key.
 const yamlBindings = (text, label) => {
   const sf = ts.createSourceFile(label, text, ts.ScriptTarget.Latest, true);
   const pairs = new Map();
   for (const st of sf.statements) {
     if (!ts.isImportDeclaration(st)) continue;
-    const bindings = st.importClause?.namedBindings;
-    if (!bindings || !ts.isNamedImports(bindings)) continue;
-    for (const el of bindings.elements)
-      pairs.set(el.propertyName?.text ?? el.name.text, el.name.text);
+    const mod = ts.isStringLiteral(st.moduleSpecifier) ? st.moduleSpecifier.text : "<computed>";
+    const clause = st.importClause;
+    if (!clause) continue;
+    const declTypeOnly = clause.isTypeOnly === true;
+    const key = (imported, typeOnly) => `${mod}|${imported}|${typeOnly ? "type" : "value"}`;
+    if (clause.name) pairs.set(key("default", declTypeOnly), clause.name.text);
+    const bindings = clause.namedBindings;
+    if (!bindings) continue;
+    if (ts.isNamespaceImport(bindings)) {
+      pairs.set(key("*", declTypeOnly), bindings.name.text);
+      continue;
+    }
+    if (!ts.isNamedImports(bindings)) continue;
+    for (const el of bindings.elements) {
+      const typeOnly = declTypeOnly || el.isTypeOnly === true;
+      pairs.set(key(el.propertyName?.text ?? el.name.text, typeOnly), el.name.text);
+    }
   }
   return pairs;
 };
