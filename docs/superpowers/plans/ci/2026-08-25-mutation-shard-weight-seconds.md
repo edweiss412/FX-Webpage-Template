@@ -177,7 +177,19 @@ Arms: every measured surface named whatever its ratio; actionable marked separat
 
 <!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm tsx scripts/mutation-score-surfaces.ts mutationWeightRecords mutationWeightWeights` red-state=live red-target=`lib/mutationWeight/weights.ts:302` why=`mutationWeightWeights scores 0.7279 against its 0.90 floor with 37 unaccepted survivors, observed 2026-08-25` ac=AC-7 -->
 
-Three surfaces have moved: `sourceShardPartition` (its source is edited), and `mutationWeightRecords`/`mutationWeightWeights` (their source gains nothing but their partition changes). Re-score, record each score with the `OPERATORS:` tail, and reconcile every ledger: a new survivor is killed by a strengthened suite or accepted with a reason, never left unaccepted.
+Three surfaces have moved: `sourceShardPartition` (its source is edited), and `mutationWeightRecords`/`mutationWeightWeights` (their source gains nothing but their partition changes). Re-score, record each score with the `OPERATORS:` tail, and reconcile every ledger.
+
+**The starting point is measured and the marker's `why=` cites it: 0.7279 against a 0.90 floor, 37 unaccepted survivors, observed 2026-08-25.** That figure is DATED and already partly superseded — two kill passes have landed since it was taken, closing thirteen of those survivors by fixture. It is kept as the observation that justifies `red-state=live` rather than updated on paper, because the number that replaces it comes from a run, not from arithmetic over what I believe I fixed.
+
+The triage order is the orchestrator's and is not mine to reorder:
+
+1. **Kill** what the suite should pin. Thirteen so far, and every one was the same shape: a fixture with one element, where a sort and its absence are indistinguishable.
+2. **Delete** code the gate has just proved unnecessary — a defensive branch for an input that cannot occur, a sort no consumer needs. A gate that cannot kill dead code is telling you it is dead.
+3. **Ledger** only what survives both, each with a MECHANISM argument: no input distinguishes the mutant from the original. Never an unreachable-on-corpus observation, which is a statement about today's inputs rather than about the program.
+
+**Step 2 is expected to be nearly empty here, and that is a finding rather than a skip.** The residue is dominated by `?? 0` coalesces that `noUncheckedIndexedAccess` REQUIRES on every indexed read; they are compiler-mandated rather than chosen, and they do not compile away. Their equivalence argument is that the index is proven in range by the guard immediately above, so the default operand is never evaluated.
+
+ONE slot turn measures the final state. An intermediate measurement would cost a second turn under `slots=1` and describe a tree that never ships.
 
 Check the binding leg against budget before and after enrolment. This arc's own modules are the first customers of its design and must not be the surfaces that breach it.
 
