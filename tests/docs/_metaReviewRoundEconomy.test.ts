@@ -1369,6 +1369,52 @@ describe("the freeze conjunction's two filters (mutation survivors)", () => {
     expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
     expect(problems[0]?.message).toContain("freeze");
   });
+
+  // Diff R1 P1. The freeze compares INSTANTS; a lexical string compare keeps an
+  // aged pair grandfathered SILENTLY, which is the one outcome the consequence
+  // bound's third clause forbids. `2026-08-21T23:30:00-05:00` is the whole
+  // point: it denotes 2026-08-22T04:30Z, half a day AFTER the freeze, while
+  // sorting lexically BEFORE the freeze's UTC string. Under the shipped repair
+  // the exemption is refused; under a string compare this test goes green with
+  // the defect present.
+  it("refuses the exemption for an offset-bearing row that postdates the freeze", () => {
+    const postFreezeByOffset = "2026-08-21T23:30:00-05:00";
+    premiseHolds(
+      "the fixture timestamp really is after the freeze as an instant and before it as a string",
+      Date.parse(postFreezeByOffset) > Date.parse(ARC_SUM_FREEZE) &&
+        postFreezeByOffset < ARC_SUM_FREEZE,
+    );
+    const problems = check([
+      {
+        path: `${GF.branch}/aaaaaaaaaaaa.jsonl`,
+        body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage, startedAt: "2026-08-01T00:00:00.000Z" }),
+      },
+      {
+        path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+        body: half("bbbbbbbbbbbb", { branch: GF.branch, stage: GF.stage, startedAt: postFreezeByOffset }),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("freeze");
+  });
+
+  // An unparseable timestamp cannot be PROVEN older, so it counts against the
+  // exemption exactly as `null` does. Without this the repair could have used a
+  // parse that silently treated garbage as ancient.
+  it("refuses the exemption for a row whose startedAt cannot be parsed", () => {
+    const problems = check([
+      {
+        path: `${GF.branch}/aaaaaaaaaaaa.jsonl`,
+        body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage, startedAt: "2026-08-01T00:00:00.000Z" }),
+      },
+      {
+        path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+        body: half("bbbbbbbbbbbb", { branch: GF.branch, stage: GF.stage, startedAt: "not-a-timestamp" }),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("freeze");
+  });
 });
 
 describe("the arc-sum addition guard (spec §3.3)", () => {
@@ -1606,7 +1652,7 @@ describe("the arc-sum grandfather set can only shrink (spec §3.3)", () => {
       (byBranch.get(branch) ?? [])
         .flatMap((arc) => arc.rows)
         .filter((r) => r.stage === stage)
-        .filter((r) => r.startedAt === null || !(r.startedAt < ARC_SUM_FREEZE))
+        .filter((r) => !(Date.parse(r.startedAt ?? "") < Date.parse(ARC_SUM_FREEZE)))
         .map((r) => `${branch} ${stage} round ${r.round} startedAt=${r.startedAt}`),
     );
     expect(offenders).toEqual([]);

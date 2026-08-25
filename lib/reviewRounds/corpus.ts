@@ -488,15 +488,19 @@ export function arcSumTotals(
       // Exemption is the CONJUNCTION of list membership AND an arc whose
       // counted rounds all predate the freeze (spec §3.3). Either half alone
       // lets the set grow: membership alone makes the list the whole
-      // mechanism, and age alone exempts most of the corpus. A null startedAt
-      // cannot be PROVEN older, so it counts against the exemption.
+      // mechanism, and age alone exempts most of the corpus. Compared as
+      // INSTANTS, never as strings: `2026-08-21T23:30:00-05:00` denotes an
+      // instant AFTER the freeze while sorting lexically before it, so a
+      // string compare would keep an aged pair grandfathered (diff R1 P1).
+      // `Date.parse` of null-or-unparseable is NaN and every NaN comparison is
+      // false, so both count against the exemption - cannot be PROVEN older.
       let freezeViolation = "";
       let frozen = false;
       if (isArcSumGrandfathered(branch, stage)) {
         const notProvenOld = group
           .flatMap((arc) => arc.rows)
           .filter((r) => r.stage === stage && r.status === "verdict")
-          .filter((r) => r.startedAt === null || !(r.startedAt < ARC_SUM_FREEZE));
+          .filter((r) => !(Date.parse(r.startedAt ?? "") < Date.parse(ARC_SUM_FREEZE)));
         if (notProvenOld.length === 0) frozen = true;
         else
           freezeViolation =

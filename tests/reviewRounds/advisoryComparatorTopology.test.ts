@@ -27,7 +27,7 @@
  * shape a scanner that flags EVERY relational operator would pass its positive
  * case and be worthless.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import ts from "typescript";
@@ -37,6 +37,25 @@ import { premiseHolds } from "../_shared/premise";
 
 const FILE = "scripts/review-economy.ts";
 const SRC = readFileSync(join(process.cwd(), FILE), "utf8");
+
+/**
+ * The scan's scope is DERIVED, not listed. It was one hardcoded path, and
+ * diff R1 found the predictable consequence: a lexical compare added to
+ * `lib/reviewRounds/corpus.ts` was outside the only file the scanner read, so
+ * the guard passed while the class it names shipped. An enumerated cover
+ * re-opens the moment someone adds a site, which is exactly what happened.
+ *
+ * `lib/reviewRounds/` is walked from disk, so a NEW module in it is covered by
+ * default rather than by remembering to register it.
+ */
+const SCANNED: readonly { file: string; src: string }[] = [
+  { file: FILE, src: SRC },
+  ...readdirSync(join(process.cwd(), "lib/reviewRounds"), { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith(".ts"))
+    .map((e) => `lib/reviewRounds/${e.name}`)
+    .sort()
+    .map((file) => ({ file, src: readFileSync(join(process.cwd(), file), "utf8") })),
+];
 
 /**
  * Identifiers that hold a timestamp STRING. A relational operator on any of
@@ -173,12 +192,32 @@ describe("boundary-advisory comparator topology (2026-08-07 spec §3.1)", () => 
     expect(comparatorsAcceptingUnparsed("planted.ts", good)).toEqual([]);
   });
 
-  it("compares no timestamp STRING with a relational operator", () => {
+  it("PREMISE: the scope reaches the module diff R1 caught, and flags the ACTUAL defect there", () => {
+    // Two properties, because either alone is satisfiable while the guard is
+    // useless. SCOPE: a scan narrowed back to one file passes every assertion
+    // below it while covering nothing. POWER: a scope that reaches the file
+    // proves nothing if the scanner cannot see the shape that shipped.
+    const corpus = SCANNED.find(({ file }) => file === "lib/reviewRounds/corpus.ts");
+    expect(corpus, "the walk must reach corpus.ts — R1's finding lived there").toBeDefined();
+
+    const shipped =
+      '.filter((r) => !(Date.parse(r.startedAt ?? "") < Date.parse(ARC_SUM_FREEZE)));';
+    const lexical = ".filter((r) => r.startedAt === null || !(r.startedAt < ARC_SUM_FREEZE));";
+    const regressed = corpus!.src.replace(shipped, lexical);
+    premiseHolds("the repaired line is still present to regress", regressed !== corpus!.src);
+    expect(lexicalTimestampComparisons(corpus!.file, regressed).length).toBeGreaterThan(0);
+  });
+
+  it("compares no timestamp STRING with a relational operator, in ANY scanned module", () => {
     premiseHolds(
-      "the report module is non-empty and parses, so an empty scan means 'none found' rather than 'nothing read'",
-      SRC.length > 0 && parse(FILE, SRC).statements.length > 0,
+      "every scanned module is non-empty and parses, so an empty scan means 'none found' rather than 'nothing read'",
+      SCANNED.length > 1 &&
+        SCANNED.every(({ file, src }) => src.length > 0 && parse(file, src).statements.length > 0),
     );
-    expect(lexicalTimestampComparisons(FILE, SRC)).toEqual([]);
+    const found = SCANNED.flatMap(({ file, src }) =>
+      lexicalTimestampComparisons(file, src).map((f) => `${file}:${f.line} ${f.text}`),
+    );
+    expect(found).toEqual([]);
   });
 
   it("declares every ordering helper over PARSED instants, so an unparsed site cannot compile", () => {
