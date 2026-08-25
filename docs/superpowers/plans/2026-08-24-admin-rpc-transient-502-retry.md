@@ -260,7 +260,7 @@ what the runner will actually generate:
 
 | surface | sites | by operator |
 | --- | --- | --- |
-| `lib/supabase/retryingFetch.ts` | **42** | statement-removal 14, integer-literal 16, equality-flip 7, logical-connector 4, relational-boundary 1 |
+| `lib/supabase/retryingFetch.ts` | **40** | integer-literal 14, statement-removal 14, equality-flip 7, logical-connector 4, relational-boundary 1 |
 | `tests/supabase/retryableRpcVolatilityScan.ts` | **18** | statement-removal 13, equality-flip 2, logical-connector 2, integer-literal 1 |
 | `lib/supabase/retryEligibility.ts` | **3** | statement-removal 1, equality-flip 1, integer-literal 1 |
 
@@ -319,8 +319,14 @@ Both rows take `operators: [...OPERATOR_NAMES]`, a `control` its own suite must 
 Only the second is env-touching (it queries the catalog), so only it takes an `EXPECTED_ENV_TOUCHING`
 row.
 
-**Cost, stated before the slot is taken rather than discovered inside it.** 60 mutants total, 42 plus
-18. Each mutant runs its deciding suite in a fresh child; measured on this branch, the wrapper's two
+**Cost, stated before the slot is taken rather than discovered inside it.** 58 mutants total, 40 plus
+18.
+
+**The wrapper's count has now moved FOUR times** — 24 (miscounted by reading), 26 against four declared
+operators, 42 after the describeTarget query-strip repair added two index literals, and 40 after that
+same fallback was DELETED as unreachable when the mutation gate could not kill those two mutants. Each
+move was a real change to the file. A count derived from a measurement is only true of the bytes it was
+taken from, which is exactly why the GUARD SURFACE line quotes the RUN's total rather than this table. Each mutant runs its deciding suite in a fresh child; measured on this branch, the wrapper's two
 suites report 356ms and the volatility suite 383ms, both about a second wall-clock including boot. So
 the estimate is roughly two to four minutes of execution for both surfaces, not the tens of minutes a
 browser-driving surface costs. Both are scored in ONE slot acquisition.
