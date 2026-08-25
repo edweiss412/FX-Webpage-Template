@@ -24,6 +24,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { RETRYABLE_RPCS } from "@/lib/supabase/retryEligibility";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 import { premise } from "../_shared/premise";
 import {
   EXCLUSIONS,
@@ -33,8 +34,15 @@ import {
   type Catalog,
 } from "./retryableRpcVolatilityScan";
 
+// Guarded, because a raw LOCAL_TEST_DATABASE_URL read is exactly what
+// tests/db/_metaLocalDbUrlGuard.test.ts refuses: this suite opens a real connection, so an
+// ambient non-loopback value would point it at a REMOTE database. assertLocalDbUrl refuses
+// anything that is not loopback rather than trusting the variable's name.
 const sql = postgres(
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  assertLocalDbUrl(
+    process.env.LOCAL_TEST_DATABASE_URL ??
+      "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  ),
   { max: 1, prepare: false },
 );
 afterAll(async () => {
