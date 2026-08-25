@@ -338,6 +338,7 @@ the axis had no terminating state.
 The cost of having no prefilter, measured over the tracked population rather than estimated:
 
 ```
+# @ c5c76ce28, pre-merge; parsed counts are the DERIVATIONS' population (docs/** included)
 current  /\.replace(All)?\b/       parsed=508    calls=1206   1235ms
 narrowed /\breplace(All)?\b/       parsed=609    calls=1206    751ms
 none (parse every tracked file)    parsed=3670   calls=1206   1941ms

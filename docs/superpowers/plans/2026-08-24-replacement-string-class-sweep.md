@@ -45,7 +45,8 @@ catch are a glob that drops a directory from both projects (silent coverage loss
 matches it in both (double-run plus a re-introduced DB race). Checked at plan time:
 `tests/cross-cutting/**` appears in `PARALLEL_TEST_GLOBS` **zero** times, so both new suites land
 in the SERIAL project by default, claimed exactly once, with no config edit and no change to the
-partition guard. That is also the right home for a suite that parses 3670 files, since the serial
+partition guard. That is also the right home for a suite that parses the scanner's **3586-file** population
+(tracked JS/TS minus `node_modules/**` and `docs/**`, per the base note above), since the serial
 project runs with `fileParallelism: false`. `TEST_FAST_DEFERRED` governs only parallel-set files,
 so neither suite needs a deferral row.
 

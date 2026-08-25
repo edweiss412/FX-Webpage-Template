@@ -147,8 +147,11 @@ Each fix widened the pattern and the next round found the next spelling. That is
 ratchet, and the repair direction under same-axis recurrence is NARROWING, not more grammar. The
 narrowing here is to delete the optimization outright.
 
-Measured over the tracked population: **prefiltered, 508 files in 1235ms; unfiltered, 3670 files
-in 1941ms**, both finding the same 1206 calls. Seven hundred milliseconds does not buy an axis
+Measured over the tracked population at `c5c76ce28`, before `main` was merged: **prefiltered, 508
+files in 1235ms; unfiltered, 3670 files in 1941ms**, both finding the same 1206 calls. (That 3670
+is the DERIVATIONS' population — everything tracked, `docs/**` included. The scanner's own
+population excludes `docs/**` and is smaller; §3.2 defines it. The figures are a dated record of
+what the deletion cost, not a claim about the current tree.) Seven hundred milliseconds does not buy an axis
 that yields a finding every round, and deleting the filter also closes the escaped-identifier
 spelling that no amount of widening could have reached. **The safest optimization is the one that
 is not there.**
