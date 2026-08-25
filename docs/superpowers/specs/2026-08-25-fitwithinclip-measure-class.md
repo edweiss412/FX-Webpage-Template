@@ -156,7 +156,7 @@ The hook has one parameter and one runtime input.
 | `reapplyKey` | omitted (`undefined`) | Stable across renders, so the ref never re-attaches. One measure per mount. | `ReSyncButton.tsx:111-113` uses this arm; case (g) |
 | `reapplyKey` | changes between renders | Detach, re-measure, re-wire. Unchanged from today. | case (c), `tests/components/admin/useFitWithinClip.test.tsx:193` |
 | `reapplyKey` | unchanged between renders (any type) | Nothing happens. `Object.is` identity is React's own dependency comparison, not ours. | §0.1 `PROBE-NOOP-RERENDER applies=0` |
-| `reapplyKey` | an unstable object or array literal | Re-attach on every render — one measure and one walk per render. Same exposure as today, where it was an effect dependency with the same comparison. No consumer does this; every call site passes a primitive or omits the argument. | §4.1 sweep |
+| `reapplyKey` | an unstable object or array literal | Re-attach on every render — one measure and one walk per render. Same exposure as today, where it was an effect dependency with the same comparison. No consumer does this. The hook is exported from one module, so its call sites are enumerable by import: `rg -n 'useFitWithinClip\(' components app lib` returns five, three passing nothing and two passing a boolean. | the five call sites, enumerated below |
 | ref `node` | an `HTMLElement` | Measure, wire, return teardown. | every case |
 | ref `node` | `null` | Return without measuring or wiring. Unreachable under React 19 cleanup refs (fact 1) but retained: the `RefCallback` type admits it, and returning `undefined` there is what React expects. | §5.1 case (h2) |
 | clip ancestor | none found | `max-height` is removed rather than left stale, and no `ResizeObserver.observe` is issued for it. | case (b) `tests/components/admin/useFitWithinClip.test.tsx:188`, family A `tests/components/admin/useFitWithinClip.test.tsx:368` |
@@ -211,64 +211,102 @@ Shapes swept, stated as the ledger rows state them:
 - **Shape 1** — a state counter that exists only to re-run an effect a late-mounting ref should have driven.
 - **Shape 2** — a value resolved inside `apply()` that the effect body re-resolves in the same run.
 
-### §4.1 — Result: the class is one file, on covers that derive
+### §4.1 — Result: the class is one file, on a cover the type checker derives
 
-Round-1 finding 4 was that the first sweep enumerated SPELLINGS. It was right, and the instrument
-failed its own positive control: a `ref=\{\(node` pattern cannot see `useFitWithinClip` itself,
-because this hook returns a callback rather than writing one inline. An instrument that misses the
-known instance establishes nothing about unknown ones. Both covers are rebuilt below on the axis
-each shape is actually defined on.
+Two rounds went on this section, and both were right about the same thing. Round 1: the sweep
+enumerated SPELLINGS, and the instrument failed its own positive control. Round 2: the repair was
+still a spelling list — it read `ref={(el) => …}` and a `RefCallback` annotation, and therefore
+missed `ref={fitRef}`, a NAMED CALLBACK VALUE, at five sites inside this arc's own probe domain.
+Round 2 also noted that the positive control leaned on the hook's explicit return annotation, one
+ordinary edit from disappearing. Both are settled below by asking the TYPE CHECKER instead of a
+pattern.
 
-**Shape 2 derives by SCOPE, not by grep.** `findClippingAncestor` is declared `function` at
-`components/admin/useFitWithinClip.ts:48` and exported nowhere:
+**Shape 1 derives from the checker.** `docs/superpowers/specs/2026-08-25-fitwithinclip-ref-callable-probe.mjs`
+walks every source file under `components/`, `app/` and `lib/`, finds every JSX `ref=` attribute, and
+asks whether the expression's TYPE has a call signature — unioned types included, so `Ref<T>` counts.
+A spelling cannot hide from it, because it never reads spelling.
+
+```
+$ node docs/superpowers/specs/2026-08-25-fitwithinclip-ref-callable-probe.mjs
+ALL ref= attributes in components/ app/ lib/ (non-test): 120
+CALLABLE (the shape-1 axis):                            18
+
+components/admin/FinalizeButton.tsx:964  ref   :: ForwardedRef<HTMLDivElement>
+components/admin/PublishedToggle.tsx:201  fitRef   :: RefCallback<HTMLElement>
+components/admin/ReSyncButton.tsx:235  fitErrorRef   :: RefCallback<HTMLElement>
+components/admin/ReSyncButton.tsx:261  fitShrinkRef   :: RefCallback<HTMLElement>
+components/admin/ReSyncButton.tsx:317  fitSuccessRef   :: RefCallback<HTMLElement>
+components/admin/review/ModalCloseButton.tsx:15  ref   :: ForwardedRef<HTMLButtonElement>
+components/admin/review/ShowReviewSurface.tsx:784  (el) => { if (el) railItemRefs.current.set(ext   :: (el: HTMLButtonElement | null) => void
+components/admin/review/ShowReviewSurface.tsx:836  (el) => { if (el) sectionElsRef.current.set(ex   :: (el: HTMLDivElement | null) => void
+components/admin/review/ShowReviewSurface.tsx:902  (el) => { if (el) railItemRefs.current.set(s.i   :: (el: HTMLButtonElement | null) => void
+components/admin/review/ShowReviewSurface.tsx:1058  (el) => { if (el) sectionElsRef.current.set(s.   :: (el: HTMLElement | null) => void
+components/admin/showpage/AttentionMenu.tsx:173  fitRef   :: RefCallback<HTMLElement>
+components/admin/UseRawControl.tsx:335  buttonRef   :: Ref<HTMLButtonElement>
+components/agenda/AgendaPdfViewer.tsx:266  (node) => { pageRefs.current[i] = node; }   :: (node: HTMLDivElement | null) => void
+components/auth/AvatarMenu.tsx:371  (el) => { itemRefs.current[0] = el; }   :: (el: HTMLButtonElement | null) => void
+components/auth/AvatarMenu.tsx:418  (el) => { itemRefs.current[1] = el; }   :: (el: HTMLButtonElement | null) => void
+components/diagrams/Gallery.tsx:346  (node) => { thumbRefs.current.set(item.id, nod   :: (node: HTMLButtonElement | null) => void
+components/diagrams/GalleryLightbox.tsx:727  emblaRef   :: EmblaViewportRefType
+components/shared/AccentButton.tsx:139  ref   :: Ref<HTMLButtonElement> | undefined
+
+NON-callable (plain ref objects), for completeness: 102
+```
+
+**The probe reconciles its own counts**, so a silent truncation would be visible rather than plausible: 18 callable plus 102 non-callable is exactly the 120 `ref=` attributes it found, and it prints every callable row with no cap. Eighteen, where the round-1 grep saw eight plus an annotation. The five it missed — `components/admin/PublishedToggle.tsx:201`, `components/admin/ReSyncButton.tsx:235`, `components/admin/ReSyncButton.tsx:261`, `components/admin/ReSyncButton.tsx:317` and `components/admin/showpage/AttentionMenu.tsx:173` — are this hook's own consumers, which is as central to the probe domain as a site can be.
+
+**The positive control now survives the edit that used to break it.** Round 2's sharpest sentence was
+that the control depended on `useFitWithinClip`'s explicit `RefCallback<HTMLElement>` return
+annotation. Removed it and re-ran:
+
+```
+CALLABLE (the shape-1 axis):  18
+components/admin/PublishedToggle.tsx:201   fitRef        :: (node: HTMLElement | null) => void
+components/admin/ReSyncButton.tsx:235      fitErrorRef   :: (node: HTMLElement | null) => void
+components/admin/showpage/AttentionMenu.tsx:173  fitRef  :: (node: HTMLElement | null) => void
+```
+
+Same count, same sites, inferred type instead of the declared one. The checker sees the call
+signature whether or not anyone wrote it down, which is the whole difference from a grep.
+
+**All eighteen classified, by reading each site.** Nine author a callback in place and every one of
+them writes to a ref map or ref array and sets NO state: `pageRefs.current[i] = node`,
+`thumbRefs.current.set(item.id, node)`, `itemRefs.current[0] = el`, `itemRefs.current[1] = el`, and
+four `railItemRefs`/`sectionElsRef` `.set`/`.delete` pairs. Five are this hook's consumers, which are
+instances OF the shape's fix, not instances of the shape. Four are pass-throughs that author no
+callback at all — `FinalizeButton.tsx:964` and `ModalCloseButton.tsx:15` forward a `forwardRef`
+parameter, `UseRawControl.tsx:335` and `AccentButton.tsx:139` forward a prop — so any callback
+reaching them was authored at a caller's `ref=` site, which this same enumeration already covers.
+The last is `emblaRef` from embla-carousel, third-party. **Shape 1 is present exactly once, and that
+instance is the one this arc removes.**
+
+**Shape 2 derives by SCOPE, for the resolver it names.** `findClippingAncestor` is declared
+`function` at `components/admin/useFitWithinClip.ts:48` and exported nowhere:
 
 ```
 $ rg -n --glob '*.ts' --glob '*.tsx' 'export.*findClippingAncestor' .
 (no output)
 ```
 
-A module-private binding cannot be called from outside its module, so enumerating call sites within
-that one file is exhaustive by construction rather than by pattern. There are two —
+A module-private binding cannot be called from outside its module, so enumerating its call sites
+within that one file is exhaustive by construction. There are two —
 `components/admin/useFitWithinClip.ts:91` inside `apply()`, and
 `components/admin/useFitWithinClip.ts:161` in the effect body, which is the instance this arc
-removes. No second module can hold one.
+removes.
 
-**Shape 1 derives on the ref-callback axis.** The shape is "a ref callback that bumps state", so the
-enumerable set is ref callbacks, not `useState` declarations. Two spellings reach a function into a
-ref: an inline arrow on the prop, with ANY parameter name, and a value typed `RefCallback`:
-
-```
-$ rg -n --glob '*.ts' --glob '*.tsx' -U 'ref=\{\s*\(|RefCallback' components app lib | rg -v '\.test\.'
-components/agenda/AgendaPdfViewer.tsx:266:      ref={(node) => {
-components/diagrams/Gallery.tsx:346:           ref={(node) => {
-components/auth/AvatarMenu.tsx:371:            ref={(el) => {
-components/auth/AvatarMenu.tsx:418:            ref={(el) => {
-components/admin/review/ShowReviewSurface.tsx:784:   ref={(el) => {
-components/admin/review/ShowReviewSurface.tsx:836:   ref={(el) => {
-components/admin/review/ShowReviewSurface.tsx:902:   ref={(el) => {
-components/admin/review/ShowReviewSurface.tsx:1058:  ref={(el) => {
-components/admin/useFitWithinClip.ts:29:  import { … type RefCallback } from "react";
-components/admin/useFitWithinClip.ts:69:  export function useFitWithinClip(…): RefCallback<HTMLElement> {
-```
-
-**Positive control: this instrument finds its own target.** The last two rows are
-`useFitWithinClip` itself, which the earlier `ref=\{\(node` pattern could not see. The widened
-arrow pattern also surfaced six sites the first sweep missed entirely — `AvatarMenu` ×2 and
-`ShowReviewSurface` ×4 — every one of them spelled `(el)` rather than `(node)`.
-
-All eight non-hook callbacks were READ, not pattern-matched. Every one writes to a ref map or a ref
-array and sets no state: `pageRefs.current[i] = node`, `thumbRefs.current.set(item.id, node)`,
-`itemRefs.current[0] = el`, `itemRefs.current[1] = el`, and four
-`railItemRefs`/`sectionElsRef` `.set`/`.delete` pairs. **Shape 1 is present exactly once, and that
-instance is the one this arc removes.**
-
-**Documented limit of the shape-1 cover, so it is not re-derived.** It ranges over the two spellings
-that reach a function into a ref prop in this repo's own idiom. A ref callback assembled some other
-way — a callback built by a factory and spread through `{...props}`, or one behind a `Ref<T>` union
-whose function arm is never written literally — would not appear. That is the threat fence doing its
-job rather than a gap in it: the fence is ordinary authoring on the shipped admin surfaces, and
-obfuscated construction files here rather than to a round. Re-file trigger: a ref callback reaching
-a DOM node by any route other than a literal arrow on the prop or a `RefCallback`-typed value.
+**And here is exactly what that does NOT establish, because round 2 was right about it.** Scope
+privacy bounds calls to THIS resolver. It says nothing about a DIFFERENT module resolving some other
+value inside a measure function and re-resolving it in the same run. Deciding that repo-wide is
+dataflow analysis, and this repo has already ruled on whether that belongs in a structural cover:
+`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:30-33` says of its own two known
+evasions that "closing this statically means dataflow analysis, which is not what a meta-test should
+be", and ships the rules that catch every shape short of a deliberate one. The same ruling applies
+here. So the shape-2 claim is stated at the width the evidence carries: **`findClippingAncestor` has
+exactly two call sites and this arc removes the redundant one**, plus a bounded manual sweep of the
+sibling measure surfaces the popover registry names — `ShareHub` (clean, below) and `AnchoredPortal`
+(§4.2). A shape-2 instance in an unswept module using a different resolver is **not excluded by any
+command in this spec**, and is recorded in §7 as a documented limit with its re-file trigger rather
+than asserted away.
 
 `components/admin/showpage/ShareHub.tsx` was swept as a nominated peer: one layout effect
 (`components/admin/showpage/ShareHub.tsx:403`) calling `applyPlacement()` once
@@ -278,7 +316,7 @@ value, no double measure. Clean.
 
 ### §4.2 — `AnchoredPortal`: probed, real, and deferred with a named reason
 
-`components/admin/AnchoredPortal.tsx` carries neither declared shape — its `mounted` flag (`components/admin/AnchoredPortal.tsx:93`) is an SSR gate for `createPortal`, not a ref-attach trigger, and `measureAndApply` resolves nothing the effect bodies re-resolve. But the nomination was worth probing, and the probe found something:
+`components/admin/AnchoredPortal.tsx` carries neither declared shape, and shape 1's absence there is now established by the §4.1 probe rather than by reading: the file appears nowhere among the eighteen callable `ref=` expressions. Shape 2 is absent by inspection — its `mounted` flag (`components/admin/AnchoredPortal.tsx:93`) is an SSR gate for `createPortal`, not a ref-attach trigger, and `measureAndApply` resolves nothing the effect bodies re-resolve. But the nomination was worth probing, and the probe found something:
 
 ```
 PROBE closedReads=0 measureRunsOnOpenCommit=3
@@ -303,6 +341,16 @@ That is the same consequence as this arc's rows and a **different mechanism**. R
 - **New (h) walk control.** Counts `getComputedStyle` calls on **ancestors only** across one mount — the fitted node's own declared-cap read is excluded, so the number is the walk and nothing else. The assertion is stated in ancestor-call units and its expected value is **derived from the harness's own chain**: the walk visits every ancestor up to and including the first non-`visible` overflow, which in this fixture is `inner` then `outer`, so one walk is `ANCESTORS_TO_CLIP.length` calls. Never hardcoded, so deepening the fixture cannot silently satisfy it. Concrete failure modes caught, in the same units: restoring the effect body's second walk doubles it; regressing the attach mechanism to two measures doubles it again.
 - **New (h2) null-node arm.** Calls the returned ref callback with `null` directly and asserts it neither measures nor throws. Concrete failure mode: a teardown-only implementation that assumes a non-null node crashes on any consumer still passing `null`.
 - **New (h3) teardown nulls the node.** After unmount, a stale `apply()` must not measure. Concrete failure mode: fact 1 above — React never calls `ref(null)` any more, so an implementation that relies on it leaves `nodeRef.current` pointing at a detached node.
+- **New (h12) the `ResizeObserver` callback actually re-measures, on BOTH observed targets.** Round-2 finding 1, and it exposes a hole that predates this arc. Case (d) (`tests/components/admin/useFitWithinClip.test.tsx:204`) records which elements are observed and then **throws the constructor callback away** — its stub declares `observe`, `unobserve` and `disconnect` and never stores the function it was constructed with. Nothing in the repo ever invokes that callback. Proven by planting the mutant rather than by argument: with the hook's `new ResizeObserver(coalescer.schedule)` replaced by `new ResizeObserver(() => {})`, all four suites that touch this hook stay green.
+
+  ```
+  $ pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx \
+      tests/components/admin/showpage/attentionMenu.test.tsx \
+      tests/components/admin/PublishedToggle.test.tsx tests/components/ReSyncButton.test.tsx
+  Tests  86 passed (86)
+  ```
+
+  Three of the hook's four re-measure signals have behavioural cases — `window` resize by (f), `transitionend` by (e)/(e2)/(g4), a `reapplyKey` change by (c). The fourth, the one covering a resizing panel and a growing band, has none. **This arc must not inherit that hole**, because the observer wiring is exactly what moves from the layout effect into the ref callback: a mis-wire there would be invisible to every case above. (h12) captures the callback the hook hands the constructor, invokes it once for the clip ancestor and once for the positioned ancestor, and asserts the cap re-derives from the NEW geometry each time. Concrete failure mode: mutant M11, `new ResizeObserver(() => {})`, which today kills nothing.
 - **New (h8) `reapplyKey`-change counts, and (h9) unchanged-key counts.** Round-1 finding 1, and the sharpest of the round: §0.1's table is the acceptance condition and only its MOUNT row had a pin. Case (c) (`tests/components/admin/useFitWithinClip.test.tsx:193`) checks the cap after a key change and counts nothing, and no case re-rendered with an UNCHANGED key at all. (h8) asserts one apply and one walk across a key change; (h9) asserts zero of each across a re-render that changes nothing. Concrete failure mode, and it is not hypothetical: a ref callback whose identity churns every render — the exposure §7 documents — re-attaches and re-measures on every render while satisfying every other assertion in this suite, because every other assertion is about a single mount. Four cells of the acceptance table were unfalsifiable; these two cases close all four.
 
 A test that only proves `apply` was called is worthless here: the whole subject is **how many times**. Every new case asserts a count or an absence, and each names the mutant it kills.
@@ -329,7 +377,7 @@ Existing containment cases (`tests/e2e/popover-clip-fit.spec.ts:310`, `tests/e2e
 
 Carried verbatim into every review brief for this arc.
 
-**Consequence bound.** Every overlay this hook serves is capped correctly on mount and on every re-measure signal, or the miss is surfaced by the existing floor-clamp diagnostic (`useFitWithinClip.ts:118-131`). Correct or signaled, never silently wrong: there is no third outcome, and that is the acceptance posture rather than a wish. A conservative fit plus a surfaced warning is a DOCUMENTED LIMIT, not a finding. The arc is done when every event in the §0.1 table holds its stated count and no overlay in the probe domain is capped wrongly without the diagnostic firing — a finite, measured condition, not an absence of imaginable inputs.
+**Consequence bound.** Every overlay this hook serves is capped correctly on mount and on every re-measure signal — all four of them, the `ResizeObserver` arm included, which round 2 found had no behavioural case at all — or the miss is surfaced by the existing floor-clamp diagnostic (`useFitWithinClip.ts:118-131`). Correct or signaled, never silently wrong: there is no third outcome, and that is the acceptance posture rather than a wish. A conservative fit plus a surfaced warning is a DOCUMENTED LIMIT, not a finding. The arc is done when every event in the §0.1 table holds its stated count and no overlay in the probe domain is capped wrongly without the diagnostic firing — a finite, measured condition, not an absence of imaginable inputs.
 
 **Probe domain.** The five live call sites, across three components — `components/admin/ReSyncButton.tsx:111-113` (three of them), `components/admin/PublishedToggle.tsx:132`, `components/admin/showpage/AttentionMenu.tsx:72` — plus the fixtures in `tests/components/admin/useFitWithinClip.test.tsx` and `tests/e2e/popover-clip-fit.spec.ts`. A probe outside that set, or more than one ordinary edit from an input in it, files to documented limits.
 
@@ -341,6 +389,9 @@ Carried verbatim into every review brief for this arc.
 - **The ancestor chain is resolved once per attach for observation purposes.** If an overlay is reparented without a `reapplyKey` change or a resize, the observed clip ancestor is stale until the next signal. This is today's behaviour, unchanged — `apply()` still re-walks on every invocation, so the *measurement* is never stale, only the *subscription*. Reparenting a live overlay is outside the threat fence.
 - **The `PublishedToggle` anchor room is unmeasured**, recorded at `lib/layout/fitWithinClip.ts:38-43` with an open row. Untouched.
 - **`AnchoredPortal` measures three times per open**, §4.2, filed as `BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN`.
+- **Shape 2 is bounded to its named resolver.** §4.1's scope derivation excludes a second call site of `findClippingAncestor`, and the manual sweep covers the two sibling measure surfaces the popover registry names. A module that resolves some OTHER value inside a measure function and re-resolves it in the same run is not excluded by any command here; settling that repo-wide is dataflow analysis, which `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:30-33` already rules out for a structural cover. Re-file trigger: a second measure surface adopting the resolve-then-re-resolve pattern, which the popover registry would name as it is added.
+- **The measure now precedes the owner's layout effects.** Moving it from the owner's layout effect to the ref attach makes it EARLIER in the same commit. What it now precedes is empty today on both counts: no consumer declares a `useLayoutEffect` (`rg -n 'useLayoutEffect' components/admin/ReSyncButton.tsx components/admin/PublishedToggle.tsx components/admin/showpage/AttentionMenu.tsx` returns nothing), and all five refs sit on a plain `<div>` in the owner's own JSX with no intervening component boundary, read at each site. A future consumer adding a geometry-mutating layout effect in the same commit would have it run AFTER the measure rather than before. Re-file trigger: any `useLayoutEffect` appearing in a file that calls `useFitWithinClip`.
+- **The coalescer's `.cancel()` is a registered obligation, not just good hygiene.** `components/admin/useFitWithinClip.ts` is registered as a consumer of `createRafCoalescer` with `requiresCancelAdoption: true` (`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:120-125`), whose comment states the reason: so a future local `requestAnimationFrame` plus frame-id bookkeeping inside the hook fails there rather than quietly reintroducing the per-event forced reflow. The coalescer moves into the ref callback and its `.cancel()` moves with it.
 
 ## §8 — Invariants
 
