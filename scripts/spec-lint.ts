@@ -1,6 +1,9 @@
 // spec:lint CLI adapter (spec docs/superpowers/specs/2026-07-19-spec-lint.md §2/§7).
 // All I/O lives here; the core under lib/specLint/** is pure and injected.
 import { execFileSync, spawnSync } from "node:child_process";
+import { remark } from "remark";
+import remarkGfm from "remark-gfm";
+import { blocksFrom } from "./lib/acCoverageBlocks";
 import { lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -22,6 +25,8 @@ import {
   parseRepairSpans,
   type ClaimSweepDeclaration,
 } from "../lib/specLint/claimSweep";
+import { acCommandPlan } from "../lib/specLint/acCoverage";
+import { acKey, type AcParseResults } from "../lib/specLint/types";
 import { exitCodeForResult, runLint } from "../lib/specLint/run";
 import { CHECK_ORDER } from "../lib/specLint/types";
 // The adapter may import from tests/ — established by scripts/print-mutation-sites.ts,
@@ -149,6 +154,9 @@ interface CliOutput {
 
 // fs error codes that mean "this file is unreadable" (file-local, expected class);
 // anything else thrown by readFileBytes on a cited read is an infra fault → exit 2.
+/** One synchronous parser, the pattern at lib/reviewRounds/filing.ts:60. */
+const AC_PARSER = remark().use(remarkGfm);
+
 const UNREADABLE_FS_CODES = new Set(["EACCES", "EPERM", "ENOENT", "EISDIR", "ELOOP", "ENOTDIR"]);
 
 const contained = (real: string, root: string): boolean =>
@@ -656,6 +664,23 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
     // parse pass disqualified.
     const excluded = parseFailedLines(parsePlan, parseResults);
 
+    // ---- AC coverage: the view, then its OWN parse-check spawn loop ----
+    // remark answers every markdown-grammar question (spec §8.3); the pure core
+    // names no mdast type, so its relative-imports-only guard stays absolute.
+    const acBlocks = blocksFrom(AC_PARSER.parse(text));
+    // Keyed by (line, spanIndex), NOT by line: an AC row contributes one entry
+    // per span, and a line-keyed store keeps only the last, which silently
+    // accepts a broken FIRST command.
+    let acParse: AcParseResults | null = null;
+    if (docKind === "plan") {
+      const outcomes = new Map<string, { exit: number }>();
+      for (const { line, spanIndex, command } of acCommandPlan(acBlocks, docKind)) {
+        const r = deps.spawn(command, root, timeoutMs, "parse");
+        outcomes.set(acKey(line, spanIndex), { exit: r.status ?? 1 });
+      }
+      acParse = { outcomes };
+    }
+
     // Execution: sequential, doc order, repo-root cwd, stdout discarded and
     // the stderr tail trimmed here so the core never sees raw output.
     let execResults: ExecResults | null = null;
@@ -770,6 +795,7 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       // sound at this boundary once `prepareSuiteText` shipped.
       { surfaces: enrolledSurfaces, dispositions: NOT_A_PIN, prepareSuite: prepareSuiteText },
       sweepInput,
+      { blocks: acBlocks, parse: acParse },
     );
     return {
       stdout: json ? JSON.stringify(result) + "\n" : renderText(result),

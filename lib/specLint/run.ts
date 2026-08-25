@@ -1,3 +1,4 @@
+import { checkAcCoverage } from "./acCoverage";
 import { checkCitations } from "./citations";
 import { claimSweep } from "./claimSweep";
 import { checkCopy } from "./copyRules";
@@ -30,6 +31,8 @@ import { checkUniversals } from "./universals";
 import { checkSections } from "./sections";
 import type {
   Check,
+  AcBlocks,
+  AcParseResults,
   ClaimSweepInput,
   ExecResults,
   FileResolver,
@@ -111,6 +114,15 @@ export function runLint(
   // breaks seven positional call sites that are already on main.
   declaredLimitPins?: DeclaredLimitPinInputs | null,
   sweep?: ClaimSweepInput | null,
+  // APPENDED LAST, deliberately. This slot's history is in the comment above:
+  // two arms once appended to the same position on their own branches and the
+  // later one had to move. Measured before adding this: 22 `runLint` call
+  // expressions across 8 files, 17 of them passing more than two arguments.
+  //
+  // ONE parameter rather than two. The arm needs the injected view AND its own
+  // parse outcomes, and separate slots would double the collision surface
+  // against any sibling arc doing the same thing this week.
+  acCoverage?: { blocks: AcBlocks; parse: AcParseResults | null } | null,
 ): LintResult {
   const model = parseDoc(doc.text);
   // Span-exact exclusion (arms spec §5): a `red-target=` capture IS a citation,
@@ -194,6 +206,12 @@ export function runLint(
         )
       : [];
 
+  // The AC coverage arm reads the ADAPTER's parsed view. A null one is the
+  // no-view invocation and the arm contributes nothing, the same static/injected
+  // split every other injected arm uses.
+  const acCoverageFindings =
+    acCoverage == null ? [] : checkAcCoverage(acCoverage.blocks, doc.kind, acCoverage.parse);
+
   let findings: Finding[] = [
     ...model.documentFindings,
     ...citations.findings,
@@ -210,6 +228,7 @@ export function runLint(
     ...fixtureFindings,
     ...sweepFindings,
     ...declaredLimitPinFindings,
+    ...acCoverageFindings,
   ];
 
   // ---- ignore-waiver application (spec §3) ----
