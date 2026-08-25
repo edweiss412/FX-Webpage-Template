@@ -299,9 +299,11 @@ describe("the repo-wide scan against the declared inventory (AC-1b, AC-5)", () =
       .split("\n")
       .filter((f) => f !== ""),
   );
-  const found = scanFiles(files, (f) => readFileSync(f, "utf8"))
+  const read = (f: string): string => readFileSync(f, "utf8");
+  const found = scanFiles(files, read)
     .map((x) => `${x.file}:${x.line}`)
     .sort();
+  const seen = callSiteCount(files, read);
 
   // The stop-early walker — one that classifies a call and never descends into its receiver —
   // is caught by the CHAINED FIXTURE cases above, not here. A live-corpus list of the twelve
@@ -310,6 +312,13 @@ describe("the repo-wide scan against the declared inventory (AC-1b, AC-5)", () =
   // all. A guard that evaporates exactly when the thing it guards starts mattering is worse than
   // no guard, because it still reads like one.
   it("reports exactly the declared offenders", () => {
+    // CO-LOCATED, and that placement is the point. `EXPECTED_OFFENDERS` is empty, so this
+    // assertion is `toEqual([])` — satisfied just as well by a walker that parsed nothing at
+    // all. The premise stating the walk actually looked has to run in THIS test body; an
+    // identical premise in the neighbouring AC-6 test guards that test, not this one, and the
+    // premise contract reds precisely on that distinction.
+    premise("the walk found `.replace` call sites to classify", seen, 100);
+    premise("the population is non-trivial", files.length, 500);
     expect(found).toEqual([...EXPECTED_OFFENDERS].sort());
   });
 });
