@@ -15,13 +15,19 @@ for sha in 9b1bd6715 50ca72a56 2f1071b28; do
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { GUARD_SURFACES } from "./tests/mutation/source/registry";
-import { weightOf } from "./tests/mutation/source/shardPartition";
+import * as sp from "./tests/mutation/source/shardPartition";
+// bootsOf at any sha from this arc onward; weightOf at older ones, where it WAS the
+// boot count. Never weightOf on a newer tree: there it returns a priced weight, and
+// recording that as `boots` fails the dump's own self-composition check by a factor
+// of the rate.
+const bootsFn = sp.bootsOf ?? sp.weightOf;
 const sha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const surfaces = {};
 for (const s of GUARD_SURFACES) {
-  const boots = weightOf(s), suites = s.suitePaths.length;
+  const boots = bootsFn(s), suites = s.suitePaths.length;
   surfaces[s.id] = { boots, mutants: boots - s.accepted.length * (suites - 1) - suites,
-                     accepted: s.accepted.length, suites };
+                     accepted: s.accepted.length, suites,
+                     ...(s.millisPerBoot === undefined ? {} : { millisPerBoot: s.millisPerBoot }) };
 }
 writeFileSync(process.argv[2], JSON.stringify({ sha, surfaces }, null, 1));
 EOF

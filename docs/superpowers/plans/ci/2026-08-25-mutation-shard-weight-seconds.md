@@ -49,7 +49,7 @@ Tasks on code that does not exist yet are ordinary test-first.
 it.** The harness resolves its target and its suite from two hardcoded constants
 (`scripts/mutation-weight-plant.mjs:27-28`), so a plant aimed anywhere outside
 `lib/mutationWeight` reports ANCHOR-FAIL rather than exercising anything. The
-binding-leg task and the drift task both plant outside it. Generalising the harness is therefore the first task rather than
+pricing task and the drift task both plant outside it. Generalising the harness is therefore the first task rather than
 an aside, and it is sequenced before any task that plants through it.
 
 ## Pre-draft code-verification pass
@@ -141,18 +141,26 @@ registry 45, ledger-kinds 45, registry-not-declared [], declared-not-registry []
 **Current state of every planned `red=` command:**
 
 ```
-  PASSES today: scripts/mutation-weight-plant.mjs          (no out-of-tree plant declared yet)
-  PASSES today: tests/mutation/_metaGuardSurfaceRegistry.test.ts
-  PASSES today: tests/mutation/source/shardPartition.test.ts
-  ABSENT: tests/mutation/source/shardBalance.test.ts
-  ABSENT: tests/ci/rateDrift.test.ts
-  ABSENT: scripts/check-rate-drift.ts
-  FAILS today: the Task 6 score run (below its floor, dated observation in the marker)
+  task 1  PASSES today: node scripts/mutation-weight-plant.mjs   (no out-of-tree entry declared yet)
+  task 2  PASSES today: tests/mutation/_metaGuardSurfaceRegistry.test.ts
+  task 3  PASSES today: tests/mutation/source/shardPartition.test.ts
+  task 4  PASSES today: the report reconciles, because weightOf and bootsOf still agree
+  task 5  ABSENT:       tests/ci/rateDrift.test.ts
+  task 6  FAILS today:  the score run, below its floor (dated observation in the marker)
 ```
 
-Every `red=` except Task 6's names the production line whose absence or defect makes its
-new case fail, verified by READING that line. Task 6's is `red-state=live` because the
-tree fails it today.
+The count is derived rather than asserted, because asserting it is the class this document
+has already got wrong twice:
+
+```
+$ grep -o '<!-- task: [^>]*red-state=[a-z]*' <this file> | grep -o 'red-state=[a-z]*' | sort | uniq -c
+      5 red-state=authored
+      1 red-state=live
+```
+
+Every `authored` marker names the production line whose absence or defect makes its new
+case fail, verified by READING that line rather than by confirming it resolves. The single
+`live` marker is Task 6, whose command the tree fails today.
 
 ## The acceptance criteria these tasks discharge
 
@@ -162,9 +170,9 @@ wording; this is the index.
 
 | id | what it requires | discharged by |
 | --- | --- | --- |
-| **AC-1** | Verdict neutrality over three populations that are not one population: untouched surfaces keep every verdict, `sourceShardPartition` keeps no unaccepted survivor and its floor, and the two newly enrolled modules meet their floor with no prior verdict to compare. Both sides of the comparison come from the same trigger. | Closeout, and the reason it is not a task is argued there |
+| **AC-1** | Verdict neutrality over three populations that are not one population: untouched surfaces keep every verdict, `sourceShardPartition` keeps no unaccepted survivor and its floor, and the two newly enrolled modules meet their floor with no prior verdict to compare. Both sides of the comparison come from the same trigger. | Task 4 makes the evidence PRODUCIBLE; closeout produces it, and the reason that half is not a task is argued there |
 | **AC-2** | The partition stays total and disjoint over whatever registry size is live at merge. | Task 3 |
-| **AC-3** | On every held-out pair, the binding leg under the seconds-calibrated weight is at or below the shipped model's on the same target and the same scored population. | Task 4 |
+| **AC-3** | On every held-out pair, the binding leg under the seconds-calibrated weight is at or below the shipped model's on the same target and the same scored population. | Task 3 |
 | **AC-4** | A surface cannot enrol without a rate: absent fails to compile, and out-of-range fails a named test. | Task 2 |
 | **AC-5** | The drift report names every measured surface, marks which are actionable, keeps declared-but-unmeasured and measured-but-undeclared distinct, and changes no exit status. | Task 5 |
 | **AC-6** | Every weight handed to `lptAssign` is an integer, so its documented platform-independence stays true. | Task 3 |
@@ -174,147 +182,162 @@ wording; this is the index.
 
 ## Task 1 — the plant harness reaches outside `lib/mutationWeight`
 
-<!-- task: red=`node scripts/mutation-weight-plant.mjs` red-state=authored red-target=`scripts/mutation-weight-plant.mjs:27` why=`SRC and SUITE are hardcoded to lib/mutationWeight and instrument.test.ts, so a plant naming a file outside that directory is never applied and the harness reports ANCHOR-FAIL` ac=AC-3,AC-5 -->
+<!-- task: red=`node scripts/mutation-weight-plant.mjs` red-state=authored red-target=`scripts/mutation-weight-plant.mjs:27` why=`SRC and SUITE are hardcoded to lib/mutationWeight and instrument.test.ts, so an entry naming a file outside that directory is never copied and readFileSync throws before any anchor is looked for` ac=AC-3,AC-5 -->
 
 **Files:** `scripts/mutation-weight-plant.mjs`.
 
-The binding-leg task and the drift task both declare plants on files the harness cannot
-currently reach: the held-out fixtures under `tests/mutation/source/`, and the new drift
-script. Until this lands,
-those two tasks' plants report ANCHOR-FAIL, which the harness correctly refuses to score
-as a pass. That refusal is the point: the harness already declines to call an unapplied
-plant a success, so the gap is loud rather than silent, and this task is what closes it.
+Three later tasks declare plants on files this harness cannot reach. Until it can, those
+plants report nothing, which the harness correctly refuses to score as a pass.
 
-Each defect entry gains an optional target-root and suite. Existing entries keep their
-current shape and default to today's two constants, so the 37 already declared neither
-move nor get rewritten. The harness copies each distinct target root it sees into the
-scratch tree and runs the suite the entry names.
+Each defect entry gains an optional target root and suite; existing entries keep their
+shape and default to today's two constants, so the declared 37 neither move nor get
+rewritten. The harness copies each distinct root it sees and runs the suite the entry
+names.
 
-**RED:** add a single entry naming `tests/mutation/source/shardPartition.ts` before
-touching the resolution logic, then `node scripts/mutation-weight-plant.mjs`. Expect
-`ANCHOR-FAIL` for that entry and a non-zero exit — the file is never copied, so its
-anchor cannot be found.
+**An unresolvable target must report ANCHOR-FAIL rather than throw, and that is part of
+this task rather than a nicety.** The per-entry body is `try`/`finally` with no `catch`
+(`scripts/mutation-weight-plant.mjs:267` and `scripts/mutation-weight-plant.mjs:311`), so
+today a target outside the copied root dies on an ENOENT from `readFileSync` before any
+anchor is examined. Once the harness copies several roots there are strictly more ways
+for a target to be unresolvable. A harness whose whole contract is that an unapplied
+plant is never scored as a pass should say so in its own vocabulary instead of dying
+with a stack trace.
 
-**GREEN:** the same command, with the entry reported CAUGHT and every pre-existing entry
-still CAUGHT.
+**Plant for this task** (the harness proving itself):
+
+| defect | file | anchor | becomes | suite |
+| --- | --- | --- | --- | --- |
+| `weightOf` drops the rate | `tests/mutation/source/shardPartition.ts` | `return bootsOf(surface) * surface.millisPerBoot;` | `return bootsOf(surface);` | `tests/mutation/source/shardPartition.test.ts` |
+
+Declared here, exercised by Task 3. It is the one entry that must go from unreachable to
+CAUGHT, so it is the harness's own acceptance test.
+
+**RED:** add that entry, then `node scripts/mutation-weight-plant.mjs`. Expect a non-zero
+exit from an uncaught `ENOENT` naming a path under the scratch `mutationWeight/`
+directory that was never copied. Not `ANCHOR-FAIL` — reaching that line requires the file
+to exist.
+
+**GREEN:** the same command. The new entry reports `CAUGHT`, every pre-existing entry
+still reports `CAUGHT`, and a deliberately misspelled target reports `ANCHOR-FAIL` with a
+zero exit for the suite and a non-zero exit overall.
 
 **Commit:** `test(mutation): let the weight plant harness target files outside lib/mutationWeight`
 
 ## Task 2 — `millisPerBoot` becomes a required field, guarded over the whole registry
 
-<!-- task: red=`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:56` why=`validateSurface accepts a surface with no millisPerBoot, so the new range arms have nothing to reject` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:56` why=`validateSurface accepts a surface with no millisPerBoot, so neither the range arms nor the accept-arm at 200000 have anything to exercise` ac=AC-4 -->
 
 **Files:** `tests/mutation/source/registry.ts` (type, 45 rows, `validateSurface`),
-`tests/mutation/_metaGuardSurfaceRegistry.test.ts` (range arms),
-`scripts/mutation-shard-weight-report.ts` (the bootstrap flag below).
+`tests/mutation/_metaGuardSurfaceRegistry.test.ts` (arms),
+`tests/mutation/_metaSourceShardIntegrity.test.ts` (the constant pin below),
+`scripts/mutation-shard-weight-report.ts` (`--seed-rate`).
 
-Add the field to `GuardSurface`, seed every live row, extend `validateSurface`.
+**Step 1 is a measurement, and it is the first of exactly TWO heavy turns this arc
+spends.** The two rows this arc enrolled have never been scored, so no records exist to
+derive their rates from, and `--emit-registry` refuses a partial table rather than
+inventing them. An earlier draft said these rates come from the final score run — four
+tasks later — which is circular: the registry cannot require a field that the run
+validating it has not yet produced. So:
 
-Absent is a compile error, not a test. The runtime arms are rows in the existing
-`reject(patch)` harness: `0`, negative, `NaN`, non-integer, and above
-`SHARD_BUDGET_SECONDS * 1000`. The guard iterates `GUARD_SURFACES`, so a surface
-enrolled later is covered without an edit.
+```
+VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm tsx \
+  scripts/mutation-score-surfaces.ts mutationWeightRecords mutationWeightWeights
+```
 
-**The upper bound is the shard budget and NOT `MUTANT_TIMEOUT_MS`.** An earlier draft of
-this task said the timeout, and spec round 3 refuted it using this design's own evidence:
-the rate is per MODELLED boot, one modelled boot stands for up to 4.60 observed children,
-so two honest 100-second children give 200,000 ms per modelled boot while neither child
-approaches a 180,000 ms timeout. The tighter bound would reject an ordinary enrolment
-after an ordinary suite slowdown. Restated here because the plan reintroduced it once
-already.
+records `millisPerBoot` for each, with the run that produced it named beside the value.
+**Two turns is the honest count and the plan states it rather than claiming one.** The
+bootstrap measures a tree that cannot yet be final (the rate is not applied until Task 3),
+and the closing run measures the tree that ships. Neither substitutes for the other.
 
-**The bootstrap is one command, which it was not.** `--emit-registry` refuses to emit a
-partial table, and the two rows this arc enrolled have no records to emit from, so the
-seeding step as previously written could not run: the flag would refuse, and the
-insertion guard would equally refuse a table missing two rows. Deadlock by construction.
-The report gains `--seed-rate <id>=<millis>` (repeatable), applied BEFORE the
-completeness check rather than after, so the guard still holds over the merged table and
-a bootstrap rate has to be stated explicitly rather than defaulted. The two values come
-from Task 6's score run, which prints `millisPerBoot` per surface; this task consumes
-them as literals with the run that produced them named beside each.
+**Step 2, the seeding, uses named commands and no mythical script.** A previous draft
+credited an "insertion script" with exact-once and population-parity checks; no such
+script existed, none was in `Files`, and no command ran it. What actually closes the
+bootstrap is one flag: `--seed-rate <id>=<millis>`, repeatable, merged into the seed map
+BEFORE the completeness check at `scripts/mutation-shard-weight-report.ts:456`, so the
+existing refusal still ranges over the merged table and a bootstrap rate must be stated
+explicitly rather than defaulted. Population parity is then not a separate script's
+promise but the refusal itself: a rate matching no row and a row matching no rate both
+fail there.
 
-Seeding is mechanical and asserted: the insertion script keys on each row's `id`,
-requires every seeded surface to match exactly once, and refuses to run if the registry
-holds a row it cannot place or the seed holds a rate matching no row. A partial
-application here is the enrolment cliff by another route.
+**Step 3, the arms.** Absent is a compile error, not a test. The runtime arms are rows in
+the existing `reject(patch)` harness, and the list is FIVE REJECTS PLUS ONE ACCEPT:
 
-**RED:** `pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` with the five
-range arms added and `validateSurface` untouched. Expect all five to fail — the field is
-unvalidated, so nothing rejects.
+| arm | value | expected |
+| --- | --- | --- |
+| zero | `0` | reject |
+| negative | `-1` | reject |
+| not a number | `NaN` | reject |
+| non-integer | `1.5` | reject |
+| above the budget | `3_600_001` | reject |
+| **above the mutant timeout, below the budget** | **`200_000`** | **ACCEPT** |
 
-**GREEN:** the same command, all arms passing, after `validateSurface` learns the field.
+**That last row is the whole point of the table and it was missing.** Every one of the
+five rejects is ALSO rejected by a validator wrongly capped at `MUTANT_TIMEOUT_MS`
+(180,000), and every live rate sits far below that cap, so the previous five-arm table
+was green under the exact defect the plan claims to fence. The accept-arm is the spec's
+own refutation example made executable: two honest 100-second children charged to one
+modelled boot give 200,000 ms per modelled boot, which is legitimate and which the
+forbidden bound rejects.
+
+**The bound is a named constant pinned to the workflow, because the two can drift.**
+`SHARD_BUDGET_SECONDS` is a workflow environment value (`3600`), not something registry
+validation can read, so `validateSurface` compares against a `MAX_MILLIS_PER_BOOT`
+constant and `_metaSourceShardIntegrity` asserts it equals that env value times 1000.
+Without the pin, raising the CI budget silently leaves the validator on the old ceiling.
+
+**Requiredness cannot rot silently either.** Changing the field from required to optional
+leaves every current row and every runtime arm green, since all 45 rows would still carry
+a rate. The guard is therefore compile-time: a `@ts-expect-error` on a surface literal
+that omits `millisPerBoot`, which stops compiling the moment the field becomes optional.
+
+**RED:** the marker's command with all six arms and the `@ts-expect-error` case added and
+`validateSurface` untouched. Expect the five rejects to fail (nothing rejects), and the
+`@ts-expect-error` to fail as an unused directive.
+
+**GREEN:** the same command, all six arms and the type case passing, plus
+`pnpm vitest run tests/mutation/_metaSourceShardIntegrity.test.ts` green over the
+constant pin.
 
 **Commit:** `feat(mutation): require a per-surface millisPerBoot and range-guard it`
 
-## Task 3 — `bootsOf` extraction and the new `weightOf`
+## Task 3 — price the weight, and bound the binding leg
 
-<!-- task: red=`pnpm vitest run tests/mutation/source/shardPartition.test.ts` red-state=authored red-target=`tests/mutation/source/shardPartition.ts:53` why=`weightOf returns bootsOf(surface) with no rate applied, so the delta case sees 4 rather than 4 x millisPerBoot` ac=AC-6,AC-2 -->
-
-**Files:** `tests/mutation/source/shardPartition.ts`,
-`tests/mutation/source/shardPartition.test.ts`.
-
-`bootsOf` is already exported with today's expression VERBATIM and `weightOf` already
-wraps it; this task makes `weightOf` the product.
-
-**Verbatim is a requirement, not an accident.** `sourceShardPartition`'s registry row
-uses `"surface.accepted.length * (suites - 1) + suites"` as its control anchor, and
-`validateSurface` rejects a row whose anchor does not occur exactly once. Reformatting
-that line breaks enrolment, and the failure reads as an unrelated registry error.
-
-The existing delta case becomes `4 * millisPerBoot`, still derived from the fixture
-rather than hardcoded.
-
-**Its discriminating power depends on a fixture value, so the fixture CONSTRUCTS that
-value rather than hoping for it.** Under a `*`-to-`+` mutant the delta is `4` instead of
-`4 * rate`, so the two are distinguishable only when the fake surface's rate is not 1.
-`tests/_shared/premise.ts` is explicit that where the environment can be constructed you
-construct it rather than writing a premise that reds, so the fixture sets a distinctive
-rate outright and `premiseHolds` stands behind it as the executable statement of why that
-value matters. Left to a default, one edit to the fixture would destroy the discriminator
-while the test kept passing — the same self-consistent-mutant trap the
-`sourceShardPartition` row already documents about `SOURCE_SHARD_COUNT`.
-
-New assertion: every weight handed to `lptAssign` is an integer.
-
-**The consumer that reads a weight as a boot count is pinned here, because it was
-already wrong.** `modelledFrom` in the report called `weightOf` and treated the result as
-raw boots, under a comment observing the two agree "until the rate multiplies it" — which
-is exactly this task. It was repaired at `75e63a2a2` to call `bootsOf`; this task adds
-the assertion that keeps it repaired, by running the report's own reconciliation over a
-registry whose rate is not 1 and requiring the recovered mutant count to match. Without
-it the repair is a comment.
-
-Also here, since the suite is where it belongs: a source-scan assertion that the module
-header no longer claims "NO committed weight table" and no longer names `runAllSuites`,
-which does not exist. **That assertion is about ABSENCE, and the commit that removes the
-claim also quotes it in its own message, so the scan matches on the module's header
-region only and the four plants declared for it are: the phrase restored verbatim, the
-phrase restored with different capitalisation, `runAllSuites` restored in a comment, and
-`runAllSuites` restored in code. Use-versus-mention is the failure mode here and it is
-tested, not assumed.**
-
-**RED:** `pnpm vitest run tests/mutation/source/shardPartition.test.ts` after the delta
-case is rewritten to expect `4 * millisPerBoot` and before `weightOf` applies the rate.
-Expect the delta case to fail: it sees the bare boot count where the fixture's
-product is required.
-
-**GREEN:** the same command once `weightOf` returns the product.
-
-**Commit:** `feat(mutation): price the shard weight in milliseconds per boot`
-
-## Task 4 — the binding-leg bound, held out
-
-<!-- task: red=`pnpm vitest run tests/mutation/source/shardBalance.test.ts` red-state=authored red-target=`tests/mutation/source/shardPartition.ts:53` why=`the unapplied rate makes the seconds-calibrated partition identical to the shipped one, so both binding legs are equal and the strict margin the fixtures record is absent` ac=AC-3 -->
+<!-- task: red=`pnpm vitest run tests/mutation/source/shardPartition.test.ts` red-state=authored red-target=`tests/mutation/source/shardPartition.ts:53` why=`weightOf returns bootsOf(surface) with no rate applied, so the delta case sees the bare boot count and the held-out pairs produce identical partitions with equal binding legs` ac=AC-6,AC-2,AC-3 -->
 
 **Files:**
 
 ```
-tests/mutation/source/shardBalance.test.ts         (new)
-tests/mutation/source/fixtures/heldout-*.json      (new, three pairs)
+tests/mutation/source/shardPartition.ts
+tests/mutation/source/shardPartition.test.ts
+tests/mutation/source/shardBalance.test.ts        (new)
+tests/mutation/source/fixtures/heldout-*.json     (new, three pairs)
 ```
 
-Committed dated fixtures: rates seeded from one run, per-surface seconds from a LATER
-one. All three pairs, named by the runs they came from:
+**The rate change and the binding-leg bound are ONE task because they are one red-green
+cycle.** An earlier draft split them and the split was incoherent: the bound's test
+asserts a margin that only exists once the rate is applied, so with the rate committed in
+an earlier task the bound's declared RED — "before the rate lands" — described a state
+that no longer existed at its own starting point. Either the test is written before the
+implementation, which is this task, or its red is fictional.
+
+`bootsOf` is already exported with today's expression VERBATIM and `weightOf` already
+wraps it; this task makes `weightOf` the product.
+
+**Verbatim is a requirement, not an accident.** `sourceShardPartition`'s registry row uses
+`"surface.accepted.length * (suites - 1) + suites"` as its control anchor, and
+`validateSurface` rejects a row whose anchor does not occur exactly once. Reformatting
+that line breaks enrolment, and the failure reads as an unrelated registry error.
+
+The existing delta case becomes `4 * millisPerBoot`, still derived from the fixture rather
+than hardcoded. **Its discriminating power depends on a fixture value, so the fixture
+CONSTRUCTS that value rather than hoping for it.** Under a `*`-to-`+` mutant the delta is
+`4` instead of `4 * rate`, so the two are distinguishable only when the fake surface's
+rate is not 1. `tests/_shared/premise.ts` is explicit that where the environment can be
+constructed you construct it rather than writing a premise that reds, so the fixture sets
+a distinctive rate outright and `premiseHolds` stands behind it as the executable
+statement of why that value matters.
+
+The held-out fixtures: rates seeded from one run, per-surface seconds from a LATER one.
 
 | pair | seed run | scored run | surfaces | seconds-calibrated binding | shipped binding | margin |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -322,39 +345,121 @@ one. All three pairs, named by the runs they came from:
 | 2 | `32625602788` | `32703467609` | 42 | 5783s | 6974s | 1191s |
 | 3 | `32559529251` | `32625602788` | 41 | 5409s | 6569s | 1160s |
 
-**The assertion is STRICTLY less, not at-or-below, and that difference is the whole red.**
-AC-3 states the criterion as a bound, and a bound is the right shape for a criterion —
-but before `weightOf` applies the rate the two partitions are IDENTICAL, so both binding
-legs are equal, and equality satisfies at-or-below. A test asserting only the criterion
-passes on the unimplemented tree and proves nothing. That is the shape the red-contract
-rejects by name: a guard test that passes the moment it is authored. The fixtures record a
-strictly positive margin on every one of the three pairs, so the test asserts the
-measured fact. It implies the criterion and it can fail.
-
-Direction, stated so a sign error cannot pass: the SECONDS-calibrated binding leg is the
-SMALLER number on all three pairs.
+**The assertion is STRICTLY less, not at-or-below.** AC-3 states the criterion as a bound,
+and a bound is the right shape for a criterion, but before the rate is applied the two
+partitions are IDENTICAL and equality satisfies at-or-below. A test asserting only the
+criterion passes on the unimplemented tree. That is the shape the red-contract rejects by
+name: a guard test that passes the moment it is authored. The fixtures record a strictly
+positive margin on all three pairs, so the test asserts the measured fact, which implies
+the criterion and can fail. Direction, stated so a sign error cannot pass: the
+SECONDS-calibrated binding leg is the SMALLER number on all three.
 
 Two constructions are forbidden and the test pins both: seeding and scoring on one run,
-and pricing a seed-unknown surface from the scored run's own rate. The second is the
-defect spec review caught, and the fixtures include a pair with an arrival — pair 1
-excludes `controlOutlineResidue`, pair 3 excludes `connectionCensus` — so the exclusion
-path is exercised rather than assumed.
+and pricing a seed-unknown surface from the scored run's own rate. The first pair
+excludes `controlOutlineResidue`, the third excludes `connectionCensus`, so the exclusion
+path is exercised rather than assumed. The expectation comes from the SECONDS FIXTURE, never from
+`weightOf` — an expectation derived from the thing under test cannot notice a rate mutant.
 
-The expectation comes from the SECONDS FIXTURE, never from `weightOf` — an expectation
-derived from the thing under test cannot notice a rate mutant.
+New assertion: every weight handed to `lptAssign` is an integer.
 
-**Plant, executable through Task 1:** perturb pair 2's seeded rate for its heaviest
-surface by the observed 8.33x. Pair 2 has the narrowest shipped spread (1.541x) and the
-largest margin, so if any pair can absorb a perturbation without inverting it is that
-one; inverting there is the strongest of the three. Expect the strict assertion to fail.
+**The consumer that reads a weight as a boot count is pinned here, because it was already
+wrong.** `modelledFrom` in the report called `weightOf` and treated the result as raw
+boots, under a comment noting the two agree "until the rate multiplies it" — which is this
+task. Repaired at `75e63a2a2` to call `bootsOf`; the assertion that keeps it repaired runs
+the report's own reconciliation over a registry whose rate is not one, then requires
+the recovered mutant count to match. Without it the repair is a comment.
 
-**RED:** the marker's command, with the suite and all three fixtures committed,
-before Task 3's rate lands. Expect three failures, each
-reporting equal binding legs where a strict margin was required.
+Also here: a source-scan assertion that the module header no longer carries its stale
+claim about an absent weight table, and no longer names `runAllSuites`, which does not
+exist. **The scan's
+boundary is the file's leading block comment, delimited by its opening and closing tokens
+and nothing else** — the commit that removes the claim also quotes it in its own message,
+so use-versus-mention is the failure mode, and the scan must not match the phrase where a
+later line legitimately discusses it.
 
-**GREEN:** the same command after Task 3, all three passing with the tabulated margins.
+**Plants** — every assertion above has one:
 
-**Commit:** `test(mutation): hold out three nightly pairs and bound the binding leg`
+| defect | file | anchor | becomes | suite |
+| --- | --- | --- | --- | --- |
+| rate dropped | `tests/mutation/source/shardPartition.ts` | `bootsOf(surface) * surface.millisPerBoot` | `bootsOf(surface)` | `shardPartition.test.ts` |
+| rate added, not multiplied | `tests/mutation/source/shardPartition.ts` | `bootsOf(surface) * surface.millisPerBoot` | `bootsOf(surface) + surface.millisPerBoot` | `shardPartition.test.ts` |
+| weight left fractional | `tests/mutation/source/shardPartition.ts` | `Math.round(` | `(` | `shardPartition.test.ts` |
+| consumer reads a priced weight as boots | `scripts/mutation-shard-weight-report.ts` | `const boots = bootsOf(s);` | `const boots = weightOf(s);` | `shardPartition.test.ts` |
+| header claim restored verbatim | `tests/mutation/source/shardPartition.ts` | ` * The partition is derived` | ` * NO committed weight table. The partition is derived` | `shardPartition.test.ts` |
+| header claim restored, different case | same | same | ` * No Committed Weight Table. The partition is derived` | `shardPartition.test.ts` |
+| `runAllSuites` restored in the header | same | same | ` * Each leg calls runAllSuites. The partition is derived` | `shardPartition.test.ts` |
+| `runAllSuites` restored in CODE, outside the header | `tests/mutation/source/shardPartition.ts` | `export function weightOf` | `export const runAllSuites = null;\nexport function weightOf` | `shardPartition.test.ts` |
+| same-run seeding | tests/mutation/source/fixtures/heldout-2.json | the seed run id | the scored run id | shardBalance.test.ts |
+| arrival priced from the scored run | tests/mutation/source/fixtures/heldout-1.json | `controlOutlineResidue` absent from the seed | the same surface present with the scored run's own rate | shardBalance.test.ts |
+| margin inverted | tests/mutation/source/fixtures/heldout-2.json | pair 2's heaviest seeded rate | that rate times 8.33 | shardBalance.test.ts |
+
+The last three are why Task 1 comes first. Pair 2 is chosen for the inversion because it
+has the narrowest shipped spread (1.541x) and the largest margin, so it is the pair most
+able to absorb a perturbation without inverting; inverting there is the strongest of the
+three. **The eighth row exists because a header-only scan does not, on its own, catch
+`runAllSuites` restored in code** — that plant is what proves the assertion covers the
+name rather than merely the comment.
+
+**RED:** the marker's command plus `pnpm vitest run tests/mutation/source/shardBalance.test.ts`,
+with both suites and all three fixtures committed and `weightOf` still returning
+`bootsOf(surface)`. Expect the delta case to see the bare boot count where the fixture's
+product is required, and all three pairs to report equal binding legs where a strict
+margin was required.
+
+**GREEN:** the same two commands, everything passing with the tabulated margins, and
+`node scripts/mutation-weight-plant.mjs` reporting CAUGHT for all eleven entries above.
+
+**Commit:** `feat(mutation): price the shard weight in milliseconds per boot`
+
+## Task 4 — the instrument reconciles a priced partition
+
+<!-- task: red=`pnpm tsx scripts/mutation-shard-weight-report.ts --run docs/fixtures/mutationWeight/branch-run` red-state=authored red-target=`lib/mutationWeight/weights.ts:270` why=`reconcile recomputes the partition with w: v.boots, so against a run whose legs came from the priced weight it reports most surfaces as moved and the report exits before any verdict comparison` ac=AC-1 -->
+
+**Files:** `lib/mutationWeight/weights.ts`, `scripts/mutation-shard-weight-report.ts`,
+`tests/mutationWeight/instrument.test.ts`,
+`scripts/mutation-weight-plant.mjs`.
+
+**Without this task the AC-1 evidence cannot be produced at all, which is why it is a
+task and not a closeout note.** `reconcile` rebuilds the shipped assignment by
+recomputing the partition itself, weighting each surface by `v.boots`
+(`lib/mutationWeight/weights.ts:270`). Once production partitions by
+`bootsOf * millisPerBoot`, a branch run's observed legs no longer match that
+recomputation: this arc's own measurement expects 29 of 43 surfaces to change leg, so
+`moved` is large, `rec.ok` is false, and the report prints RECONCILIATION FAILED and
+returns before reaching `verdictDelta`. The closeout procedure would have nothing to read.
+
+`ModelledSurface` gains an optional `millisPerBoot`, and `reconcile` weights by
+`boots * (millisPerBoot ?? 1)`.
+
+**The rate is OPTIONAL and the fallback is 1, deliberately.** A dump taken at a sha before
+this arc has no rate because the field did not exist, and at that sha the partition really
+was by boots alone. Reproducing an old tree's partition with a rate of 1 is therefore not
+a default standing in for a missing value — it is the correct model of that tree. The
+held-out fixtures are exactly such dumps, so this is the ordinary case rather than a
+degraded one. `modelledFrom` records the rate from the checked-out registry, and the
+spec's dump command records it whenever the field exists.
+
+**Plants:**
+
+| defect | file | anchor | becomes | suite |
+| --- | --- | --- | --- | --- |
+| rate ignored in the recomputation | `lib/mutationWeight/weights.ts` | `w: v.boots * (v.millisPerBoot ?? 1)` | `w: v.boots` | `instrument.test.ts` |
+| missing rate defaults to zero | `lib/mutationWeight/weights.ts` | `(v.millisPerBoot ?? 1)` | `(v.millisPerBoot ?? 0)` | `instrument.test.ts` |
+| rate applied to the wrong factor | `lib/mutationWeight/weights.ts` | `v.boots * (v.millisPerBoot ?? 1)` | `v.mutants * (v.millisPerBoot ?? 1)` | `instrument.test.ts` |
+
+The second is the one that matters most: a zero fallback silently collapses every
+old-dump surface to weight 0, which reads as a perfectly balanced partition rather than
+as an error.
+
+**RED:** the marker's command against a committed fixture whose legs came from a priced
+partition and whose dump carries rates. Expect `RECONCILIATION FAILED` naming the moved
+surfaces and a non-zero exit.
+
+**GREEN:** the same command reconciling clean and reaching the comparison, plus
+`pnpm vitest run tests/mutationWeight/instrument.test.ts` and
+`node scripts/mutation-weight-plant.mjs` green.
+
+**Commit:** `fix(mutation): reconcile a partition priced in milliseconds per boot`
 
 ## Task 5 — the drift report
 
@@ -367,45 +472,68 @@ scripts/check-rate-drift.ts                        (new)
 tests/ci/rateDrift.test.ts                         (new)
 .github/workflows/mutation-harness.yml             (job steps AND the PR path filter)
 tests/mutation/_metaSourceShardIntegrity.test.ts   (pins)
+scripts/mutation-weight-plant.mjs                  (plants)
 ```
 
-A NEW drift-check script beside the budget checker, added by this task and named for what
-it does, not an extension of the budget checker: that file's header states it decides
-nothing and takes environment rather than argv as the class repair for three rounds of
-argv-guard defects, and the new script mirrors both properties. The registry read stays
-in the script; `driftReport` already takes the declared rates as a plain map, so nothing
-under `lib/` imports `tests/`.
+A NEW drift-check script beside the budget checker, named for what it does rather than
+folded into the budget checker: that file's header states it decides nothing and takes
+environment rather than argv, as the class repair for three rounds of argv-guard defects,
+and the new script mirrors both properties. The registry read stays in the script;
+`driftReport` already takes the declared rates as a plain map, so nothing under `lib/`
+imports `tests/`.
 
 The `budget` job gains the records download and a second step.
 
-**The drift step runs `if: always()`, and this is the finding rather than a detail.**
-Placed after the budget checker without it, an over-budget failure — the single case where
-knowing which rate drifted matters most — skips the drift step entirely. The step whose
-whole purpose is explaining a breach would be silent exactly when there is a breach. So
-`_metaSourceShardIntegrity` pins three things by equality, not two: the step's `env:`
-mapping, its WHOLE `run:` command, and its `if:` condition. The first two because a shell
-assignment prefix in `run:` shadows the step's `env:` and a guard reading only the mapping
-is fail-open; the third because a step order that looks harmless is what removes the
-report.
+**The drift step runs `if: always()`.** Placed after the budget checker without it, an
+over-budget failure — the one case where knowing which rate drifted matters most — skips
+the drift step entirely. The step whose whole purpose is explaining a breach would be
+silent exactly when there is a breach.
 
-**The PR path filter gains two entries, or later changes to this harness merge without
-running it.** The filter names `scripts/check-shard-budget.ts` but nothing under
-`lib/mutationWeight`, and it will not name the new script unless this task adds it. This
-PR fires the workflow because it edits the workflow itself, which conceals the gap
-precisely on the PR that introduces it. Add both the new drift script's path and
-`lib/mutationWeight/**`.
+**What `_metaSourceShardIntegrity` pins, and the four it did not.** An earlier draft pinned
+the step's `env:`, its whole `run:`, and its `if:`. Those three are necessary and they
+leave the load-bearing wiring unpinned — every named GREEN command passed with the path
+filter absent, which is the concealment this task exists to remove. The pins are:
 
-Arms: every measured surface named whatever its ratio; actionable marked separately;
-declared-but-unmeasured and measured-but-undeclared as two distinct states; and the
-process exit status identical with and without drift.
+1. the step's `env:` mapping, by equality (a shell assignment prefix in `run:` shadows it,
+   so a guard reading only the mapping is fail-open);
+2. its whole `run:` command, by equality;
+3. its `if:` condition, by equality;
+4. the records artifact's download PATTERN and DESTINATION, by equality — a step that
+   downloads to the wrong path reports every surface unmeasured, which reads as a clean
+   run with nothing to say;
+5. both new `pull_request.paths` entries, by membership: the new script's path and
+   `lib/mutationWeight/**`.
+
+Point 5 is the one this PR cannot demonstrate for itself: the workflow fires here because
+this diff edits the workflow, so the filter's absence is invisible on exactly the PR that
+introduces it. A later change under `lib/mutationWeight` would merge without the harness
+ever running.
+
+The script's own contract gets two arms the suite runs directly: it reads REQUIRED values
+from the environment with NO defaults, and it exits 2 when a required variable is missing
+or malformed. A checker that defaults a missing input is a checker that passes on a
+misconfigured job.
+
+Report arms: every measured surface named whatever its ratio; actionable marked
+separately; declared-but-unmeasured and measured-but-undeclared as two distinct states;
+and the process exit status identical with and without drift.
+
+**Plants:**
+
+| defect | file | anchor | becomes | suite |
+| --- | --- | --- | --- | --- |
+| drift changes the exit status | scripts/check-rate-drift.ts | `process.exitCode = 0;` | `process.exitCode = drifted.length > 0 ? 1 : 0;` | rateDrift.test.ts |
+| unmeasured folded into drifted | scripts/check-rate-drift.ts | the two distinct report sections | one merged section | rateDrift.test.ts |
+| a required env value gains a default | scripts/check-rate-drift.ts | `requiredCount("SHARD_BUDGET_SECONDS")` | `Number(process.env.SHARD_BUDGET_SECONDS ?? 3600)` | rateDrift.test.ts |
+| only actionable surfaces reported | scripts/check-rate-drift.ts | the full measured loop | the loop filtered to actionable | rateDrift.test.ts |
 
 **RED:** the marker's command, with the suite committed and the drift script absent.
-Expect a module-resolution failure naming the missing script, then — once the script
-exists as a stub — the four arms failing.
+Expect a module-resolution failure naming the missing script; then, once the script exists
+as a stub, the arms failing.
 
-**GREEN:** the same command with all arms passing, plus
-`pnpm vitest run tests/mutation/_metaSourceShardIntegrity.test.ts` green over the three
-new pins.
+**GREEN:** the same command with every arm passing, plus
+`pnpm vitest run tests/mutation/_metaSourceShardIntegrity.test.ts` green over all five
+pins and `node scripts/mutation-weight-plant.mjs` green over the four plants.
 
 **Commit:** `feat(ci): report per-surface rate drift beside the shard budget`
 
@@ -416,20 +544,25 @@ new pins.
 **Files:** `tests/mutation/source/registry.ts` (ledger rows only),
 `tests/mutation/source/expectedLedgerKinds.ts`.
 
-Three surfaces have moved: `sourceShardPartition` (its source is edited), and
-`mutationWeightRecords`/`mutationWeightWeights` (their source gains nothing but their
-partition changes). **All three are named in the one command above** — an earlier draft
-scored two and claimed to have measured the third.
+Three surfaces have moved: `sourceShardPartition` (its source is edited by Task 3), and
+`mutationWeightRecords`/`mutationWeightWeights` (their source is edited by Task 4 and
+their partition changes). All three are named in the one command above.
 
-Re-score, record each score with the `OPERATORS:` tail, and reconcile every ledger.
+**This is heavy turn TWO of two, and the count is stated because an earlier draft claimed
+one.** Turn one is Task 2's bootstrap, which cannot measure the final tree because the
+rate is not applied until Task 3. This turn measures the tree that ships. A repair
+prompted by THIS run needs its own confirming run, and if that happens it is a third turn
+rather than a promise broken: the honest statement is that this arc spends two turns and
+budgets for a third if the final score moves.
 
-**The starting point is measured and the marker's `why=` cites it: 0.7279 against a 0.90
-floor, 37 unaccepted survivors, observed 2026-08-25.** That figure is DATED and already
-partly superseded — kill passes have landed since, including three at `75e63a2a2`. It is
-kept as the observation that justifies `red-state=live` rather than updated on paper,
-because the number that replaces it comes from a run and not from arithmetic over what I
-believe I fixed. **The count of fixtures I have added is not a count of survivors I have
-closed, and this document said otherwise once.**
+The starting point is measured and the marker's `why=` cites it: 0.7279 against a 0.90
+floor, 37 unaccepted survivors, observed 2026-08-25. That figure is DATED and already
+partly superseded — three of those survivors were killed at `75e63a2a2`, and Task 3 adds
+new mutation sites to `sourceShardPartition` that the figure predates. It is kept as the
+observation that justifies `red-state=live` rather than updated on paper, because the
+number that replaces it comes from a run and not from arithmetic over what I believe I
+fixed. **A count of fixtures added is not a count of survivors closed, and this document
+said otherwise once.**
 
 The triage order is the orchestrator's and is not mine to reorder:
 
@@ -438,28 +571,25 @@ The triage order is the orchestrator's and is not mine to reorder:
    that cannot occur, a sort no consumer needs. A gate that cannot kill dead code is
    telling you it is dead.
 3. **Ledger** only what survives both, each with a MECHANISM argument: no input
-   distinguishes the mutant from the original. Never an unreachable-on-corpus
-   observation, which is a statement about today's inputs rather than about the program.
+   distinguishes the mutant from the original. Never an unreachable-on-corpus observation,
+   which is a statement about today's inputs rather than about the program.
 
 **The blanket equivalence argument this task used to carry was wrong, and plan review
 round 1 caught it before it became a ledger.** The residue is dominated by `?? 0`
-coalesces that `noUncheckedIndexedAccess` REQUIRES on every indexed read, and the
-argument was that the index is proven in range by the guard immediately above, so the
-default is never evaluated. That is FALSE wherever the exported signature admits the
-missing case — and at three sites in `legSeconds` it did: an assignment naming a surface
-with no measurement, an out-of-range leg, and an unassigned leg were all reachable
-through a signature that accepts any map. One of them was not even a wrong number: the
-coalesced out-of-range write left `[0,0,0,null,null,100]`, so the binding leg came back
-NaN. All three were killed at `75e63a2a2`, not ledgered. **Compiler-mandated is not the
-same as unobservable, and each residual row is argued on its own inputs.**
+coalesces that `noUncheckedIndexedAccess` REQUIRES on every indexed read, and the argument
+was that the index is proven in range by the guard immediately above, so the default is
+never evaluated. That is FALSE wherever the exported signature admits the missing case —
+and at three sites in `legSeconds` it did: an assignment naming a surface with no
+measurement, an out-of-range leg, and an unassigned leg were all reachable through a
+signature accepting any map. One was not even a wrong number: the coalesced out-of-range
+write left `[0,0,0,null,null,100]`, so the binding leg came back NaN. All three were
+killed, not ledgered. **Compiler-mandated is not the same as unobservable, and each
+residual row is argued on its own inputs.**
 
 **No `accepted` row may be added to `sourceShardPartition`.** It was enrolled before this
-diff, so a new accepted row there is a verdict-deciding input that moved, which is
-exactly what AC-7 forbids. If that surface produces an unaccepted survivor, the repair is
-a kill or a deletion, never a ledger row.
-
-ONE slot turn measures the final state. An intermediate measurement would cost a second
-turn under `slots=1` and describe a tree that never ships.
+diff, so a new accepted row there is a verdict-deciding input that moved, which is exactly
+what AC-7 forbids. If that surface produces an unaccepted survivor, the repair is a kill
+or a deletion, never a ledger row.
 
 Check the binding leg against budget before and after enrolment. This arc's own modules
 are the first customers of its design and must not be the surfaces that breach it.
@@ -530,8 +660,10 @@ red-then-green cycles, and inventing a `red=` for one would be satisfying a gram
 - [x] Meta-test inventory declared, including the one guard outside this arc
 - [x] Mutation-family closure declared as the six-operator set
 - [x] Reconciliations run at plan time and pasted, not described
-- [x] Every `red=` validated: the `red-state=live` one observed failing, the six
-      `red-state=authored` ones each naming a production line read rather than resolved
+- [x] Every `red=` validated: the single `red-state=live` marker observed failing, and
+      each `red-state=authored` marker naming a production line read rather than resolved.
+      The split is derived by the command in the reconciliations section, not retyped —
+      an earlier draft asserted a number here and had it wrong.
 - [x] Self-review
 - [ ] **Adversarial review (cross-model)** — Codex, `--stage plan`. Round 1 returned
       BLOCKING with twelve findings and drove this rewrite; two of them were about code
