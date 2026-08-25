@@ -6,7 +6,7 @@
 
 "Not you? Switch person" in the crew avatar menu does nothing for a viewer whose access comes from a live Google session. The action deletes the picker cookie entry, the next resolve sees the Google session with no matching entry, and `needs_picker_bootstrap` re-mints the same identity (`lib/auth/picker/resolveShowPageAccess.ts:246-252`). Eric ratified the fix on 2026-08-25: the clear also signs the browser out (Supabase `signOut({ scope: "local" })`), then the person lands where a cookie-only viewer already lands after a switch.
 
-The code that does this exists. `clearIdentityAndSkip` (Mode B "Continue as guest", `lib/auth/picker/clearIdentity.ts:105-123`) already clears the entry and then calls the module-private `signOutThisDevice` (`lib/auth/picker/clearIdentity.ts:133-200`). This spec routes `clearIdentity` through the same body. No second sign-out is written.
+The code that does this exists. `clearIdentityAndSkip` (Mode B "Continue as guest", `lib/auth/picker/clearIdentity.ts:105-123`) already clears the entry and then calls the module-private `signOutThisDevice` (`lib/auth/picker/clearIdentity.ts:133-200`). This spec makes `clearIdentity` call the same helper, signing out first and then clearing (§3.2 says why the order differs from Mode B). No second sign-out is written.
 
 ## 1.1 Resolved scope — do not relitigate
 
@@ -41,55 +41,58 @@ auth-js 2.105.1 (the installed `@supabase/auth-js`), `GoTrueClient._signOut` in 
 
 After `clearIdentityCoreImpl` deletes the entry it calls `revalidatePath` (`clearIdentity.ts:255`), the route re-renders in the same request with the mutated cookies, `resolvePickerSelection` reports `no_selection`, and `toPageResult` maps that to `{ kind: "no_auth", reason: "first_contact" }` (`resolveShowPageAccess.ts:114`). The page renders `SignInOrSkipGate` in Mode A (`page.tsx:318-332`; modes at `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:9-15`), whose "Continue as guest" leads to the picker. `AvatarMenu` relies on exactly this: its success-branch comment says a cookie-only viewer unmounts the whole control via revalidatePath, so success needs no branch (`components/auth/AvatarMenu.tsx:122-123`).
 
-## 3. Design — one body for both exported clear actions
+## 3. Design — `clearIdentity` signs out, then clears; Mode B keeps its order
 
 ### 3.1 Shape
 
-`lib/auth/picker/clearIdentity.ts` gains one module-private function and loses duplicated lines:
+`lib/auth/picker/clearIdentity.ts`:
 
 ```ts
-async function clearThenSignOut(
-  input: ClearIdentityInput,
-  action: "clearIdentity" | "clearIdentityAndSkip",
-): Promise<ClearIdentityResult> {
-  // Validate before anything destructive: a malformed direct submission must not
-  // sign the person out and only then report the error.
+export async function clearIdentity(formData: FormData): Promise<ClearIdentityResult> {
+  if (!(await isSameOriginServerAction())) return rejectCrossOriginPicker("clearIdentity");
+  const input = parseFormData(formData);
+  if (!input) return { ok: false, code: "PICKER_INVALID_INPUT" };
+  // Validate before anything destructive, as the guest action does.
   if (!isValidClearIdentityInput(input)) return { ok: false, code: "PICKER_INVALID_INPUT" };
-  const result = await clearIdentityCore(input);
-  if (!result.ok) return result;
-  return signOutThisDevice(input.showId, action);
+  // Sign-out FIRST on this path (§3.2): the core schedules revalidatePath, and a
+  // re-render with the session still live re-mints the identity via bootstrap.
+  const signedOut = await signOutThisDevice(input.showId, "clearIdentity");
+  if (!signedOut.ok) return signedOut;
+  return clearIdentityCore(input);
 }
 ```
 
-`clearIdentity` becomes: same-origin gate (unchanged, `lib/auth/picker/clearIdentity.ts:83`), parse (unchanged), `return clearThenSignOut(input, "clearIdentity")`. `clearIdentityAndSkip` becomes: gate, parse, `const result = await clearThenSignOut(input, "clearIdentityAndSkip"); if (!result.ok) return result; redirect(...)`. The redirect stays where it is; it is the only line that differs between the two.
-
-`signOutThisDevice(showId, action)` takes the caller's action name and emits `source: \`auth.picker.${action}\``. Everything else in it is unchanged: the three stages, the `AUTH_SIGNOUT_FAILED` code, the residual sweep, the returned `PICKER_RESOLVER_LOOKUP_FAILED`. The `const { error } = await supabase.auth.signOut({ scope: "local" })` line stays byte-identical because `tests/auth/_metaInfraContract.test.ts:297-308` pins it by regex and it remains the module's only sign-out call site.
+`clearIdentityAndSkip` (`lib/auth/picker/clearIdentity.ts:105-123`) is unchanged except that its `signOutThisDevice` call passes its own action name. `signOutThisDevice(showId, action)` takes the caller's action name and emits `source: \`auth.picker.${action}\``. Everything else in it is unchanged: the three stages, the `AUTH_SIGNOUT_FAILED` code, the residual sweep, the returned `PICKER_RESOLVER_LOOKUP_FAILED`. The `const { error } = await supabase.auth.signOut({ scope: "local" })` line stays byte-identical because `tests/auth/_metaInfraContract.test.ts:297-308` pins it by regex and it remains the module's only sign-out call site.
 
 Nothing is exported that was not exported before. `clearIdentityCore` keeps its own same-origin gate and its own `action` string (`lib/auth/picker/clearIdentity.ts:211-213`); the render-path enumeration in the module header (`lib/auth/picker/clearIdentity.ts:39-66`) still holds: three exported endpoints, each gated by name.
 
-### 3.2 Ordering and fault behavior on the `clearIdentity` path
+### 3.2 Why the order is reversed on this path, and the fault table
 
-Identical to the skip path, minus the redirect:
+Spec review round 1 (BLOCKING) probed the entry-first order this spec first proposed: `clearIdentityCoreImpl` calls `revalidatePath` before returning (`lib/auth/picker/clearIdentity.ts:231` and `lib/auth/picker/clearIdentity.ts:255`), so a sign-out fault after the core would re-render the route with the Google session still live and the entry gone, which is exactly the loopback (`lib/auth/picker/resolveShowPageAccess.ts:246-252`): bootstrap re-mints the identity, the page navigates, and the menu's failure copy is never seen. The reviewer's probe holds for every core-success shape (entry present, no envelope, envelope without this show).
 
-| Step fails | Returned | Cookie state | Session state | Next render |
-| --- | --- | --- | --- | --- |
-| Same-origin gate | `rejectCrossOriginPicker("clearIdentity")` (unchanged) | untouched | untouched | unchanged |
-| Parse / validate | `PICKER_INVALID_INPUT` | untouched | untouched, `signOut` never called | unchanged |
-| `clearIdentityCore` | its result (`PICKER_RESOLVER_LOOKUP_FAILED` on a caught throw, `lib/auth/picker/clearIdentity.ts:216-217`) | whatever the core left | untouched, `signOut` never called | the menu shows `PICKER_SWITCH_FAILED` copy (`AvatarMenu.tsx:124`, catalog `lib/messages/catalog.ts:3806`) |
-| `client_construction` | `PICKER_RESOLVER_LOOKUP_FAILED` | entry deleted | live | menu shows the failure copy; a retry re-runs the clear (idempotent, the entry is already gone) and the sign-out |
-| `sign_out_threw` / `sign_out_returned_error` | `PICKER_RESOLVER_LOOKUP_FAILED` | entry deleted | live | same as above |
-| `residual_cookie_sweep` | `PICKER_RESOLVER_LOOKUP_FAILED` | entry deleted | revoked | menu shows the failure copy; the next navigation resolves to `first_contact` once the SSR adapter's own deletion or token expiry lands |
-| none | `{ ok: true }` | entry deleted | revoked (or no-op, §2.2) | Mode A gate (§3.3) |
+Signing out first closes it. A sign-out fault returns before the core runs, so nothing is revalidated, nothing re-renders, the menu shows `PICKER_SWITCH_FAILED` (`components/auth/AvatarMenu.tsx:124`), and the person is still the identity they were: an honest "the switch did not happen". This is safe because on this path the entry's person is never a stranger to the session: a live Google session always wins resolve (`lib/auth/picker/resolveShowPageAccess.ts:237-252`), so a rendered menu belongs either to the session's own person (bootstrap minted the entry from it) or to a cookie-only viewer with no session at all. The Mode B ordering rationale (`lib/auth/picker/clearIdentity.ts:97-104`) is about a foreign session that does NOT match the entry, which cannot be the state a rendered avatar menu is in. Mode B keeps its order; this path gets its own, and the comment above each says why.
 
-The failure copy is the existing `PICKER_SWITCH_FAILED` row ("Couldn't switch. Please try again.", `catalog.ts:3806-3821`). `AvatarMenu` already maps every `ok: false` to it (`AvatarMenu.tsx:113-124`), so no new catalog row and no §12.4 edit.
+| Step fails | Returned | Cookie state | Session state | `revalidatePath` | Next render |
+| --- | --- | --- | --- | --- | --- |
+| Same-origin gate | `rejectCrossOriginPicker("clearIdentity")` (unchanged) | untouched | untouched | not called | unchanged |
+| Parse / validate | `PICKER_INVALID_INPUT` | untouched | untouched, `signOut` never called | not called | unchanged |
+| `client_construction` | `PICKER_RESOLVER_LOOKUP_FAILED` | untouched | live | not called | no re-render; menu shows the failure copy; retry re-runs the sign-out |
+| `sign_out_threw` / `sign_out_returned_error` | `PICKER_RESOLVER_LOOKUP_FAILED` | untouched | live | not called | same as above |
+| `residual_cookie_sweep` | `PICKER_RESOLVER_LOOKUP_FAILED` | untouched | revoked; a residual auth cookie may remain | not called | no re-render; menu shows the failure copy; retry: `signOut` is a no-op (§2.2), the sweep runs again |
+| `clearIdentityCore` (thrown fault, `lib/auth/picker/clearIdentity.ts:216-217`) | `PICKER_RESOLVER_LOOKUP_FAILED` | whatever the core left (entry intact if it threw before the write) | revoked (or no-op for a cookie-only viewer) | called only if the throw came after it | menu shows the failure copy; if a re-render happens it resolves the still-valid entry via the cookie path, the same person; retry: `signOut` no-op, clear again |
+| none | `{ ok: true }` | entry deleted | revoked (or no-op, §2.2) | called | Mode A gate (§3.3) |
+
+The failure copy is the existing `PICKER_SWITCH_FAILED` row ("Couldn't switch. Please try again.", `lib/messages/catalog.ts:3806-3821`). `AvatarMenu` already maps every `ok: false` to it (`components/auth/AvatarMenu.tsx:113-124`), so no new catalog row and no §12.4 edit.
+
+**Class sweep on the round-1 shape** ("a returned failure leaves the route re-rendered into a state that hides the failure"). The other exported endpoint, `clearIdentityAndSkip`, has the shape in form: on a sign-out fault its entry is already gone and `revalidatePath` has fired. It is not the same defect: the re-render there resolves to `google_mismatch` (the session matches no roster row, which is Mode B's premise) and re-renders the Mode B gate, which that arc ratified as the retry affordance (`lib/auth/picker/clearIdentity.ts:138-141`, `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4.3). No bootstrap re-mint is possible from a mismatched session. Left as ratified (class-sweep exception (b)).
 
 ### 3.3 Where the Google viewer lands, and why there is no redirect
 
-With the entry deleted and the session revoked in the same action, the re-render (§2.4) runs `validateGoogleSession`, which returns `{ kind: "continue" }` when there is no session (`lib/auth/validateGoogleSession.ts:121`, `lib/auth/validateGoogleSession.ts:146`, `lib/auth/validateGoogleSession.ts:151`), falls through to the cookie path, and resolves to `no_auth` / `first_contact`: the Mode A gate, the same screen a cookie-only viewer gets after the same tap. That is what "returns to the picker" means here: the person is out of the identity and one tap ("Continue as guest") from the picker, exactly like everyone else who switches.
+On success, the entry is deleted and the session revoked in one action, and `revalidatePath` (§2.4) re-renders the route: `validateGoogleSession` returns `{ kind: "continue" }` with no session (`lib/auth/validateGoogleSession.ts:121`, `lib/auth/validateGoogleSession.ts:146`, `lib/auth/validateGoogleSession.ts:151`), the cookie path finds no entry, and the result is `no_auth` / `first_contact`: the Mode A gate, the same screen a cookie-only viewer gets after the same tap. That is what "returns to the picker" means here: the person is out of the identity and one tap ("Continue as guest") from the picker, exactly like everyone else who switches.
 
-A `redirect(... gate: "skip")` would land directly on the picker interstitial, but it would also change the cookie-only path (the two share a body by design) and it is what Mode B needs for a different reason: for `google_mismatch` the gate would re-render without `?gate=skip` (`page.tsx:318-323`). That reason does not apply after a sign-out. Adding it is a UX change to the cookie-only path outside the ratification, so it is not made; §7 records it as a limit with a re-file trigger.
+A `redirect(... gate: "skip")` would land directly on the picker interstitial, but it would also change the cookie-only path and it is what Mode B needs for a different reason: for `google_mismatch` the gate would re-render without `?gate=skip` (`app/show/[slug]/[shareToken]/page.tsx:318-323`). That reason does not apply after a sign-out. Adding it is a UX change to the cookie-only path outside the ratification, so it is not made; §7 records it as a limit with a re-file trigger.
 
-Both cookie mutations (the picker entry in `clearIdentityCoreImpl`, the auth cookies in `signOut` and the sweep) are written through `cookies()` in one server action, so the same-request re-render sees them together, the mechanism the cookie-only path already depends on.
+All cookie mutations (the auth cookies in `signOut` and the sweep, then the picker entry in `clearIdentityCoreImpl`) are written through `cookies()` in one server action, so the same-request re-render sees them together, the mechanism the cookie-only path already depends on.
 
 ### 3.4 Invariant 10 — the exemption on `clearIdentity` is re-derived
 
@@ -130,7 +133,7 @@ Disposition for the archive entry: names #882 (its merge sha if merged by readin
 - Invariant 10: §3.4.
 - Invariants 11, 12: worktree `../FX-worktrees/signout`; both rows marked and pushed at Stage 0; markers come off in the last commit.
 - Invariant 2: not applicable, no show mutation, no advisory lock surface.
-- Class sweep: both exported endpoints of the file share one body after this change, so there is no second instance of "clear without sign-out" left in the module. `clearIdentityCore` is the core, not an endpoint the UI wires, and deliberately does not sign out (it is the thing both callers wrap).
+- Class sweep: both exported endpoints now sign out; `clearIdentityCore` is the core, not an endpoint the UI wires, and deliberately does not sign out (both callers wrap it). The round-1 shape is swept in §3.2.
 
 ## 6. Testing strategy
 
@@ -138,30 +141,31 @@ Each test names the failure it catches.
 
 `tests/auth/picker/clearIdentity.test.ts` (mocks already in place: `supabaseMock.signOut`, the `calls` order log, `cookies`, `revalidatePath`, `redirect` digest):
 
-1. `clearIdentity` clears the entry BEFORE signing out (order: `cookieSet` index < `signOut` index). Catches reversed ordering, which would leave a live session beside a stale entry.
-2. `clearIdentity` signs out with `{ scope: "local" }`. Catches the library default (`global`) sneaking in.
-3. `clearIdentity` returns `{ ok: true }` and does NOT redirect (no `NEXT_REDIRECT` digest; `redirect` mock not called). Catches accidentally sharing the redirect with the skip path.
-4. Sign-out returned error, thrown error, and sweep throw each return `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }` and emit `AUTH_SIGNOUT_FAILED` with `source: "auth.picker.clearIdentity"` and the matching `stage`. Catches a hardcoded skip-path source and a collapsed stage.
+1. `clearIdentity` signs out BEFORE clearing the entry (order: `signOutResolved` index < `cookieSet` index). Catches entry-first ordering, the round-1 loopback.
+2. `clearIdentity` signs out with `{ scope: "local" }` exactly once. Catches the library default (`global`) sneaking in.
+3. `clearIdentity` returns `{ ok: true }` and does NOT redirect (the mocked `redirect` throws a `NEXT_REDIRECT` digest, so a resolved promise is the proof). Catches accidentally sharing the redirect with the skip path.
+4. Sign-out returned error, thrown error, client-construction throw, and sweep throw each return `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }`, emit `AUTH_SIGNOUT_FAILED` with `source: "auth.picker.clearIdentity"` and the matching `stage`, and leave `revalidatePath` uncalled and the picker cookie unwritten. Catches a hardcoded skip-path source, a collapsed stage, and the round-1 defect directly (a revalidate on a sign-out fault is the re-mint).
 5. Invalid input: `signOut` and `createClient` never called. Catches sign-out-before-validate.
-6. `clearIdentityCore` failure (thrown fault): `signOut` never called. Catches sign-out on a failed clear.
-7. No picker cookie: `signOut` still called once with `scope: "local"`. Catches gating the sign-out on "entry existed", which would reopen the loopback for a re-minted viewer.
+6. `clearIdentityCore` failure (cookie store rejecting on read) after a successful sign-out: returns `PICKER_RESOLVER_LOOKUP_FAILED`; `signOut` was called once. Catches a core failure being reported as success.
+7. No picker cookie: `signOut` still called once with `scope: "local"`, result `{ ok: true }`. Catches gating the sign-out on "entry existed", which would reopen the loopback for a re-minted viewer.
 8. Existing test at `tests/auth/picker/clearIdentity.test.ts:480-487` ("clearIdentity (non-skip) never constructs a Supabase client") pins the reversed behavior and is replaced by tests 1-2; its comment rationale ("must not destroy a session") is superseded by the ratification in §1.1.
 9. The same-origin describe's `clearIdentity` case (`tests/auth/picker/clearIdentity.test.ts:504-518`) additionally asserts `signOut` not called, matching the skip case at `tests/auth/picker/clearIdentity.test.ts:523`.
-10. Skip-path tests (`tests/auth/picker/clearIdentity.test.ts:264-478`) stay green unmodified; if any needs an edit, the shared body changed behavior and the change is wrong.
+10. Skip-path tests (`tests/auth/picker/clearIdentity.test.ts:264-478`) stay green unmodified; if any needs an edit, the skip path changed behavior and the change is wrong.
 
-`tests/auth/_metaInfraContract.test.ts`: the regex at `tests/auth/_metaInfraContract.test.ts:297-308` must still match once (single sign-out site). A test asserting the regex matches exactly one occurrence is added if it does not already count.
+`tests/auth/_metaInfraContract.test.ts`: the regex at `tests/auth/_metaInfraContract.test.ts:297-308` must still match, and a count assertion pins exactly one `supabase.auth.signOut(` site in the module.
 
 `tests/log/_metaMutationSurfaceObservability.test.ts`: runs unchanged; the corrected exemption line on `clearIdentity` must pass it.
 
-`tests/e2e/picker-flow.spec.ts`: one new test, on the fixture the bootstrap test already uses (`tests/e2e/picker-flow.spec.ts:130-178`, a test-auth session whose email matches a crew row): sign in as the matching identity, load the show, open the avatar menu, tap `avatar-menu-switch-person`, expect the Mode A gate ("Welcome" heading, `_SignInOrSkipGate.tsx:89`) and not the show body; reload and expect the gate again (proves the session is gone, not just the entry). Catches the loopback itself, which no unit test can, because it lives in the resolve chain. `scripts/check-crew-e2e-executed.mjs:25-32` pins this spec's test count and is updated in the same commit.
+`tests/e2e/picker-flow.spec.ts`: one new test, on the fixture the bootstrap test already uses (`tests/e2e/picker-flow.spec.ts:130-178`, a test-auth session whose email matches a crew row): sign in as the matching identity, load the show, open the avatar menu, tap `avatar-menu-switch-person`, expect the Mode A gate (`sign-in-or-skip-gate`) and not the show body; reload and expect the gate again with no Supabase auth cookie left in the context (proves the session is gone, not just the entry). Catches the loopback itself, which no unit test can, because it lives in the resolve chain. `scripts/check-crew-e2e-executed.mjs:25-32` pins this spec's test count and is updated in the same commit. Sign-out faults are not injectable in e2e; unit test 4 covers them at the mechanism (no revalidate, no cookie write).
 
 Not tested: `AvatarMenu.tsx` behavior (unchanged; `tests/components/auth/avatarMenu.test.tsx` runs as-is).
 
 ## 7. Documented limits
 
-- **Landing screen is the Mode A gate, not the picker interstitial.** The person is one tap from the picker, matching the cookie-only path. Re-file trigger: a product call that switch person should land directly on the picker for everyone, at which point the redirect goes in the shared body and the cookie-only e2e expectations change with it.
+- **Landing screen is the Mode A gate, not the picker interstitial.** The person is one tap from the picker, matching the cookie-only path. Re-file trigger: a product call that switch person should land directly on the picker for everyone, at which point the redirect goes into `clearIdentity` and the cookie-only e2e expectations change with it.
+- **After a `residual_cookie_sweep` fault the session is revoked server-side but an auth cookie may linger** until the SSR adapter's own deletion or token expiry lands; the menu shows the failure copy and a retry runs the sweep again. Same shape the skip path documents (`lib/auth/picker/clearIdentity.ts:191-197`).
 - **Sign-out is device-local by design.** A Google viewer signed in on two devices stays signed in on the other one. This is the ratified `scope: "local"` (§1.1).
-- **A cookie-only switch now constructs a Supabase server client.** One extra client construction and cookie read per tap, no network (§2.2). If `createSupabaseServerClient` throws in that case (misconfigured env), the tap reports `PICKER_SWITCH_FAILED` although the entry was cleared; the next open of the page resolves to the gate anyway. Accepted: the skip path has the same shape today.
+- **A cookie-only switch now constructs a Supabase server client.** One extra client construction and cookie read per tap, no network (§2.2). If `createSupabaseServerClient` throws in that case (misconfigured env), the tap reports `PICKER_SWITCH_FAILED` and nothing is cleared; the person stays in the picked identity and can retry. Accepted: an env that cannot build the server client fails the whole show page anyway.
 - **Admin sessions.** The admin resolve branch (`resolveShowPageAccess.ts:224-226`) returns before the picker chain, and the admin case renders `identityChip={null}` (`app/show/[slug]/[shareToken]/page.tsx:258`), so an admin cannot reach this action from the show page. Not a behavior this spec changes.
 - **#882 composition.** If #882 merges, the snapshot read's retry lives entirely in the fetch layer. This arc adds nothing there (§4).
 
@@ -169,7 +173,7 @@ Not tested: `AvatarMenu.tsx` behavior (unchanged; `tests/components/auth/avatarM
 
 | File | Change |
 | --- | --- |
-| `lib/auth/picker/clearIdentity.ts` | `clearThenSignOut` body; `clearIdentity` routes through it; `clearIdentityAndSkip` routes through it; `signOutThisDevice(showId, action)`; exemption line on `clearIdentity` re-derived |
+| `lib/auth/picker/clearIdentity.ts` | `clearIdentity` validates, signs out, then clears; `clearIdentityAndSkip` passes its action name; `signOutThisDevice(showId, action)`; exemption line on `clearIdentity` re-derived |
 | `components/auth/AvatarMenu.tsx` | comment at the success branch |
 | `tests/auth/picker/clearIdentity.test.ts` | §6 items 1-9 |
 | `tests/auth/_metaInfraContract.test.ts` | single-site count assertion if absent |

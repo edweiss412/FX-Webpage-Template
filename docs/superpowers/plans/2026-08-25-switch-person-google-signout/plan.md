@@ -44,26 +44,26 @@ Every name a task uses, checked against the live tree:
 
 <!-- tasks: depth=2 red-contract -->
 
-## Task 1 — `clearIdentity` clears, then signs the device out
+## Task 1 — `clearIdentity` signs the device out, then clears the entry
 
-<!-- task: red=`pnpm vitest run tests/auth/picker/clearIdentity.test.ts` red-state=authored red-target=`lib/auth/picker/clearIdentity.ts:86` why=`clearIdentity returns clearIdentityCore(input) and never calls signOutThisDevice, so every new case asserting a signOut call, its order after cookieSet, or an AUTH_SIGNOUT_FAILED emit with source auth.picker.clearIdentity fails until the shared clear-then-sign-out body lands` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/auth/picker/clearIdentity.test.ts` red-state=authored red-target=`lib/auth/picker/clearIdentity.ts:86` why=`clearIdentity returns clearIdentityCore(input) and never calls signOutThisDevice, so every new case asserting a signOut call before cookieSet, an AUTH_SIGNOUT_FAILED emit with source auth.picker.clearIdentity, or no revalidatePath on a sign-out fault fails until the sign-out-then-clear body lands` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7 -->
 
-**What is red and why.** New cases in `tests/auth/picker/clearIdentity.test.ts` assert that `clearIdentity` calls `supabase.auth.signOut({ scope: "local" })` after the cookie write and reports sign-out faults under `source: "auth.picker.clearIdentity"`. On the live tree `clearIdentity` returns `clearIdentityCore(input)` (`lib/auth/picker/clearIdentity.ts:86`); `signOut` is never called, so those cases fail. The pre-existing case at `tests/auth/picker/clearIdentity.test.ts:480-487` asserts the opposite and is replaced in the same RED step (it cannot coexist with the ratified behavior).
+**What is red and why.** New cases in `tests/auth/picker/clearIdentity.test.ts` assert that `clearIdentity` calls `supabase.auth.signOut({ scope: "local" })` BEFORE the cookie write, reports sign-out faults under `source: "auth.picker.clearIdentity"`, and leaves `revalidatePath` uncalled on such a fault. On the live tree `clearIdentity` returns `clearIdentityCore(input)` (`lib/auth/picker/clearIdentity.ts:86`); `signOut` is never called, so those cases fail. The pre-existing case at `tests/auth/picker/clearIdentity.test.ts:480-487` asserts the opposite and is replaced in the same RED step (it cannot coexist with the ratified behavior).
 
 **Acceptance criteria.**
 
-- AC-1: on a valid submission with a seeded entry, `calls.indexOf("cookieSet") < calls.indexOf("signOut")`, and the result is `{ ok: true }` with no `NEXT_REDIRECT` thrown (the mocked `redirect` throws, so a resolved promise is the proof).
+- AC-1: on a valid submission with a seeded entry, `calls.indexOf("signOutResolved") < calls.indexOf("cookieSet")`, and the result is `{ ok: true }` with no `NEXT_REDIRECT` thrown (the mocked `redirect` throws, so a resolved promise is the proof).
 - AC-2: `signOut` is called with `{ scope: "local" }` exactly once.
-- AC-3: `signOut` returning `{ error }` yields `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }` and `log.error` with `{ code: "AUTH_SIGNOUT_FAILED", source: "auth.picker.clearIdentity", stage: "sign_out_returned_error" }`; a `signOut` throw yields the same result with `stage: "sign_out_threw"`; `throwOnCreate` yields `stage: "client_construction"`; a sweep throw (cookie `set` rejecting after `signOutResolved`) yields `stage: "residual_cookie_sweep"`.
-- AC-4: invalid input (`isValidClearIdentityInput` false, e.g. a non-uuid `showId` on an otherwise complete form) returns `PICKER_INVALID_INPUT` with `createClient` and `signOut` never called.
-- AC-5: a `clearIdentityCore` failure (cookie store rejecting on read) returns its code with `signOut` never called.
+- AC-3: `signOut` returning `{ error }` yields `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }` and `log.error` with `{ code: "AUTH_SIGNOUT_FAILED", source: "auth.picker.clearIdentity", stage: "sign_out_returned_error" }`; a `signOut` throw yields `stage: "sign_out_threw"`; `throwOnCreate` yields `stage: "client_construction"`; a sweep throw yields `stage: "residual_cookie_sweep"`. In all four, `revalidatePath` is not called and the picker cookie (`COOKIE_NAME`) is never written.
+- AC-4: invalid input (`isValidClearIdentityInput` false: a non-uuid `showId` on an otherwise complete form) returns `PICKER_INVALID_INPUT` with `createClient`, `signOut`, and `cookieSet` never called.
+- AC-5: a `clearIdentityCore` failure (cookie store rejecting on the core's read, after a successful sign-out) returns `PICKER_RESOLVER_LOOKUP_FAILED` with `signOut` called once.
 - AC-6: no picker cookie at all: `{ ok: true }` and `signOut` still called once with `{ scope: "local" }`.
 - AC-7: `clearIdentityAndSkip` cases at `tests/auth/picker/clearIdentity.test.ts:264-478` pass unmodified; the cross-site case for `clearIdentity` (`tests/auth/picker/clearIdentity.test.ts:504-518`) additionally asserts `signOut` not called.
 
 **RED — write the tests.** Add a describe after the existing `clearIdentity telemetry` block (`tests/auth/picker/clearIdentity.test.ts:200-262`):
 
 ```ts
-describe("clearIdentity signs the device out after the clear (spec §3)", () => {
+describe("clearIdentity signs the device out, then clears the entry (spec §3)", () => {
   const seedEntry = () => {
     existingCookie = encodePickerCookie(
       { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
@@ -71,13 +71,19 @@ describe("clearIdentity signs the device out after the clear (spec §3)", () => 
     );
   };
   const submit = () => clearIdentity(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }));
+  const pickerCookieWrites = () =>
+    cookieSet.mock.calls.filter(([name]) => name === COOKIE_NAME).length;
 
-  test("clears the picker entry BEFORE signing out, returns ok, and does not redirect", async () => {
+  test("signs out BEFORE clearing the picker entry, returns ok, and does not redirect", async () => {
     seedEntry();
     await expect(submit()).resolves.toEqual({ ok: true });
+    // Order is the contract (spec §3.2): a sign-out fault must never follow a
+    // revalidate, or the re-render bootstraps the same identity back.
+    expect(calls.indexOf("signOutResolved")).toBeGreaterThanOrEqual(0);
     expect(calls.indexOf("cookieSet")).toBeGreaterThanOrEqual(0);
-    expect(calls.indexOf("signOut")).toBeGreaterThanOrEqual(0);
-    expect(calls.indexOf("cookieSet")).toBeLessThan(calls.indexOf("signOut"));
+    expect(calls.indexOf("signOutResolved")).toBeLessThan(calls.indexOf("cookieSet"));
+    expect(pickerCookieWrites()).toBe(1);
+    expect(revalidatePath).toHaveBeenCalledWith(`/show/${SLUG}/${TOKEN}`);
   });
 
   test("signs out device-locally, exactly once", async () => {
@@ -90,6 +96,7 @@ describe("clearIdentity signs the device out after the clear (spec §3)", () => 
   test("with no picker cookie the clear is a no-op and the sign-out still runs", async () => {
     // A Google viewer whose entry was already re-minted elsewhere is exactly the loopback case.
     await expect(submit()).resolves.toEqual({ ok: true });
+    expect(supabaseMock.signOut).toHaveBeenCalledTimes(1);
     expect(supabaseMock.signOut).toHaveBeenCalledWith({ scope: "local" });
   });
 
@@ -120,24 +127,31 @@ describe("clearIdentity signs the device out after the clear (spec §3)", () => 
       () =>
         cookieSet.mockImplementation((name: string) => {
           calls.push("cookieSet");
-          if (calls.includes("signOutResolved") && name.startsWith("sb-")) throw new Error("sweep");
+          if (name.startsWith("sb-")) throw new Error("sweep");
         }),
       "residual_cookie_sweep",
     ],
-  ])("%s → PICKER_RESOLVER_LOOKUP_FAILED, forensic emit names THIS action and the stage", async (_label, arrange, stage) => {
-    seedEntry();
-    arrange();
-    await expect(submit()).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
-    expect(logMock.error).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        code: "AUTH_SIGNOUT_FAILED",
-        source: "auth.picker.clearIdentity",
-        stage,
-        showId: SHOW_ID,
-      }),
-    );
-  });
+  ])(
+    "%s: PICKER_RESOLVER_LOOKUP_FAILED, forensic emit names THIS action and the stage, nothing revalidated",
+    async (_label, arrange, stage) => {
+      seedEntry();
+      arrange();
+      await expect(submit()).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      expect(logMock.error).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          code: "AUTH_SIGNOUT_FAILED",
+          source: "auth.picker.clearIdentity",
+          stage,
+          showId: SHOW_ID,
+        }),
+      );
+      // The round-1 defect: a revalidate here re-renders with the session live
+      // and bootstrap re-mints the identity, hiding the failure.
+      expect(revalidatePath).not.toHaveBeenCalled();
+      expect(pickerCookieWrites()).toBe(0);
+    },
+  );
 
   test("invalid input is refused before any client is built", async () => {
     seedEntry();
@@ -148,16 +162,19 @@ describe("clearIdentity signs the device out after the clear (spec §3)", () => 
     expect(cookieSet).not.toHaveBeenCalled();
   });
 
-  test("a clearIdentityCore failure returns before any sign-out", async () => {
+  test("a clearIdentityCore failure after a successful sign-out is reported, not swallowed", async () => {
     seedEntry();
-    vi.mocked(cookies).mockRejectedValueOnce(new Error("cookie store down"));
+    // First cookies() call is the sweep (succeeds); the second is the core's read.
+    vi.mocked(cookies)
+      .mockResolvedValueOnce(await vi.mocked(cookies)())
+      .mockRejectedValueOnce(new Error("cookie store down"));
     await expect(submit()).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
-    expect(supabaseMock.signOut).not.toHaveBeenCalled();
+    expect(supabaseMock.signOut).toHaveBeenCalledTimes(1);
   });
 });
 ```
 
-Notes on the block: the mocked `redirect` (`tests/auth/picker/clearIdentity.test.ts:16-26`) throws a `NEXT_REDIRECT` digest, so `resolves.toEqual({ ok: true })` is the no-redirect proof. The sweep case relies on `cookieSet` being the shared `set` mock (`tests/auth/picker/clearIdentity.test.ts:104-125`); the `sb-` prefix matches the `getAll` fixture at `tests/auth/picker/clearIdentity.test.ts:114-118`. `calls.includes("signOutResolved")` distinguishes the sweep's `set` from the core's picker-cookie `set`, which runs before `signOut`. The `"not-a-uuid"` value must fail `isValidClearIdentityInput` (`lib/auth/picker/validateClearIdentityInput.ts`); confirm its predicate rejects it during the RED step, and pick another invalid shape if not.
+Notes on the block: the mocked `redirect` (`tests/auth/picker/clearIdentity.test.ts:16-26`) throws a `NEXT_REDIRECT` digest, so `resolves.toEqual({ ok: true })` is the no-redirect proof. The sweep case relies on `cookieSet` being the shared `set` mock (`tests/auth/picker/clearIdentity.test.ts:104-125`); the `sb-` prefix matches the `getAll` fixture at `tests/auth/picker/clearIdentity.test.ts:114-118`, and with sign-out first the sweep's writes are the first `set` calls, so no ordering guard is needed. `COOKIE_NAME` is already imported by the test file (used in the `cookies` mock). The `"not-a-uuid"` value fails `UUID_RE` in `lib/auth/picker/validateClearIdentityInput.ts:19`. The core-failure case's `cookies()` sequencing depends on `signOutThisDevice` calling `cookies()` exactly once (the sweep) before the core's call; verify during RED by reading `lib/auth/picker/clearIdentity.ts:185-187`, and if the mock chain proves awkward, arrange the failure through `pickerCookieSigningKey` instead (delete `process.env.PICKER_COOKIE_SIGNING_KEY` after the sweep is not possible mid-call, so prefer the `cookies` chain).
 
 Delete the case at `tests/auth/picker/clearIdentity.test.ts:480-487` ("clearIdentity (non-skip) never constructs a Supabase client"). In the same-origin describe, the `clearIdentity` case (`tests/auth/picker/clearIdentity.test.ts:504-518`) gains `expect(supabaseMock.signOut).not.toHaveBeenCalled();` after the `cookieSet` assertion.
 
@@ -168,25 +185,6 @@ Run `pnpm vitest run tests/auth/picker/clearIdentity.test.ts`; observe the new c
 ```ts
 type ClearAction = "clearIdentity" | "clearIdentityAndSkip";
 
-/**
- * The body both exported clear actions share: validate before anything
- * destructive, clear the picker entry, then end the session on this device.
- * Order is load-bearing (see clearIdentityAndSkip's comment): the entry goes
- * first, so a sign-out failure leaves no stale identity reachable and the
- * next render is a retryable gate.
- */
-async function clearThenSignOut(
-  input: ClearIdentityInput,
-  action: ClearAction,
-): Promise<ClearIdentityResult> {
-  // A malformed direct submission must not sign the person out and only then
-  // report the error.
-  if (!isValidClearIdentityInput(input)) return { ok: false, code: "PICKER_INVALID_INPUT" };
-  const result = await clearIdentityCore(input);
-  if (!result.ok) return result;
-  return signOutThisDevice(input.showId, action);
-}
-
 export async function clearIdentity(formData: FormData): Promise<ClearIdentityResult> {
   // no-telemetry: FormData-parse wrapper; PICKER_IDENTITY_CLEARED emit fires in
   // clearIdentityCoreImpl, and the AUTH_SIGNOUT_FAILED emit in signOutThisDevice covers
@@ -194,17 +192,25 @@ export async function clearIdentity(formData: FormData): Promise<ClearIdentityRe
   if (!(await isSameOriginServerAction())) return rejectCrossOriginPicker("clearIdentity");
   const input = parseFormData(formData);
   if (!input) return { ok: false, code: "PICKER_INVALID_INPUT" };
-  return clearThenSignOut(input, "clearIdentity");
+  // Validate before anything destructive, as the guest action does.
+  if (!isValidClearIdentityInput(input)) return { ok: false, code: "PICKER_INVALID_INPUT" };
+  // Sign out FIRST on this path, the reverse of clearIdentityAndSkip. The core
+  // schedules revalidatePath; a re-render with the session still live and the
+  // entry gone is needs_picker_bootstrap, which re-mints the same identity and
+  // hides the failure. Failing here re-renders nothing: the menu shows the
+  // failure copy and the person is still who they were. Safe because a
+  // rendered avatar menu belongs to the session's own person or to a
+  // cookie-only viewer with no session; the foreign-session case Mode B orders
+  // around cannot reach this menu.
+  const signedOut = await signOutThisDevice(input.showId, "clearIdentity");
+  if (!signedOut.ok) return signedOut;
+  return clearIdentityCore(input);
 }
 
 export async function clearIdentityAndSkip(formData: FormData): Promise<ClearIdentityResult> {
-  // (existing exemption comment unchanged)
-  if (!(await isSameOriginServerAction())) return rejectCrossOriginPicker("clearIdentityAndSkip");
-  const input = parseFormData(formData);
-  if (!input) return { ok: false, code: "PICKER_INVALID_INPUT" };
-  const result = await clearThenSignOut(input, "clearIdentityAndSkip");
-  if (!result.ok) return result;
-  redirect(buildShowReturnUrl(input.slug, input.shareToken, { s: input.s, gate: "skip" }));
+  // ...unchanged, except:
+  const signedOut = await signOutThisDevice(input.showId, "clearIdentityAndSkip");
+  // ...
 }
 
 async function signOutThisDevice(showId: string, action: ClearAction): Promise<ClearIdentityResult> {
@@ -213,7 +219,7 @@ async function signOutThisDevice(showId: string, action: ClearAction): Promise<C
 }
 ```
 
-The docblock above `clearIdentityAndSkip` (`lib/auth/picker/clearIdentity.ts:89-104`) keeps its ordering rationale; trim the sentence that says only Mode B signs out, since both actions now do. The `// no-telemetry:` on `clearIdentityAndSkip` stays as written. Update the module's `signOutThisDevice` docblock (`lib/auth/picker/clearIdentity.ts:125-132`) to say both clear actions call it.
+Update the `signOutThisDevice` docblock (`lib/auth/picker/clearIdentity.ts:125-132`) to say both clear actions call it and that each orders it differently for a stated reason. The `clearIdentityAndSkip` docblock (`lib/auth/picker/clearIdentity.ts:89-104`) is unchanged.
 
 `components/auth/AvatarMenu.tsx:120-124`: reword the success-branch comment to "Success needs no branch: the clear also signs this device out, so a cookie-only and a Google-resolved viewer both unmount this whole control via revalidatePath."
 
@@ -221,9 +227,9 @@ The docblock above `clearIdentityAndSkip` (`lib/auth/picker/clearIdentity.ts:89-
 
 Run `pnpm vitest run tests/auth/picker/clearIdentity.test.ts tests/auth/_metaInfraContract.test.ts tests/log/_metaMutationSurfaceObservability.test.ts tests/components/auth/avatarMenu.test.tsx`; all green. Then `pnpm typecheck && pnpm exec eslint lib/auth/picker/clearIdentity.ts tests/auth/picker/clearIdentity.test.ts components/auth/AvatarMenu.tsx tests/auth/_metaInfraContract.test.ts`.
 
-**Anti-tautology check.** AC-1's order assertion reads the shared `calls` log, not the mocks' call counts, so a "both called, wrong order" implementation fails. AC-3's `source` assertion is the discriminator against a hardcoded `auth.picker.clearIdentityAndSkip`. AC-6 fails if the sign-out is gated on `existed`. AC-4 and AC-5 fail if the sign-out runs before validation or before the core's result is checked. The deleted case at `tests/auth/picker/clearIdentity.test.ts:480-487` is the only pre-existing assertion of the reversed behavior (grep `never constructs a Supabase client` in `tests/`).
+**Anti-tautology check.** AC-1's order assertion reads the shared `calls` log, not the mocks' call counts, so a "both called, wrong order" implementation fails. AC-3's `revalidatePath` assertion is the direct guard on the round-1 defect; it fails on the entry-first body because the core's revalidate fires before the sign-out is attempted. AC-3's `source` assertion is the discriminator against a hardcoded `auth.picker.clearIdentityAndSkip`. AC-6 fails if the sign-out is gated on `existed`. AC-4 fails if the sign-out runs before validation. The deleted case at `tests/auth/picker/clearIdentity.test.ts:480-487` is the only pre-existing assertion of the reversed behavior (grep `never constructs a Supabase client` in `tests/`).
 
-**Commit.** `feat(auth): switch person signs the device out after clearing the picker entry`
+**Commit.** `feat(auth): switch person signs the device out before clearing the picker entry`
 
 ## Task 2 — e2e: a Google-resolved viewer taps Switch person and lands on the first-contact gate
 
@@ -289,7 +295,7 @@ test("Switch person signs a Google-resolved viewer out and lands on the first-co
 
 **GREEN.** Task 1 is the implementation. Run the spec on the branch tree: `pnpm heavy pnpm exec playwright test --project=desktop-chromium tests/e2e/picker-flow.spec.ts`; the new case passes and the existing six still pass.
 
-**Anti-tautology check.** The premise assertion (an auth cookie exists before the tap) is on this case's own inputs. AC-9's reload plus cookie check fails against a Task-1 mutant that clears the entry and skips the sign-out (the shell returns via bootstrap) and against one that signs out but skips the clear (the cookie-only path then resolves the stale entry and renders the shell, so the `crew-shell` count-0 assertion fails).
+**Anti-tautology check.** The premise assertion (an auth cookie exists before the tap) is on this case's own inputs. AC-9's reload plus cookie check fails against a Task-1 mutant that clears the entry and skips the sign-out (the shell returns via bootstrap) and against one that signs out but skips the clear (the cookie path then resolves the still-valid entry and renders the shell, so the `crew-shell` count-0 assertion fails).
 
 **Commit.** `test(e2e): switch person signs a Google-resolved viewer out`
 
