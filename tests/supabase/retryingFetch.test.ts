@@ -96,7 +96,7 @@ describe("retrying fetch — the per-attempt stall guard", () => {
   test("a fetch that stays pending until aborted is retried with a fresh budget", async () => {
     let attempts = 0;
     const inner = vi.fn(
-      (_url: string, init?: RequestInit) =>
+      (_input: RequestInfo | URL, init?: RequestInit) =>
         new Promise<Response>((resolve, reject) => {
           attempts += 1;
           if (attempts > 1) return resolve(ok());
@@ -114,7 +114,7 @@ describe("retrying fetch — the per-attempt stall guard", () => {
 
   test("a stall that persists across every attempt exhausts and surfaces a failure", async () => {
     const inner = vi.fn(
-      (_url: string, init?: RequestInit) =>
+      (_input: RequestInfo | URL, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () =>
             reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
@@ -141,7 +141,7 @@ describe("retrying fetch — abort provenance", () => {
     const controller = new AbortController();
     const callerError = Object.assign(new Error("caller went away"), { name: "AbortError" });
     const inner = vi.fn(
-      (_url: string, init?: RequestInit) =>
+      (_input: RequestInfo | URL, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => reject(callerError));
         }),

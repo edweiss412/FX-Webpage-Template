@@ -38,7 +38,22 @@ export const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
 /** Per-attempt wall-clock budget. Worst case = timeoutMs * (1 + maxRetries) + backoff. */
 export const PER_ATTEMPT_TIMEOUT_MS = 2000;
 
-type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+/**
+ * The DOM `fetch` shape, because that is what a Supabase client's `global.fetch` must satisfy.
+ * Accepting only `string` typechecked against our own tests and NOT against the client, which
+ * is the kind of narrowing that looks fine until it reaches its real call site.
+ */
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+/** The request's URL and method, wherever they were carried. */
+function describeRequest(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): { url: string; method: string | undefined } {
+  if (typeof input === "string") return { url: input, method: init?.method };
+  if (input instanceof URL) return { url: input.href, method: init?.method };
+  return { url: input.url, method: init?.method ?? input.method };
+}
 
 export type RetryingFetchOptions = {
   maxRetries?: number;
@@ -67,8 +82,12 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
   const sleep = options.sleep ?? defaultSleep;
   const random = options.random ?? Math.random;
 
-  return async function retryingFetch(url: string, init?: RequestInit): Promise<Response> {
-    const eligible = isRetryEligible(url, init?.method);
+  return async function retryingFetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const { url, method } = describeRequest(input, init);
+    const eligible = isRetryEligible(url, method);
     const callerSignal = init?.signal ?? undefined;
 
     let firstResponse: Response | undefined;
@@ -92,7 +111,7 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
       let response: Response | undefined;
       let error: unknown;
       try {
-        response = await inner(url, { ...init, signal: controller.signal });
+        response = await inner(input, { ...init, signal: controller.signal });
       } catch (err) {
         error = err;
       } finally {
