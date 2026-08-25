@@ -176,6 +176,33 @@ jobs:
       # meta-test asserts this job never mentions the bootstrap.
       - name: Refuse node-killing pnpm settings (composite, pre-node, defaults-immune)
         uses: ./.github/actions/assert-pnpm-sources
+      # tests/help/ holds three suites that drive a REAL page — captureRefusal,
+      # captureSelectorAbsent and renderFaultDetector each `chromium.launch()`,
+      # because the capture's refusal layers and the fault detector are DOM
+      # readers and a stub would test the stub. tests/help/** is a parallel
+      # glob, so those files land here and nowhere else, and this job had no
+      # browser: the first CI run after they were added failed with
+      # `browserType.launch: Executable doesn't exist`, while every local run
+      # passed on an installed browser. Local-passes-CI-fails, exactly the class
+      # AGENTS.md flags — the machine that runs the suite is part of the suite.
+      #
+      # The failing run named only two of the three; the third sits in another
+      # shard that had not reached it yet. The fix is per-JOB, so it covers the
+      # class rather than the two files the log happened to name.
+      #
+      # chromium only. The db legs never run the parallel project, so they need
+      # nothing, and webkit is not launched by any file in this project.
+      #
+      # NO actions/cache here, deliberately. The e2e workflows cache
+      # ~/.cache/ms-playwright, but unit-suite-shard-topology.test.ts asserts
+      # this job uses EXACTLY three actions — checkout, setup, and the
+      # pnpm-sources guard — because "a fourth is how a database bring-up would
+      # return". A cache action is a fourth, and widening a guard that exists to
+      # keep a database out of this job, in order to save a download, is a bad
+      # trade. These are `run:` steps, so the count is untouched and the guard
+      # keeps meaning what it says.
+      - run: pnpm exec playwright install-deps chromium
+      - run: pnpm exec playwright install chromium
       - name: Run parallel project, shard ${{ matrix.shard }}/3
         env:
           VITEST_EXCLUDE_ENV_BOUND: "1"
