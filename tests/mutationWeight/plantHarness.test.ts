@@ -31,6 +31,34 @@ function selfTest(): { code: number; out: string } {
   }
 }
 
+describe("mutation-weight-plant --anchors", () => {
+  // Every REAL entry must still match its target exactly once. Added after a repair
+  // orphaned a plant for the SECOND time: the full sweep does catch it, but the sweep
+  // costs a vitest process per entry so it runs at milestones, and both orphans lived
+  // in that gap. This resolves every anchor with no child processes, so it is cheap
+  // enough for CI to run on every change.
+  //
+  // The self-test below cannot cover it: that exercises two SYNTHETIC entries and says
+  // nothing about whether the real ones point at live code.
+  it("every declared plant anchor still resolves exactly once", () => {
+    let code = 0;
+    let out = "";
+    try {
+      out = execFileSync("node", ["scripts/mutation-weight-plant.mjs", "--anchors"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (e) {
+      const err = e as { status?: number; stdout?: string; stderr?: string };
+      code = err.status ?? 1;
+      out = `${err.stdout ?? ""}${err.stderr ?? ""}`;
+    }
+    expect(out, "a stale anchor names itself").not.toContain("STALE");
+    expect(out).toMatch(/anchors: (\d+)\/\1 resolve exactly once/);
+    expect(code).toBe(0);
+  });
+});
+
 describe("mutation-weight-plant --self-test", () => {
   const { code, out } = selfTest();
 

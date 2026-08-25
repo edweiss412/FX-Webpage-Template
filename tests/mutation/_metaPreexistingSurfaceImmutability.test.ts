@@ -16,6 +16,7 @@
  * and fails loudly, naming them. That is why nothing here shells out to git, and why it
  * works on a shallow CI checkout.
  */
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -53,6 +54,26 @@ const project = (s: (typeof GUARD_SURFACES)[number]): Row => ({
 });
 
 describe("pre-existing surfaces are unmoved by this diff (AC-7)", () => {
+  it("records the merge base it was taken from, and is not stale", () => {
+    // `baseSha` was parsed and never asserted, so any one-line mutation of it survived
+    // -- and the committed fixture had in fact drifted a merge behind the declared
+    // base. Shape first: a value that is not a sha is a corrupted fixture, whatever
+    // else is true.
+    expect(snapshot.baseSha).toMatch(/^[0-9a-f]{40}$/);
+
+    // Then the claim itself. FAILS rather than skips when git cannot answer, matching
+    // the convention the ledger-mass oracle already sets in unit-suite.yml: a check
+    // that quietly stands down on a shallow checkout is a check that stops existing in
+    // CI, which is the only place it matters.
+    const base = execFileSync("git", ["merge-base", "origin/main", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+    expect(
+      snapshot.baseSha,
+      "regenerate with scripts/snapshot-preexisting-surfaces.ts after every absorb",
+    ).toBe(base);
+  });
+
   it("has a baseline to compare against", () => {
     // Unconditional and outside any `.each`: an `.each` over an empty array registers
     // no case, so a premise inside its callback is unreachable in exactly the

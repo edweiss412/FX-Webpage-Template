@@ -112,8 +112,10 @@ describe("source-mutation shard partition", () => {
     );
   });
 
-  // Weighing 21 surfaces means parsing and mutating 21 real sources, so the
-  // makespan cases below share one computation rather than each paying for it.
+  // Weighing the registry means parsing and mutating every enrolled source, so the
+  // makespan cases below share one computation rather than each paying for it. The
+  // count is deliberately NOT written here: it said 21 long after the registry passed
+  // forty, and a number in a comment is a claim nobody re-checks.
   const weights = new Map(GUARD_SURFACES.map((s) => [s.id, weightOf(s)] as const));
   const weightList = [...weights.values()];
   const heaviest = Math.max(...weightList);
@@ -227,5 +229,28 @@ describe("source-mutation shard partition", () => {
   it("declares a budget below the per-job timeout, in seconds", () => {
     expect(SHARD_BUDGET_SECONDS).toBeGreaterThan(0);
     expect(SHARD_BUDGET_SECONDS).toBeLessThan(90 * 60);
+  });
+
+  it("RECORDS that the live partition does not fit the budget, and by how much", () => {
+    // A DOCUMENTED LIMIT, recorded so the improvement above cannot be read as
+    // sufficiency. The spec chose the binding leg RELATIVE to the shipped model as
+    // AC-3's criterion, deliberately rather than an absolute budget, "because an
+    // absolute would be met or missed by how heavy the corpus happened to be that
+    // week." This is that week.
+    //
+    // Measured on the live registry: the priced model's binding leg is about 4509s
+    // against the boot-count model's 5228s, so pricing takes roughly 719s off it -- and
+    // the budget is 3600s, so BOTH breach it. The shortfall is not a packing that could
+    // be improved: total modelled child wall clock is about 18,025s, so the lower bound
+    // at four shards is about 4506s and NO assignment of four can fit. Six would.
+    //
+    // Asserted as a RECORD of today's state, not as a target. If the binding leg ever
+    // drops under the budget this case fails, and that is exactly the moment to delete
+    // it and assert the budget instead.
+    expect(lowerBound / 1000).toBeGreaterThan(SHARD_BUDGET_SECONDS);
+    expect(makespan / 1000).toBeGreaterThan(SHARD_BUDGET_SECONDS);
+    // Derived rather than remembered, so the number cannot rot the way "21 surfaces"
+    // did in a comment a few lines up.
+    expect(Math.ceil(total / 1000 / SHARD_BUDGET_SECONDS)).toBeGreaterThan(SOURCE_SHARD_COUNT);
   });
 });

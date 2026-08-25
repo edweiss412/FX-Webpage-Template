@@ -335,7 +335,7 @@ const DEFECTS = [
   [
     "readRun stops summing child durations into seconds",
     "records.ts",
-    "          seconds: children.reduce((a, c) => a + c.durationMs, 0) / 1000,",
+    "          seconds: sumDurations(children, join(dir, entry, file)),",
     "          seconds: children.length,",
   ],
   [
@@ -383,6 +383,36 @@ const SELF_TEST_DEFECTS = [
     "nor does this",
   ],
 ];
+
+/**
+ * `--anchors`: does every REAL entry still match its target exactly once?
+ *
+ * Added after a repair orphaned a plant for the SECOND time. The full sweep catches it
+ * -- ANCHOR-FAIL is a red run -- but the full sweep costs a vitest process per entry,
+ * so it gets run at milestones rather than after every edit, and both orphans survived
+ * in that gap. This resolves every anchor with no child processes at all, which makes
+ * it cheap enough to run after any change to a file the list targets.
+ *
+ * The self-test cannot cover this: it exercises two SYNTHETIC entries and says nothing
+ * about whether the real ones still point at live code.
+ */
+const ANCHORS_ONLY = process.argv.includes("--anchors");
+if (ANCHORS_ONLY) {
+  let stale = 0;
+  for (const [name, file, from] of DEFECTS) {
+    const repoRel = file.includes("/") ? file : `${DEFAULT_ROOT}/${file}`;
+    const text = readFileSync(join(ROOT, repoRel), "utf8");
+    const hits = text.split(from).length - 1;
+    if (hits !== 1) {
+      stale += 1;
+      console.log(`  STALE  ${name} (anchor occurs ${hits} times in ${repoRel})`);
+    }
+  }
+  console.log(
+    `\nanchors: ${String(DEFECTS.length - stale)}/${String(DEFECTS.length)} resolve exactly once`,
+  );
+  process.exit(stale > 0 ? 1 : 0);
+}
 
 const SELF_TEST = process.argv.includes("--self-test");
 const ENTRIES = SELF_TEST ? SELF_TEST_DEFECTS : DEFECTS;

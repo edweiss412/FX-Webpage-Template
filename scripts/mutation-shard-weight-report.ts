@@ -157,7 +157,20 @@ function describe(
     );
     process.exit(1);
   }
-  say("  reconciliation: records and modelled weights agree on all surfaces and all legs");
+  // The claim is qualified by what could not be checked. "Agree on all surfaces" while
+  // an accepted count went unwitnessed is a stronger statement than the evidence
+  // supports, and the unwitnessed case is precisely where a coherent accepted-plus-boots
+  // dump slips through with the wrong denominator.
+  if (rec.unwitnessed.length > 0) {
+    say(
+      `  reconciliation: records and modelled weights agree on all surfaces and all legs, ` +
+        `EXCEPT that the accepted count could not be witnessed for ${String(rec.unwitnessed.length)} ` +
+        `surface(s) whose run did not pass: ${rec.unwitnessed.join(", ")}. ` +
+        `Their rate denominator is unverified.`,
+    );
+  } else {
+    say("  reconciliation: records and modelled weights agree on all surfaces and all legs");
+  }
 
   const observed = new Array<number>(N).fill(0);
   for (const m of surfaces) observed[m.leg] = (observed[m.leg] ?? 0) + m.seconds;
@@ -247,6 +260,24 @@ function main(): void {
   const specs = parseRuns(argv);
   if (specs.length === 0)
     throw new Error("usage: --run <dir>[:<modelledJson>] [--run ...] [--emit-registry]");
+
+  // AT MOST ONE run may omit its modelled dump. Without a dump the sha is taken from
+  // the CHECKOUT's HEAD, so two such runs are labelled identically -- and `seedRates`
+  // groups by sha, treating them as repeated measurements of one tree and taking the
+  // median across them. That is precisely the historical averaging this model rejects:
+  // the seed rule is the NEWEST sha that measured a surface, not a blend across shas.
+  //
+  // Refused rather than disambiguated, because there is no honest label to invent. A
+  // run's sha is a property of the tree it ran against and is not recoverable from its
+  // path or its contents.
+  const bare = specs.filter((sp) => sp.modelledFile === undefined);
+  if (bare.length > 1) {
+    throw new Error(
+      `${String(bare.length)} runs omit their modelled dump (${bare.map((sp) => sp.dir).join(", ")}). ` +
+        `Each would be labelled with the checkout's HEAD and medianed together as one sha. ` +
+        `Pass --run <dir>:<modelledJson> for all but at most one.`,
+    );
+  }
 
   // With --emit-registry the REPORT goes to stderr so stdout carries the JSON and
   // nothing else. A consumer piping this into a file should get a table, not a

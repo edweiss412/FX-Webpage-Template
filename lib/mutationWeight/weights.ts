@@ -174,6 +174,17 @@ export const bindingLeg = (legs: readonly number[]): number => Math.max(...legs)
 
 export type Reconciliation = {
   ok: boolean;
+  /**
+   * Surfaces whose accepted count could NOT be witnessed, because the run did not pass.
+   *
+   * A red run is exactly where an unaccepted survivor exists, so its SURVIVED count
+   * legitimately differs from the registry's accepted count and the check has to stand
+   * down. Standing down silently was the defect: the report went on claiming agreement
+   * on all surfaces while one of the two denominators behind the rate had gone
+   * unchecked, and a red run whose survivor is later accepted raises `accepted` and
+   * `boots` together, passing everything with the wrong denominator.
+   */
+  unwitnessed: string[];
   /** Surfaces the records hold that the modelled set does not, and the reverse. */
   recordOnly: string[];
   modelOnly: string[];
@@ -232,6 +243,7 @@ export function reconcile(
 
   // The weights themselves, through the two components the records can witness.
   const weightDisagreement: Reconciliation["weightDisagreement"] = [];
+  const unwitnessed: string[] = [];
   for (const m of surfaces) {
     const dump = modelled.get(m.surfaceId);
     if (dump === undefined) continue;
@@ -277,6 +289,8 @@ export function reconcile(
           modelled: dump.accepted,
           observed: survived,
         });
+    } else {
+      unwitnessed.push(m.surfaceId);
     }
   }
 
@@ -331,6 +345,7 @@ export function reconcile(
       moved.length === 0 &&
       weightDisagreement.length === 0 &&
       duplicated.length === 0,
+    unwitnessed,
     recordOnly,
     modelOnly,
     moved,

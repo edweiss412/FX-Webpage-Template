@@ -339,8 +339,15 @@ describe("mutation-harness matrices are pinned to their constants", () => {
     // pattern is per-SURFACE records, not the elapsed stamps the budget check
     // uses, because a rate is derived from child wall clock the stamps do not
     // carry.
+    // Selected by what it USES as well as where it writes. Identifying it by `path`
+    // alone let a one-edit swap of download-artifact for UPLOAD-artifact keep every
+    // assertion green -- pattern, path, condition and order all still matched, while
+    // the records the drift step reads were never fetched at all.
     const dl = steps.find((x) => (x.with ?? {})["path"] === "records");
     expect(dl, "nothing downloads into the records/ path the drift step reads").toBeDefined();
+    expect(dl!.uses, "the records step must DOWNLOAD, not upload").toBe(
+      "actions/download-artifact@v4",
+    );
     expect((dl!.with ?? {})["pattern"]).toBe("mutation-records-source-shards-*");
     expect((dl!.with ?? {})["path"]).toBe("records");
     // The DOWNLOAD's condition, not only the consumer's. A step with no condition

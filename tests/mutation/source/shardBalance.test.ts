@@ -33,10 +33,25 @@ type Fixture = {
   };
 };
 
-const PAIRS = [1, 2, 3].map((n) => {
-  const path = `tests/mutation/source/fixtures/heldout/pair-${n}.json`;
-  return { path, fx: JSON.parse(readFileSync(path, "utf8")) as Fixture };
-});
+/**
+ * Each fixture NAMED, not interpolated.
+ *
+ * `_metaOverlayConfigParity` requires every fixture on disk to be cited by a declared
+ * owner as a literal string, and a template built from a loop index cites none of them
+ * -- the fixture becomes discoverable-by-accident rather than claimed, which is the
+ * exact condition that guard exists to prevent. Adding a fourth pair means adding a
+ * line here, which is the point.
+ */
+const PAIR_PATHS = [
+  "tests/mutation/source/fixtures/heldout/pair-1.json",
+  "tests/mutation/source/fixtures/heldout/pair-2.json",
+  "tests/mutation/source/fixtures/heldout/pair-3.json",
+] as const;
+
+const PAIRS = PAIR_PATHS.map((path) => ({
+  path,
+  fx: JSON.parse(readFileSync(path, "utf8")) as Fixture,
+}));
 
 /** Only `surfaceId` and `seconds` are read by the packing; the rest is scaffolding. */
 const asMeasured = (s: { surfaceId: string; seconds: number }): Measured => ({
@@ -83,6 +98,47 @@ describe("held-out binding leg (AC-3)", () => {
         expect(value, `${field} must name a run`).toMatch(/^meas-\d+$/);
       }
       expect(fx.seedRun).not.toBe(fx.scoreRun);
+    });
+
+    it("is internally consistent, so no single field can be deleted quietly", () => {
+      // The completeness check below defines "every later-run surface" as whatever is
+      // in `fx.surfaces`, which makes it self-referential: deleting a surface shrinks
+      // the very set it validates against and every assertion stays green. The fix is
+      // a CROSS-CHECK between fields that must move together, so one ordinary edit
+      // breaks a relationship rather than shrinking both sides at once.
+      //
+      // Surfaces and boots are a bijection: the later run modelled exactly the
+      // surfaces it ran. Deleting from either side now fails, which is the pair of
+      // deletion families that survived.
+      const surfaceIds = fx.surfaces.map((m) => m.surfaceId).sort();
+      const bootsIds = Object.keys(fx.boots).sort();
+      expect(bootsIds, "every later surface has modelled boots, and vice versa").toEqual(
+        surfaceIds,
+      );
+      // The seed is the EARLIER run, so it may name surfaces this one dropped, but
+      // every SCORED surface must be seeded -- that is what held-out means.
+      const seeded = new Set(Object.keys(fx.seed));
+      for (const id of surfaceIds) {
+        if (!seeded.has(id)) expect(fx.excluded).toContain(id);
+      }
+    });
+
+    it("carries numbers, not whatever JSON happened to hold", () => {
+      // Every numeric field reaches arithmetic through a TypeScript cast, which is a
+      // promise about the file rather than a check of it. Replacing a `seconds` with
+      // -1, 0 or null left every assertion green across dozens of rows, because the
+      // packing still produced SOME answer and the recorded totals were compared
+      // against that same corrupted input.
+      for (const m of fx.surfaces) {
+        expect(typeof m.seconds, `${m.surfaceId} seconds`).toBe("number");
+        expect(Number.isFinite(m.seconds) && m.seconds > 0, `${m.surfaceId} seconds`).toBe(true);
+      }
+      for (const [id, b] of Object.entries(fx.boots)) {
+        expect(Number.isInteger(b) && b > 0, `${id} boots`).toBe(true);
+      }
+      for (const [id, r] of Object.entries(fx.seed)) {
+        expect(Number.isFinite(r) && r > 0, `${id} seed rate`).toBe(true);
+      }
     });
 
     it("partitions EVERY later-run surface into scored or excluded, with none lost", () => {

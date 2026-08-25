@@ -139,6 +139,18 @@ describe("the script's exit status", () => {
     expect(r.code).toBe(0);
   });
 
+  it("exits ZERO when the records directory is ABSENT, and says it is unmeasured", () => {
+    // Record uploads explicitly tolerate failure, and download-artifact with a pattern
+    // matching nothing exits successfully WITHOUT creating the directory. So on a run
+    // where every upload failed, reading it blind was an ENOENT and exit 1 - failing
+    // the budget job that this script's own header promises it never fails.
+    //
+    // Reporting nothing is not the same as reporting no drift, so it says which.
+    const r = run({ RECORDS_DIR: "definitely-not-a-directory", DRIFT_ACTIONABLE_AT: "2" });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/UNMEASURED/);
+  });
+
   it("exits 2 on a missing required variable rather than defaulting it", () => {
     const r = run({ RECORDS_DIR: "", DRIFT_ACTIONABLE_AT: "2" });
     expect(r.code).toBe(2);

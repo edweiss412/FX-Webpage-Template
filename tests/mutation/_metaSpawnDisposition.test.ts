@@ -251,6 +251,27 @@ type Disposition =
 
 const DISPOSITIONS: readonly Disposition[] = [
   {
+    // The AC-7 immutability guard's provenance check. NOT a member: this spawns
+    // `git merge-base`, which reads refs and exits immediately -- it starts no test
+    // process, mutates nothing, and cannot outlive the assertion that calls it.
+    //
+    // It FAILS rather than skips when git cannot answer, matching the ledger-mass
+    // oracle's convention in unit-suite.yml, because a provenance check that quietly
+    // stands down on a shallow checkout stops existing in CI, which is the only place
+    // it matters. That is a deliberate choice and the reason this row exists rather
+    // than the call being removed.
+    kind: "file",
+    file: "tests/mutation/_metaPreexistingSurfaceImmutability.test.ts",
+    member: false,
+    reason:
+      "NOT A MEMBER — one `git merge-base` invocation asserting the committed snapshot " +
+      "was taken at the declared merge base. Reads refs and exits; spawns no test " +
+      "process and creates nothing. Bounded by git's own exit rather than by a timeout, " +
+      "and it fails loudly rather than skipping when the ref is unreachable.",
+    hits: 1,
+    digest: "bb17367ffc65",
+  },
+  {
     // The cleanup guard's subject child. A member: this really is an executed
     // harness child, one vitest run per subject suite-set, and the row's ceiling
     // claim is satisfied by `SUBJECT_RUN_TIMEOUT_MS` at the call site. Deleting

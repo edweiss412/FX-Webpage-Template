@@ -614,6 +614,24 @@ describe("survivor kills — boundaries and counters the earlier cases stepped o
     expect(r.ok).toBe(false);
   });
 
+  it("NAMES a surface whose accepted count it could not witness", () => {
+    // A red run is where an unaccepted survivor exists, so its SURVIVED count
+    // legitimately differs from the registry's accepted count and the check must stand
+    // down. Standing down SILENTLY was the defect: the report kept claiming agreement
+    // on all surfaces while one of the two denominators behind the rate went
+    // unchecked, and a red run whose survivor is later accepted raises accepted and
+    // boots together and passes everything with the wrong denominator.
+    const r = reconcile(
+      [measured({ surfaceId: "red", mutants: 5, passed: false, verdicts: new Map() })],
+      modelled({ red: { mutants: 5, accepted: 1, suites: 2 } }),
+      4,
+    );
+    expect(r.unwitnessed).toEqual(["red"]);
+    // Standing down is not a disagreement -- it is an absence of evidence, and the
+    // report says which.
+    expect(r.weightDisagreement.map((w) => w.field)).not.toContain("accepted");
+  });
+
   it("reconcile prices a MIXED registry, some rated and some not", () => {
     // Killed: the old-dump fallback `?? 1` moved to `?? 2`. Scaling every weight
     // uniformly cannot be seen -- LPT is scale-invariant -- so an all-unrated fixture
