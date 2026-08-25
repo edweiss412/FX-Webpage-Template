@@ -491,6 +491,27 @@ describe("survivor kills — boundaries and counters the earlier cases stepped o
     expect(r.drifted).toEqual([]);
   });
 
+  it("driftReport keeps an OBSERVED rate of exactly 1, at the guard's literal", () => {
+    // Killed: the literal in `obs <= 0` moved to 1, so a surface observed at exactly
+    // one millisecond per modelled boot is skipped entirely. The earlier zero-rate
+    // case cannot see this -- it proves the guard rejects 0, not that it accepts 1 --
+    // and the boundary between them is the only place the literal is visible.
+    // One child of 1 ms over one modelled boot is exactly 1 ms/boot.
+    const one = measured({ surfaceId: "one", children: [child("s", 1)] });
+    const r = driftReport(new Map([["one", 1000]]), [one], modelled({ one: { mutants: 0 } }), 2);
+    expect(r.drifted.map((d) => d.surfaceId)).toEqual(["one"]);
+  });
+
+  it("driftReport keeps a DECLARED rate of exactly 1 rather than calling it undeclared", () => {
+    // Killed: the literal in `dec <= 0` moved to 1. A registry row declaring 1 ms per
+    // boot is legal and measured; reporting it as undeclared would send someone to
+    // add a rate that is already there.
+    const m = measured({ surfaceId: "d", children: [child("s", 2000)] });
+    const r = driftReport(new Map([["d", 1]]), [m], modelled({ d: { mutants: 0 } }), 2);
+    expect(r.undeclared).toEqual([]);
+    expect(r.drifted.map((d) => d.surfaceId)).toEqual(["d"]);
+  });
+
   it("seedRates keeps a rate of exactly 1, which the skip must not swallow", () => {
     // Killed: `rate <= 0` moved to `rate <= 1`. One millisecond per modelled boot is
     // absurd in production and perfectly legal here, and dropping it would silently
