@@ -30,6 +30,17 @@ path is not a new one for CI. Checked for exclusions too: the only `tests/cross-
 with special handling in `vitest.projects.ts` is `email-canonicalization.test.ts` (SERIAL, and
 excluded from the unit-suite job), so both new suites run in the ordinary partition.
 
+**Collection is not the whole wiring question; PARTITION is.**
+`tests/cross-cutting/vitest-projects-partition.test.ts` walks the real `tests/` tree and asserts
+every non-nightly test file is claimed by EXACTLY ONE default project — the failures it exists to
+catch are a glob that drops a directory from both projects (silent coverage loss) and one that
+matches it in both (double-run plus a re-introduced DB race). Checked at plan time:
+`tests/cross-cutting/**` appears in `PARALLEL_TEST_GLOBS` **zero** times, so both new suites land
+in the SERIAL project by default, claimed exactly once, with no config edit and no change to the
+partition guard. That is also the right home for a suite that parses 3670 files, since the serial
+project runs with `fileParallelism: false`. `TEST_FAST_DEFERRED` governs only parallel-set files,
+so neither suite needs a deferral row.
+
 ## Advisory-lock topology
 
 N/A — the diff touches no `pg_advisory*` path.
@@ -140,6 +151,8 @@ reported           s.replace(a, "x" + v)                        BinaryExpression
 accepted           s.replace(a, ("lit" as string))              StringLiteral
 accepted           s.replace(a, ("lit"))                        StringLiteral
 accepted           s.replace(a, ("lit" satisfies string))       StringLiteral
+accepted           s.replace(a, ("lit"!))                       StringLiteral     <- AC-2 non-null
+not-in-population  s.replace()                                  no arguments      <- AC-3 zero-arg
 reported           s.replace(...[find, repl])                   spread at index <=1
 reported           s.replace(...args, "lit")                    spread at index <=1
 reported           s.replace(a, ...rest)                        spread at index <=1
@@ -201,15 +214,32 @@ moment it is written. The RED step stubs the walk to return `[]`, confirms BOTH 
 fails and that the repo-wide assertion would otherwise have passed, then reverts. Recorded in the
 commit. Without that pairing the task proves the premise runs, not that it discriminates.
 
-## Task 4 — the repo-wide assertion, observed red at 52
+## Task 4 — the repo-wide scan, against a DECLARED inventory
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t repo-wide` red-state=authored red-target=`lib/sync/feed/shapeHoldEntry.ts:29` why=`52 in-population offenders are unrepaired at this point, so the assertion names them and fails` ac=AC-5,AC-1b -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t inventory` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`no inventory assertion exists, so nothing compares the walk's findings against a declared set and the work list is invisible` ac=AC-1b -->
 
-This RED is the point of the task, not an obstacle to it: the assertion must be seen naming 52
-sites before any repair lands, or Tasks 5-8 are unverifiable. The failure output IS the work
-list.
+**Why an inventory and not a zero-assertion.** Plan review round 2 caught the sequencing defect
+this replaces. A bare "report zero offenders" assertion authored here stays RED until Task 8, so
+Tasks 4 and 7 could never observe green on their own command — and red-then-green on the SAME
+command is the whole task-marker contract, not a formality.
+
+So the assertion compares the walk's findings against `EXPECTED_OFFENDERS`, a declared list, and
+this task lands it holding all 52. It goes green here, on its own command, immediately.
+
+**Each repair task then removes its own files from that list in the same commit that repairs
+them.** Removing entries makes the assertion red (the walk still reports sites the list no longer
+declares) and repairing them makes it green — one clean cycle per task, on one command, with the
+list shrinking 52 → 51 → 45 → 40 → 34 → 0. Task 8's last step empties it, at which point the
+assertion IS the zero-offender gate AC-5 requires.
+
+The declared list is also the work list, and it catches something a zero-assertion cannot: a NEW
+offender introduced mid-arc reds immediately instead of hiding inside a count that was going to be
+non-zero anyway.
 
 Renders findings as `file:line  text` and asserts the list is empty.
+
+**AC-5 is claimed by Task 8**, where the inventory reaches empty and the assertion becomes the
+zero-offender gate. This task owns only the inventory mechanism.
 
 **AC-1b's reconciliation half lands here:** the assertion's total is compared against
 `count-conservative.mts`, so a visitor that stops descending cannot pass by agreeing with itself.
@@ -322,7 +352,7 @@ the defect. The reading is for the few where it is not.
 
 ## Task 7 — hygiene wraps in `lib/`
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t repo-wide` red-state=authored red-target=`lib/log/sanitize.ts:6` why=`these sites are still reported by the repo-wide assertion until wrapped` ac=AC-7 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t inventory` red-state=authored red-target=`lib/log/sanitize.ts:6` why=`the five files leave EXPECTED_OFFENDERS in this commit, so the inventory assertion reds until they are wrapped` ac=AC-7 -->
 
 `lib/log/sanitize.ts` (1), `lib/test/serialAudit.ts` (3), `lib/parser/personalization.ts` (1).
 Four of these five are cover-VOUCHED rather than merely silent — `REDACTED` and the three
@@ -333,7 +363,7 @@ fixing a live defect, and the repo-wide assertion is what these are for.
 
 ## Task 7b — the authored-edit class: six harnesses, two of which write to disk
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/authoredEditLiteral.test.ts` red-state=authored red-target=`scripts/intraleg-killer-audit.mjs:767` why=`an authored to is applied as a replacement STRING and written to disk, so a $ sequence in it corrupts the file` ac=AC-8 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/authoredEditLiteral.test.ts` red-state=authored red-target=`scripts/intraleg-killer-audit.mjs:767` why=`an authored to is applied as a replacement STRING and written to disk, so a $-bearing to corrupts the file; and these six files leave EXPECTED_OFFENDERS in the same commit` ac=AC-8 -->
 
 Surfaced by applying the read-before-wrap rule above to the silent bucket. Its first use returned
 one site; sweeping that site's SHAPE returned six.
@@ -377,22 +407,30 @@ so enrolling `scrubSentryEvent.ts` as a guard surface would want a control ancho
 
 ## Task 8 — the remaining tooling and test wraps
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t repo-wide` red-state=authored red-target=`tests/docs/agentsHeavyPhaseRule.test.ts:821` why=`34 sites across scripts/ and tests/ remain reported until wrapped` ac=AC-5,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t inventory` red-state=authored red-target=`tests/docs/agentsHeavyPhaseRule.test.ts:821` why=`the last 34 sites leave EXPECTED_OFFENDERS, emptying it, so the inventory assertion reds until every one is wrapped` ac=AC-5,AC-7 -->
 
 The balance of the wraps, by file. Derived at plan time, not transcribed:
 
 ```
-scripts/audit-cn-operand-kinds.mjs                 2     tests/e2e/helpers/walkerRoutes.ts          3
-scripts/extract-admin-log-only-codes.ts            1     tests/mutation/_metaSourceShardIntegrity   3
-scripts/intraleg-killer-audit.mjs                  1     tests/mutation/source/premiseScan.test.ts  3
-scripts/share-link-flash-adversary-matrix.mjs      1     (surfaceCases.ts moved to Task 7b)
-tests/admin/needsAttention.test.ts                 1     tests/paneCompaction/driver.test.ts        1
-tests/ci/_metaEnvBoundExclusionCoverage.test.ts    1     tests/parser/payloadZeroWidthEnriched      1
-tests/codexGuard/fixtures/fake-codex.mjs           1     tests/reviewRounds/row.test.ts             2
-tests/cross-cutting/pgCronCiVacuity.test.ts        1     tests/specLint/declaredLimitPins.test.ts   1
-tests/cross-cutting/psqlStartupFileSuppression     4     tests/styles/_metaNewTabAnnouncement       1
-tests/db/connectionCensus.test.ts                  1     tests/e2e/_pendingDiscardHarness.tsx       2
-tests/docs/agentsHeavyPhaseRule.test.ts            7     tests/e2e/helpers/liveEntryToolchain.ts    1
+scripts/audit-cn-operand-kinds.mjs                       2
+scripts/extract-admin-log-only-codes.ts                  1
+tests/admin/needsAttention.test.ts                       1
+tests/ci/_metaEnvBoundExclusionCoverage.test.ts          1
+tests/codexGuard/fixtures/fake-codex.mjs                 1
+tests/cross-cutting/psqlStartupFileSuppression.test.ts   4
+tests/docs/agentsHeavyPhaseRule.test.ts                  6
+tests/e2e/_pendingDiscardHarness.tsx                     2
+tests/e2e/helpers/liveEntryToolchain.ts                  1
+tests/e2e/helpers/walkerRoutes.ts                        3
+tests/mutation/_metaSourceShardIntegrity.test.ts         3
+tests/mutation/source/premiseScan.test.ts                3
+tests/paneCompaction/driver.test.ts                      1
+tests/parser/payloadZeroWidthEnriched.test.ts            1
+tests/reviewRounds/row.test.ts                           2
+tests/specLint/declaredLimitPins.test.ts                 1
+tests/styles/_metaNewTabAnnouncement.test.ts             1
+                                                         --
+TOTAL                                                    34
 ```
 
 Several substitute SOURCE OR DOCUMENT TEXT into a replacement position, which is exactly the
@@ -410,7 +448,7 @@ these tests' input.
 
 ## Task 9 — registry enrolment and the score
 
-<!-- task: red=`pnpm heavy pnpm mutation:guards` red-state=authored red-target=`tests/mutation/source/registry.ts:151` why=`the scanner is not enrolled, so no mutant is generated for it and the gate says nothing about this surface` ac=AC-9 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`step 1 adds the registry row alone, so EXPECTED_LEDGER_KINDS has 42 keys against the registry's 43 and the parity assertion fails on the missing declaration` ac=AC-9 -->
 
 **Enrollment is three files, not one.** The registry row alone reds two gates: `pnpm
 mutation:guards` fails ledger-key parity, and the close-out full suite fails deciding-suite
@@ -428,6 +466,19 @@ suiteCount:    79   expectedCount: 79   currentEqual: true   enrollmentEqual:   
    pass. MEASURE them from a first run; do not guess.
 3. `EXPECTED_ENV_TOUCHING` in `tests/mutation/_metaPremiseContract.test.ts` — keyed by deciding
    suite, asserted key-equal to the suite list.
+
+**There is a template in-tree; copy its shape, not its numbers.** 19 of the 42 enrolled surfaces
+have a `sourcePath` under `tests/` (`lib` 17, `scripts` 6, `tests` 19), so a scanner living in
+`tests/cross-cutting/` is an ordinary target rather than a novel one — worth checking before
+designing around it. `premiseScan` is the closest match, a `tests/`-rooted AST scanner with two
+deciding suites: it declares three of the six operators, a `scoreFloor` of 0.95, and a `control`
+whose comment records why that anchor and states its uniqueness as a verified `grep -c -F` count.
+
+Carry the comment discipline and the fact that a subset is legal. Do NOT carry the subset or the
+floor — both are per-surface measurements. This plan's closure set declares all six operators
+deliberately, because a scoped subset leaves the excluded operators' sites unscored and the
+round-1 diff brief's `OPERATORS:` tail would then have to say so. Declare six, run once, and
+narrow only with a stated reason per excluded operator.
 
 The row itself (`tests/mutation/source/registry.ts:151` is the array it joins): `sourcePath` the scanner module,
 `suitePaths` the fixture suite, `operators` the closure set below, a `scoreFloor`, and a `control`
@@ -461,11 +512,30 @@ nothing, which the repo-wide assertion reads as zero offenders and PASSES.
 Run `pnpm heavy pnpm mutation:guards` BEFORE the first diff dispatch — it spawns a real
 child per mutant and is a MUST-wrap phase under the machine-wide slot semaphore.
 
-**Budget the wall clock: the machine-wide heavy semaphore is at ONE slot.** A full
-`mutation:guards` run queues behind every other heavy phase on the box, so this task is scheduled
-as a single wrapped run rather than an iterate-and-rerun loop. Get the registry row, the ledger
-kinds and the env-touching entry right BEFORE the first run — a red on any of the three costs a
-whole queue position, and the ledger-kind counts have to come from a run that completed.
+**The sequencing, because plan review round 2 found the obvious one self-contradictory.** The
+earlier draft asked for all three declarations correct BEFORE the first run while also requiring
+the ledger-kind counts to be MEASURED from that run. No execution satisfies both. And the
+unenrolled tree is internally consistent — registry 42, expected 42, parity TRUE — so "not
+enrolled" is not a red at all.
+
+The order that works, and spends the heavy slot exactly once:
+
+1. **Add the registry row alone.** Registry 43, expected 42, and the parity assertion in
+   `tests/mutation/guardSurfaces.gates.test.ts:21` fails on the missing declaration. That is the
+   task's observed RED, and it is CHEAP: the assertion is a key comparison over two arrays, it
+   generates no mutants, and it needs no heavy slot.
+2. **Measure the ledger kinds through the harness's own code path, scoped to this surface** —
+   import `runSurface` and read the ledger it produces, rather than running all four shards to
+   learn one surface's counts. The overlay is in-memory, so this neither needs the semaphore nor
+   disturbs anything else on the box.
+3. **Declare `EXPECTED_LEDGER_KINDS` and `EXPECTED_ENV_TOUCHING`** from that measurement. The same
+   command from step 1 now passes: GREEN on the same command, which is what the marker contract
+   asks for.
+4. **One full `pnpm heavy pnpm mutation:guards`** to produce the score for the round-1 diff brief.
+
+**Budget the wall clock: the machine-wide heavy semaphore is at ONE slot.** Step 4 queues behind
+every other heavy phase on the box, which is exactly why steps 1-3 are engineered to need none of
+it. Getting a declaration wrong after step 4 costs a whole queue position.
 
 **Run the FULL four-shard set, never a scoped shard, and re-derive after any merge.** The shard
 partition weighs mutant counts, so enrolling this scanner reshuffles all four shards, and so does
@@ -520,6 +590,16 @@ from the other, so they are a cross-check rather than a restatement:
 Cross-checked against the by-directory derivation, which was computed independently of the task
 split: `tests` 35, `lib` 9, `scripts` 5, `docs` 4, `components` 3. The `lib` column reconciles as
 1 (T5) + 3 (T6) + 5 (T7) = 9. ✓
+
+**Round accounting splits at a base boundary, deliberately.** Review-round rows are keyed by
+`<baseSha12>` = `git merge-base origin/main HEAD`, and this arc has already crossed one boundary
+(`8bf8709914a3` → `bcd3d088ec76`): the spec's seven rounds and its filing live under the old sha
+while plan rounds accumulate under the new one. `main` moves fast enough that another merge before
+push is likely, which would move it again. The consequence to be deliberate about rather than
+surprised by: a stage's rounds can split across base files and the economy gate counts per
+(branch, base, stage), so neither half may reach the threshold alone even though the stage did.
+The filing decision is made on the stage's TOTAL rounds, filed under the base where the threshold
+was actually crossed, and says so.
 
 **Registry reconciliation.** One `GuardSurface` row added, none removed or edited, PLUS the two
 companion declarations §Task 9 names. Task 9 asserts the array length before and after rather than
