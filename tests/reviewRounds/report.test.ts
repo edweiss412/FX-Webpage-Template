@@ -9,7 +9,7 @@ import { premiseHolds } from "../_shared/premise";
 import { ARC_SUM_FREEZE, ARC_SUM_GRANDFATHERED } from "../../lib/reviewRounds/arcSumGrandfather";
 import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
 import { checkCorpus } from "../../lib/reviewRounds/corpus";
-import { mergedArcs } from "../../lib/reviewRounds/mergedArcs";
+import { mergedArcs, classifyFirstParentMerges } from "../../lib/reviewRounds/mergedArcs";
 import { buildReport, main, render } from "../../scripts/review-economy";
 
 const g = (cwd: string, ...args: string[]): string =>
@@ -1403,13 +1403,17 @@ describe("real history (spec §11.3 layer 2)", () => {
     execFileSync("git", ["rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim() ===
     "true";
 
-  // 120s, not the 30s default. The cost is the ENVIRONMENT, not the assertion:
-  // this walks every first-parent merge on main and `mergedArcs` shells out
-  // over that history, which on a loaded machine runs past 30s and fails as a
-  // timeout that reads exactly like a regression. Measured 2026-08-24 at 35s
-  // with nine concurrent worktrees, and confirmed to fail identically on a
-  // tree without this branch's changes, so raising the bound is not papering
-  // over anything this arc introduced.
+  // The 120s ceiling is now BELT-AND-BRACES, not load-bearing. It was raised
+  // because `mergedArcs` spawns one `git merge-base` process per recognized
+  // merge and main carries ~850 of them, so this test cost 19s here and was
+  // measured at 24.79s then 34.66s elsewhere against a 30s default - a fleet
+  // blocker whose date a raised ceiling only postpones. The assertion now uses
+  // `classifyFirstParentMerges`, one `git log` and no per-merge spawns, and the
+  // test dropped to under two seconds.
+  //
+  // The ceiling STAYS anyway, deliberately: it costs nothing while the test is
+  // fast, another arc is carrying the same raise as an interim fix on main, and
+  // removing it here would either conflict with that or silently revert it.
   it.skipIf(isShallow)(
     "matches the live log when history is available",
     () => {
@@ -1420,7 +1424,13 @@ describe("real history (spec §11.3 layer 2)", () => {
       )
         .split("\n")
         .filter(Boolean);
-      const { recognized, unrecognized } = mergedArcs(process.cwd());
+      // The CHEAP entry point: this assertion is about ACCOUNTING, and accounting
+      // needs no base. `mergedArcs` spawns one `git merge-base` process per
+      // recognized merge - ~850 of them on main and growing - which is what put
+      // this test at 24.79s, then 34.66s a day later, against a 30s default.
+      // Base resolution stays covered where it is actually meaningful: the
+      // fixture cases above, which pin that the base is NEVER the first parent.
+      const { recognized, unrecognized } = classifyFirstParentMerges(process.cwd());
       // Every first-parent merge is accounted for: recognized or reported.
       expect(recognized.length + unrecognized.length).toBe(expected.length);
       // The residue is REPORTED, never assumed empty - and every entry carries
