@@ -118,7 +118,7 @@ step, not a pass.
 
 ## Task 1 — `judgeSource` and the accept-set
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`the scanner module does not exist, so the suite cannot collect and no accept-set case runs` ac=AC-1,AC-1b,AC-2,AC-3,AC-3b -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`judgeSource is a stub returning [], so every reported-kind case asserts a finding and gets none` ac=AC-1,AC-1b,AC-2,AC-3,AC-3b -->
 
 **Files** (fenced: two do not exist yet, and a citation to an absent file is a hard failure):
 
@@ -134,6 +134,14 @@ citation to an absent file is a hard `spec:lint` failure, correctly.
 `judgeSource(filePath, source)` is a pure function of a source STRING. The disk walk is a
 separate export (Task 2). §7 of the spec explains why the split decides whether mutants can be
 killed at all.
+
+**The module is created as a STUB in the RED step, not left absent.** Plan review round 3 caught
+the earlier form: "the module does not exist, so the suite cannot collect" is a COLLECTION
+failure, and the RED-validity rule rejects it — an unresolved import goes green when the test file
+changes, not when the implementation lands, so it asserts nothing. The RED step therefore lands
+`scan.ts` exporting `judgeSource` with a body of `return []`, and the fixture cases then fail
+BEHAVIOURALLY: every reported-kind case asserts a finding and receives none. `red-target` cites
+that stub return, which is the production line whose defect makes the red.
 
 Classification order, exactly as spec §3.1 states it, and validated as a prototype before this
 plan was written — all sixteen cases below were RUN:
@@ -175,10 +183,14 @@ it, a visitor that stops descending after classifying a call passes every other 
 
 ## Task 2 — the population, derived from disk
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t population` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`the walk export does not exist, so the subtraction cannot be exercised` ac=AC-4,AC-4b -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t population` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`the walk is stubbed to an empty file list, so the new-top-level-directory case finds its synthetic path absent from the population` ac=AC-4,AC-4b -->
 
 Every tracked file matching `\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$`, MINUS `node_modules/**` and
 `docs/**`. Stated as a subtraction so a new top-level directory is covered by default.
+
+**Stubbed, not absent, for the same reason as Task 1.** The RED step lands the walk export
+returning an empty file list; the population case then fails behaviourally rather than failing to
+import.
 
 **Failure mode this catches:** someone rewrites the walk as an allowlist of known directories,
 and a new directory is then silently unscanned. The case feeds a synthetic path under a
@@ -216,7 +228,7 @@ commit. Without that pairing the task proves the premise runs, not that it discr
 
 ## Task 4 — the repo-wide scan, against a DECLARED inventory
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t inventory` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`no inventory assertion exists, so nothing compares the walk's findings against a declared set and the work list is invisible` ac=AC-1b -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t inventory` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`planted defect: the walk is stubbed to drop one file's findings, so the inventory comparison reports that file's sites missing` ac=AC-1b -->
 
 **Why an inventory and not a zero-assertion.** Plan review round 2 caught the sequencing defect
 this replaces. A bare "report zero offenders" assertion authored here stays RED until Task 8, so
@@ -235,6 +247,16 @@ assertion IS the zero-offender gate AC-5 requires.
 The declared list is also the work list, and it catches something a zero-assertion cannot: a NEW
 offender introduced mid-arc reds immediately instead of hiding inside a count that was going to be
 non-zero anyway.
+
+**This task is a CHARACTERIZATION task, so its red is planted — like Tasks 3 and 5.** Round 3
+caught the earlier claim that "no assertion existed" was the red: the assertion lands holding all
+52 and is green on arrival, so the absence of it is not a failure of the same command, and forcing
+a red by declaring a wrong list would then be greened by editing test data rather than production.
+
+The RED step instead plants a defect in the WALK — stub it to drop one file's findings — and
+confirms the inventory comparison names exactly that file's sites as missing. Revert, and the
+comparison is green. The planted defect proves the comparison discriminates; without it the task
+proves only that a list can equal itself.
 
 Renders findings as `file:line  text` and asserts the list is empty.
 
@@ -448,7 +470,7 @@ these tests' input.
 
 ## Task 9 — registry enrolment and the score
 
-<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`step 1 adds the registry row alone, so EXPECTED_LEDGER_KINDS has 42 keys against the registry's 43 and the parity assertion fails on the missing declaration` ac=AC-9 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`step 1 adds the registry row alone, so EXPECTED_LEDGER_KINDS has 42 keys against the registry's 43 and the parity assertion fails on the missing declaration` ac=AC-9 -->
 
 **Enrollment is three files, not one.** The registry row alone reds two gates: `pnpm
 mutation:guards` fails ledger-key parity, and the close-out full suite fails deciding-suite
@@ -522,20 +544,35 @@ The order that works, and spends the heavy slot exactly once:
 
 1. **Add the registry row alone.** Registry 43, expected 42, and the parity assertion in
    `tests/mutation/guardSurfaces.gates.test.ts:21` fails on the missing declaration. That is the
-   task's observed RED, and it is CHEAP: the assertion is a key comparison over two arrays, it
-   generates no mutants, and it needs no heavy slot.
+   task's observed RED. It is cheap in CPU — a key comparison over two arrays, generating no
+   mutants — but it is a `--project mutation` run, so it is WRAPPED anyway.
 2. **Measure the ledger kinds through the harness's own code path, scoped to this surface** —
    import `runSurface` and read the ledger it produces, rather than running all four shards to
-   learn one surface's counts. The overlay is in-memory, so this neither needs the semaphore nor
-   disturbs anything else on the box.
-3. **Declare `EXPECTED_LEDGER_KINDS` and `EXPECTED_ENV_TOUCHING`** from that measurement. The same
-   command from step 1 now passes: GREEN on the same command, which is what the marker contract
-   asks for.
+   learn one surface's counts. WRAPPED: `runSurface` runs a baseline and then spawns a child suite
+   per generated mutant, so it is a heavy phase by the transitive-shape rule regardless of being
+   scoped to one surface.
+3. **Declare `EXPECTED_LEDGER_KINDS` from that measurement, and `EXPECTED_ENV_TOUCHING` from a
+   DIFFERENT one.** Round 3 caught these being attributed to a single source: `runSurface`'s
+   `RunResult` carries mutant counts, kills, survivors and outcomes, and nothing about environment
+   classification. `EXPECTED_ENV_TOUCHING` records how many of a suite's tests
+   `classifyTests(...)` returns `verdict === "environment-touching"` for, so it is measured by
+   running that classifier over the new suite — the same call
+   `tests/mutation/_metaPremiseContract.test.ts` makes. Two measurements, two sources, stated
+   separately so neither is guessed. The step-1 command then passes: GREEN on the same command,
+   which is what the marker contract asks for.
 4. **One full `pnpm heavy pnpm mutation:guards`** to produce the score for the round-1 diff brief.
 
-**Budget the wall clock: the machine-wide heavy semaphore is at ONE slot.** Step 4 queues behind
-every other heavy phase on the box, which is exactly why steps 1-3 are engineered to need none of
-it. Getting a declaration wrong after step 4 costs a whole queue position.
+**Budget the wall clock honestly: this task takes FOUR wrapped invocations, not one.** An earlier
+draft claimed steps 1-3 needed no slot; round 3 corrected it, and the correction is worth stating
+because the reasoning that produced the error is tempting. `AGENTS.md` classifies a heavy phase by
+INVOCATION SHAPE, not by measured cost — every `--project mutation` run, and every command that
+transitively spawns one — precisely so nobody has to win an argument about whether their
+particular run is cheap enough. The parity check genuinely is cheap and is wrapped anyway.
+
+So: the red (step 1), the green (step 3's re-run of the same command), the scoped `runSurface`
+(step 2), and the full run (step 4). With the machine-wide semaphore at ONE slot, sequence them
+back to back and get every declaration right before entering the queue — each mistake costs a
+whole position, and there are four positions to spend here rather than one.
 
 **Run the FULL four-shard set, never a scoped shard, and re-derive after any merge.** The shard
 partition weighs mutant counts, so enrolling this scanner reshuffles all four shards, and so does
