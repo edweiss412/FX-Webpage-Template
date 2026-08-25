@@ -260,8 +260,8 @@ what the runner will actually generate:
 
 | surface | sites | by operator |
 | --- | --- | --- |
-| `lib/supabase/retryingFetch.ts` | **39** | integer-literal 14, statement-removal 11, equality-flip 9, logical-connector 4, relational-boundary 1 |
-| `tests/supabase/retryableRpcVolatilityScan.ts` | **41** | statement-removal 20, equality-flip 10, logical-connector 8, integer-literal 3 |
+| `lib/supabase/retryingFetch.ts` | **49** | equality-flip 16, integer-literal 14, statement-removal 11, logical-connector 7, relational-boundary 1 |
+| `tests/supabase/retryableRpcVolatilityScan.ts` | **54** | statement-removal 26, equality-flip 13, logical-connector 10, integer-literal 4, relational-boundary 1 |
 | `lib/supabase/retryEligibility.ts` | **3** | statement-removal 1, equality-flip 1, integer-literal 1 |
 
 Re-derive rather than trust the table:
@@ -281,7 +281,13 @@ file, so it goes stale the moment the file changes — the third derived number 
 after the env-touching count and the AC-6 tally. The score's own total comes from the RUN, not from
 this table, which is why the table being stale never reached a brief.
 
-**It moved a fifth time**, in the round-1 diff repairs, and the numbers above are that measurement.
+**It has now moved SIX times**, and the numbers above are the sixth measurement, taken after the
+round-2 repairs. Rather than narrate each one: the count is a measurement of a file, the file keeps
+changing because review keeps finding real things, and the command beside the table is the only part
+of this section that cannot go stale. The fifth measurement (39 and 41) and every earlier one are
+kept below purely as the record of how the number moved, not as anything to quote.
+
+**It moved a fifth time**, in the round-1 diff repairs.
 The wrapper fell to 39: the abort repair added statements but deleted the `timedOut` flag and its
 assignment. The scan module went 18 to 41, more than doubling, because three of the four repairs
 landed as new exported functions there (`readOnlyViolations`, `buildCatalog`, `hasReasonedEntry`)
