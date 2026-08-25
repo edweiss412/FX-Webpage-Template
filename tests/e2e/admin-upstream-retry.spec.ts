@@ -106,6 +106,14 @@ test.describe("admin gate absorbs a forced upstream 502", () => {
   // 50 rather than 3 because of the shared-counter finding above: every request the layout
   // makes must run out of attempts, so the count has to cover all of them, not one. This asserts
   // that a persistent fault SURFACES — it makes no claim about how many retries preceded it.
+  //
+  // Why 50 and not a tighter number, stated as arithmetic so it is not a magic constant: each
+  // request needs `1 + MAX_SUPABASE_RETRIES` = 3 faults to exhaust, and the requests share ONE
+  // client counter, so exhausting N concurrent requests costs 3N. `app/admin/layout.tsx:77`
+  // issues three in its `Promise.all`, needing 9. At 50 the margin covers a layout that grows to
+  // SIXTEEN parallel calls before this case could silently degrade into the absorbed case — and
+  // it degrades LOUDLY rather than silently, because the assertion is that the boundary is
+  // PRESENT. Too small a count fails this test; it cannot make it pass wrongly.
   test("a fault that outlasts the budget reaches the recorded failure surface", async ({
     page,
   }) => {
