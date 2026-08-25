@@ -1314,16 +1314,45 @@ describe("clause B's message, asserted by value (mutation survivors)", () => {
     const message = problems.find((p) => p.kind === "missing_arc_filing")?.message ?? "";
     expect(message).toContain(`(aaaaaaaaaaaa 1, bbbbbbbbbbbb 3)`);
     expect(message).not.toContain("cccccccccccc");
-    // Does NOT kill integer-literal 0>1 on `group[0]?.dir`, and the comment
-    // that claimed it did was wrong: `group[1]` is a different BASE of the same
-    // branch, and `dir` is derived from the branch, so both indices name the
-    // identical directory and the `?? branch` fallback is never reached. No
-    // fixture can discriminate - a marked total always holds two or more bases
-    // (a single-base arc reaching the threshold is clause A's, so `marked` is
-    // false). Carried as an `equivalent` ledger row instead. This assertion
-    // still earns its place as a regression test that the message names the
-    // path a reader must go and edit.
+    // Diff R2 P2. The detail's directory is DERIVED from the branch now
+    // (`${CORPUS_DIR}/${branch}`) rather than read off `group[0].dir` with a
+    // `?? branch` fallback. That fallback emitted a bare BRANCH NAME where a
+    // reader needs the path to go and edit, and round 2 proved it reachable:
+    // a ONE-FILE arc whose rows declare different `baseSha` values (the
+    // identity-mismatch class) has `bases === 1` while `arcCountedRounds`
+    // counts four distinct `(baseSha, round)` pairs, so clause A never fires
+    // and the total IS marked. My round-1 equivalence argument assumed a
+    // one-base group's arc sum always equals its per-base count; that is false
+    // exactly here, which is why the mutant was never equivalent.
     expect(message).toContain("docs/review-rounds/feat/foo");
+  });
+
+  // Diff R2 P2, made permanent. ONE file whose rows declare DIFFERENT baseSha
+  // values is the identity-mismatch class, and it is the case my round-1
+  // equivalence argument wrongly ruled out: `countedRounds` sees a single round
+  // so clause A stays silent, `arcCountedRounds` counts four distinct
+  // `(baseSha, round)` pairs so clause B fires, and the total is MARKED with
+  // `bases === 1`. Before the repair the detail fell back to a bare branch name
+  // here; a reader needs the path to go and edit.
+  it("names the DIRECTORY, not the branch, when a marked total has one base", () => {
+    const problems = check([
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: rows(
+          { round: 1, baseSha: "aaaaaaaaaaaa" },
+          { round: 1, baseSha: "bbbbbbbbbbbb" },
+          { round: 1, baseSha: "cccccccccccc" },
+          { round: 1, baseSha: "dddddddddddd" },
+        ),
+      },
+    ]);
+    const message = problems.find((p) => p.kind === "missing_arc_filing")?.message ?? "";
+    premiseHolds(
+      "the fixture really does produce a MARKED one-base total, or this pins nothing",
+      message.includes("across 1 merge bases"),
+    );
+    expect(message).toContain("docs/review-rounds/feat/foo");
+    expect(message).not.toMatch(/ in feat\/foo /);
   });
 });
 

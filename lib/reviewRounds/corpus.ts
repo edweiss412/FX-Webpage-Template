@@ -527,7 +527,7 @@ export function arcSumTotals(
         detail:
           `${branch}: stage ${stage} burned ${arcSum} counted rounds across ` +
           `${group.length} merge bases and has no filing section for it in ` +
-          `${group[0]?.dir ?? branch} (${perBase})${freezeViolation}`,
+          `${CORPUS_DIR}/${branch} (${perBase})${freezeViolation}`,
       });
     }
   }
