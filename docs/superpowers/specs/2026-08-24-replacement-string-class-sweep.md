@@ -546,6 +546,16 @@ than as a round.
    classifies repairs; the shipped judge is unaffected, because it reports every non-accepted
    form regardless of what the cover can say about it.
 
+7. **The exclusion is anchored at the repo root.** `EXCLUDED` is `/^(node_modules|docs)\//`, so a
+   nested node_modules directory below the root would be scanned rather than excluded. This is
+   deliberate — the anchored form is what makes the rule a subtraction from the root, so a new
+   top-level directory is covered by default (AC-4) — and it is unreachable besides: the
+   population's input is `git ls-files`, which tracks no `node_modules` path at any depth.
+   Probed at this head: `git ls-files | grep -c "node_modules/"` reports `0`. A vendored
+   dependency committed under a nested `node_modules/` would enter the population and be judged
+   like any other source; the consequence is a reported site a human dispositions, which is the
+   conservative direction §2's bound already allows.
+
 ## 9. Acceptance criteria
 
 | ID | Criterion |
