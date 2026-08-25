@@ -541,9 +541,16 @@ Four mechanics are load-bearing, and each has a failure mode worse than the one 
 - **AC-7c. The observer cannot recurse.** A stubbed 5xx on the durable sink's own `app_events` write
   produces exactly one record and no unbounded chain, which is the `log.debug` contract in §7.1
   asserted rather than trusted.
-- **AC-7b. The workflow can actually read the signal (§7.2).** The run step's output is captured to a
-  file, the grep step writes `$GITHUB_OUTPUT`, and the dump step's condition references it. Asserted
-  against the workflow file, because a trigger with no value to read is inert rather than imprecise.
+- **AC-7b. The workflow can read the signal, and STILL FAILS when it should (§7.2).** Asserted against
+  the workflow file: the run step sets `pipefail` under `shell: bash` and redirects `2>&1` before the
+  pipe, the grep step carries `if: always()` and an `id:`, and the dump step's condition references
+  that id's output by name.
+
+  The arm that matters most is the one about the gate rather than the dump: **a planted failing test
+  run must still turn the job red with the capture in place.** Without `pipefail` the step's status is
+  `tee`'s, and a required check that cannot go red is worse than the flake this spec exists to fix. It
+  is plant-both applied to the gate itself: prove the instrument reports, and prove it did not cost the
+  job its ability to fail.
 - **AC-8. Invariant 9 suites pass unmodified** (`tests/auth/_metaInfraContract.test.ts`,
   `tests/admin/_metaInfraContract.test.ts`).
 
