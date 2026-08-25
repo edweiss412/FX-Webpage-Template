@@ -64,8 +64,11 @@ and both times a number written here went stale between the writing and the revi
 invalidates itself on the next commit is not a specification, it is a snapshot; the command is the
 specification, and the probe record's dated blocks are where snapshots live.
 
-What does NOT move is the offender count: **56 sites across 32 files**, unchanged at the base and
-at every head since, which is the figure §4's tier decision rests on. A probe drawn from outside
+The figure §4's tier decision rests on is the offender count **at the base `8bf870991`: 56 sites
+across 32 files**. It held across every head up to the point the repairs landed, which is what
+made the tier decision safe to take. It does NOT hold afterwards, by design — that is the whole
+point of the sweep. Re-running the derivation at this head reports **4**, the `docs/**` exceptions
+§3.2 fences out, and the in-population count is zero. A probe drawn from outside
 this corpus, or more than one ordinary edit away from a site in it, files to §8 rather than to a
 review round.
 
@@ -218,7 +221,13 @@ The probe record is the authority; the figures are quoted here at authoring time
 record's dated block rather than restated as a live figure (§2 explains why): at the base
 `8bf870991` the walk saw 1201 call sites in 496 files, 1120 passing a string literal and 25
 already passing a replacer function, with the sub-two-argument bucket empty — checked directly,
-not assumed. The offender count is the part that has not moved since.
+not assumed.
+
+**All of these are base figures, and the offender count is the one this document deliberately
+invalidated.** At `8bf870991` it was 56 across 32 files; at this head the derivation reports 4,
+every one of them a `docs/**` exception, and `EXPECTED_OFFENDERS` in the shipped suite is empty. A
+reader running `count-conservative.mts` today and seeing 4 is seeing the sweep having worked, not
+a stale number.
 
 By top-level directory, sites and then files. The two columns differ because chained calls
 put several sites on one line:

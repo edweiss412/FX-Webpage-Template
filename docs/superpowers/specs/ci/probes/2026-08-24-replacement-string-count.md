@@ -106,7 +106,10 @@ $ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-c
 ```
 
 What is invariant, and what every decision in this record actually rests on: **offenders are
-unmoved at 56 across 32 files** at the base and at every head since.
+unmoved at 56 across 32 files** at the base and at every head up to the repairs. AFTER them the
+count is 4 — the `docs/**` exceptions alone — which is this record's subject succeeding rather
+than a figure going stale. Every block above is stamped with the sha it was run at for exactly
+this reason.
 
 ## 4. The 56, by directory
 
