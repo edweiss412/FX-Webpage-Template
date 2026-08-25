@@ -45,7 +45,7 @@ the request it landed on.
 | Volatility alone is NOT the answer to the double-execution axis. It is one of two arms, and the reason is a probe, not a preference. Round 1 raised this and the spec had already reached the same place independently. | §4 |
 | On exhaustion the wrapper replays the FIRST attempt's outcome, so the caller-visible failure is what it is today. This is the answer to the mixed-failure axis, not an omission of it. | §3.4 |
 | Discovery matches string literals against the catalog's non-`VOLATILE` set; it does not recognize call sites. Two call-site rules failed one round apart. | §4.4 |
-| §7's dump triggers on the FAULT (Kong's 502 body in the run output), not on a retry emit, so it reaches the service-role paths the wrapper excludes. | §7 |
+| §7's dump triggers on the FAULT, recorded by a transport observer, not on a retry emit and not on a consumer's own logging. | §7.1 |
 
 ## 2. Convergence criterion for review of this spec
 
@@ -339,8 +339,8 @@ catalog row. The sibling forensic code `ADMIN_SHOW_VERSION_TOKEN_READ_FAILED` ap
 `lib/messages/catalog.ts` nor the master spec, verified by grep at authoring time.
 
 The emit is a SECONDARY signal for §7, not its trigger: it tells a reader of the artifact whether the
-fault was absorbed. §7 keys on Kong's 502 body instead, because an emit only exists where the wrapper
-runs and the fault also occurs where it does not.
+fault was absorbed. §7 keys on the transport observer's `SUPABASE_UPSTREAM_FAULT` instead, because an
+emit only exists where the wrapper runs and the fault also occurs where it does not.
 
 ### 6.1 The emit cannot re-enter the wrapper
 
@@ -383,10 +383,9 @@ return `infra_error`; `roster_shift_counts` (`lib/admin/loadRecentAutoApplied.ts
 and swallows. A 502 on any of those leaves the job green AND produces no emit.
 
 **So the trigger keys on the FAULT, not on the repair.** The step runs when the run FAILED, or when
-the run's own output contains Kong's 502 body, `An invalid response was received from the upstream
-server`. That is the same discriminating string the evidence pass used to find this class in the
-first place (probe §Finding 1), it appears whichever client made the call, and it does not care
-whether a retry followed.
+the run's own output carries a `SUPABASE_UPSTREAM_FAULT` record. §7.1 is where that record comes
+from, and the point of putting it at the transport is that it exists whichever client made the call,
+whether or not a retry followed, and whether or not the consumer chose to say anything.
 
 ### 7.1 The fault is logged where it is first observable, not where a consumer chooses to
 
