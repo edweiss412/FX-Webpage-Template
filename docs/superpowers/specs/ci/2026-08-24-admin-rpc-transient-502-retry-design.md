@@ -44,6 +44,7 @@ the request it landed on.
 | This spec does not diagnose why the gateway resets the connection. It absorbs the fault and instruments the next occurrence so the cause becomes observable. | §7, §9 |
 | Volatility alone is NOT the answer to the double-execution axis. It is one of two arms, and the reason is a probe, not a preference. Round 1 raised this and the spec had already reached the same place independently. | §4 |
 | On exhaustion the wrapper replays the FIRST attempt's outcome, so the caller-visible failure is what it is today. This is the answer to the mixed-failure axis, not an omission of it. | §3.4 |
+| Discovery is repo-wide by RPC NAME, never scoped to callers of the factory. Round 2 demonstrated the scoped rule failing in both directions at once. | §4.4 |
 
 ## 2. Convergence criterion for review of this spec
 
@@ -73,8 +74,9 @@ All six measured consumers construct their client through `createSupabaseServerC
 
 So the repair lands in that one factory and covers the whole measured population without touching a
 single call site. The class-sweep default (repair every instance of one shape in the same PR) is met by
-construction rather than by enumeration, and the derived membership is eight rather than these six
-(§4.4, §9).
+construction rather than by enumeration. These six are what the evidence pass MEASURED; the derived
+membership is thirteen (§4.4, §9), and the gap between those two numbers is the class sweep doing its
+job rather than a discrepancy.
 
 ### 3.2 Mechanism, verified rather than assumed
 
@@ -260,12 +262,29 @@ and asserts:
 - **Safety.** Every name in `RETRYABLE_RPCS` is non-`VOLATILE` AND completes inside a `READ ONLY`
   transaction. This is the direction that prevents double execution, so a name that cannot be resolved
   in the catalog FAILS rather than being skipped.
-- **Completeness.** Every `.rpc("<name>")` call in a file that imports `createSupabaseServerClient`,
-  whose function the catalog reports as non-`VOLATILE`, is in `RETRYABLE_RPCS`. Discovery walks the
-  filesystem, so a call site added later is covered by default rather than silently exempt.
+- **Completeness.** Every `.rpc("<name>")` in the repository whose function the catalog reports as
+  non-`VOLATILE` is EITHER in `RETRYABLE_RPCS` or in an explicit exclusion list carrying a reason.
+  Discovery walks the filesystem repo-wide, so a call site added later is covered by default rather
+  than silently exempt.
 
-Discovery PARSES rather than line-greps. A shell grep for `.rpc("` over these files produced a phantom
-function name by running two lines together, which is the failure this clause exists to prevent.
+**Discovery is repo-wide by NAME, and scoping it to callers of the factory was tried and is wrong.**
+Round 2 of review demonstrated both failure directions on one rule. Scoping discovery to files that
+import `createSupabaseServerClient` is UNDER-inclusive, because the client travels as a value:
+`listShowsForCrew` takes it as a parameter (`lib/data/listShowsForCrew.ts`, search
+`export async function listShowsForCrew`) and its caller constructs it (`app/me/page.tsx`, search
+`await createSupabaseServerClient()`), so `my_share_tokens_for_email` is invisible to an
+import-scoped walk. It is simultaneously OVER-inclusive, because that same file names the factory in
+its COMMENTS, which is why a text scan appeared to find it.
+
+Name-level totality is also the correct GRAIN, not merely a safer one. Eligibility is decided at
+request time from the URL, so the question a call site can answer is which function, never which
+client. Excluding by construction site would be answering a question the wrapper never asks.
+
+Discovery PARSES rather than line-greps, and the reason is now first-hand rather than hypothetical:
+this spec's own earlier membership list came from a line-grep, which surfaced `readfinalizeowned_b2`
+and was dismissed as an artifact of two lines running together. The name was real
+(`app/admin/_showReviewModal.tsx`, search `readfinalizeowned_b2`), and dropping it left a genuine
+member uncovered. The line-grep did not invent the name. The dismissal did.
 
 Both arms carry an executable premise (`tests/_shared/premise.ts`, search `export function premise`):
 the catalog query must return rows and the walk must find call sites. A test that passes because it
@@ -335,6 +354,13 @@ one a failure-only trigger discards.
 
 A run with neither condition uploads nothing and pays nothing.
 
+This is also why §4.4's membership has to be total. `readfinalizeowned_b2` fails OPEN: its 502 branch
+logs `ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED` and returns `false`
+(`app/admin/_showReviewModal.tsx`, search `readFinalizeOwned`), so a 502 there produces no test
+failure and, if the name were outside the set, no retry emit either. Both trigger conditions would be
+false and the occurrence would go unrecorded. A member missing from the set does not merely lose its
+retry; it takes the instrument down with it.
+
 Verified commands, against a live local stack:
 
 ```
@@ -386,15 +412,37 @@ captured run rather than after another inference round.
   supposed to surface, and by §3.4 it surfaces exactly as it does today.
 - **Read-only execution proves it for the arguments exercised.** §4.3's arm runs each member inside a
   READ ONLY transaction with representative arguments. A write reachable only on an unexercised branch
-  of a non-VOLATILE function with a volatile callee is covered by neither arm. All eight current members
-  are `sql`-language functions with select-only bodies, verified at authoring time, so the residual is a
-  future-membership risk rather than a live one.
-- **The set is eight, not the six that were observed.** The derived sweep over files importing
-  `createSupabaseServerClient`, classified against `pg_proc.provolatile`, returns eight non-VOLATILE
-  names: the six measured consumers plus `auth_email_canonical`
-  (`lib/auth/picker/resolvePickerSelection.ts`) and `my_share_tokens_for_email`
-  (`lib/data/listShowsForCrew.ts`). Same shape, same PR, per the class-sweep default. Thirteen VOLATILE
-  names on the same clients are excluded by the rule and stay excluded.
+  of a non-VOLATILE function with a volatile callee is covered by neither arm.
+
+  Twelve of the thirteen members are `sql`-language functions with select-only bodies.
+  `readfinalizeowned_b2` is `plpgsql`, which is the language the §4.2 escape is written in, so for
+  that member the READ ONLY arm is load-bearing rather than belt-and-braces. An earlier draft of this
+  section claimed every member was `sql`-language; that claim was false and is the reason this
+  paragraph now states the split instead of a blanket.
+
+- **The population is thirteen, derived repo-wide.** A content-level scan of every `.rpc("<name>")` in
+  the tree returns 46 distinct names; the catalog reports thirteen of them non-`VOLATILE`:
+  `admin_alert_summary`, `admin_event_stats_24h`, `admin_read_share_token`, `auth_email_canonical`,
+  `get_admin_show_review_snapshot`, `is_admin`, `is_developer`, `is_session_live`,
+  `my_share_tokens_for_email`, `readfinalizeowned_b2`, `resolve_show_by_slug_and_token`,
+  `roster_shift_counts`, `viewer_version_token`.
+
+  Six of those were the measured consumers. An earlier draft claimed eight, from an import-scoped text
+  scan; that number missed five members and is corrected here rather than quietly restated. The
+  remaining thirty-three names are VOLATILE and are excluded by the rule.
+
+- **Every client construction site, and its disposition.** Stated as a census rather than an adjective,
+  because a reader can check a census:
+
+  | site | disposition |
+  | --- | --- |
+  | `lib/supabase/server.ts`, search `createServerClient(` | WRAPPED. The factory this spec installs into. |
+  | `lib/supabase/server.ts`, search `createSupabaseServiceRoleClient` | excluded, and §6.1's recursion fence depends on that exclusion. |
+  | `lib/supabase/browser.ts`, search `getSupabaseBrowserClient` | excluded, client-side. |
+  | `app/api/test-auth/set-session/route.ts`, search `createServerClient(` | excluded. A second cookie-bound ssr client, `ENABLE_TEST_AUTH`-gated test infrastructure that never serves a crew or admin request. Named because it is the same SHAPE as the wrapped factory, so a reviewer sweeping for missed sites will find it. |
+
+  There is no middleware.ts in this tree, which is worth stating positively: middleware is the usual
+  second home for a cookie-bound client, and its absence is why this census is four rows.
 - **Non-RPC GET retry is unmeasured.** No measured event landed on a GET (probe §Finding 4). Non-RPC
   GETs are retried because HTTP's idempotency contract makes it safe for a table read, not because
   evidence asked for it, and no claim in this spec rests on it.
