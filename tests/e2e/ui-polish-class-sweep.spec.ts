@@ -182,6 +182,18 @@ test.describe("tap floors, measured rather than asserted from a class list", () 
       // The half a class list cannot check: the caution must be OUTSIDE the
       // label, or the checkbox announces a sentence about payroll.
       await expect(box).not.toContainText("payroll", { ignoreCase: true });
+
+      // And the half jsdom cannot check. The unit suite asserts the `htmlFor`
+      // ASSOCIATION, because jsdom does not synthesise the label-to-control
+      // click a browser does — which makes that assertion close to a restatement
+      // of the markup. A real engine does synthesise it, so here the claim is
+      // the behaviour itself: clicking the label toggles the box. That is the
+      // whole point of moving the floor onto the label rather than the `div`
+      // that used to carry it, and a `div` would fail this line.
+      const checkbox = page.getByTestId("role-recognize-check-FINANCIALS");
+      await expect(checkbox).not.toBeChecked();
+      await box.click({ position: { x: 8, y: 8 } });
+      await expect(checkbox).toBeChecked();
     });
 
     test(`the run-of-show summary clears ${TAP_FLOOR}px at ${label}`, async ({ page }) => {
