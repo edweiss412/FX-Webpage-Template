@@ -271,45 +271,45 @@ Close condition: a construct-aware delimiter walk that (a) resolves all four sha
 
 ## BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES - an UNTERMINATED process substitution is scanned as executable, while the `$(` form is correctly suppressed
 
-**Status:** OPEN · **Facing:** product · **Filed:** 2026-08-24 (`fix/yaml-run-scalar-quoting-decode`, diff round 13 finding 1) · **Severity:** MEDIUM (fabricates a site; bounded by the census below) · **Reachability:** PROBED
+**Status:** OPEN · **Facing:** product · **Effort:** M · **Filed:** 2026-08-24 (`fix/yaml-run-scalar-quoting-decode`, diff round 13 finding 1; mechanism corrected at round 14) · **Severity:** MEDIUM (fabricates a site; bounded by the census below) · **Reachability:** PROBED
 
-An unterminated `$(` reports zero sites, which is right. An unterminated process
-substitution `>(` or `<(` reports one, which is not. `bash -n` exits 2 on every
-spelling below, so nothing runs and every reported site is fabricated.
+An unterminated `$(` reports zero sites, which is right. Two OTHER unterminated
+spellings report one, which is not. `bash -n` exits 2 on every row below, so
+nothing runs and every reported site is fabricated.
 
-| `run:` scalar             | bash -n | scanner                       |
-| ------------------------- | ------- | ----------------------------- |
-| `echo >$(psql -qAt mydb`  | exit 2  | 0 sites - correct suppression |
-| `echo >(psql -qAt myd`    | exit 2  | **1 site**, `["-qAt","myd"]`  |
-| `echo >\$(psql -qAt mydb` | exit 2  | **1 site**, `["-qAt","mydb"]` |
+| `run:` scalar             | bash -n | scanner                                       |
+| ------------------------- | ------- | --------------------------------------------- |
+| `echo >$(psql -qAt mydb`  | exit 2  | 0 sites - correct suppression                 |
+| `echo >(psql -qAt myd`    | exit 2  | **1 site**, `["-qAt","my"]`, nested, offset 7 |
+| `echo >\$(psql -qAt mydb` | exit 2  | **1 site**, `["-qAt","mydb"]`, offset 9       |
 
-The escaped-dollar spelling is a route in, not a separate defect: `\$` decodes to a
-literal `$` followed by a bare `(`, landing on the same path as row two. The
-single- and double-quoted forms of it behave identically.
+Note the token truncation in row two: the reported argument loses its last
+character, so the fabricated site is not even a faithful reading of the text it
+fabricated from.
 
-**Mechanism, isolated rather than guessed.** The branch handling `$(`, backticks and
-process substitution closes its span with `matchBrace`, which returns the LAST INDEX
-whether or not the span closed. `matchBraceEnd`, sitting beside it in the same file,
-returns `-1` for exactly this case and is already the precedent for suppression. Why
-the `$(` spelling escapes the bug at all is the part worth confirming before repair -
-the two arms share this closer, so the divergence is downstream of it, and a fix
-applied at `matchBrace` on the strength of this row alone would be a guess.
+**TWO DISTINCT PATHS, and the first filing conflated them.** Round 13 recorded this
+as one defect with the escaped form as a "route into" the other. It is not:
 
-**PRE-EXISTING, proven rather than assumed.** All spellings were run against `scan.ts`
-at `fix/yaml-run-scalar-quoting-decode`'s merge-base and at HEAD; the outputs are
-identical. The arc that found it changes the YAML decode path, not the shell lexer.
+1. `>(` is a PROCESS SUBSTITUTION. Unterminated, it is scanned as executable and
+   reports `nested: true`.
+2. `\$(` decodes to a literal `$` followed by a BARE `(`, which is a different
+   branch and reports `nested: false` at a different offset.
 
-**Not repaired in the finding arc, and the reason is scope.** It surfaced at diff round
-13 of that arc, in a sub-surface the arc does not otherwise touch. Editing the shell
-lexer there would have widened a thirteen-round diff into new territory, which is the
-recognizer-growth shape that arc had already paid for twice. Recorded as documented
-limit 9 of `docs/superpowers/specs/ci/2026-08-22-workflow-run-scalar-yaml-decode-design.md`.
+They agree only in fabricating. A repair aimed at process substitution alone would
+leave the escaped spelling standing, which is exactly why the conflation mattered
+enough to correct rather than quietly restate.
 
-**Same function as `BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND`, different defect** -
-that row is about `matchBrace` counting only its own delimiter pair across other
-constructs; this one is about what it returns when the pair never closes. Filed
-separately because a construct-aware rewrite could satisfy that row's close condition
-and leave this one standing.
+`matchBraceEnd` sits beside the closer these branches use and returns `-1` when a
+span never closed, so the suppression precedent already exists in the file. Why the
+`$(` arm escapes the bug is still unexplained, and until it is, a repair applied at
+`matchBrace` is a guess.
+
+**PRE-EXISTING - and this is the narrow claim, not the wide one that was filed
+first.** The FABRICATION is present at the finding arc's merge-base and at HEAD for
+all three rows. The earlier wording claimed the full outputs were identical between
+those revisions; that is a stronger claim than the probe supports and it has been
+withdrawn. What is established is that this branch neither introduces the fabrication
+nor repairs it.
 
 Close condition: an unterminated substitution of any spelling reports zero sites, with
 all three rows above as deciding cases, and the census re-run to confirm no live

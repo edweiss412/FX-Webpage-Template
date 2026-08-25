@@ -342,33 +342,44 @@ needs to know its one silent failure direction -- which is exactly the reason no
 
 ---
 
-9. **An UNTERMINATED process substitution fabricates a site, and this arc does not
-   repair it.** `- run: echo >(psql -qAt mydb` reports one `PsqlSite` with tokens
-   `["-qAt","mydb"]` while `bash -n` exits 2 — a syntax error that runs nothing.
-   The escaped-dollar spellings reach the same place: `\$(` decodes to a literal
-   `$` followed by a bare `(`, so `- run: echo >\$(psql -qAt mydb` and its
-   single- and double-quoted forms all fabricate the same site. Probed on all
-   three spellings plus the bare-paren form.
+9. **TWO unterminated spellings fabricate a site, and this arc repairs neither.**
+   `bash -n` exits 2 on all of them, so nothing runs and every reported site is
+   fabricated:
 
-   The mechanism is narrow. An unterminated `$(` IS suppressed correctly (the
-   canonical `echo >$(psql -qAt mydb` reports zero sites); an unterminated
-   process substitution is not, because that branch closes its span with
-   `matchBrace`, which returns the last index either way, rather than
-   `matchBraceEnd`, which returns `-1` when the span never closed.
+   | `run:` scalar             | scanner                                        |
+   | ------------------------- | ---------------------------------------------- |
+   | `echo >$(psql -qAt mydb`  | 0 sites - correct suppression                  |
+   | `echo >(psql -qAt myd`    | 1 site, `["-qAt","my"]`, nested, offset 7      |
+   | `echo >\$(psql -qAt mydb` | 1 site, `["-qAt","mydb"]`, offset 9            |
 
-   **Not repaired here, and the reason is scope rather than difficulty.** The
-   behaviour is IDENTICAL at this arc's merge-base and at HEAD, so the arc
-   neither introduces nor worsens it; it lives in the shell lexer's
-   substitution-termination handling, not in the YAML decode path this arc
-   changes. Repairing it means editing the lexer at the end of a thirteen-round
-   review, which is the recognizer-growth shape this arc already paid for twice
-   on AC-8. Filed as `BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES` with
-   the probe attached.
+   The two failing rows are DIFFERENT PATHS, not one route into the other. `>(` is a
+   process substitution scanned as executable when unterminated; `\$(` decodes to a
+   literal `$` before a BARE `(`, a different branch reporting a different `nested`
+   and offset. Round 13 filed them as one defect and round 14 corrected it, because
+   a repair aimed at process substitution alone would leave the escaped spelling
+   standing. Row two also truncates its last token character.
 
-   Stated plainly because it qualifies the arc's consequence bound: within this
-   arc's declared one-edit-neighbour probe domain there exists an input that is
-   silently wrong in the FABRICATING direction. The bound holds for the quoting
-   decode this arc repairs; it does not hold for this pre-existing lexer path.
+   An unterminated `$(` IS suppressed correctly. `matchBraceEnd` returns `-1` for a
+   span that never closed and sits beside the closer these branches use, so the
+   precedent exists in the file; why the `$(` arm escapes the bug is unexplained,
+   and until it is, a repair applied at `matchBrace` is a guess.
+
+   **Pre-existing, in the narrow sense the probe supports.** The fabrication is
+   present at this arc's merge-base and at HEAD for all three rows. An earlier
+   version of this limit claimed the full outputs were identical across those
+   revisions; that overstated the evidence and is withdrawn. What holds is that this
+   arc neither introduces nor repairs the fabrication.
+
+   **Not repaired here, and the reason is scope.** It surfaced at diff round 13, in
+   the shell lexer's span-termination handling rather than the YAML decode path this
+   arc changes. Editing the lexer at the end of a thirteen-round review is the
+   recognizer-growth shape this arc already paid for twice on AC-8. Filed as
+   `BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES` with both paths recorded.
+
+   Stated plainly because it qualifies the arc's consequence bound: within the
+   declared one-edit-neighbour domain there exist inputs that are wrong in the
+   FABRICATING direction. The bound holds for the quoting decode this arc repairs.
+   It does not hold for these two pre-existing lexer paths.
 
 ## 5. Convergence criterion
 
