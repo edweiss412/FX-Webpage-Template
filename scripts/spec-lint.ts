@@ -1,12 +1,14 @@
 // spec:lint CLI adapter (spec docs/superpowers/specs/2026-07-19-spec-lint.md §2/§7).
 // All I/O lives here; the core under lib/specLint/** is pure and injected.
 import { execFileSync, spawnSync } from "node:child_process";
-import { remark } from "remark";
-import remarkGfm from "remark-gfm";
-import { blocksFrom } from "./lib/acCoverageBlocks";
 import { lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+
+import { remark } from "remark";
+import remarkGfm from "remark-gfm";
+
+import { blocksFrom } from "./lib/acCoverageBlocks";
 import {
   spliceFixturePlanForText,
   synthesizeFixtureFindings,
@@ -152,11 +154,11 @@ interface CliOutput {
   exitCode: number;
 }
 
-// fs error codes that mean "this file is unreadable" (file-local, expected class);
-// anything else thrown by readFileBytes on a cited read is an infra fault → exit 2.
 /** One synchronous parser, the pattern at lib/reviewRounds/filing.ts:60. */
 const AC_PARSER = remark().use(remarkGfm);
 
+// fs error codes that mean "this file is unreadable" (file-local, expected class);
+// anything else thrown by readFileBytes on a cited read is an infra fault → exit 2.
 const UNREADABLE_FS_CODES = new Set(["EACCES", "EPERM", "ENOENT", "EISDIR", "ELOOP", "ENOTDIR"]);
 
 const contained = (real: string, root: string): boolean =>
@@ -673,10 +675,13 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
     // accepts a broken FIRST command.
     let acParse: AcParseResults | null = null;
     if (docKind === "plan") {
-      const outcomes = new Map<string, { exit: number }>();
+      const outcomes = new Map<string, ExecOutcome>();
       for (const { line, spanIndex, command } of acCommandPlan(acBlocks, docKind)) {
         const r = deps.spawn(command, root, timeoutMs, "parse");
-        outcomes.set(acKey(line, spanIndex), { exit: r.status ?? 1 });
+        // Through `classifySpawnResult`, never `r.status ?? 1`: that coerces "no
+        // status observed" into a non-zero exit, and the arm would then report a
+        // malformed command on the strength of a spawn fault.
+        outcomes.set(acKey(line, spanIndex), classifySpawnResult(r));
       }
       acParse = { outcomes };
     }

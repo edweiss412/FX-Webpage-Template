@@ -264,17 +264,36 @@ export function checkAcCoverage(
       // be overwritten by a later success.
       spans.forEach((command, spanIndex) => {
         const outcome = parse?.outcomes.get(acKey(row.line, spanIndex));
-        if (outcome !== undefined && outcome.exit !== 0) {
-          findings.push(
-            finding(
-              "fail",
-              "AC_COMMAND_UNPARSABLE",
-              row.line,
-              "command is not parseable by the executing shell",
-              `command: ${command}`,
-            ),
-          );
+        if (outcome === undefined) return; // static invocation: no spawn, no claim
+        if (outcome.kind === "exit") {
+          if (outcome.code !== 0) {
+            findings.push(
+              finding(
+                "fail",
+                "AC_COMMAND_UNPARSABLE",
+                row.line,
+                "command is not parseable by the executing shell",
+                `command: ${command}`,
+              ),
+            );
+          }
+          return;
         }
+        // NOT an exit: a spawn error, a signal, a timeout. None of those OBSERVES
+        // parseability, and reading one as a non-zero exit would accuse the author
+        // of a malformed command on the strength of an infra fault. The red arm
+        // has the same posture and `classifySpawnResult` exists to enforce it.
+        // Advisory rather than silence, because an unobserved check that says
+        // nothing is the other half of the same defect.
+        findings.push(
+          finding(
+            "advisory",
+            "AC_COMMAND_PARSE_UNOBSERVED",
+            row.line,
+            `parseability was never observed (${outcome.kind})`,
+            `command: ${command}`,
+          ),
+        );
       });
       const commandText = spans.join(" ");
       const others = row.cells.filter((_, k) => k !== commandCol - 1);

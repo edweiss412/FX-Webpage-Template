@@ -81,7 +81,14 @@ void emitRunRecord({
   score: result.score.value,
   outcomes: run.outcomes,
 });
-const unaccepted = result.failures.filter((f) => f.condition !== "no-op");
+// The unaccepted-SURVIVOR count, not the failure count. Counting failures gave
+// "2 unaccepted survivors" against a gate reporting five — an UNDERSTATEMENT, and
+// the direction nobody checks, because the wrapper validates the line's shape and
+// never its truth. Read off the gate's own condition rather than inferred.
+const unacceptedRow = result.failures.find((f) => f.condition === "unaccepted-survivor");
+const unaccepted = unacceptedRow
+  ? Number(/^(\d+) survivor/.exec(unacceptedRow.detail)?.[1] ?? "NaN")
+  : 0;
 
 console.log(`\nmutants:    ${run.mutantCount}`);
 console.log(`killed:     ${run.killed}`);
@@ -102,7 +109,7 @@ for (const n of result.notices) console.log(`  notice   ${JSON.stringify(n)}`);
 // neither the numerals nor the operator set is retyped from memory.
 console.log(
   `\nGUARD SURFACE: ${surface.sourcePath} — MUTATION SCORE: ${result.score.killed}/${result.score.denominator}, ` +
-    `${unaccepted.length === 0 ? "0" : String(unaccepted.length)} unaccepted survivors — ` +
+    `${unaccepted} unaccepted survivors — ` +
     `OPERATORS: ${surface.operators.join(", ")}`,
 );
 

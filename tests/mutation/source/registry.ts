@@ -1208,10 +1208,37 @@ export const GUARD_SURFACES: GuardSurface[] = [
       from: 'return s !== "" && !s.startsWith("#");',
       to: 'return s !== "" && s.startsWith("#");',
     },
-    // EMPTY on enrolment. A non-empty accepted set is a claim about a specific
-    // survivor carrying its own reachability argument; none is written until the
-    // scored run produces one.
-    accepted: [],
+    /**
+     * THREE rows, all `equivalent`, each unreachable for a reason OUTSIDE this
+     * module rather than a reason about its tests. Written AFTER the first scored
+     * run named them, so each is a prediction with a falsifier: if a later run
+     * KILLS one, the argument is wrong and the row comes out — reconciliation
+     * reports a killed accepted site as STALE without anyone remembering to check.
+     *
+     * The run's other two survivors were NOT accepted, they were KILLED: one case
+     * asserting every finding's column and the conditional presence of `detail`,
+     * hand-probed against both mutants before this ledger was written.
+     */
+    accepted: [
+      {
+        siteId: "regex-quantifier-bound:19:21:{0,3}>{0,4}",
+        kind: "equivalent",
+        reason:
+          "`^ {0,3}` in DECL_ANY, widened to `{0,4}`. The bound is applied to an html node's VALUE, and CommonMark makes four leading spaces an indented code block, so remark yields NO html node at that indent. Probed 0-4: indent 3 gives the value with its three spaces preserved, indent 4 gives no html node at all. Nothing can reach the fourth space, so the wider bound matches nothing the narrower one does not. The live domain 0-3 is pinned by the indent-boundary case in tests/specLint/acCoverage.test.ts.",
+      },
+      {
+        siteId: "regex-quantifier-bound:20:17:{0,3}>{0,4}",
+        kind: "equivalent",
+        reason:
+          "The same `^ {0,3}` bound in DECL, the full-grammar match, with the same argument and the same probe. DECL is only ever applied to a value DECL_ANY has already matched, so the fourth space is unreachable twice over.",
+      },
+      {
+        siteId: "integer-literal:77:87:1>2",
+        kind: "equivalent",
+        reason:
+          "`commandText.indexOf(path, i + 1)` widened to `i + 2` in pinUnobserved's scan. The mutant differs only if a second occurrence of `path` begins at exactly `i + 1`, which requires `path` to have period 1 — every character identical. `path` reaches this function only from PIN_CANDIDATE via classifySpan, whose grammar requires at least one `/` and a `.` before `:N`, so a period-1 string can never be one. Probed over the candidate set: no period-1 string satisfies PIN_CANDIDATE.",
+      },
+    ],
   },
   {
     id: "claimSweep",

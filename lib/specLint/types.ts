@@ -304,8 +304,9 @@ export type AcBlocks = readonly (AcHtmlBlock | AcTableBlock)[];
  * and silently accepts a broken FIRST command (spec round-2 finding 2).
  */
 export interface AcParseResults {
-  /** Key is `acKey(line, spanIndex)`. */
-  outcomes: ReadonlyMap<string, { exit: number }>;
+  /** Key is `acKey(line, spanIndex)`. The value is the SAME `ExecOutcome` the red
+   *  arm uses, so an unobserved outcome can never be mistaken for an exit. */
+  outcomes: ReadonlyMap<string, ExecOutcome>;
 }
 
 export const acKey = (line: number, spanIndex: number): string => `${line}#${spanIndex}`;

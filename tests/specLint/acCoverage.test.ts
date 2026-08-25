@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { acCommandPlan, checkAcCoverage } from "../../lib/specLint/acCoverage";
+import { acKey } from "../../lib/specLint/types";
 import { viewOf } from "./acCoverageView";
 
 /** Codes the arm may emit, per spec §8.2. AC-13 pins this against the spec. */
@@ -13,6 +14,7 @@ const CODES = [
   "AC_COMMAND_CELL_NOT_RUNNABLE",
   "AC_COMMAND_UNPARSABLE",
   "AC_COMMAND_PIN_UNOBSERVED",
+  "AC_COMMAND_PARSE_UNOBSERVED",
 ] as const;
 
 const codesOf = (md: string, kind: "spec" | "plan" = "plan"): string[] =>
@@ -178,6 +180,87 @@ describe("acCoverage — the declaration", () => {
     expect(codesOf(`<!-- ac-coverage: command-col=1 -->\n\n${TABLE}\n`)).toEqual([
       "AC_COMMAND_CELL_NOT_RUNNABLE",
     ]);
+  });
+
+  it("an UNOBSERVED parse outcome is advisory, never a hard unparsable", () => {
+    // A spawn error, a signal or a timeout does not OBSERVE parseability.
+    // Reading one as a non-zero exit would accuse the author of a malformed
+    // command on the strength of an infra fault, which is the silent-corruption
+    // direction `classifySpawnResult` exists to prevent.
+    const md = [
+      "<!-- ac-coverage: command-col=3 -->",
+      "",
+      "| AC | P | Cmd |",
+      "| --- | --- | --- |",
+      "| AC-1 | T | `a` |",
+    ].join("\n");
+    const blocks = viewOf(md);
+    const line = 5;
+    for (const outcome of [
+      { kind: "spawn-error", message: "no exit status" },
+      { kind: "timeout" },
+      { kind: "signal", signal: "SIGKILL" },
+    ] as const) {
+      const found = checkAcCoverage(blocks, "plan", {
+        outcomes: new Map([[acKey(line, 0), outcome]]),
+      });
+      expect(found.map((f) => [f.code, f.severity])).toEqual([
+        ["AC_COMMAND_PARSE_UNOBSERVED", "advisory"],
+      ]);
+    }
+    // and a real non-zero EXIT still reports hard
+    expect(
+      checkAcCoverage(blocks, "plan", {
+        outcomes: new Map([[acKey(line, 0), { kind: "exit", code: 2 } as const]]),
+      }).map((f) => [f.code, f.severity]),
+    ).toEqual([["AC_COMMAND_UNPARSABLE", "fail"]]);
+  });
+
+  it("anchors every finding at column 1, and carries a detail only when it has one", () => {
+    // Kills integer-literal:column and equality-flip:detail. Neither the column
+    // nor the presence of `detail` was asserted anywhere, so both could move
+    // without a single case noticing — and the renderer prints both.
+    const md = [
+      "<!-- ac-coverage: command-col=3 -->",
+      "",
+      "| AC | P | Cmd |",
+      "| --- | --- | --- |",
+      "| AC-1 | T | prose |",
+    ].join("\n");
+    const [f, ...rest] = checkAcCoverage(viewOf(md), "plan");
+    expect(rest).toEqual([]);
+    expect(f!.column).toBe(1);
+    expect(f!.detail).toBe("cell: prose");
+
+    // and the complement: a declaration-level finding carries NO detail, so the
+    // conditional spread is exercised in both directions.
+    const noTable = checkAcCoverage(
+      viewOf("<!-- ac-coverage: command-col=3 -->\n\nprose\n"),
+      "plan",
+    );
+    expect(noTable).toHaveLength(1);
+    expect(noTable[0]!.column).toBe(1);
+    expect(noTable[0]!.detail).toBeUndefined();
+  });
+
+  it("tolerates 0 to 3 spaces of declaration indent, and 4 is inert by CommonMark", () => {
+    // remark preserves 0-3 leading spaces in an html node's value; at 4 there is
+    // no html node at all, because CommonMark makes it an indented code block.
+    // That is the whole live domain of the `^ {0,3}` bound.
+    const table = ["| AC | P | Cmd |", "| --- | --- | --- |", "| AC-1 | T | prose |"].join("\n");
+    for (const indent of ["", " ", "  ", "   "]) {
+      expect(
+        checkAcCoverage(
+          viewOf(`${indent}<!-- ac-coverage: command-col=3 -->\n\n${table}\n`),
+          "plan",
+        ),
+        `indent ${indent.length} must be read as a declaration`,
+      ).toHaveLength(1);
+    }
+    expect(
+      checkAcCoverage(viewOf(`    <!-- ac-coverage: command-col=3 -->\n\n${table}\n`), "plan"),
+      "indent 4 is a code block, so there is no declaration to read",
+    ).toEqual([]);
   });
 
   it("AC-13: every code the arm can emit is in the spec's catalog and vice versa", () => {

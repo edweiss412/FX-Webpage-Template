@@ -236,6 +236,8 @@ Stated here, not discovered in a review round.
 
 **L-4. A mis-declaration is the author's error and the arm reports it as one.** Declaring column 3 of an `AC / Status / Notes` table produces hard findings on every row. The arm cannot tell a mis-declaration from a table full of defects, and does not try. The declaration is deliberate; the fix is to remove it.
 
+**L-4a. An infra fault is reported, never converted into a verdict.** A spawn error, a signal or a timeout does not OBSERVE parseability, so it draws `AC_COMMAND_PARSE_UNOBSERVED` (advisory) rather than `AC_COMMAND_UNPARSABLE` (hard). Reading a non-exit outcome as a non-zero exit would accuse an author of a malformed command on the strength of a fault in the harness. `classifySpawnResult` at `scripts/spec-lint.ts:133` exists to prevent exactly that for the red arm, and this arm goes through it. Silence would be the other half of the same defect, so the outcome is surfaced rather than dropped.
+
 **L-5. `sh -n` is whatever `/bin/sh` is on the host.** It is bash in POSIX mode on macOS and dash on the Ubuntu runners. The arm inherits whatever divergence that implies, exactly as the existing red arm already does. No new exposure.
 
 **L-6. Arm (b) tests a lexical path boundary, and knows nothing about shell words.** Two directions of cost, both accepted deliberately (section 8.2.2). It draws an advisory it does not deserve when a command reaches the pin's file through a glob, a variable, or a path relative to another directory. And it withholds one it should give when a correctly-bounded path sits inside quotes, after an escaped space, or behind a `#` — round-3 finding 2's four families. Deciding those needs a shell lexer, this repo has measured what shell lexers cost, and the arm is ADVISORY. The threat fence puts deliberately-constructed cases out of scope; an ordinary contributor dropping a file from a command's list is what the advisory catches, and it does.
@@ -268,6 +270,7 @@ A document may carry SEVERAL declarations, each governing its own table. One pla
 | `AC_COMMAND_CELL_NOT_RUNNABLE` | fail | a data row's command cell carries no span that could be a command |
 | `AC_COMMAND_UNPARSABLE` | fail | ANY command-carrying span in the cell fails `sh -nc --` |
 | `AC_COMMAND_PIN_UNOBSERVED` | advisory | a `tests/`-rooted `path:line` pin cited in another cell of the row occurs nowhere in the command cell's span text at a path boundary |
+| `AC_COMMAND_PARSE_UNOBSERVED` | advisory | a span's parse check produced no EXIT — a spawn error, a signal, a timeout — so parseability was never observed |
 
 Hard for (a) and advisory for (b) is the row's ratified split, and it is right for a reason worth stating: a criterion can legitimately be proved by a case the plan is about to author, so the file need not exist in the command yet.
 
