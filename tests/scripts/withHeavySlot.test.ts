@@ -1182,3 +1182,141 @@ describe("spec §7 case 10 — pnpm forwarding", () => {
     expect(run.stderr()).toContain("acquired slot-0 (slots=1)");
   }, 60_000);
 });
+
+// ---------------------------------------------------------------------------
+// Single-slot admission class for mutation-score runs.
+// Spec: docs/superpowers/specs/ci/2026-08-24-mutation-scratch-fs-event-storm-design.md §4.2
+// Row:  BL-MUTATION-SCRATCH-FS-EVENT-STORM
+// ---------------------------------------------------------------------------
+
+describe("mutation admission class", () => {
+  it("AC-2 — two class acquirers serialize even with slots to spare", async () => {
+    const dir = slotDir();
+    const holdMs = 900;
+    // slots=2 is the discriminator, not a detail. At slots=1 these two serialize
+    // whether or not the class exists, so the case would pass on a wrapper that
+    // ignores --class entirely.
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2", FX_HEAVY_POLL_MS: "100" };
+
+    const premiseLog = join(dir, "premise.log");
+    const pa = runUnwrapped(logWindowArgs("a", premiseLog, holdMs));
+    const pb = runUnwrapped(logWindowArgs("b", premiseLog, holdMs));
+    await Promise.all([pa.exited, pb.exited]);
+    const pw = windows(premiseLog);
+    premiseHolds(
+      "unwrapped children overlap — the overlap oracle is blind otherwise",
+      overlaps(pw.get("a"), pw.get("b")),
+    );
+
+    const log = join(dir, "class.log");
+    const a = runWrapped(env, logWindowArgs("a", log, holdMs), ["--class", "mutation"]);
+    const b = runWrapped(env, logWindowArgs("b", log, holdMs), ["--class", "mutation"]);
+    const [ra, rb] = await Promise.all([a.exited, b.exited]);
+    expect(ra.code).toBe(0);
+    expect(rb.code).toBe(0);
+    const got = windows(log);
+    expect(got.get("a")).toBeDefined();
+    expect(got.get("b")).toBeDefined();
+    expect(overlaps(got.get("a"), got.get("b"))).toBe(false);
+  }, 60_000);
+
+  it("AC-3 — an ordinary run still takes the other slot while the class is held", async () => {
+    const dir = slotDir();
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2", FX_HEAVY_POLL_MS: "100" };
+    const holder = await holdSlot({ ...env }, []);
+    // The class must bound mutation runs against EACH OTHER, never reduce total
+    // admission: an ordinary phase is entitled to the free slot.
+    const classHolder = runWrapped(env, sleeperArgs(60_000), ["--class", "mutation"]);
+    // Waiting for "acquired slot-" alone would pass TODAY, with --class ignored
+    // and both children simply taking slots -- a case green the moment it is
+    // written. The class acquisition must be announced in its own right.
+    await waitForStderr(classHolder, "acquired class mutation", 20_000);
+    await waitForStderr(classHolder, "acquired slot-", 20_000);
+    classHolder.child.kill("SIGKILL");
+    holder.child.kill("SIGKILL");
+    await Promise.all([classHolder.exited, holder.exited]);
+  }, 60_000);
+
+  it("AC-2b — a class run nested under an inherited slot REFUSES, and says why", async () => {
+    const dir = slotDir();
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2", FX_HEAVY_POLL_MS: "100" };
+    const holder = await holdSlot(env);
+    const marker = /FX_HEAVY_SLOT_HELD=(\S+)/.exec(holder.stderr());
+    const inherited = marker?.[1] ?? `${join(dir, "slot-0")}:${holder.pid}`;
+
+    // Asserts the EXIT and the message, never "it waits": a deadlock also waits,
+    // which is how the design this replaces passed its own criterion.
+    const nested = runWrapped(
+      { ...env, FX_HEAVY_SLOT_HELD: inherited },
+      [process.execPath, "-e", "process.exit(0)"],
+      ["--class", "mutation"],
+    );
+    const res = await nested.exited;
+    expect(res.code).not.toBe(0);
+    expect(nested.stderr()).toMatch(/refusing/i);
+    expect(nested.stderr()).toMatch(/outermost/i);
+    holder.child.kill("SIGKILL");
+    await holder.exited;
+  }, 60_000);
+
+  it("AC-2c — the reported deadlock cycle terminates for every participant", async () => {
+    const dir = slotDir();
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+    // The exact cycle review round 2 constructed: an ordinary holder, a class
+    // acquirer waiting for the one slot, and nested class work under the holder.
+    const ordinary = await holdSlot(env);
+    const classWaiter = runWrapped(env, sleeperArgs(1_500), ["--class", "mutation"]);
+    const marker = /FX_HEAVY_SLOT_HELD=(\S+)/.exec(ordinary.stderr());
+    const inherited = marker?.[1] ?? `${join(dir, "slot-0")}:${ordinary.pid}`;
+    const nested = runWrapped(
+      { ...env, FX_HEAVY_SLOT_HELD: inherited },
+      [process.execPath, "-e", "process.exit(0)"],
+      ["--class", "mutation"],
+    );
+    // The nested one must resolve WITHOUT waiting on anything the ordinary
+    // holder is blocking, which is the whole point of refusing.
+    expect((await nested.exited).code).not.toBe(0);
+    ordinary.child.kill("SIGKILL");
+    await Promise.all([classWaiter.exited, ordinary.exited]);
+  }, 60_000);
+
+  it("AC-2e — an unknown class value is refused, not minted", async () => {
+    const dir = slotDir();
+    // An implementation that accepts `mutation` correctly AND `mutaton` under
+    // its own independent lock satisfies every other case here, while one run
+    // under each spelling proceeds concurrently.
+    const run = runWrapped(
+      { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2" },
+      [process.execPath, "-e", "process.exit(0)"],
+      ["--class", "mutaton"],
+    );
+    const res = await run.exited;
+    expect(res.code).toBe(2);
+    expect(run.stderr()).toContain("mutation");
+  }, 60_000);
+});
+
+describe("mutation admission class — the production entry point", () => {
+  it("AC-2d — `pnpm heavy:mutation` actually takes the class", async () => {
+    const dir = slotDir();
+    const holdMs = 900;
+    // Every other case drives the wrapper's own Python path and passes whether
+    // or not the SHIPPED script delivers the flag. `pnpm heavy --class mutation`
+    // could never have worked -- the heavy script already ends in its own `--`,
+    // so `split_argv` takes `--class` as command[0] and swallows it -- and no
+    // wrapper-level case could have caught that.
+    //
+    // slots=2 is the discriminator: at one slot these serialize regardless.
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2", FX_HEAVY_POLL_MS: "100" };
+    const log = join(dir, "entry.log");
+    const a = spawnRun("pnpm", ["heavy:mutation", ...logWindowArgs("a", log, holdMs)], env);
+    const b = spawnRun("pnpm", ["heavy:mutation", ...logWindowArgs("b", log, holdMs)], env);
+    const [ra, rb] = await Promise.all([a.exited, b.exited]);
+    expect(ra.code).toBe(0);
+    expect(rb.code).toBe(0);
+    const got = windows(log);
+    expect(got.get("a")).toBeDefined();
+    expect(got.get("b")).toBeDefined();
+    expect(overlaps(got.get("a"), got.get("b"))).toBe(false);
+  }, 120_000);
+});

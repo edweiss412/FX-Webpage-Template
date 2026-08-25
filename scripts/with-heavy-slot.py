@@ -46,6 +46,11 @@ SLOTS_MAX = 64
 UNKNOWN_HOLDER = "holder unknown (metadata unreadable)"
 SLOT_NAME = re.compile(r"^slot-(\d+)$")
 MARKER_ENV = "FX_HEAVY_SLOT_HELD"
+# Admission CLASSES. A class is an ADDITIONAL lock taken alongside an ordinary
+# slot, never a second slot directory: two directories are two independent
+# semaphores, so a class run plus two ordinary phases would be THREE concurrent
+# heavy phases -- more load, from a change whose whole purpose is less.
+CLASS_NAMES = ("mutation",)
 PRIO_PREFIX = "prio-wait-"
 # The floor bounds how long a CRASHED priority waiter's marker can throttle
 # others at ordinary poll rates.
@@ -75,6 +80,58 @@ def split_argv(argv: list[str]) -> tuple[list[str], list[str]]:
                 command = command[1:]
             return argv[:i], command
     return argv, []
+
+
+def parse_class_flag(args: list[str]) -> tuple[str | None, str | None]:
+    """`(class, error)`. An unknown value is an ERROR, never a new lock.
+
+    A typo that mints its own independent lock reports success and bounds
+    nothing, which is the failure mode this exists to prevent wearing a
+    different name.
+    """
+    raw: str | None = None
+    for i, token in enumerate(args):
+        if token == "--class":
+            raw = args[i + 1] if i + 1 < len(args) else None
+            break
+        if token.startswith("--class="):
+            raw = token.split("=", 1)[1]
+            break
+    if raw is None:
+        return None, None
+    if raw not in CLASS_NAMES:
+        return None, "unknown --class %r; accepted: %s" % (raw, ", ".join(CLASS_NAMES))
+    return raw, None
+
+
+def class_lock_path(slot_dir: str, cls: str) -> str:
+    r"""Lives in the SAME slot dir. Slot enumeration filters on `^slot-(\d+)$`,
+    so this file is ignored by it exactly as `recreate.lock` already is."""
+    return os.path.join(slot_dir, "class-%s.lock" % cls)
+
+
+def acquire_class_lock(
+    slot_dir: str, cls: str, poll_ms: int, jitter_pct: int, cadence: WarnCadence
+) -> int:
+    """Poll for the class lock, BEFORE any slot is taken.
+
+    Class-first is the whole ordering argument: ordinary runs never want a class
+    lock, so with the class always taken first no cycle exists. The one case
+    that WOULD invert it -- a nested run that already inherited a slot -- is
+    refused in `main` rather than allowed to wait here.
+    """
+    path = class_lock_path(slot_dir, cls)
+    while True:
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            if cadence.due("class"):
+                warn("waiting for the %s class (one run at a time)" % cls)
+            time.sleep(poll_seconds(poll_ms, jitter_pct))
+            continue
+        return fd
 
 
 def env_int(env: dict[str, str], name: str, default: int, low: int, high: int) -> int:
@@ -678,10 +735,27 @@ def main(argv: list[str]) -> int:
     if env_flag(env, "FX_HEAVY_DISABLE"):
         os.execvp(command[0], command)
 
+    requested_class, class_error = parse_class_flag(wrapper_args)
+    if class_error is not None:
+        warn(class_error)
+        return 2
+
     nested = validated_nested_marker(env)
     if nested is True:
         # Outermost-owns: the ancestor holds the slot for the whole tree, so a
         # nested qualifying phase must pass through or it self-deadlocks.
+        if requested_class is not None:
+            # REFUSE, never wait. The inherited slot inverts the class-first
+            # ordering: an ordinary holder waiting on this child, while a class
+            # holder waits for that holder's slot, is a closed cycle. Waiting
+            # here is the deadlock; passing through would run a second class
+            # workload unadmitted. Both are wrong, so neither is offered.
+            warn(
+                "refusing: a %s-class phase nested under a held slot. Wrap at the "
+                "OUTERMOST entry instead -- see the heavy-phase rule in AGENTS.md."
+                % requested_class
+            )
+            return 3
         warn("nested under held slot \u2014 passing through")
         os.execvp(command[0], command)
     if nested is False:
@@ -704,6 +778,10 @@ def main(argv: list[str]) -> int:
 
     slot_dir = ensure_slot_dir(env)
     cadence = WarnCadence(warn_s)
+    class_fd: int | None = None
+    if requested_class is not None:
+        class_fd = acquire_class_lock(slot_dir, requested_class, poll_ms, jitter_pct, cadence)
+        warn("acquired class %s" % requested_class)
     index, fd, slots = acquire_loop(
         slot_dir, desired, poll_ms, jitter_pct, cadence, hold_open_ms, priority
     )
@@ -719,8 +797,11 @@ def main(argv: list[str]) -> int:
     )
     warn("acquired slot-%d (slots=%d)" % (index, slots))
     # The fd must survive execvp — that is the whole mechanism. Python marks fds
-    # non-inheritable by default (PEP 446).
+    # non-inheritable by default (PEP 446). The class fd rides through the same
+    # way and is released by the same kernel path at process death.
     os.set_inheritable(fd, True)
+    if class_fd is not None:
+        os.set_inheritable(class_fd, True)
     os.execvp(command[0], command)
 
 
