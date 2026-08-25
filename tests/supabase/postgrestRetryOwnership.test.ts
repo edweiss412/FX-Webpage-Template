@@ -17,12 +17,14 @@
  * Ownership is therefore decided ONCE PER REQUEST, from (url, method) alone, and this file asserts
  * that over the cross product of both dimensions.
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
 import { isRetryEligible, postgrestWillRetry } from "@/lib/supabase/retryEligibility";
+import { PRODUCT_SOURCE_EXTENSION } from "./retryableRpcVolatilityScan";
 import { premise } from "../_shared/premise";
 
 const H = "http://127.0.0.1:54321";
@@ -131,39 +133,63 @@ describe("ownership is decided per REQUEST, across url AND method", () => {
   });
 });
 
-describe("the documented limit stays unreachable", () => {
-  test("rpcCallsAreNotGet: no caller turns an rpc into a GET", () => {
-    // The limit above is only harmless while every `.rpc()` is a POST. PostgREST serves
-    // `GET /rest/v1/rpc/<fn>` when the caller asks for it, and such a call becomes PostgREST's
-    // under per-request ownership — where a 502 is NOT retried by anyone.
-    //
-    // Walked from disk rather than listed, so a NEW call site is covered by default. The premise is
-    // that the walk found rpc calls at all: an empty scan would satisfy the assertion vacuously.
-    const roots = ["app", "lib"];
-    const files: string[] = [];
-    const walk = (dir: string): void => {
-      for (const entry of readdirSync(dir)) {
-        const full = join(dir, entry);
-        if (statSync(full).isDirectory()) {
-          if (entry === "node_modules" || entry.startsWith(".")) continue;
-          walk(full);
-          continue;
-        }
-        if (/\.tsx?$/.test(entry)) files.push(full);
+/** Walk the given roots and return every file the guard's own extension rule accepts. */
+function scanProductFiles(roots: readonly string[]): string[] {
+  const files: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        if (entry === "node_modules" || entry.startsWith(".")) continue;
+        walk(full);
+        continue;
       }
-    };
-    for (const r of roots) walk(r);
+      // The SHARED constant, not a private regex. Round-4 review found this scanning only .ts/.tsx
+      // while the approved product walker covers the JS family, so a `lib/*.mts` GET rpc reached the
+      // documented 502 gap with this guard green — the same extension gap I had repaired in the
+      // walker one round earlier, instance fixed and shape left alone. Importing it rather than
+      // re-widening it is the class repair: both walkers now move together and cannot diverge.
+      if (PRODUCT_SOURCE_EXTENSION.test(entry)) files.push(full);
+    }
+  };
+  for (const r of roots) walk(r);
+  return files;
+}
 
+describe("the documented limit stays unreachable", () => {
+  test("the walk REACHES every compiled extension, proved on a fixture", () => {
+    // no-premise: the fixture is created here and asserted non-empty below.
+    //
+    // Without this the guard passes VACUOUSLY when its walk is narrowed: planting `.tsx?` back and
+    // dropping a `.mts` file carrying `get: true` into lib/ left all ten cases green, because a file
+    // the walk never opens can carry anything. The premise has to be that the walk SEES the file.
+    const root = mkdtempSync(join(tmpdir(), "rpc-ext-"));
+    try {
+      const exts = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
+      for (const e of exts) writeFileSync(join(root, `probe.${e}`), "// probe\n");
+      writeFileSync(join(root, "notes.md"), "not source\n");
+
+      const seen = scanProductFiles([root]).map((f) => f.split(".").pop()!);
+      expect(seen.length).toBeGreaterThan(0);
+      for (const e of exts) expect(seen, `.${e} must be walked`).toContain(e);
+      expect(seen, "markdown must not be walked").not.toContain("md");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rpcCallsAreNotGet: no caller turns an rpc into a GET", () => {
+    // The limit is only harmless while every `.rpc()` is a POST. PostgREST serves
+    // `GET /rest/v1/rpc/<fn>` when asked, and such a call becomes PostgREST's under per-request
+    // ownership — where a 502 is retried by nobody.
+    //
+    // Walked from disk so a NEW call site is covered by default. The premise is that the walk found
+    // rpc calls at all; an empty scan would satisfy the assertion vacuously.
+    const files = scanProductFiles(["app", "lib"]);
     const rpcFiles = files.filter((f) => readFileSync(f, "utf8").includes(".rpc("));
     premise("files containing an .rpc( call", rpcFiles.length, 0);
 
-    const offenders: string[] = [];
-    for (const f of rpcFiles) {
-      const text = readFileSync(f, "utf8");
-      // `get: true` anywhere in a file that also calls .rpc( is enough to warrant a human look;
-      // this guard is a tripwire for a decision, not a parser.
-      if (/\bget\s*:\s*true\b/.test(text)) offenders.push(f);
-    }
+    const offenders = rpcFiles.filter((f) => /\bget\s*:\s*true\b/.test(readFileSync(f, "utf8")));
     expect(offenders).toEqual([]);
   });
 });

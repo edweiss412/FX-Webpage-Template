@@ -27,10 +27,21 @@ import { premise } from "../_shared/premise";
 
 /** The installed postgrest-js `common` source, located through node's own resolver. */
 function installedCommonSource(): string {
+  // Resolved THROUGH `@supabase/supabase-js`, which is a direct dependency, rather than directly.
+  //
+  // postgrest-js is a transitive dep under pnpm's isolated layout, so resolving it from this file
+  // works under vitest's resolver and NOT under plain node — round-4 review probed the node side and
+  // read the difference as "the suite fails", which it does not (it passes, resolving into the pnpm
+  // store). The finding's claim was wrong and the fragility it pointed at was real: a resolution
+  // that only one resolver can perform is one toolchain change from breaking for no good reason.
+  //
+  // Going through the package that DEPENDS on postgrest-js mirrors the actual dependency edge, and
+  // resolves under both. Verified: plain `node -e` finds it this way and fails the direct way.
   const require = createRequire(import.meta.url);
-  // Resolve the package's manifest, then walk to the source file the constants live in. Resolving
-  // the ENTRYPOINT would land in dist/, where the constants are minified past recognition.
-  const pkgJson = require.resolve("@supabase/postgrest-js/package.json");
+  const supabaseJs = require.resolve("@supabase/supabase-js/package.json");
+  // Then walk to the source file the constants live in. Resolving the ENTRYPOINT would land in
+  // dist/, where the constants are minified past recognition.
+  const pkgJson = createRequire(supabaseJs).resolve("@supabase/postgrest-js/package.json");
   return readFileSync(join(dirname(pkgJson), "src/types/common/common.ts"), "utf8");
 }
 
@@ -67,7 +78,8 @@ describe("the PostgREST retry mirror matches the installed package", () => {
     // The carve-out keeps timeout retries on THIS side precisely because PostgREST rethrows an
     // abort instead of retrying it. If that ever changed, our timeouts would start multiplying.
     const require = createRequire(import.meta.url);
-    const pkgJson = require.resolve("@supabase/postgrest-js/package.json");
+    const supabaseJs = require.resolve("@supabase/supabase-js/package.json");
+    const pkgJson = createRequire(supabaseJs).resolve("@supabase/postgrest-js/package.json");
     const builder = readFileSync(join(dirname(pkgJson), "src/PostgrestBuilder.ts"), "utf8");
     premise("bytes of installed PostgrestBuilder source", builder.length, 0);
     expect(builder).toMatch(/AbortError'\s*\|\|\s*fetchError\?\.code === 'ABORT_ERR'/);
