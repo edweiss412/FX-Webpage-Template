@@ -60,7 +60,7 @@ describe("scratch-root cleanup (BL-MUTATION-SCRATCH-FS-EVENT-STORM)", () => {
       "tests/styles/_metaControlOutlineFill.test.ts",
       "tests/styles/_metaControlOutlineResidue.test.ts",
       "tests/styles/interactiveScanCore.test.ts",
-      "tests/supabase/_metaRetryableRpcVolatility.test.ts",
+      "tests/supabase/_metaRetryableRpcVolatilityWalk.test.ts",
     ]);
   });
 

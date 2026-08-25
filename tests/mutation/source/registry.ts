@@ -3337,7 +3337,15 @@ export const GUARD_SURFACES: GuardSurface[] = [
   {
     id: "retryableRpcVolatilityScan",
     sourcePath: "tests/supabase/retryableRpcVolatilityScan.ts",
-    suitePaths: ["tests/supabase/_metaRetryableRpcVolatility.test.ts"],
+    // Two deciding suites, split by whether they need a database. The walk file carries the
+    // mkdtemp fixtures and runs anywhere; the other asserts against the live catalog. That
+    // split is what keeps `_metaScratchRootCleanup` honest — it runs each mkdtemp-calling
+    // suite STANDALONE in the ambient environment, and a DB-bearing subject cannot pass on
+    // the nodb shard.
+    suitePaths: [
+      "tests/supabase/_metaRetryableRpcVolatility.test.ts",
+      "tests/supabase/_metaRetryableRpcVolatilityWalk.test.ts",
+    ],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.9,
     // Demands a name be BOTH retryable and excluded to pass the completeness
