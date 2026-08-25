@@ -76,13 +76,26 @@ export type RetryingFetchOptions = {
   onRetry?: (fields: RetryEmit) => void;
 };
 
-/** `/rest/v1/rpc/<fn>` → `<fn>`, else the path, so the record names WHAT was retried. */
+/**
+ * `/rest/v1/rpc/<fn>` → `<fn>`, else the path, so the record names WHAT was retried.
+ *
+ * The QUERY STRING is dropped on every branch, including the unparseable one. PostgREST carries
+ * filters there (`?email=eq.<address>`), and the emit persists through `log.warn`, so a raw URL
+ * here would write a crew member's email to a durable sink — breaking `RetryEmit`'s own "never
+ * arguments" contract in the one branch nobody looks at.
+ *
+ * That branch is UNREACHABLE, and the reason is worth stating so nobody removes the guard on the
+ * grounds that it never fires: `isRetryEligible` calls `new URL` first and returns false when it
+ * throws, so an unparseable URL is refused before any retry and no record of it can be built.
+ * Pinned by "an unparseable URL is ineligible, so no record of it can exist" in
+ * `tests/supabase/retryingFetch.test.ts`, which asserts the GATE rather than this fallback.
+ */
 function describeTarget(url: string): string {
   try {
     const path = new URL(url).pathname;
     return /^\/rest\/v1\/rpc\/([^/]+)$/.exec(path)?.[1] ?? path;
   } catch {
-    return url;
+    return url.split("?")[0]!.split("#")[0]!;
   }
 }
 

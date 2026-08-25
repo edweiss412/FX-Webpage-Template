@@ -167,6 +167,30 @@ describe("retrying fetch — a retry is never silent (spec §6)", () => {
     });
   });
 
+  test("an unparseable URL is ineligible, so no record of it can exist", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
+    // Written while trying to prove a leak that turns out to be UNREACHABLE, and kept because
+    // the unreachability is the thing worth pinning.
+    //
+    // The emit persists through log.warn and PostgREST puts filters in the query string
+    // (?email=eq.<address>), so a raw URL in the record would write a crew member's email to a
+    // durable sink. describeTarget's catch branch is the only path that could, and nothing
+    // reaches it: isRetryEligible calls `new URL` FIRST and returns false when it throws, so an
+    // unparseable URL is never retried and never emitted. This asserts that gate directly —
+    // one attempt, no record — rather than the string-shape of a record that cannot be built.
+    const emitted: Array<Record<string, unknown>> = [];
+    const relative = "/rest/v1/crew_members?email=eq.someone%40example.com";
+    const inner = vi.fn(async () => bad(502));
+    const res = await makeRetryingFetch(inner, {
+      ...instant,
+      onRetry: (f) => emitted.push({ ...f }),
+    })(relative, { method: "GET" });
+
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(emitted).toEqual([]);
+    expect(res.status).toBe(502);
+  });
+
   test("a request that never retries emits nothing", async () => {
     // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
     const emitted: unknown[] = [];
