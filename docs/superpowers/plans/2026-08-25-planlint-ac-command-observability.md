@@ -52,10 +52,10 @@ The repair is to RE-POINT, never to waive (Task 12), and two rules make the re-p
 | 3    | lib/specLint/acCoverage.ts                                | `readDeclaredTables`                      | :118           |
 | 4    | lib/specLint/acCoverage.ts                                | `commandSpansOf`                          | :60            |
 | 5    | lib/specLint/acCoverage.ts                                | `acCommandPlan`                           | :211           |
-| 6    | lib/specLint/acCoverage.ts                                | `AC_COMMAND_PIN_UNOBSERVED`               | :286           |
+| 6    | lib/specLint/acCoverage.ts                                | `AC_COMMAND_PIN_UNOBSERVED`               | :305           |
 | 7    | lib/specLint/run.ts:44 (tracked)                          | `CHECK_ORDER`                             | :47 (+3)       |
 | 8    | tests/specLint/_metaPureCore.test.ts:12 (tracked)         | `FORBIDDEN`                               | :15 (+3)       |
-| 9    | scripts/spec-lint.ts:864 (tracked)                        | the `spawnSync("sh", …)` parse invocation | :897 (+33)     |
+| 9    | scripts/spec-lint.ts:864 (tracked)                        | the `spawnSync("sh", …)` parse invocation | :902           |
 | 10   | docs/…/2026-08-21-pane-compaction-send-authorization.md:363 (tracked) | the declaration whose absence was the red | :363 unmoved |
 | 11   | tests/mutation/source/expectedLedgerKinds.ts:24 (tracked) | `EXPECTED_LEDGER_KINDS`                   | :24 unmoved    |
 | 12   | lib/specLint/redContract.ts:169 (tracked)                 | the tracked-path-only branch's message    | :169 unmoved   |
@@ -195,7 +195,7 @@ Four pre-dispatch mutants, run and recorded in the commit, for each string-prese
 
 Adds all NINE plants of spec §5, seven of which are reviewer probes kept as regression cases. Each plant carries a `premiseHolds` proven on that case's OWN inputs, stating that the unplanted form of the same fixture scores zero. Two plants are repairs rather than additions and say so inline: (c2) mirrors (c)'s span ordering, and (f) plants prose as well as removing the leading pipe.
 
-<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts:286` why=`no branch emits AC_COMMAND_PIN_UNOBSERVED, so a tests/-rooted pin the command cannot reach draws nothing, while a components/ pin, an appended character and a prepended segment must each keep drawing exactly what the accept-set says` ac=AC-5,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/specLint/acCoverage.test.ts` red-state=authored red-target=`lib/specLint/acCoverage.ts:305` why=`no branch emits AC_COMMAND_PIN_UNOBSERVED, so a tests/-rooted pin the command cannot reach draws nothing, while a components/ pin, an appended character and a prepended segment must each keep drawing exactly what the accept-set says` ac=AC-5,AC-7 -->
 
 ## Task 7 — the adapter: remark, the view, the AC spawn loop, and the CLI
 
@@ -244,7 +244,7 @@ This task EXTENDS that walker with a second assertion: every import specifier in
 
 One token at `scripts/spec-lint.ts:864`. Tested in both directions: a command beginning with `-` no longer reports unparsable, and a genuinely malformed command still does. `red-state` is `authored` and not `live`, because the suite passes today (88 tests, run at plan time) and the failing case is one this task writes.
 
-<!-- task: red=`pnpm vitest run tests/specLint/redExec.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:897` why=`the spawnSync("sh", …) parse invocation passes no --, so sh reads a command beginning with a dash as an option and exits 2, which the arm reports as a syntax error` ac=AC-2 -->
+<!-- task: red=`pnpm vitest run tests/specLint/redExec.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:902` why=`the spawnSync("sh", …) parse invocation passes no --, so sh reads a command beginning with a dash as an option and exits 2, which the arm reports as a syntax error` ac=AC-2 -->
 
 ## Task 10 — the fixture declares
 
