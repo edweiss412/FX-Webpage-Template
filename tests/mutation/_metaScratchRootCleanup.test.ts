@@ -30,6 +30,38 @@ describe("scratch-root cleanup (BL-MUTATION-SCRATCH-FS-EVENT-STORM)", () => {
     premise("enrolled deciding suites that create scratch roots", SUBJECTS.length, 0);
   });
 
+  // The derivation's OUTPUT is pinned, which is what makes its known blind spot
+  // SURFACED instead of silent.
+  //
+  // `callsMkdtemp` reads callee text, so an ordinary refactor of a subject to an
+  // alias, a destructured binding, or a re-exported helper would drop that file
+  // out of `SUBJECTS`. The other twelve keep the non-empty premise green,
+  // neither arm ever runs the omitted file, and it could leak while this suite
+  // passed. A conservative outcome nobody is told about is not a documented
+  // limit — it is a hole with a comment next to it.
+  //
+  // With the list pinned, a file leaving the derivation fails HERE, loudly,
+  // naming the file. Adding a scratch-creating deciding suite fails here too,
+  // which is correct: enrolling it is the point. The pin is not the subject set
+  // — `subjectFiles()` still derives that — it is a tripwire on the derivation.
+  it("pins what the derivation produces, so a subject cannot leave it silently", () => {
+    expect(SUBJECTS).toEqual([
+      "tests/ci/_metaModalWaitCandidateV2.test.ts",
+      "tests/ci/_metaModalWaitHelper.test.ts",
+      "tests/cross-cutting/psqlStartupFileSuppression.test.ts",
+      "tests/docs/_metaReviewRoundEconomy.test.ts",
+      "tests/docs/interactionTimingScan.test.ts",
+      "tests/log/mutationSurface/enumerate.test.ts",
+      "tests/log/mutationSurface/totality.test.ts",
+      "tests/mutation/browser/mutate.test.ts",
+      "tests/mutation/browser/registry.test.ts",
+      "tests/mutation/source/premiseScan.test.ts",
+      "tests/scripts/ledgerClaimsCheck.test.ts",
+      "tests/styles/_metaControlOutlineFill.test.ts",
+      "tests/styles/interactiveScanCore.test.ts",
+    ]);
+  });
+
   it("removes every root it creates on a passing run", { timeout: 600_000 }, () => {
     const run = runSuiteSet(SUBJECTS);
     // Exit code first: a child that fails to COLLECT creates nothing and leaves

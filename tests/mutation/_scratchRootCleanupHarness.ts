@@ -56,13 +56,17 @@ export function callsMkdtemp(repoRelPath: string): boolean {
   // and the `fs.promises` namespace. The PRELOAD patches the same three, so the
   // pre-filter and the recorder agree about what a root is.
   //
-  // DOCUMENTED LIMIT, and it is why the behavioral arm is the real check: a
-  // suite creating roots through a re-exported helper, or under an alias this
-  // pattern does not spell, drops out of the subject list silently. The
-  // membership arm's claim is deliberately weak -- "this file is enrolled" --
-  // and a syntactic pre-filter cannot make it strong. What bounds the damage:
-  // any subject that IS listed is measured by the preload at RUNTIME, for what
-  // it actually did rather than for what it looks like.
+  // KNOWN BLIND SPOT, and it is SURFACED rather than merely documented: a suite
+  // creating roots through an alias, a destructured binding, or a re-exported
+  // helper is not matched here and would drop out of the subject list. That
+  // would be silent -- the remaining subjects keep every other assertion green
+  // -- so `_metaScratchRootCleanup.test.ts` PINS the derivation's output. A file
+  // leaving the set fails there, loudly, naming the file. Verified by aliasing
+  // `mkdtempSync` in a subject: the pin reports 12 against 13 and names it.
+  //
+  // The pre-filter is therefore allowed to be syntactic. What bounds the damage
+  // twice over: any subject that IS listed gets measured by the preload at
+  // RUNTIME, for what it actually did rather than for what it looks like.
   return /\b(?:fs\.promises\.)?mkdtemp(?:Sync)?\s*\(/.test(readFileSync(abs, "utf8"));
 }
 
