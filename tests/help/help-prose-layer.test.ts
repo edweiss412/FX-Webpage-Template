@@ -105,10 +105,27 @@ describe("/help prose typography layer — structural wiring", () => {
     // Pull the runtime hex for text + bg from the light (:root) and dark
     // ([data-theme="dark"]) blocks — derive expected values from the live CSS,
     // never hardcode.
+    // The WHOLE rule, found by matching its braces — not a fixed-size window.
+    // This read `css.slice(idx, idx + 1600)`, and the `:root` block is 3145
+    // characters long, so every token past the halfway mark was invisible to
+    // it. Adding one ordinary token pushed `--color-info-bg-runtime` (offset
+    // 2339) out of the window and the assertion failed with "must be defined"
+    // — which reads as a MISSING TOKEN when the token is right there and the
+    // parser simply stopped early. A bigger constant would only move the cliff
+    // to the next token somebody adds; the block boundary is the real edge, so
+    // the extractor uses it.
     const blockFor = (selector: string): string => {
       const idx = css.indexOf(selector);
       expect(idx, `${selector} block must exist`).toBeGreaterThan(-1);
-      return css.slice(idx, idx + 1600);
+      let depth = 0;
+      for (let i = idx; i < css.length; i += 1) {
+        if (css[i] === "{") depth += 1;
+        else if (css[i] === "}") {
+          depth -= 1;
+          if (depth === 0) return css.slice(idx, i + 1);
+        }
+      }
+      throw new Error(`${selector} block is unterminated in app/globals.css`);
     };
     const hexIn = (block: string, varName: string): string => {
       const mm = block.match(new RegExp(`${varName}:\\s*(#[0-9a-fA-F]{6})`));
@@ -133,6 +150,21 @@ describe("/help prose typography layer — structural wiring", () => {
 
     const light = blockFor(":root {");
     const dark = blockFor('[data-theme="dark"] {');
+
+    // Premise. Every assertion below is of the form "this token is present and
+    // its value clears a ratio", so a block that got truncated would fail as
+    // "token must be defined" and look like a missing token. Assert the
+    // extractor reached the closing brace, so that confusion cannot recur.
+    for (const [name, block] of [
+      ["light :root", light],
+      ['dark [data-theme="dark"]', dark],
+    ] as const) {
+      expect(block.endsWith("}"), `${name} block must end at its closing brace`).toBe(true);
+      expect(
+        block.length,
+        `${name} block looks truncated at ${block.length} chars`,
+      ).toBeGreaterThan(1600);
+    }
 
     // Prose links set no color, so they inherit the surrounding context's text
     // color on that context's background. Pin every place a prose link renders:
