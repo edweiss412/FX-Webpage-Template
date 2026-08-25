@@ -1080,6 +1080,28 @@ function foreignConstructEnd(text: string, i: number): number | null {
     const span = matchBraceSpan(text, i + 1, open, open === "{" ? "}" : ")");
     return span.closed ? span.index : -1;
   }
+  // PROCESS SUBSTITUTION, `<(…)` and `>(…)`. Diff review round 1 finding 1: the
+  // accept-set carried `$(` and `${` and stopped there, while `lexShellWords`
+  // ALREADY treats both of these as constructs that EXECUTE their body. That
+  // disagreement between two lists meant to agree was a WRONG ATTRIBUTION, not
+  // a missing feature: `echo ${OUT:->(echo }; psql -c 'x')}` parses, runs psql
+  // once, and the walk counted the `}` inside the process substitution as the
+  // enclosing `${`'s closer - reporting the call at top level with
+  // `nested: false`. Probed across the R2 family, one ordinary edit from
+  // `R2-bare-word`: bare-word, attached and detached all execute and all
+  // mis-attributed.
+  //
+  // NOT parser growth. No new grammar arrives - the body is delimited by the
+  // SAME `(`/`)` walk that `$(` already delegates to - and the complement stays
+  // default-denied, so a spelling outside the set still cannot regress.
+  //
+  // Deliberately NOT added to `doubleQuotedEnd`: bash performs no process
+  // substitution inside a double-quoted span, so `>(` is literal text there and
+  // admitting it would import an opener the shell does not honour.
+  if ((character === "<" || character === ">") && text[i + 1] === "(") {
+    const span = matchBraceSpan(text, i + 1, "(", ")");
+    return span.closed ? span.index : -1;
+  }
   return null;
 }
 

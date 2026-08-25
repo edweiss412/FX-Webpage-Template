@@ -6868,6 +6868,68 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
     );
   });
 
+  // Diff review round 1, finding 1. The delegation's accept-set carried `$(`
+  // and `${` and stopped there, while `lexShellWords` ALREADY treats `<(` and
+  // `>(` as constructs that EXECUTE their body. Two lists meant to agree did
+  // not, and the gap was a WRONG ATTRIBUTION rather than a missing feature: the
+  // walk counted the `}` INSIDE the process substitution as the enclosing
+  // `${`'s closer and reported the call at top level with `nested: false`.
+  //
+  // Every row here is ONE ORDINARY EDIT from `R2-bare-word` in the accept-set
+  // above -- `$(` becomes `>(` -- which is what makes it a domain probe rather
+  // than a constructed curiosity. Bash was run on each: all three `>(` rows
+  // PARSE and invoke psql exactly once, so `nested: true` is the only correct
+  // reading and the pre-repair `false` was the forbidden direction.
+  //
+  // WHAT THE `<(` ROW DOES NOT PROVE, stated rather than left implied. Its
+  // assertion is about DELIMITER ACCOUNTING, which is deterministic: the walk
+  // must not count the inner `}`. It is NOT an execution oracle -- `<(…)`
+  // starts a process whose output need not land before the parent exits, so
+  // measuring "did psql run" there is a race, and this row deliberately does
+  // not rest on that.
+  test("a process substitution is a construct the walk crosses, not a delimiter it counts", () => {
+    const rows: Array<
+      [label: string, source: string, sites: number, nested: boolean, advisories: number]
+    > = [
+      [
+        "R2 bare word, >( executes and psql runs once",
+        "echo ${OUT:->(echo }; psql -c 'x')}\n",
+        1,
+        true,
+        0,
+      ],
+      ["R2 attached target, >(", "cat >${OUT:->(echo }; psql -c 'x')}\n", 1, true, 0],
+      ["R2 detached target, >(", "cat > ${OUT:->(echo }; psql -c 'x')}\n", 1, true, 0],
+      [
+        "R1 bare word, >( — correct BEFORE the repair too, so it is the control",
+        "echo >(echo ${A:-)}; psql -c 'x')\n",
+        1,
+        true,
+        0,
+      ],
+      [
+        "<( — delimiter accounting only, see the note above",
+        "echo ${OUT:-<(echo }; psql -c 'x')}\n",
+        1,
+        true,
+        0,
+      ],
+    ];
+    expect(
+      rows.map(([label, source]) => {
+        const found = sitesIn(source, "x.sh");
+        return [
+          label,
+          found.length,
+          found.length === 1 ? found[0]!.nested : null,
+          scanShellIndirection(source, "x.sh").length,
+        ];
+      }),
+    ).toEqual(
+      rows.map(([label, , sites, nested, advisories]) => [label, sites, nested, advisories]),
+    );
+  });
+
   // Diff round 3. `$((` is ARITHMETIC, not a command substitution, and the
   // lexer's `$(` branches matched its prefix - so `>"$((psql -c 'x'))"` yielded
   // a resolved site for a command bash never runs (it exits on an arithmetic
