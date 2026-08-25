@@ -15,6 +15,22 @@ Fan-outs are themselves a class. When one registry in a diff proves to have sate
 other registry in that diff gets asked the same question, unprompted — this plan needed two review
 rounds to learn that, having swept the fan-out it was shown and not the one it was not.
 
+**A guard that validates DECLARED entries cannot catch an OMISSION. Where a task's risk is omission,
+the task brings its own red.** Audited across every guard this plan leans on, after round 3 found two
+that could not fail for absence:
+
+| guard | discovers an omission? |
+| --- | --- |
+| `governanceViolations` (`tests/ci/_workflowCoverageScan.ts`) | YES — compares declared `governs` against a set DERIVED from the live workflow and demands equality |
+| `tests/cross-cutting/app-e2e-ci-wiring.test.ts` | YES — written for exactly this, comparing the workflow's list against `REQUIRED` |
+| `tests/log/_metaMutationSurfaceObservability.test.ts` | YES — filesystem-walked, so a new surface fails by default |
+| Task 2's completeness arm | YES — by design, it walks the tree |
+| `tests/mutation/_metaGuardSurfaceRegistry.test.ts` | NO — iterates `GUARD_SURFACES`; enrolment is opt-in |
+| `tests/log/_metaAdminOutcomeContract.test.ts` | NO — checks only codes already registered |
+
+The two that answer NO are why Task 6 carries its own presence red and why Task 3 ADDS its code rather
+than deciding about it.
+
 **"Red" means the AUTHORED test failing, never the missing-file state.** `vitest run` on a path that
 does not exist exits 1 with "No test files found", which is indistinguishable by exit code from a real
 red — so a task could otherwise be "satisfied" by never writing its test. Each red below is the state
