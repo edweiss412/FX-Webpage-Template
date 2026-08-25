@@ -350,3 +350,52 @@ none (parse every tracked file)    parsed=3670   calls=1206   1941ms
 Seven hundred milliseconds against an axis that produced a finding in each of two rounds. Totals
 after the deletion are unmoved: 1206 calls, 56 offenders across 32 files, 2 capture-preserving,
 12 receiver-only.
+
+## 11. The mutation prediction, written before the scored run
+
+Static analysis of all 31 mutants `enumerateSites` generates for
+`tests/cross-cutting/replacementString/scan.ts`, reasoned against the 49-case suite. Recorded
+before the run so the run can contradict it, which is the only way the reasoning is worth
+anything.
+
+**Prediction: 31/31 killed, ZERO survivors, empty accepted ledger.**
+
+| family | n | reasoning |
+| --- | --- | --- |
+| integer-literal | 9 | 7 killed by existing cases; 2 (`slice(0,110)`, spread-guard `===1`) were predicted survivors and are now killed by cases added for them |
+| logical-connector | 7 | accept-set chain collapse, spread-guard disjunction, the two callee guards, the population subtraction |
+| equality-flip | 5 | spread-guard flips, the walk's verdict inversions, `notInPopulationCount`'s bucket test |
+| relational-boundary | 1 | `args.length < 2` -> `<= 2` reclassifies every two-argument call |
+| statement-removal | 9 | every one empties a result the suite asserts on |
+| regex-quantifier-bound | 0 | declared; reaches no construct in this file |
+
+Three statement-removal mutants spot-checked rather than assumed:
+
+```
+baseline                       49 passed
+L92  visit(...) removed        30 failed
+L96  forEachChild removed      30 failed
+L168 n++ removed               2 failed
+```
+
+## What a 31/31 would and would not mean
+
+It would mean the suite pins every construct the six declared operators can express IN CODE THAT
+EXISTS. It would NOT mean the guard is complete: this repo has measured a 1.00 score alongside two
+escapes the operator set could not express at all. The claim to make in the diff brief is the
+score plus the operator set it ranges over, never "the guard is complete".
+
+Two asymmetries worth carrying into the ledger if any of this is wrong:
+
+- One kill is by CRASH, not assertion — `line 60`'s `&&` -> `||` reads `callee.name` off a node
+  that is not a property access and throws during collection. It counts, and it is weaker
+  evidence than an assertion-kill.
+- `regex-quantifier-bound` contributes 0 mutants. It stays declared so the score demonstrably
+  ranges over it; dropping it would leave its (empty) site set unscored and the `OPERATORS:` tail
+  would have to say so.
+
+## If the run disagrees
+
+A survivor I did not predict means the static reasoning missed a path, and the ledger row must say
+which — not "equivalent" by default. A mutant count other than 31 means `enumerateSites` and the
+harness disagree about the surface, which is a bigger finding than any single survivor.

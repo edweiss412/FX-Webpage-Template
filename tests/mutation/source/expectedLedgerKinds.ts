@@ -45,8 +45,9 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // and the two that would have survived — the `slice(0, 110)` truncation and the spread guard's
   // `=== 1` — were repaid with cases rather than accepted. Two more were killed only remotely, by
   // the repo-wide assertion, and now have local fixtures. Three statement-removal mutants were
-  // spot-checked by planting. The written-down prediction is in the arc's scratchpad so the run
-  // can contradict it.
+  // spot-checked by planting. The prediction is written down in
+  // docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count.md §11 so the run can
+  // contradict it, and so a later reader can audit the reasoning rather than inherit a bare {}.
   //
   // An `accepted-gap` appearing here later would be this surface's first and owes its own filing.
   // A NEW `equivalent` row is a coverage regression to explain, not a fact to record: one kill on
