@@ -755,10 +755,11 @@ five:** a live-corpus instance, which `2.3`'s greps report on every run.
 | file | change |
 |---|---|
 | `tests/cross-cutting/psqlStartupFiles/scan.ts` | `matchBraceSpan` (`tests/cross-cutting/psqlStartupFiles/scan.ts:986`) gains construct-aware delegation plus its two context helpers; `attachedTargetEnd`'s `substitutionOpenerEnd` (`tests/cross-cutting/psqlStartupFiles/scan.ts:1144`) and `lexShellWords` itself — one guard at the head of each of its two lexical contexts, bare and double-quoted — gain the same `$$` precedence rule, because a rule applied in one recognizer of three is `w6` and a rule applied in two of three is round 4's finding; the six prose sites in §6 |
-| `tests/cross-cutting/psqlStartupFileSuppression.test.ts` | new cases for the §2.1 shapes and the §7 limits; no existing pin retired (§2.2) |
+| `tests/cross-cutting/psqlStartupFileSuppression.test.ts` | new cases for the §2.1 ACCEPT-SET — all 22 rows, each asserting sites AND `nested`/`nestedInBacktick` — plus the five process-substitution rows diff review round 1 forced. **NOT the §7 limits**: those are pinned by `shapes.mts`'s limit population against the merge-base scanner, not by this suite, and an earlier draft of this row said otherwise (round 3 finding 2). No existing pin retired (§2.2) |
 | `tests/mutation/source/registry.ts` | `psqlStartupScan` rows re-keyed — the source edit moves every site below the walk; every argument re-read at its new site, none carried over on the strength of having been true before |
-| `docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/` | the five probes, committed with the arc |
+| `docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/` | the SEVEN probes, committed with the arc: `shapes.mts`, `weaker-walks.mts`, `consumers.mts`, `corpus-time.mts`, `syntax-error-class.mts`, and the two reporters `cost-curve.mts` and `depth.mts`. An earlier draft said five, which predated three of them (round 3 finding 2); the count is derived from `git diff --diff-filter=A` over that directory rather than maintained by hand |
 | `docs/superpowers/specs/ci/README.md` | index row for this document |
+| `tests/mutation/source/expectedLedgerKinds.ts` | `psqlStartupScan` goes 30 → 31 `equivalent`, carrying the coverage-regression explanation that file demands. Absent from an earlier draft of this inventory (round 3 finding 2) |
 | `BACKLOG.md` / `BACKLOG-archive.md` | ledger closeout, one commit before whole-diff review |
 
 **A source edit voids the score.** The registry row's accepted rows are re-derived for this change,

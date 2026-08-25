@@ -14,6 +14,7 @@
 // `SCAN_MODULE=<path>` names the candidate; without it the probe compares the
 // working tree against the merge-base, which before the repair lands is a
 // VACUOUS comparison and says so.
+import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
@@ -86,15 +87,29 @@ const fingerprint = (scan: Scanner, source: string): string => {
  *  reported all of them identical — the third time in this arc that presence
  *  hid an attribution change, and the first time it happened inside the
  *  verification rather than the thing verified. */
-const EXPECTED_MOVEMENT: Record<string, { because: string }> = {
+const EXPECTED_MOVEMENT: Record<string, { because: string; candidateDigest: string }> = {
   "here-string, crossing in target": {
     because:
       "bash PARSES this and RUNS psql once inside the substitution (probed: `read -r PG <<< ${U:-$(echo }; psql -c x)}` binds `}` and invokes psql), so the site IS nested. The merge-base reports nested:false — the wrong attribution this arc repairs — and the candidate reports nested:true. The movement is the repair working on exactly the crossing the ledger row names, reached through the here-string consumer rather than through a redirection target.",
+    // The DESTINATION, not merely "differs from base". Diff review round 3
+    // finding 1: this row recorded the transition in PROSE while the assertion
+    // only required `base !== candidate`, so a candidate PRESERVING the wrong
+    // attribution (`nested:false`) while perturbing an unrelated field
+    // (`offset` 30 -> 31) scored "MOVED (recorded)" and PASSED. Presence versus
+    // attribution, met a FOURTH time in this arc and again inside the
+    // VERIFICATION rather than the thing verified.
+    //
+    // Digest of the candidate's FULL-RECORD fingerprint, derived from this
+    // file's own CASES entry rather than retyped. Pinning the whole record and
+    // not just `nested` is deliberate: a candidate with the right `nested` and
+    // a wrong `offset` is still wrong, and a field-scoped assertion passes it.
+    candidateDigest: "b304b2b53546",
   },
 };
 
 let differing = 0;
 let unexpectedlyIdentical = 0;
+let wrongDestination = 0;
 console.log(`\n${"consumer".padEnd(36)} sites/hits (base -> candidate)`);
 for (const [id, source] of CASES) {
   const b = fingerprint(base, source);
@@ -107,6 +122,15 @@ for (const [id, source] of CASES) {
     // A route declared to move must ACTUALLY move: an expectation that silently
     // stops applying is the fixture-goes-inert shape, and it reads as a pass.
     if (same && !vacuous) unexpectedlyIdentical++;
+    // ...and it must move TO THE RECORDED DESTINATION. Difference alone is
+    // satisfied by any perturbation, including one that keeps the very wrong
+    // attribution the movement exists to repair.
+    const actualDigest = createHash("sha1").update(c).digest("hex").slice(0, 12);
+    if (!vacuous && actualDigest !== expected.candidateDigest) {
+      wrongDestination++;
+      console.log(`    DESTINATION MISMATCH: expected ${expected.candidateDigest}, got ${actualDigest}`);
+      console.log(`    candidate record: ${c}`);
+    }
     console.log(
       `${id.padEnd(36)} ${counts(base)} -> ${counts(candidate)}  ${same ? "NO LONGER MOVES" : "MOVED (recorded)"}`,
     );
@@ -145,6 +169,12 @@ if (vacuous) {
 if (differing > 0) {
   console.error(
     `FAIL: ${differing} UNDECLARED consumer route(s) MOVED. Each must be recorded with its bash oracle in EXPECTED_MOVEMENT, or repaired.`,
+  );
+  process.exit(1);
+}
+if (wrongDestination > 0) {
+  console.error(
+    `FAIL: ${wrongDestination} declared movement(s) did not reach the RECORDED destination. Difference from base is not the claim — the claim is WHICH record the candidate produces, and a candidate that keeps the wrong attribution while perturbing another field satisfies difference.`,
   );
   process.exit(1);
 }
