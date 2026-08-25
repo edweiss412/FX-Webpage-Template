@@ -92,6 +92,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
           <div
             data-testid="admin-layout-infra-error"
+            data-render-fault="admin-session-lookup"
             className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center p-page-pad-mobile sm:p-page-pad-desktop text-center"
           >
             <h1 className="text-2xl font-semibold">Admin session unavailable</h1>

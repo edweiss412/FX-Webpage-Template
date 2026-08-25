@@ -281,6 +281,7 @@ export async function HealthAlertsPanel({ searchParams }: { searchParams: Search
       <section
         id="health"
         data-testid="health-alerts-panel-degraded"
+        data-render-fault="health-alerts-load"
         aria-labelledby="health-alerts-heading"
         className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
       >
