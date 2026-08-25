@@ -34,6 +34,19 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // guessed: each is what the classifier reports today, declared independently
   // so a recognizer that silently stops matching drops them to zero and reds
   // instead of reporting a clean corpus it no longer understands.
+  // The AC coverage suites, enrolled 2026-08-25. Counts are MEASURED against this
+  // tree rather than reasoned about: the CLI suite's two are what the classifier
+  // reports, and the other three declare 0. The corpus suite reads the plan tree
+  // from disk and still classifies as 0 — worth stating, because "it touches the
+  // filesystem so it must be non-zero" is the guess this row would otherwise
+  // encode, and the declaration is independent of the classification on purpose.
+  // Where a case IS environment-touching it carries its own premise in its own
+  // body; the scanner reads the test BODY, so a premise in a shared helper
+  // executes but is not attributable.
+  "tests/specLint/acCoverage.test.ts": 0,
+  "tests/specLint/acCoverageCli.test.ts": 2,
+  "tests/specLint/acCoverageCorpus.test.ts": 0,
+  "tests/specLint/acCoverageIncidents.test.ts": 0,
   "tests/specLint/claimSweepNumeric.test.ts": 3,
   "tests/specLint/claimSweepNamed.test.ts": 0,
   "tests/specLint/claimSweepNotFound.test.ts": 0,
@@ -223,7 +236,10 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/specLint/citationIntentWiring.test.ts": 0,
   "tests/specLint/citationIntentCorpus.test.ts": 0,
   "tests/specLint/redContract.test.ts": 0,
-  "tests/specLint/redExec.test.ts": 0,
+  // 0 until this arc; the three parse-invocation cases Task 9 added drive the
+  // ADAPTER's own spawn rather than a local sh call, which is what makes them
+  // environment-touching and what makes them a test of the repair.
+  "tests/specLint/redExec.test.ts": 3,
   "tests/specLint/taskContract.test.ts": 0,
   // Enrolled by main as taskContract's second suite (2026-08-05). Pure: it
   // exercises compareFindings over literal fixtures and reads no environment.

@@ -1001,10 +1001,26 @@ describe("the parse-check spawn separates options from the command string", () =
   });
 
   it("a genuinely malformed command still fails, so `--` did not disable the check", () => {
+    // This case's own input, not another's: the string must be one sh rejects
+    // for SYNTAX. Without the premise a non-zero exit could come from sh being
+    // absent or the spawn failing, and the case would pass while proving that
+    // `--` had disabled nothing because nothing ran.
+    premiseHolds(
+      "sh rejects this string for syntax, independently of how the adapter invokes it",
+      (spawnSync("sh", ["-nc", "--", "pnpm vitest run 'unterminated"], { encoding: "utf8" })
+        .status ?? -1) !== 0,
+    );
     expect(parse("pnpm vitest run 'unterminated")).not.toBe(0);
   });
 
   it("`--` does not disturb an ordinary command", () => {
+    // The complement of the case above, and it needs its own premise for the
+    // same reason: an exit of 0 is also what a spawn that never reached sh
+    // would have to be distinguished from.
+    premiseHolds(
+      "the adapter's spawn reaches sh at all, so a 0 here means sh parsed it",
+      parse("true") === 0,
+    );
     expect(parse("pnpm vitest run tests/a.test.ts")).toBe(0);
   });
 });

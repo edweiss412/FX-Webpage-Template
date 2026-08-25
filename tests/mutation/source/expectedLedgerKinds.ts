@@ -147,6 +147,7 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // itself a continue. Rule 20's order puts equivalence LAST and these reached
   // it, so this number going UP is a decision someone has to make explicitly
   // rather than a default.
+  acCoverage: {},
   claimSweep: { equivalent: 7 },
   citationIntent: {},
   // redContract: SEVEN reachability arguments — the GATE bound that only ever

@@ -1174,6 +1174,45 @@ export const GUARD_SURFACES: GuardSurface[] = [
    * repair, so they decide nothing about this surface and would buy wall clock
    * at no score. That is a declared choice, not an oversight.
    */
+  /**
+   * The AC coverage arm (`BL-PLANLINT-AC-COMMAND-OBSERVABILITY`), enrolled
+   * BEFORE the first diff dispatch, because its defect class is exactly
+   * "reports OK while the output moved" — a plan-lint arm that certifies a
+   * criterion observed when the command cannot observe it.
+   *
+   * `suitePaths` is DERIVED, not typed: every `tests/specLint/acCoverage*.test.ts`.
+   * The derivation is asserted in BOTH directions by
+   * `tests/mutation/_metaAcCoverageSuiteDerivation.test.ts` — the list EQUALS the
+   * glob, and no file importing the module sits outside it — so a suite added
+   * under either rule fails rather than silently buying zero score. That check is
+   * named outside the glob deliberately: it would otherwise match its own rule
+   * and have to enrol itself, and it decides nothing about the module.
+   */
+  {
+    id: "acCoverage",
+    sourcePath: "lib/specLint/acCoverage.ts",
+    suitePaths: [
+      "tests/specLint/acCoverage.test.ts",
+      "tests/specLint/acCoverageCli.test.ts",
+      "tests/specLint/acCoverageCorpus.test.ts",
+      "tests/specLint/acCoverageIncidents.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // Inverts the command-carrying test, which EVERY plant depends on: with it
+    // flipped, a prose cell is accepted and a real command is reported. A harness
+    // that reaches this file at all cannot fail to kill it, which is what a
+    // positive control is for. Verified unique on the current source:
+    // `grep -c -F 'return s !== "" && !s.startsWith("#");'` = 1.
+    control: {
+      from: 'return s !== "" && !s.startsWith("#");',
+      to: 'return s !== "" && s.startsWith("#");',
+    },
+    // EMPTY on enrolment. A non-empty accepted set is a claim about a specific
+    // survivor carrying its own reachability argument; none is written until the
+    // scored run produces one.
+    accepted: [],
+  },
   {
     id: "claimSweep",
     sourcePath: "lib/specLint/claimSweep.ts",
