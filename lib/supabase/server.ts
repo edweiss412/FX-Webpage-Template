@@ -13,6 +13,8 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
+import { makeRetryingFetch } from "./retryingFetch";
+
 const SUPABASE_PKCE_VERIFIER_COOKIE_RE = /^sb-[^-]+-auth-token-code-verifier(?:\.\d+)?$/;
 
 function hardenSupabaseCookieOptions(
@@ -44,6 +46,12 @@ export async function createSupabaseServerClient() {
     );
   }
   return createServerClient(url, publishableKey, {
+    // Absorbs the transient upstream 502 this gateway produces, bounded twice: only requests
+    // the database has proven cannot write are retried, and each attempt carries a stall guard.
+    // Installed HERE and nowhere else — the service-role client is deliberately excluded, and
+    // spec §6.1's recursion fence depends on that exclusion, because the durable log sink
+    // writes through it.
+    global: { fetch: makeRetryingFetch(fetch) },
     cookies: {
       getAll() {
         return cookieStore.getAll().map((c) => ({ name: c.name, value: c.value }));
