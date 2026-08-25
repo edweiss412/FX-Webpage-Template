@@ -370,7 +370,11 @@
  *    over-reports.
  *
  * The lexed-word route has exactly ONE blind spot by construction, and it is
- * closed: the outer lex replaces a `$(…)`/backtick/process-substitution body
+ * closed. That sentence was FALSE from 2026-08-21 to 2026-08-25 and is true
+ * again: the delimiter walk counted its own pair across other constructs, which
+ * was a second blind spot by construction, and
+ * `BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND` closed it by making the walk
+ * delegate. The one that remains is: the outer lex replaces a `$(…)`/backtick/process-substitution body
  * with the opaque `${}` word, so an assignment INSIDE such a body is invisible
  * to the outer words. `scanShellIndirection` therefore asks each nested body for
  * its own bindings and offsets them back to their physical line. The line-text
@@ -982,6 +986,20 @@ const FD_PREFIX = /^(?:\d+|\{[A-Za-z_]\w*\})$/;
  * callers to re-derive it from the character it landed on. That re-derivation is
  * wrong whenever the final character merely IS the delimiter without closing
  * anything (diff round 1, finding 1), so the fact is reported instead of inferred.
+ *
+ * The walk is CONSTRUCT-AWARE, and that is the newer half. It once counted only
+ * its own `open`/`close` pair while tracking quotes, so a delimiter belonging to
+ * a DIFFERENT construct was counted as its own: a `}` inside a nested `$()`
+ * closed the enclosing `${` early, and a `)` inside a nested `${}` closed the
+ * enclosing `$(` early. One direction was a SILENT MISS and the other a WRONG
+ * ATTRIBUTION - the two the consequence bound forbids. It now asks each foreign
+ * construct's own closer where that construct ends and resumes past it, per the
+ * default-denied accept-set in `foreignConstructEnd` and `doubleQuotedEnd`.
+ *
+ * The quoted-`)` example below is still the right one to have in mind, and it is
+ * now correct for a different reason: the quote is not special-cased here at all,
+ * it is one member of that accept-set.
+ * `BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND`.
  */
 function matchBraceSpan(
   text: string,
@@ -990,35 +1008,129 @@ function matchBraceSpan(
   close: string,
 ): { index: number; closed: boolean } {
   let depth = 0;
-  let quote: string | null = null;
   for (let i = start; i < text.length; i++) {
     const character = text[i]!;
-    if (character === "\\" && quote !== "'") {
+    // Escape binds tightest: the pair, whatever the next character is.
+    if (character === "\\") {
       i++;
       continue;
     }
-    if (quote !== null) {
-      if (character === quote) quote = null;
+    if (character === open) {
+      depth++;
       continue;
     }
-    // A `)` inside quotes is DATA — `$(echo ")"; psql …)` closes at the last
-    // paren, not the quoted one, and treating it as the close made every later
-    // invocation in the substitution invisible.
-    if (character === '"' || character === "'") {
-      quote = character;
-      continue;
-    }
-    if (character === open) depth++;
-    else if (character === close) {
+    if (character === close) {
       depth--;
       if (depth === 0) return { index: i, closed: true };
+      continue;
+    }
+    // The delegation, and the whole of the repair. A delimiter belonging to a
+    // DIFFERENT construct is not ours to count: ask that construct's own closer
+    // where it ends and resume past it.
+    //
+    // An UNCLOSED foreign construct FAILS this span rather than being skipped.
+    // The permissive reading keeps counting and fabricates a call for input
+    // bash refuses to parse - over-reporting a SITE is the forbidden direction,
+    // and `W4k-unclosed-backtick-in-subst` is the row that catches it.
+    const foreign = foreignConstructEnd(text, i);
+    if (foreign !== null) {
+      if (foreign === -1) return { index: text.length - 1, closed: false };
+      i = foreign;
     }
   }
   return { index: text.length - 1, closed: false };
 }
 
+/**
+ * The last index of the construct opening at `i`, `-1` when that construct
+ * never closes, and `null` when `i` opens no construct at all.
+ *
+ * Context 1 of design section 3.1: the BARE alphabet, where both quote forms
+ * are openers. The double-quoted alphabet is NARROWER - `'` is literal text
+ * there - so it gets its own recognizer in `doubleQuotedEnd` rather than this
+ * one carrying a mode flag. A flag is exactly how that difference gets lost,
+ * and the sibling arc measured what it costs.
+ *
+ * The complement is DEFAULT-DENIED: an opener nobody listed terminates nothing
+ * and is counted as ordinary text, which is precisely today's behaviour, so a
+ * spelling outside the set cannot regress. That is what makes this axis
+ * closable rather than an open grammar.
+ *
+ * Recursion terminates on length alone: every delegated span starts strictly
+ * after its opener, so each level is handed a strictly shorter remainder. No
+ * depth counter is needed, and one would be a bound nothing could reach.
+ */
+function foreignConstructEnd(text: string, i: number): number | null {
+  const character = text[i]!;
+  // `$$` is the PID parameter and consumes BOTH characters, so the `(` or `{`
+  // after it opens NOTHING. Ahead of the `$` branches below, because the rule
+  // is about the FIRST `$`. The first of THREE recognizers that need it.
+  if (character === "$" && text[i + 1] === "$") return i + 1;
+  // A `)` inside quotes is DATA - `$(echo ")"; psql …)` closes at the last
+  // paren, not the quoted one, and treating it as the close made every later
+  // invocation in the substitution invisible. POSIX single quotes carry no
+  // escapes, so that span simply runs to the next `'`; an unterminated one
+  // returns -1 and fails the enclosing span, which is what the declared-limit
+  // pin on unclosed constructs already expects.
+  if (character === "'") return text.indexOf("'", i + 1);
+  if (character === '"') return doubleQuotedEnd(text, i + 1);
+  if (character === "`") return closingBacktick(text, i);
+  if (character === "$" && (text[i + 1] === "{" || text[i + 1] === "(")) {
+    const open = text[i + 1]!;
+    const span = matchBraceSpan(text, i + 1, open, open === "{" ? "}" : ")");
+    return span.closed ? span.index : -1;
+  }
+  return null;
+}
+
+/**
+ * The index of the quote CLOSING the double-quoted span whose body starts at
+ * `from`, or `-1` when it never closes.
+ *
+ * Context 2 of design section 3.1, and a SEPARATE recognizer from
+ * `foreignConstructEnd` on purpose. The alphabet here is narrower because
+ * bash's is: `$(`, `${` and backticks stay ACTIVE inside double quotes, while
+ * `'`, `$'` and `$"` are LITERAL text and open nothing. Sharing one recognizer
+ * across the two contexts imports the wrong alphabet in one of them, which is
+ * the defect `W2k-squote-in-dq-in-subst` exists to catch.
+ */
+function doubleQuotedEnd(text: string, from: number): number {
+  for (let k = from; k < text.length; k++) {
+    const character = text[k]!;
+    if (character === "\\") {
+      k++;
+      continue;
+    }
+    if (character === '"') return k;
+    if (character === "`") {
+      const end = closingBacktick(text, k);
+      if (end === -1) return -1;
+      k = end;
+      continue;
+    }
+    if (character === "$" && (text[k + 1] === "{" || text[k + 1] === "(")) {
+      const open = text[k + 1]!;
+      const span = matchBraceSpan(text, k + 1, open, open === "{" ? "}" : ")");
+      if (!span.closed) return -1;
+      k = span.index;
+      continue;
+    }
+    if (character === "$" && text[k + 1] === "$") {
+      k++;
+      continue;
+    }
+  }
+  return -1;
+}
+
 /** Index of the closing delimiter matching the opener at `start`. Preserved
- * verbatim for the four callers that only ever wanted the index. */
+ * verbatim for the SIX call sites that only ever wanted the index - measured by
+ * `grep -n 'matchBrace(\|matchBraceEnd(' ` minus the two definitions, not
+ * counted from memory; the ledger row said four and then five, and both were
+ * wrong. Only `matchBraceEnd`'s single caller reads `closed`, and that asymmetry
+ * is load-bearing: a repair that changed what this returns on an UNCLOSED span
+ * would change six call sites' behaviour at once, and the crossing repair
+ * deliberately does not. */
 function matchBrace(text: string, start: number, open: string, close: string): number {
   return matchBraceSpan(text, start, open, close).index;
 }
@@ -1034,6 +1146,11 @@ function matchBrace(text: string, start: number, open: string, close: string): n
  * `closed` flag rather than duplicating the brace walk or re-deriving closure
  * from the character it landed on; the latter is what diff round 1 found, and
  * it fails on every span whose last character merely IS the delimiter.
+ *
+ * Reading the walk's own flag is what keeps this correct now that the walk
+ * DELEGATES: an unclosed foreign construct fails the enclosing span, so `closed`
+ * became false on inputs where the landed-on character still equals the
+ * delimiter. A re-derivation would have gone on reporting those as closed.
  */
 function matchBraceEnd(text: string, start: number, open: string, close: string): number {
   const span = matchBraceSpan(text, start, open, close);
@@ -1139,6 +1256,11 @@ function attachedTargetEnd(text: string, start: number): { end: number; undelimi
    */
   const substitutionOpenerEnd = (k: number): number | null => {
     const character = text[k]!;
+    // `$$` is the PID parameter and consumes BOTH characters, so the `(` or `{`
+    // after it opens nothing. The head of this context, ahead of the `$`
+    // branches below — the SECOND of the three recognizers that need this rule,
+    // and the one spec round 3 found still missing it.
+    if (character === "$" && text[k + 1] === "$") return k + 1;
     if (character === "$" && (text[k + 1] === "{" || text[k + 1] === "(")) {
       const open = text[k + 1] === "{" ? "{" : "(";
       return matchBraceEnd(text, k + 1, open, open === "{" ? "}" : ")");
@@ -1565,6 +1687,19 @@ function lexShellWords(
       continue;
     }
 
+    // `$$` is the PID parameter and consumes BOTH characters. Placed AHEAD of
+    // every other `$` branch in this context, so the second `$` can never be
+    // read as opening `${`, `$(`, `$((`, `$'` or `$"`. One guard rather than a
+    // patch at each of those five branches: the rule is about the FIRST `$`,
+    // and a per-branch fix would have to be repeated at each new branch anyone
+    // adds. Spec review round 4.
+    if (character === "$" && text[i + 1] === "$") {
+      begin(i);
+      append("$", i);
+      append("$", i + 1);
+      i++;
+      continue;
+    }
     // `$(...)`, `` `...` ``, `<(...)` and `>(...)` all EXECUTE their body, so
     // the body is scanned as shell text in its own right. `${...}` is an
     // expansion, not execution: it is consumed whole so brace-protected
@@ -1580,6 +1715,11 @@ function lexShellWords(
       // made all of them invisible. Re-lex the body so nested substitutions are
       // still collected — the expansion itself stays ONE opaque word, which is
       // the property the whole-consumption exists to preserve.
+      //
+      // `close` is now the delimiter BASH would pick: the walk delegates to any
+      // construct it crosses, so a `}` inside a nested `$()` no longer ends this
+      // expansion early. The slice therefore covers the whole expansion, and the
+      // re-lex below sees the operand entire rather than a prefix of it.
       const inner: NestedShell[] = [];
       lexShellWords(text.slice(i + 2, close), inner);
       for (const entry of inner)
@@ -1734,6 +1874,13 @@ function lexShellWords(
           // Before any other character the backslash is LITERAL and both
           // survive: "p\sql" is p-backslash-sql, never psql.
           append("\\", i, true);
+          continue;
+        }
+        // `$$` binds first inside double quotes too, for the same reason.
+        if (text[i] === "$" && text[i + 1] === "$") {
+          append("$", i, true);
+          append("$", i + 1, true);
+          i++;
           continue;
         }
         // Arithmetic first, for the reason above: `$((` only PREFIXES `$(`.
