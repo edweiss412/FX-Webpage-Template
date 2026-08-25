@@ -275,11 +275,16 @@ were found by plan review AFTER an earlier sweep reported clean, which is why th
 Narrowing the matcher back to an earlier form makes the self-test abort naming the site it lost, so
 the self-test is itself non-vacuous.
 
-One declared site is exempt from the self-test and says so in the script: the documented-limit
-bullet at lines 322-328 of the predecessor spec wraps its claim across three lines and the matcher's
-window is two. It is still GATED — the gate reads the file directly and never consults the matcher —
-so the exemption costs coverage of the discovery arm only, and it is recorded rather than silent.
-Widening the window to reach it is the ratchet this sweep already stopped climbing once.
+TWO declared sites are exempt from the self-test, each saying so in the script. The first is the
+documented-limit bullet at lines 322-328 of the predecessor spec: it wraps its claim across three
+lines and the matcher's window is two. The second is the executable pin at
+`psqlStartupFileSuppression.test.ts:5156`, and its reason generalises rather than being an accident
+of this matcher — the discovery arm finds an executable claim by its zero-assertion, and repairing
+that site means replacing the zero with a hit, so the arm cannot see it afterwards and no widening
+would change that. BOTH are still GATED — the gate reads each file directly and never consults the
+matcher — so the exemptions cost coverage of the discovery arm only, and both are recorded rather
+than silent. Widening the window to reach the first is the ratchet this sweep already stopped
+climbing once.
 
 Result: 50 hits over 4111 files. The ones that are claims about this scanner's current behaviour:
 
