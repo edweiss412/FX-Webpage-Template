@@ -1,19 +1,22 @@
 /**
  * components/crew/primitives/SourceLink.tsx — tile → source-sheet deep link.
  *
- * A SUBTLE "In sheet" affordance for a SectionCard's header `action` slot. It is
- * deliberately RECESSIVE: a small spreadsheet glyph + the short label "In sheet"
- * in the faintest text token (`text-text-faint`), so it never competes with the
- * section title or its content. Hover lifts it to `text-text-subtle` for
- * affordance feedback.
+ * A RECESSIVE "In sheet" affordance for a SectionCard's header `action` slot: a
+ * small spreadsheet glyph + the short label "In sheet", kept secondary to the
+ * section title by SIZE and by the icon rather than by colour.
  *
- * NOTE (2026-08-14): DESIGN §1.1a retired `text-text-subtle` as a resting colour
- * for action targets, and this control rests one rung BELOW that, at
- * `text-text-faint` (3.02:1). It was outside that policy's census, which polices
- * the subtle token only, and it is filed as
- * `BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR` with its three peers — the
- * question of whether a crew-facing control may rest at the faint rung is a
- * design decision, not an implementation detail.
+ * RESOLVED 2026-08-25 (`BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR`, design doc
+ * 2026-08-25-ui-polish-class-sweep-design.md D4). This used to rest at
+ * `text-text-faint` with hover at `text-text-subtle`, and the open question was
+ * whether a crew-facing control may rest at the faint rung. The answer is the
+ * condition now in DESIGN §1.1a: only where the control renders NO TEXT OF ITS
+ * OWN. This one renders a label, and the faint rung is 3.35:1 — under the 4.5:1
+ * floor for text. So it rests at `text-text`, hover and focus step to
+ * `text-text-strong`, and focus also carries a RING, because a colour-only
+ * indicator between 17.2:1 and 19:1 is no indicator at all.
+ *
+ * The quietness here was a deliberate crew-surface choice and was overridden
+ * knowingly; it is stated in the PR body as a decision the owner can reverse.
  *
  * It renders NOTHING (returns null) when `buildSheetDeepLink(driveFileId, anchor)`
  * yields null — i.e. when there is no source sheet to link to (null/empty

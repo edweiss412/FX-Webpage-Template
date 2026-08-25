@@ -36,6 +36,8 @@ import {
   RoleRecognizeControl,
   type RoleRecognizeSaveOutcome,
 } from "@/components/admin/RoleRecognizeControl";
+import { RoleMappingRow } from "@/app/admin/settings/roles/RoleMappingRow";
+import { StagedReviewCard } from "@/components/admin/StagedReviewCard";
 import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
 import type { AgendaEntry } from "@/lib/parser/types";
 
@@ -74,6 +76,45 @@ function Case() {
             state: "applied",
             grants: [],
           })}
+        />
+      </div>
+    );
+  }
+
+  if (kase === "role-mapping") {
+    // The SECOND FINANCIALS row. It is a separate component with the same shape
+    // by decision (D6), and "the same shape" is exactly the claim a measurement
+    // should not take on trust — the two drifted apart once already.
+    return (
+      <div className="max-w-2xl p-4">
+        <RoleMappingRow
+          row={{
+            token: "Camera Op",
+            grants: ["A1"],
+            decidedByLabel: "You",
+            decidedAtLabel: "Aug 25",
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (kase === "staged-review") {
+    // The third repaired tap target: the action radio's own label. It needs a
+    // triggered review item, because the radios only exist when there is a
+    // choice to make.
+    return (
+      <div className="max-w-2xl p-4">
+        <StagedReviewCard
+          row={{
+            driveFileId: "drive-1",
+            stagedId: "staged-1",
+            sourceKind: "cron",
+            stagedModifiedTime: "2026-05-09T12:00:00Z",
+            baseModifiedTime: "2026-05-08T00:00:00Z",
+            warningSummary: "",
+            triggeredReviewItems: [{ id: "item-mi6", invariant: "MI-6" }],
+          }}
         />
       </div>
     );

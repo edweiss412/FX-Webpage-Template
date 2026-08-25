@@ -36,7 +36,11 @@ import { expect, test, type Page } from "@playwright/test";
 import { bundleLiveEntry, compileEntryCss } from "./helpers/liveEntryToolchain";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
-const PHONE = { width: 375, height: 812 };
+// 390px, the width PRODUCT.md names for the crew phone and the width the design
+// doc's T12 claims. The first draft used 375 and the claim said 390 — a small
+// mismatch, but a proof that measures a different viewport than the one it
+// cites is not the proof it says it is.
+const PHONE = { width: 390, height: 844 };
 const DESKTOP = { width: 1280, height: 900 };
 /** AGENTS.md mechanical UI gate; the token is `--spacing-tap-min`. */
 const TAP_FLOOR = 44;
@@ -194,6 +198,40 @@ test.describe("tap floors, measured rather than asserted from a class list", () 
       await expect(checkbox).not.toBeChecked();
       await box.click({ position: { x: 8, y: 8 } });
       await expect(checkbox).toBeChecked();
+    });
+
+    test(`the OTHER FINANCIALS label clears ${TAP_FLOOR}px at ${label}`, async ({ page }) => {
+      // D6 says both rows take the identical shape. That is a claim about two
+      // separate components, and they drifted apart once already — so the second
+      // one is measured rather than inferred from the first.
+      await page.setViewportSize(viewport);
+      await open(page, "role-mapping");
+      // The edit trigger is named by its aria-label, not a testid.
+      await page.getByRole("button", { name: /edit/i }).first().click();
+
+      const box = page.locator('label:has([data-testid="role-mapping-check-FINANCIALS"])');
+      await expect(box).toBeVisible();
+      await expect
+        .poll(async () => (await box.boundingBox())?.height ?? 0, {
+          message: "the RoleMappingRow FINANCIALS label never settled at or above the tap floor",
+        })
+        .toBeGreaterThanOrEqual(TAP_FLOOR);
+      await expect(box).not.toContainText("payroll", { ignoreCase: true });
+    });
+
+    test(`the staged-review radio label clears ${TAP_FLOOR}px at ${label}`, async ({ page }) => {
+      // The third repaired target. D7 took it out of the class-sweep exception
+      // that had been fencing it, so it owes the same measured proof as the
+      // other two rather than a class assertion.
+      await page.setViewportSize(viewport);
+      await open(page, "staged-review");
+      const label_ = page.locator('label:has(input[type="radio"])').first();
+      await expect(label_).toBeVisible();
+      await expect
+        .poll(async () => (await label_.boundingBox())?.height ?? 0, {
+          message: "the staged-review radio label never settled at or above the tap floor",
+        })
+        .toBeGreaterThanOrEqual(TAP_FLOOR);
     });
 
     test(`the run-of-show summary clears ${TAP_FLOOR}px at ${label}`, async ({ page }) => {

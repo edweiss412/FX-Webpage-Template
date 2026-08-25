@@ -68,14 +68,19 @@ const SITES: Site[] = (() => {
     for (const line of lines) {
       const opens = line.lastIndexOf("/*");
       const closes = line.lastIndexOf("*/");
-      const startedCommented = inBlock;
-      if (opens >= 0 && opens > closes) inBlock = true;
-      else if (closes >= 0 && closes > opens) inBlock = false;
       const tag = line.indexOf("<summary");
       const slashes = line.indexOf("//");
-      commented.push(
-        startedCommented || (opens >= 0 && tag > opens) || (slashes >= 0 && tag > slashes),
-      );
+      // The line carrying the CLOSING `*/` is not itself inside the comment:
+      // anything after that `*/` is code. Treating it as commented over-masks by
+      // one line, which is a fail-OPEN in a walked guard — a `<summary` sharing
+      // that line would be skipped and reported clean. Probed: a three-line
+      // block masked as [false, true, true] where the truth is
+      // [false, true, false].
+      const closedHere = closes >= 0 && closes > opens;
+      const insideAtTag = inBlock && !(closedHere && tag > closes);
+      if (opens >= 0 && opens > closes) inBlock = true;
+      else if (closedHere) inBlock = false;
+      commented.push(insideAtTag || (opens >= 0 && tag > opens) || (slashes >= 0 && tag > slashes));
     }
     for (let i = 0; i < lines.length; i++) {
       if (!lines[i]!.includes("<summary") || commented[i]) continue;

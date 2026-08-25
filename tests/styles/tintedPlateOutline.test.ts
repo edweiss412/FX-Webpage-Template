@@ -118,6 +118,22 @@ type RegistryRow = {
   readonly carries: string;
   /** Why the derived arm cannot see this one. Never blank. */
   readonly invisibleBecause: string;
+  /**
+   * How many `border-text-faint` occurrences this file legitimately keeps — the
+   * controls in it that stand on a NEUTRAL ground.
+   *
+   * This is the fail-by-default half. The anchored check above proves the
+   * registered site still wears the plate token; it says nothing about a
+   * FOURTEENTH control appearing in the same file. Pinning the neutral count
+   * means adding one fails here and forces the author to answer the only
+   * question that matters: is the new control standing on a plate?
+   *
+   * Not "an unregistered occurrence is a defect" — a neutral-ground control in
+   * a file that also has a plate control is perfectly correct, and
+   * `RoleMappingRow` is exactly that (its edit button is on the row card, its
+   * remove-confirm button is inside the warning plate).
+   */
+  readonly neutralFaintCount: number;
 };
 
 const REGISTRY: readonly RegistryRow[] = [
@@ -129,6 +145,7 @@ const REGISTRY: readonly RegistryRow[] = [
     carries: TINTED,
     invisibleBecause:
       "the ring-offset is a Record indexed by the `mode` prop, so the scanner resolves no plate string for the element. The outline joins that same record rather than the shared NEUTRAL_BTN, because `ignored` cards are surface-sunken and already clear.",
+    neutralFaintCount: 1,
   },
   {
     file: "components/admin/wizard/archivedTabOffer.tsx",
@@ -138,6 +155,7 @@ const REGISTRY: readonly RegistryRow[] = [
     carries: TINTED,
     invisibleBecause:
       "the file declares no ring-offset at all. The constant itself moves rather than its call sites, because BOTH card tones are tinted (`cardTone` is warning-bg when changed, info-bg otherwise), so there is no untinted use of this button to protect.",
+    neutralFaintCount: 0,
   },
   {
     file: "app/admin/settings/roles/RoleMappingRow.tsx",
@@ -147,6 +165,7 @@ const REGISTRY: readonly RegistryRow[] = [
     carries: TINTED,
     invisibleBecause:
       "the file declares no ring-offset. The override is at THIS call site and not in `outlineBtn`, because the same constant paints the edit button on a neutral card.",
+    neutralFaintCount: 1,
   },
   {
     file: "lib/ui/actionClass.ts",
@@ -156,6 +175,7 @@ const REGISTRY: readonly RegistryRow[] = [
     carries: TINTED,
     invisibleBecause:
       "`lib/` holds no markup, so no element exists here for the scanner to reach. This is the far end of the only chain in this registry.",
+    neutralFaintCount: 1,
   },
   {
     file: "components/admin/RescanSheetButton.tsx",
@@ -165,6 +185,7 @@ const REGISTRY: readonly RegistryRow[] = [
     carries: "SECONDARY_ACTION_ON_TINTED_CLASS",
     invisibleBecause:
       "the shared treatment lives in `lib/` and is neutral at every call site but one, so the plate is a prop rather than a class the scanner could read off this element. Pinned on the NEXT LINK rather than the token: this file selects a treatment, it does not name a colour.",
+    neutralFaintCount: 1,
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
@@ -174,6 +195,7 @@ const REGISTRY: readonly RegistryRow[] = [
     carries: "onTintedPlate",
     invisibleBecause:
       "the control is a <RescanSheetButton> child, so the plate lives on the enclosing div and the button's own class string never mentions it. This is the site that passes the plate, and it is pinned on the prop for the same reason the link above is pinned on the constant.",
+    neutralFaintCount: 6,
   },
 ];
 
@@ -238,4 +260,35 @@ describe("the tinted secondary action is the same button, one token apart", () =
     expect(tinted.filter((c) => !neutral.includes(c))).toEqual([TINTED]);
     expect(neutral.filter((c) => !tinted.includes(c))).toEqual(["border-text-faint"]);
   });
+});
+
+/**
+ * The fail-by-default half of the registry, and the reason it counts rather
+ * than forbids.
+ *
+ * The anchored checks above prove each registered site still wears the plate
+ * token. Nothing there notices a NEW control appearing in the same file. An
+ * unregistered `border-text-faint` is not itself a defect — a neutral-ground
+ * control living beside a plate control is correct, and `RoleMappingRow` is
+ * exactly that shape. What IS worth failing on is the count moving, because the
+ * author who added one is the only person who knows which ground it stands on.
+ *
+ * Recorded as a limit rather than sold as a cover: this is per-file, so a
+ * fourteenth tinted-plate control in a file with no registry row is still
+ * outside it. That is the ancestor-resolution gap in the header, unchanged.
+ */
+describe("a registered file's neutral-ground count is pinned", () => {
+  it.each(REGISTRY.map((r) => [r.file, r] as const))(
+    "%s keeps exactly its recorded number of neutral-ground outlines",
+    (_label, row) => {
+      const src = readFileSync(join(ROOT, row.file), "utf8");
+      const found = (src.match(/border-text-faint/g) ?? []).length;
+      expect(
+        found,
+        `${row.file} now has ${found} \`border-text-faint\` occurrences, recorded ${row.neutralFaintCount}. ` +
+          "If the new one stands on a tinted plate it needs the plate token; if it stands on a neutral " +
+          "ground, raise neutralFaintCount. Only the author knows which.",
+      ).toBe(row.neutralFaintCount);
+    },
+  );
 });
