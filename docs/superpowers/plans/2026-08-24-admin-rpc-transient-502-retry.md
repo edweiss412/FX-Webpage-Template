@@ -260,12 +260,16 @@ what the runner will actually generate:
 
 | surface | sites | by operator |
 | --- | --- | --- |
-| `lib/supabase/retryingFetch.ts` | **40** | statement-removal 14, integer-literal 14, equality-flip 7, logical-connector 4, relational-boundary 1 |
+| `lib/supabase/retryingFetch.ts` | **42** | statement-removal 14, integer-literal 16, equality-flip 7, logical-connector 4, relational-boundary 1 |
 | `tests/supabase/retryableRpcVolatilityScan.ts` | **18** | statement-removal 13, equality-flip 2, logical-connector 2, integer-literal 1 |
 | `lib/supabase/retryEligibility.ts` | **3** | statement-removal 1, equality-flip 1, integer-literal 1 |
 
 The first error was the count: the wrapper was recorded at 24 sites against four declared operators,
-and it is 26 against those four, 40 across all of them.
+and it is 26 against those four, 40 across all of them. It has since moved AGAIN, to 42, because the
+describeTarget query-strip repair added two `[0]` index literals. A site count is a measurement of a
+file, so it goes stale the moment the file changes — the third derived number on this arc to do so,
+after the env-touching count and the AC-6 tally. The score's own total comes from the RUN, not from
+this table, which is why the table being stale never reached a brief.
 
 The second was the operator list. `statement-removal` was never declared and is the LARGEST operator
 on both enrolled surfaces. A scoped subset leaves the excluded operators' sites unscored, and the
@@ -315,7 +319,7 @@ Both rows take `operators: [...OPERATOR_NAMES]`, a `control` its own suite must 
 Only the second is env-touching (it queries the catalog), so only it takes an `EXPECTED_ENV_TOUCHING`
 row.
 
-**Cost, stated before the slot is taken rather than discovered inside it.** 58 mutants total, 40 plus
+**Cost, stated before the slot is taken rather than discovered inside it.** 60 mutants total, 42 plus
 18. Each mutant runs its deciding suite in a fresh child; measured on this branch, the wrapper's two
 suites report 356ms and the volatility suite 383ms, both about a second wall-clock including boot. So
 the estimate is roughly two to four minutes of execution for both surfaces, not the tens of minutes a
