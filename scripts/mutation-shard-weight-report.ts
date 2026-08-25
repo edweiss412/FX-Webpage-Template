@@ -60,9 +60,11 @@ const say = (line: string): void => {
   else process.stdout.write(`${line}\n`);
 };
 
-const row = (label: string, legs: readonly number[]): string =>
+/** Seconds by default; `unit` exists because ONE caller reports boot COUNTS. */
+const row = (label: string, legs: readonly number[], unit = "s"): string =>
   `  ${label.padEnd(52)} [${legs.map((x) => String(Math.round(x))).join(", ")}]` +
-  `  binding ${String(Math.round(bindingLeg(legs)))}s  spread ${(bindingLeg(legs) / Math.min(...legs)).toFixed(3)}x`;
+  `  binding ${String(Math.round(bindingLeg(legs)))}${unit}` +
+  `  spread ${(bindingLeg(legs) / Math.min(...legs)).toFixed(3)}x`;
 
 type Dump = { sha: string; surfaces: Record<string, ModelledSurface> };
 
@@ -209,7 +211,11 @@ function describe(
   const loads = new Array<number>(N).fill(0);
   for (const m of surfaces)
     loads[m.leg] = (loads[m.leg] ?? 0) + (modelled.get(m.surfaceId)?.boots ?? 0);
-  say(row("  ...its MODELLED loads (what the optimiser balanced)", loads));
+  // BOOT COUNTS, and the unit says so: this was the one `row` call reporting something
+  // other than seconds, and it appended "s" to a count. The label was wrong too --
+  // boots are what the optimiser balanced only for a RATE-LESS dump; a rated one
+  // balances boots x millisPerBoot, which is the whole point of this arc.
+  say(row("  ...its modelled BOOT COUNTS (not what a rated dump balances)", loads, " boots"));
 
   const rates = surfaces
     .map((m) => ({ id: m.surfaceId, r: ratePerModelledBoot(m, modelled) }))
@@ -283,9 +289,43 @@ function main(): void {
   // nothing else. A consumer piping this into a file should get a table, not a
   // table with a report glued to the front of it.
   REPORT_TO_STDERR = argv.includes("--emit-registry");
-  const snaps: Snapshot[] = specs.map((s) => {
-    const { modelled, sha } = modelledFrom(s.modelledFile);
-    return describe(basename(s.dir), sha, readRun(s.dir), modelled);
+  const arts = specs.map((s) => ({ spec: s, art: readRun(s.dir) }));
+
+  // CHRONOLOGY IS VERIFIED, not assumed from argument order. Every cross-run block
+  // below reads `snaps` as newest-first: the held-out seed and its target, the verdict
+  // direction, the shipping seed rule, the drift comparison and the boot history. One
+  // ordinary invocation with two valid nightlies in the other order passed both
+  // reconciliations and inverted all of them, producing plausible and wrong evidence
+  // with no warning -- the worst shape available, because nothing looks broken.
+  //
+  // The records carry `startedAt`, so the claim is checkable. A run with no parseable
+  // stamp cannot participate in the check and is REPORTED as such rather than assumed
+  // to be in position.
+  const stamped = arts.map(({ spec, art }) => ({ dir: basename(spec.dir), at: art.startedAt }));
+  const unstamped = stamped.filter((x) => x.at === undefined).map((x) => x.dir);
+  if (unstamped.length > 0) {
+    say(
+      `  NOTE: ${String(unstamped.length)} run(s) carry no parseable startedAt ` +
+        `(${unstamped.join(", ")}), so their position is taken on trust.`,
+    );
+  }
+  const dated = stamped.filter((x): x is { dir: string; at: number } => x.at !== undefined);
+  for (let i = 1; i < dated.length; i += 1) {
+    const newer = dated[i - 1] as { dir: string; at: number };
+    const older = dated[i] as { dir: string; at: number };
+    if (older.at > newer.at) {
+      throw new Error(
+        `runs are not newest-first: ${older.dir} started after ${newer.dir}. ` +
+          `Every cross-run block reads them in that order, so this would invert the ` +
+          `held-out seed, the verdict direction and the drift comparison silently. ` +
+          `Reorder the --run arguments.`,
+      );
+    }
+  }
+
+  const snaps: Snapshot[] = arts.map(({ spec, art }) => {
+    const { modelled, sha } = modelledFrom(spec.modelledFile);
+    return describe(basename(spec.dir), sha, art, modelled);
   });
 
   if (snaps.length >= 2) {
@@ -533,6 +573,15 @@ function main(): void {
         );
       }
       process.exit(1);
+    }
+    // Retired surfaces are NAMED on the way out. They are dropped from the table
+    // rather than emitted, and a silent drop would leave a reader unable to tell a
+    // shrinking registry from a shrinking record set.
+    if (built.retired.length > 0) {
+      console.error(
+        `dropped ${String(built.retired.length)} rate(s) the records carry for surfaces the ` +
+          `registry no longer holds: ${built.retired.join(", ")}. Records outlive enrolment.`,
+      );
     }
     // stdout, not a file in whatever directory the caller happened to be in.
     process.stdout.write(

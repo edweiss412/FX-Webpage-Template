@@ -856,6 +856,25 @@ describe("buildSeedTable", () => {
     if (!r.ok) expect(r.missing).toEqual(["c"]);
   });
 
+  it("DROPS a recorded rate for a surface the registry no longer holds, and names it", () => {
+    // Records outlive enrolment: they are artifacts of an older tree, so a retired
+    // surface's rate rides along in them. The completeness check only ever asked
+    // whether each LIVE surface had a rate, so that stale row was emitted and would
+    // have been seeded back into a registry that does not contain it. Dropped and
+    // reported rather than refused, because this is the ordinary case.
+    const r = buildSeedTable(
+      new Map([
+        ["live", 100],
+        ["retired", 900],
+      ]),
+      new Map(),
+      ["live"],
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect([...r.table.keys()]).toEqual(["live"]);
+    expect(r.retired).toEqual(["retired"]);
+  });
+
   it("refuses an override naming a surface the registry does not have", () => {
     // A rate matching no row is a typo in a hand-typed bootstrap value, and silently
     // dropping it would leave the real surface unpriced under a different spelling.

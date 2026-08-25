@@ -17,6 +17,8 @@ type Outcome = { siteId: string; verdict: string; children?: readonly Child[] };
 type RunRecordFile = {
   surfaceId: string;
   runId: string;
+  /** ISO instant the surface started. Present in every artifact this reads. */
+  startedAt?: string;
   passed: boolean;
   score: number;
   outcomes: readonly Outcome[];
@@ -54,6 +56,15 @@ export type Measured = {
 
 export type RunArtifacts = {
   surfaces: Measured[];
+  /**
+   * The LATEST `startedAt` any record in this run carries, as an epoch millisecond.
+   *
+   * Surfaced so a caller comparing several runs can VERIFY the chronology it assumes
+   * rather than trusting argument order. `undefined` when no record carried a parseable
+   * stamp, which is a real state for a hand-built fixture and must be distinguishable
+   * from "ran at the epoch".
+   */
+  startedAt?: number;
   /** leg index -> the seconds that leg stamped into its own `elapsed.txt`. */
   elapsed: Map<number, number>;
 };
@@ -94,6 +105,7 @@ function sumDurations(children: readonly Child[], file: string): number {
 export function readRun(dir: string): RunArtifacts {
   const surfaces: Measured[] = [];
   const elapsed = new Map<number, number>();
+  let startedAt: number | undefined;
   for (const entry of readdirSync(dir)) {
     const rec = RECORD_DIR.exec(entry);
     if (rec !== null) {
@@ -112,6 +124,8 @@ export function readRun(dir: string): RunArtifacts {
           verdicts: new Map(j.outcomes.map((o) => [o.siteId, o.verdict])),
           passed: j.passed,
         });
+        const t = j.startedAt === undefined ? Number.NaN : Date.parse(j.startedAt);
+        if (Number.isFinite(t)) startedAt = startedAt === undefined ? t : Math.max(startedAt, t);
       }
       continue;
     }
@@ -123,5 +137,5 @@ export function readRun(dir: string): RunArtifacts {
       if (existsSync(file)) elapsed.set(Number(el[1]), Number(readFileSync(file, "utf8").trim()));
     }
   }
-  return { surfaces, elapsed };
+  return { surfaces, elapsed, ...(startedAt === undefined ? {} : { startedAt }) };
 }

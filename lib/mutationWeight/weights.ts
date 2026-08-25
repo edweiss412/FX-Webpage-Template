@@ -386,8 +386,8 @@ export function buildSeedTable(
   overrides: ReadonlyMap<string, number>,
   surfaceIds: readonly string[],
 ):
-  | { ok: true; table: Map<string, number> }
-  | { ok: false; missing: string[]; unmatched: string[] } {
+  | { ok: true; table: Map<string, number>; retired: string[] }
+  | { ok: false; missing: string[]; unmatched: string[]; retired: string[] } {
   const ids = new Set(surfaceIds);
   // An override naming no row is refused rather than dropped. A bootstrap rate is
   // hand-typed from a score run, so the realistic failure is a misspelled id, and
@@ -401,9 +401,19 @@ export function buildSeedTable(
   const table = new Map(fromRecords);
   for (const [id, rate] of overrides) if (ids.has(id)) table.set(id, rate);
 
+  // A rate the RECORDS carry for a surface the registry no longer holds is dropped and
+  // NAMED, not emitted. The completeness check only ever asked whether each live
+  // surface had a rate, so a retired surface's row rode along into the emitted table
+  // and would have been seeded back into a registry that does not contain it. Records
+  // outlive enrolment by construction -- they are artifacts of an older tree -- so this
+  // is the ordinary case rather than a corrupt one, and it is reported rather than
+  // refused.
+  const retired = [...table.keys()].filter((id) => !ids.has(id)).sort();
+  for (const id of retired) table.delete(id);
+
   const missing = surfaceIds.filter((id) => !table.has(id)).sort();
-  if (missing.length > 0 || unmatched.length > 0) return { ok: false, missing, unmatched };
-  return { ok: true, table };
+  if (missing.length > 0 || unmatched.length > 0) return { ok: false, missing, unmatched, retired };
+  return { ok: true, table, retired };
 }
 
 /**

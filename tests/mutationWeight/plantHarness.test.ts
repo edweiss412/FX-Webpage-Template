@@ -54,6 +54,13 @@ describe("mutation-weight-plant --anchors", () => {
       out = `${err.stdout ?? ""}${err.stderr ?? ""}`;
     }
     expect(out, "a stale anchor names itself").not.toContain("STALE");
+    // A FLOOR on the corpus, because every ratio this script prints is satisfied by an
+    // empty numerator over an empty denominator: with DEFECTS emptied, --anchors said
+    // "0/0 resolve exactly once" and the sweep said "caught 0, not caught 0", both
+    // exiting zero. Deleting the corpus, or any subset, lowered BOTH sides and read as
+    // a pass. The backreference below is what made 0/0 look convincing.
+    const [, resolved] = /anchors: (\d+)\//.exec(out) ?? [];
+    expect(Number(resolved), "the corpus must not be empty or gutted").toBeGreaterThan(40);
     expect(out).toMatch(/anchors: (\d+)\/\1 resolve exactly once/);
     expect(code).toBe(0);
   });

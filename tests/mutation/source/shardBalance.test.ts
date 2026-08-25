@@ -98,6 +98,22 @@ describe("held-out binding leg (AC-3)", () => {
         expect(value, `${field} must name a run`).toMatch(/^meas-\d+$/);
       }
       expect(fx.seedRun).not.toBe(fx.scoreRun);
+
+      // ORDER, not merely difference. "Held out" means the seed never saw the run it
+      // is judged on, and two DIFFERENT run ids satisfy that only if the scored one is
+      // LATER -- with `scoreRun` set to an earlier id the fixture reads as held out
+      // while actually pricing a run from its own future, which is the exact
+      // contamination this whole construction exists to prevent. The calculations never
+      // read either id, so nothing downstream would notice.
+      //
+      // GitHub run ids increase monotonically, which is what makes this checkable at
+      // all rather than a comment asking the reader to trust the filenames.
+      const idOf = (run: string): number => Number(run.replace(/^meas-/, ""));
+      expect(Number.isSafeInteger(idOf(fx.seedRun)), "seedRun id").toBe(true);
+      expect(Number.isSafeInteger(idOf(fx.scoreRun)), "scoreRun id").toBe(true);
+      expect(idOf(fx.scoreRun), "the SCORED run must be the later one").toBeGreaterThan(
+        idOf(fx.seedRun),
+      );
     });
 
     it("is internally consistent, so no single field can be deleted quietly", () => {

@@ -397,6 +397,30 @@ const SELF_TEST_DEFECTS = [
  * about whether the real ones still point at live code.
  */
 const ANCHORS_ONLY = process.argv.includes("--anchors");
+
+/**
+ * The corpus must not be able to vanish quietly.
+ *
+ * A guard needs a premise on ITSELF: with `DEFECTS` emptied, `--anchors` printed
+ * "0/0 resolve exactly once" and the sweep printed "caught 0, not caught 0", and both
+ * exited zero. Every ratio-shaped assertion is satisfied by an empty numerator over an
+ * empty denominator, so deleting the corpus -- or any subset of it -- lowered BOTH
+ * sides and read as a pass. SELF_TEST_DEFECTS already had this premise; the real list
+ * did not, which is the more expensive omission of the two.
+ *
+ * A FLOOR, not the exact count, so adding a plant does not require editing this line
+ * while deleting the corpus still fails loudly.
+ */
+const MIN_DEFECTS = 40;
+if (DEFECTS.length < MIN_DEFECTS) {
+  console.error(
+    `plant corpus has ${String(DEFECTS.length)} entries, below the floor of ${String(MIN_DEFECTS)}. ` +
+      `An empty or gutted list satisfies every ratio this script prints, so it is refused ` +
+      `rather than reported as a clean run.`,
+  );
+  process.exit(1);
+}
+
 if (ANCHORS_ONLY) {
   let stale = 0;
   for (const [name, file, from] of DEFECTS) {
