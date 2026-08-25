@@ -1,7 +1,7 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 import ts from "typescript";
 import {
   scanBody,
@@ -13,6 +13,25 @@ import {
   routeMutatingMethods,
 } from "./enumerate";
 import { discoveryGaps } from "./totality";
+
+/**
+ * Scratch roots this file creates, removed together in `afterAll`.
+ *
+ * `afterAll` rather than per-case: vitest runs it even when a case fails, and a
+ * cleanup that only runs on success leaks exactly when a suite is being
+ * debugged, which is when it runs most. Guard:
+ * `tests/mutation/_metaScratchRootCleanup.test.ts`. Row:
+ * BL-MUTATION-SCRATCH-FS-EVENT-STORM.
+ */
+const scratchRoots: string[] = [];
+function trackScratch(root: string): string {
+  scratchRoots.push(root);
+  return root;
+}
+afterAll(() => {
+  for (const root of scratchRoots) rmSync(root, { recursive: true, force: true });
+  scratchRoots.length = 0;
+});
 
 const sf = (src: string) =>
   ts.createSourceFile("t.tsx", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -156,7 +175,7 @@ describe("call-site binding (Codex plan-R1 F2): local shadow does NOT satisfy th
 });
 
 function makeFixture(relPath: string, contents: string): string {
-  const root = mkdtempSync(join(tmpdir(), "mutation-surface-"));
+  const root = trackScratch(mkdtempSync(join(tmpdir(), "mutation-surface-")));
   const full = join(root, relPath);
   mkdirSync(dirname(full), { recursive: true });
   writeFileSync(full, contents, "utf8");
@@ -375,7 +394,7 @@ describe("collectSurfaceUnits — D1 closed resolver", () => {
 // run. The failure mode named in each comment is the one its mutant demonstrates.
 
 function makeTree(files: Record<string, string>): string {
-  const root = mkdtempSync(join(tmpdir(), "mutation-surface-tree-"));
+  const root = trackScratch(mkdtempSync(join(tmpdir(), "mutation-surface-tree-")));
   for (const [rel, contents] of Object.entries(files)) {
     const full = join(root, rel);
     mkdirSync(dirname(full), { recursive: true });

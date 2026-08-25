@@ -1354,12 +1354,19 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
     const broken = css.replace(/^\s*--color-border-strong:.*$/m, "");
     premise("the declaration was removed", css.length - broken.length, 1);
     const dir = mkdtempSync(join(tmpdir(), "control-outline-residue-theme-"));
-    const brokenPath = join(dir, "globals.css");
-    writeFileSync(brokenPath, broken);
     // `loadOracle` reads the stylesheet once and builds the design system in memory, so the copy on
     // disk is finished with the moment it resolves and the directory can go immediately.
-    const blind = await loadOracle(brokenPath);
-    rmSync(dir, { recursive: true, force: true });
+    // `finally` rather than a bare statement, matching this file's own helper above: a throw between
+    // the mkdtemp and the removal leaks the root, and a cleanup that only runs on the success path
+    // leaks exactly when a case is failing. Guard: tests/mutation/_metaScratchRootCleanup.test.ts.
+    let blind;
+    try {
+      const brokenPath = join(dir, "globals.css");
+      writeFileSync(brokenPath, broken);
+      blind = await loadOracle(brokenPath);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
     expect(classify(blind, ["border-border-strong"]).get("border-border-strong")).toBeNull();
 
     const under = residueOf(ROOT, blind);

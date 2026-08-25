@@ -150,3 +150,9 @@ tests/_probe_nondet/
 
 # Codex dispatch briefs — session scaffolding, not repo state
 .codex-briefs/
+
+# The capture's evidence record and its staging directory. The drift gate fails
+# on ANY untracked file under public/help/screenshots/, so without this entry
+# the instrument would red the very gate it instruments.
+/public/help/screenshots/capture-evidence.json
+/.capture-staging/
