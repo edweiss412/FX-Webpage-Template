@@ -142,7 +142,7 @@ The fourth site is a file this arc CREATES, which is why round 2 could not find 
 ## Task 1 — the view type, a test-side builder, and the module skeleton
 
 <!-- spec-lint: ignore — created by this plan's implementation; not yet tracked -->
-Creates the `AcBlocks` view type in `lib/specLint/types.ts` (an ordered list of `html` and `table` blocks, each cell carrying its rendered text and its `inlineCode` values), a test-side builder in `tests/specLint/acCoverageView.ts` that parses real markdown with remark into that shape, and `lib/specLint/acCoverage.ts` exporting `checkAcCoverage(blocks, kind)` returning `[]`.
+Adds `"acCoverage"` to the `Check` union at `lib/specLint/types.ts:2` and to the exported `CHECK_ORDER` array at `lib/specLint/types.ts:33`, because the module below emits `check: "acCoverage"` and cannot typecheck without them. Creates the `AcBlocks` view type in `lib/specLint/types.ts` (an ordered list of `html` and `table` blocks, each cell carrying its rendered text and its `inlineCode` values), a test-side builder in `tests/specLint/acCoverageView.ts` that parses real markdown with remark into that shape, and `lib/specLint/acCoverage.ts` exporting `checkAcCoverage(blocks, kind)` returning `[]`.
 
 The builder lives under `tests/` deliberately: a suite may import remark, the pure core may not, and putting it here means Tasks 2-6 can feed the arm real documents without waiting for the adapter.
 
@@ -199,7 +199,21 @@ Adds all NINE plants of spec §5, seven of which are reviewer probes kept as reg
 
 ## Task 7 — the adapter: remark, the view, the AC spawn loop, and the CLI
 
-`scripts/spec-lint.ts` gains the remark parse (`remark().use(remarkGfm)`, the pattern at `lib/reviewRounds/filing.ts:60`), the view it injects, and a SECOND spawn loop for the AC plan keyed by `(line, spanIndex)`. `lib/specLint/run.ts` gains the import, the `CHECK_ORDER` entry and the invocation.
+`scripts/spec-lint.ts` gains the remark parse (`remark().use(remarkGfm)`, the pattern at `lib/reviewRounds/filing.ts:60`), the view it injects, and a SECOND spawn loop for the AC plan keyed by `(line, spanIndex)`. `lib/specLint/run.ts` gains the import, the entry in its `Record<Check, number>` ordering map at `lib/specLint/run.ts:44`, and the invocation.
+
+**There are TWO `CHECK_ORDER`s and round 4 caught the plan naming one.** Adding a `Check` touches FOUR sites, derived by probing `claimSweep` rather than recalled:
+
+```
+$ git grep -n -E '"claimSweep"|claimSweep:' -- lib/specLint/types.ts lib/specLint/run.ts tests/specLint/cli.test.ts
+lib/specLint/types.ts:10:  | "claimSweep";          <- the Check union
+lib/specLint/types.ts:41:  "claimSweep",            <- the exported CHECK_ORDER array (render order)
+lib/specLint/run.ts:52:  claimSweep: 7,            <- the Record<Check, number> ordering map
+tests/specLint/cli.test.ts:1229: expect(CHECK_ORDER).toContain("claimSweep");
+```
+
+Three of the four are COMPILE-enforced and cannot be forgotten silently: the union is the declaration, the array is pinned by `_ChecksAreOrdered` at `lib/specLint/types.ts:45`, and the map is a `Record<Check, number>` whose missing key is a type error. The fourth is a test that must be extended. Tasks 1 and 7 split them: the union and the array land in Task 1 with the module that emits the check, the ordering map lands here with the invocation.
+
+**`pnpm typecheck` is an explicit step of this task, not an afterthought.** Vitest strips types, so all three compile-enforced sites can be missing while every task-level `pnpm vitest run` passes, and the omission surfaces only at typecheck or in CI. That is exactly the consequence round 4 named.
 
 **`runLint`'s parameter list is a KNOWN collision site and the new parameter goes LAST.** `lib/specLint/run.ts:105-112` carries the history in a comment: two arms once appended to the same slot on their own branches, and the one that had not yet merged is the one that moved. Measured at plan time by AST walk, because round-3 finding 2 caught the first attempt mixing textual occurrences with call expressions and undercounting by three:
 
