@@ -38,6 +38,50 @@ const PR_FIRING_WORKFLOWS = readdirSync(WORKFLOWS_DIR)
   .filter((f) => f.endsWith(".yml"))
   .filter((f) => /\n {2}pull_request:/.test(readWorkflow(f)));
 
+/**
+ * ONE extraction funnel per YAML structure, because every assertion in this file
+ * that searched the whole document was unfalsifiable in the same way.
+ *
+ * Whole-diff review r5b probed it: an instrument path could disappear from the
+ * `pull_request.paths` allow-list while remaining in the cache-key `hashFiles`
+ * census, and `toContain` on the whole document still passed -- so a change to
+ * that instrument could no longer trigger the workflow while the guard stayed
+ * green. The same shape let the identity-passthrough assertion pass on flags
+ * appearing anywhere at all rather than on the capture command.
+ *
+ * An earlier round fixed exactly one assertion here by scoping it to the `run:`
+ * lines and left its neighbours document-wide. These helpers exist so that
+ * cannot recur: a new assertion reaches for the structure, not the string.
+ */
+function pullRequestPaths(document: string): string[] {
+  const start = document.indexOf("  pull_request:");
+  if (start === -1) return [];
+  const afterPaths = document.indexOf("    paths:", start);
+  if (afterPaths === -1) return [];
+  const rest = document.slice(afterPaths).split("\n").slice(1);
+  const out: string[] = [];
+  for (const line of rest) {
+    // The list ends at the next key at `on:`-child indentation (two spaces).
+    if (/^ {2}\S/.test(line)) break;
+    const match = /^\s*-\s*"([^"]+)"/.exec(line);
+    if (match?.[1] !== undefined) out.push(match[1]);
+  }
+  return out;
+}
+
+/** The docker invocation that runs the capture, and nothing else in the file. */
+function captureRunCommand(document: string): string {
+  const start = document.indexOf("docker run");
+  if (start === -1) return "";
+  const lines = document.slice(start).split("\n");
+  const out: string[] = [];
+  for (const line of lines) {
+    out.push(line);
+    if (!line.trimEnd().endsWith("\\")) break;
+  }
+  return out.join("\n");
+}
+
 describe("CI speedup — concurrency cancel-in-progress on every PR-firing workflow", () => {
   // Anti-vacuity: if the discovery regex broke and matched nothing, it.each
   // below would pass with zero cases. Pin that discovery actually found the
@@ -83,6 +127,85 @@ describe("CI speedup — concurrency cancel-in-progress on every PR-firing workf
 
 describe("CI speedup — screenshots-drift runs per-PR only on render-affecting paths", () => {
   const yaml = readWorkflow("screenshots-drift.yml");
+
+  // Failure mode: the capture runs inside `docker run` forwarding only
+  // `-e CI=true`, so neither the three runner variables nor GITHUB_EVENT_NAME
+  // reaches the process writing the evidence record. The instrument would
+  // record those four fields empty forever, and the cross-trigger row of the
+  // discrimination table could never fire at all.
+  it("forwards all four identity variables into the capture container", () => {
+    const command = captureRunCommand(yaml);
+    expect(command, "the capture's docker invocation must be findable").not.toBe("");
+    for (const name of ["RUNNER_NAME", "RUNNER_ARCH", "RUNNER_OS", "GITHUB_EVENT_NAME"]) {
+      expect(
+        new RegExp(`-e ${name}(?![=\\w])`).test(command),
+        `screenshots-drift.yml must forward ${name} with the value-less \`-e ${name}\` form, ` +
+          "which passes the HOST value through; `-e NAME=value` sets a literal instead.",
+      ).toBe(true);
+    }
+    // Both forms must be present: CI is set as a literal, the four are forwarded.
+    expect(yaml).toContain("-e CI=true");
+  });
+
+  it("runs the evidence parser without --local, and on both outcomes", () => {
+    expect(yaml).toContain("scripts/verify-capture-evidence.ts");
+
+    // Scoped to the `run:` lines, NOT to the whole document. The script path
+    // appears three times in this workflow -- the paths allow-list, the
+    // cache-key hashFiles census, and the actual invocation -- and a negative
+    // lookahead over the whole file is satisfied by the FIRST occurrence that
+    // has no `--local` after it on its own line, because `.` does not cross
+    // newlines. That made the assertion unfailable: injecting `--local` into
+    // the run line left it green. Deriving the invocations means the premise
+    // (there IS one) and the claim (none is flagged) are separate failures.
+    const invocations = yaml
+      .split("\n")
+      .filter((line) => /^\s*run:.*verify-capture-evidence\.ts/.test(line));
+    expect(
+      invocations.length,
+      "no `run:` line invokes the evidence parser; the assertion below would be vacuous",
+    ).toBeGreaterThan(0);
+    for (const line of invocations) {
+      expect(
+        line.includes("--local"),
+        "the CI invocation must be flagless: --local waives the four passthrough " +
+          `fields and would silently satisfy AC-5 in CI. Offending line: ${line.trim()}`,
+      ).toBe(false);
+    }
+    const parserBlock = yaml.slice(yaml.indexOf("Verify capture evidence record"));
+    expect(parserBlock.slice(0, 200)).toContain("if: always()");
+  });
+
+  it("uploads the evidence artifact on BOTH outcomes, not only on failure", () => {
+    const uploadBlock = yaml.slice(yaml.indexOf("Upload captures and evidence record"));
+    expect(uploadBlock.slice(0, 200)).toContain("if: always()");
+    expect(
+      uploadBlock.slice(0, 200).includes("if: failure()"),
+      "a passing run must leave a record, or the comparison population can never be built",
+    ).toBe(false);
+  });
+
+  // Without these entries a PR editing only the detector or only the parser
+  // changes what the gate DOES while the gate never runs.
+  it("enrols every instrument module in the paths allow-list", () => {
+    const paths = pullRequestPaths(yaml);
+    expect(paths.length, "the pull_request.paths allow-list must be findable").toBeGreaterThan(0);
+    for (const script of [
+      "scripts/capture-render-fault.ts",
+      "scripts/capture-layer0.ts",
+      "scripts/capture-refusal.ts",
+      "scripts/capture-geometry.ts",
+      "scripts/capture-evidence.ts",
+      "scripts/help-screenshots-routes.ts",
+      "scripts/verify-capture-evidence.ts",
+    ]) {
+      expect(
+        paths,
+        `${script} must be in the screenshots-drift pull_request.paths allow-list, ` +
+          "not merely somewhere in the document (the cache-key census lists the same paths)",
+      ).toContain(script);
+    }
+  });
 
   it("scopes the pull_request trigger to a paths allow-list (not a bare trigger)", () => {
     expect(

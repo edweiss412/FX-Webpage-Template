@@ -15,6 +15,7 @@ export function EventTimeline({
     return (
       <div
         data-testid="event-timeline-degraded"
+        data-render-fault="event-timeline-load"
         className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm"
       >
         Couldn’t load activity right now.

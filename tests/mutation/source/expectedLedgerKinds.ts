@@ -60,6 +60,14 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // arrives together with a floor edit and its own written argument, rather than
   // slipping under coarse-floor slack.
   spawnBounded: {},
+  // captureRenderFault, enrolled 2026-08-24 before its first diff review. Declares
+  // an EMPTY ledger: no equivalence argument and no accepted gap. The row is here
+  // rather than omitted because omission is the failure this file exists to catch --
+  // a new surface must declare its own counts rather than inherit the first
+  // customer's, and `{}` is a declaration that every mutant is expected to die.
+  // If a scored run leaves a survivor, the repair is a deciding case or a written
+  // equivalence argument landing HERE with it, never a quiet floor edit.
+  captureRenderFault: {},
   // psqlStartupScan: THIRTY equivalence arguments and NO accepted gap. FOUR arrived
   // 2026-08-21 with BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION, and they are
   // ONE argument at four sites rather than four stories: a character-indexing loop's

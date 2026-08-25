@@ -37,15 +37,21 @@ function StatDot({ status }: { status: StatDotStatus }) {
 function StatCard({
   label,
   testId,
+  renderFault,
   children,
 }: {
   label: string;
   testId: string;
+  // Layer 1's marker, threaded as a prop because a DOM attribute cannot cross a
+  // component boundary. Passed only by the fault branches, so an unmarked one
+  // still fails the meta-test rather than inheriting a marker every card has.
+  renderFault?: string | undefined;
   children: React.ReactNode;
 }) {
   return (
     <div
       data-testid={testId}
+      data-render-fault={renderFault}
       className="flex h-full flex-col gap-2 rounded-md border border-border bg-surface p-4 shadow-tile"
     >
       <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle">
@@ -87,6 +93,12 @@ function Unavailable() {
 
 // ── System health ────────────────────────────────────────────────────────────
 function SystemHealthCard({ summary }: { summary: AlertSummary }) {
+  // Flag-shaped: the branch assigns and a later return renders, so the marking
+  // scanner cannot reach it (spec section 4.2, shape 4 -- tracing a flag to its
+  // render is dataflow this arc does not carry). Marked by hand because the
+  // flag is right here and the strip would otherwise encode "Unavailable"
+  // silently. The residue registry records that the scanner cannot enforce it.
+  let unavailable = false;
   let dot: StatDotStatus;
   let word: string;
   let sub: string;
@@ -106,14 +118,35 @@ function SystemHealthCard({ summary }: { summary: AlertSummary }) {
       word = "Degraded";
       sub = `${summary.degraded} issue${summary.degraded === 1 ? "" : "s"} need action`;
       break;
-    default:
+    case "infra_error":
+      dot = "idle";
+      word = "Unavailable";
+      sub = "Health check failed";
+      unavailable = true;
+      break;
+    default: {
+      // `AlertSummary` is closed (lib/admin/telemetryTypes.ts:63-66), so this
+      // arm is unreachable today and the assignment below is a compile-time
+      // exhaustiveness check: a new kind becomes a type error here rather than
+      // inheriting the fault arm silently. That inheritance is the reason this
+      // is not just a `default:` -- a kind nobody classified would have both
+      // rendered "Unavailable" AND blocked the byte gate. The runtime render is
+      // unchanged and deliberately does NOT set `unavailable`: refusing a
+      // capture is a claim, and an unclassified kind is not evidence for it.
+      const unhandled: never = summary;
+      void unhandled;
       dot = "idle";
       word = "Unavailable";
       sub = "Health check failed";
       break;
+    }
   }
   return (
-    <StatCard label="System health" testId="stat-system-health">
+    <StatCard
+      label="System health"
+      testId="stat-system-health"
+      renderFault={unavailable ? "telemetry-system-health" : undefined}
+    >
       <ValueWord dot={dot} word={word} />
       <SubLine>{sub}</SubLine>
     </StatCard>
@@ -124,7 +157,7 @@ function SystemHealthCard({ summary }: { summary: AlertSummary }) {
 function OpenAlertsCard({ summary }: { summary: AlertSummary }) {
   if (summary.kind === "infra_error") {
     return (
-      <StatCard label="Open alerts" testId="stat-open-alerts">
+      <StatCard label="Open alerts" testId="stat-open-alerts" renderFault="telemetry-open-alerts">
         <Unavailable />
         <SubLine>Unavailable</SubLine>
       </StatCard>
@@ -169,7 +202,7 @@ function OpenAlertsCard({ summary }: { summary: AlertSummary }) {
 function CronCard({ cron, now }: { cron: LoadCronHealthResult; now: Date }) {
   if (cron.kind === "infra_error") {
     return (
-      <StatCard label="Scheduled jobs" testId="stat-cron">
+      <StatCard label="Scheduled jobs" testId="stat-cron" renderFault="telemetry-cron-health">
         <Unavailable />
         <SubLine>Health unavailable</SubLine>
       </StatCard>
@@ -213,7 +246,11 @@ function EventsCard({ stats }: { stats: LoadTelemetryStatsResult }) {
     sub = segs.length > 0 ? segs.join(" · ") : "No errors or warnings";
   }
   return (
-    <StatCard label="Events · 24h" testId="stat-events">
+    <StatCard
+      label="Events · 24h"
+      testId="stat-events"
+      renderFault={isInfra ? "telemetry-events" : undefined}
+    >
       <div className="flex items-end justify-between gap-2">
         {value}
         <EventVolumeSparkline buckets={buckets} />

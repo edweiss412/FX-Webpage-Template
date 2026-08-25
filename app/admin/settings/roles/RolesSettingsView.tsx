@@ -41,6 +41,7 @@ export function RolesSettingsView({
       {result.kind === "infra_error" ? (
         <div
           data-testid="roles-settings-load-error"
+          data-render-fault="roles-settings-load"
           className="rounded-md border border-border-strong bg-warning-bg px-4 py-3 text-sm text-warning-text"
           role="alert"
         >
