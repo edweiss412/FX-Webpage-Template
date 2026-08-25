@@ -3404,11 +3404,14 @@ function hereStringBindingLines(
 /**
  * A QUOTED executable scalar, located in the ORIGINAL source coordinates.
  *
- * `scanShellIndirection` lexes the WHOLE YAML file as one shell text and never
- * parses YAML, so a quoted executable scalar's YAML delimiters arrive at the
- * shell lexer as SHELL quotes: the body collapses to one literal word, the `$(`
- * inside it is quoted rather than opening a substitution, and the
- * unlexable-target report never fires. Probed at base, all four executable keys
+ * WHY THIS TYPE EXISTS, in the past tense because the behaviour is retired.
+ * `scanShellIndirection` lexed the WHOLE YAML file as one shell text and did
+ * NOT parse YAML, so a quoted executable scalar's YAML delimiters reached the
+ * shell lexer as SHELL quotes: the body collapsed to one literal word, the `$(`
+ * inside it was quoted rather than opening a substitution, and the
+ * unlexable-target report never fired. HEAD parses the file through
+ * `quotedExecutableScalars` and blanks those scalars out of the lexed view, so
+ * the raw pass no longer reaches them. Probed at base, all four executable keys
  * behave identically — the PLAIN spelling reports one advisory and both quoted
  * spellings report none — so the quoted spellings are silently unreadable in a
  * channel whose entire job is to say "something here I cannot read".

@@ -91,7 +91,7 @@ for (const file of files) {
  *  locators; the marker search is windowed, so a small drift is tolerated. */
 const DECLARED: [file: string, nearLine: number, what: string][] = [
   ["tests/cross-cutting/psqlStartupFileSuppression.test.ts", 5156, "the declared-limit pin itself"],
-  ["tests/cross-cutting/psqlStartupFiles/scan.ts", 236, "the scanner's own module header"],
+  ["tests/cross-cutting/psqlStartupFiles/scan.ts", 241, "the scanner's own module header"],
   ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 293, "the recall-table note"],
   ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 325, "the documented-limit bullet"],
   ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 353, "§6 item 2, the canonical record"],

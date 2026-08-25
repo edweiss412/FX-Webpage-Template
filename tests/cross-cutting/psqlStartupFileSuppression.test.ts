@@ -7141,10 +7141,12 @@ describe("an ATTACHED target the accept-set cannot delimit is REPORTED on the sp
 });
 
 describe("YAML scalar style — a QUOTED `run:` scalar's delimiters are YAML, not shell", () => {
-  // BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE. The workflow reader hands the RAW
-  // source slice of a `run:` scalar to the shell lexer. For a PLAIN or BLOCK
-  // scalar that slice IS the shell text and the pass is correct. For a QUOTED
-  // one the delimiters belong to YAML, and reading them as shell is wrong in
+  // BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE, stated as the defect these cases
+  // DECIDE rather than as current behaviour. The workflow reader USED TO hand the
+  // RAW source slice of every `run:` scalar to the shell lexer. For a PLAIN or
+  // BLOCK scalar that slice IS the shell text and the pass is correct, and that
+  // half is unchanged. For a QUOTED one the delimiters belong to YAML, and
+  // reading them as shell was wrong in
   // both forbidden directions at once: the leading `"` opens a double-quoted
   // shell span, the `$(` inside it consumes the YAML CLOSING quote, and a psql
   // command word is recovered from a substitution body that exists only because
@@ -7344,12 +7346,13 @@ describe("YAML scalar style — a QUOTED `run:` scalar's delimiters are YAML, no
 });
 
 describe("YAML quoted scalar advisory — the channel that lexes the whole file", () => {
-  // The other half of BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE. This channel
-  // hands the WHOLE YAML file to the shell lexer and never parses YAML at all,
-  // so a quoted executable scalar's YAML delimiters are read as SHELL quotes:
-  // the body collapses into one literal word, the `$(` inside it is quoted
-  // rather than opening a substitution, and the unlexable-target report never
-  // fires. The plain spelling of the same body reports; the quoted spellings go
+  // The other half of BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE, in the past tense
+  // because HEAD no longer behaves this way. This channel HANDED the WHOLE YAML
+  // file to the shell lexer and did NOT parse YAML at all, so a quoted executable
+  // scalar's YAML delimiters were read as SHELL quotes: the body collapsed into
+  // one literal word, the `$(` inside it was quoted rather than opening a
+  // substitution, and the unlexable-target report never fired. HEAD blanks those
+  // scalars out of the lexed view and rescans their decoded value. The plain spelling of the same body reports; the quoted spellings go
   // silent. Silence is the other forbidden direction.
   //
   // The repair blanks each quoted executable scalar out of the file and rescans
