@@ -152,3 +152,21 @@ export function population(files: readonly string[]): string[] {
 export function scanFiles(files: readonly string[], read: (file: string) => string): Finding[] {
   return files.flatMap((file) => judgeSource(file, read(file)));
 }
+
+/**
+ * Every `.replace`/`.replaceAll` call the walk SAW, in any bucket.
+ *
+ * Exists for the premise (spec AC-6), not for reporting. An assertion that the population holds
+ * zero offenders is satisfied just as well by a walk that parsed nothing at all, so the guard has
+ * to state executably that it looked — a broken walker must fail loudly rather than read as a
+ * clean bill.
+ */
+export function callSiteCount(files: readonly string[], read: (file: string) => string): number {
+  let n = 0;
+  for (const file of files) {
+    walk(file, read(file), () => {
+      n++;
+    });
+  }
+  return n;
+}

@@ -4,9 +4,20 @@
 // kill mutants: the harness overlay rewrites the module graph, so a check that read its subject
 // off disk would read unmutated bytes and pass unconditionally. The repo-wide half walks the real
 // population and is the standing gate; it contributes no kills.
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
-import { judgeSource, notInPopulationCount, population, scanFiles } from "./replacementString/scan";
+import { premise } from "../_shared/premise";
+
+import {
+  callSiteCount,
+  judgeSource,
+  notInPopulationCount,
+  population,
+  scanFiles,
+} from "./replacementString/scan";
 
 /** One call per fixture, so a case can never pass on another case's finding. */
 const one = (src: string) => judgeSource("f.ts", src);
@@ -161,4 +172,24 @@ describe("scanFiles — there is no text prefilter (AC-4b)", () => {
       ).toHaveLength(1);
     });
   }
+});
+
+describe("the repo-wide walk states its premise executably (AC-6)", () => {
+  const files = population(
+    execFileSync("git", ["ls-files"], { encoding: "utf8", maxBuffer: 64 << 20 })
+      .split("\n")
+      .filter((f) => f !== ""),
+  );
+
+  it("looked at all — a walk that parsed nothing must not read as a clean bill", () => {
+    // Unconditional relative to what it guards, and never inside a `.each` callback whose case
+    // count can be zero. The floor is far below the live population on purpose: this guards
+    // against 0, it does not pin today's number, which is not a number this corpus holds still.
+    premise(
+      "the walk found `.replace` call sites to classify",
+      callSiteCount(files, (f) => readFileSync(f, "utf8")),
+      100,
+    );
+    premise("the population is non-trivial", files.length, 500);
+  });
 });
