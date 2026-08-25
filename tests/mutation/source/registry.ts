@@ -1370,7 +1370,104 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // Drops the upper half of the day-of-month check, so Feb 30 places as a
     // real instant again - the exact R3 shape, sabotaged.
     control: { from: "if (day < 1 || day > days) return null;", to: "if (day < 1) return null;" },
-    accepted: [],
+    accepted: [
+      {
+        siteId: "integer-literal:30:24:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:30:32:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:30:40:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:30:48:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:30:52:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:30:60:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:30:68:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:54:28:12>13",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (month 13 gives NaN; it also indexes DAYS_IN_MONTH out of range to 0), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:55:84:0>1",
+        kind: "equivalent",
+        reason:
+          "equivalent: unreachable - the `?? 0` fallback is reached only for month 0 or 13, and line 54 has already returned null for both",
+      },
+      {
+        siteId: "integer-literal:57:37:5>6",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (minute 60 and second 60 both give NaN; only the HOUR field normalizes, and its bound and operator are killed by the clock-field case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:57:43:59>60",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (minute 60 and second 60 both give NaN; only the HOUR field normalizes, and its bound and operator are killed by the clock-field case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:57:58:6>7",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (minute 60 and second 60 both give NaN; only the HOUR field normalizes, and its bound and operator are killed by the clock-field case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:57:64:59>60",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (minute 60 and second 60 both give NaN; only the HOUR field normalizes, and its bound and operator are killed by the clock-field case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "logical-connector:45:22:||>&&",
+        kind: "equivalent",
+        reason:
+          "equivalent: the PLACEABLE accept-set already rejects this input, so the guard never decides it (null and undefined stringify to `null` and `undefined`, which the regex does not match, so exec returns null either way)",
+      },
+      {
+        siteId: "logical-connector:54:17:||>&&",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (with the month guard disabled, month 00 and month 13 both give NaN), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "logical-connector:57:46:||>&&",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (minute 60 and second 60 both give NaN; only the HOUR field normalizes, and its bound and operator are killed by the clock-field case), so widening the explicit check cannot change the output",
+      },
+    ],
   },
   {
     id: "specLintNumerics",
