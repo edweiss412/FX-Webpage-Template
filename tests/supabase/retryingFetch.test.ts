@@ -96,6 +96,28 @@ describe("retrying fetch — eligibility bounds every retry", () => {
     await makeRetryingFetch(inner, instant)(INSERT, { method: "POST" });
     expect(inner).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * AC-3 names SIX shapes and says each is "called exactly once". The two cases above are two of
+   * them, and the wrapper's ineligible path is one shared branch, so representative coverage was
+   * defensible — but the AC says each, and the whole table costs four more lines. Cheaper to
+   * satisfy the letter than to argue the spirit in a review round.
+   */
+  const ATTEMPTED_ONCE = [
+    ["an update", INSERT, "PATCH"],
+    ["a delete", INSERT, "DELETE"],
+    ["an auth token POST", "http://127.0.0.1:54321/auth/v1/token?grant_type=password", "POST"],
+    ["a VOLATILE RPC reached by GET", VOLATILE_RPC, "GET"],
+  ] as const;
+
+  for (const [label, url, method] of ATTEMPTED_ONCE) {
+    test(`${label} is attempted once even on a retryable status`, async () => {
+      // no-premise: the transport is an injected stub and sleep/random are injected, so this case reads no socket, file, clock or environment variable — the classifier reports it touching because the wrapper it drives can reach fetch, not because this test does.
+      const inner = vi.fn(async () => bad(502));
+      await makeRetryingFetch(inner, instant)(url, { method });
+      expect(inner).toHaveBeenCalledTimes(1);
+    });
+  }
 });
 
 describe("retrying fetch — the per-attempt stall guard", () => {
