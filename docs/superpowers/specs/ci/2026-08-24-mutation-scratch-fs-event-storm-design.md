@@ -104,7 +104,7 @@ This explains what the transient reading does not: why the box degraded progress
 
 Two closed criteria, both machine-settled, neither a matter of opinion.
 
-1. **Verdict neutrality, across every surface this change can reach.** For the FIVE surfaces whose deciding suites change but whose source does not, the same mutant set produces the same per-mutant verdicts before and after, compared as SETS, with each arm first proving it entered the invalidation branch rather than merely differing in root count (§8 AC-1, AC-1b). `interactiveScanCore` cannot join that comparison — this design edits its source, so its mutant set necessarily differs — and is covered instead by AC-1c: its own re-score PLUS behavioral cases, because the defects a cache-key predicate can carry are not reachable by any declared mutation operator.
+1. **Verdict neutrality, across every surface this change can reach.** For all SIX surfaces whose deciding suites this design edits, the same mutant set produces the same per-mutant verdicts before and after, compared as SETS (§8 AC-1). No enrolled SOURCE is edited once tier 3 is deferred, so every surface keeps its mutant set and the comparison is a plain equality rather than the three-part argument an earlier draft needed.
 2. **Admission, with no state in which anything waits forever.** The class admits exactly one score run at a time; total heavy concurrency never exceeds the ordinary slot count; a nested mutation run REFUSES with a non-zero exit rather than queueing. "The second acquirer waits" is deliberately NOT the criterion — round 2 demonstrated a deadlock that satisfies it — so AC-2c constructs that cycle and requires every participant to reach a terminal state.
 
 Every input is handled correctly or signaled, never silently wrong. A conservative outcome plus a surfaced warning — a run that waits longer than expected, a cleanup that finds nothing to remove — is a DOCUMENTED LIMIT under §7, not a finding.
@@ -119,7 +119,7 @@ Every input is handled correctly or signaled, never silently wrong. A conservati
 
 ---
 
-## 3. Design — three tiers, smallest first
+## 3. Design — two tiers ship here, a third is filed
 
 Ordered by cost-to-benefit, not by the order the row happened to state them.
 
@@ -135,11 +135,16 @@ Cleanup must be in a `finally` or `afterAll` so a failing case still removes its
 
 At most one mutation-score run generates churn at a time. Ordinary suites keep the 2-slot class. Design in §4.2, because the obvious implementation is wrong in a way that is worth stating at length.
 
-### 3.3 Tier 3 — make `sourceCache` invalidatable, then reuse roots
+### 3.3 Tier 3 — cache invalidation and root reuse — DEFERRED to a successor row, not shipped here
 
-Key the cache on content rather than path alone (content hash or `mtime` + size), or export an explicit invalidation the fixture helpers call between cases. Then a suite creating N roots per run creates one.
+Making `sourceCache` invalidatable and reusing roots under it is **out of scope for this design**, filed as its own row (§9). Four measurements put it there, and two are decisive alone:
 
-Tier 3 is last because it is the only tier that can change a verdict if done wrong, and because its benefit (per-suite-run churn) is smaller than tier 1's (unbounded accumulation).
+- **It retires an ASSERTED contract.** `tests/styles/interactiveScanCore.test.ts:444` — `it("parses each file ONCE per process, by path")` — asserts the stale read on purpose, and its comment calls the freeze "a real contract" because the scan runs three times over ~350 files. Changing that is a design decision, not a task rider, and it deserves its own spec.
+- **Its case matrix ratchets.** Plan review round 1 took it from four cases to five; round 2 then named four MORE wrong implementations the five still admit (`Math.trunc(mtimeMs)`, a one-sided mtime compare, a one-sided size compare, and `basename` plus metadata aliasing common corpus filenames). One new family per round with no decay is the shape the round-economy rules answer by narrowing or killing, never by growing the matrix.
+- **The return is small.** Only two of the six in-scope suites import the scanner, so reuse converts 50 of the 230 roots created per run. Tier 1 fixes the whole leak without it.
+- **It is the only verdict-risky tier.** Removing it means this design edits no enrolled SOURCE at all, so no re-score, no `GUARD SURFACE` score arm, and no mutation-slot request.
+
+What ships here is tiers 1 and 2, which together stop the accumulation and bound the concurrency.
 
 ---
 
@@ -216,7 +221,7 @@ The kickoff brief assumed this work collides with `tests/mutation/source/**`, wh
 - `origin/fix/yaml-run-scalar-quoting-decode` (#879) changes `tests/mutation/source/registry.ts`.
 - This design touches `tests/styles/interactiveScanCore.ts`, the six leaking suites in §1.4, `scripts/with-heavy-slot.py` and `package.json`.
 
-The intersection is empty. The only shared file either branch would contend for is `registry.ts`, and no tier here needs it: nothing is enrolled or de-enrolled and no registry row changes. That is a statement about ENROLMENT, not about scores — AC-1c re-scores `interactiveScanCore` precisely because this design edits its enrolled source. **The orchestrator rules on whether implementation opens early; this section supplies the evidence, not the decision.**
+The intersection is empty. The only shared file either branch would contend for is `registry.ts`, and nothing here needs it: no surface is enrolled or de-enrolled and no registry row changes. With tier 3 deferred this is now a statement about scores as well as enrolment — **no enrolled SOURCE is edited at all**, so no re-score is owed, the `GUARD SURFACE` score arm does not apply to the round-1 diff brief, and this arc requests no mutation slot. Implementation was opened early by the orchestrator on this evidence.
 
 ---
 
@@ -235,18 +240,11 @@ The intersection is empty. The only shared file either branch would contend for 
 
 ## 8. Acceptance criteria
 
-- **AC-1 (verdict neutrality, the closed criterion).** For the **five surfaces whose deciding suites change but whose SOURCE does not** — `controlOutlineScan`, `modal-wait-helper-scan`, `modal-wait-disposition`, `mutationSurfaceEnumerate`, `mutationSurfaceTotality` — the pre-change and post-change runs produce the identical mutant set and identical per-mutant verdicts, compared as SETS so an equal total with two verdicts swapped fails. `interactiveScanCore` is deliberately EXCLUDED from this comparison: this design edits its source, so its mutant set necessarily differs and a before/after equality is not expressible. AC-1c covers it instead.
+- **AC-1 (verdict neutrality, the closed criterion).** Tier 1 edits the deciding suites of six enrolled surfaces, so it must move no verdict. For **all six** — `controlOutlineScan`, `interactiveScanCore`, `modal-wait-helper-scan`, `modal-wait-disposition`, `mutationSurfaceEnumerate`, `mutationSurfaceTotality` — the pre-change and post-change runs produce the identical mutant set and identical per-mutant verdicts, compared as SETS so an equal total with two verdicts swapped fails.
 
-- **AC-1b (the ON arm must exercise the predicate, not merely differ).** A root-count difference is not enough: if the ON arm gave each fixture a distinct FILENAME inside one root, every parse would be a cold miss and a broken predicate would never execute while all counts and verdicts passed. **The ON arm therefore rewrites the SAME path per case** — the only layout that reaches the invalidation branch — and asserts as an executable premise that the branch was entered, via a counter incremented where the cache is consulted and found stale. The OFF arm asserts only its documented N roots; it uses distinct paths by construction and can never enter that branch, so requiring it to would be unsatisfiable. An earlier draft required BOTH arms to enter it and was contradictory.
+  With tier 3 deferred, `interactiveScanCore` REJOINS this comparison: no enrolled SOURCE is edited, so every surface keeps its mutant set and a plain before/after equality is expressible for all six. The earlier AC-1b (prove the two arms differ) and AC-1c (re-score the changed source, plus behavioral cache cases) are **retired with tier 3** — there is no on/off layout switch to prove and no changed predicate to score. They move to the successor row in §9 as design inputs.
 
-- **AC-1c (the changed enrolled source, scored AND tested behaviorally).** `tests/styles/interactiveScanCore.ts` is an enrolled surface (`tests/mutation/source/registry.ts:2237`, 272 mutants) and this design adds decision logic inside it, so its own score is re-run and reported with its unaccepted-survivor set and the operator set the score ranges over. **A score is not sufficient here and the reason is stated so it is not relitigated:** the registry's operators mutate existing code, and the defects this predicate can carry — reading `birthtimeMs` where `mtimeMs` was meant, hashing the wrong buffer, comparing the wrong field — are not reachable by any declared operator because the code never distinguished those constructs before. AC-1c therefore also carries direct behavioral cases, and one of them exists specifically to discriminate the wrong field:
-
-1. a file rewritten in place is re-parsed;
-2. a file untouched is served from cache;
-3. a file whose SIZE changes but whose mtime is forced equal is re-parsed;
-4. **a file rewritten to the SAME LENGTH with a genuinely changed mtime is re-parsed.**
-
-Case 4 is the one that matters. A `(path, birthtimeMs, size)` implementation — plausible, and a one-character slip from the intended one — passes cases 1 through 3 whenever the rewrite changes length, and then returns a STALE parse on a same-length rewrite, which can change a mutation verdict. Cases 1 to 3 cannot tell the two implementations apart; case 4 fails on `birthtimeMs` and passes on `mtimeMs`. This collision is distinct from the same-millisecond same-length one conceded in §7.
+  Cheap by construction: cleanup runs in `afterAll`, after every assertion, so the mechanism cannot reach a verdict except by leaving the filesystem different, which is the thing being fixed.
 
 - **AC-2 (admission).** With the class lock held, a second `--class mutation` acquirer waits and does not proceed; an ordinary `pnpm heavy` acquirer still proceeds while a slot is free. Asserted against the wrapper's own code path.
 
@@ -275,7 +273,9 @@ AC-1 is the criterion the design closes on. AC-2 through AC-6 are the supporting
 Per the class-sweep disposition rule, every peer this design does not repair names which exception applies.
 
 - **The 56 non-amplified files (106 call sites) that also never clean up.** Reason (c): the repair spans enough sites to blow this arc's review scope, and a guard over the whole test tree is a new surface needing its own enrolment and convergence criterion. Explicitly NOT filed under "same defect, different file", which the disposition rule says is never sufficient on its own — the boundary is that these leak linearly with ordinary runs while the in-scope six are multiplied by a mutant loop. Filed with the §1.4 census as its incident evidence.
-- **Re-including the thirty-two-form case.** Reason (b): fenced by §1.1 as the ctloutline arc's ratified scope.
+- **Cache invalidation and root reuse (`BL-MUTATION-SCANNER-CACHE-INVALIDATION`).** Reason (c): it is a redesign of a surface this arc does not otherwise touch. Filed with everything the successor needs as inputs rather than as a bare pointer — the asserted contract it must retire (`tests/styles/interactiveScanCore.test.ts:444`), the probe that pre-refutes that contract's performance rationale (statting all 254 corpus `.tsx` files three times costs about 1 ms, so an mtime check is not what the cache is protecting against), the four wrong implementations plan review round 2 showed a five-case matrix still admits, and the two suites that would actually convert.
+
+- **Re-including the thirty-two-form case.** Reason (b): fenced by §1.1 as the ctloutline arc's ratified scope. **Its trigger chain now runs through the row above** — that case was excluded because roots could not be shared, so it waits on cache invalidation shipping, not on this design.
 - **Reclaiming the existing 781,949 directories.** Reason (a): whether to reclaim automatically, and where, is an operator decision this PR cannot settle.
 
 The six leaking suites in §1.4 are all repaired in-branch. "Same defect, different file" is never a sufficient reason to defer, and they are the default case the rule covers.
