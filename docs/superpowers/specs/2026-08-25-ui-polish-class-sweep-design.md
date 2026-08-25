@@ -195,7 +195,7 @@ Both assessments were therefore run inline, and both halves are declared `RAN-DE
 
 ### Critique — Design Health 32/40 (Good, top of band)
 
-Snapshot: `.impeccable/critique/2026-08-25T19-41-23Z__feat-ui-polish-class-sweep-diff.md`. First run for this slug, no trend yet.
+Snapshot written under the gitignored `.impeccable/critique/` tree, slug `feat-ui-polish-class-sweep-diff`, timestamp 2026-08-25T19-41-23Z. Not tracked by design, so the findings that matter are transcribed below rather than left behind a path a reader cannot open. First run for this slug, no trend yet.
 
 - **AI-slop verdict: not slop.** Nothing decorative; one token added with its ratios measured in both themes; the only motion is a 90° chevron rotation on a token duration.
 - **Detector: exit 0, 9 findings, 9 false positives.** All nine are the literal string `<img>` inside code comments or docstrings; the detector's markup scan does not strip comments. Zero sit on a line this diff adds.
