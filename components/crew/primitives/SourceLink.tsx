@@ -80,6 +80,14 @@ export function SourceLink({
   // Hover and focus step to text-text-strong because their old target
   // (text-subtle) is now LIGHTER than the resting colour, which would make the
   // link read fainter on hover than at rest.
+  //
+  // And focus gains a RING, which it did not have before. Raising the resting
+  // colour broke the focus indicator: this link's only focus cue was a colour
+  // step, which used to be a visible 3.35:1 -> 6.8:1 jump and would now be
+  // 17.2:1 -> 19:1, effectively invisible. A colour-only indicator that close
+  // fails WCAG 2.4.11, and a keyboard user on a crew page would have had no
+  // idea where they were. The ring matches CardReportTrigger, this link's peer
+  // on the same cards. Found by the invariant-8 audit half on this branch.
   return (
     <a
       data-slot="source-link"
@@ -87,7 +95,7 @@ export function SourceLink({
       target="_blank"
       rel="noopener noreferrer"
       aria-label="In sheet, view this section in Google Sheets (opens in a new tab)"
-      className={`inline-flex h-fit shrink-0 items-center gap-1 text-xs font-medium text-text transition-colors hover:text-text-strong focus-visible:text-text-strong [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
+      className={`inline-flex h-fit shrink-0 items-center gap-1 rounded-sm text-xs font-medium text-text transition-colors hover:text-text-strong focus-visible:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
     >
       <SheetIcon />
       <span>In sheet</span>
