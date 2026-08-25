@@ -15,6 +15,8 @@
  */
 import { test, expect } from "@playwright/test";
 
+import { getRequiredDougFacing } from "@/lib/messages/lookup";
+
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs } from "./helpers/signInAs";
 
@@ -25,8 +27,19 @@ const FORCE_HEADERS = {
   authorization: "Bearer fxav-m3-test-auth-2026-DO-NOT-SHIP",
 } as const;
 
-// ADMIN_SESSION_LOOKUP_FAILED's operator copy, verbatim from lib/messages/catalog.ts:2970.
-const BOUNDARY_COPY = "This admin page couldn't load";
+/**
+ * What the boundary RENDERS, which is not what the failure LOGS.
+ *
+ * The first version of this file hardcoded ADMIN_SESSION_LOOKUP_FAILED's copy, and CI showed
+ * the difference: the exhausted case threw, the page errored six times over, and the string
+ * never appeared, because `app/admin/error.tsx:31` renders ADMIN_ROUTE_LOAD_FAILED. The log
+ * code and the rendered code are different codes for the same event.
+ *
+ * Imported rather than hardcoded, matching `admin-route-boundaries.spec.ts:50` — a literal
+ * would pass this file while disagreeing with the catalog.
+ */
+const BOUNDARY_COPY = getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED");
+const BOUNDARY_TESTID = "admin-route-error-boundary";
 
 test.describe("admin gate absorbs a forced upstream 502", () => {
   test("the admin page renders through an injected gateway fault", async ({ page }) => {
@@ -38,7 +51,7 @@ test.describe("admin gate absorbs a forced upstream 502", () => {
     // The page renders normally. Without the retry the admin gate would throw and this would
     // be the error boundary instead — which is precisely the recorded failure mode.
     await expect(page.locator("main")).toBeVisible();
-    await expect(page.getByText(BOUNDARY_COPY)).toHaveCount(0);
+    await expect(page.getByTestId(BOUNDARY_TESTID)).toHaveCount(0);
   });
 
   // The budget's exact boundary, and the reason this file does not settle AC-5 by grepping the
@@ -62,7 +75,7 @@ test.describe("admin gate absorbs a forced upstream 502", () => {
     await page.goto("/admin");
 
     await expect(page.locator("main")).toBeVisible();
-    await expect(page.getByText(BOUNDARY_COPY)).toHaveCount(0);
+    await expect(page.getByTestId(BOUNDARY_TESTID)).toHaveCount(0);
   });
 
   test("three forced faults exhaust the budget and reach the error boundary", async ({ page }) => {
@@ -73,6 +86,7 @@ test.describe("admin gate absorbs a forced upstream 502", () => {
 
     // Asserting the boundary is PRESENT is also what makes the other two cases mean anything:
     // their toHaveCount(0) would pass just as happily against a misspelled selector.
-    await expect(page.getByText(BOUNDARY_COPY)).toBeVisible();
+    await expect(page.getByTestId(BOUNDARY_TESTID)).toBeVisible();
+    await expect(page.getByText(BOUNDARY_COPY).first()).toBeVisible();
   });
 });
