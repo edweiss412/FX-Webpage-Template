@@ -273,12 +273,21 @@ Nobody should sweep one because a token census found it, and nobody should widen
 the carve-out into a claim about which elements are "really" controls — it is a
 statement about which SIDE the token paints, nothing more.
 
-One population is knowingly left behind, with its numbers recorded rather than
-implied: `components/admin/showpage/ShareHub.tsx`'s two `max-sm:border-border`
-elements, which paint **1.27:1** below 640px on a control measuring 3.35:1 above
-it. A prior ratified decision and a shipped executable pin both fence them, so
-they are filed as `BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT` rather than
-moved here.
+**One population was knowingly left behind, and on 2026-08-25 it came in.**
+`components/admin/showpage/ShareHub.tsx` carried a `max-sm:border-border` skin
+on its two ternary arms and its kebab, painting **1.27:1** below 640px on a
+control measuring 3.35:1 above it. A prior ratified decision (spec
+`2026-07-24-strip-mobile-stacked-band` §3 R3) and a shipped executable pin both
+fenced it, so it was filed as
+`BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT` rather than swept. That row is
+now closed: this rule supersedes R3's border clause, all three elements carry
+`max-sm:border-text-faint`, and the executable pin was INVERTED rather than
+deleted — same case, asserting the new token, with the ratification and its date
+in the docstring (`tests/styles/_metaControlOutlineFill.test.ts`, the `adjacent
+tokens survive the swap` block). R3's split row LAYOUT is untouched and the
+border width is still 1px; what moved was one line of colour skin riding inside
+a layout decision. The reasoning is
+`docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md` D1.
 
 Worked example — the one secondary action treatment (`lib/ui/actionClass.ts`,
 `SECONDARY_ACTION_CLASS`, 8 call sites):

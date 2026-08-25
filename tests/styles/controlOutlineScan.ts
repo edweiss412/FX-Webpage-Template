@@ -107,9 +107,15 @@ export const CENSUS: readonly CensusRow[] = [
   //
   // NOT here, and each absence is a decision: five DIVIDERS (`border-t`/`-b`/
   // `-l`, no resting outline to raise — pinned as non-members below), and
-  // ShareHub's two `max-sm:` elements (filed under class-sweep exception (b);
-  // the `adjacent tokens survive the swap` case in the suite is a shipped pin
-  // whose whole purpose is that their token does NOT move).
+  // ShareHub's `max-sm:` elements. Those were fenced out under class-sweep
+  // exception (b) and their token moved anyway on 2026-08-25 (design doc
+  // 2026-08-25-ui-polish-class-sweep-design.md D1, closing
+  // BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT). They stay OUT OF THIS
+  // CENSUS deliberately: `CENSUS` is the record of what the 2026-08-16 and
+  // 2026-08-18 swaps moved, and adding a row here would claim ShareHub was
+  // part of a swap it was fenced out of. The `adjacent tokens survive the
+  // swap` case in the suite still covers them, now asserting the token they
+  // moved TO.
   // ---------------------------------------------------------------------------
   { file: "app/admin/show/[slug]/PickerResetControl.tsx", line: 255 },
   { file: "app/admin/show/[slug]/ResetPickerEpochButton.tsx", line: 260 },

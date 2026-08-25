@@ -797,12 +797,23 @@ export function ShareHub({
         // The two arms differentiate by LABEL and weight instead.
         // Mobile split row (spec 2026-07-24-strip-mobile-stacked-band §3 R3):
         // flex-1 fills the band; no-wrap + shrink keeps R3 one 44px line even
-        // when the dev-capture status competes for the row; border color drops
-        // to border-border below sm (the §3 R3 skin; width stays 1px).
+        // when the dev-capture status competes for the row.
+        //
+        // The border COLOR no longer drops below sm. R3's skin sent it to
+        // border-border, which paints 1.27:1 on a control measuring 3.35:1
+        // above 640px — the same button, twice as invisible on the viewport
+        // most of this product is read on. DESIGN.md §1.2a's control-outline
+        // rule supersedes that clause (design doc
+        // docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md,
+        // D1, closing BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT): R3
+        // ratified the split ROW LAYOUT, which is untouched here, and the
+        // border colour was one line of skin riding inside it. Width is still
+        // 1px. The kebab below moves by the same rule, or the band would ship
+        // two treatments in one row.
         className={
           (published && !archived
-            ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-text-faint bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden"
-            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-text-faint bg-surface px-3 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden") +
+            ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-text-faint bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-text-faint max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden"
+            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-text-faint bg-surface px-3 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-text-faint max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden") +
           triggerElevation
         }
       >
@@ -826,7 +837,7 @@ export function ShareHub({
         // lifecycle control, and on an archived show that is ALL it owns.
         aria-label="More show actions"
         onClick={() => toggle("kebab")}
-        className={`inline-flex size-tap-min items-center justify-center rounded-sm text-text-strong transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:min-h-tap-min max-sm:min-w-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border ${
+        className={`inline-flex size-tap-min items-center justify-center rounded-sm text-text-strong transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:min-h-tap-min max-sm:min-w-tap-min max-sm:rounded-sm max-sm:border max-sm:border-text-faint ${
           open ? "bg-surface-sunken" : "bg-transparent"
         }${triggerElevation}`}
       >
