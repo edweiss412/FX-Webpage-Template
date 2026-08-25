@@ -87,7 +87,13 @@ console.log(`\nmutants:    ${run.mutantCount}`);
 console.log(`killed:     ${run.killed}`);
 console.log(`survivors:  ${run.survivors.length}`);
 for (const s of run.survivors) console.log(`              ${s}`);
-console.log(`score:      ${result.score.killed}/${result.score.total} = ${result.score.value}`);
+// `denominator`, not a `total` field — Score has none. killed/denominator is the
+// harness's own ratio, and it may be NaN when a run produced no mutants, which is
+// reported rather than coerced.
+console.log(
+  `score:      ${result.score.killed}/${result.score.denominator} = ${result.score.value}` +
+    ` (counted survivors ${result.score.countedSurvivors}, excluded ${result.score.excluded})`,
+);
 console.log(`passed:     ${result.passed}`);
 for (const f of result.failures) console.log(`  FAILURE  ${f.condition}: ${f.detail}`);
 for (const n of result.notices) console.log(`  notice   ${JSON.stringify(n)}`);
@@ -95,7 +101,7 @@ for (const n of result.notices) console.log(`  notice   ${JSON.stringify(n)}`);
 // The GUARD SURFACE line, rendered from the RUN and the shipped registry row so
 // neither the numerals nor the operator set is retyped from memory.
 console.log(
-  `\nGUARD SURFACE: ${surface.sourcePath} — MUTATION SCORE: ${result.score.killed}/${result.score.total}, ` +
+  `\nGUARD SURFACE: ${surface.sourcePath} — MUTATION SCORE: ${result.score.killed}/${result.score.denominator}, ` +
     `${unaccepted.length === 0 ? "0" : String(unaccepted.length)} unaccepted survivors — ` +
     `OPERATORS: ${surface.operators.join(", ")}`,
 );
