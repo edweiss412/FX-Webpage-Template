@@ -56,7 +56,7 @@ Every name a task uses, checked against the live tree:
 - AC-2: `signOut` is called with `{ scope: "local" }` exactly once.
 - AC-3: `signOut` returning `{ error }` yields `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }` and `log.error` with `{ code: "AUTH_SIGNOUT_FAILED", source: "auth.picker.clearIdentity", stage: "sign_out_returned_error" }`; a `signOut` throw yields `stage: "sign_out_threw"`; `throwOnCreate` yields `stage: "client_construction"`; a sweep throw yields `stage: "residual_cookie_sweep"`. In all four, `revalidatePath` is not called and the picker cookie (`COOKIE_NAME`) is never written.
 - AC-4: invalid input (`isValidClearIdentityInput` false: a non-uuid `showId` on an otherwise complete form) returns `PICKER_INVALID_INPUT` with `createClient`, `signOut`, and `cookieSet` never called.
-- AC-5: a `clearIdentityCore` failure after a successful sign-out (signing key removed, so the core throws at its first read) returns `PICKER_RESOLVER_LOOKUP_FAILED`; `signOutResolved` is in the call log and no picker cookie was written.
+- AC-5: a `clearIdentityCore` failure after a successful sign-out (the core's `cookies()` call rejects; the sweep's succeeded, proven by its `sb-` writes) returns `PICKER_RESOLVER_LOOKUP_FAILED`; `signOutResolved` is in the call log, no picker cookie was written, and `revalidatePath` was not called.
 - AC-6: no picker cookie at all: `{ ok: true }` and `signOut` still called once with `{ scope: "local" }`.
 - AC-7: `clearIdentityAndSkip` cases at `tests/auth/picker/clearIdentity.test.ts:264-478` pass unmodified; the cross-site case for `clearIdentity` (`tests/auth/picker/clearIdentity.test.ts:504-518`) additionally asserts `signOut` not called.
 
@@ -73,6 +73,8 @@ describe("clearIdentity signs the device out, then clears the entry (spec §3)",
   const submit = () => clearIdentity(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }));
   const pickerCookieWrites = () =>
     cookieSet.mock.calls.filter(([name]) => name === COOKIE_NAME).length;
+  const sweepWrites = () =>
+    cookieSet.mock.calls.filter(([name]) => String(name).startsWith("sb-")).length;
 
   test("signs out BEFORE clearing the picker entry, returns ok, and does not redirect", async () => {
     seedEntry();
@@ -164,17 +166,23 @@ describe("clearIdentity signs the device out, then clears the entry (spec §3)",
 
   test("a clearIdentityCore failure after a successful sign-out is reported, not swallowed", async () => {
     seedEntry();
-    // The sign-out needs no signing key; the core does (clearIdentity.ts:227), so
-    // removing it fails the core AFTER revocation completed.
-    delete process.env.PICKER_COOKIE_SIGNING_KEY;
+    // Two cookies() calls on this path: the sweep's (clearIdentity.ts:188), then
+    // the core's (:228). Feed the first, fault the second, and PROVE which one
+    // faulted by the sweep's writes: a chain that faulted the sweep leaves none.
+    const store = await vi.mocked(cookies)();
+    vi.mocked(cookies)
+      .mockResolvedValueOnce(store)
+      .mockRejectedValueOnce(new Error("cookie store down"));
     await expect(submit()).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
     expect(calls).toContain("signOutResolved");
+    expect(sweepWrites()).toBeGreaterThan(0);
     expect(pickerCookieWrites()).toBe(0);
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 });
 ```
 
-Notes on the block: the mocked `redirect` (`tests/auth/picker/clearIdentity.test.ts:16-26`) throws a `NEXT_REDIRECT` digest, so `resolves.toEqual({ ok: true })` is the no-redirect proof. The sweep case relies on `cookieSet` being the shared `set` mock (`tests/auth/picker/clearIdentity.test.ts:104-125`); the `sb-` prefix matches the `getAll` fixture at `tests/auth/picker/clearIdentity.test.ts:114-118`, and with sign-out first the sweep's writes are the first `set` calls, so no ordering guard is needed. `COOKIE_NAME` is already imported by the test file (used in the `cookies` mock). The `"not-a-uuid"` value fails `UUID_RE` in `lib/auth/picker/validateClearIdentityInput.ts:19`. The core-failure case removes `PICKER_COOKIE_SIGNING_KEY`: `signOutThisDevice` never reads it, `clearIdentityCoreImpl` does (`lib/auth/picker/clearIdentity.ts:227`, throwing per `lib/env/pickerCookieSigningKey.ts:9`), and `clearIdentityCore` maps the throw to `PICKER_RESOLVER_LOOKUP_FAILED` (`lib/auth/picker/clearIdentity.ts:216-217`). The suite's `beforeEach` restores the key (`tests/auth/picker/clearIdentity.test.ts:82`).
+Notes on the block: the mocked `redirect` (`tests/auth/picker/clearIdentity.test.ts:16-26`) throws a `NEXT_REDIRECT` digest, so `resolves.toEqual({ ok: true })` is the no-redirect proof. The sweep case relies on `cookieSet` being the shared `set` mock (`tests/auth/picker/clearIdentity.test.ts:104-125`); the `sb-` prefix matches the `getAll` fixture at `tests/auth/picker/clearIdentity.test.ts:114-118`, and with sign-out first the sweep's writes are the first `set` calls, so no ordering guard is needed. `COOKIE_NAME` is already imported by the test file (used in the `cookies` mock). The `"not-a-uuid"` value fails `UUID_RE` in `lib/auth/picker/validateClearIdentityInput.ts:19`. The core-failure case cannot use the signing key: `pickerCookieSigningKey()` caches at module level (`lib/env/pickerCookieSigningKey.ts:3-6`) and earlier cases populate it. The `cookies()` chain feeds the sweep's one call (`lib/auth/picker/clearIdentity.ts:188`) and faults the core's (`lib/auth/picker/clearIdentity.ts:228`); `sweepWrites() > 0` pins the fault to the core. Probe record: this exact block, run 2026-08-25 against a scratch implementation, went 38 green with only the to-be-deleted case red; mutants ignore-core-result / entry-first / hardcoded-source / gated-on-entry went 2 / 7 / 5 / 3 red respectively (spec §6, Probe).
 
 Delete the case at `tests/auth/picker/clearIdentity.test.ts:480-487` ("clearIdentity (non-skip) never constructs a Supabase client"). In the same-origin describe, the `clearIdentity` case (`tests/auth/picker/clearIdentity.test.ts:504-518`) gains `expect(supabaseMock.signOut).not.toHaveBeenCalled();` after the `cookieSet` assertion.
 
