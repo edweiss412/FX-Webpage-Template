@@ -497,6 +497,7 @@ describe("survivor kills — boundaries and counters the earlier cases stepped o
     const one = measured({ surfaceId: "one", children: [child("s", 1)] });
     const snap = {
       label: "x",
+      sha: "x",
       surfaces: [one],
       elapsed: new Map<number, number>(),
       modelled: modelled({ one: { mutants: 999 } }),
@@ -544,6 +545,10 @@ describe("survivor kills — boundaries and counters the earlier cases stepped o
 describe("survivor kills — the stability and seam reports", () => {
   const snap = (label: string, surfaces: Measured[], mod: Parameters<typeof modelled>[0]) => ({
     label,
+    // A Snapshot carries the sha it was taken at; `seedRates` groups by it, so a
+    // fixture without one is not a Snapshot even though vitest, which strips types,
+    // runs it perfectly happily.
+    sha: label,
     surfaces,
     elapsed: new Map<number, number>(),
     modelled: modelled(mod),
