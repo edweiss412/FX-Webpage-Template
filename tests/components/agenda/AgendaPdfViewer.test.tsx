@@ -16,7 +16,7 @@
  *     enters view.
  */
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
 // jsdom does not implement matchMedia. Stub a no-op resolver so the
 // viewer's prefers-color-scheme detection + listener doesn't crash.
@@ -132,55 +132,65 @@ describe("AgendaPdfViewer error routing via messageFor (M9 C6 / M7-D2)", () => {
     documentMode = "error";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 410 }));
     const { AgendaPdfViewer } = await import("@/components/agenda/AgendaPdfViewer");
-    const { findByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-410" />);
+    const { getByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-410" />);
     const { messageFor } = await import("@/lib/messages/lookup");
     // Anti-tautology: read the canonical catalog string AND scan for it.
     const expected = messageFor("AGENDA_GONE_FOR_CREW").crewFacing!;
-    const alert = await findByRole("alert");
-    expect(alert.textContent).toContain(expected);
+    // The alert mounts with the generic fallback copy while the HEAD probe is
+    // still in flight, so a role-only query can resolve on that transitional
+    // alert and read the wrong text. Wait for the alert carrying THIS copy.
+    await waitFor(() => expect(getByRole("alert").textContent).toContain(expected));
   });
 
   test("HEAD probe returning 401 → renders AGENDA_UNAUTHENTICATED.crewFacing copy", async () => {
     documentMode = "error";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 401 }));
     const { AgendaPdfViewer } = await import("@/components/agenda/AgendaPdfViewer");
-    const { findByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-401" />);
+    const { getByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-401" />);
     const { messageFor } = await import("@/lib/messages/lookup");
     const expected = messageFor("AGENDA_UNAUTHENTICATED").crewFacing!;
-    const alert = await findByRole("alert");
-    expect(alert.textContent).toContain(expected);
+    // The alert mounts with the generic fallback copy while the HEAD probe is
+    // still in flight, so a role-only query can resolve on that transitional
+    // alert and read the wrong text. Wait for the alert carrying THIS copy.
+    await waitFor(() => expect(getByRole("alert").textContent).toContain(expected));
   });
 
   test("HEAD probe returning 403 → renders AGENDA_GONE_FOR_CREW (spec §12.4 line 2753)", async () => {
     documentMode = "error";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 403 }));
     const { AgendaPdfViewer } = await import("@/components/agenda/AgendaPdfViewer");
-    const { findByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-403" />);
+    const { getByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-403" />);
     const { messageFor } = await import("@/lib/messages/lookup");
     const expected = messageFor("AGENDA_GONE_FOR_CREW").crewFacing!;
-    const alert = await findByRole("alert");
-    expect(alert.textContent).toContain(expected);
+    // The alert mounts with the generic fallback copy while the HEAD probe is
+    // still in flight, so a role-only query can resolve on that transitional
+    // alert and read the wrong text. Wait for the alert carrying THIS copy.
+    await waitFor(() => expect(getByRole("alert").textContent).toContain(expected));
   });
 
   test("HEAD probe returning 500 (retryable) → renders AGENDA_ASSET_LOOKUP_FAILED.crewFacing", async () => {
     documentMode = "error";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 500 }));
     const { AgendaPdfViewer } = await import("@/components/agenda/AgendaPdfViewer");
-    const { findByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-500" />);
+    const { getByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-500" />);
     const { messageFor } = await import("@/lib/messages/lookup");
     const expected = messageFor("AGENDA_ASSET_LOOKUP_FAILED").crewFacing!;
-    const alert = await findByRole("alert");
-    expect(alert.textContent).toContain(expected);
+    // The alert mounts with the generic fallback copy while the HEAD probe is
+    // still in flight, so a role-only query can resolve on that transitional
+    // alert and read the wrong text. Wait for the alert carrying THIS copy.
+    await waitFor(() => expect(getByRole("alert").textContent).toContain(expected));
   });
 
   test("HEAD probe network failure → renders AGENDA_ASSET_LOOKUP_FAILED.crewFacing", async () => {
     documentMode = "error";
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
     const { AgendaPdfViewer } = await import("@/components/agenda/AgendaPdfViewer");
-    const { findByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-netdown" />);
+    const { getByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-netdown" />);
     const { messageFor } = await import("@/lib/messages/lookup");
     const expected = messageFor("AGENDA_ASSET_LOOKUP_FAILED").crewFacing!;
-    const alert = await findByRole("alert");
-    expect(alert.textContent).toContain(expected);
+    // The alert mounts with the generic fallback copy while the HEAD probe is
+    // still in flight, so a role-only query can resolve on that transitional
+    // alert and read the wrong text. Wait for the alert carrying THIS copy.
+    await waitFor(() => expect(getByRole("alert").textContent).toContain(expected));
   });
 });
