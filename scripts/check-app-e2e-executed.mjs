@@ -80,6 +80,8 @@ export const REQUIRED = {
   // projects, --retries=0: 181 executed identities, zero skipped.
   "no-raw-codes.spec.ts": 10,
   // 6 width bands + the dispatch case, x 2 projects.
+  // AC-5 of the transient-502 spec: one case, resolving under desktop-chromium only.
+  "admin-upstream-retry.spec.ts": 3,
   "notify-toggles.spec.ts": 14,
   // 4 cases x 2 projects.
   "report-modal.spec.ts": 8,
