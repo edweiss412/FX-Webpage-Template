@@ -1802,19 +1802,19 @@ export const GUARD_SURFACES: GuardSurface[] = [
       {
         // Line-keyed siteIds re-derived after the enforcement-pair arc's edits
         // shifted corpus.ts by two lines (an import and a ProblemKind member).
-        siteId: "statement-removal:81:7:continue;>(removed)",
+        siteId: "statement-removal:82:7:continue;>(removed)",
         kind: "equivalent",
         reason:
           "falling through after the recursive walk reaches `if (!entry.isFile()) continue;` on the very next line (corpus.ts:83), and a Dirent for a directory returns false from isFile(), so neither push below it can be reached",
       },
       {
-        siteId: "statement-removal:245:5:sectionsByArc.set(arc, sections);>(removed)",
+        siteId: "statement-removal:246:5:sectionsByArc.set(arc, sections);>(removed)",
         kind: "equivalent",
         reason:
           "the map is a pure memo of what clause A has already parsed: `arcSumTotals` reads it as `sections?.get(arc) ?? parseFiling(arc.filingText)`, so an unpopulated map falls back to parsing each filing on demand and returns the identical answer. Removing the write costs one re-parse per filing and changes no output - which is exactly why it was added (it took the live-corpus check from 31s back to 5s), and exactly why no assertion can distinguish it",
       },
       {
-        siteId: "relational-boundary:148:25:<><=",
+        siteId: "relational-boundary:149:25:<><=",
         kind: "equivalent",
         reason:
           'the extra iteration reads lines[i] === undefined, which `?? ""` turns into the empty string, and the blank-line skip at corpus.ts:150 continues before parseRow sees it',
