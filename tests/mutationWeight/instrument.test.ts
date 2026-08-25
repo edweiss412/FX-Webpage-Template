@@ -348,6 +348,47 @@ describe("bindingLeg and legSeconds", () => {
       ),
     ).toEqual([1, 3]);
   });
+
+  // The three cases below replace what an earlier draft was going to file as
+  // equivalent `?? 0` mutants. None of them is equivalent: every one is
+  // reachable through the exported signature, which admits any map.
+  it("REFUSES a leg outside the shard range instead of returning NaN for it", () => {
+    // The mutant this kills is not a wrong number, it is a number that stops
+    // being one. Coalescing here wrote index 5 of a length-3 array, leaving
+    // [0,0,0,null,null,100], and the binding leg every budget check reads is
+    // Math.max of that: NaN. A guard that silently produces NaN for the single
+    // quantity the model exists to bound is worse than no guard.
+    const surfaces = [measured({ surfaceId: "a", children: [child("s", 100_000)] })];
+    expect(() => legSeconds(new Map([["a", 5]]), surfaces, 3)).toThrow(/outside 0\.\.2/);
+    expect(() => legSeconds(new Map([["a", -1]]), surfaces, 3)).toThrow(/outside 0\.\.2/);
+    expect(() => legSeconds(new Map([["a", 1.5]]), surfaces, 3)).toThrow(/outside 0\.\.2/);
+  });
+
+  it("prices a surface it cannot measure at zero, the direction driftReport covers", () => {
+    // Deliberate, not defensive: a registry row added since the last nightly has
+    // no measurement, and refusing would fail the report over a routine state.
+    // The zero UNDERSTATES the leg, so this is only safe while the caller prints
+    // driftReport's `unmeasured`. Asserted at 1 rather than 0 total so a mutant
+    // that drops the measured term cannot pass by coincidence.
+    const surfaces = [measured({ surfaceId: "a", children: [child("s", 1000)] })];
+    const legs = legSeconds(
+      new Map([
+        ["a", 0],
+        ["never-measured", 0],
+      ]),
+      surfaces,
+      2,
+    );
+    expect(legs).toEqual([1, 0]);
+  });
+
+  it("reports a leg nothing was assigned to as zero, not as absent", () => {
+    // Materialising over `length: n` rather than over the assignment's keys is
+    // what makes an empty leg a 0 in position instead of a short array. A short
+    // array would misalign every leg after the gap.
+    const surfaces = [measured({ surfaceId: "a", children: [child("s", 2000)] })];
+    expect(legSeconds(new Map([["a", 2]]), surfaces, 3)).toEqual([0, 0, 2]);
+  });
 });
 
 describe("reconcile", () => {

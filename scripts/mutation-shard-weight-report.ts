@@ -46,7 +46,7 @@ import {
   verdictDelta,
 } from "../lib/mutationWeight/weights";
 import { GUARD_SURFACES } from "../tests/mutation/source/registry";
-import { SOURCE_SHARD_COUNT, weightOf } from "../tests/mutation/source/shardPartition";
+import { SOURCE_SHARD_COUNT, bootsOf } from "../tests/mutation/source/shardPartition";
 
 const N = SOURCE_SHARD_COUNT;
 
@@ -76,13 +76,16 @@ function modelledFrom(file: string | undefined): { modelled: ModelledBoots; sha:
     }
     return { modelled: new Map(Object.entries(raw.surfaces)), sha: raw.sha };
   }
-  // The checked-out registry. `weightOf` IS the boot count until the rate
-  // multiplies it, so the parts are recovered from the surface's own fields.
+  // The checked-out registry. This wants BOOTS, so it calls `bootsOf` and not
+  // `weightOf` — the two returned the same number until the rate landed, and a
+  // consumer that reads a priced weight as a boot count derives a mutant total
+  // that is wrong by a factor of the rate. Recovering the parts from the
+  // surface's own fields is what makes the reconciliation able to say so.
   return {
     sha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
     modelled: new Map(
       GUARD_SURFACES.map((s) => {
-        const boots = weightOf(s);
+        const boots = bootsOf(s);
         const suites = s.suitePaths.length;
         return [
           s.id,

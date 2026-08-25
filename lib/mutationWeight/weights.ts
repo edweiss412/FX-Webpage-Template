@@ -110,16 +110,44 @@ export function lpt(items: readonly { key: string; w: number }[], n: number): Ma
   return out;
 }
 
-/** Real seconds each leg would have run, had the partition been `assign`. */
+/**
+ * Real seconds each leg would have run, had the partition been `assign`.
+ *
+ * An out-of-range leg is REFUSED rather than coalesced. `noUncheckedIndexedAccess`
+ * pushes toward `bins[leg] ?? 0`, and that spelling is silently catastrophic here:
+ * `new Array(3).fill(0)` assigned at index 5 becomes `[0,0,0,null,null,100]`, so
+ * the caller's `Math.max(...)` returns NaN and the binding leg — the one number
+ * this whole model exists to bound — is quietly not a number. Throwing turns a
+ * caller bug into a caller bug, which is what it is.
+ *
+ * A surface named by `assign` with no measurement is priced at ZERO, and that is
+ * deliberate rather than defensive: an unmeasured surface is an ordinary state on
+ * a registry that grew a row since the last nightly, so refusing would fail the
+ * whole report over a routine condition. The zero UNDERSTATES the leg, which is
+ * the dangerous direction, so it is never left silent — `driftReport` returns the
+ * same surfaces under `unmeasured` and every caller here prints that list beside
+ * these totals. Conservative plus surfaced is this design's stated bound; the
+ * pairing is the reason it holds, so do not price the gap without printing it.
+ */
 export function legSeconds(
   assign: ReadonlyMap<string, number>,
   surfaces: readonly Measured[],
   n: number,
 ): number[] {
   const secs = new Map(surfaces.map((m) => [m.surfaceId, m.seconds]));
-  const bins = new Array<number>(n).fill(0);
-  for (const [id, leg] of assign) bins[leg] = (bins[leg] ?? 0) + (secs.get(id) ?? 0);
-  return bins;
+  // Accumulated in a Map and materialised at the end, rather than written into a
+  // pre-filled array. Indexing an array to READ-then-add reintroduces exactly the
+  // `bins[leg] ?? 0` the range check above exists to delete, because the compiler
+  // will not narrow an indexed read from a guard on the index. Both coalesces
+  // below are reachable and asserted: an empty leg, and an unpriced surface.
+  const totals = new Map<number, number>();
+  for (const [id, leg] of assign) {
+    if (!Number.isInteger(leg) || leg < 0 || leg >= n) {
+      throw new Error(`legSeconds: ${id} assigned to leg ${leg}, outside 0..${n - 1}`);
+    }
+    totals.set(leg, (totals.get(leg) ?? 0) + (secs.get(id) ?? 0));
+  }
+  return Array.from({ length: n }, (_, i) => totals.get(i) ?? 0);
 }
 
 /**
