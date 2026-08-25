@@ -31,12 +31,18 @@
  *    has to enumerate every wrapper (`docker exec "$C"`, an UNQUOTED
  *    `docker exec $C`, `sudo`, `env`, `time`, `xargs`) and silently misses the
  *    one it forgot, which is the wrong failure mode for a security guard.
- * 4. Workflow YAML — the raw source slice of every `run:` scalar, scanned with
- *    the same shell reader, plus the DECODED scalar as a fallback when the raw
- *    slice yields nothing (a double-quoted scalar can spell the command
- *    `\\x70sql` or hide it behind an escaped newline). Both `run: |` blocks and
- *    quoted single-line `run: "psql …"`. A step `name:` that merely mentions
- *    psql is not a call site.
+ * 4. Workflow YAML — every `run:` scalar, scanned with the same shell reader.
+ *    WHICH TEXT is read depends on the scalar's YAML style, and the distinction
+ *    is the whole point rather than an optimisation. For a PLAIN or BLOCK scalar
+ *    the raw source slice IS the shell text. For a QUOTED scalar the quoting
+ *    belongs to YAML, not to the shell, so the raw slice is NOT scanned at all
+ *    and the DECODED value is read instead — a double-quoted scalar can spell
+ *    the command `\\x70sql` or hide it behind an escaped newline, and reading its
+ *    delimiters as shell was wrong in both directions at once (a fabricated site
+ *    on one spelling, silence on another). Decoded text is therefore the primary
+ *    read for quoted styles, never a fallback. Both `run: |` blocks and quoted
+ *    single-line `run: "psql …"`. A step `name:` that merely mentions psql is
+ *    not a call site.
  *
  * The file list is a FILESYSTEM WALK from the repo root, not a hardcoded
  * roster: a psql site added in a brand-new directory fails by default. The
@@ -229,10 +235,17 @@
  *    another program (`alias p'sql'='pgcli -F'`) escapes.
  *  - A multiword assignment value whose psql command carries no flag-shaped
  *    token, which is the deliberate line between a command binding and prose
- *    (`MSG="psql failed to connect"`). This covers a quoted YAML `run:` scalar
- *    read as one word — a binding there is one indirection deeper than the
- *    shell layer reads — and a quoted DIRECTORY component carrying IFS
- *    whitespace (`PG='/tmp/x y/psql'`).
+ *    (`MSG="psql failed to connect"`), and a quoted DIRECTORY component
+ *    carrying IFS whitespace (`PG='/tmp/x y/psql'`).
+ *
+ *    RETIRED 2026-08-22 (`BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE`): this
+ *    bullet used to cover a quoted YAML `run:` scalar too, and the reason it
+ *    gave was wrong. The flag criterion never declined those — it never saw
+ *    them. `scanShellIndirection` lexed the whole YAML file, so the scalar's
+ *    YAML quotes were read as SHELL quotes and the body collapsed to one
+ *    literal word with no assignment in it. Quoted executable scalars are now
+ *    blanked out of that lex and rescanned from their decoded value, so the
+ *    binding reads normally. The flag criterion is untouched.
  *  - A WRAPPER-prefixed multiword value whose psql path itself needs the
  *    word-split reading (`CMD="sudo /tmp/O'Reilly/psql -X mydb"`): the split
  *    reading requires psql at ARGV[0] and the eval reading takes the pathname
@@ -404,7 +417,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import ts from "typescript";
-import { parseDocument, visit, isPair, isScalar, type Node as YamlNode } from "yaml";
+import { parseDocument, visit, isPair, isScalar, isSeq, type Node as YamlNode } from "yaml";
 
 export const EXEMPTION_MARKER = "psql-startup-files-ok:";
 
@@ -3388,10 +3401,203 @@ function hereStringBindingLines(
   return found;
 }
 
+/**
+ * A QUOTED executable scalar, located in the ORIGINAL source coordinates.
+ *
+ * WHY THIS TYPE EXISTS, in the past tense because the behaviour is retired.
+ * `scanShellIndirection` lexed the WHOLE YAML file as one shell text and did
+ * NOT parse YAML, so a quoted executable scalar's YAML delimiters reached the
+ * shell lexer as SHELL quotes: the body collapsed to one literal word, the `$(`
+ * inside it was quoted rather than opening a substitution, and the
+ * unlexable-target report never fired. HEAD parses the file through
+ * `quotedExecutableScalars` and blanks those scalars out of the lexed view, so
+ * the raw pass no longer reaches them. Probed at base, all four executable keys
+ * behave identically — the PLAIN spelling reports one advisory and both quoted
+ * spellings report none — so the quoted spellings are silently unreadable in a
+ * channel whose entire job is to say "something here I cannot read".
+ *
+ * Both key families are collected, and the reason is that this channel lexes
+ * the whole FILE: a `with.args` scalar's YAML delimiters reach the lexer
+ * exactly as a `run:` scalar's do, so the defect does not distinguish them even
+ * though the SITE channel does. The sequence spelling of `args:` is collected
+ * for the same reason — probed at base, a block-sequence item reports when
+ * plain and goes silent when quoted, which is the same defect in a different
+ * spelling rather than a new one.
+ */
+type QuotedExecutableScalar = {
+  /** Byte range in the ORIGINAL source. */
+  range: [number, number];
+  /** The scalar's DECODED value: the shell text it actually carries. */
+  value: string;
+  /** 1-based line a finding from this scalar is pinned to. */
+  line: number;
+};
+
+/**
+ * Where a finding from a quoted scalar is ANCHORED.
+ *
+ * A decoded line number is an offset into the decoded value and does not
+ * correspond to a physical line — an escaped `\n` consumes none — so it cannot
+ * be reported. For a MAPPING VALUE the anchor is the key's line, which is the
+ * contract the site channel's decoded pass already states. For a SEQUENCE ITEM
+ * there is no key of its own, and anchoring to the containing `args:` key would
+ * put the quoted spelling on a different line from the plain spelling of the
+ * same item; the item's own starting line is where both agree.
+ */
+function quotedExecutableScalars(source: string): QuotedExecutableScalar[] {
+  let document;
+  try {
+    document = parseDocument(source, { keepSourceTokens: true });
+  } catch {
+    return [];
+  }
+  const found: QuotedExecutableScalar[] = [];
+  const lineAt = (offset: number): number => source.slice(0, offset).split("\n").length;
+  const QUOTED_STYLES = new Set(["QUOTE_SINGLE", "QUOTE_DOUBLE"]);
+  // A SEQUENCE is expanded at most once. `args: &c [ …, *c ]` aliases its own
+  // sequence, so resolving the alias yields the sequence that contains it and
+  // the walk re-enters forever — `Maximum call stack size exceeded`, thrown out
+  // of a function the census walk calls PER FILE, which loses every other
+  // file's findings on the way out rather than just this one's.
+  //
+  // Scoped to sequences on purpose. Scalars do not recurse, and the same scalar
+  // legitimately reached through two different aliases must still be collected
+  // twice — once per anchor line — so a node-wide dedupe would silently drop
+  // the second report.
+  const expandedSeqs = new Set<unknown>();
+  // An ALIAS resolves to a scalar defined elsewhere; resolving is required
+  // rather than generous, because workflow reuse via anchors is documented.
+  const resolve = (node: unknown): unknown => {
+    const asAlias = node as { resolve?: unknown };
+    return asAlias && typeof asAlias.resolve === "function"
+      ? ((asAlias as { resolve: (d: unknown) => unknown }).resolve(document) ?? node)
+      : node;
+  };
+  const take = (node: unknown, anchorLine: number | null): void => {
+    const value = resolve(node);
+    if (isSeq(value as never)) {
+      if (expandedSeqs.has(value)) return;
+      expandedSeqs.add(value);
+      for (const item of (value as { items?: unknown[] }).items ?? []) {
+        const itemRange = (resolve(item) as { range?: [number, number, number] }).range;
+        take(item, itemRange ? lineAt(itemRange[0]) : anchorLine);
+      }
+      return;
+    }
+    if (!isScalar(value as never)) return;
+    const style = (value as { type?: string }).type;
+    if (style === undefined || !QUOTED_STYLES.has(style)) return;
+    const range = (value as { range?: [number, number, number] }).range;
+    const decoded = (value as { value?: unknown }).value;
+    if (!range || typeof decoded !== "string") return;
+    found.push({
+      range: [range[0], range[1]],
+      value: decoded,
+      line: anchorLine ?? lineAt(range[0]),
+    });
+  };
+  visit(document, {
+    Pair(_key: unknown, pair: unknown) {
+      if (!isPair(pair as YamlNode as never)) return;
+      const node = pair as { key?: unknown; value?: unknown };
+      const name = (node.key as { value?: unknown } | undefined)?.value as string;
+      if (!EXECUTABLE_WORKFLOW_KEYS.has(name) && !CONTAINER_ARGV_KEYS.has(name)) return;
+      const keyRange = (node.key as { range?: [number, number, number] } | undefined)?.range;
+      take(node.value, keyRange ? lineAt(keyRange[0]) : null);
+    },
+  });
+  return found;
+}
+
+/**
+ * Blank every range to spaces, PRESERVING newlines.
+ *
+ * Byte count and line count both survive, so every offset and every line number
+ * downstream still names the same position it did in the original source. That is
+ * what lets the blanked text stand in for the original everywhere downstream: every
+ * reader now takes `shellText`, the one view carrying the blanked ranges. An earlier
+ * version of this comment said the untouched `source` was still handed to the arms
+ * reading it directly, which described the shape before quoted scalars were blanked
+ * out of a single shared view.
+ */
+function blankRanges(source: string, ranges: Array<[number, number]>): string {
+  if (ranges.length === 0) return source;
+  const out = source.split("");
+  for (const [start, end] of ranges) {
+    // No clamp against `out.length`: every range here comes from the YAML parser
+    // reading the SAME string this blanks, and `split("")` preserves length, so
+    // `end <= out.length` holds and `at < end` already bounds the write. The clamp
+    // that stood here was dead in shipped code and existed only as a mutation site.
+    //
+    // FALSIFIER: a caller passing ranges derived from a DIFFERENT string than the
+    // one it blanks. That is the only shape that leaves `end` unbounded.
+    //
+    // Flush (`end === out.length`) IS reachable — a quoted scalar ending a file with
+    // no trailing newline. Measured there, a one-past-the-end bound appends and
+    // returns 42 characters for a 41-character source, breaching the byte count this
+    // function documents. No FINDING moves on that input, though, so the deciding
+    // case for that bound is the flow-mapping fixture in the suite, not this one.
+    for (let at = start; at < end; at++) {
+      if (out[at] !== "\n") out[at] = " ";
+    }
+  }
+  return out.join("");
+}
+
 export function scanShellIndirection(source: string, file: string): IndirectionHit[] {
+  return scanShellIndirectionIn(source, file, true);
+}
+
+/**
+ * `yamlAware` is false for ONE caller: the rescan of a quoted executable
+ * scalar's DECODED value, below.
+ *
+ * That value is post-YAML text — the parser has already removed the delimiters,
+ * applied the escape grammar, and joined the continuations — so re-running the
+ * YAML pre-processing over it would decode an already-decoded string. Turning
+ * the flag off also terminates the recursion by construction rather than by a
+ * depth counter: with no YAML pass there are no quoted scalars to collect, so
+ * the rescan can never rescan.
+ *
+ * `file` stays the REAL path in both modes. Every other reading in this
+ * function keys on it — whether a backtick is markdown or a substitution, how a
+ * binding value is judged — and those readings are about the file the text came
+ * from, which does not change just because one pre-processing step is skipped.
+ */
+function scanShellIndirectionIn(
+  source: string,
+  file: string,
+  yamlAware: boolean,
+): IndirectionHit[] {
   const hits: IndirectionHit[] = [];
-  const lines = source.split("\n");
-  const commentAt = commentIndexPerLine(source, "hash");
+  const isYaml = yamlAware && YAML_EXTENSIONS.includes(extensionOf(file));
+  // A QUOTED executable scalar's delimiters belong to YAML, not to the shell,
+  // so the scalar is blanked out of the text this function reads AS SHELL and
+  // rescanned below from its DECODED value instead.
+  //
+  // ONE BLANKED VIEW, FEEDING EVERY READING. This function reads the file's
+  // text three ways — the lexer, the per-LINE routes (`githubEnvWrite`, the
+  // here-string text route, interpreter positionals), and the here-string
+  // binding pass — and blanking only the lexer's input was not enough. The line
+  // routes went on reading the raw quoted scalar, so a scalar the rescan
+  // already reported was reported a SECOND time by a line route: same line,
+  // same scalar, two hits, where the plain spelling of the identical body
+  // yields one. Loud rather than silent, so not the dangerous direction, but a
+  // duplicate is still a finding a reader must reconcile, and `line` and `text`
+  // are both fields the AC-5 digest covers.
+  //
+  // Blanking preserves byte count AND line count, so `shellText` is coordinate
+  // identical to `source`: every offset and every line index still names the
+  // same position, which is what lets one view serve all three readings.
+  const quotedExecutables = isYaml ? quotedExecutableScalars(source) : [];
+  const shellText = isYaml
+    ? blankRanges(
+        source,
+        quotedExecutables.map((scalar) => scalar.range),
+      )
+    : source;
+  const lines = shellText.split("\n");
+  const commentAt = commentIndexPerLine(shellText, "hash");
 
   // STRUCTURAL, not spelling-by-spelling. A command SUBSTITUTION whose body
   // mentions psql but yields no psql SITE is executable discovery — the reader
@@ -3413,9 +3619,14 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   // that leading whitespace for EVERY file type; this keeps the strip only
   // where it is the document's own semantics. Newlines are preserved, so every
   // word's `line` still names its physical line.
-  const lexedSource = YAML_EXTENSIONS.includes(extensionOf(file))
-    ? source.replace(/\\\n[ \t]+/g, "\\\n")
-    : source;
+  // ORDERING IS LOAD-BEARING: the blank above happens in SOURCE coordinates,
+  // and the continuation transform here REMOVES BYTES. Blank after it and the
+  // blanking overruns by exactly the bytes it removed, straight into the
+  // following line — on a flow scalar carrying one physical continuation the
+  // next step's `- run:` key is destroyed, so that step stops being a run
+  // scalar and its finding is silently erased, in the very channel this repair
+  // exists to un-silence.
+  const lexedSource = isYaml ? shellText.replace(/\\\n[ \t]+/g, "\\\n") : shellText;
   const targets: RedirectionTarget[] = [];
   const redirections: Redirection[] = [];
   const words = lexShellWords(lexedSource, nested, targets, redirections);
@@ -3455,11 +3666,31 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
       // opening line names where the target is.
       hits.push({ file, line: target.line + 1, text: target.unlexable.trim() });
     }
+  // Each blanked scalar, rescanned from its DECODED value — the shell text it
+  // actually carries — through THIS WHOLE FUNCTION rather than through one of
+  // its arms.
+  //
+  // Re-entering is the point, and a partial rescan is what it replaced. The
+  // first cut re-lexed each scalar and re-applied only the unlexable-target
+  // predicate, which fixed the advisory this repair is named for and silently
+  // broke a different arm: blanking removes the scalar from the whole-file lex
+  // for EVERY reading, so the executable-DISCOVERY arm stopped seeing
+  // `run: "PSQL=$(command -v psql); $PSQL -qAt mydb"` at all. The deciding
+  // suite caught it as a hard red rather than a review round. Re-entry cannot
+  // develop that gap, because there is no second list of arms to keep in step.
+  //
+  // Every hit is re-anchored: a line inside the decoded value is an offset into
+  // a string, not a physical line — an escaped `\n` consumes none — so it names
+  // nothing a reader could open. The anchor is the key's line, which is the
+  // contract the site channel's decoded pass already states.
+  for (const scalar of quotedExecutables)
+    for (const hit of scanShellIndirectionIn(scalar.value, file, false))
+      hits.push({ ...hit, line: scalar.line });
   const bindingLines = assignmentBindingLines(words, file);
   // Arm 1's word route, kept as its OWN set rather than merged into
   // `bindingLines`, so the two routes stay distinguishable to a reader and to a
   // mutant even though both collapse to the same emission below.
-  const hereStringLines = hereStringBindingLines(source, targets, words, redirections, file);
+  const hereStringLines = hereStringBindingLines(shellText, targets, words, redirections, file);
   const visitBody = (body: NestedShell): void => {
     if (body.backtick && backticksAreMarkdown) return;
     const inner: NestedShell[] = [];
@@ -3922,6 +4153,40 @@ function resolveRunShells(document: ReturnType<typeof parseDocument>): Map<unkno
   return runShell;
 }
 
+/**
+ * The scalar styles whose RAW SOURCE SLICE is the shell text itself.
+ *
+ * A PLAIN scalar carries no delimiters, and a BLOCK scalar's delimiters are its
+ * header line, which the reader blanks below. For those three, slicing the
+ * source and handing it to the shell lexer is correct.
+ *
+ * The two QUOTED styles are deliberately absent, and that absence is the whole
+ * of BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE. Their delimiters belong to YAML,
+ * and feeding them to the shell lexer is wrong in both forbidden directions at
+ * once. A double-quoted `run: "echo >$(psql -qAt mydb"` opens a SHELL
+ * double-quoted span on the YAML delimiter, and the `$(` inside it then
+ * consumes the YAML CLOSING quote, so the lexer recovers a psql command word
+ * out of a substitution body that exists only because two YAML delimiters were
+ * read as shell — bash runs no psql there, and the site is fabricated. The
+ * single-quoted spelling collapses to one literal word and goes silent instead.
+ * Neither raw reading tells the truth about the command.
+ *
+ * The repair is a SUBTRACTION, not a second decoder: the decoded pass further
+ * down already scans the scalar's VALUE, which is exactly the shell text a
+ * quoted scalar carries, so declining the raw pass leaves the decoded one as
+ * the only pass and every verdict stays intact. The escape-spelled command word
+ * (`"\\x70sql -qAt mydb"`) is reachable ONLY that way and is pinned as such.
+ *
+ * A NAMED constant rather than an inline disjunction, so the accept-set is one
+ * declaration a reader, a reviewer, and a mutant can each find, and so the
+ * partition pin in the deciding suite has a single thing to assert against.
+ */
+export const RAW_IS_SHELL_TEXT_STYLES: ReadonlySet<string> = new Set([
+  "PLAIN",
+  "BLOCK_LITERAL",
+  "BLOCK_FOLDED",
+]);
+
 export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
   const sites: PsqlSite[] = [];
   let document;
@@ -4073,9 +4338,17 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       // workflow reported its site on line 10. Pin every site from an alias to
       // the key itself, which is the documented anchoring contract.
       const aliased = range[0] < (keyRange?.[0] ?? 0);
-      const found = scanShellText(substituteScriptPath(raw), file, offset).map((site) =>
-        aliased ? { ...site, line: offset + 1 } : site,
-      );
+      // The raw pass runs only where the raw slice IS shell text. For a QUOTED
+      // scalar the delimiters are YAML's, and lexing them as shell fabricates a
+      // site on one spelling and goes silent on the other; the decoded pass
+      // below is then the only pass, which is the correct one for that style.
+      const style = (value as { type?: string }).type;
+      const rawIsShellText = style !== undefined && RAW_IS_SHELL_TEXT_STYLES.has(style);
+      const found = rawIsShellText
+        ? scanShellText(substituteScriptPath(raw), file, offset).map((site) =>
+            aliased ? { ...site, line: offset + 1 } : site,
+          )
+        : [];
       // A double-quoted scalar can DECODE to a psql command whose raw slice
       // holds no recognizable word (`\\x70sql`, `\\u0070sql`, an escaped
       // newline). Scan the decoded value too and keep whatever the raw pass

@@ -10648,3 +10648,35 @@ Same mechanism as the elder entry, filed independently and in good faith: at fil
 This id is kept RESOLVABLE rather than deleted, because the merged round-economy filing for `feat/speclint-red-reason-verification` cites it by name and `BL-SPECLINT-DOC-BARE-LINE-NUMBERS-UNCOVERED`'s first-scheduled-step names it as sharing an owner and a trigger point. A deleted id dangles both pointers.
 
 Its incident is preserved verbatim as the third measured instance on the elder entry.
+
+---
+
+## BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE — a QUOTED workflow `run:` scalar is scanned as if its YAML quoting were shell, fabricating a site on one spelling and going silent on another
+
+**Status:** SHIPPED 2026-08-25 · **Shipped by:** `fix/yaml-run-scalar-quoting-decode` (PR #879) · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (one spelling FABRICATES a `PsqlSite` for a command bash never runs, which is a forbidden direction; the other is silent, which is the other forbidden direction) · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 5 - raised against that diff, REFUTED against it, and true of the tree either way) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — the repair belongs to the YAML decode path (`scanSource`'s workflow reader), a surface the attached-redirection arc does not otherwise touch, and it needs the scanner to distinguish YAML quoting from shell quoting before the shell lexer ever sees the value. · **Reachability:** PROBED — three spellings, each run against bash and against `scan.ts` at both revisions. · **Incident:** it consumed diff round 5 of this arc (corpus row at `docs/review-rounds/fix/shell-attached-redirection-target/0ba72c23774f.jsonl`), where it was raised as a finding against a diff that does not cause it. The round is the cost event; the defect is real and outlives the refutation.
+
+Production passes the whole YAML file to the scanner, which reads `run:` values. When the scalar is QUOTED, the quoting belongs to YAML and not to the shell, and the scanner does not make that distinction.
+
+| `run:` scalar | bash                        | scanner                                   |
+| ------------- | --------------------------- | ----------------------------------------- |
+| single-quoted | exits 2, never invokes psql | **0 sites, 0 hits** — silently unsignaled |
+| double-quoted | exits 2, never invokes psql | **1 site** — a FABRICATED `PsqlSite`      |
+| plain         | exits 2, never invokes psql | 0 sites, 1 advisory — correct             |
+
+**PRE-EXISTING, proven rather than assumed.** All three spellings were run against `scan.ts` at the merge-base as well as HEAD. The two failing rows are BYTE-IDENTICAL at both revisions. The plain-scalar row is where the attached-redirection arc CHANGED behaviour, and it changed it in the right direction: base is silent, HEAD emits the advisory.
+
+**Why the fabricated site is the worse half.** A silent miss on the single-quoted spelling is the familiar direction and the census bounds it. The double-quoted spelling asserts a psql call site that the shell will never execute — the guard telling a reader that code runs when it does not, which is the direction every other row on this surface treats as forbidden.
+
+Close condition: the workflow reader decodes a `run:` scalar's YAML quoting BEFORE handing the value to the shell lexer, with the three spellings above as its acceptance and bash as the oracle for each.
+
+**A NEIGHBOURING FABRICATION SURVIVES THIS ENTRY, and it is named so the archive
+does not read as a closed class.** Diff round 13 found that an UNTERMINATED
+process substitution still reports a site - `run: echo >(psql -qAt myd` yields
+`["-qAt","myd"]` while `bash -n` exits 2 - and that the escaped-dollar spellings
+decode into that same path. It is a different defect in a different function:
+this entry was about YAML quoting reaching the shell lexer undecoded, that one is
+about what `matchBrace` returns when a span never closes. Probed identical at
+this arc's merge-base and at HEAD, so it is neither introduced nor repaired here.
+Carried as `BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES` and as
+documented limit 9 of the design spec, which states plainly that the arc's
+consequence bound does not extend to it.
