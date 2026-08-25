@@ -238,9 +238,8 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // node:fs, which is deliberately NOT provenance, and touches neither
   // child_process, ledger-git, nor process.env.
   "tests/specLint/taskContractV2Grammar.test.ts": 0,
-  // The review-round economy's two suites, enrolled by reviewRoundCount and
-  // reviewRoundCorpus. Both declare 0, and the declaration is honest rather
-  // than convenient: neither reaches any member of ENVIRONMENT_SOURCES.
+  // The review-round economy's suites, enrolled by reviewRoundCount,
+  // reviewRoundCorpus and (2026-08-25) reviewRoundInstant.
   // count.test.ts imports only vitest and lib/reviewRounds, driving literal
   // ReviewRoundRow fixtures. The corpus suite does use node:fs, but only
   // against scratch trees it builds itself under mkdtempSync -- node:fs is
@@ -248,7 +247,17 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // process.env), because a test that constructs the tree it reads cannot be
   // decided by the ambient one.
   "tests/reviewRounds/count.test.ts": 0,
-  "tests/docs/_metaReviewRoundEconomy.test.ts": 0,
+  // ONE, not zero, since diff R3. The timezone case sets `process.env.TZ`
+  // deliberately: the defect it pins is that the freeze answer DIFFERED by
+  // host, so the assertion is that two zones agree, and it cannot be written
+  // without reaching the ambient zone. It restores TZ in a `finally`. The count
+  // is what makes that reach declared rather than discovered.
+  "tests/docs/_metaReviewRoundEconomy.test.ts": 1,
+  // instant.test.ts drives literal strings through a pure parser -- no
+  // child_process, no ledger-git, no process.env. Honest zero: the TZ-dependent
+  // half of the R3 defect is pinned in the corpus suite above, where the
+  // predicate under test actually lives.
+  "tests/reviewRounds/instant.test.ts": 0,
   // Enrolled by reviewRoundFiling (enforcement-pair arc): parses literal
   // markdown strings through remark and reaches no member of
   // ENVIRONMENT_SOURCES.

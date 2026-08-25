@@ -5,7 +5,14 @@ import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
-import { checkCorpus, readArcs, type Problem } from "../../lib/reviewRounds/corpus";
+import { arcSumTotals, checkCorpus, readArcs, type Problem } from "../../lib/reviewRounds/corpus";
+import { parseFiling } from "../../lib/reviewRounds/filing";
+import {
+  ARC_SUM_FREEZE,
+  ARC_SUM_GRANDFATHERED,
+} from "../../lib/reviewRounds/arcSumGrandfather";
+import { arcCountedRounds } from "../../lib/reviewRounds/count";
+import { instant, strictlyBefore } from "../../lib/reviewRounds/instant";
 import { MECHANIZABLE_GRANDFATHERED } from "../../lib/reviewRounds/mechanizableGrandfather";
 import { premiseHolds } from "../_shared/premise";
 import { ledgerIds, type ExtractOpts } from "./_ledgerMdast";
@@ -1013,6 +1020,762 @@ describe("liveLedgerIds resolves against the real ledgers", () => {
       [],
     );
     expect(problems.map((p) => p.kind)).toEqual(["unresolved_id"]);
+  });
+});
+
+describe("clause B - the arc sum across merge bases (spec §3.1)", () => {
+  // HALF the threshold in each of two bases: neither base obliges under clause
+  // A, and the arc has still burned the full threshold. Derived from
+  // ROUND_THRESHOLD so a raised threshold cannot make this vacuous.
+  const HALF = ROUND_THRESHOLD / 2;
+  const half = (baseSha: string) =>
+    rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha })));
+
+  // THE defect this whole arc exists for. Four diff rounds were burned; the
+  // per-base reader sees two and two, obliges nothing, and every other
+  // assertion in this suite passes while a real filing duty goes unreported.
+  it("reports a stage that reaches the threshold only by summing across bases", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+  });
+
+  // V2 and V3. A message that names the total but not WHERE the rounds were
+  // burned sends a reader to the wrong file; a breakdown blind to stage is
+  // wrong on 7 of the 11 live newly-owing pairs while the total stays right.
+  it("names the total and the per-(baseSha, stage) breakdown BY VALUE", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ]);
+    const message = problems.find((p) => p.kind === "missing_arc_filing")?.message ?? "";
+    expect(message).toContain(`burned ${ROUND_THRESHOLD} counted rounds`);
+    expect(message).toContain(`aaaaaaaaaaaa ${HALF}`);
+    expect(message).toContain(`bbbbbbbbbbbb ${HALF}`);
+    expect(message).toContain("feat/foo");
+    expect(message).toContain("diff");
+  });
+
+  // K2a/`directory`. Excludes an accumulator keyed on stage alone, where each
+  // directory overwrites the last and only the final one can ever report.
+  // Every other two-directory fixture here gives both directories the same
+  // obligation state, so none of them discriminates this.
+  it("keeps directories independent, so a later clean one cannot mask an owing one", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+      // Sorts AFTER feat/foo and is nowhere near the threshold.
+      { path: "feat/zzz/cccccccccccc.jsonl", body: rows({ branch: "feat/zzz", baseSha: "cccccccccccc" }) },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("feat/foo");
+  });
+
+  // K2a/`stage`. A stage-blind clause B sums two diff rounds and two spec
+  // rounds to the threshold and reports an arc that owes nothing.
+  // K2a/`stage`. HALF the threshold of `diff` in one base and HALF of `spec`
+  // in the other: neither stage reaches the threshold, and the ROWS sum to it
+  // exactly. A stage-blind clause B reports an arc that owes nothing.
+  it("keeps stages independent, so two half-stages do not sum into an obligation", () => {
+    const problems = check([
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1 }))),
+      },
+      {
+        path: "feat/foo/bbbbbbbbbbbb.jsonl",
+        body: rows(
+          ...Array.from({ length: HALF }, (_, i) => ({
+            round: i + 1,
+            baseSha: "bbbbbbbbbbbb",
+            stage: "spec",
+          })),
+        ),
+      },
+    ]);
+    expect(problems).toEqual([]);
+  });
+
+  // Clause B is RESIDUAL: when a base already reaches the threshold on its
+  // own, clause A reports it and clause B must stay quiet, or one duty is
+  // announced twice and a reader files twice.
+  it("stays silent when clause A already reports the same stage", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: rows(...OBLIGING) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_filing"]);
+  });
+});
+
+describe("clause B scoping - satisfaction and suppression (spec §3.1)", () => {
+  const HALF = ROUND_THRESHOLD / 2;
+  const half = (baseSha: string, over: Record<string, unknown> = {}) =>
+    rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha, ...over })));
+  // The owing shape every case below is one ordinary edit from: HALF the
+  // threshold in each of two bases, so clause A never fires and clause B must.
+  const OWING: Fixture[] = [
+    { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+    { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+  ];
+  // The declared count is PER BASE (count_mismatch is ratified per-base), so
+  // it is a parameter: a section declaring the arc sum beside a base holding
+  // half of it is a count_mismatch, not a satisfaction.
+  const section = (stage: string, n: number) =>
+    [`## ${stage} — ${n} rounds`, "", `**Examined:** R1-R${n}.`, "", "**Infra:** none.", ""].join("\n");
+
+  // One filing section anywhere in the directory discharges the duty, because
+  // the duty is attached to no single base (spec §4 limit 2). Both bases are
+  // asserted so nothing can pass by privileging the first file enumerated.
+  it("is discharged by a section at EITHER base", () => {
+    for (const at of ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]) {
+      expect(check([...OWING, { path: `feat/foo/${at}.md`, body: section("diff", HALF) }])).toEqual([]);
+    }
+  });
+
+  // AC-17. readArcs recognizes only ^[0-9a-f]{12}\.md$, so a stray prose file
+  // is invisible to the canonical reader. A satisfaction lookup reading "any
+  // .md under the directory" would let it discharge a real obligation while
+  // the reader sees no filing at all - an obliged arc reported compliant.
+  // Deliberately BELOW the per-base threshold in every base: the existing
+  // stray-filing case reaches it in one base and asserts clause A, which a
+  // loose clause B still emits, so that case passes either way.
+  it("is NOT discharged by a stray non-arc .md carrying a parseable section", () => {
+    const problems = check([...OWING, { path: "feat/foo/notes.md", body: section("diff", HALF) }]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+  });
+
+  // K2b/`directory`. Excludes a satisfaction lookup that collects sections
+  // globally, under which any filed directory anywhere silences every owing
+  // directory in the corpus.
+  it("does not let a DIFFERENT directory's filing discharge this one", () => {
+    const problems = check([
+      ...OWING,
+      { path: "feat/zzz/cccccccccccc.jsonl", body: half("cccccccccccc", { branch: "feat/zzz" }) },
+      { path: "feat/zzz/cccccccccccc.md", body: section("diff", HALF) },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("feat/foo");
+  });
+
+  // K2b/`stage`. Excludes a lookup that ignores the filing's stage, under
+  // which a spec section discharges a diff duty.
+  it("does not let a spec section discharge a diff duty", () => {
+    const problems = check([
+      // Base A carries the spec rounds the spec section describes, so the
+      // section is well-formed and the ONLY thing left to observe is whether
+      // clause B lets it discharge the unrelated diff duty.
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: half("aaaaaaaaaaaa") + half("aaaaaaaaaaaa", { stage: "spec" }),
+      },
+      { path: "feat/foo/aaaaaaaaaaaa.md", body: section("spec", HALF) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("diff");
+  });
+
+  // K2c/`directory`. Excludes suppression that is global rather than
+  // per-directory: one clause-A report anywhere would silence every clause-B
+  // duty in the corpus.
+  it("suppresses per directory, so a clause-A report elsewhere does not silence this one", () => {
+    const problems = check([
+      ...OWING,
+      { path: "feat/zzz/cccccccccccc.jsonl", body: rows(...OBLIGING.map((o) => ({ ...o, branch: "feat/zzz", baseSha: "cccccccccccc" }))) },
+    ]);
+    expect(problems.map((p) => p.kind).sort()).toEqual(["missing_arc_filing", "missing_filing"]);
+  });
+
+  // K2c/`stage`. Excludes suppression that silences every stage in a
+  // directory once any stage is suppressed.
+  it("suppresses per stage, so a clause-A diff report does not silence a spec duty", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: rows(...OBLIGING) + half("aaaaaaaaaaaa", { stage: "spec" }) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb", { stage: "spec" }) },
+    ]);
+    expect(problems.map((p) => p.kind).sort()).toEqual(["missing_arc_filing", "missing_filing"]);
+    expect(problems.find((p) => p.kind === "missing_arc_filing")?.message).toContain("spec");
+  });
+
+  // An ORPHAN filing - a recognized <baseSha12>.md with no .jsonl beside it -
+  // still carries a section for the directory, so it discharges. That is the
+  // ratified rule (any one section for the stage, spec §4 limit 2) and the
+  // arc is not silently clean either way: `orphan_filing` is reported beside
+  // it. Pinned because it works through arcSumTotals' per-arc fallback rather
+  // than through the map the gate hands in - clause A `continue`s on an
+  // orphan before recording its sections - so a future caller passing a
+  // deliberately complete map would change this answer without meaning to.
+  it("is discharged by an orphan filing, and the orphan is still reported", () => {
+    const problems = check([
+      ...OWING,
+      { path: "feat/foo/cccccccccccc.md", body: section("diff", HALF) },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["orphan_filing"]);
+  });
+
+  // Clause B is residual: a base already at the threshold is clause A's to
+  // report, and announcing one duty twice sends a reader to file twice.
+  it("reports only clause A when a base is at the threshold alone", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: rows(...OBLIGING) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_filing"]);
+  });
+
+  // The spec §3.1 equivalence fixture: clause A satisfied at its own base,
+  // and the remaining bases carry the rest of the arc's rounds.
+  it("is clean when the at-threshold base carries its own section", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: rows(...OBLIGING) },
+      { path: "feat/foo/aaaaaaaaaaaa.md", body: section("diff", ROUND_THRESHOLD) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+      { path: "feat/foo/cccccccccccc.jsonl", body: half("cccccccccccc") },
+    ]);
+    expect(problems).toEqual([]);
+  });
+});
+
+describe("arcSumTotals derives clause A when no caller supplies it (mutation survivors)", () => {
+  // The gate hands `arcSumTotals` the clause-A set it already computed; the
+  // REPORT hands it nothing and the function derives it. That derivation is
+  // corpus.ts's own behaviour, so corpus.ts's own suite pins it - the report
+  // suite is deliberately NOT in this surface's `suitePaths`, since dragging
+  // its 120s real-history case into every mutant would cost far more than it
+  // catches. Both mutants below survived precisely because nothing here
+  // exercised the no-caller path.
+  const HALF = ROUND_THRESHOLD / 2;
+  const half = (baseSha: string) =>
+    rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha })));
+  const markedOf = (files: Fixture[]) =>
+    arcSumTotals(readArcs(write(files)))
+      .filter((t) => t.marked)
+      .map((t) => `${t.branch} ${t.stage}`)
+      .sort();
+
+  // Kills logical-connector &&>||. Widened to `||`, every arc with no filing
+  // for the stage lands in the derived clause-A set, so clause B suppresses
+  // the very obligation it exists to report and the derived answer goes
+  // silently empty.
+  it("marks an arc owing only by sum, where no base reaches the threshold", () => {
+    const files: Fixture[] = [
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ];
+    expect(markedOf(files)).toEqual(["feat/foo diff"]);
+  });
+
+  // Kills relational-boundary >=>>. Narrowed to `>`, a base sitting EXACTLY at
+  // the per-base threshold is not recognised as clause A's, so clause B
+  // reports it too and one duty is announced twice.
+  it("stays residual when a base sits exactly AT the per-base threshold", () => {
+    const files: Fixture[] = [
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: rows(...OBLIGING) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ];
+    expect(markedOf(files)).toEqual([]);
+    // And the derived answer agrees with the gate's supplied one over the same
+    // corpus - the two paths must never disagree about who owes.
+    const root = write(files);
+    expect(
+      arcSumTotals(readArcs(root)).filter((t) => t.marked).map((t) => `${t.branch} ${t.stage}`),
+    ).toEqual(
+      checkCorpus(root, { resolvableIds: new Set<string>() })
+        .filter((p) => p.kind === "missing_arc_filing")
+        .map((p) => `${p.message.split(":")[0]} diff`),
+    );
+  });
+});
+
+describe("clause B's message, asserted by value (mutation survivors)", () => {
+  // Every assertion here was written to kill a specific surviving mutant the
+  // source-mutation gate found in `arcSumTotals`. The message is operator-facing
+  // output: a wrong breakdown sends a reader to the wrong file, and no other
+  // assertion in this suite looks at it.
+  const seq = (baseSha: string, n: number, over: Record<string, unknown> = {}) =>
+    rows(...Array.from({ length: n }, (_, i) => ({ round: i + 1, baseSha, ...over })));
+
+  // One base contributing exactly ONE round, one contributing three, and a
+  // third contributing NONE of this stage. Kills three mutants at once:
+  //   integer-literal 0>1  - the `?? 0` default, which would list the
+  //                          spec-only base as though it burned a diff round
+  //   relational >>=       - the `n > 0` filter, which would list it at 0
+  //   integer-literal 0>1  - the same filter as `n > 1`, dropping the base
+  //                          that contributed exactly one round
+  it("breaks the total down per base, omitting bases with none of this stage", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: seq("aaaaaaaaaaaa", 1) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: seq("bbbbbbbbbbbb", 3) },
+      // Counted rounds, but of a DIFFERENT stage - contributes 0 to diff.
+      { path: "feat/foo/cccccccccccc.jsonl", body: seq("cccccccccccc", 2, { stage: "spec" }) },
+    ]);
+    const message = problems.find((p) => p.kind === "missing_arc_filing")?.message ?? "";
+    expect(message).toContain(`(aaaaaaaaaaaa 1, bbbbbbbbbbbb 3)`);
+    expect(message).not.toContain("cccccccccccc");
+    // Diff R2 P2. The detail's directory is DERIVED from the branch now
+    // (`${CORPUS_DIR}/${branch}`) rather than read off `group[0].dir` with a
+    // `?? branch` fallback. That fallback emitted a bare BRANCH NAME where a
+    // reader needs the path to go and edit, and round 2 proved it reachable:
+    // a ONE-FILE arc whose rows declare different `baseSha` values (the
+    // identity-mismatch class) has `bases === 1` while `arcCountedRounds`
+    // counts four distinct `(baseSha, round)` pairs, so clause A never fires
+    // and the total IS marked. My round-1 equivalence argument assumed a
+    // one-base group's arc sum always equals its per-base count; that is false
+    // exactly here, which is why the mutant was never equivalent.
+    expect(message).toContain("docs/review-rounds/feat/foo");
+  });
+
+  // Diff R2 P2, made permanent. ONE file whose rows declare DIFFERENT baseSha
+  // values is the identity-mismatch class, and it is the case my round-1
+  // equivalence argument wrongly ruled out: `countedRounds` sees a single round
+  // so clause A stays silent, `arcCountedRounds` counts four distinct
+  // `(baseSha, round)` pairs so clause B fires, and the total is MARKED with
+  // `bases === 1`. Before the repair the detail fell back to a bare branch name
+  // here; a reader needs the path to go and edit.
+  it("names the DIRECTORY, not the branch, when a marked total has one base", () => {
+    const problems = check([
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: rows(
+          { round: 1, baseSha: "aaaaaaaaaaaa" },
+          { round: 1, baseSha: "bbbbbbbbbbbb" },
+          { round: 1, baseSha: "cccccccccccc" },
+          { round: 1, baseSha: "dddddddddddd" },
+        ),
+      },
+    ]);
+    const message = problems.find((p) => p.kind === "missing_arc_filing")?.message ?? "";
+    premiseHolds(
+      "the fixture really does produce a MARKED one-base total, or this pins nothing",
+      message.includes("across 1 merge bases"),
+    );
+    expect(message).toContain("docs/review-rounds/feat/foo");
+    expect(message).not.toMatch(/ in feat\/foo /);
+  });
+});
+
+describe("the freeze conjunction's two filters (mutation survivors)", () => {
+  const HALF = ROUND_THRESHOLD / 2;
+  const GF = ARC_SUM_GRANDFATHERED[0]!;
+  const half = (baseSha: string, over: Record<string, unknown> = {}) =>
+    rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha, ...over })));
+
+  // Kills logical-connector &&>|| on the row filter. Widened to `||`, a
+  // post-freeze row of ANY OTHER stage breaks an exemption that this stage's
+  // own rows fully earn.
+  it("judges the freeze on THIS stage's rows, not on every row in the directory", () => {
+    const pre = { branch: GF.branch, startedAt: "2026-08-01T00:00:00.000Z" };
+    const other = GF.stage === "diff" ? "spec" : "diff";
+    const problems = check([
+      { path: `${GF.branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", { ...pre, stage: GF.stage }) },
+      { path: `${GF.branch}/bbbbbbbbbbbb.jsonl`, body: half("bbbbbbbbbbbb", { ...pre, stage: GF.stage }) },
+      // A different stage, well after the freeze, and below threshold itself.
+      {
+        path: `${GF.branch}/cccccccccccc.jsonl`,
+        body: rows({ round: 1, baseSha: "cccccccccccc", branch: GF.branch, stage: other,
+          startedAt: "2026-08-23T00:00:00.000Z" }),
+      },
+    ]);
+    expect(problems).toEqual([]);
+  });
+
+  // Kills relational-boundary <><= on the freeze comparison. The freeze is
+  // STRICT: a row started exactly AT the boundary does not predate it, so it
+  // cannot be proven older and the exemption is refused.
+  it("treats a row started exactly at the freeze as not predating it", () => {
+    const problems = check([
+      {
+        path: `${GF.branch}/aaaaaaaaaaaa.jsonl`,
+        body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage, startedAt: "2026-08-01T00:00:00.000Z" }),
+      },
+      {
+        path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+        body: half("bbbbbbbbbbbb", { branch: GF.branch, stage: GF.stage, startedAt: ARC_SUM_FREEZE }),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("freeze");
+  });
+
+  // Diff R1 P1. The freeze compares INSTANTS; a lexical string compare keeps an
+  // aged pair grandfathered SILENTLY, which is the one outcome the consequence
+  // bound's third clause forbids. `2026-08-21T23:30:00-05:00` is the whole
+  // point: it denotes 2026-08-22T04:30Z, half a day AFTER the freeze, while
+  // sorting lexically BEFORE the freeze's UTC string. Under the shipped repair
+  // the exemption is refused; under a string compare this test goes green with
+  // the defect present.
+  it("refuses the exemption for an offset-bearing row that postdates the freeze", () => {
+    const postFreezeByOffset = "2026-08-21T23:30:00-05:00";
+    premiseHolds(
+      "the fixture timestamp really is after the freeze as an instant and before it as a string",
+      Date.parse(postFreezeByOffset) > Date.parse(ARC_SUM_FREEZE) &&
+        postFreezeByOffset < ARC_SUM_FREEZE,
+    );
+    const problems = check([
+      {
+        path: `${GF.branch}/aaaaaaaaaaaa.jsonl`,
+        body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage, startedAt: "2026-08-01T00:00:00.000Z" }),
+      },
+      {
+        path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+        body: half("bbbbbbbbbbbb", { branch: GF.branch, stage: GF.stage, startedAt: postFreezeByOffset }),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("freeze");
+  });
+
+  // An unparseable timestamp cannot be PROVEN older, so it counts against the
+  // exemption exactly as `null` does. Without this the repair could have used a
+  // parse that silently treated garbage as ancient.
+  it("refuses the exemption for a row whose startedAt cannot be parsed", () => {
+    const problems = check([
+      {
+        path: `${GF.branch}/aaaaaaaaaaaa.jsonl`,
+        body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage, startedAt: "2026-08-01T00:00:00.000Z" }),
+      },
+      {
+        path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+        body: half("bbbbbbbbbbbb", { branch: GF.branch, stage: GF.stage, startedAt: "not-a-timestamp" }),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("freeze");
+  });
+});
+
+describe("the arc-sum addition guard (spec §3.3)", () => {
+  // Exemption is the CONJUNCTION of list membership and an all-pre-freeze
+  // arc. Either half alone would let the set grow: membership alone makes the
+  // list the whole mechanism, and the timestamp alone exempts every old arc in
+  // the corpus. Both directions are cases here for exactly that reason.
+  const HALF = ROUND_THRESHOLD / 2;
+  const GF = ARC_SUM_GRANDFATHERED[0]!; // a real listed pair, never invented
+  const half = (baseSha: string, over: Record<string, unknown> = {}) =>
+    rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha, ...over })));
+  const twoBase = (branch: string, over: Record<string, unknown> = {}): Fixture[] => [
+    { path: `${branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", { branch, ...over }) },
+    { path: `${branch}/bbbbbbbbbbbb.jsonl`, body: half("bbbbbbbbbbbb", { branch, ...over }) },
+  ];
+
+  it("exempts a listed pair whose rows all predate the freeze", () => {
+    premiseHolds(
+      "the harness default row predates ARC_SUM_FREEZE, so the accepting case is not passing on an override",
+      JSON.parse(row()).startedAt < ARC_SUM_FREEZE,
+    );
+    expect(check(twoBase(GF.branch, { stage: GF.stage }))).toEqual([]);
+  });
+
+  // K3/`branch`. Timestamp without list membership: every row predates the
+  // freeze, and the branch is not among the eleven. A predicate that exempted
+  // on age alone would silence most of the corpus.
+  it("reports a pre-freeze arc whose branch is not listed", () => {
+    const problems = check(twoBase("feat/foo"));
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+  });
+
+  // List membership without the timestamp. One post-freeze row is enough:
+  // the pair has kept burning rounds since the freeze, so it is no longer the
+  // frozen historical arc the list describes.
+  it("reports a listed pair carrying a row started after the freeze", () => {
+    const problems = check([
+      { path: `${GF.branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage }) },
+      {
+        path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+        body: half("bbbbbbbbbbbb", {
+          branch: GF.branch,
+          stage: GF.stage,
+          startedAt: "2026-08-23T00:00:00.000Z",
+        }),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("freeze");
+  });
+
+  // A null startedAt cannot be PROVEN older than the freeze, so it fails the
+  // same way. Conservative and loud beats a silent exemption.
+  it("reports a listed pair carrying a row with no startedAt at all", () => {
+    const problems = check([
+      { path: `${GF.branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage }) },
+      {
+        path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+        body: half("bbbbbbbbbbbb", { branch: GF.branch, stage: GF.stage, startedAt: null }),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("freeze");
+  });
+
+  // Diff R3 P1. A timezone-less timestamp is not an instant, it is an instant
+  // PER HOST: `2026-08-21T23:30:00` predates the freeze under `TZ=UTC` and
+  // postdates it under `TZ=America/Chicago`, so the shipped predicate returned
+  // a clean exemption that depended on the machine it ran on. The premise below
+  // is the whole point - `Date.parse` SUCCEEDS here, so the old code compared a
+  // number rather than falling into the not-proven-old branch it documented.
+  // The repair makes the answer TZ-INVARIANT by refusing to place the string at
+  // all, which is why this case needs no TZ manipulation to pin it.
+  it("refuses the exemption for a timezone-less row, identically on every host", () => {
+    const tzLess = "2026-08-21T23:30:00";
+    // Run the SAME fixture under two zones and require the same answer. A test
+    // that only asserted "reports a violation" would have passed on this box
+    // before the repair and failed in UTC CI - it is the DIFFERENCE that is the
+    // defect, so the difference is what gets asserted.
+    premiseHolds(
+      "the two zones really do read this timestamp as different instants, so the case can discriminate",
+      (() => {
+        const before = process.env.TZ;
+        try {
+          process.env.TZ = "UTC";
+          const utc = Date.parse(tzLess);
+          process.env.TZ = "America/Chicago";
+          return Number.isFinite(utc) && utc !== Date.parse(tzLess);
+        } finally {
+          process.env.TZ = before;
+        }
+      })(),
+    );
+    const under = (tz: string) => {
+      const before = process.env.TZ;
+      try {
+        process.env.TZ = tz;
+        return check([
+          { path: `${GF.branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage }) },
+          {
+            path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+            body: half("bbbbbbbbbbbb", { branch: GF.branch, stage: GF.stage, startedAt: tzLess }),
+          },
+        ]).map((p) => p.kind);
+      } finally {
+        process.env.TZ = before;
+      }
+    };
+    const utc = under("UTC");
+    const chicago = under("America/Chicago");
+    expect(utc).toEqual(chicago);
+    expect(utc).toEqual(["missing_arc_filing"]);
+  });
+
+  // Same finding, second shape: `Date.parse` NORMALIZES an impossible calendar
+  // date into a real instant nobody wrote. Feb 30 becomes Mar 2 and then proves
+  // whatever Mar 2 proves.
+  it("refuses the exemption for an impossible calendar date", () => {
+    const impossible = "2026-02-30T00:00:00.000Z";
+    premiseHolds(
+      "the fixture is one `Date.parse` silently normalizes rather than rejects",
+      Number.isFinite(Date.parse(impossible)) && instant(impossible) === null,
+    );
+    const problems = check([
+      { path: `${GF.branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage }) },
+      {
+        path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+        body: half("bbbbbbbbbbbb", { branch: GF.branch, stage: GF.stage, startedAt: impossible }),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("freeze");
+  });
+
+  // K3/`stage`. Without this, a predicate keyed on `branch` alone passes every
+  // case above and silently exempts every OTHER counted stage on those eleven
+  // branches. No declared mutation operator can drop a key coordinate
+  // (spec §4 limit 8), so this control is the only thing that catches it.
+  it("reports a DIFFERENT stage on a grandfathered branch", () => {
+    const other = GF.stage === "diff" ? "spec" : "diff";
+    premiseHolds(
+      "the chosen stage is genuinely not the grandfathered one for this branch",
+      !ARC_SUM_GRANDFATHERED.some((g) => g.branch === GF.branch && g.stage === other),
+    );
+    const problems = check(twoBase(GF.branch, { stage: other }));
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain(other);
+  });
+});
+
+describe("clause B only ADDS (spec §3.2 monotonicity)", () => {
+  // The risk clause B carries is not a wrong new report - the scoping controls
+  // above cover that - it is SILENCING an old one. Suppression and satisfaction
+  // both `continue`, and a mis-scoped one would swallow a per-base problem the
+  // gate has always reported. So the battery asserts the per-base kinds that
+  // survive, by value, over one fixture per problem shape.
+  const HALF = ROUND_THRESHOLD / 2;
+  const half = (baseSha: string, over: Record<string, unknown> = {}) =>
+    rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha, ...over })));
+
+  // Each fixture is ALSO owing under clause B, which is what makes the case
+  // discriminating: a clause B that swallowed the per-base problem would
+  // report only its own kind and still look busy.
+  const BATTERY: { what: string; files: Fixture[]; perBase: string[] }[] = [
+    {
+      what: "a malformed row",
+      files: [
+        { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") + "{not json\n" },
+        { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+      ],
+      perBase: ["malformed_row"],
+    },
+    {
+      what: "a row whose declared identity contradicts its path",
+      files: [
+        { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+        {
+          path: "feat/foo/bbbbbbbbbbbb.jsonl",
+          body: half("bbbbbbbbbbbb", { branch: "feat/other" }),
+        },
+      ],
+      perBase: ["identity_mismatch", "identity_mismatch"],
+    },
+    {
+      what: "rounds that are not contiguous",
+      files: [
+        {
+          path: "feat/foo/aaaaaaaaaaaa.jsonl",
+          body: rows({ round: 1 }, { round: 3 }),
+        },
+        { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+      ],
+      perBase: ["round_gap"],
+    },
+    {
+      what: "a .jsonl not named for any arc",
+      files: [
+        { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+        { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+        { path: "feat/foo/scratch.jsonl", body: half("aaaaaaaaaaaa") },
+      ],
+      perBase: ["unrecognized_corpus_file"],
+    },
+  ];
+
+  it.each(BATTERY)("still reports the per-base problem when $what", ({ files, perBase }) => {
+    const problems = check(files);
+    premiseHolds(
+      "the fixture also owes under clause B, so a swallowed per-base problem cannot hide behind an empty result",
+      problems.some((p) => p.kind === "missing_arc_filing"),
+    );
+    expect(problems.filter((p) => p.kind !== "missing_arc_filing").map((p) => p.kind)).toEqual(
+      perBase,
+    );
+  });
+});
+
+describe("the shape a split arc is relabelled into (live incident, 2026-08-24)", () => {
+  // feat/validation-prune-db-side-gate is the FIRST live instance of the defect
+  // this arc repairs, and it arrived as a merge blocker rather than a probe:
+  // it merged main mid-arc, codex-guard split its diff rounds across two corpus
+  // files ([1] at the old base, [2,3,4] at the new one), and the new file's
+  // start-at-2 red the required unit-suite under roundGaps - unavoidable by
+  // construction, since `round` is declared within one file and nothing at the
+  // dispatch site told the arc to restart.
+  //
+  // The ruled unblock relabels the new base to a per-base [1,2,3] and keeps the
+  // filing at the arc-wide count. This pins that clause B accepts that shape,
+  // because a repair that reds the very arcs it exists to serve is worse than
+  // the gap it closes.
+  const seq = (baseSha: string, n: number) =>
+    rows(...Array.from({ length: n }, (_, i) => ({ round: i + 1, baseSha })));
+  const section = (stage: string, n: number) =>
+    [`## ${stage} — ${n} rounds`, "", `**Examined:** R1-R${n} across two merge bases, ${ROUND_THRESHOLD} arc-wide.`, "", "**Infra:** none.", ""].join("\n");
+
+  it("accepts a relabelled split arc: contiguous per base, and filed once arc-wide", () => {
+    const problems = check([
+      // The old base keeps its single round.
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: seq("aaaaaaaaaaaa", 1) },
+      // The new base is relabelled 1..3 rather than carrying 2..4 forward.
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: seq("bbbbbbbbbbbb", ROUND_THRESHOLD - 1) },
+      // One filing, at the latest base holding rows for the stage. Its HEADING
+      // declares that file's own count (count_mismatch stays per base) while
+      // the Examined line carries the arc-wide span.
+      { path: "feat/foo/bbbbbbbbbbbb.md", body: section("diff", ROUND_THRESHOLD - 1) },
+    ]);
+    expect(problems).toEqual([]);
+  });
+
+  // The half that makes the case above worth anything: the same split arc with
+  // NO filing must still be caught. Otherwise "clean" above would prove only
+  // that clause B is asleep on this shape.
+  it("still reports that same split arc when nothing filed for it", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: seq("aaaaaaaaaaaa", 1) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: seq("bbbbbbbbbbbb", ROUND_THRESHOLD - 1) },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain(`burned ${ROUND_THRESHOLD} counted rounds`);
+  });
+
+  // And the per-base contiguity rule the incident tripped is UNTOUCHED by this
+  // arc: carrying 2..4 forward instead of relabelling still reds, which is why
+  // the convention had to be written at the dispatch site rather than relaxed.
+  it("leaves the per-base contiguity rule that caused the incident intact", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: seq("aaaaaaaaaaaa", 1) },
+      {
+        path: "feat/foo/bbbbbbbbbbbb.jsonl",
+        body: rows(
+          ...Array.from({ length: ROUND_THRESHOLD - 1 }, (_, i) => ({ round: i + 2, baseSha: "bbbbbbbbbbbb" })),
+        ),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toContain("round_gap");
+  });
+});
+
+describe("the arc-sum grandfather set can only shrink (spec §3.3)", () => {
+  // Every assertion here reads the LIVE corpus, so the set is policed against
+  // the thing it exempts rather than against a fixture that agrees with it.
+  const live = readArcs(ROOT);
+  const byBranch = new Map<string, typeof live>();
+  for (const arc of live) {
+    const group = byBranch.get(arc.branch);
+    if (group) group.push(arc);
+    else byBranch.set(arc.branch, [arc]);
+  }
+
+  it("holds exactly the dated count, as a second lock against a silent edit", () => {
+    expect(ARC_SUM_GRANDFATHERED.length).toBe(11);
+  });
+
+  // This is the STRUCTURAL rejection of additions, not a convention. Every row
+  // written from now on postdates the freeze, so no future arc can join the
+  // set at all. A row with a null startedAt cannot be proven older and fails -
+  // conservative and loud.
+  it("carries only rows that predate ARC_SUM_FREEZE", () => {
+    premiseHolds(
+      "the live corpus still holds rows for every grandfathered pair",
+      ARC_SUM_GRANDFATHERED.every(({ branch }) => (byBranch.get(branch) ?? []).length > 0),
+    );
+    const offenders = ARC_SUM_GRANDFATHERED.flatMap(({ branch, stage }) =>
+      (byBranch.get(branch) ?? [])
+        .flatMap((arc) => arc.rows)
+        .filter((r) => r.stage === stage)
+        .filter((r) => !strictlyBefore(instant(r.startedAt), instant(ARC_SUM_FREEZE)))
+        .map((r) => `${branch} ${stage} round ${r.round} startedAt=${r.startedAt}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  // The set can only SHRINK. An entry whose arc has since gained a filing, or
+  // whose rows were deleted, is stale: it would silently exempt nothing while
+  // reading as a live exemption.
+  it("holds no entry that has stopped owing under clause B", () => {
+    premiseHolds(
+      "the live corpus holds at least one multi-base branch directory, so clause B can bind at all",
+      [...byBranch.values()].some((group) => group.length > 1),
+    );
+    const stale = ARC_SUM_GRANDFATHERED.filter(({ branch, stage }) => {
+      const group = byBranch.get(branch) ?? [];
+      const arcSum = arcCountedRounds(group.flatMap((arc) => arc.rows)).get(stage) ?? 0;
+      if (arcSum < ROUND_THRESHOLD) return true;
+      return group.some(
+        (arc) =>
+          arc.filingText !== null &&
+          parseFiling(arc.filingText).some((section) => section.stage === stage),
+      );
+    }).map(({ branch, stage }) => `${branch} ${stage}`);
+    expect(stale).toEqual([]);
   });
 });
 

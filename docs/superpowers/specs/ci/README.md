@@ -65,4 +65,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-22-shell-brace-cross-construct-design.md`](./2026-08-22-shell-brace-cross-construct-design.md) | 2026-08-22 |
 | [`2026-08-22-screenshots-drift-degraded-render-design.md`](./2026-08-22-screenshots-drift-degraded-render-design.md) | 2026-08-22 |
 | [`2026-08-22-workflow-run-scalar-yaml-decode-design.md`](./2026-08-22-workflow-run-scalar-yaml-decode-design.md) | 2026-08-22 |
+| [`2026-08-22-review-round-arc-sum.md`](./2026-08-22-review-round-arc-sum.md) | 2026-08-22 |
 | [`probes`](./probes) | 2026-08-04 |

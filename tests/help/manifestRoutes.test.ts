@@ -42,9 +42,12 @@ describe("both mutants are required, and each is blind to the other's target", (
   const PLAIN_ROUTE = '    route: "/show/fixed-slug",';
 
   function withExtraEntry(routeLine: string): string {
+    // A replacer function: the route line is data, and a runtime string in the
+    // replacement slot would be read as a `$`-pattern mini-language
+    // (tests/cross-cutting/replacementString.test.ts).
     return LIVE.replace(
       '    route: "/admin/needs-attention",',
-      `    route: "/admin/needs-attention",\n  },\n  {\n${routeLine}`,
+      () => `    route: "/admin/needs-attention",\n  },\n  {\n${routeLine}`,
     );
   }
 
