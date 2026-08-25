@@ -174,7 +174,7 @@ describe("clearIdentity signs the device out, then clears the entry (spec §3)",
 });
 ```
 
-Notes on the block: the mocked `redirect` (`tests/auth/picker/clearIdentity.test.ts:16-26`) throws a `NEXT_REDIRECT` digest, so `resolves.toEqual({ ok: true })` is the no-redirect proof. The sweep case relies on `cookieSet` being the shared `set` mock (`tests/auth/picker/clearIdentity.test.ts:104-125`); the `sb-` prefix matches the `getAll` fixture at `tests/auth/picker/clearIdentity.test.ts:114-118`, and with sign-out first the sweep's writes are the first `set` calls, so no ordering guard is needed. `COOKIE_NAME` is already imported by the test file (used in the `cookies` mock). The `"not-a-uuid"` value fails `UUID_RE` in `lib/auth/picker/validateClearIdentityInput.ts:19`. The core-failure case removes `PICKER_COOKIE_SIGNING_KEY`: `signOutThisDevice` never reads it, `clearIdentityCoreImpl` does (`lib/auth/picker/clearIdentity.ts:227`, throwing per `lib/env/pickerCookieSigningKey.ts:9`), and `clearIdentityCore` maps the throw to `PICKER_RESOLVER_LOOKUP_FAILED` (`lib/auth/picker/clearIdentity.ts:216-217`). The suite's `beforeEach` restores the key (`tests/auth/picker/clearIdentity.test.ts:85`).
+Notes on the block: the mocked `redirect` (`tests/auth/picker/clearIdentity.test.ts:16-26`) throws a `NEXT_REDIRECT` digest, so `resolves.toEqual({ ok: true })` is the no-redirect proof. The sweep case relies on `cookieSet` being the shared `set` mock (`tests/auth/picker/clearIdentity.test.ts:104-125`); the `sb-` prefix matches the `getAll` fixture at `tests/auth/picker/clearIdentity.test.ts:114-118`, and with sign-out first the sweep's writes are the first `set` calls, so no ordering guard is needed. `COOKIE_NAME` is already imported by the test file (used in the `cookies` mock). The `"not-a-uuid"` value fails `UUID_RE` in `lib/auth/picker/validateClearIdentityInput.ts:19`. The core-failure case removes `PICKER_COOKIE_SIGNING_KEY`: `signOutThisDevice` never reads it, `clearIdentityCoreImpl` does (`lib/auth/picker/clearIdentity.ts:227`, throwing per `lib/env/pickerCookieSigningKey.ts:9`), and `clearIdentityCore` maps the throw to `PICKER_RESOLVER_LOOKUP_FAILED` (`lib/auth/picker/clearIdentity.ts:216-217`). The suite's `beforeEach` restores the key (`tests/auth/picker/clearIdentity.test.ts:82`).
 
 Delete the case at `tests/auth/picker/clearIdentity.test.ts:480-487` ("clearIdentity (non-skip) never constructs a Supabase client"). In the same-origin describe, the `clearIdentity` case (`tests/auth/picker/clearIdentity.test.ts:504-518`) gains `expect(supabaseMock.signOut).not.toHaveBeenCalled();` after the `cookieSet` assertion.
 
@@ -240,7 +240,7 @@ Run `pnpm vitest run tests/auth/picker/clearIdentity.test.ts tests/auth/_metaInf
 **Acceptance criteria.**
 
 - AC-8: after sign-in as `NON_ADMIN_CREW_FIXTURE` on a show whose roster contains that email, the resolved shell renders, the menu opens, the tap on `avatar-menu-switch-person` lands on `sign-in-or-skip-gate`, and `crew-shell` is gone.
-- AC-9: a reload still shows the gate, `crew-shell` has count 0, and the context holds no Supabase auth cookie (proves the session ended, not merely the entry).
+- AC-9: a reload still shows the gate and `crew-shell` has count 0 (proves the session ended, not merely the entry: a live session would bootstrap the identity back). The browser jar is not used as the oracle for cleared cookies, per the Mode B case's note at `tests/e2e/picker-flow.spec.ts:279-291`.
 
 **RED — the test.** Append to `tests/e2e/picker-flow.spec.ts` after the bootstrap case (`tests/e2e/picker-flow.spec.ts:178`):
 
@@ -281,10 +281,11 @@ test("Switch person signs a Google-resolved viewer out and lands on the first-co
 
     // The reload is the proof that the SESSION ended: with a live session the
     // resolve would bootstrap Alice again and the shell would be back.
+    // The jar is deliberately NOT the oracle for what was cleared (see the Mode B
+    // case's note above): the reload landing on the gate is the durable proof.
     await page.reload({ waitUntil: "networkidle" });
     await expect(page.getByTestId("sign-in-or-skip-gate")).toBeVisible(AFTER_SERVER_ACTION);
     await expect(page.getByTestId("crew-shell")).toHaveCount(0);
-    expect((await ctx.cookies()).filter((c) => isSupabaseAuthCookieName(c.name))).toEqual([]);
   } finally {
     await ctx.close();
   }
@@ -295,7 +296,7 @@ test("Switch person signs a Google-resolved viewer out and lands on the first-co
 
 **GREEN.** Task 1 is the implementation. Run the spec on the branch tree: `pnpm heavy pnpm exec playwright test --project=desktop-chromium tests/e2e/picker-flow.spec.ts`; the new case passes and the existing six still pass.
 
-**Anti-tautology check.** The premise assertion (an auth cookie exists before the tap) is on this case's own inputs. AC-9's reload plus cookie check fails against a Task-1 mutant that clears the entry and skips the sign-out (the shell returns via bootstrap) and against one that signs out but skips the clear (the cookie path then resolves the still-valid entry and renders the shell, so the `crew-shell` count-0 assertion fails).
+**Anti-tautology check.** The premise assertion (an auth cookie exists before the tap) is on this case's own inputs. AC-9's reload check fails against a Task-1 mutant that clears the entry and skips the sign-out (the shell returns via bootstrap) and against one that signs out but skips the clear (the cookie path then resolves the still-valid entry and renders the shell, so the `crew-shell` count-0 assertion fails).
 
 **Commit.** `test(e2e): switch person signs a Google-resolved viewer out`
 
