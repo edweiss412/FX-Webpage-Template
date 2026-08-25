@@ -98,7 +98,7 @@ an aside, and it is sequenced before any task that plants through it.
 | `check-shard-budget.ts` deliberately decides nothing and takes env, not argv | that file's header |
 | the `budget` job's only step runs the budget checker | `.github/workflows/mutation-harness.yml:280` |
 | the workflow's PR path filter names `scripts/check-shard-budget.ts` but nothing under `lib/mutationWeight` | `.github/workflows/mutation-harness.yml:43-53` |
-| `mutationWeightWeights` carries `scoreFloor: 0.9` | `tests/mutation/source/registry.ts:3302` |
+| `mutationWeightWeights` carries `scoreFloor: 0.9` | `tests/mutation/source/registry.ts:3342` |
 | no file under `lib/` imports `tests/` | `rg` over `lib/` |
 | enrolling a surface owes TWO further registrations | `tests/mutation/source/expectedLedgerKinds.ts` (per surface) and `tests/mutation/_metaPremiseContract.test.ts:32` (per suite) — both caught this arc by failing |
 
@@ -234,6 +234,14 @@ wording; this is the index.
 
 <!-- task: red=`node scripts/mutation-weight-plant.mjs` red-state=authored red-target=`scripts/mutation-weight-plant.mjs:27` why=`SRC and SUITE are hardcoded to lib/mutationWeight and instrument.test.ts, so an entry naming a file outside that directory is never copied and readFileSync throws before any anchor is looked for` ac=AC-3,AC-5 -->
 
+**LANDED at `af7fa122f`.** The `red-target` above cites the pre-implementation tree, which
+is what a red-target is FOR — it names the defect that made the red real — and this task
+removed it, so `scripts/mutation-weight-plant.mjs:27` no longer holds `const SRC`. Recorded
+rather than repointed: aiming it at today's code would describe no defect at all. Note that
+`spec:lint` reports this document clean with that citation drifted onto a comment, which is
+its documented limit working exactly as written — the line is IN RANGE, and nothing checks
+what is at it. Re-verification is by reading.
+
 **Files:** `scripts/mutation-weight-plant.mjs`.
 
 Three later tasks declare plants on files this harness cannot reach. Until it can, those
@@ -288,18 +296,32 @@ zero exit for the suite and a non-zero exit overall.
 `scripts/mutation-shard-weight-report.ts` (`--seed-rate`).
 
 **Step 1 is a measurement, and it is the first of exactly TWO heavy turns this arc
-spends.** The two rows this arc enrolled have never been scored, so no records exist to
-derive their rates from, and `--emit-registry` refuses a partial table rather than
-inventing them. An earlier draft said these rates come from the final score run — four
-tasks later — which is circular: the registry cannot require a field that the run
-validating it has not yet produced. So:
+spends.** A surface enrolled but never scored has no records to derive a rate from, and
+`--emit-registry` refuses a partial table rather than inventing one. An earlier draft said
+these rates come from the final score run — four tasks later — which is circular: the
+registry cannot require a field that the run validating it has not yet produced.
+
+**The surfaces to score are DERIVED at the time the turn runs, never the two this arc
+happens to enrol.** The completeness rule ranges over the whole registry, so ANY row
+without records needs a bootstrap rate, whoever enrolled it. The registry seam guarantees
+there will be others: `#882` adds `supabaseRetryingFetch` and `retryableRpcVolatilityScan`,
+both newly enrolled and therefore recordless exactly like this arc's two, and
+`feat/review-round-arc-sum` adds a third. Naming a fixed pair here would have been correct
+for about an hour and then quietly wrong, with the failure landing as a refusal in the
+middle of a heavy turn. So the list comes from the tree:
 
 ```
+# every enrolled row the newest records cannot price
+pnpm tsx scripts/mutation-shard-weight-report.ts --run <newest records dir> --emit-registry
+#   -> exits non-zero listing "ENROLLED BUT UNMEASURED, so no rate can be emitted for: ..."
+
 VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm tsx \
-  scripts/mutation-score-surfaces.ts mutationWeightRecords mutationWeightWeights
+  scripts/mutation-score-surfaces.ts <every id that refusal named>
 ```
 
-records `millisPerBoot` for each, with the run that produced it named beside the value.
+The refusal already names exactly the set, so the emitter that blocks the bootstrap is
+also what scopes it. Each rate is recorded with the run that produced it named beside the
+value.
 **Two turns is the honest count and the plan states it rather than claiming one.** The
 bootstrap measures a tree that cannot yet be final (the rate is not applied until Task 3),
 and the closing run measures the tree that ships. Neither substitutes for the other.
@@ -544,6 +566,11 @@ margin was required.
 `tests/mutationWeight/instrument.test.ts`,
 `scripts/mutation-weight-plant.mjs`.
 
+**LANDED at `0ba42979d`, reconciler half.** Same drift and the same treatment as Task 1:
+`lib/mutationWeight/weights.ts:270` held `w: v.boots` at plan time and this task replaced
+it, so the citation now lands on a comment. The half that has NOT landed is named at the
+end of this task.
+
 **Without this task the AC-1 evidence cannot be produced at all, which is why it is a
 task and not a closeout note.** `reconcile` rebuilds the shipped assignment by
 recomputing the partition itself, weighting each surface by `v.boots`
@@ -624,6 +651,13 @@ A bare invocation is not a weaker check, it is no check: `main` throws its usage
 immediately when no `--run` is supplied
 (`scripts/mutation-shard-weight-report.ts:235`), so the earlier form would have failed for
 a reason having nothing to do with reconciliation.
+
+**STILL OWED, and held by the registry seam:** `modelledFrom` must also RECORD the rate
+from the checked-out registry. That reads `GuardSurface.millisPerBoot`, which Task 2
+creates, so it rides with Task 2 rather than being written defensively against a field
+that does not exist. Until it lands, `reconcile` can consume a rate nothing ever supplies
+it — the consumer is correct and its producer is missing, which is the quieter half of the
+same defect.
 
 **Commit:** `fix(mutation): reconcile a partition priced in milliseconds per boot`
 
@@ -851,7 +885,7 @@ recorded field, plus the deletion.
 
 ## Task 7 — re-score every surface this diff moved
 
-<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm tsx scripts/mutation-score-surfaces.ts sourceShardPartition mutationWeightRecords mutationWeightWeights` red-state=live red-target=`tests/mutation/source/registry.ts:3302` why=`mutationWeightWeights scored 0.7279 against this 0.90 floor with 37 unaccepted survivors, observed 2026-08-25` ac=AC-7 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm tsx scripts/mutation-score-surfaces.ts sourceShardPartition mutationWeightRecords mutationWeightWeights` red-state=live red-target=`tests/mutation/source/registry.ts:3342` why=`mutationWeightWeights scored 0.7279 against this 0.90 floor with 37 unaccepted survivors, observed 2026-08-25` ac=AC-7 -->
 
 **Files:** whatever the triage reaches, which is not knowable before the run. Declaring
 only the ledger files would have presupposed the outcome, and it contradicted this task's
