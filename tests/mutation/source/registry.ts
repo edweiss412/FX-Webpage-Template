@@ -2878,7 +2878,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "relational-boundary:1831:29:<><=",
         kind: "equivalent",
         reason:
-          'hereStringBindingLines\'s line loop indexes lines[index], so the widened bound adds one iteration at index === lines.length. There lines[index] is undefined and the `?? ""` yields the empty string, commentAt[index] is undefined so no comment slice happens, and splicedAt("", lines, lines.length) returns immediately because /\\\\$/ does not match the empty string. READ_HERE_STRING_PREFIX then requires a literal `read` and cannot match "", so the iteration hits `continue` before reaching the target loop: `found` is untouched and no target is examined. Same one-past-the-end shape as the commentIndexPerLine and matchBrace rows above, in the function arm 1 added (scan.ts, symbol hereStringBindingLines). Boundary pin: \'a `<<<` target on ANOTHER logical line does not bind the read\'.',
+          "The ANSI-C close-quote scan indexes text[k] by its own counter, so the widened bound adds one iteration at k === text.length where text[k] is undefined. The body compares that character against exactly two one-character literals - a backslash, whose branch skips the escaped character, and the closing single quote, whose branch assigns `close` and breaks - and undefined is strictly equal to neither, so `close` is still -1 and the unterminated-string path is taken identically (scan.ts, symbol lexShellWords, the ANSI-C branch). Boundary pin: 'an unterminated ANSI-C string keeps the old undecoded reading'.",
       },
       // ---- equivalent: one-past-the-end scan bounds (spec §2.2) -----------
       //
@@ -2921,7 +2921,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "relational-boundary:2373:22:>>>=",
         kind: "equivalent",
         reason:
-          "The widened bound changes behaviour only when `raw` is the empty string, and there it evaluates the delimiter regex against raw[0], which is undefined. RegExp.prototype.test coerces its argument to the string 'undefined', which contains none of the four delimiter characters, so the test is false and `i` is 0 either way (scan.ts, symbol mapRawToLines). Boundary pin: 'a template literal reports the physical line its psql text came from'.",
+          "The trailing flush in scanShellText can only APPEND an empty command, never insert one, so the parallel commands/followedBy arrays stay index-aligned - the two pushes are unconditional partners. Every consumer treats the extra entry exactly as the original treated its absence: the bare-shell stdin scan skips it as a stage because its followedBy entry is the empty string rather than '|', and skips it as a SUCCESSOR because next[0] is undefined precisely where `next === undefined` was; the per-command scan's findIndex returns -1 on an empty argv and continues (scan.ts, symbol scanShellText). Boundary pin: 'a command terminated by a trailing ; is still reported'.",
       },
       {
         siteId: "relational-boundary:2719:26:>>>=",
@@ -2934,7 +2934,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "relational-boundary:2718:22:>>>=",
         kind: "equivalent",
         reason:
-          "The trailing flush in scanShellText can only APPEND an empty command, never insert one, so the parallel commands/followedBy arrays stay index-aligned - the two pushes are unconditional partners. Every consumer treats the extra entry exactly as the original treated its absence: the bare-shell stdin scan skips it as a stage because its followedBy entry is the empty string rather than '|', and skips it as a SUCCESSOR because next[0] is undefined precisely where `next === undefined` was; the per-command scan's findIndex returns -1 on an empty argv and continues (scan.ts, symbol scanShellText). Boundary pin: 'a command terminated by a trailing ; is still reported'.",
+          "The widened bound changes behaviour only when `raw` is the empty string, and there it evaluates the delimiter regex against raw[0], which is undefined. RegExp.prototype.test coerces its argument to the string 'undefined', which contains none of the four delimiter characters, so the test is false and `i` is 0 either way (scan.ts, symbol mapRawToLines). Boundary pin: 'a template literal reports the physical line its psql text came from'.",
       },
       {
         siteId: "relational-boundary:2454:30:>>>=",
@@ -2988,7 +2988,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "relational-boundary:3931:54:<><=",
         kind: "equivalent",
         reason:
-          "The `logical` continuation loop can take the extra iteration only when the accumulated text still ends with a backslash at k + 1 === lines.length - that is, when the final element of `lines` ends with one. That iteration appends lines[k+1] ?? '' (the empty string) and replaces the trailing backslash with a SPACE, after which the loop's own trailing-backslash test fails and it exits, so the mutant's `logical` differs from the original's in exactly its last character. Neither consumer can tell those apart: the quoted-binding pattern requires a closing quote, which neither a backslash nor a space supplies, and every whitespace run in INTERPRETER_POSITIONAL_BINDING is followed by required content that the extra iteration adds nothing to. Both characters are non-word, so a trailing word boundary holds identically (scan.ts, symbol scanShellIndirection). Boundary pin: 'a quoted binding split by a backslash continuation is one assignment'.",
+          "The `logical` continuation loop can take the extra iteration only when the accumulated text still ends with a backslash at k + 1 === lines.length - that is, when the final element of `lines` ends with one. That iteration appends lines[k+1] ?? '' (the empty string) and replaces the trailing backslash with a SPACE, after which the loop's own trailing-backslash test fails and it exits, so the mutant's `logical` differs from the original's in exactly its last character. Neither consumer can tell those apart: the quoted-binding pattern requires a closing quote, which neither a backslash nor a space supplies, and every whitespace run in INTERPRETER_POSITIONAL_BINDING is followed by required content that the extra iteration adds nothing to. Both characters are non-word, so a trailing word boundary holds identically (scan.ts, symbol scanShellIndirectionIn). Boundary pin: 'a quoted binding split by a backslash continuation is one assignment'.",
       },
       // ---- equivalent: bounds a parsed YAML document cannot reach ---------
       {
@@ -3019,7 +3019,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "relational-boundary:3500:29:<><=",
         kind: "equivalent",
         reason:
-          "The ANSI-C close-quote scan indexes text[k] by its own counter, so the widened bound adds one iteration at k === text.length where text[k] is undefined. The body compares that character against exactly two one-character literals - a backslash, whose branch skips the escaped character, and the closing single quote, whose branch assigns `close` and breaks - and undefined is strictly equal to neither, so `close` is still -1 and the unterminated-string path is taken identically (scan.ts, symbol lexShellWords, the ANSI-C branch). Boundary pin: 'an unterminated ANSI-C string keeps the old undecoded reading'.",
+          'hereStringBindingLines\'s line loop indexes lines[index], so the widened bound adds one iteration at index === lines.length. There lines[index] is undefined and the `?? ""` yields the empty string, commentAt[index] is undefined so no comment slice happens, and splicedAt("", lines, lines.length) returns immediately because /\\\\$/ does not match the empty string. READ_HERE_STRING_PREFIX then requires a literal `read` and cannot match "", so the iteration hits `continue` before reaching the target loop: `found` is untouched and no target is examined. Same one-past-the-end shape as the commentIndexPerLine and matchBrace rows above, in the function arm 1 added (scan.ts, symbol hereStringBindingLines). Boundary pin: \'a `<<<` target on ANOTHER logical line does not bind the read\'.',
       },
       {
         siteId: "relational-boundary:3382:72:>>>=",
@@ -3031,13 +3031,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "relational-boundary:3384:20:>>>=",
         kind: "equivalent",
         reason:
-          "`parts.length > 1` is a readability partner of the conjunct two lines below it, not an independent gate: that last conjunct is parts.slice(1).some(...), and for parts.length <= 1 the slice is empty, so `.some` returns false and `splitBound` is false regardless. Admitting parts.length === 1 changes no verdict - it only evaluates isPsqlCommandWord(parts[0]) before reaching the same false (scan.ts, symbol assignmentBindingLines, the word-split reading). Boundary pin: 'an unquoted $CMD binds when its first word is psql and a later word is a flag'.",
+          "`parts.length > 1` is a readability partner of the conjunct two lines below it, not an independent gate: that last conjunct is parts.slice(1).some(...), and for parts.length <= 1 the slice is empty, so `.some` returns false and `splitBound` is false regardless. Admitting parts.length === 1 changes no verdict - it only evaluates isPsqlCommandWord(parts[0]) before reaching the same false (scan.ts, symbol valueBinds, the word-split reading). Boundary pin: 'an unquoted $CMD binds when its first word is psql and a later word is a flag'.",
       },
       {
         siteId: "relational-boundary:3452:52:<><=",
         kind: "equivalent",
         reason:
-          "The `spliced` continuation loop's widened bound can take its extra iteration only when the FINAL element of `lines` ends with a backslash, and that iteration appends lines[k+1] ?? '' - the empty string - after deleting the trailing backslash, so the mutant's `spliced` differs from the original's by exactly one trailing backslash at end of subject. Neither remaining consumer can observe that. READ_HERE_STRING and githubEnvWrite both end their psql clause in \\bpsql\\b followed by a character class that matches the empty string, so no match can END at that final backslash and deleting it destroys no match; nor can deleting it create one, because a newly created match would have to end at the new final character - meaning the subject ended `psql\\` - and \\bpsql\\b already matched there, a backslash being a non-word character. githubEnvWrite's other clause is the fixed GITHUB_ENV/GITHUB_OUTPUT literal, whose trailing boundary holds against a backslash and against end of subject alike (scan.ts, symbol scanShellIndirection). Boundary pin: 'a trailing backslash at end of input is literal, so it binds nothing'.",
+          "The `spliced` continuation loop's widened bound can take its extra iteration only when the FINAL element of `lines` ends with a backslash, and that iteration appends lines[k+1] ?? '' - the empty string - after deleting the trailing backslash, so the mutant's `spliced` differs from the original's by exactly one trailing backslash at end of subject. Neither remaining consumer can observe that. READ_HERE_STRING and githubEnvWrite both end their psql clause in \\bpsql\\b followed by a character class that matches the empty string, so no match can END at that final backslash and deleting it destroys no match; nor can deleting it create one, because a newly created match would have to end at the new final character - meaning the subject ended `psql\\` - and \\bpsql\\b already matched there, a backslash being a non-word character. githubEnvWrite's other clause is the fixed GITHUB_ENV/GITHUB_OUTPUT literal, whose trailing boundary holds against a backslash and against end of subject alike (scan.ts, symbol splicedAt). Boundary pin: 'a trailing backslash at end of input is literal, so it binds nothing'.",
       },
       // ---- equivalent: the compound-array reading's two redundant guards ---
       //

@@ -31,8 +31,15 @@ const walk = (dir: string): void => {
 walk(ROOT);
 
 /** Depth of `${`/`$(`/backtick nesting, counted the way the walk recurses.
- *  Quote state is deliberately NOT tracked: this measures how deep the walk can
- *  be asked to go, which is an upper bound on its own recursion. */
+ *  This is an INDICATOR, not a bound in either direction, and diff review round 4
+ *  is why this comment no longer claims otherwise. Quote state is deliberately not
+ *  tracked, which OVER-counts by decrementing on a quoted `)` or `}`; the same
+ *  omission also UNDER-counts, because process-substitution openers are not
+ *  counted at all. `echo ${OUT:-<(echo }; psql -c 'x')}` reports max 1 while the
+ *  production matcher reaches 2, since the outer `${` walk delegates into `<(`.
+ *  A measurement that errs in BOTH directions bounds nothing, so the cost claim
+ *  rests on AC-6's measured same-session ratio, which does not depend on how `d`
+ *  is counted. See the design's census paragraph, which says the same. */
 const depthOf = (text: string): { max: number; at: number } => {
   let depth = 0;
   let max = 0;
