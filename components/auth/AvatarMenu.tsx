@@ -119,8 +119,9 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
       const result = await clearAction(formData);
       // Any failure shows the same generic copy: the crew member cannot act on
       // WHICH failure it was, and a cross-origin refusal must not tell a
-      // forger anything either. Success needs no branch — a cookie-only viewer
-      // unmounts this whole control via revalidatePath.
+      // forger anything either. Success needs no branch: the clear also signs
+      // this device out, so a cookie-only and a Google-resolved viewer both
+      // unmount this whole control via revalidatePath.
       if (!result.ok) setSwitchStatus("error");
     });
   };

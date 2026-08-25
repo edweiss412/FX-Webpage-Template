@@ -304,6 +304,9 @@ describe("META infra-failure contract", () => {
       expect(source).toMatch(
         /const\s+\{\s*error\s*\}\s*=\s*await\s+supabase\.auth\.signOut\(\{\s*scope:\s*"local"\s*\}\)/,
       );
+      // Both clear actions route through ONE sign-out site; a second site would
+      // need its own registry row and its own destructure pin.
+      expect(source.match(/supabase\.auth\.signOut\(/g)).toHaveLength(1);
     });
 
     test("resolveShowPageAccess destructures the resolve_show_by_slug_and_token RPC boundary", () => {
