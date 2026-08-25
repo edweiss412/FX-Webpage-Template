@@ -11,7 +11,11 @@ import { GUARD_SURFACES } from "../tests/mutation/source/registry";
 import { runSurface } from "../tests/mutation/source/runner";
 import { evaluateGate } from "../tests/mutation/source/gate";
 
-const WANTED = new Set(["supabaseRetryingFetch", "retryableRpcVolatilityScan"]);
+const WANTED = new Set([
+  "supabaseRetryingFetch",
+  "supabaseRetryEligibility",
+  "retryableRpcVolatilityScan",
+]);
 const root = process.cwd();
 
 for (const surface of GUARD_SURFACES.filter((s) => WANTED.has(s.id))) {
