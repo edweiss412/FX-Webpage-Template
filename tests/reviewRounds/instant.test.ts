@@ -38,6 +38,41 @@ describe("instant", () => {
     expect(instant("2026-04-31T00:00:00.000Z")).toBeNull();
   });
 
+  // Every 30-day month, not just one. The mutation gate found this: the April
+  // case alone killed `30>31` at April's index and left June, September and
+  // November's untouched, so a table entry could be wrong for three months of
+  // the year with the suite green. Day 31 of a 30-day month is the dangerous
+  // shape because `Date.parse` NORMALIZES it - `2026-04-31` becomes May 1 - so
+  // the table is what rejects it, and nothing downstream would.
+  it("refuses day 31 in EVERY 30-day month", () => {
+    for (const mm of ["04", "06", "09", "11"]) {
+      expect(instant(`2026-${mm}-31T00:00:00.000Z`), `month ${mm}`).toBeNull();
+    }
+    // The positive control: day 30 is fine in all of them, so the assertion
+    // above is about the boundary and not about the month being rejected.
+    for (const mm of ["04", "06", "09", "11"]) {
+      expect(instant(`2026-${mm}-30T00:00:00.000Z`), `month ${mm}`).not.toBeNull();
+    }
+  });
+
+  // The month guard's BOUNDARIES, which no positive case reached before. Every
+  // fixture in this file used August or February, so `month < 1` mutated to
+  // `month <= 1` or `month < 2` - refusing every January timestamp in the
+  // system - survived, and the same at the December end.
+  it("places January and December, so the month bounds cannot close on them", () => {
+    expect(instant("2026-01-15T00:00:00.000Z")).toBe(Date.UTC(2026, 0, 15));
+    expect(instant("2026-12-15T00:00:00.000Z")).toBe(Date.UTC(2026, 11, 15));
+  });
+
+  // Leap February's ceiling is 29, not 30. `Date.parse` normalizes `2028-02-30`
+  // to Mar 1, so if the leap branch returned 30 the string would place as a real
+  // instant nobody wrote - the same normalization defect this module exists to
+  // stop, one day further along.
+  it("refuses Feb 30 even in a leap year", () => {
+    expect(instant("2028-02-29T00:00:00.000Z")).not.toBeNull();
+    expect(instant("2028-02-30T00:00:00.000Z")).toBeNull();
+  });
+
   it("keeps Feb 29 on a leap year and refuses it otherwise", () => {
     expect(instant("2028-02-29T00:00:00.000Z")).not.toBeNull();
     expect(instant("2026-02-29T00:00:00.000Z")).toBeNull();
