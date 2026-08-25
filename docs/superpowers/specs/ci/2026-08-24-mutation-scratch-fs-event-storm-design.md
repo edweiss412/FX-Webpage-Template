@@ -262,7 +262,7 @@ The intersection is empty. The only shared file either branch would contend for 
 
 - **AC-5 (cleanup survives failure).** A deliberately failing case in a repaired suite still removes its root.
 
-- **AC-6 (churn reduction, against baselines this document actually records).** The P2 probe is re-run on each of the four in-scope SUITE-SETS and compared against the §1.3 rows for those sets — `mutationSurface` (150 roots, 468 fsops per run), `interactiveScanCore` (46, 274), `modal-wait` (30, 136) and `_metaControlOutlineFill` (4, 18) — each reporting fewer of both, before and after produced by the same probe on the same idle checkout. Stated per SUITE-SET run, which is the only unit §1.3 measures: no per-pass or fleet-wide figure is claimed here or anywhere in this document, for the reason §1.3 gives.
+- **AC-6 — RETIRED with the deferred tier.** It required each suite-set to report fewer roots AND fewer filesystem-mutating calls. Cleanup does neither: the same roots are created, and adding `rmSync` strictly INCREASES the measured call count. The quantity this design moves is RESIDUE, which AC-4 asserts at zero per suite-set. A gate that cannot pass on a correct change is worse than no gate; the probe is still run and its before/after recorded as evidence, with the expected shape being roots unchanged, calls slightly up, residue zero.
 
 AC-1 is the criterion the design closes on. AC-2 through AC-6 are the supporting guarantees.
 
