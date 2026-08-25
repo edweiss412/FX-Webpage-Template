@@ -8,6 +8,20 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
+## BL-SPECLINT-MATRIX-BARE-NA — a completeness-matrix cell that says only `N/A` hides the claim it should have had to make
+
+**Status:** OPEN · **Severity:** LOW (no shipped defect; review-economy waste) · **Class:** spec lint / author discipline · **Effort:** S · **Filed:** 2026-08-22 (`feat/validation-prune-db-side-gate`, spec review R2 P1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a rule inside `lib/specLint/`, a surface this arc does not otherwise touch · **Reachability:** PROBED — the failing document is a committed blob on this branch and the two false cells are quoted below.
+
+`docs/agents/spec-self-review.md` requires every cell of a tier × domain completeness matrix to carry an action or an `N/A — reason`. Nothing checks it. The rule is load-bearing in a way that reads as pedantry until you watch it fail: writing the reason forces the author to CHECK, so a bare `N/A` is not a terse correct cell, it is an unexamined one.
+
+**Incident:** `docs/superpowers/specs/db/2026-08-22-validation-prune-db-side-gate-design.md` dispatched with **21 bare `N/A` cells** in its §5 matrix. Spec review R2 P1 found **two of them false**: both prune functions were marked `N/A` under "RPC write path" while each is a `delete from` on the table in that column, and the two target tables were marked `N/A` under "Cleanup / cron" while a daily `cron.job` row prunes each. The reviewer also caught the grouped PostgREST cell naming one of the two registry rows. Corpus row: `docs/review-rounds/feat/validation-prune-db-side-gate/50ca72a566b0.jsonl`, round 2 — a whole round whose findings were both of this class.
+
+**The check has no grammar.** Inside a markdown table block, a cell whose entire content is `N/A` (no following em dash, no reason) is a finding. That is a split on `|` and a string compare — not a recognizer over prose, and not a claim about whether the reason is TRUE, which stays review's job.
+
+**First scheduled step:** decide whether it lives in `lib/specLint/` as a document rule or in the pre-dispatch gate alongside `BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE`, which shares a trigger point.
+
+---
+
 ## BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT — a ledgerGit mutant is killed only by the one case that reads the ambient checkout, so its verdict is set by how CI cloned the repo
 
 **Status:** OPEN · **Filed:** 2026-08-24 (surfaced by `docs/control-outline-forward-guard`, which does not touch this surface) · **Facing:** process · **Severity:** MEDIUM (a merge-blocking gate red, and a score that reports a coverage claim the suite does not hold in the environment the score is computed in; no shipped-behavior defect) · **Class:** mutation harness fidelity / guard premise reachability · **Effort:** S · **Incident:** run [32753100923](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32753100923) `source-shards (1)` FAILED on 2026-08-24 with `unaccepted-survivor: 1 survivor(s) with no ledger row: logical-connector:259:20:&&>||`, blocking PR #877, while the nightly on `main`, run [32703467609](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32703467609), passed all four source shards the same day. · **Reachability:** PROBED — controlled comparison below. · **Class-sweep exception:** (c) — the repair is a new fixture inside a surface PR #877 does not otherwise touch; the sweep that bounds it is below and found exactly one instance.
@@ -2092,16 +2106,6 @@ Each candidate resolves to the line it names, so a human can separate a live cla
 **Three repair shapes were used on this arc and only two are durable.** Symbol-naming retires the site (best, but impossible for a table whose content IS line numbers). Binding the block to a named commit makes it permanently true (used at round 5). Re-pointing the number resets the clock and is the losing move; it was declined every time.
 
 **First scheduled step:** decide whether the prohibition lives in `probe/citations.mts` as a second assertion or in the pre-dispatch gate alongside `BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE`, which shares an owner and a trigger point.
-
-## BL-VALIDATION-PRUNE-DB-SIDE-GATE — gate prune_sync_log / prune_app_events on the validation project at the database, not the client
-
-**Status:** OPEN · **Filed:** 2026-08-21 (`feat/destructive-guard-discovery-by-connection`, spec `docs/superpowers/specs/ci/2026-08-21-destructive-guard-discovery-by-connection-design.md` §4.1 / §7) · **Facing:** product · **Severity:** MEDIUM · **Class:** DB safety posture · **Effort:** M · **Class-sweep exception:** (c) — a migration plus RPC change on a surface the filing arc does not touch · **Reachability:** INFERRED, NOT PROBED — the settling probe is a live `select public.prune_sync_log()` against the validation project from an unguarded client, observing rows deleted; that probe is the first scheduled step, not this row.
-
-Every client-side guard on the validation wipe/prune surface keys on something a test AUTHORS — a SQL spelling (`tests/db/_destructiveStatements.ts`), a connection's URL provenance (the connection census the filing spec designs) — and the census's documented limit §4.1 is exactly the file that executes a prune under a spelling no recognizer matches. `reset_validation_data()` already has the terminating answer at the DATABASE: `destructive_reset_gate` refuses the wipe unless enabled (`tests/db/destructiveResetGate.test.ts` header). `prune_sync_log()` and `prune_app_events()` have no such gate on validation, so a test that reaches them through ANY client, any spelling, any channel, deletes rows by time window. A gate there closes the class regardless of spelling and regardless of client, which no guard in `tests/` can reach.
-
-**Eliminated on the way here** (so the next reader does not re-derive them): widening the SQL recognizer — the spelling axis is open and `_metaDestructiveDbTargetGuard.test.ts`'s r15/r16 history is the ratchet; discovery by connection — ships as the census, and its §4.1 limit is this row; a psql-side or REST-side guard — different channels, same spelling problem.
-
----
 
 ## BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE — a dispatch spends reviewer attention on lint the wrapper could have refused
 
