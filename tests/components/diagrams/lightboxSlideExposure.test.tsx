@@ -15,20 +15,24 @@
  * that was there is simply gone and nothing says what replaced it. So the
  * active-slide change announces.
  *
- * WHERE IT ANNOUNCES, and why not a new region. The dialog already has a polite
- * region for zoom (`lightbox-zoom-live-region`), and audit P1-B deliberately
- * REMOVED `aria-live` from the page indicator because two competing polite
- * regions interleave on a chevron-while-zoomed transition. That ruling stands
- * and this change respects its mechanism: the slide sentence goes into the
- * SAME region, through the same 150ms debounce, as ONE message. Nothing here
- * restores aria-live to the page indicator.
+ * WHERE IT ANNOUNCES, ruled by the owner on 2026-08-25: the page indicator, the
+ * element that already DISPLAYS the current slide, so the sighted indicator and
+ * the announced one cannot disagree.
  *
- * The compound case is the one that would have broken it. Navigation resets
- * scale to 1, so a chevron press while zoomed would otherwise emit the slide
- * sentence and then have "Zoomed out" clobber it 150ms later. The reset is
- * navigation-driven rather than a user de-zoom, so it announces the slide and
- * stays silent about the zoom — one announcement per gesture-end, which is what
- * the shape brief §6 asked for in the first place.
+ * That reverses audit P1-B, which had removed `aria-live` from that element,
+ * and both of P1-B's reasons are answered rather than ignored. Its first — the
+ * announcement is redundant because a slide change is user-initiated via a
+ * labeled chevron — stopped being true in this same commit: with the inactive
+ * slides out of the tree, a swipe replaces the only exposed figure and involves
+ * no labeled button at all. Its second, that two competing polite regions
+ * interleave on a chevron-while-zoomed transition, is a real mechanism and is
+ * handled below.
+ *
+ * The compound case is where that mechanism bites. Navigation resets scale to
+ * 1, so a chevron press while zoomed would otherwise have the ZOOM region emit
+ * "Zoomed out" alongside the indicator's announcement — two polite regions on
+ * one gesture. The reset is navigation-driven rather than a user de-zoom, so
+ * the zoom region stays silent and exactly one region speaks per gesture-end.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -167,32 +171,40 @@ describe("inactive slides are out of the accessibility tree", () => {
     expect(exposed(container)[0]!.textContent ?? "").toContain("Diagram 2");
   });
 
-  test("a slide change is not silent", () => {
+  test("the current slide is announced from the element that displays it", () => {
+    const { container } = open([item(0), item(1), item(2)]);
+    const indicator = container.querySelector('[data-testid="lightbox-page-indicator"]')!;
+    // Announced BY the visible indicator, not beside it: one element carrying
+    // both means the sighted text and the announced text cannot disagree.
+    expect(indicator.getAttribute("aria-live")).toBe("polite");
+    expect(indicator.getAttribute("aria-atomic")).toBe("true");
+    expect(indicator.textContent).toContain("1 of 3");
+
+    act(() => {
+      emblaApis[emblaApis.length - 1]!.scrollTo(1);
+    });
+    expect(indicator.textContent).toContain("2 of 3");
+  });
+
+  test("a slide change does not also speak from the zoom region", () => {
     vi.useFakeTimers();
     try {
       const { container } = open([item(0), item(1), item(2)]);
-      const region = () =>
+      const zoomRegion = () =>
         container.querySelector('[data-testid="lightbox-zoom-live-region"]')!.textContent ?? "";
-      act(() => {
-        vi.advanceTimersByTime(200);
-      });
-      // Mount is deliberately silent: nothing has changed yet, and a sentence
-      // here would announce the dialog's own arrival twice.
-      expect(region()).toBe("");
       // Two acts, deliberately: React flushes effects at the END of an act, so
       // advancing the clock inside the same one fires the timer before the
-      // effect that schedules it has run, and the region reads empty for a
-      // reason that has nothing to do with the code under test.
+      // effect that schedules it has run.
       act(() => {
         emblaApis[emblaApis.length - 1]!.scrollTo(1);
       });
       act(() => {
         vi.advanceTimersByTime(200);
       });
-      expect(region()).toContain("2 of 3");
-      // ONE region, ONE sentence: audit P1-B's objection was to competing
-      // polite regions, and a slide change must not also emit a zoom line.
-      expect(region()).not.toContain("Zoomed");
+      // Audit P1-B's live objection: two polite regions on one gesture. The
+      // indicator speaks; this one must not, and it must not say "Zoomed out"
+      // about a reset the navigation caused.
+      expect(zoomRegion()).toBe("");
     } finally {
       vi.useRealTimers();
     }

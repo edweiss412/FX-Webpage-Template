@@ -64,6 +64,19 @@ caption, half control: its text names the CONTENT it folds, and the fold
 affordance is carried by the marker/chevron and the interaction, not by label
 weight. Resting subtle is sanctioned. (7 sites.)
 
+**What carries Family S when a site suppresses the native marker (2026-08-25).**
+The family's whole argument is that something OTHER than label weight carries
+the fold, so a site that hides the UA triangle owes a replacement: a rendered
+chevron, or an underline where the summary reads as a link. A trailing ellipsis
+is not one — it is a truncation mark, and it was the only cue on the run-of-show
+title (`BL-RUNOFSHOW-SUMMARY-NO-MARKER`). That site keeps Family S and its dim
+tone and now renders a chevron. Sweeping the shape found three more summaries
+outside Family S in the same position, two of them crew surfaces, and all four
+were repaired together. `tests/styles/summaryFoldCue.test.ts` walks every
+marker-suppressing `<summary>` under `app/` and `components/` and requires a cue
+or a registered affordance. Reasoning:
+`docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md` D10.
+
 **Family C — dismissable filter chips.** A chip's text names an APPLIED FILTER,
 which is a caption; the dismiss glyph is the control. Resting subtle is
 sanctioned. (1 site. The second was the "Clear filters" action standing beside

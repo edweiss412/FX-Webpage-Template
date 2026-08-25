@@ -116,7 +116,7 @@ export const CENSUS: readonly CensusRow[] = [
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4213 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
-  { file: "components/diagrams/GalleryLightbox.tsx", line: 693 },
+  { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21
   // Inside the start-fresh `bg-warning-bg` plate: moved to the plate token
   // 2026-08-25. Its sibling at :675 is on a neutral ground and did not move.

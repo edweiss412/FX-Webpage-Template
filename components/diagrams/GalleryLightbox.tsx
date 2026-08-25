@@ -476,16 +476,15 @@ export function GalleryLightbox({
     // pending setTimeout via the cleanup function below.
     const handle = setTimeout(() => {
       if (navigatedRef.current) {
-        // Navigation wins the region for this tick, and deliberately says
-        // nothing about zoom: the reset to 1 came from the slide change, not
-        // from the user zooming out, so "Zoomed out" would be a second sentence
-        // about an event that did not happen. Audit P1-B's objection was to
-        // COMPETING polite regions; this is one region emitting one message.
+        // A navigation-driven reset, so this region says NOTHING. The slide
+        // itself is announced by the page indicator above, which is the element
+        // that displays it; emitting here too would put two polite regions on
+        // one gesture, which is exactly what audit P1-B objected to. And
+        // "Zoomed out" would be wrong on its own terms: the reset came from the
+        // slide change, not from the user zooming out.
         navigatedRef.current = false;
         wasAnnouncedZoomedRef.current = false;
-        const label = items[activeIndex]?.alt?.trim();
-        const position = `${activeIndex + 1} of ${items.length}`;
-        setLiveRegionText(label ? `${label}, ${position}` : `Diagram ${position}`);
+        setLiveRegionText("");
       } else if (isZoomed(activeScale)) {
         const rounded = Math.round(activeScale * 10) / 10;
         setLiveRegionText(`Zoomed in, ${rounded}x`);
@@ -502,7 +501,7 @@ export function GalleryLightbox({
     return () => {
       clearTimeout(handle);
     };
-  }, [activeScale, activeIndex, items]);
+  }, [activeScale, activeIndex]);
 
   const scrollPrev = useCallback(() => {
     // Per shape brief: navigation always resets zoom on the OLD slide
@@ -645,15 +644,28 @@ export function GalleryLightbox({
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-text-subtle">Diagrams</span>
           {/*
-            Audit P1-B: removed `aria-live="polite"` from the page
-            indicator. Two competing polite regions (page indicator
-            + zoom region below) interleave on chevron-while-zoomed
-            transitions. Slide change is already user-initiated via
-            the labeled chevron button, so the announcement was
-            redundant. The visible text remains for sighted users.
+            `aria-live="polite"` RESTORED here 2026-08-25, ruled by the owner on
+            BL-LIGHTBOX-INACTIVE-SLIDES-IN-A11Y-TREE: the current slide is
+            announced on every change, from the element that already displays
+            it, so the sighted indicator and the announced one cannot disagree.
+
+            This reverses audit P1-B, and its objection is answered rather than
+            ignored. P1-B removed aria-live for two reasons. The first —
+            "slide change is already user-initiated via the labeled chevron, so
+            the announcement was redundant" — stopped being true in this same
+            commit: inactive slides left the accessibility tree, so a swipe now
+            replaces the only exposed figure with nothing announcing it, and a
+            swipe involves no labeled button at all. The second, that two
+            competing polite regions interleave on a chevron-while-zoomed
+            transition, is a real mechanism and is handled: navigation resets
+            scale to 1, and the zoom region below deliberately stays SILENT on a
+            navigation-driven reset (`navigatedRef`), so exactly one region
+            speaks per gesture-end.
           */}
           <span
             data-testid="lightbox-page-indicator"
+            aria-live="polite"
+            aria-atomic="true"
             className="text-sm font-medium tabular-nums text-text-subtle"
           >
             {activeIndex + 1} of {items.length}
