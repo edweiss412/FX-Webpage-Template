@@ -20,9 +20,19 @@ ANCHOR=$(git log --format=%H HEAD | while read sha; do
 done)
 echo "anchor: $(echo "$ANCHOR" | cut -c1-9)  $(git log -1 --format=%s "$ANCHOR")"
 
-gh run list --branch fix/admin-loader-ci-transient \
-  --workflow "App e2e (mobile-safari + desktop-chromium)" --limit 40 \
-  --json databaseId,headSha,event,status,conclusion,createdAt > /tmp/ac6-runs.json
+# The direct runs endpoint, NOT `gh run list --workflow "<name>"`.
+#
+# Resolving a workflow by NAME makes gh call /actions/workflows first, and that endpoint is the one
+# that exhausts: measured 2026-08-25, `gh run list --workflow ...` returned HTTP 403 rate-limited
+# while this call answered normally in the same second. The AC-6 tail runs this script once per
+# green, five times minimum, so a rate-limit failure mode here is the one that costs most.
+#
+# Filtering by name in python instead costs nothing and removes the extra lookup entirely.
+gh api "repos/edweiss412/FX-Webpage-Template/actions/runs?branch=fix/admin-loader-ci-transient&per_page=100" \
+  --jq '[.workflow_runs[]
+         | select(.name == "App e2e (mobile-safari + desktop-chromium)")
+         | {databaseId: .id, headSha: .head_sha, event: .event,
+            status: .status, conclusion: .conclusion, createdAt: .created_at}]' > /tmp/ac6-runs.json
 
 python3 - "$ANCHOR" <<'PY'
 import json, subprocess, sys
