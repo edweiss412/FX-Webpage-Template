@@ -123,6 +123,29 @@ function describeTarget(url: string): string {
   }
 }
 
+/**
+ * The reason an aborted signal carries, or a DOMException matching what fetch would throw.
+ *
+ * `signal.reason` is what a caller who aborted with a reason expects back, and an unwrapped
+ * fetch rejects with exactly that. Falling back to a synthesized AbortError keeps the shape
+ * right on runtimes or callers that abort without one.
+ */
+/**
+ * Whether the caller's signal is aborted RIGHT NOW.
+ *
+ * Deliberately a function, not an inline `signal?.aborted === true`. The loop-top guard below
+ * throws when the flag is set, so TypeScript narrows a direct property read to `false` for the
+ * rest of the iteration and reports the mid-attempt check as dead code. It is not dead: the
+ * caller can abort while the request is in flight, and that is the case the check exists for.
+ */
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+function abortReasonOf(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("This operation was aborted", "AbortError");
+}
+
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -160,35 +183,61 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
   ): Promise<Response> {
     const { url, method } = describeRequest(input, init);
     const eligible = isRetryEligible(url, method);
-    const callerSignal = init?.signal ?? undefined;
+    // A caller can hand us its signal two ways: `fetch(url, { signal })`, or a `Request` that
+    // already carries one. Reading only `init.signal` meant the second form was invisible, so an
+    // aborted Request still went out to the transport and came back 200 where a bare fetch
+    // rejects. `init.signal` wins when both are present, matching how fetch itself resolves it.
+    const callerSignal =
+      init?.signal ?? (input instanceof Request ? input.signal : undefined) ?? undefined;
 
     let firstResponse: Response | undefined;
     let firstError: unknown;
     let haveFirst = false;
 
     for (let attempt = 0; ; attempt += 1) {
-      // Our OWN flag is the source of truth for "we timed this out", never the abort error's
-      // name — the sibling's hard-won rule. An AbortError can come from the caller, and
-      // retrying a request its caller cancelled burns work nobody is waiting for.
-      let timedOut = false;
+      // A caller that has ALREADY aborted gets its answer before we touch the transport.
+      //
+      // Diff review round 1 found this: chaining the caller's signal with addEventListener only
+      // works for an abort that happens LATER. An already-aborted signal never fires the listener,
+      // so the composed controller stayed open, the request went out, and the wrapper returned 200
+      // where a bare fetch rejects. It also made a caller abort during backoff start another
+      // attempt. Checking at the top of every iteration covers both, because backoff ends here.
+      if (callerSignal !== undefined && callerSignal.aborted) {
+        throw abortReasonOf(callerSignal);
+      }
+
+      // The rule this enforces is the sibling's: never read "we timed this out" off an abort
+      // error's NAME, because an AbortError can just as easily be the caller's, and retrying a
+      // request its caller cancelled burns work nobody is waiting for.
+      //
+      // It used to need a `timedOut` flag to tell the two apart. Composing the signals removed
+      // the ambiguity at the source: our timer aborts the COMPOSED signal, never the caller's
+      // (`AbortSignal.any` propagates one way, inputs to output). So `callerSignal.aborted` is
+      // true only for a real caller abort, and the flag had nothing left to discriminate.
       const controller = new AbortController();
-      const onCallerAbort = (): void => controller.abort();
-      callerSignal?.addEventListener("abort", onCallerAbort);
       const timer = setTimeout(() => {
-        timedOut = true;
         controller.abort();
       }, timeoutMs) as ReturnType<typeof setTimeout> & { unref?: () => void };
       timer.unref?.();
 
+      // COMPOSED rather than chained, so the caller's signal stays live for the RESPONSE BODY.
+      // The previous form removed its listener in `finally` once headers arrived, which left a
+      // later caller abort unable to reach the body: a bare body read rejects, the wrapped one
+      // hung. `AbortSignal.any` keeps both inputs attached for as long as the composed signal
+      // lives, which is exactly the lifetime the returned Response needs.
+      const attemptSignal =
+        callerSignal === undefined
+          ? controller.signal
+          : AbortSignal.any([callerSignal, controller.signal]);
+
       let response: Response | undefined;
       let error: unknown;
       try {
-        response = await inner(input, { ...init, signal: controller.signal });
+        response = await inner(input, { ...init, signal: attemptSignal });
       } catch (err) {
         error = err;
       } finally {
         clearTimeout(timer);
-        callerSignal?.removeEventListener("abort", onCallerAbort);
       }
 
       if (!haveFirst) {
@@ -197,8 +246,14 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
         haveFirst = true;
       }
 
-      // A caller-initiated abort is the caller's answer, not a transient fault.
-      if (callerSignal?.aborted === true && !timedOut) {
+      // A caller-initiated abort is the caller's answer, not a transient fault. Checked here as
+      // well as at the loop top so a caller who aborts mid-attempt gets its answer immediately,
+      // rather than after a backoff sleep the loop-top check would then throw out of.
+      //
+      // A response that beat the abort is still handed back, matching a bare fetch: the caller's
+      // signal is part of the composed signal the body streams under, so the cancellation lands
+      // on the body read where a bare fetch also lands it.
+      if (isAborted(callerSignal)) {
         if (error !== undefined) throw error;
         return response!;
       }

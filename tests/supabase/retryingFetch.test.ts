@@ -318,59 +318,113 @@ describe("retrying fetch — the stall timer never holds the process open", () =
   });
 });
 
-describe("retrying fetch — the caller's signal is left as it was found", () => {
-  test("every abort listener the wrapper adds is removed again", async () => {
+describe("retrying fetch — a caller's cancellation is never swallowed", () => {
+  // Round-1 diff review found the whole family here. The wrapper used to REPLACE the caller's
+  // signal with its own and chain the two with `addEventListener`, which only ever works for an
+  // abort that happens LATER. Every case below returned 200 from a wrapper where a bare fetch
+  // rejects. `AbortSignal.any` plus a loop-top check is the repair; these pin it.
+
+  test("a signal already aborted when the call arrives never reaches the transport", async () => {
+    // no-premise: the transport is an injected stub and sleep/random are injected; nothing real is read.
+    const caller = new AbortController();
+    const reason = new Error("pre-aborted");
+    caller.abort(reason);
+    const inner = vi.fn(async () => ok());
+
+    await expect(
+      makeRetryingFetch(inner, instant)(RPC, { method: "POST", signal: caller.signal }),
+    ).rejects.toBe(reason);
+    // The transport call is the point. A wrapper that issues the request and THEN rejects has
+    // still sent traffic the caller cancelled.
+    expect(inner).not.toHaveBeenCalled();
+  });
+
+  test("an already-aborted signal carried on a Request is seen too", async () => {
+    // no-premise: as above.
+    //
+    // Separate from the case above because the wrapper read `init.signal` only, so this form was
+    // invisible to it: the request went out and came back 200.
+    const caller = new AbortController();
+    const reason = new Error("request-aborted");
+    caller.abort(reason);
+    const inner = vi.fn(async () => ok());
+
+    await expect(
+      makeRetryingFetch(
+        inner,
+        instant,
+      )(new Request(RPC, { method: "POST", signal: caller.signal })),
+    ).rejects.toBe(reason);
+    expect(inner).not.toHaveBeenCalled();
+  });
+
+  test("a caller who aborts during backoff does not get another attempt", async () => {
+    // no-premise: the transport is an injected stub; `sleep` is the injection point this case uses.
+    const caller = new AbortController();
+    const reason = new Error("during-backoff");
+    const inner = vi.fn(async () => bad(502));
+    // Abort inside the wrapper's own sleep, which is the window the loop-top check closes.
+    const sleepThenAbort = async (): Promise<void> => {
+      caller.abort(reason);
+    };
+
+    await expect(
+      makeRetryingFetch(inner, { ...instant, sleep: sleepThenAbort })(RPC, {
+        method: "POST",
+        signal: caller.signal,
+      }),
+    ).rejects.toBe(reason);
+    // One attempt, not two. Retrying into a cancelled caller burns work nobody is waiting for.
+    expect(inner).toHaveBeenCalledTimes(1);
+  });
+
+  test("the caller's abort still reaches the response BODY after headers arrive", async () => {
     // no-premise: the transport is an injected stub and sleep/random are injected; nothing real is read.
     //
-    // The wrapper subscribes to the CALLER's signal once per attempt so a caller cancellation can
-    // interrupt a retry loop. Each subscription must be undone, or a long-lived signal accumulates
-    // one dead listener per attempt for the life of the request.
-    //
-    // Written because the mutation gate found `removeEventListener` DELETABLE with every test still
-    // green: nothing observed the balance, so the leak was invisible. Counting is the observation.
+    // This is the case the old listener-chain got wrong in the most quiet way. It unsubscribed in
+    // `finally`, so once headers were in hand the caller's signal was detached: a bare fetch's body
+    // read rejects on abort, and the wrapped one hung forever. Holding the composed signal for the
+    // life of the Response is what fixes it, so the assertion is on the signal the transport was
+    // handed, observed AFTER the call settles.
     const caller = new AbortController();
-    const sig = caller.signal;
-    let added = 0;
-    let removed = 0;
-    const realAdd = sig.addEventListener.bind(sig);
-    const realRemove = sig.removeEventListener.bind(sig);
-    Object.defineProperty(sig, "addEventListener", {
-      configurable: true,
-      value: (...args: Parameters<typeof realAdd>) => {
-        added += 1;
-        return realAdd(...args);
-      },
-    });
-    Object.defineProperty(sig, "removeEventListener", {
-      configurable: true,
-      value: (...args: Parameters<typeof realRemove>) => {
-        removed += 1;
-        return realRemove(...args);
-      },
+    let handed: AbortSignal | undefined;
+    const inner = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      handed = init?.signal ?? undefined;
+      return ok();
     });
 
-    const inner = vi.fn(async () => (inner.mock.calls.length < 3 ? bad(502) : ok()));
-    await makeRetryingFetch(inner, instant)(RPC, { method: "POST", signal: sig });
+    await makeRetryingFetch(inner, instant)(RPC, { method: "POST", signal: caller.signal });
 
-    // The premise: the wrapper subscribed at all. Without it a zero-zero balance would pass
-    // vacuously on a wrapper that never touched the signal.
-    expect(added).toBeGreaterThan(0);
-    expect(removed).toBe(added);
+    expect(handed).toBeDefined();
+    // Not the caller's own signal: the wrapper needs a signal it can abort for its per-attempt
+    // timeout without cancelling the caller. The timeout cases elsewhere in this file pin that half.
+    expect(handed).not.toBe(caller.signal);
+    expect(handed!.aborted).toBe(false);
+
+    caller.abort(new Error("body-abort"));
+
+    // Aborting the caller AFTER the response was returned must still abort the signal the body is
+    // streaming under. A wrapper that passed its own controller's signal alone leaves this false.
+    expect(handed!.aborted).toBe(true);
   });
 });
 
-describe("retrying fetch — timedOut is the source of truth, even when BOTH aborts happen", () => {
-  test("a timeout that also trips the caller's signal is still retried, not rethrown", async () => {
+describe("retrying fetch — our timeout and the caller's cancellation stay separable", () => {
+  test("a per-attempt timeout does not abort the CALLER's signal, so it is retried", async () => {
     // no-premise: the transport is an injected stub and the timeout is injected; nothing real is read.
     //
-    // THE CASE `timedOut` EXISTS FOR, and the mutation gate found it missing: deleting
-    // `timedOut = true` left every test green. The flag only discriminates when a caller abort and
-    // our own timeout are BOTH true at the catch — with the flag the wrapper knows the abort was
-    // ITS timer and retries; without it, `!timedOut` is true and it hands the caller's own abort
-    // back after one attempt.
+    // This replaces a case built around a `timedOut` flag the wrapper no longer carries. The flag
+    // existed to tell "our timer aborted this" from "the caller cancelled" at the catch, back when
+    // the wrapper chained the two signals by hand and the answer was genuinely ambiguous.
     //
-    // The existing cases cover each half alone (a caller abort with no timeout; a stall with no
-    // caller signal), and each half passes either way. Only the overlap tells them apart.
+    // Composing with `AbortSignal.any` removed the ambiguity instead of adjudicating it: aborting
+    // the composed signal does not propagate back to its inputs, so our timer can never set
+    // `callerSignal.aborted`. That is a STRUCTURAL property, and it is what this asserts — a stall
+    // long enough to trip our timer is retried, and the caller's signal is untouched throughout.
+    //
+    // The old case manufactured the overlap by having the transport abort the caller's controller
+    // when our signal fired. No real transport does that; a transport that did would now get its
+    // request treated as cancelled, which is the correct reading of an aborted caller signal.
     const caller = new AbortController();
     let attempts = 0;
     const inner = vi.fn(
@@ -381,12 +435,9 @@ describe("retrying fetch — timedOut is the source of truth, even when BOTH abo
             resolve(ok());
             return;
           }
-          // When OUR per-attempt timer aborts, trip the CALLER's signal too, so the catch sees
-          // callerSignal.aborted === true alongside timedOut === true.
-          init?.signal?.addEventListener("abort", () => {
-            caller.abort();
-            reject(new DOMException("The operation was aborted.", "AbortError"));
-          });
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("The operation was aborted.", "AbortError")),
+          );
         }),
     );
 
@@ -395,9 +446,11 @@ describe("retrying fetch — timedOut is the source of truth, even when BOTH abo
       timeoutMs: 5,
     })(RPC, { method: "POST", signal: caller.signal });
 
-    // Retried and recovered. Without the flag this rethrows the AbortError after one attempt.
     expect(res.status).toBe(200);
     expect(inner).toHaveBeenCalledTimes(2);
+    // The load-bearing half. If our abort ever reached the caller's signal, the loop-top check
+    // would read it as a cancellation and the retry above would never have been attempted.
+    expect(caller.signal.aborted).toBe(false);
   });
 });
 
