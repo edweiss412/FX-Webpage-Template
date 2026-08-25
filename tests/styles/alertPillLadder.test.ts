@@ -89,7 +89,15 @@ const NEUTRAL_FILL = /(^|\s)bg-(bg|surface|surface-sunken|surface-raised)(\s|$)/
  * side letter rather than just the letter.
  */
 const SIDE = /^border-(t|r|b|l|x|y|s|e)(-.*)?$/;
-const FULL_WIDTH = /^border(-\d+)?$/;
+// `border`, `border-2`, and an arbitrary LENGTH like `border-[1.5px]`.
+//
+// Round 4: the arbitrary form was missing, so a live `border-[1.5px]` scored as
+// a COLOUR and a bare width counted as an outline. The first repair admitted
+// any bracketed value and immediately broke the mirror case — brackets hold
+// either kind, and `border-[color:var(--x)]` is a COLOUR — so the content is
+// what decides: a number with an optional CSS unit is a width, anything else
+// (a hex, a `color:` function, a `var()`) stays a colour.
+const FULL_WIDTH = /^border(-\d+|-\[\d*\.?\d+(px|rem|em|%|vh|vw|pt|ch)?\])?$/;
 
 /**
  * A Tailwind class is `[variant:]... [!]utility[!]`, and only the utility says
@@ -120,9 +128,24 @@ const FULL_WIDTH = /^border(-\d+)?$/;
  * intact instead of being cut in half.
  */
 function bare(token: string): string {
-  const bracket = token.indexOf("[");
-  const head = bracket < 0 ? token : token.slice(0, bracket);
-  const lastColon = head.lastIndexOf(":");
+  // The variant/utility boundary is the LAST colon at bracket depth 0. Scanning
+  // for it handles both directions in one rule, which is why it REPLACES the
+  // earlier `indexOf("[")` special case rather than adding to it:
+  //
+  //   dark:border-[color:var(--x)]              colon INSIDE brackets, ignored
+  //   data-[popover-side=bottom]:border-border  colon AFTER a bracketed variant
+  //
+  // Round 3 handled only the first and round 4 caught the second: cutting at
+  // the first `[` meant the delimiter after `]` was never seen, so 17 live
+  // `data-[…]:border-*` tokens went unnormalized.
+  let depth = 0;
+  let lastColon = -1;
+  for (let i = 0; i < token.length; i += 1) {
+    const c = token[i];
+    if (c === "[") depth += 1;
+    else if (c === "]") depth -= 1;
+    else if (c === ":" && depth === 0) lastColon = i;
+  }
   const utility = lastColon < 0 ? token : token.slice(lastColon + 1);
   return utility.replace(/^!/, "").replace(/!$/, "");
 }
@@ -269,6 +292,21 @@ describe("the outline predicate does not count a divider as emphasis", () => {
     ["hover:border-t-border", false],
     ["max-sm:border-b-2", false],
     ["!border-s", false],
+    // Round 4, finding 1. A BRACKETED variant puts the delimiter after `]`, so
+    // cutting at the first `[` never saw it. All three are one edit from live
+    // tokens in HoverHelp.tsx, ShareHub.tsx and KeyTimesStrip.tsx.
+    ["data-[popover-side=bottom]:border-border-strong", true],
+    ["group-data-[popover-side=top]:border-accent", true],
+    ["data-[popover-side=bottom]:border-b-border-strong", false],
+    ["min-[720px]:border-l-0", false],
+    // Round 4, finding 2. Brackets hold EITHER kind, so the content decides.
+    // A length is a width; a hex or a `color:` function is still a colour —
+    // the first repair admitted any bracketed value and broke the second line.
+    ["border-[1.5px]", false],
+    ["size-2 shrink-0 rounded-pill border-[1.5px] bg-transparent", false],
+    ["border-[1.5px] border-status-positive", true],
+    ["border-[#fff]", true],
+    ["dark:border-[color:var(--x)]", true],
   ])("%s -> %s", (classes, expected) => {
     expect(hasOutline(classes as string)).toBe(expected);
   });
@@ -295,12 +333,31 @@ describe("normalization covers the decorations the app really uses", () => {
       if (entry.isDirectory()) stack.push(full);
       else if (/\.(tsx?|mdx)$/.test(entry.name)) {
         const code = stripCommentsForFile(readFileSync(full, "utf8"), full);
-        for (const m of code.matchAll(/[\w:!-]*\bborder-[\w[\]().:-]+!?/g)) {
+        // The prefix must admit a BRACKETED variant (`data-[popover-side=bottom]:`),
+        // or the match starts mid-token and the walk records truncations like
+        // ":border-t-0" — which normalize and look idempotent while testing nothing.
+        for (const m of code.matchAll(/[\w:![\]=.-]*\bborder-[\w[\]().:%-]+!?/g)) {
           used.add(m[0]);
         }
       }
     }
   }
+
+  // Round 4 found this cover VACUOUS for a whole family: its match started
+  // mid-token on `data-[popover-side=bottom]:border-b-0`, so it recorded the
+  // truncation ":border-t-0" — which normalizes fine and looks idempotent while
+  // testing nothing. Non-vacuity has to be asserted on the SHAPE of what was
+  // recorded, not only on the count.
+  it("records whole utilities, never a truncation", () => {
+    const truncated = [...used].filter((c) => c.startsWith(":") || c.startsWith("-"));
+    expect(truncated).toEqual([]);
+    // and the bracketed-variant family is actually present, or the assertion
+    // above ranges over a set that never contained the hard case.
+    premiseHolds(
+      "a bracketed data-[…] variant border is in use",
+      [...used].some((c) => /^(group-)?data-\[[^\]]*\]:border-/.test(c)),
+    );
+  });
 
   it("premise: the walk found the decorated spellings this repo is known to use", () => {
     premise("border utilities found across app/ and components/", used.size, 20);
