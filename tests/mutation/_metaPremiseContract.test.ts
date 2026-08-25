@@ -34,6 +34,11 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // guessed: each is what the classifier reports today, declared independently
   // so a recognizer that silently stops matching drops them to zero and reds
   // instead of reporting a clean corpus it no longer understands.
+  // The replacement-string guard, enrolled 2026-08-24. MEASURED via classifyTests over this
+  // suite, not guessed: exactly two of its eighteen tests read the real tree — the premise
+  // ("looked at all") and the repo-wide inventory assertion. Both do so deliberately; the sixteen
+  // fixture cases are pure functions of a source string, which is what lets them kill mutants.
+  "tests/cross-cutting/replacementString.test.ts": 2,
   "tests/specLint/claimSweepNumeric.test.ts": 3,
   "tests/specLint/claimSweepNamed.test.ts": 0,
   "tests/specLint/claimSweepNotFound.test.ts": 0,
