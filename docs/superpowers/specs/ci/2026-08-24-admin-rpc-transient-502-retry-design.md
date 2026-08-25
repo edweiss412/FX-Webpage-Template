@@ -409,6 +409,22 @@ dark, and §9 says so rather than leaving it implied.
 - **AC-1. The recorded fault is absorbed.** With the wrapper installed and a stub fetch returning 502
   then 200, `requireAdmin` resolves normally. With `MAX_SUPABASE_RETRIES` at zero, the same stub still
   throws `AdminInfraError`. The second half is what makes the first non-tautological.
+
+  **How this is discharged, recorded so a reviewer does not re-derive it.** No single test drives
+  `requireAdmin` over a stubbed transport, and one was deliberately NOT written: reaching the gate
+  that way means satisfying supabase-js's auth plumbing through a `fetch` stub, and the attempt
+  produced a `NEXT_REDIRECT` rather than a gate decision — a test that fragile would pin the auth
+  mock, not the retry. The claim is discharged by three pinned links plus the runner:
+
+  1. `supabase.rpc("is_admin")` through the REAL wrapped client absorbs a 502 and the caller sees
+     only the success (`tests/supabase/serverClientWiring.test.ts`).
+  2. On exhaustion the consumer receives the FIRST attempt's error, not the last
+     (`tests/supabase/retryingFetch.failureMode.test.ts`, all four sequences).
+  3. A gate RPC returning `{ error }` makes `requireAdmin` throw `AdminInfraError`
+     (`tests/auth/requireAdmin-infra-boundary.test.ts:52`, which predates this arc).
+  4. AC-5 exercises the whole chain on the real runner, which is stronger evidence than any mock
+     for the absorbing half — and cannot provide the negative half, since a runner has no switch
+     to turn the retry off. That is what links 2 and 3 supply.
 - **AC-2. The caller-visible failure category never moves (§3.4).** All four exhausted two-attempt
   sequences are exercised against a consumer that branches on the distinction: 502 then 502, 502 then
   reject, reject then 502, reject then reject. In every case the consumer emits the code it emits today
