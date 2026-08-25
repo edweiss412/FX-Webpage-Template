@@ -253,8 +253,10 @@ describe("schema completeness, so a record cannot describe nothing", () => {
   it("rejects entries missing the always-present fields", () => {
     const stripped = CLEAN.map(({ capturedAtUtc: _a, faultHits: _b, ...rest }) => rest);
     const problems = verifyEvidence({ ...HEADER, entries: stripped }, EXPECTED, {});
-    expect(problems.some((p) => p.includes("no usable capturedAtUtc"))).toBe(true);
-    expect(problems.some((p) => p.includes("faultHits is not an array of strings"))).toBe(true);
+    expect(problems.some((p) => p.includes("capturedAtUtc is not valid for that outcome"))).toBe(
+      true,
+    );
+    expect(problems.some((p) => p.includes("faultHits is not valid for that outcome"))).toBe(true);
   });
 
   it("rejects an entry with no frozenClockInstant", () => {
@@ -262,7 +264,9 @@ describe("schema completeness, so a record cannot describe nothing", () => {
     // the capture ran under the frozen clock rather than a live one.
     const stripped = CLEAN.map(({ frozenClockInstant: _f, ...rest }) => rest);
     const problems = verifyEvidence({ ...HEADER, entries: stripped }, EXPECTED, {});
-    expect(problems.some((p) => p.includes("no usable frozenClockInstant"))).toBe(true);
+    expect(
+      problems.some((p) => p.includes("frozenClockInstant is not valid for that outcome")),
+    ).toBe(true);
   });
 
   it("rejects a header without the machine fields, even locally", () => {
@@ -309,9 +313,19 @@ describe("AC-5's staging artifact hash comparison", () => {
     expect(problems[0]).toContain("does not match its staging artifact");
   });
 
-  it("skips refused entries, which wrote no bytes by design", () => {
-    const entries = [entry("one", "light", { refusedReason: "render-fault", webpSha256: null })];
-    expect(verifyStagingHashes(entries, "/stage", () => Buffer.from("x"))).toEqual([]);
+  it("accepts a refused entry when NO bytes exist for it", () => {
+    const entries = [entry("one", "light", { refusedReason: "TimeoutError", webpSha256: null })];
+    expect(verifyStagingHashes(entries, "/stage", () => null)).toEqual([]);
+  });
+
+  it("REJECTS a refused entry that has bytes on disk", () => {
+    // Round 5a: skipping refused entries entirely was a silent bypass. A refusal
+    // claims no image was written, and bytes CAN exist when the failure came
+    // after the staging write -- metadata hashing, page cleanup. The claim is
+    // checkable, so it is checked rather than assumed.
+    const entries = [entry("one", "light", { refusedReason: "TimeoutError", webpSha256: null })];
+    const problems = verifyStagingHashes(entries, "/stage", () => Buffer.from("bytes"));
+    expect(problems.some((p) => p.includes("refused but a staging artifact exists"))).toBe(true);
   });
 });
 
@@ -457,5 +471,84 @@ describe("round 4a: each refusal reason carries ITS OWN obligation, not a blanke
         geometry: { ...GEOM, baselineWidth: "1216" },
       }).some((p) => p.includes("no usable geometry")),
     ).toBe(true);
+  });
+});
+
+describe("round 5a: the entry schema is a TOTAL table over both outcomes", () => {
+  // Three rounds added clauses to this validator and each left cases behind,
+  // because clauses cannot be complete -- nothing enumerates what they miss.
+  // The table names every field under both outcomes, so a new field forces a
+  // decision rather than silently inheriting "unchecked". `undefined` satisfies
+  // no predicate, so an ABSENT field fails wherever a present one would.
+  const nulls = {
+    pixelWidth: null,
+    pixelHeight: null,
+    pixelSha256: null,
+    webpBytes: null,
+    webpSha256: null,
+  };
+  const check = (entries: unknown[]) => verifyEvidence({ ...HEADER, entries }, EXPECTED, {});
+
+  it("rejects a completed entry whose refusedReason is ABSENT rather than null", () => {
+    const { refusedReason: _dropped, ...noReason } = entry("one", "light");
+    const problems = check([noReason, entry("one", "dark")]);
+    expect(problems.some((p) => p.includes("refusedReason is not valid"))).toBe(true);
+  });
+
+  it("rejects a completed entry that carries faultHits", () => {
+    // A completed capture found no fault. Carrying hits contradicts its outcome.
+    const problems = check([entry("one", "light", { faultHits: ["x"] }), entry("one", "dark")]);
+    expect(problems.some((p) => p.includes("faultHits is not valid"))).toBe(true);
+  });
+
+  it("rejects clock fields that are strings but not dates", () => {
+    const problems = check([
+      entry("one", "light", { capturedAtUtc: "not-a-date" }),
+      entry("one", "dark"),
+    ]);
+    expect(problems.some((p) => p.includes("capturedAtUtc is not valid"))).toBe(true);
+  });
+
+  it("rejects a refused entry whose pixel fields are ABSENT rather than null", () => {
+    const { pixelWidth: _w, pixelHeight: _h, pixelSha256: _s, ...rest } = entry("one", "light");
+    const problems = check([
+      { ...rest, refusedReason: "TimeoutError", webpBytes: null, webpSha256: null },
+    ]);
+    expect(problems.some((p) => p.includes("pixelWidth is not valid"))).toBe(true);
+  });
+
+  it("rejects a geometry refusal whose dimensions are IDENTICAL", () => {
+    // "Geometry moved" is the claim; identical dimensions refute it, so the
+    // record would certify a refusal its own evidence contradicts.
+    const problems = check([
+      entry("one", "light", {
+        ...nulls,
+        refusedReason: "GeometryMismatchError",
+        geometry: {
+          baselineWidth: 100,
+          baselineHeight: 200,
+          capturedWidth: 100,
+          capturedHeight: 200,
+        },
+      }),
+    ]);
+    expect(problems.some((p) => p.includes("dimensions are IDENTICAL"))).toBe(true);
+  });
+
+  it("still accepts a geometry refusal whose dimensions actually differ", () => {
+    // The premise for the case above: it does not fire on a real mismatch.
+    const problems = check([
+      entry("one", "light", {
+        ...nulls,
+        refusedReason: "GeometryMismatchError",
+        geometry: {
+          baselineWidth: 100,
+          baselineHeight: 200,
+          capturedWidth: 100,
+          capturedHeight: 250,
+        },
+      }),
+    ]);
+    expect(problems).toEqual([]);
   });
 });

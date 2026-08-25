@@ -34,13 +34,47 @@ const isPositiveInt = (v: unknown): v is number =>
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((x) => typeof x === "string");
 
-/** Field name to the predicate its value must satisfy on a COMPLETED entry. */
-const COMPLETED_FIELD_TYPES: Record<string, (v: unknown) => boolean> = {
-  pixelWidth: isPositiveInt,
-  pixelHeight: isPositiveInt,
-  webpBytes: isPositiveInt,
-  pixelSha256: isSha256,
-  webpSha256: isSha256,
+/** An ISO-8601 instant, which is what both clock fields claim to be. */
+const isIsoInstant = (v: unknown): v is string =>
+  isNonEmptyString(v) && !Number.isNaN(Date.parse(v)) && /^\d{4}-\d{2}-\d{2}T/.test(v);
+
+/** EXACTLY null. `undefined` is a missing field, which is a different fault. */
+const isExactlyNull = (v: unknown): boolean => v === null;
+
+const isEmptyStringArray = (v: unknown): boolean => isStringArray(v) && v.length === 0;
+
+/**
+ * The COMPLETE entry schema, as a table over both outcomes.
+ *
+ * Three review rounds ran at this: each added clauses for the cases the round
+ * had probed, and each left others. Clauses cannot be complete because nothing
+ * enumerates what they miss -- the round-5 probes found six more (a completed
+ * entry with no `refusedReason`, a completed entry carrying `faultHits`,
+ * non-date clock strings, a refused entry with its pixel fields ABSENT rather
+ * than null, and a geometry refusal whose dimensions are identical).
+ *
+ * A TABLE is total by construction: every field appears under both outcomes, so
+ * adding a field to the record forces a decision here rather than silently
+ * inheriting "unchecked". `undefined` satisfies no predicate, including
+ * `isExactlyNull`, so an ABSENT field fails wherever a present one would.
+ */
+const ENTRY_SCHEMA: Record<
+  string,
+  { completed: (v: unknown) => boolean; refused: (v: unknown) => boolean }
+> = {
+  key: { completed: isNonEmptyString, refused: isNonEmptyString },
+  theme: { completed: isNonEmptyString, refused: isNonEmptyString },
+  capturedAtUtc: { completed: isIsoInstant, refused: isIsoInstant },
+  frozenClockInstant: { completed: isIsoInstant, refused: isIsoInstant },
+  // A completed capture found no fault -- carrying hits contradicts its own
+  // outcome. A refusal may legitimately carry none (geometry, infra).
+  faultHits: { completed: isEmptyStringArray, refused: isStringArray },
+  refusedReason: { completed: isExactlyNull, refused: isNonEmptyString },
+  pixelWidth: { completed: isPositiveInt, refused: isExactlyNull },
+  pixelHeight: { completed: isPositiveInt, refused: isExactlyNull },
+  pixelSha256: { completed: isSha256, refused: isExactlyNull },
+  webpBytes: { completed: isPositiveInt, refused: isExactlyNull },
+  webpSha256: { completed: isSha256, refused: isExactlyNull },
 };
 
 type Entry = Record<string, unknown> & { key?: unknown; theme?: unknown };
@@ -217,6 +251,18 @@ export function verifyEvidence(
         !["baselineWidth", "baselineHeight", "capturedWidth", "capturedHeight"].every((k) =>
           isPositiveInt(dims[k]),
         );
+      if (!bad && dims !== null) {
+        // "Geometry moved" is the claim. Identical dimensions contradict it, so
+        // the record would certify a refusal whose own evidence refutes it.
+        const same =
+          dims.baselineWidth === dims.capturedWidth && dims.baselineHeight === dims.capturedHeight;
+        if (same) {
+          problems.push(
+            `${refusedIdentity} refused as GeometryMismatchError but the dimensions are IDENTICAL ` +
+              `(${String(dims.baselineWidth)}x${String(dims.baselineHeight)}); that reason means the geometry moved`,
+          );
+        }
+      }
       if (bad) {
         problems.push(
           `${refusedIdentity} refused as GeometryMismatchError but carries no usable geometry: ` +
@@ -235,60 +281,46 @@ export function verifyEvidence(
     }
   }
 
-  // EVERY entry, refused or not, carries these. A refusal still happened at a
-  // time, still ran under a frozen clock, and still reports its markers.
-  for (const entry of entries) {
-    if (!isNonEmptyString(entry.capturedAtUtc)) {
+  // ONE table-driven pass over every entry, both outcomes. Replaces a
+  // presence pass, a shape pass and an always-present pass that between them
+  // still missed six cases across three review rounds.
+  for (const [index, entry] of entries.entries()) {
+    const outcome = isRefused(entry) ? "refused" : "completed";
+    for (const [field, rule] of Object.entries(ENTRY_SCHEMA)) {
+      if (rule[outcome](entry[field])) continue;
       problems.push(
-        `${identityOf(entry)} has no usable capturedAtUtc: ${JSON.stringify(entry.capturedAtUtc)}`,
+        `${identityOf(entry)} is ${outcome} but ${field} is not valid for that outcome: ` +
+          `${JSON.stringify(entry[field])}`,
       );
     }
-    if (!isNonEmptyString(entry.frozenClockInstant)) {
-      problems.push(
-        `${identityOf(entry)} has no usable frozenClockInstant: ${JSON.stringify(entry.frozenClockInstant)}`,
-      );
-    }
-    if (!isStringArray(entry.faultHits)) {
-      problems.push(
-        `${identityOf(entry)} faultHits is not an array of strings: ${JSON.stringify(entry.faultHits)}`,
-      );
-    }
-  }
-
-  const completeThrough = refusedAt === -1 ? entries.length : refusedAt;
-  const completed = entries.slice(0, completeThrough);
-  for (const entry of completed) {
-    // One typed pass, not a presence pass plus a shape pass. The two-pass form
-    // is what let a numeric hash through: the shape check declined to fire on a
-    // non-string, which is precisely the value it should have rejected.
-    for (const [field, isValid] of Object.entries(COMPLETED_FIELD_TYPES)) {
-      if (!isValid(entry[field])) {
-        problems.push(
-          `${identityOf(entry)} is complete but ${field} is not valid: ${JSON.stringify(entry[field])}`,
-        );
-      }
-    }
+    void index;
   }
 
   // Layer 2's PREMISE, asserted on the record rather than assumed.
   //
   // `checkGeometry` records a SKIP when it finds no committed baseline, which is
   // right on its own: certifying a comparison that never happened would let every
-  // new manifest entry pass its own first run. But nothing read the skip back, so
-  // if the baseline naming or the output directory ever moves, EVERY entry skips,
-  // the geometry layer performs zero comparisons, and the run is green. A layer
-  // that silently checks nothing is the failure mode this repo has a rule about.
+  // new manifest entry approve its own first run. But nothing read the skip back,
+  // so if the baseline naming or the output directory moved, EVERY entry would
+  // skip, the geometry layer would compare nothing, and the run would be green.
   //
-  // One skip is ordinary (a newly added manifest entry). ALL of them, on a run
-  // that completed entries at all, means the baselines were not where the layer
-  // looked -- so that is the condition, and it cannot fire on an empty set.
-  const skipped = completed.filter(
+  // One skip is ordinary (a newly added capture), so the condition is all of
+  // them, and it cannot fire on an empty completed set.
+  //
+  // Restored after being deleted by accident while this function's validation
+  // was being rewritten table-driven. Its own test caught the deletion, which is
+  // the argument for the test existing.
+  const completedEntries = entries.filter((entry) => !isRefused(entry));
+  const skipped = completedEntries.filter(
     (entry) => (entry as Record<string, unknown>).geometrySkippedReason !== undefined,
   );
-  if (completed.length > 0 && skipped.length === completed.length) {
+  if (completedEntries.length > 0 && skipped.length === completedEntries.length) {
+    const reasons = [
+      ...new Set(skipped.map((e) => String((e as Record<string, unknown>).geometrySkippedReason))),
+    ];
     problems.push(
-      `layer 2 compared nothing: all ${completed.length} completed entries record ` +
-        `geometrySkippedReason (${[...new Set(skipped.map((e) => String((e as Record<string, unknown>).geometrySkippedReason)))].join(", ")}). ` +
+      `layer 2 compared nothing: all ${completedEntries.length} completed entries record ` +
+        `geometrySkippedReason (${reasons.join(", ")}). ` +
         "One skip is a new manifest entry; every entry skipping means the baselines were not where the layer looked",
     );
   }
@@ -321,7 +353,20 @@ export function verifyStagingHashes(
 ): string[] {
   const problems: string[] = [];
   for (const entry of entries) {
-    if (isRefused(entry)) continue;
+    if (isRefused(entry)) {
+      // A refusal claims NO bytes were written, and that claim is checkable
+      // rather than assumed. Bytes CAN exist when the failure happened after
+      // the staging write (metadata hashing, page cleanup), and skipping the
+      // lookup certified exactly that case.
+      const artifact = join(stagingDir, `${identityOf(entry)}.webp`);
+      if (readArtifact(artifact) !== null) {
+        problems.push(
+          `${identityOf(entry)} is refused but a staging artifact exists at ${artifact}; ` +
+            "a refusal writes no image, so bytes mean the refusal came after the write",
+        );
+      }
+      continue;
+    }
     const claimed = entry.webpSha256;
     if (!isSha256(claimed)) {
       // Skipping here was the same defect one layer down: a malformed claim
@@ -388,12 +433,10 @@ function main(): void {
     ? verifyStagingHashes((record as { entries?: Entry[] })?.entries ?? [], stagingDir, (f) =>
         existsSync(f) ? readFileSync(f) : null,
       )
-    : local
-      ? []
-      : [
-          `no staging directory at ${stagingDir}; AC-5's artifact hash comparison could not run. ` +
-            "It is emptied at the start of a capture and left in place, so its absence means no capture ran here",
-        ];
+    : [
+        `no staging directory at ${stagingDir}; AC-5's artifact hash comparison could not run. ` +
+          "It is emptied at the start of a capture and left in place, so its absence means no capture ran here",
+      ];
 
   const problems = verifyEvidence(
     record,
