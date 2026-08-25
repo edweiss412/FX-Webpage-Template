@@ -55,12 +55,14 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-21-intraleg-process-boundary-probe-design.md`](./2026-08-21-intraleg-process-boundary-probe-design.md) | 2026-08-21 |
 | [`2026-08-21-mutation-outcome-attribution-design.md`](./2026-08-21-mutation-outcome-attribution-design.md) | 2026-08-21 |
 | [`2026-08-22-mutation-score-jurisdiction-gap.md`](./2026-08-22-mutation-score-jurisdiction-gap.md) | 2026-08-22 |
+| [`2026-08-24-mutation-scratch-fs-event-storm-design.md`](./2026-08-24-mutation-scratch-fs-event-storm-design.md) | 2026-08-24 |
 | [`2026-08-21-sendauth-arm-classifier-unification-design.md`](./2026-08-21-sendauth-arm-classifier-unification-design.md) | 2026-08-21 |
 | [`2026-08-21-destructive-guard-discovery-by-connection-design.md`](./2026-08-21-destructive-guard-discovery-by-connection-design.md) | 2026-08-21 |
 | [`2026-08-21-shell-attached-redirection-target-design.md`](./2026-08-21-shell-attached-redirection-target-design.md) | 2026-08-21 |
 | [`2026-08-21-speclint-red-reason-verification-design.md`](./2026-08-21-speclint-red-reason-verification-design.md) | 2026-08-21 |
-| [`2026-08-22-workflow-run-scalar-yaml-decode-design.md`](./2026-08-22-workflow-run-scalar-yaml-decode-design.md) | 2026-08-22 |
 | [`2026-08-21-app-e2e-batch2-design.md`](./2026-08-21-app-e2e-batch2-design.md) | 2026-08-21 |
 | [`2026-08-22-derived-number-provenance-convention.md`](./2026-08-22-derived-number-provenance-convention.md) | 2026-08-22 |
 | [`2026-08-22-shell-brace-cross-construct-design.md`](./2026-08-22-shell-brace-cross-construct-design.md) | 2026-08-22 |
+| [`2026-08-22-screenshots-drift-degraded-render-design.md`](./2026-08-22-screenshots-drift-degraded-render-design.md) | 2026-08-22 |
+| [`2026-08-22-workflow-run-scalar-yaml-decode-design.md`](./2026-08-22-workflow-run-scalar-yaml-decode-design.md) | 2026-08-22 |
 | [`probes`](./probes) | 2026-08-04 |

@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { premiseHolds } from "../_shared/premise";
 import {
   FLOOR_COMPONENT_ALLOWLIST,
@@ -12,6 +12,25 @@ import {
   themeBlocks,
   type ScanElement,
 } from "./interactiveScanCore";
+
+/**
+ * Scratch roots this file creates, removed together in `afterAll`.
+ *
+ * `afterAll` rather than per-case: vitest runs it even when a case fails, and a
+ * cleanup that only runs on success leaks exactly when a suite is being
+ * debugged, which is when it runs most. Guard:
+ * `tests/mutation/_metaScratchRootCleanup.test.ts`. Row:
+ * BL-MUTATION-SCRATCH-FS-EVENT-STORM.
+ */
+const scratchRoots: string[] = [];
+function trackScratch(root: string): string {
+  scratchRoots.push(root);
+  return root;
+}
+afterAll(() => {
+  for (const root of scratchRoots) rmSync(root, { recursive: true, force: true });
+  scratchRoots.length = 0;
+});
 
 const el = (over: Partial<ScanElement>): ScanElement => ({
   file: "x.tsx",
@@ -38,7 +57,7 @@ function scanFixture(source: string) {
  * mutant until this existed (2026-08-15 mutation run).
  */
 function scanFixtureFiles(files: Record<string, string>) {
-  const dir = mkdtempSync(join(tmpdir(), "scan-fixture-"));
+  const dir = trackScratch(mkdtempSync(join(tmpdir(), "scan-fixture-")));
   mkdirSync(join(dir, "components"), { recursive: true });
   mkdirSync(join(dir, "app"), { recursive: true });
   for (const [name, source] of Object.entries(files)) {
@@ -448,7 +467,7 @@ describe("resolver end-to-end fixtures (plan R2 F3, executable, not comments)", 
     // at first read — a real contract, because every consumer of this module
     // scans a tree that does not change under it, and the alternative (an
     // mtime check) buys nothing any caller needs.
-    const dir = mkdtempSync(join(tmpdir(), "scan-fixture-"));
+    const dir = trackScratch(mkdtempSync(join(tmpdir(), "scan-fixture-")));
     mkdirSync(join(dir, "components"), { recursive: true });
     mkdirSync(join(dir, "app"), { recursive: true });
     const file = join(dir, "components", "Fx.tsx");

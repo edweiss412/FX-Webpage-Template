@@ -52,7 +52,7 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/settings/AdministratorsSection.tsx",
-    line: 150,
+    line: 151,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

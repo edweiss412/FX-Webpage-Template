@@ -66,6 +66,7 @@ export function AdministratorsSection({
         </h2>
         <div
           data-testid="admin-allowlist-error"
+          data-render-fault="admin-allowlist-read"
           role="alert"
           className="flex flex-col gap-2 rounded-md border border-border bg-surface p-4"
         >

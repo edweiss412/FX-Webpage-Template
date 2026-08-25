@@ -1182,3 +1182,244 @@ describe("spec §7 case 10 — pnpm forwarding", () => {
     expect(run.stderr()).toContain("acquired slot-0 (slots=1)");
   }, 60_000);
 });
+
+// ---------------------------------------------------------------------------
+// Single-slot admission class for mutation-score runs.
+// Spec: docs/superpowers/specs/ci/2026-08-24-mutation-scratch-fs-event-storm-design.md §4.2
+// Row:  BL-MUTATION-SCRATCH-FS-EVENT-STORM
+// ---------------------------------------------------------------------------
+
+describe("mutation admission class", () => {
+  it("AC-2 — two class acquirers serialize even with slots to spare", async () => {
+    const dir = slotDir();
+    const holdMs = 900;
+    // slots=2 is the discriminator, not a detail. At slots=1 these two serialize
+    // whether or not the class exists, so the case would pass on a wrapper that
+    // ignores --class entirely.
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2", FX_HEAVY_POLL_MS: "100" };
+
+    const premiseLog = join(dir, "premise.log");
+    const pa = runUnwrapped(logWindowArgs("a", premiseLog, holdMs));
+    const pb = runUnwrapped(logWindowArgs("b", premiseLog, holdMs));
+    await Promise.all([pa.exited, pb.exited]);
+    const pw = windows(premiseLog);
+    premiseHolds(
+      "unwrapped children overlap — the overlap oracle is blind otherwise",
+      overlaps(pw.get("a"), pw.get("b")),
+    );
+
+    const log = join(dir, "class.log");
+    const a = runWrapped(env, logWindowArgs("a", log, holdMs), ["--class", "mutation"]);
+    const b = runWrapped(env, logWindowArgs("b", log, holdMs), ["--class", "mutation"]);
+    const [ra, rb] = await Promise.all([a.exited, b.exited]);
+    expect(ra.code).toBe(0);
+    expect(rb.code).toBe(0);
+    const got = windows(log);
+    expect(got.get("a")).toBeDefined();
+    expect(got.get("b")).toBeDefined();
+    expect(overlaps(got.get("a"), got.get("b"))).toBe(false);
+  }, 60_000);
+
+  it("AC-3 — one class holder plus TWO ordinary acquirers never exceeds the slot count", async () => {
+    const dir = slotDir();
+    const holdMs = 900;
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2", FX_HEAVY_POLL_MS: "100" };
+
+    // The stated topology, not a smaller one. An earlier version ran ONE
+    // ordinary acquirer beside the class holder, which the rejected
+    // separate-slot-directory design also passes while admitting three heavy
+    // phases: the class run takes its own dir's slot and both ordinary runs take
+    // the shared pair. Three participants is what discriminates them.
+    // Premise arm: the SAME three children, unwrapped, must overlap three ways.
+    // Without it, startup skew alone can prevent a triple overlap and the
+    // ceiling assertion below holds for a reason that has nothing to do with
+    // admission — which is how the rejected independent-capacity design passes.
+    const premiseLog = join(dir, "premise.log");
+    const pre = ["class", "one", "two"].map((tag) =>
+      runUnwrapped(logWindowArgs(tag, premiseLog, holdMs)),
+    );
+    await Promise.all(pre.map((r) => r.exited));
+    const pw = windows(premiseLog);
+    premiseHolds(
+      "all three unwrapped children overlap — the ceiling oracle is blind otherwise",
+      overlaps(pw.get("class"), pw.get("one")) &&
+        overlaps(pw.get("class"), pw.get("two")) &&
+        overlaps(pw.get("one"), pw.get("two")),
+    );
+
+    const log = join(dir, "ceiling.log");
+    const cls = runWrapped(env, logWindowArgs("class", log, holdMs), ["--class", "mutation"]);
+    const one = runWrapped(env, logWindowArgs("one", log, holdMs));
+    const two = runWrapped(env, logWindowArgs("two", log, holdMs));
+    const results = await Promise.all([cls.exited, one.exited, two.exited]);
+    for (const r of results) expect(r.code).toBe(0);
+
+    const got = windows(log);
+    for (const tag of ["class", "one", "two"]) expect(got.get(tag)).toBeDefined();
+    // At most two of the three windows may overlap at any instant. Checking the
+    // three PAIRS is enough: a triple overlap implies all three pairs overlap.
+    const pairs: [string, string][] = [
+      ["class", "one"],
+      ["class", "two"],
+      ["one", "two"],
+    ];
+    const overlapping = pairs.filter(([a, b]) => overlaps(got.get(a), got.get(b)));
+    expect(overlapping.length).toBeLessThan(3);
+  }, 90_000);
+
+  it("AC-2f — a class run WAITING for the class holds NO slot, so ordinary work still runs", async () => {
+    const dir = slotDir();
+    const holdMs = 900;
+    // TWO slots, and that is the whole design of this case. At one slot the
+    // class HOLDER legitimately owns the only slot, so an ordinary run cannot
+    // proceed either way and the case distinguishes nothing — it just waits for
+    // the holder and then races. (CI caught that as a 90 s timeout; locally it
+    // passed by winning the race.) At two slots the holder takes one, and the
+    // question "does the BLOCKED class run take the other" has an answer.
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2", FX_HEAVY_POLL_MS: "100" };
+
+    const holder = runWrapped(env, sleeperArgs(60_000), ["--class", "mutation"]);
+    await waitForStderr(holder, "acquired class", 20_000);
+    await waitForStderr(holder, "acquired slot-", 20_000);
+
+    const blocked = runWrapped(env, sleeperArgs(60_000), ["--class", "mutation"]);
+    await waitForStderr(blocked, "waiting for the mutation class", 20_000);
+
+    // The discriminator: one slot is still free ONLY IF `blocked` is waiting on
+    // the class without having taken one. Under a slot-first implementation it
+    // would hold the second slot and this ordinary run could not start.
+    // TIME-BOUNDED, and that is the discriminator rather than a nicety. Under a
+    // slot-first implementation the ordinary run does still complete — after the
+    // 60 s holder finishes — so "it eventually exits 0" is satisfied by the
+    // defect and only the DEADLINE separates them. Verified by planting
+    // slot-first: the unbounded form passed, this one fails.
+    const log = join(dir, "ordinary.log");
+    const startedAt = Date.now();
+    const ordinary = runWrapped(env, logWindowArgs("ordinary", log, holdMs));
+    expect((await ordinary.exited).code).toBe(0);
+    const elapsed = Date.now() - startedAt;
+    expect(windows(log).get("ordinary")).toBeDefined();
+    // Generous against CI slowness, and still an order of magnitude under the
+    // 60 s wait a slot-first implementation would impose.
+    expect(elapsed).toBeLessThan(20_000);
+
+    holder.child.kill("SIGKILL");
+    blocked.child.kill("SIGKILL");
+    await Promise.all([holder.exited, blocked.exited]);
+  }, 90_000);
+
+  it("AC-2e/b — `--class` with no value is refused, not read as no-class", async () => {
+    const dir = slotDir();
+    // The dangerous reading: treat a malformed request as absence and admit the
+    // run unbounded. The caller ASKED to be bounded.
+    const run = runWrapped(
+      { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2" },
+      [process.execPath, "-e", "process.exit(0)"],
+      ["--class"],
+    );
+    expect((await run.exited).code).toBe(2);
+    expect(run.stderr()).toMatch(/requires a value/i);
+  }, 60_000);
+
+  it("AC-2b — a class run nested under an inherited slot REFUSES, and says why", async () => {
+    const dir = slotDir();
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2", FX_HEAVY_POLL_MS: "100" };
+    const holder = await holdSlot(env);
+    const marker = /FX_HEAVY_SLOT_HELD=(\S+)/.exec(holder.stderr());
+    const inherited = marker?.[1] ?? `${join(dir, "slot-0")}:${holder.pid}`;
+
+    // Asserts the EXIT and the message, never "it waits": a deadlock also waits,
+    // which is how the design this replaces passed its own criterion.
+    const nested = runWrapped(
+      { ...env, FX_HEAVY_SLOT_HELD: inherited },
+      [process.execPath, "-e", "process.exit(0)"],
+      ["--class", "mutation"],
+    );
+    const res = await nested.exited;
+    expect(res.code).not.toBe(0);
+    expect(nested.stderr()).toMatch(/refusing/i);
+    expect(nested.stderr()).toMatch(/outermost/i);
+    holder.child.kill("SIGKILL");
+    await holder.exited;
+  }, 60_000);
+
+  it("AC-2c — the reported deadlock cycle terminates for every participant", async () => {
+    const dir = slotDir();
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+    // The exact cycle review round 2 constructed: an ordinary holder, a class
+    // acquirer waiting for the one slot, and nested class work under the holder.
+    const ordinary = await holdSlot(env);
+    const classWaiter = runWrapped(env, sleeperArgs(1_500), ["--class", "mutation"]);
+    // The cycle must EXIST before "it terminates" means anything. Without this,
+    // a nested implementation that happens to win the race and acquire the class
+    // before refusing passes while deadlocking under the intended ordering.
+    await waitForStderr(classWaiter, "acquired class", 20_000);
+    const marker = /FX_HEAVY_SLOT_HELD=(\S+)/.exec(ordinary.stderr());
+    const inherited = marker?.[1] ?? `${join(dir, "slot-0")}:${ordinary.pid}`;
+    const nested = runWrapped(
+      { ...env, FX_HEAVY_SLOT_HELD: inherited },
+      [process.execPath, "-e", "process.exit(0)"],
+      ["--class", "mutation"],
+    );
+    // The nested one must resolve WITHOUT waiting on anything the ordinary
+    // holder is blocking, which is the whole point of refusing.
+    expect((await nested.exited).code).not.toBe(0);
+    ordinary.child.kill("SIGKILL");
+    await Promise.all([classWaiter.exited, ordinary.exited]);
+  }, 60_000);
+
+  it("AC-2e — an unknown class value is refused, not minted", async () => {
+    const dir = slotDir();
+    // An implementation that accepts `mutation` correctly AND `mutaton` under
+    // its own independent lock satisfies every other case here, while one run
+    // under each spelling proceeds concurrently.
+    const run = runWrapped(
+      { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2" },
+      [process.execPath, "-e", "process.exit(0)"],
+      ["--class", "mutaton"],
+    );
+    const res = await run.exited;
+    expect(res.code).toBe(2);
+    expect(run.stderr()).toContain("mutation");
+  }, 60_000);
+});
+
+describe("mutation admission class — the production entry point", () => {
+  it("AC-2d — `pnpm heavy:mutation` actually takes the class", async () => {
+    const dir = slotDir();
+    const holdMs = 900;
+    // Every other case drives the wrapper's own Python path and passes whether
+    // or not the SHIPPED script delivers the flag. `pnpm heavy --class mutation`
+    // could never have worked -- the heavy script already ends in its own `--`,
+    // so `split_argv` takes `--class` as command[0] and swallows it -- and no
+    // wrapper-level case could have caught that.
+    //
+    // slots=2 is the discriminator: at one slot these serialize regardless.
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "2", FX_HEAVY_POLL_MS: "100" };
+
+    // Premise arm, and it is specifically about `pnpm` and reaper startup skew:
+    // if the two workloads do not overlap when NOTHING bounds them, the
+    // non-overlap asserted below proves only that they were slow to start, and
+    // a script that silently drops `--class mutation` passes.
+    const premiseLog = join(dir, "premise.log");
+    const pa = spawnRun("pnpm", ["heavy", ...logWindowArgs("a", premiseLog, holdMs)], env);
+    const pb = spawnRun("pnpm", ["heavy", ...logWindowArgs("b", premiseLog, holdMs)], env);
+    await Promise.all([pa.exited, pb.exited]);
+    const pw = windows(premiseLog);
+    premiseHolds(
+      "the two production-entry workloads overlap without the class — the oracle is blind otherwise",
+      overlaps(pw.get("a"), pw.get("b")),
+    );
+
+    const log = join(dir, "entry.log");
+    const a = spawnRun("pnpm", ["heavy:mutation", ...logWindowArgs("a", log, holdMs)], env);
+    const b = spawnRun("pnpm", ["heavy:mutation", ...logWindowArgs("b", log, holdMs)], env);
+    const [ra, rb] = await Promise.all([a.exited, b.exited]);
+    expect(ra.code).toBe(0);
+    expect(rb.code).toBe(0);
+    const got = windows(log);
+    expect(got.get("a")).toBeDefined();
+    expect(got.get("b")).toBeDefined();
+    expect(overlaps(got.get("a"), got.get("b"))).toBe(false);
+  }, 120_000);
+});
