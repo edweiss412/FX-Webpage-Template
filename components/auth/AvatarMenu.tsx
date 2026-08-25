@@ -434,6 +434,11 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
                 // skips it only for activation; re-entry is guarded in
                 // `onSwitchSubmit` instead.
                 aria-disabled={switchPending}
+                // Pending is a network round trip now (the clear also signs the
+                // device out), so dimming alone is not enough: aria-busy here,
+                // and the announcement in the always-mounted status region
+                // below, OUTSIDE this menu (impeccable critique P1, WCAG 4.1.3).
+                aria-busy={switchPending || undefined}
                 className={cn(
                   itemClass,
                   "aria-disabled:cursor-not-allowed aria-disabled:opacity-60",
@@ -476,6 +481,15 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
       */}
       <span role="status" data-testid="theme-persist-announcer" className="sr-only">
         {persistFailed ? THEME_PERSIST_FAILED_NOTE : ""}
+      </span>
+      {/*
+        Same shape for the switch-person pending state: mounted always, text
+        only while the clear is in flight. Outside the popover AND outside the
+        aria-busy item, because AT may ignore descendant changes under an
+        aria-busy ancestor (the _ClaimedRowButton precedent).
+      */}
+      <span role="status" data-testid="avatar-menu-switch-announcer" className="sr-only">
+        {switchPending ? "Switching person" : ""}
       </span>
     </div>
   );
