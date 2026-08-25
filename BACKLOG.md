@@ -931,7 +931,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number
 
-**Effort:** M
+**Status:** IN PROGRESS · **Branch:** feat/review-modal-strip-dock · **Effort:** M
 
 Filed 2026-08-02 alongside the anchor-room census that measured the other two.
 
