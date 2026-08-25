@@ -240,7 +240,7 @@ that the second one's advisory survives.
 
 <!-- task: red=`pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts` red-state=live why=`the sweep gates REPAIR rather than its own existence: every site in the scripts DECLARED list must carry a supersession marker within twelve lines. On the pre-implementation tree not one of them does, so it exits 1 naming every declared site across the two predecessor specs, the deciding suite and the scanner module header; the edits of this task are exactly what turns the same command green. The count lives in the script rather than being repeated here, so the two cannot drift` ac=AC-10 -->
 
-**What is red and why:** the claim sweep exits 1 on the current tree naming all six declared claim
+**What is red and why:** the claim sweep exits 1 on the current tree naming all seven declared claim
 sites as carrying no supersession marker. The six edits below are exactly what turns the same
 command green.
 

@@ -62,7 +62,7 @@ for (const file of files) {
 // The previous version gated on EVERY hit carrying a supersession marker, and
 // plan review showed that gate is unsatisfiable: 13 of 26 hits are false
 // positives in unrelated files — BACKLOG.md, four other specs — where "quoted",
-// "limit" and "zero" merely co-occur near each other. No edit to this arc's six
+// "limit" and "zero" merely co-occur near each other. No edit to this arc's seven
 // claim sites can ever mark them, so the gate could never go green.
 //
 // Tightening the matcher until those 13 disappear is the ratchet: two rounds
@@ -70,9 +70,11 @@ for (const file of files) {
 // does not converge. So the recognizer stops being an oracle. It DISCOVERS, and
 // the gate ranges over a finite DECLARED list instead:
 //
-//   GATE      - the six known claim sites each carry a supersession marker.
+//   GATE      - the seven known claim sites each carry a supersession marker.
 //               Finite, exact, closable.
-//   SELF-TEST - the matcher must still FIND all six. A discovery arm that has
+//   SELF-TEST - the matcher must still find the five REACHABLE ones; the other
+//               two are exempt, each with a recorded reason. A discovery arm
+//               that has
 //               gone blind reports clean for the wrong reason.
 //   REPORT    - everything else is printed as a CANDIDATE for a human to
 //               disposition. Surfaced, never enforced.
