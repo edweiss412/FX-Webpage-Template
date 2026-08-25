@@ -147,3 +147,6 @@ tests/_probe_nondet/
 
 # per-run mutation outcome records (design 5.2)
 .mutation-records/
+
+# Codex dispatch briefs — session scaffolding, not repo state
+.codex-briefs/

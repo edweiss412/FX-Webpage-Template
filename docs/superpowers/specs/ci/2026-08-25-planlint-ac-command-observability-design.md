@@ -33,7 +33,7 @@ Each decision below is settled, with the evidence that settled it. Verify the ci
 - **Arm (b) matches a WHOLE ARGUMENT, never a substring** (round-1 finding 2).
 - **Arm (b) validates, it does not discover.** Documented limit L-2, with the reason. Do not file "arm (b) would not have caught r4 F2" as a finding; this spec says so first.
 - **Thirty-three corpus tables go unlinted on day one.** Documented limit L-3, accepted deliberately as the price of refusing a recognizer.
-- **The five true corpus instances in section 6.3 are not repaired here.** Class-sweep disposition exception (c): the repair spans a tree this PR does not otherwise touch, and each is a judgment call about what that plan's third column means.
+- **The six true corpus instances in section 6.3 are not repaired here.** Class-sweep disposition exception (c): the repair spans a tree this PR does not otherwise touch, and each is a judgment call about what that plan's third column means.
 
 ### 1.2 The incidents, recovered verbatim
 
@@ -62,14 +62,16 @@ $ grep -rl '^| AC-' docs/superpowers/plans/ --include='*.md' | wc -l
 Refined to actual tables (a table is a header row, a delimiter row, and data rows; an AC coverage table is one where at least half the data rows begin with an `AC-<digit>` id):
 
 ```
-total markdown tables in plan corpus: 827
-AC coverage tables:                    34
-distinct header rows among them:       34     <- zero repeats
-distinct enclosing headings:           24
-column counts observed:                2 to 6
+$ python3 docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.py census
+total markdown tables in plan corpus: 933
+AC coverage tables:                   34
+distinct header rows among them:      34
+distinct enclosing headings:          24
+column counts observed:               2 to 6
+tables in the PLAN CORPUS using the fixture's exact header: 1
 ```
 
-Every AC coverage table in the corpus has a header row unlike every other one. The header naming the command column is spelled, among others, `Producing command`, `Channel`, `Channel the proof arrives on`, `Executable step that PROVES it`, `The executable step, and the channel it arrives on`, `Evidence`, `Notes`, `Task`, `proved by`, `discharged by`, `claimed by`. Exactly one table repo-wide uses `| AC | Proved by | Producing command |`, and it is the fixture, because it is the only plan that has been through four review rounds on this class.
+Every AC coverage table in the corpus has a header row unlike every other one. The header naming the command column is spelled, among others, `Producing command`, `Channel`, `Channel the proof arrives on`, `Executable step that PROVES it`, `The executable step, and the channel it arrives on`, `Evidence`, `Notes`, `Task`, `proved by`, `discharged by`, `claimed by`. Exactly one table IN THE PLAN CORPUS uses `| AC | Proved by | Producing command |`, and it is the fixture, because it is the only plan that has been through four review rounds on this class. This document and this arc's plan also use that header, which is why the claim is scoped to the corpus the arm ranges over rather than to the repository.
 
 **Consequence.** Keying the arm on the header name is a recognizer over open English, which the row forbids and which this repo has measured as the losing move. Keying it on the enclosing heading is the same thing with 24 spellings instead of 34. Keying it on "the last column" is worse than either: it is a silent guess, and section 6.3 shows it producing 42 hard findings on six v1-era tables whose last column is a Notes column.
 
@@ -95,7 +97,16 @@ This is a correction to the row, not a widening of it. The narrowing that does f
 
 ## 4. Probe 3: retroactive validation, run where the defects are known to have been
 
-A prototype of the arm was pointed at the four historical blobs before any shipping code was written. Re-run after the round-1 repairs (every span, whole-argument pins, trailing-pipe tolerance); the counts are unchanged.
+A prototype of the arm was pointed at the four historical blobs before any shipping code was written. Re-run after every repair round; the counts are unchanged.
+
+```
+$ python3 docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.py blobs <dir of the five blobs>
+173bfccfe: rows=16 4 hard, 0 advisory
+b1db667e0: rows=16 1 hard, 0 advisory
+f921a138b: rows=16 0 hard, 0 advisory
+b3705cebd: rows=16 0 hard, 0 advisory
+HEAD:      rows=16 0 hard, 0 advisory
+```
 
 | Blob | State | hard | advisory | Reproduces |
 | --- | --- | --- | --- | --- |
@@ -109,27 +120,23 @@ The arm reproduces r2 F4 exactly (4 of 4) and r3 F5 exactly (1 of 1), and report
 
 ## 5. Probe 4: plant-both, on the shipped fixture
 
-Each plant is a single-cell edit to the current fixture. The unplanted fixture scores 0 hard, 0 advisory (row `HEAD` above), so the criterion moves on every plant and on no correct form. Two of the four plants are the round-1 reviewer's own probes, kept as regression cases.
+Each plant is a single-cell edit to the live fixture, applied by the tracked prototype so the anchors are asserted unique rather than eyeballed. The unplanted fixture scores 0 hard, 0 advisory, so the criterion moves on every plant and on no correct form. Four of the seven plants are review findings kept as regression cases: (c) and (d) from round 1, (c2), (e) and (f) from round 2.
 
 ```
-PLANT (a), AC-1's command cell replaced with prose "both red commands above":
-  HARD  AC_COMMAND_CELL_NOT_RUNNABLE  line 365
-  -> 1 hard, 0 advisory
-
-PLANT (b), driver.test.ts removed from AC-14's command cell (re-breaks r4 F2):
-  ADVISORY  AC_COMMAND_PIN_UNOBSERVED  line 378: tests/paneCompaction/driver.test.ts:72
-  -> 0 hard, 1 advisory
-
-PLANT (c), r1 F1 — an unmatched quote in AC-15's SECOND of three commands:
-  HARD  AC_COMMAND_UNPARSABLE  line 379: "pnpm vitest run 'tests/paneCompaction/adapter.test.ts"
-  -> 1 hard, 0 advisory
-
-PLANT (d), r1 F2 — AC-14's command names driver.test.tsx, a strict superstring of the pin:
-  ADVISORY  AC_COMMAND_PIN_UNOBSERVED  line 378: tests/paneCompaction/driver.test.ts:72
-  -> 0 hard, 1 advisory
+$ python3 docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.py plants
+unplanted:                  rows=16 0 hard, 0 advisory
+a_prose_cell:               rows=16 1 hard, 0 advisory   AC_COMMAND_CELL_NOT_RUNNABLE   L365
+b_pin_dropped:              rows=16 0 hard, 1 advisory   AC_COMMAND_PIN_UNOBSERVED      L378
+c_later_span_broken:        rows=16 1 hard, 0 advisory   AC_COMMAND_UNPARSABLE          L379
+c2_FIRST_span_broken:       rows=16 1 hard, 0 advisory   AC_COMMAND_UNPARSABLE          L379
+d_superstring_appended:     rows=16 0 hard, 1 advisory   AC_COMMAND_PIN_UNOBSERVED      L378
+e_superstring_prepended:    rows=16 0 hard, 1 advisory   AC_COMMAND_PIN_UNOBSERVED      L378
+f_row_without_leading_pipe: rows=16 1 hard, 0 advisory   AC_COMMAND_CELL_NOT_RUNNABLE   L368
 ```
 
-**The prototype is a spec input, so its own limits are stated.** `proto2.py` is a throwaway Python approximation, not the shipped code. Its span pairing mirrors `extractSpans` at `lib/specLint/parse.ts:37` (equal-length backtick runs, unclosed runs literal). Its first version spawned `sh` WITHOUT `--`, which is how correction 1 in section 6.1 was found rather than shipped, and checked only a cell's first span, which is how round-1 finding 1 reached a reviewer rather than a suite. It iterates every data row of the table it is given, with no cap and no truncation, and prints the row count beside the finding count so a silent under-read is visible. Numbers quoted from it in sections 4, 5 and 6 are re-derived by the shipped suites in AC-6 and AC-7 rather than trusted.
+**Plant (c2) exists because plant (c) was ordering-lucky.** Round 2's finding 2 is that a line-keyed results map keeps only the last span's outcome, so a BROKEN FIRST span followed by a clean last one is silently accepted. Plant (c) breaks the second of two spans and therefore survived the collision by accident rather than by the design being right. The pair (c, c2) covers both orderings, and section 8.3 changes the key so neither can collide.
+
+**The prototype is a spec input, and it is TRACKED.** `docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.py` generates every number in sections 2, 4, 5, 6.1, 6.3 and 6.4; each of those sections carries the exact subcommand, and every transcript in full is at `docs/superpowers/specs/ci/probes/2026-08-25-ac-coverage-prototype-probes.md`. It is a Python approximation, not the shipped arm: its span pairing mirrors `extractSpans` at `lib/specLint/parse.ts:37`, its cell ranges are absolute so full containment can be tested, and it does NOT reimplement `classifySpan` — the shipped arm delegates the citation verdict to that function while the prototype applies the narrow rule directly. Its own history is part of the evidence, because each defect it carried is one the spec would otherwise have shipped: it first spawned `sh` without `--` (correction 1), then checked only a cell's first span (round-1 finding 1), then keyed span outcomes by line alone (round-2 finding 2), and its corpus filter tested the whole ROW where its stated criterion says the last CELL, which admitted a twelfth table and ten spurious findings until it was read against its own wording. Every number here is re-derived by the shipped suites in AC-6 and AC-7 rather than trusted.
 
 ## 6. Probe 5: the corpus audit, and the three design corrections it forced
 
@@ -149,10 +156,9 @@ NORMAL_OK                     (exit 0)
 The failure is reported as unparsable, which is indistinguishable from a genuine syntax error and is the wrong verdict. **This bug is live in the shipped red arm today**, at `scripts/spec-lint.ts:864`, which spawns `sh` with `[mode === "parse" ? "-nc" : "-c", command]` and no `--`. No current `red=` command begins with `-`, so it is latent rather than firing:
 
 ```
-$ git grep -hoE '<!-- task: red=`[^`]*`' -- '*.md' | sed 's/.*red=`//; s/`$//' | wc -l
-572
-$ git grep -hoE '<!-- task: red=`[^`]*`' -- '*.md' | sed 's/.*red=`//; s/`$//' | grep -cE '^[[:space:]]*-'
-0
+$ python3 docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.py markers
+red= markers in tracked markdown: 574
+  beginning with a dash:          0
 ```
 
 The `--` is added once, at the one seam, with a test in both directions. Adding it does not disturb the normal path, as the third transcript line above shows.
@@ -203,13 +209,13 @@ Stated here, not discovered in a review round.
 
 **L-2. Arm (b) validates a declared pin; it discovers no absent one.** At `b1db667e0`, the state r4 F2 was raised against, the AC-14 row cited no pin at all: the reviewer knew the pin existed by reading the suite. Arm (b) compares two cells of one row, so it can only fire once someone has written the pin down. Its value is that it makes the r4 repair permanent: an edit that drops `driver.test.ts` from the command now advises, as plants (b) and (d) show. It is not, and must not be cited as, protection against a criterion whose pin nobody named.
 
-**L-3. A table nobody declares is not linted.** By construction. Thirty-three of the corpus's thirty-four AC tables are unlinted on the day this ships. That is the price of refusing a recognizer, and it is the same trade invariant 12 took.
+**L-3. A table nobody declares is not linted.** By construction. This arc adds one plan to the corpus, so after it lands there are 35 AC coverage tables, two of them declared (the fixture and this arc's plan) and **33 unlinted**. That is the price of refusing a recognizer, and it is the same trade invariant 12 took.
 
 **L-4. A mis-declaration is the author's error and the arm reports it as one.** Declaring column 3 of an `AC / Status / Notes` table produces hard findings on every row. The arm cannot tell a mis-declaration from a table full of defects, and does not try. The declaration is deliberate; the fix is to remove it.
 
 **L-5. `sh -n` is whatever `/bin/sh` is on the host.** It is bash in POSIX mode on macOS and dash on the Ubuntu runners. The arm inherits whatever divergence that implies, exactly as the existing red arm already does. No new exposure.
 
-**L-6. Arm (b)'s whole-argument match does not resolve globs or shell expansion.** A command that reaches the pin's file only through `tests/**` or a variable draws an advisory it does not deserve. Advisory is the correct severity precisely because this case exists; the author reads it and moves on.
+**L-6. Arm (b)'s whole-argument match does not resolve globs, shell expansion, or any spelling but the repo-relative one.** A command that reaches the pin's file through `tests/**`, a variable, or a path relative to some other directory draws an advisory it does not deserve. This limit WIDENED at round 2: the earlier rule also accepted any token ending in `/` plus the pin path, so prepending an `archive/` segment named a different, nonexistent file and still satisfied the pin. The arm is pure and cannot resolve a repository root, so the honest rule is exact repo-relative equality (or `./` plus it) and nothing else. Advisory is the correct severity precisely because these cases exist; the author reads it and moves on.
 
 ## 8. Design
 
@@ -246,7 +252,7 @@ Hard for (a) and advisory for (b) is the row's ratified split, and it is right f
 
 The arm is a decider, so it states what it ACCEPTS, keyed on structure. **A command cell is accepted when it contains at least one non-blank inline code span fully inside the cell, and EVERY such span exits 0 under `sh -nc --`.** Everything else is reported by name in the table above. There is no denylist of rejected spellings, because a denylist accepts whatever it did not model.
 
-Every-span rather than first-span is round-1 finding 1: three of the fixture's rows carry more than one producing command, and a first-span rule accepts a broken second one. The cost is that a command cell may not carry backticked text that is not a command; section 6.3 measures that cost at one finding across the whole 11-table stand-in, in a table that should not have declared.
+Every-span rather than first-span is round-1 finding 1. Stated exactly, because round 2 corrected an overstatement here: ONE fixture row (AC-15) carries three producing commands, and one more (AC-12) carries a second span that is an aside rather than a command. A first-span rule accepts a broken second command in the first case, which is enough; the second case is why the rule's cost is that a command cell may not carry backticked non-command text at all. The cost is that a command cell may not carry backticked text that is not a command; section 6.3 measures that cost at one finding across the whole 11-table stand-in, in a table that should not have declared.
 
 Every boundary input, so none of these is discovered in a round:
 
@@ -257,6 +263,8 @@ Every boundary input, so none of these is discovered in a round:
 | a span straddles a cell boundary, because an unescaped `\|` sits inside backticks | GFM splits cells on unescaped pipes even inside code, and `extractSpans` pairs over the WHOLE LINE, so such a span is fully inside no cell and counts for none. The cell then reports as carrying no command, which tells the author to escape the pipe. 17 rows in the plan corpus already carry this shape (section 6.4) |
 | a data row has fewer cells than `command-col` | `AC_COVERAGE_COL_OUT_OF_RANGE` at that row's line, never silence |
 | a row omits the trailing pipe | GFM allows it, and prettier does NOT normalize it away (probed). End-of-line closes the final cell, so the command cell is not silently dropped |
+| a row omits the LEADING pipe | GFM allows that too, and requiring `^\s*\|` skipped such a row entirely, so an unrunnable cell drew no finding (round-2 finding 1). A declared table's data rows are therefore the contiguous NON-BLANK lines after the delimiter row, ended by a blank line or end of document; column 0 opens the first cell when the leading pipe is absent |
+| a non-blank line after the table that is not a row at all | it is read as a row, and if it has fewer cells than `command-col` it draws `AC_COVERAGE_COL_OUT_OF_RANGE`. GFM would swallow it too. Signaled, never silent |
 | a row carries an escaped pipe `\|` | not a cell boundary; the reader splits on unescaped pipes only. 75 rows in the plan corpus carry one |
 | a row has leading whitespace before its first pipe | tolerated; the reader matches `^\s*\|`. 675 rows in the plan corpus do |
 | the declared table has a header and a delimiter but zero data rows | `AC_COVERAGE_EMPTY_TABLE`, advisory. A declaration that checks nothing must not be silent |
@@ -273,14 +281,18 @@ Every boundary input, so none of these is discovered in a round:
 
 A candidate `path:line` substring is extracted from the row's other cells with one path-shaped regex and handed to `classifySpan` at `lib/specLint/citations.ts:28` for the verdict, so the arm holds no second opinion about what a citation is. It fires when `classifySpan` returns a citation with a line coordinate whose `path` starts with `tests/`.
 
-**The path must match a WHOLE ARGUMENT of the command, never a substring** (round-1 finding 2). The command cell's span contents are joined, split on whitespace, each token stripped of surrounding quotes, and the pin matches when a token equals the path, equals `./` plus the path, or ends with `/` plus the path. Substring containment would accept a command naming the pin's path with one extra character appended (`tests/paneCompaction/driver.test.ts` plus an `x`, a file that does not exist) for a pin naming `tests/paneCompaction/driver.test.ts`, which is one character of ordinary editing away and is the exact wrong-accept the advisory exists to catch.
+**The path must match a WHOLE ARGUMENT of the command, never a substring** (round-1 finding 2), **and the match is exact repo-relative equality** (round-2 finding 3). The command cell's span contents are joined, split on whitespace, each token stripped of surrounding quotes, and the pin matches when a token EQUALS the path or equals `./` plus the path. Nothing else.
+
+Two wrong-accepts, each one ordinary edit from the live fixture, are why the rule is this narrow. Substring containment accepts the pin's path with a character APPENDED (the pin's own path plus an `x`, a file that does not exist). A `/`-suffix rule — which round 1's repair still carried — accepts any wrong PREFIX: prepend `archive/` and the token ends with `/` plus the pin path while naming a different, nonexistent file. Plants (d) and (e) in section 5 are those two cases. The cost of the narrowing is stated as L-6 rather than left to be discovered.
 
 ### 8.3 Seams reused, and the one thing that is new
 
 - **Span extraction.** `extractSpans` at `lib/specLint/parse.ts:37` already pairs inline code spans and records each one's line and 1-based column, and `parseDoc` exposes them as `DocModel.spans`. The arm filters those by the cell's column range rather than re-pairing backticks, so there is one span recognizer in the codebase and it cannot drift. `line.slice(column - 1, column - 1 + content.length)` recovers the content exactly; probed against a real table row.
 - **Citation classification.** `classifySpan` at `lib/specLint/citations.ts:28` is the authority, as section 8.2.2 states. This matters because the fixture's own pin is written as bare text, not in a span: `the executable payload pin at tests/paneCompaction/driver.test.ts:72`.
 - **Shell parse check.** `scripts/spec-lint.ts` owns every subprocess; `lib/specLint/` is pure and a recursive walker enforces it (`tests/specLint/_metaPureCore.test.ts:11`, rooted at `lib/specLint`). The arm therefore produces a parse plan the way `parseCheckPlan` at `lib/specLint/redContract.ts:346` does, the adapter spawns, and the outcomes come back as data.
-- **Ownership of the parse synthesis.** `synthesizeParseFindings` at `lib/specLint/redContract.ts:510` already branches on `ParseCheckEntry.source`. Rather than adding a third branch there, `acCoverage` owns its own plan and its own synthesizer, and the ADAPTER spawns the concatenation of both plans and hands the one shared `ParseResults` to both. The results map is keyed by LINE and an AC row's line can never collide with a marker's, so one spawn batch serves both and `acCoverage` findings are produced by the `acCoverage` module. The AC entries are NOT fed to `parseFailedLines` (`lib/specLint/run.ts:141`), whose job is excluding red markers from EXECUTION; AC commands are never executed. A cell with several spans contributes several entries, keyed by line and by span index.
+- **Ownership of the parse synthesis, and its OWN results type.** `synthesizeParseFindings` at `lib/specLint/redContract.ts:510` already branches on `ParseCheckEntry.source`, so a third branch there is the obvious move. It is refused, for a reason round 2 found by probe rather than argument: `ExecResults.outcomes` is keyed by LINE ALONE (`lib/specLint/types.ts:179`), one marker per line being the assumption that has always held for `red=` and `gate`. **An AC row contributes one entry PER SPAN, all on one line, so a line-keyed store keeps only the last** — and the reviewer's probe showed exits `[2, 0, 0]` collapsing to `{379: 0}`, silently accepting a broken first command. Reusing the shared type would have shipped that.
+
+  So `acCoverage` owns its own plan, its own results type keyed by `(line, spanIndex)`, and its own synthesizer. The adapter runs a second, separate spawn loop for the AC plan; it is the same `sh -nc --` invocation, so the `--` repair still lands once. `acCoverage` findings are produced by the `acCoverage` module, `ParseResults` is untouched, and the red arm's blast radius is zero. The AC entries are NOT fed to `parseFailedLines` (`lib/specLint/run.ts:141`), whose job is excluding red markers from EXECUTION; AC commands are never executed.
 - **New:** a column-aware markdown table reader. `parseDoc` has no table model; `TABLE_ROW` at `lib/specLint/universals.ts:37` detects that a line is a table row and stops there. This is the only genuinely new recognizer, it is over markdown pipe structure and nothing else, and it is where escaped pipes, leading whitespace and the optional trailing pipe are handled.
 
 ### 8.4 Where the arm registers
@@ -334,13 +346,13 @@ Enumerating the inputs on which the arm could conceivably be confused is **not**
 
 | AC | Proved by | Producing command |
 | --- | --- | --- |
-| AC-1 (a declared table's prose command cell is a hard finding) | Task 4 | `pnpm vitest run tests/specLint/acCoverage.test.ts` |
-| AC-2 (EVERY non-blank span must parse, and `sh -nc --` does not misreport a leading-dash command) | Task 4 + Task 8 | `pnpm vitest run tests/specLint/acCoverage.test.ts tests/specLint/redExec.test.ts` |
+| AC-1 (a declared table's prose command cell is a hard finding, including in a row that omits its leading or trailing pipe) | Task 4 | `pnpm vitest run tests/specLint/acCoverage.test.ts` |
+| AC-2 (EVERY non-blank span must parse, in EITHER order — a broken FIRST span followed by clean ones is reported, which a line-keyed outcome store loses; and `sh -nc --` does not misreport a leading-dash command) | Task 4 + Task 8 | `pnpm vitest run tests/specLint/acCoverage.test.ts tests/specLint/redExec.test.ts` |
 | AC-3 (an undeclared table draws nothing, over the whole walked corpus) | Task 6 | `pnpm vitest run tests/specLint/acCoverageCorpus.test.ts` |
 | AC-4 (malformed, table-less, out-of-range, EMPTY-TABLE and NOT-A-PLAN declarations each draw their own code) | Task 1 + Task 2 | `pnpm vitest run tests/specLint/acCoverage.test.ts` |
-| AC-5 (a `tests/`-rooted pin the command cannot reach advises; a source-file pin does not; a strict superstring does NOT satisfy the match) | Task 5 | `pnpm vitest run tests/specLint/acCoverage.test.ts` |
+| AC-5 (a `tests/`-rooted pin the command cannot reach advises; a source-file pin does not; neither an appended character nor a prepended path segment satisfies the match) | Task 5 | `pnpm vitest run tests/specLint/acCoverage.test.ts` |
 | AC-6 (the four historical blobs score 4/1/0/0 hard) | Task 3 | `pnpm vitest run tests/specLint/acCoverageIncidents.test.ts` |
-| AC-7 (plant-both: each of the four plants moves the criterion, each correct form does not) | Task 5 | `pnpm vitest run tests/specLint/acCoverageIncidents.test.ts` |
+| AC-7 (plant-both: each of the SEVEN plants of section 5 moves the criterion, each correct form does not) | Task 5 | `pnpm vitest run tests/specLint/acCoverageIncidents.test.ts` |
 | AC-8 (the arm reaches the CLI's rendered report and its exit code) | Task 7 | `pnpm vitest run tests/specLint/acCoverageCli.test.ts tests/specLint/cli.test.ts` |
 <!-- spec-lint: ignore — lib/specLint/acCoverage.ts is created by this spec's implementation; not yet tracked -->
 | AC-9 (`lib/specLint/acCoverage.ts` stays pure) | the existing recursive walker | `pnpm vitest run tests/specLint/_metaPureCore.test.ts` |

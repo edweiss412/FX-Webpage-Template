@@ -14,6 +14,7 @@ Written under the probe-before-argue rule in [`../../../../agents/spec-self-revi
 | [`2026-08-20-browser-child-wallclock-probe.md`](./2026-08-20-browser-child-wallclock-probe.md) | What is the per-child wall clock of a healthy browser-gate run, and what ceiling does it support? | [`../2026-08-20-browser-child-lifetime-design.md`](../2026-08-20-browser-child-lifetime-design.md) §3 |
 | [`2026-08-21-connection-census/`](./2026-08-21-connection-census/) | Which files under `tests/` open a `postgres` connection, through which helpers, with which URL provenance, and do the ledger row's two incident spellings have any live instance? | [`../2026-08-21-destructive-guard-discovery-by-connection-design.md`](../2026-08-21-destructive-guard-discovery-by-connection-design.md) §1, §3 |
 | [`2026-08-22-derived-number-population-census.md`](./2026-08-22-derived-number-population-census.md) | Are the figures these records state derived or hand-carried, and is that classification stable enough to gate on? | `BL-DERIVED-NUMBERS-IN-DOCS-ROT` |
+| [`2026-08-25-ac-coverage-prototype-probes.md`](./2026-08-25-ac-coverage-prototype-probes.md) | Is the AC-table grammar stable enough to key a lint arm on, and does the declaration-driven arm reproduce the three review rounds it was filed for? | [`../2026-08-25-planlint-ac-command-observability-design.md`](../2026-08-25-planlint-ac-command-observability-design.md) §2, §4, §5, §6 |
 
 ## Stating a figure
 
