@@ -3,6 +3,7 @@ import { join, relative, sep } from "node:path";
 
 import { CORPUS_DIR } from "./arc";
 import { ARC_SUM_FREEZE, isArcSumGrandfathered } from "./arcSumGrandfather";
+import { instant, strictlyBefore } from "./instant";
 import { COUNTED_STAGES, isCountedStage, ROUND_THRESHOLD, type Stage } from "./constants";
 import { arcCountedRounds, countedRounds, recordedRounds, roundGaps } from "./count";
 import { parseFiling, type FilingSection } from "./filing";
@@ -492,15 +493,19 @@ export function arcSumTotals(
       // INSTANTS, never as strings: `2026-08-21T23:30:00-05:00` denotes an
       // instant AFTER the freeze while sorting lexically before it, so a
       // string compare would keep an aged pair grandfathered (diff R1 P1).
-      // `Date.parse` of null-or-unparseable is NaN and every NaN comparison is
-      // false, so both count against the exemption - cannot be PROVEN older.
+      // Placed through `instant`, never `Date.parse`: a timezone-less string is
+      // not an instant but an instant PER HOST, and `Date.parse` also
+      // normalizes an impossible date into a real one. Both used to answer,
+      // host-dependently and silently, which is diff R3 P1. Unplaceable is
+      // `null`, `strictlyBefore` returns false on it, and the row counts
+      // against the exemption - cannot be PROVEN older.
       let freezeViolation = "";
       let frozen = false;
       if (isArcSumGrandfathered(branch, stage)) {
         const notProvenOld = group
           .flatMap((arc) => arc.rows)
           .filter((r) => r.stage === stage && r.status === "verdict")
-          .filter((r) => !(Date.parse(r.startedAt ?? "") < Date.parse(ARC_SUM_FREEZE)));
+          .filter((r) => !strictlyBefore(instant(r.startedAt), instant(ARC_SUM_FREEZE)));
         if (notProvenOld.length === 0) frozen = true;
         else
           freezeViolation =

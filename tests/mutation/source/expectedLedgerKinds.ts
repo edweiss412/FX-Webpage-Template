@@ -202,6 +202,7 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // floor is 1, so any row appearing here is a coverage regression to repair
   // rather than a number to update.
   reviewRoundCount: {},
+  reviewRoundInstant: {},
   // Counted from the surface: exactly TWO reachability arguments -- the
   // directory fallthrough at corpus.ts:79, which lands on the very next line's
   // `isFile()` skip, and the one-past-the-end read at :146, which `?? ""` turns

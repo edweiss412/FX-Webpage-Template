@@ -1350,6 +1350,28 @@ export const GUARD_SURFACES: GuardSurface[] = [
     control: { from: 'r.status === "verdict"', to: 'r.status !== "verdict"' },
     accepted: [],
   },
+  /**
+   * Enrolled at diff R3 of feat/review-round-arc-sum, in the same commit that
+   * created the module. The defect it exists to prevent is precisely the one
+   * the registry expresses well: a placement predicate that reports OK while
+   * the answer moved. `Date.parse` did exactly that - a timezone-less string
+   * got a host-dependent instant and an impossible date got a normalized one,
+   * and both read as "compared and cleared".
+   */
+  {
+    id: "reviewRoundInstant",
+    sourcePath: "lib/reviewRounds/instant.ts",
+    suitePaths: [
+      "tests/reviewRounds/instant.test.ts",
+      "tests/docs/_metaReviewRoundEconomy.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // Drops the upper half of the day-of-month check, so Feb 30 places as a
+    // real instant again - the exact R3 shape, sabotaged.
+    control: { from: "if (day < 1 || day > days) return null;", to: "if (day < 1) return null;" },
+    accepted: [],
+  },
   {
     id: "specLintNumerics",
     sourcePath: "lib/specLint/numerics.ts",

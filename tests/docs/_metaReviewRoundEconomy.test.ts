@@ -12,6 +12,7 @@ import {
   ARC_SUM_GRANDFATHERED,
 } from "../../lib/reviewRounds/arcSumGrandfather";
 import { arcCountedRounds } from "../../lib/reviewRounds/count";
+import { instant, strictlyBefore } from "../../lib/reviewRounds/instant";
 import { MECHANIZABLE_GRANDFATHERED } from "../../lib/reviewRounds/mechanizableGrandfather";
 import { premiseHolds } from "../_shared/premise";
 import { ledgerIds, type ExtractOpts } from "./_ledgerMdast";
@@ -1509,6 +1510,75 @@ describe("the arc-sum addition guard (spec §3.3)", () => {
     expect(problems[0]?.message).toContain("freeze");
   });
 
+  // Diff R3 P1. A timezone-less timestamp is not an instant, it is an instant
+  // PER HOST: `2026-08-21T23:30:00` predates the freeze under `TZ=UTC` and
+  // postdates it under `TZ=America/Chicago`, so the shipped predicate returned
+  // a clean exemption that depended on the machine it ran on. The premise below
+  // is the whole point - `Date.parse` SUCCEEDS here, so the old code compared a
+  // number rather than falling into the not-proven-old branch it documented.
+  // The repair makes the answer TZ-INVARIANT by refusing to place the string at
+  // all, which is why this case needs no TZ manipulation to pin it.
+  it("refuses the exemption for a timezone-less row, identically on every host", () => {
+    const tzLess = "2026-08-21T23:30:00";
+    // Run the SAME fixture under two zones and require the same answer. A test
+    // that only asserted "reports a violation" would have passed on this box
+    // before the repair and failed in UTC CI - it is the DIFFERENCE that is the
+    // defect, so the difference is what gets asserted.
+    premiseHolds(
+      "the two zones really do read this timestamp as different instants, so the case can discriminate",
+      (() => {
+        const before = process.env.TZ;
+        try {
+          process.env.TZ = "UTC";
+          const utc = Date.parse(tzLess);
+          process.env.TZ = "America/Chicago";
+          return Number.isFinite(utc) && utc !== Date.parse(tzLess);
+        } finally {
+          process.env.TZ = before;
+        }
+      })(),
+    );
+    const under = (tz: string) => {
+      const before = process.env.TZ;
+      try {
+        process.env.TZ = tz;
+        return check([
+          { path: `${GF.branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage }) },
+          {
+            path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+            body: half("bbbbbbbbbbbb", { branch: GF.branch, stage: GF.stage, startedAt: tzLess }),
+          },
+        ]).map((p) => p.kind);
+      } finally {
+        process.env.TZ = before;
+      }
+    };
+    const utc = under("UTC");
+    const chicago = under("America/Chicago");
+    expect(utc).toEqual(chicago);
+    expect(utc).toEqual(["missing_arc_filing"]);
+  });
+
+  // Same finding, second shape: `Date.parse` NORMALIZES an impossible calendar
+  // date into a real instant nobody wrote. Feb 30 becomes Mar 2 and then proves
+  // whatever Mar 2 proves.
+  it("refuses the exemption for an impossible calendar date", () => {
+    const impossible = "2026-02-30T00:00:00.000Z";
+    premiseHolds(
+      "the fixture is one `Date.parse` silently normalizes rather than rejects",
+      Number.isFinite(Date.parse(impossible)) && instant(impossible) === null,
+    );
+    const problems = check([
+      { path: `${GF.branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage }) },
+      {
+        path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+        body: half("bbbbbbbbbbbb", { branch: GF.branch, stage: GF.stage, startedAt: impossible }),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("freeze");
+  });
+
   // K3/`stage`. Without this, a predicate keyed on `branch` alone passes every
   // case above and silently exempts every OTHER counted stage on those eleven
   // branches. No declared mutation operator can drop a key coordinate
@@ -1681,7 +1751,7 @@ describe("the arc-sum grandfather set can only shrink (spec §3.3)", () => {
       (byBranch.get(branch) ?? [])
         .flatMap((arc) => arc.rows)
         .filter((r) => r.stage === stage)
-        .filter((r) => !(Date.parse(r.startedAt ?? "") < Date.parse(ARC_SUM_FREEZE)))
+        .filter((r) => !strictlyBefore(instant(r.startedAt), instant(ARC_SUM_FREEZE)))
         .map((r) => `${branch} ${stage} round ${r.round} startedAt=${r.startedAt}`),
     );
     expect(offenders).toEqual([]);
