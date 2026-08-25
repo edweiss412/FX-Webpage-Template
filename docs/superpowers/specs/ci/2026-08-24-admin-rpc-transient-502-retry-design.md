@@ -388,57 +388,61 @@ server`. That is the same discriminating string the evidence pass used to find t
 first place (probe §Finding 1), it appears whichever client made the call, and it does not care
 whether a retry followed.
 
-### 7.1 The string only appears if a consumer writes it, and today none of the four do
+### 7.1 The fault is logged where it is first observable, not where a consumer chooses to
 
-Keying on the fault is necessary and not sufficient, and the reason is a defect one layer below the
-trigger. On the four service-role paths above, a 502 currently produces NO fault string at all:
+Two earlier drafts of this section got the trigger wrong in opposite directions, and both errors had
+the same root: they asked a CONSUMER to reveal the fault.
 
-| path | what a 502 writes to the log today |
-| --- | --- |
-| `lib/admin/loadAlertSummary.ts`, search `ALERT_SUMMARY_READ_RETURNED_ERROR` | `source` and `code`, message OMITTED |
-| `lib/admin/loadTelemetryStats.ts`, search `TELEMETRY_STATS_READ_RETURNED_ERROR` | same shape, message OMITTED |
-| `lib/admin/loadRecentAutoApplied.ts`, search `roster_shift_counts rpc failed` | returns the message inside `infra_error`; never logs it, and its caller does not either |
-| `app/api/show/[slug]/version/route.ts`, search `SHOW_VERSION_TOKEN_RPC_FAILED` | NOTHING. It discards `error.message` and returns a bare 500 |
+The first keyed on the retry emit. That misses every fault on a client the wrapper does not cover.
+The second keyed on Kong's body appearing in the log, and round 4 showed it misses the case the
+instrument exists for: on a successful 502-then-200 retry the emit carries the function, status and
+attempt but NOT Kong's body, so an absorbed fault on a WRAPPED client leaves a green job with the
+string nowhere in the output. Fixing the service-role paths had broken the wrapped ones.
 
-So the honest count of dark conditions is THREE, not two: the job stays green, no retry emit exists on
-an unwrapped client, and the fault string is never written.
+Enumerating consumers is also the wrong shape, and this is the third time in this arc that lesson has
+arrived. §7.1 previously scoped its table to non-`VOLATILE` RPCs, which is the RETRY population. The
+INSTRUMENT's population is different and strictly larger: any Supabase call that can receive a 502 and
+be swallowed, including VOLATILE RPCs and plain table reads. Round 4 named two such paths
+(`components/admin/Dashboard.tsx`, search `readfinalizeowned_b2`, which maps both a returned error and
+a throw to "Held"; and `lib/admin/bellFeed.ts`, search `get_bell_feed_rows`, which returns
+`infra_error` without logging). `get_bell_feed_rows` is VOLATILE, so it was never in the retry census
+at all, which is exactly how the conflation stayed invisible.
 
-**That is an invariant-9 defect at four call boundaries, not a trigger problem.** An infra fault
-arrives and the code drops its message or never records it. The version route is the clearest
-instance: its only other signal is a 500 that `ShowRealtimeBridge` classifies as `transient_failure`
-and swallows, so nothing anywhere ends up knowing why.
+**So the fault is recorded at the transport, where every call passes and no consumer can swallow it.**
+An OBSERVE-ONLY hook on the server-side client factories logs `code: "SUPABASE_UPSTREAM_FAULT"` with
+the status and the request path whenever an upstream 5xx arrives. It retries nothing, changes no
+eligibility, and returns the response untouched; §4's rules are unaffected in both directions.
 
-The repair makes the fault attributable AT ITS SOURCE: the two coded `log.error` calls gain the error
-message, `loadRecentAutoApplied`'s returned `infra_error` is logged rather than only returned, and the
-version route logs before it returns 500. Four log lines, no behavior change beyond what reaches the
-log, and each is the invariant-9 rule applied where it was skipped.
+Three consequences, and the third is the one that argues for this over the alternatives:
 
-For the version route this is unavoidable rather than preferred. It emits nothing at all today, so
-there is no code and no message to key on, and no trigger design can recover a signal that was never
-sent.
+- It covers the wrapped client, the service-role client, and any future server-side factory, because
+  it sits below all of them.
+- It fires BEFORE a retry, so an absorbed 502 is recorded even when the caller only ever sees a 200.
+- **It makes the diff smaller.** The four consumer log-line repairs the previous draft required stop
+  being load-bearing and are dropped. A choke point no consumer can bypass replaces four edits that
+  each had to be remembered, and it covers the two paths round 4 found plus every path nobody has
+  enumerated yet.
 
-Three properties follow, and they are why this is the right trigger rather than a wider one:
+`SUPABASE_UPSTREAM_RETRY` remains a separate emit on the retry path, telling a reader whether the
+recorded fault was absorbed.
 
-- The instrument is INDEPENDENT of the repair. It would have worked before this spec existed, and it
-  keeps working if the retry is later narrowed or removed.
-- It needs no product change to reach the service-role paths, so §7's coverage does not have to buy
-  itself by widening the wrapper across that client's many callers.
-- A `SUPABASE_UPSTREAM_RETRY` emit remains a useful SECONDARY signal in the artifact, telling a reader
-  whether the fault was absorbed. It is no longer the gate.
+**The hook must be provably pass-through, and that is asserted in both directions.** An observer that
+alters what the caller receives would be a worse defect than the one it reports, so AC-7 plants both
+cases: with a fault planted the hook logs, and with a success planted the hook is INVISIBLE, with the
+response bytes identical either way. A hook proved only on the fault path is a hook whose quiet path
+nobody checked.
 
-A run with neither condition uploads nothing and pays nothing.
+### 7.2 The workflow has to CAPTURE the signal, not assume it
 
-Verified commands, against a live local stack:
+A later step cannot condition on an earlier step's stdout. GitHub Actions passes data forward only
+through explicit outputs, and the current job streams Playwright's output straight to the hosted log
+(`.github/workflows/app-e2e.yml`, search `pnpm exec playwright test`), with the only artifact
+condition being `failure() || github.event_name == 'workflow_dispatch'`.
 
-```
-docker inspect --format 'status={{.State.Status}} oomkilled={{.State.OOMKilled}} restarts={{.RestartCount}}' <container>
-docker logs --tail <n> <container>
-```
-
-`supabase_rest_*` runs with NO healthcheck, unlike every sibling in the stack, so a PostgREST restart
-leaves no health transition anywhere and `RestartCount` is the only signal. PostgREST's own log carries
-timestamped schema-cache lines, so a reload coinciding with the 502 window is visible on the first
-captured run rather than after another inference round.
+So the run step tees its output to a file, a following step greps that file for
+`SUPABASE_UPSTREAM_FAULT` and writes the result to `$GITHUB_OUTPUT`, and the dump step conditions on
+`failure()` or that output. Without the capture the trigger has no value to read, which makes it inert
+rather than merely imprecise.
 
 ## 8. Acceptance
 
@@ -468,10 +472,15 @@ captured run rather than after another inference round.
   carry proof it cannot bear. The executed-count oracle (`scripts/check-app-e2e-executed.mjs`) is
   unchanged and green. A natural `SUPABASE_UPSTREAM_RETRY` emit during these runs is recorded when it
   appears and is NOT required; its absence is not evidence either way and blocks nothing.
-- **AC-7. Every one of §7.1's four paths writes the fault string on a 502.** Executable per path with
-  a stubbed client returning Kong's body: the emitted log line contains the upstream-server message,
-  and for the version route a log line exists at all. This is what makes §7's trigger reachable, so it
-  is asserted rather than assumed.
+- **AC-7. The fault is recorded no matter who swallows it.** Executable, with a stubbed transport
+  returning a 502: (a) a consumer that discards the error entirely still produces a
+  `SUPABASE_UPSTREAM_FAULT` line; (b) a 502-then-200 retry on the wrapped client produces one too,
+  proving the observer fires ahead of the retry and covers the absorbed case round 4 found; (c) the
+  service-role client produces one. Each case is a consumer the previous design depended on and this
+  one does not.
+- **AC-7b. The workflow can actually read the signal (§7.2).** The run step's output is captured to a
+  file, the grep step writes `$GITHUB_OUTPUT`, and the dump step's condition references it. Asserted
+  against the workflow file, because a trigger with no value to read is inert rather than imprecise.
 - **AC-8. Invariant 9 suites pass unmodified** (`tests/auth/_metaInfraContract.test.ts`,
   `tests/admin/_metaInfraContract.test.ts`).
 
@@ -508,13 +517,24 @@ captured run rather than after another inference round.
   import-scoped text scan; that number missed five members and is corrected here rather than quietly
   restated.
 
-- **Four of the thirteen are reached ONLY through the excluded service-role client** and are therefore
-  never retried: `admin_alert_summary`, `admin_event_stats_24h`, `roster_shift_counts`, and the
-  version route's `viewer_version_token`. That is deliberate and unchanged, because the measured
-  incident is on the session client, and widening the wrapper across the service-role client's many
-  callers would buy retry coverage for paths that already degrade without failing anything. What their
-  exclusion must NOT cost is attribution, which is why §7's trigger keys on the fault rather than on
-  the retry.
+- **Five of the thirteen are reached ONLY through the excluded service-role client**, and one more is
+  reached BOTH ways. Round 4 found the earlier version of this bullet wrong in membership while right
+  in count, so it is enumerated rather than summarized:
+
+  | RPC | reached through |
+  | --- | --- |
+  | `admin_alert_summary` | service-role only (`lib/admin/loadAlertSummary.ts`) |
+  | `admin_event_stats_24h` | service-role only (`lib/admin/loadTelemetryStats.ts`) |
+  | `auth_email_canonical` | service-role only (`lib/auth/picker/resolvePickerSelection.ts`) |
+  | `resolve_show_by_slug_and_token` | service-role only (`lib/auth/picker/resolveShowPageAccess.ts`, `app/api/auth/picker-bootstrap/route.ts`) |
+  | `roster_shift_counts` | service-role only (`lib/admin/loadRecentAutoApplied.ts`) |
+  | `viewer_version_token` | BOTH — wrapped at `app/admin/_showReviewModal.tsx`, service-role at `app/api/show/[slug]/version/route.ts` and `lib/data/getShowForViewer.ts` |
+
+  Not retrying the service-role paths is deliberate and unchanged: the measured incident is on the
+  session client, and widening the wrapper across that client's many callers would buy retry coverage
+  for paths that already degrade without failing anything. What the exclusion must NOT cost is
+  attribution, and §7.1's transport observer is what stops it costing that, on every client at once
+  rather than per path.
 
 - **Every client construction site, and its disposition.** Stated as a census rather than an adjective,
   because a reader can check a census:
@@ -533,7 +553,7 @@ captured run rather than after another inference round.
   gives 33. The last two rows are the ones round 3 found missing.
 
   There is no middleware.ts in this tree, which is worth stating positively: middleware is the usual
-  second home for a cookie-bound client, and its absence is why this census is four rows.
+  second home for a cookie-bound client, and its absence is why this census is six rows.
 - **Non-RPC GET retry is unmeasured.** No measured event landed on a GET (probe §Finding 4). Non-RPC
   GETs are retried because HTTP's idempotency contract makes it safe for a table read, not because
   evidence asked for it, and no claim in this spec rests on it.
