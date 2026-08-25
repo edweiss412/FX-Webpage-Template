@@ -36,6 +36,77 @@ Line numbers are drafting-time locators and rot at every merge; each is anchored
 searchable symbol beside it, and re-verified only when the claim it supports is in
 question.
 
+## Meta-test inventory (mandatory declaration)
+
+**Creates:** none. **Extends:** four, and every one of them is a registry this arc
+already had to satisfy, which is why they are named rather than discovered later.
+
+| meta-test | what this arc adds to it |
+| --- | --- |
+| `tests/mutation/_metaGuardSurfaceRegistry.test.ts` | `millisPerBoot` range arms in the existing `reject(patch)` harness |
+| `tests/mutation/_metaLedgerKindsDeclarationParity.test.ts` | two rows in `expectedLedgerKinds.ts`, already landed |
+| `tests/mutation/_metaPremiseContract.test.ts` | one per-suite env-touching count, already landed |
+| `tests/mutation/_metaSourceShardIntegrity.test.ts` | the drift step's `env:` mapping and whole `run:` command, pinned by equality |
+
+**Not applicable, declared rather than omitted:** no advisory-lock topology (the diff
+touches no `pg_advisory*`), no layout-dimensions task and no transition inventory (no
+UI surface), no e2e harness (no Playwright), and no Supabase call boundary.
+
+## Mutation-family closure (mandatory for guard work)
+
+The closure set the review converges against is the SIX declared operators — the whole
+of `OPERATOR_NAMES`: `relational-boundary`, `equality-flip`, `logical-connector`,
+`integer-literal`, `regex-quantifier-bound`, `statement-removal`. Both surfaces this arc
+enrols take `[...OPERATOR_NAMES]`, not a scoped subset, so no operator's sites go
+unscored while the number still reads as the surface's score.
+
+A reviewer-proposed NEW family is admissible only with a live escaping mutant
+demonstrated against the shipped guard. The hand-authored plant list in
+`scripts/mutation-weight-plant.mjs` is a SEPARATE instrument with a different purpose —
+it proves the SUITE discriminates, where the registry proves the SOURCE is pinned — and
+its 30 defects are not a claim about operator coverage.
+
+## Reconciliations, RUN at plan time and pasted
+
+Not "a check to perform later". These are the outputs, today, on the live tree.
+
+**Registry against the seed table** — the input to Task 1:
+
+```
+GUARD_SURFACES rows: 45
+seed table rates:    43
+rows with NO seeded rate: ['mutationWeightRecords', 'mutationWeightWeights']
+seeded rates with NO row: []
+```
+
+The two unseeded rows are the surfaces this arc enrolled, which have never been
+measured. That is the bootstrap the spec's §2.4.1 describes, not a gap: Task 1 is
+BLOCKED until the score run supplies their rates, and `--emit-registry` refuses to emit
+a partial table rather than inventing them.
+
+**`EXPECTED_LEDGER_KINDS` against the registry** — already reconciled:
+
+```
+registry 45, ledger-kinds 45, registry-not-declared [], declared-not-registry []
+```
+
+**Current state of every planned `red=` command**, which is why all seven are
+`red-state=authored` rather than `live`:
+
+```
+  PASSES today: tests/mutation/_metaGuardSurfaceRegistry.test.ts
+  PASSES today: tests/mutation/source/shardPartition.test.ts
+  ABSENT: tests/mutation/source/shardBalance.test.ts
+  ABSENT: tests/ci/rateDrift.test.ts
+  ABSENT: tests/mutationWeight/verdictNeutrality.test.ts
+  ABSENT: scripts/check-rate-drift.ts
+```
+
+No `red=` here asserts a currently-failing tree, so none is run at plan time; each
+instead names the production line whose absence or defect will make its new case fail,
+and each `red-target=` below was verified by READING the cited line rather than by
+confirming it resolves.
+
 ## The acceptance criteria these tasks discharge
 
 Restated here rather than left as bare ids in the task markers, so a reader can check a
@@ -52,11 +123,11 @@ wording; this is the index.
 | **AC-6** | Every weight handed to `lptAssign` is an integer, so its documented platform-independence stays true. |
 | **AC-7** | No verdict-deciding input moves for a surface enrolled before this diff. |
 
-<!-- tasks: depth=2 -->
+<!-- tasks: depth=2 red-contract -->
 
 ## Task 1 — `millisPerBoot` becomes a required field, guarded over the whole registry
 
-<!-- task: red=`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:56` why=`validateSurface accepts a surface with no millisPerBoot, so the new range arms have nothing to reject` ac=AC-4 -->
 
 Add the field to `GuardSurface`, seed every live row from `--emit-registry`, extend `validateSurface`.
 
@@ -66,7 +137,7 @@ Seeding is mechanical and asserted: the insertion script keys on each row's `id`
 
 ## Task 2 — `bootsOf` extraction and the new `weightOf`
 
-<!-- task: red=`pnpm vitest run tests/mutation/source/shardPartition.test.ts` ac=AC-6,AC-2 -->
+<!-- task: red=`pnpm vitest run tests/mutation/source/shardPartition.test.ts` red-state=authored red-target=`tests/mutation/source/shardPartition.ts:53` why=`weightOf returns bootsOf(surface) with no rate applied, so the delta case sees 4 rather than 4 x millisPerBoot` ac=AC-6,AC-2 -->
 
 Export `bootsOf` with today's expression VERBATIM, and make `weightOf` the product.
 
@@ -82,7 +153,7 @@ Also here, since the suite is where it belongs: a source-scan assertion that the
 
 ## Task 3 — the binding-leg bound, held out
 
-<!-- task: red=`pnpm vitest run tests/mutation/source/shardBalance.test.ts` ac=AC-3 -->
+<!-- task: red=`pnpm vitest run tests/mutation/source/shardBalance.test.ts` red-state=authored red-target=`tests/mutation/source/shardPartition.ts:53` why=`the same unapplied rate makes the seconds-calibrated partition identical to the shipped one, so the binding-leg margin is zero` ac=AC-3 -->
 
 Committed dated fixtures: rates seeded from one run, per-surface seconds from a LATER one. Assert the binding leg under the seconds-calibrated weight is at or below what the boot-count model produces ON THE SAME TARGET over the SAME scored population, for all three available pairs.
 
@@ -94,7 +165,7 @@ Plant: perturb one seeded rate by the observed 8.33x and the margin inverts.
 
 ## Task 4 — the drift report
 
-<!-- task: red=`pnpm vitest run tests/ci/rateDrift.test.ts` ac=AC-5 -->
+<!-- task: red=`pnpm vitest run tests/ci/rateDrift.test.ts` red-state=authored red-target=`.github/workflows/mutation-harness.yml:273` why=`the budget job has one step and downloads only elapsed artifacts, so no drift report exists to assert against` ac=AC-5 -->
 
 A NEW drift-check script beside the budget checker, added by this task and named for what it does, not an extension of the budget checker: that file's header states it decides nothing and takes environment rather than argv as the class repair for three rounds of argv-guard defects, and the new script mirrors both properties. The registry read stays in the script; `driftReport` already takes the declared rates as a plain map, so nothing under `lib/` imports `tests/`.
 
@@ -104,7 +175,7 @@ Arms: every measured surface named whatever its ratio; actionable marked separat
 
 ## Task 5 — re-score every surface this diff moved
 
-<!-- task: red=`pnpm heavy pnpm vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` ac=AC-7 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm tsx scripts/mutation-score-surfaces.ts mutationWeightRecords mutationWeightWeights` red-state=live red-target=`lib/mutationWeight/weights.ts:302` why=`mutationWeightWeights scores 0.7279 against its 0.90 floor with 37 unaccepted survivors, observed 2026-08-25` ac=AC-7 -->
 
 Three surfaces have moved: `sourceShardPartition` (its source is edited), and `mutationWeightRecords`/`mutationWeightWeights` (their source gains nothing but their partition changes). Re-score, record each score with the `OPERATORS:` tail, and reconcile every ledger: a new survivor is killed by a strengthened suite or accepted with a reason, never left unaccepted.
 
@@ -112,7 +183,7 @@ Check the binding leg against budget before and after enrolment. This arc's own 
 
 ## Task 6 — verdict neutrality over three populations
 
-<!-- task: red=`pnpm vitest run tests/mutationWeight/verdictNeutrality.test.ts` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/mutationWeight/verdictNeutrality.test.ts` red-state=authored red-target=`lib/mutationWeight/weights.ts:1` why=`no comparison exists between the branch records and an old-weight baseline, so nothing asserts a verdict held` ac=AC-1 -->
 
 Derive the three populations FROM THE DIFF at claim time, never from this sentence, and state each count with the ref it was derived at. Compare population (i) against the old-weight baseline (`workflow_dispatch` run `32844208485` on main at `300a9f937`) with `verdictDelta`.
 
@@ -122,10 +193,18 @@ Derive the three populations FROM THE DIFF at claim time, never from this senten
 
 The bar was measured before the claim: 1 of 4328, 0 of 4360, 0 of 3692 across consecutive nightlies, the single mover being the inherited `ledgerGit` survivor. Any other mover is re-run with its surface ALONE on a leg before attribution.
 
-## Task 7 — ledger graduation and closeout
-
-<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaInvariant8Closeout.test.ts` ac=AC-7 -->
-
-Archive the row, drop the IN PROGRESS marker in the PR's last commit, write the closeout with the review-round dispositions, and name the re-partition seam with its measured magnitude.
-
 <!-- tasks: end -->
+
+## Closeout — deliberately OUTSIDE the task region, and this is not an oversight
+
+Archive the row, drop the IN PROGRESS marker in the PR's last commit, write the closeout
+with the review-round dispositions, and name the re-partition seam with its measured
+magnitude.
+
+It carries no `red=` because it has no red-then-green cycle to claim. Both meta-tests it
+would name — `tests/docs/_metaLedgerInProgress.test.ts` and
+`tests/docs/_metaInvariant8Closeout.test.ts` — pass on the tree TODAY and pass after the
+work, so a marker asserting a cycle would be asserting one that cannot complete: exactly
+the "guard test that passes the moment it is authored" shape the red-contract rejects.
+The multi-region design allows headings outside a region and leaves them unchecked, so
+this sits after `tasks: end` rather than inventing a red to satisfy a grammar.

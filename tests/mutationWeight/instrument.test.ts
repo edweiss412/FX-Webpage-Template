@@ -438,6 +438,23 @@ describe("reconcile", () => {
     expect(r.moved).toEqual([{ surfaceId: "a", observed: 3, recomputed: 0 }]);
   });
 
+  it("returns movers in a stable order, not in the order the records arrived", () => {
+    // Two surfaces on wrong legs, supplied worst-name-first, so the sort is
+    // observable. Reconciliation failures are read as a list by whoever has to fix
+    // the dump, and an unstable one cannot be diffed between runs.
+    const four = ["a", "b", "c", "d"];
+    const dump = modelled(Object.fromEntries(four.map((id, i) => [id, { mutants: 10 - i }])));
+    const lied = [
+      measured({ surfaceId: "d", leg: 0 }),
+      measured({ surfaceId: "c", leg: 0 }),
+      measured({ surfaceId: "b", leg: 1 }),
+      measured({ surfaceId: "a", leg: 2 }),
+    ];
+    const r = reconcile(lied, dump, 4);
+    expect(r.moved.map((m) => m.surfaceId)).toEqual([...r.moved.map((m) => m.surfaceId)].sort());
+    expect(r.moved.length).toBeGreaterThan(1);
+  });
+
   it("is ok when everything agrees", () => {
     expect(reconcile(one, modelled({ a: {} }), 4).ok).toBe(true);
   });
@@ -472,11 +489,60 @@ describe("driftReport", () => {
   it("reports a MEASURED surface with no declared rate as undeclared, not as absent", () => {
     // The arrival shape. An earlier version skipped it, so a newly enrolled surface
     // appeared in no list at all while the report claimed to name everything.
-    expect(driftReport(declared, surfaces, m, 2).undeclared).toEqual(["new"]);
+    const r = driftReport(declared, surfaces, m, 2);
+    expect(r.undeclared).toEqual(["new"]);
+    // And it is ONLY there. Dropping the `continue` that ends that branch would let
+    // the same surface fall through into the ranked list with no declared rate,
+    // which no assertion on `undeclared` alone can see.
+    expect(r.drifted.map((x) => x.surfaceId)).not.toContain("new");
+  });
+
+  it("returns the undeclared list in a stable order, not in encounter order", () => {
+    // TWO undeclared surfaces supplied in reverse order, because one cannot
+    // distinguish a sort from its absence. The report joins this list into a line an
+    // operator reads, so a run-to-run reshuffle is a diff nobody can act on.
+    const two = [
+      measured({ surfaceId: "zeta", children: [child("s", 900)] }),
+      measured({ surfaceId: "alpha", children: [child("s", 900)] }),
+    ];
+    const mm = modelled({ zeta: { boots: 1 }, alpha: { boots: 1 } });
+    expect(driftReport(new Map(), two, mm, 2).undeclared).toEqual(["alpha", "zeta"]);
+  });
+
+  it("ranks by ratio even when encounter order already looks ranked", () => {
+    // The earlier fixture happened to supply the worst drifter first, so removing
+    // the sort left the assertion true. Supplying it LAST is what makes the sort
+    // observable.
+    const rising = [
+      measured({ surfaceId: "mild", children: [child("s", 1100)] }),
+      measured({ surfaceId: "worst", children: [child("s", 4000)] }),
+    ];
+    const mm = modelled({ mild: { boots: 1 }, worst: { boots: 1 } });
+    const d = driftReport(
+      new Map([
+        ["mild", 1000],
+        ["worst", 1000],
+      ]),
+      rising,
+      mm,
+      2,
+    ).drifted;
+    expect(d.map((x) => x.surfaceId)).toEqual(["worst", "mild"]);
   });
 
   it("reports a declared surface that did not run as unmeasured, not as agreeing", () => {
     expect(driftReport(declared, surfaces, m, 2).unmeasured).toEqual(["gone"]);
+  });
+
+  it("treats a ratio EXACTLY at the threshold as not actionable", () => {
+    // The boundary the `>` decides. Every other case sits well clear of it, so a
+    // `>` to `>=` mutant is invisible to them: a threshold guard is only pinned by
+    // an input that lands exactly on it.
+    const exact = [measured({ surfaceId: "e", children: [child("s", 2000)] })];
+    const mm = modelled({ e: { boots: 1 } });
+    const d = driftReport(new Map([["e", 1000]]), exact, mm, 2).drifted;
+    expect(d[0]?.ratio).toBe(2);
+    expect(d[0]?.actionable).toBe(false);
   });
 
   it("ranks by ratio, worst first", () => {
@@ -509,6 +575,38 @@ describe("verdictDelta", () => {
     const d = verdictDelta(before, after);
     expect(d.sharedSiteIds).toBe(1);
     expect(d.moved).toEqual([{ surfaceId: "a", siteId: "s1", from: "KILLED", to: "SURVIVED" }]);
+  });
+
+  it("returns movers in a stable order across surfaces and siteIds", () => {
+    // Two surfaces, each with two movers, all supplied in reverse of the reported
+    // order. A single mover cannot distinguish a sort from its absence, and this
+    // list is what an AC-1 report enumerates.
+    const v = (id: string, verdict: string): Map<string, string> => new Map([[id, verdict]]);
+    const before = [
+      measured({
+        surfaceId: "zeta",
+        verdicts: new Map([
+          ["s2", "KILLED"],
+          ["s1", "KILLED"],
+        ]),
+      }),
+      measured({ surfaceId: "alpha", verdicts: v("s9", "KILLED") }),
+    ];
+    const after = [
+      measured({
+        surfaceId: "zeta",
+        verdicts: new Map([
+          ["s2", "SURVIVED"],
+          ["s1", "SURVIVED"],
+        ]),
+      }),
+      measured({ surfaceId: "alpha", verdicts: v("s9", "SURVIVED") }),
+    ];
+    expect(verdictDelta(before, after).moved.map((x) => `${x.surfaceId}:${x.siteId}`)).toEqual([
+      "alpha:s9",
+      "zeta:s1",
+      "zeta:s2",
+    ]);
   });
 });
 
