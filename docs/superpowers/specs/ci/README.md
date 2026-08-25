@@ -55,6 +55,7 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-21-intraleg-process-boundary-probe-design.md`](./2026-08-21-intraleg-process-boundary-probe-design.md) | 2026-08-21 |
 | [`2026-08-21-mutation-outcome-attribution-design.md`](./2026-08-21-mutation-outcome-attribution-design.md) | 2026-08-21 |
 | [`2026-08-22-mutation-score-jurisdiction-gap.md`](./2026-08-22-mutation-score-jurisdiction-gap.md) | 2026-08-22 |
+| [`2026-08-24-mutation-scratch-fs-event-storm-design.md`](./2026-08-24-mutation-scratch-fs-event-storm-design.md) | 2026-08-24 |
 | [`2026-08-21-sendauth-arm-classifier-unification-design.md`](./2026-08-21-sendauth-arm-classifier-unification-design.md) | 2026-08-21 |
 | [`2026-08-21-destructive-guard-discovery-by-connection-design.md`](./2026-08-21-destructive-guard-discovery-by-connection-design.md) | 2026-08-21 |
 | [`2026-08-21-shell-attached-redirection-target-design.md`](./2026-08-21-shell-attached-redirection-target-design.md) | 2026-08-21 |
