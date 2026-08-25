@@ -378,3 +378,71 @@ files are in this branch's diff — they are, but only because the merge brought
 them in. `git log --diff-filter=A` settles it: both are main-side commits and this
 branch authored neither. The orchestrator dispatched a hotfix; repairing it here
 would have conflicted with that at the seam and hidden a red that belongs on main.
+
+## AC-7, the acceptance measurement — full provenance
+
+Diff review round 1's second finding was that this document recorded the `50/51`
+DISCOVERY result and then stopped, leaving the review brief holding the only
+full provenance for the measurement the close-out claimed to contain. Correct,
+and this section is the repair. The numbers below are the FINAL acceptance run,
+not the discovery one.
+
+| | |
+|---|---|
+| command | `pnpm heavy pnpm mutation:guards` — the FULL gate, not the scoped shard |
+| base | `3ea50d1fb` |
+| merge-base | `4ee843c23351` |
+| runId | `20260825-221546-28852-0009` |
+| duration | 6962 s |
+| mutants | 81 |
+| killed | 50 |
+| survived | 31 |
+| accepted `equivalent` rows | 31 |
+| **unaccepted survivors** | **0 — the set is EMPTY** |
+| score | 1 (`killed / (killed + countedSurvivors)` = 50 / 50) |
+| `passed` | true |
+
+Stamped inputs, printed INSIDE the measured command rather than read beside it,
+so provenance is the run's own output and not a second read of mutable state:
+`scan.ts` `156964332499`, the deciding suite `a35b188e4aa3`, `registry.ts`
+`915d6066ab97`, `surfaceCases.ts` `94bdcfefcee6`.
+
+**This run REPLACES an earlier 50/50 at base `718d731d6`.** That measurement was
+retired by round 1's source repair — a score is a pure function of (source,
+operators, deciding suites), and the repair moved the source. The figures happen
+to coincide; the provenance does not, and the retired one is not reported.
+
+**What the score does NOT cover, stated because the number invites the opposite
+reading.** The round-1 repair adds an opener branch whose only comparisons are
+equalities, and the declared operator set is `relational-boundary` and
+`regex-quantifier-bound`. Neither reaches it, so the mutant count is unchanged at
+81 and **no mutant exercises the new branch at all**. The score is silent about
+the very code round 1 forced, exactly as the reviewer's jurisdiction reasoning
+said it would be. What covers that branch is the deciding-suite regression pin,
+which is PROVEN to discriminate: against pre-repair source it fails on four rows
+and its control stays green. Widening the operator set to chase this would be a
+registry change taken under review pressure, which the convergence criterion
+forbids; the deciding-suite case is the sanctioned repair.
+
+### The other two gate failures, and why neither is this arc's
+
+The full gate reports 2 failed / 325 passed. `psqlStartupScan` appears in
+neither.
+
+- **`modal-wait-disposition`**, `logical-connector:500:42` — an inherited red on
+  `main`, from #875, with its repair specified in another arc's archived ledger
+  row. Reproduced on `origin/main` alone in a clean detached worktree carrying
+  none of this branch's changes.
+- **`ledgerGit`**, `logical-connector:259:20` — ENVIRONMENT-DEPENDENT BY THE
+  ROW'S OWN WRITTEN PREMISE. It is an `accepted-gap` whose reason states that the
+  site's only reader runs `fileOids` once per `refs/remotes/origin/*` ref against
+  the AMBIENT checkout, and that "CI checks out with none, so the function never
+  executes there." This worktree has 13 such refs, so the site executes and the
+  mutant is killed, which is what `stale-ledger-row` reports. The row records the
+  measurement itself: 14 calls and a kill against a live worktree, 0 calls and a
+  survivor against a constructed zero-ref repo. This branch touched neither
+  `scripts/lib/ledger-git.ts` nor either of its deciding suites.
+
+A third failure in the PREVIOUS run — a `BaselineNotGreenError` on
+`replacementString` — is gone here. It was caused by this tree lacking the #888
+hotfix at that run's start, and absorbing it fixed the baseline (49/49).
