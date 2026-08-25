@@ -260,7 +260,7 @@ what the runner will actually generate:
 
 | surface | sites | by operator |
 | --- | --- | --- |
-| `lib/supabase/retryingFetch.ts` | **49** | equality-flip 16, integer-literal 14, statement-removal 11, logical-connector 7, relational-boundary 1 |
+| `lib/supabase/retryingFetch.ts` | **42** | integer-literal 14, equality-flip 11, statement-removal 11, logical-connector 5, relational-boundary 1 |
 | `tests/supabase/retryableRpcVolatilityScan.ts` | **54** | statement-removal 26, equality-flip 13, logical-connector 10, integer-literal 4, relational-boundary 1 |
 | `lib/supabase/retryEligibility.ts` | **3** | statement-removal 1, equality-flip 1, integer-literal 1 |
 
@@ -280,6 +280,16 @@ describeTarget query-strip repair added two `[0]` index literals. A site count i
 file, so it goes stale the moment the file changes — the third derived number on this arc to do so,
 after the env-touching count and the AC-6 tally. The score's own total comes from the RUN, not from
 this table, which is why the table being stale never reached a brief.
+
+**The seventh measurement moves DOWNWARD, and that is the point.** Round 3 found four P1 findings,
+three of them consequences of round 2's own narrowing. The repair narrowed further — retry ownership
+decided once per request instead of adjudicated per outcome — and the wrapper fell from 49 sites to
+43, then to 42 once the redesign's now-unreachable `eligible` flag came out.
+
+Worth recording because every earlier move was upward. A recognizer that grows a little each round
+is the shape this project's convergence rule warns about; a repair that DELETES code is the shape it
+asks for. The site count is the cheapest available measurement of which one is happening, and it is
+the number to watch if a later round proposes widening this surface again.
 
 **It has now moved SIX times**, and the numbers above are the sixth measurement, taken after the
 round-2 repairs. Rather than narrate each one: the count is a measurement of a file, the file keeps
