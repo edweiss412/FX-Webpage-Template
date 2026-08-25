@@ -56,7 +56,7 @@ Every name a task uses, checked against the live tree:
 - AC-2: `signOut` is called with `{ scope: "local" }` exactly once.
 - AC-3: `signOut` returning `{ error }` yields `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }` and `log.error` with `{ code: "AUTH_SIGNOUT_FAILED", source: "auth.picker.clearIdentity", stage: "sign_out_returned_error" }`; a `signOut` throw yields `stage: "sign_out_threw"`; `throwOnCreate` yields `stage: "client_construction"`; a sweep throw yields `stage: "residual_cookie_sweep"`. In all four, `revalidatePath` is not called and the picker cookie (`COOKIE_NAME`) is never written.
 - AC-4: invalid input (`isValidClearIdentityInput` false: a non-uuid `showId` on an otherwise complete form) returns `PICKER_INVALID_INPUT` with `createClient`, `signOut`, and `cookieSet` never called.
-- AC-5: a `clearIdentityCore` failure (cookie store rejecting on the core's read, after a successful sign-out) returns `PICKER_RESOLVER_LOOKUP_FAILED` with `signOut` called once.
+- AC-5: a `clearIdentityCore` failure after a successful sign-out (signing key removed, so the core throws at its first read) returns `PICKER_RESOLVER_LOOKUP_FAILED`; `signOutResolved` is in the call log and no picker cookie was written.
 - AC-6: no picker cookie at all: `{ ok: true }` and `signOut` still called once with `{ scope: "local" }`.
 - AC-7: `clearIdentityAndSkip` cases at `tests/auth/picker/clearIdentity.test.ts:264-478` pass unmodified; the cross-site case for `clearIdentity` (`tests/auth/picker/clearIdentity.test.ts:504-518`) additionally asserts `signOut` not called.
 
@@ -164,17 +164,17 @@ describe("clearIdentity signs the device out, then clears the entry (spec §3)",
 
   test("a clearIdentityCore failure after a successful sign-out is reported, not swallowed", async () => {
     seedEntry();
-    // First cookies() call is the sweep (succeeds); the second is the core's read.
-    vi.mocked(cookies)
-      .mockResolvedValueOnce(await vi.mocked(cookies)())
-      .mockRejectedValueOnce(new Error("cookie store down"));
+    // The sign-out needs no signing key; the core does (clearIdentity.ts:227), so
+    // removing it fails the core AFTER revocation completed.
+    delete process.env.PICKER_COOKIE_SIGNING_KEY;
     await expect(submit()).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
-    expect(supabaseMock.signOut).toHaveBeenCalledTimes(1);
+    expect(calls).toContain("signOutResolved");
+    expect(pickerCookieWrites()).toBe(0);
   });
 });
 ```
 
-Notes on the block: the mocked `redirect` (`tests/auth/picker/clearIdentity.test.ts:16-26`) throws a `NEXT_REDIRECT` digest, so `resolves.toEqual({ ok: true })` is the no-redirect proof. The sweep case relies on `cookieSet` being the shared `set` mock (`tests/auth/picker/clearIdentity.test.ts:104-125`); the `sb-` prefix matches the `getAll` fixture at `tests/auth/picker/clearIdentity.test.ts:114-118`, and with sign-out first the sweep's writes are the first `set` calls, so no ordering guard is needed. `COOKIE_NAME` is already imported by the test file (used in the `cookies` mock). The `"not-a-uuid"` value fails `UUID_RE` in `lib/auth/picker/validateClearIdentityInput.ts:19`. The core-failure case's `cookies()` sequencing depends on `signOutThisDevice` calling `cookies()` exactly once (the sweep) before the core's call; verify during RED by reading `lib/auth/picker/clearIdentity.ts:185-187`, and if the mock chain proves awkward, arrange the failure through `pickerCookieSigningKey` instead (delete `process.env.PICKER_COOKIE_SIGNING_KEY` after the sweep is not possible mid-call, so prefer the `cookies` chain).
+Notes on the block: the mocked `redirect` (`tests/auth/picker/clearIdentity.test.ts:16-26`) throws a `NEXT_REDIRECT` digest, so `resolves.toEqual({ ok: true })` is the no-redirect proof. The sweep case relies on `cookieSet` being the shared `set` mock (`tests/auth/picker/clearIdentity.test.ts:104-125`); the `sb-` prefix matches the `getAll` fixture at `tests/auth/picker/clearIdentity.test.ts:114-118`, and with sign-out first the sweep's writes are the first `set` calls, so no ordering guard is needed. `COOKIE_NAME` is already imported by the test file (used in the `cookies` mock). The `"not-a-uuid"` value fails `UUID_RE` in `lib/auth/picker/validateClearIdentityInput.ts:19`. The core-failure case removes `PICKER_COOKIE_SIGNING_KEY`: `signOutThisDevice` never reads it, `clearIdentityCoreImpl` does (`lib/auth/picker/clearIdentity.ts:227`, throwing per `lib/env/pickerCookieSigningKey.ts:9`), and `clearIdentityCore` maps the throw to `PICKER_RESOLVER_LOOKUP_FAILED` (`lib/auth/picker/clearIdentity.ts:216-217`). The suite's `beforeEach` restores the key (`tests/auth/picker/clearIdentity.test.ts:85`).
 
 Delete the case at `tests/auth/picker/clearIdentity.test.ts:480-487` ("clearIdentity (non-skip) never constructs a Supabase client"). In the same-origin describe, the `clearIdentity` case (`tests/auth/picker/clearIdentity.test.ts:504-518`) gains `expect(supabaseMock.signOut).not.toHaveBeenCalled();` after the `cookieSet` assertion.
 
