@@ -35,7 +35,7 @@ Each decision below is settled, with the evidence that settled it. Verify the ci
 - **Thirty-three corpus tables go unlinted on day one.** Documented limit L-3, accepted deliberately as the price of refusing a recognizer.
 - **remark parses the markdown; the arm hand-rolls no grammar.** Section 8.3, with the ratification it rests on. Do not propose a regex for any pipe, whitespace, backslash or delimiter question — those were three rounds of findings and the class is closed by delegation, not by another pattern.
 - **Arm (b) tests a lexical path boundary and stops there.** Section 8.2.2 and L-6. A shell lexer for an advisory is refused; the quoting families file to documented limits under the threat fence.
-- **The six true corpus instances in section 6.3 are not repaired here.** Class-sweep disposition exception (c): the repair spans a tree this PR does not otherwise touch, and each is a judgment call about what that plan's third column means.
+- **The seven true corpus instances in section 6.3 are not repaired here.** Class-sweep disposition exception (c): the repair spans a tree this PR does not otherwise touch, and each is a judgment call about what that plan's third column means.
 
 ### 1.2 The incidents, recovered verbatim, per blob
 
@@ -58,30 +58,30 @@ The row scheduled this first. It settles the design.
 
 ```
 $ grep -rl '^| AC-' docs/superpowers/plans/ --include='*.md' | wc -l
-32          # at origin/main; 33 at HEAD, this plan being the addition
+33          # at 300a9f937; 34 at HEAD, this plan being the addition
 ```
 
-**Every figure in this section is taken at `origin/main`**, the corpus WITHOUT this arc, for the reason section 6.3 gives: this plan joins `docs/superpowers/plans/` when it lands, so a count over that directory moves with the branch. The HEAD figures are given beside each so the difference is visible rather than surprising, and no conclusion here turns on the delta.
+**Every figure in this section is taken at commit `300a9f937`**, a SHA and not a moving ref. Two anchors were tried and both drifted: the working tree moved when this plan landed in `docs/superpowers/plans/`, and then `origin/main` itself moved 69 commits and took the "pinned" figures with it. A ref is not an anchor. The HEAD figures are given beside each so the difference is visible rather than surprising, and no conclusion here turns on the delta.
 
 Refined to actual tables (a table is a header row, a delimiter row, and data rows; an AC coverage table is one where at least half the data rows begin with an `AC-<digit>` id):
 
 ```
 $ node docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.mjs census
-total markdown tables in plan corpus: 929
-AC coverage tables:                   34
-distinct header rows among them:      34
-distinct enclosing headings:          24
+total markdown tables in plan corpus: 932
+AC coverage tables:                   35
+distinct header rows among them:      35
+distinct enclosing headings:          25
 column counts observed:               2 to 6
 tables in the PLAN CORPUS using the fixture's exact header: 1
 
-# at HEAD, with this arc's plan in the corpus: 933 tables, 35 AC tables,
-# 34 distinct headers still, 25 enclosing headings, and 2 using the fixture's
-# header — this plan's own AC table being the second.
+# at 300a9f937. At HEAD, with main merged and this arc's plan in the corpus:
+# 936 tables, 36 AC tables, 35 distinct headers, 26 headings, and 2 using the
+# fixture's header — this plan's own AC table being the second.
 ```
 
-Every AC coverage table in the corpus has a header row unlike every other one. The header naming the command column is spelled, among others, `Producing command`, `Channel`, `Channel the proof arrives on`, `Executable step that PROVES it`, `The executable step, and the channel it arrives on`, `Evidence`, `Notes`, `Task`, `proved by`, `discharged by`, `claimed by`. Exactly one table in the plan corpus AT `origin/main` uses `| AC | Proved by | Producing command |`, and it is the fixture, because it is the only plan that had been through four review rounds on this class. At HEAD there are two: this arc's plan adopted the same header, which is the convention spreading rather than a counter-example. The claim is scoped to a rev for that reason — an earlier draft scoped it to the plan corpus instead of the repository, which was the right narrowing and still moved the moment this arc's own plan landed in that corpus.
+Every AC coverage table in the corpus has a header row unlike every other one. The header naming the command column is spelled, among others, `Producing command`, `Channel`, `Channel the proof arrives on`, `Executable step that PROVES it`, `The executable step, and the channel it arrives on`, `Evidence`, `Notes`, `Task`, `proved by`, `discharged by`, `claimed by`. Exactly one table in the plan corpus AT `300a9f937` uses `| AC | Proved by | Producing command |`, and it is the fixture, because it is the only plan that had been through four review rounds on this class. At HEAD there are two: this arc's plan adopted the same header, which is the convention spreading rather than a counter-example. The claim is scoped to a rev for that reason — an earlier draft scoped it to the plan corpus instead of the repository, which was the right narrowing and still moved the moment this arc's own plan landed in that corpus.
 
-**The load-bearing number is 34 distinct headers over 34 tables, and it is unchanged at HEAD** (34 distinct over 35, the new one being a repeat of the fixture's). Nothing about the grammar's instability turns on the delta.
+**The load-bearing number is 35 distinct headers over 35 tables — still zero repeats — and it survives every re-anchoring.** At HEAD it is 35 distinct over 36, the one repeat being this plan's own adoption of the fixture's header. The claim got STRONGER as the corpus grew, which is what a real property does; nothing about the grammar's instability turns on the delta.
 
 **Consequence.** Keying the arm on the header name is a recognizer over open English, which the row forbids and which this repo has measured as the losing move. Keying it on the enclosing heading is the same thing with 24 spellings instead of 34. Keying it on "the last column" is worse than either: it is a silent guess, and section 6.3 shows it producing 42 hard findings on six v1-era tables whose last column is a Notes column.
 
@@ -190,15 +190,15 @@ In `docs/superpowers/plans/2026-08-18-control-outline-border-token.md:70` the ro
 
 The arm was run over every AC coverage table whose last column carries a code span in at least 80 percent of its rows (11 of the 34), as a stand-in for the convention spreading. Full accounting, so no reader recomputes a different total:
 
-**Pinned to `origin/main`, for the same reason the census in section 2 is.** This arc's own plan joins the corpus when it lands, so at HEAD the modern bucket reads 6 tables and the total 12 — the extra table being this plan's own, which scores zero. The HARD counts are identical either way, and so is the itemised list below; only the population size moves. An earlier draft pinned the census and left this table unpinned, which is the same self-referential exposure fixed at one site and not its twin.
+**Pinned to commit `300a9f937`, for the same reason the census in section 2 is, and to a SHA rather than a ref for the reason stated there.** At HEAD — main merged, this plan in the corpus — the modern bucket reads 7 tables and 7 hard, and the total 13 and 49. The extra table is this plan's own, scoring zero; the extra finding is a SEVENTH true instance that arrived with main and is listed below.
 
 | Population | Tables (at `origin/main`) | hard | What they are |
 | --- | --- | --- | --- |
 | `v1-pre-deployment-amendments/**` handoffs | 6 | 42 | `AC / Phase X status / Notes` tables whose last column is a Notes column. Every one is a mis-declaration under L-4, not a defect. They are the reason the declaration names its column instead of guessing the last one. |
-| 2026-08 plans | 5 | 6 | one is the fixture (0 hard); the other four carry 6, and all six are true instances of the class |
-| total | 11 | 48 | at HEAD: 12 tables, 48 hard — this plan's own table added, scoring zero |
+| 2026-08 plans | 6 | 7 | one is the fixture (0 hard); the rest carry 7, and all seven are true instances of the class |
+| total | 12 | 49 | at HEAD: 13 tables, 49 hard — this plan's own table added, scoring zero |
 
-The six true instances, across three documents, are listed so a reader can check the arm against them rather than take the count on trust. They are not repaired by this PR; none of those plans declares a table, so the arm never sees them.
+The seven true instances, across four documents, are listed so a reader can check the arm against them rather than take the count on trust. They are not repaired by this PR; none of those plans declares a table, so the arm never sees them.
 
 | Document | Line | Code | Cell or span |
 | --- | --- | --- | --- |
@@ -208,6 +208,7 @@ The six true instances, across three documents, are listed so a reader can check
 | `docs/superpowers/plans/2026-08-21-control-outline-forward-guard.md` | 369 | `AC_COMMAND_CELL_NOT_RUNNABLE` | `suite summary line` |
 | `docs/superpowers/plans/2026-08-21-control-outline-forward-guard.md` | 378 | `AC_COMMAND_CELL_NOT_RUNNABLE` | `exit code` |
 | `docs/superpowers/plans/2026-08-21-control-outline-forward-guard.md` | 385 | `AC_COMMAND_UNPARSABLE` | `expect(major).toBe(4)`, a JS expression in a Channel column |
+| `docs/superpowers/plans/2026-08-22-workflow-run-scalar-yaml-decode.md` | 352 | `AC_COMMAND_CELL_NOT_RUNNABLE` | prose beginning `RUN. Two earlier versions of t…` — arrived with main during this arc, and is the class recurring in real time |
 
 **Correction 3, and what the all-spans rule costs.** Under the round-1 repair every non-blank span must parse, and the last row above is the only new finding it produces across the whole 11-table stand-in. It is in a table whose third column is headed `Channel`, so it is a mis-declaration under L-4 rather than a false positive. The `--` repair simultaneously REMOVED two prior false positives (`--stat` and `-` in `2026-08-18-control-outline-border-token.md`), which is why that table now scores zero and is absent from the list.
 
@@ -215,8 +216,8 @@ The six true instances, across three documents, are listed so a reader can check
 
 ```
 $ node docs/superpowers/specs/ci/probes/scripts/2026-08-25-ac-coverage-prototype.mjs hazards
-tables in the plan corpus, per remark:        929
-data rows across them:                        7551
+tables in the plan corpus, per remark:        936
+data rows across them:                        7612
 documents carrying MORE THAN ONE AC table:    1
    docs/superpowers/plans/ci/2026-08-20-browser-child-lifetime.md (2)
 every pipe/whitespace/backslash question above is remark's, not this arm's
@@ -232,7 +233,7 @@ Stated here, not discovered in a review round.
 
 **L-2. Arm (b) validates a declared pin; it discovers no absent one.** At `b1db667e0`, the state r4 F2 was raised against, the AC-14 row cited no pin at all: the reviewer knew the pin existed by reading the suite. Arm (b) compares two cells of one row, so it can only fire once someone has written the pin down. Its value is that it makes the r4 repair permanent: an edit that drops `driver.test.ts` from the command now advises, as plants (b) and (d) show. It is not, and must not be cited as, protection against a criterion whose pin nobody named.
 
-**L-3. A table nobody declares is not linted.** By construction. This arc adds one plan to the corpus, so after it lands there are 35 AC coverage tables, two of them declared (the fixture and this arc's plan) and **33 unlinted**. That is the price of refusing a recognizer, and it is the same trade invariant 12 took.
+**L-3. A table nobody declares is not linted.** By construction. After this arc lands there are 36 AC coverage tables, two of them declared (the fixture and this arc's plan) and **34 unlinted**. That is the price of refusing a recognizer, and it is the same trade invariant 12 took.
 
 **L-4. A mis-declaration is the author's error and the arm reports it as one.** Declaring column 3 of an `AC / Status / Notes` table produces hard findings on every row. The arm cannot tell a mis-declaration from a table full of defects, and does not try. The declaration is deliberate; the fix is to remove it.
 
