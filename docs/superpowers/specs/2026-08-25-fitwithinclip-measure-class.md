@@ -48,15 +48,17 @@ PROBE-NOOP-RERENDER  applies=0
 
 Half the forced reflows on mount, and three quarters of the ancestor walks. Nothing regresses.
 
+**Every cell of this table is pinned by a named case**, because the table IS the acceptance condition and an unpinned cell in it is a claim nothing can falsify: the mount row by (g) and (h), the `reapplyKey` row by (h8), the unchanged-re-render row by (h9). All four are enumerated in §5.1.
+
 ### §0.2 — Why it is worth doing
 
-`apply()` forces a synchronous reflow — it clears the caps, reads three rects, writes a cap (`components/admin/useFitWithinClip.ts:90-111`) — and it is a **layout** effect, so every one of those reflows is on the path to the first paint of the overlay. Three overlays in `ReSyncButton` alone (`components/admin/ReSyncButton.tsx:111-113`), one in `PublishedToggle` (`components/admin/PublishedToggle.tsx:132`), one in `AttentionMenu` (`components/admin/showpage/AttentionMenu.tsx:72`). The `AttentionMenu` case pays twice over: its `reapplyKey` is the entrance flag, so opening the menu is a mount plus a key change — the sum of the first two rows of the table below, on both sides of the arrow.
+`apply()` forces a synchronous reflow — it clears the caps, reads two rects and one computed style, writes a cap (`components/admin/useFitWithinClip.ts:90-111`) — and it is a **layout** effect, so every one of those reflows is on the path to the first paint of the overlay. Three overlays in `ReSyncButton` alone (`components/admin/ReSyncButton.tsx:111-113`), one in `PublishedToggle` (`components/admin/PublishedToggle.tsx:132`), one in `AttentionMenu` (`components/admin/showpage/AttentionMenu.tsx:72`). The `AttentionMenu` case pays twice over: its `reapplyKey` is the entrance flag, so opening the menu is a mount plus a key change — the sum of the first two rows of the table below, on both sides of the arrow.
 
 ---
 
 ## §1 — What ships
 
-One **source** file changes: `components/admin/useFitWithinClip.ts`. Its unit suite gains a walk-count control and two lifecycle arms, and updates the one assertion that pins the old count. `tests/e2e/popover-clip-fit.spec.ts` gains a real-browser containment assertion, because jsdom computes no layout and the whole subject is a measurement. `BACKLOG.md` carries the two in-progress markers (removed in the last commit) and gains the §4.2 row. No other production file is touched.
+One **source** file changes: `components/admin/useFitWithinClip.ts`. Its unit suite gains the cases §5.1 enumerates — a walk control, two lifecycle arms, and the two count arms that pin the rows of §0.1's table nothing pinned before — and updates the one assertion that pins the old count. §5.1 is the single list; this sentence does not restate its size. `tests/e2e/popover-clip-fit.spec.ts` gains a real-browser containment assertion, because jsdom computes no layout and the whole subject is a measurement. `BACKLOG.md` carries the two in-progress markers (removed in the last commit) and gains the §4.2 row. No other production file is touched.
 
 ## §1.1 — Resolved scope — do not relitigate
 
@@ -119,12 +121,29 @@ owner-layout-cleanup k=2
 ref-cleanup k=2
 ```
 
-Four facts the design depends on, each read directly off that transcript:
+That transcript keeps the ref-bearing node present for the owner's whole life. **The live shape is not that.** `ReSyncButton` and `PublishedToggle` render their overlays conditionally, so the ref-bearing node appears and disappears while the hook's owner stays mounted — which is the case the hook's own docblock names as the counter's reason for existing (`components/admin/useFitWithinClip.ts:72-75`). Round-1 finding 2 was that the first transcript did not establish it. Second probe, same React, stable callback identity, conditional host:
+
+```
+owner-render show=false
+-- show host --
+owner-render show=true
+attach node=SPAN
+-- hide host, owner stays mounted --
+owner-render show=false
+cleanup
+-- show host again --
+owner-render show=true
+attach node=SPAN
+```
+
+Six facts the design depends on, each read directly off one of the two transcripts:
 
 1. **A returned cleanup is called, and `ref(null)` is not.** No `node=null` attach appears anywhere. So the teardown must null `nodeRef.current` itself; the old code got that for free from the `ref(null)` call.
 2. **The ref attaches before the owner's layout effect.** The measure therefore happens no later than it does today, and still before paint. No consumer has a competing layout effect that mutates geometry: none of the three consumer files declares a `useLayoutEffect` at all — `rg -n 'useLayoutEffect' components/admin/ReSyncButton.tsx components/admin/PublishedToggle.tsx components/admin/showpage/AttentionMenu.tsx` returns nothing.
 3. **A stable ref identity produces no churn.** The `rerender same k` block logs nothing at all. This is what makes `reapplyKey` safe as a dependency: an unchanged key re-renders without detaching.
 4. **An identity change detaches and re-attaches, in that order.** So `reapplyKey` in the dependency list reproduces the old effect-dependency behaviour exactly: teardown, re-measure, re-wire. This arc changes how often the mount path measures, never what a `reapplyKey` change means.
+5. **A STABLE callback attaches when a conditional host appears later.** The second transcript's first `attach` lands on the `show host` re-render, not on the owner's mount. This is the fact the `attachCount` counter existed to buy, and it is the fact that makes removing the counter safe rather than merely tidier: a ref callback is invoked when the node appears, whenever that is.
+6. **The cleanup runs when that host disappears, with the owner still mounted.** `cleanup` lands on the `hide host` re-render. Without this, an overlay could be removed while its `ResizeObserver` stayed attached to a live ancestor and its listeners stayed on the positioned node — a leak per open, on surfaces an admin opens repeatedly.
 
 Fact 4 is why `reapplyKey` stays a dependency of a callback that does not read it. ESLint says so out loud — `react-hooks/exhaustive-deps` reports `unnecessary dependency: 'reapplyKey'` (a warning, not an error: the CI step is `run: pnpm lint` with no `--max-warnings`, `.github/workflows/quality.yml:36`). The dependency is load-bearing and the rule cannot see why, so the implementation carries a targeted `eslint-disable-next-line react-hooks/exhaustive-deps -- <reason>` in the repo's established `--`-reason form, and the reason names fact 4. Silencing it repo-wide, or dropping the dependency, are both wrong: without it a `reapplyKey` change stops re-measuring and case (c) goes red.
 
@@ -159,7 +178,11 @@ jsdom computes no layout, so none of the first three is settled by the unit suit
 
 ## §3.1 — Transition Inventory
 
-The hook is a four-state machine over one node. States: **U** unattached, **F** attached and fitted, **N** attached with no clipping ancestor, **D** detached. Twelve ordered pairs exist; six are reachable and each is a row below, followed by the compound rows. The other six are unreachable by construction and are named rather than elided: nothing ever returns to **U** (a hook instance's node is attached once per attach cycle, and a detach goes to **D**, never back to unattached), so `F → U` and `N → U` cannot occur; and **D** is terminal for that attach cycle — a subsequent attach is a fresh cycle starting from **U** — so `D → U`, `D → F`, `D → N` and `U → D` cannot occur either.
+The hook is a four-state machine over one node. States: **U** unattached, **F** attached and fitted, **N** attached with no clipping ancestor, **D** detached.
+
+Twelve ordered pairs exist and **eight are reachable**, each a row below, followed by the compound rows. Round-1 finding 3 corrected an earlier count of six: it called **D** terminal and routed a re-attach through **U**, which both understated the machine and contradicted itself — if a re-attach really passed through **U** then `D → U` was reachable, and if it did not then `D → F` and `D → N` were. The probe settles it in the first direction's favour: §2.1's transcript reads `ref-cleanup k=1` immediately followed by `ref-attach k=2`, with no intervening state, and the conditional-host transcript reads `cleanup` then `attach` the same way. **D → F and D → N are ordinary transitions**, and they are the ones a `reapplyKey` change and a hide/show cycle actually take.
+
+The four that remain unreachable, named rather than elided: `F → U`, `N → U` and `D → U` — nothing ever returns to unattached, because **U** is the initial state of a hook instance and no later event restores it; and `U → D`, because a detach can only follow an attach.
 
 | Pair | Treatment |
 | --- | --- |
@@ -172,7 +195,10 @@ The hook is a four-state machine over one node. States: **U** unattached, **F** 
 | **Compound:** `reapplyKey` changes while a coalesced frame is pending | The detach cancels the pending frame (`coalescer.cancel()`), the re-attach measures synchronously. The stale frame can never land on the new wiring, because each attach owns its own coalescer instance |
 | **Compound:** unmount while a coalesced frame is pending | Case (g3). The frame is cancelled, so `apply()` never runs against a detached node |
 | **Compound:** `reapplyKey` changes in the same commit that attaches the node | The ref callback runs once with the new key's identity — there is no second pass, because the identity change and the first attach are one attach. Costs one measure, where today it costs two |
+| D → F | The re-attach after a `reapplyKey` change, or after a conditional host reappears clipped. Measures synchronously and re-wires; the previous cycle's teardown has already run |
+| D → N | Same, where nothing clips on the new attach: `max-height` is removed rather than written, and no clip is observed |
 | **Compound:** a `transitionend` arrives mid-teardown | The listener is removed before `coalescer.cancel()`, so a late event cannot schedule after the cancel |
+| **Compound:** the conditional host disappears and reappears while the owner stays mounted | The live shape at `ReSyncButton` and `PublishedToggle`. F → D → F, with the teardown's `nodeRef.current = null` in between so a stale `apply()` cannot measure a removed node |
 
 Nothing here animates. Every transition is instant by design: this hook exists to write a cap **before** the browser paints, and any easing on the cap itself would be a visible resize of a panel the user is already reading.
 
@@ -185,42 +211,70 @@ Shapes swept, stated as the ledger rows state them:
 - **Shape 1** — a state counter that exists only to re-run an effect a late-mounting ref should have driven.
 - **Shape 2** — a value resolved inside `apply()` that the effect body re-resolves in the same run.
 
-### §4.1 — Result: the class is one file
+### §4.1 — Result: the class is one file, on covers that derive
+
+Round-1 finding 4 was that the first sweep enumerated SPELLINGS. It was right, and the instrument
+failed its own positive control: a `ref=\{\(node` pattern cannot see `useFitWithinClip` itself,
+because this hook returns a callback rather than writing one inline. An instrument that misses the
+known instance establishes nothing about unknown ones. Both covers are rebuilt below on the axis
+each shape is actually defined on.
+
+**Shape 2 derives by SCOPE, not by grep.** `findClippingAncestor` is declared `function` at
+`components/admin/useFitWithinClip.ts:48` and exported nowhere:
 
 ```
-$ rg -n --glob '*.ts' --glob '*.tsx' 'useState\(0\)|useState<number>\(0\)|attachCount' components app lib
-components/admin/useFitWithinClip.ts:77   const [attachCount, setAttachCount] = useState(0);
-components/admin/useFitWithinClip.ts:201  }, [attachCount, apply, reapplyKey]);
-components/admin/useFitWithinClip.ts:207  setAttachCount((n) => n + 1);
-components/auth/AvatarMenu.tsx:98         const [activeIndex, setActiveIndex] = useState(0);
-components/crew/primitives/CopyFactValue.tsx:374  const [seenClipboardWrite, setSeenClipboardWrite] = useState(0);
-app/admin/settings/admins/AddAdminForm.tsx:38     const [formKey, setFormKey] = useState(0);
-app/admin/show/[slug]/ShareTokenContext.tsx:68    const [remoteTokenChanges, setRemoteTokenChanges] = useState(0);
-components/admin/nav/useBellBadge.ts:65           const [pingSignal, setPingSignal] = useState(0);
-components/admin/showpage/PublishedReviewModal.tsx:504  const [freshBatch, setFreshBatch] = useState(0);
-components/diagrams/Gallery.tsx:114               const [openNonce, setOpenNonce] = useState(0);
+$ rg -n --glob '*.ts' --glob '*.tsx' 'export.*findClippingAncestor' .
+(no output)
 ```
 
-All seven peers are something else: a selected index (`AvatarMenu`), an acknowledged-sequence watermark written from an effect (`CopyFactValue`, `components/crew/primitives/CopyFactValue.tsx:402`), a remount key (`AddAdminForm`), a remote-change signal (`ShareTokenContext`, `useBellBadge`), a batch counter (`PublishedReviewModal`), and an open nonce (`Gallery`). None is written from a ref callback, so none is shape 1. The check that decides that is not the `useState` line but the writer:
+A module-private binding cannot be called from outside its module, so enumerating call sites within
+that one file is exhaustive by construction rather than by pattern. There are two —
+`components/admin/useFitWithinClip.ts:91` inside `apply()`, and
+`components/admin/useFitWithinClip.ts:161` in the effect body, which is the instance this arc
+removes. No second module can hold one.
+
+**Shape 1 derives on the ref-callback axis.** The shape is "a ref callback that bumps state", so the
+enumerable set is ref callbacks, not `useState` declarations. Two spellings reach a function into a
+ref: an inline arrow on the prop, with ANY parameter name, and a value typed `RefCallback`:
 
 ```
-$ rg -n --glob '*.ts' --glob '*.tsx' -U 'ref=\{\(node' components app lib
-components/agenda/AgendaPdfViewer.tsx:266
-components/diagrams/Gallery.tsx:346
+$ rg -n --glob '*.ts' --glob '*.tsx' -U 'ref=\{\s*\(|RefCallback' components app lib | rg -v '\.test\.'
+components/agenda/AgendaPdfViewer.tsx:266:      ref={(node) => {
+components/diagrams/Gallery.tsx:346:           ref={(node) => {
+components/auth/AvatarMenu.tsx:371:            ref={(el) => {
+components/auth/AvatarMenu.tsx:418:            ref={(el) => {
+components/admin/review/ShowReviewSurface.tsx:784:   ref={(el) => {
+components/admin/review/ShowReviewSurface.tsx:836:   ref={(el) => {
+components/admin/review/ShowReviewSurface.tsx:902:   ref={(el) => {
+components/admin/review/ShowReviewSurface.tsx:1058:  ref={(el) => {
+components/admin/useFitWithinClip.ts:29:  import { … type RefCallback } from "react";
+components/admin/useFitWithinClip.ts:69:  export function useFitWithinClip(…): RefCallback<HTMLElement> {
 ```
 
-Both write a ref map (`pageRefs.current[i] = node`, `thumbRefs.current.set(item.id, node)`) and set no state. **Shape 1 is present exactly once in the repo, and that instance is the one this arc removes.**
+**Positive control: this instrument finds its own target.** The last two rows are
+`useFitWithinClip` itself, which the earlier `ref=\{\(node` pattern could not see. The widened
+arrow pattern also surfaced six sites the first sweep missed entirely — `AvatarMenu` ×2 and
+`ShowReviewSurface` ×4 — every one of them spelled `(el)` rather than `(node)`.
 
-```
-$ rg -n --glob '*.ts' --glob '*.tsx' 'findClippingAncestor' components app lib
-components/admin/useFitWithinClip.ts:48   function findClippingAncestor(...)
-components/admin/useFitWithinClip.ts:91   const clip = findClippingAncestor(el);
-components/admin/useFitWithinClip.ts:161  const clip = findClippingAncestor(node);
-```
+All eight non-hook callbacks were READ, not pattern-matched. Every one writes to a ref map or a ref
+array and sets no state: `pageRefs.current[i] = node`, `thumbRefs.current.set(item.id, node)`,
+`itemRefs.current[0] = el`, `itemRefs.current[1] = el`, and four
+`railItemRefs`/`sectionElsRef` `.set`/`.delete` pairs. **Shape 1 is present exactly once, and that
+instance is the one this arc removes.**
 
-The function is module-private and has two call sites, both in this file. **Shape 2 is present exactly once**, and `components/admin/useFitWithinClip.ts:161` is it.
+**Documented limit of the shape-1 cover, so it is not re-derived.** It ranges over the two spellings
+that reach a function into a ref prop in this repo's own idiom. A ref callback assembled some other
+way — a callback built by a factory and spread through `{...props}`, or one behind a `Ref<T>` union
+whose function arm is never written literally — would not appear. That is the threat fence doing its
+job rather than a gap in it: the fence is ordinary authoring on the shipped admin surfaces, and
+obfuscated construction files here rather than to a round. Re-file trigger: a ref callback reaching
+a DOM node by any route other than a literal arrow on the prop or a `RefCallback`-typed value.
 
-`components/admin/showpage/ShareHub.tsx` was swept as a nominated peer: one layout effect (`components/admin/showpage/ShareHub.tsx:403`) calling `applyPlacement()` once (`components/admin/showpage/ShareHub.tsx:409`) and wiring subscriptions, plus an unrelated lifecycle-close effect (`components/admin/showpage/ShareHub.tsx:648`). No counter, no re-resolved value, no double measure. Clean.
+`components/admin/showpage/ShareHub.tsx` was swept as a nominated peer: one layout effect
+(`components/admin/showpage/ShareHub.tsx:403`) calling `applyPlacement()` once
+(`components/admin/showpage/ShareHub.tsx:409`) and wiring subscriptions, plus an unrelated
+lifecycle-close effect (`components/admin/showpage/ShareHub.tsx:648`). No counter, no re-resolved
+value, no double measure. Clean.
 
 ### §4.2 — `AnchoredPortal`: probed, real, and deferred with a named reason
 
@@ -249,12 +303,17 @@ That is the same consequence as this arc's rows and a **different mechanism**. R
 - **New (h) walk control.** Counts `getComputedStyle` calls on **ancestors only** across one mount — the fitted node's own declared-cap read is excluded, so the number is the walk and nothing else. The assertion is stated in ancestor-call units and its expected value is **derived from the harness's own chain**: the walk visits every ancestor up to and including the first non-`visible` overflow, which in this fixture is `inner` then `outer`, so one walk is `ANCESTORS_TO_CLIP.length` calls. Never hardcoded, so deepening the fixture cannot silently satisfy it. Concrete failure modes caught, in the same units: restoring the effect body's second walk doubles it; regressing the attach mechanism to two measures doubles it again.
 - **New (h2) null-node arm.** Calls the returned ref callback with `null` directly and asserts it neither measures nor throws. Concrete failure mode: a teardown-only implementation that assumes a non-null node crashes on any consumer still passing `null`.
 - **New (h3) teardown nulls the node.** After unmount, a stale `apply()` must not measure. Concrete failure mode: fact 1 above — React never calls `ref(null)` any more, so an implementation that relies on it leaves `nodeRef.current` pointing at a detached node.
+- **New (h8) `reapplyKey`-change counts, and (h9) unchanged-key counts.** Round-1 finding 1, and the sharpest of the round: §0.1's table is the acceptance condition and only its MOUNT row had a pin. Case (c) (`tests/components/admin/useFitWithinClip.test.tsx:193`) checks the cap after a key change and counts nothing, and no case re-rendered with an UNCHANGED key at all. (h8) asserts one apply and one walk across a key change; (h9) asserts zero of each across a re-render that changes nothing. Concrete failure mode, and it is not hypothetical: a ref callback whose identity churns every render — the exposure §7 documents — re-attaches and re-measures on every render while satisfying every other assertion in this suite, because every other assertion is about a single mount. Four cells of the acceptance table were unfalsifiable; these two cases close all four.
 
 A test that only proves `apply` was called is worthless here: the whole subject is **how many times**. Every new case asserts a count or an absence, and each names the mutant it kills.
 
 ### §5.2 — Real browser
 
-jsdom computes no layout, so the containment claim in §3 cannot be settled there. `tests/e2e/popover-clip-fit.spec.ts` gains one case asserting the §3 invariant after the refactor, on both live surfaces: the `AttentionMenu` scroller and the `ReSyncButton` band.
+jsdom computes no layout, so the containment claim in §3 cannot be settled there.
+
+**On which surfaces, corrected.** An earlier draft named "the `ReSyncButton` band" here. That file cannot drive it: `tests/e2e/popover-clip-fit.spec.ts` builds exactly two live entries, `tests/e2e/_pillFocusLiveEntry.tsx` and `tests/e2e/_publishedToggleClipLiveEntry.tsx` (`tests/e2e/popover-clip-fit.spec.ts:44-46`), and `rg -ln 'ReSyncButton' tests/e2e/ | rg popover-clip-fit` returns nothing. The pin lands on the two surfaces that exist there — the `AttentionMenu` scroller and the `PublishedToggle` banner — both of which consume this hook. A third live entry for `ReSyncButton` would be a new harness, not a pin, and its three overlays call the identical hook.
+
+**What the new case adds that the two existing containment cases (`tests/e2e/popover-clip-fit.spec.ts:310`, `tests/e2e/popover-clip-fit.spec.ts:565`) do not.** Both existing containment cases measure AFTER settle, so a second after-settle assertion would be redundant with them. The property this refactor puts at risk is the FIRST PAINTED FRAME: the measure moved from the owner's layout effect to ref-attach, and the only reason it is synchronous at all is that an overlay must never be painted uncapped. So the new case samples on EVERY frame from first appearance, under `emulateMedia({ reducedMotion: "reduce" })` so the entrance transform cannot distort a sampled rect, and asserts containment on all of them. It carries an executable premise that at least one frame was sampled — a sampler that never fired would make the loop vacuously true, which is exactly the degenerate shape the premise rule exists for.
 
 Both the overlay rect and the clip rect are read in **one** `page.evaluate` per measurement. `boundingBox()` is viewport-relative and Playwright actionability scrolls before it measures, so two separate reads can be taken against two different scroll positions and manufacture a phantom overlap. Tolerance is 0.5px, matching the existing containment cases.
 
