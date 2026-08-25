@@ -1398,6 +1398,125 @@ export const GUARD_SURFACES: GuardSurface[] = [
     control: { from: 'r.status === "verdict"', to: 'r.status !== "verdict"' },
     accepted: [],
   },
+  /**
+   * Enrolled at diff R3 of feat/review-round-arc-sum, in the same commit that
+   * created the module. The defect it exists to prevent is precisely the one
+   * the registry expresses well: a placement predicate that reports OK while
+   * the answer moved. `Date.parse` did exactly that - a timezone-less string
+   * got a host-dependent instant and an impossible date got a normalized one,
+   * and both read as "compared and cleared".
+   */
+  {
+    id: "reviewRoundInstant",
+    sourcePath: "lib/reviewRounds/instant.ts",
+    suitePaths: [
+      "tests/reviewRounds/instant.test.ts",
+      "tests/docs/_metaReviewRoundEconomy.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // Drops the upper half of the day-of-month check, so Feb 30 places as a
+    // real instant again - the exact R3 shape, sabotaged.
+    control: { from: "if (day < 1 || day > days) return null;", to: "if (day < 1) return null;" },
+    accepted: [
+      {
+        siteId: "integer-literal:30:24:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:30:32:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:30:40:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:30:48:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:30:52:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:30:60:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:30:68:31>32",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (day 32 gives NaN from Date.parse; only the 30-day months normalize, and those four are pinned by the day-31 case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:54:28:12>13",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (month 13 gives NaN; it also indexes DAYS_IN_MONTH out of range to 0), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:55:84:0>1",
+        kind: "equivalent",
+        reason:
+          "equivalent: unreachable - the `?? 0` fallback is reached only for month 0 or 13, and line 54 has already returned null for both",
+      },
+      {
+        siteId: "integer-literal:57:37:5>6",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (minute 60 and second 60 both give NaN; only the HOUR field normalizes, and its bound and operator are killed by the clock-field case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:57:43:59>60",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (minute 60 and second 60 both give NaN; only the HOUR field normalizes, and its bound and operator are killed by the clock-field case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:57:58:6>7",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (minute 60 and second 60 both give NaN; only the HOUR field normalizes, and its bound and operator are killed by the clock-field case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "integer-literal:57:64:59>60",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (minute 60 and second 60 both give NaN; only the HOUR field normalizes, and its bound and operator are killed by the clock-field case), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "logical-connector:45:22:||>&&",
+        kind: "equivalent",
+        reason:
+          "equivalent: the PLACEABLE accept-set already rejects this input, so the guard never decides it (null and undefined stringify to `null` and `undefined`, which the regex does not match, so exec returns null either way)",
+      },
+      {
+        siteId: "logical-connector:54:17:||>&&",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (with the month guard disabled, month 00 and month 13 both give NaN), so widening the explicit check cannot change the output",
+      },
+      {
+        siteId: "logical-connector:57:46:||>&&",
+        kind: "equivalent",
+        reason:
+          "equivalent: the final `Number.isFinite(Date.parse(value))` net returns null for this input anyway (minute 60 and second 60 both give NaN; only the HOUR field normalizes, and its bound and operator are killed by the clock-field case), so widening the explicit check cannot change the output",
+      },
+    ],
+  },
   {
     id: "specLintNumerics",
     sourcePath: "lib/specLint/numerics.ts",
@@ -1828,16 +1947,22 @@ export const GUARD_SURFACES: GuardSurface[] = [
       {
         // Line-keyed siteIds re-derived after the enforcement-pair arc's edits
         // shifted corpus.ts by two lines (an import and a ProblemKind member).
-        siteId: "statement-removal:79:7:continue;>(removed)",
+        siteId: "statement-removal:82:7:continue;>(removed)",
         kind: "equivalent",
         reason:
-          "falling through after the recursive walk reaches `if (!entry.isFile()) continue;` on the very next line (corpus.ts:81), and a Dirent for a directory returns false from isFile(), so neither push below it can be reached",
+          "falling through after the recursive walk reaches `if (!entry.isFile()) continue;` on the very next line (corpus.ts:83), and a Dirent for a directory returns false from isFile(), so neither push below it can be reached",
       },
       {
-        siteId: "relational-boundary:146:25:<><=",
+        siteId: "statement-removal:246:5:sectionsByArc.set(arc, sections);>(removed)",
         kind: "equivalent",
         reason:
-          'the extra iteration reads lines[i] === undefined, which `?? ""` turns into the empty string, and the blank-line skip at corpus.ts:148 continues before parseRow sees it',
+          "the map is a pure memo of what clause A has already parsed: `arcSumTotals` reads it as `sections?.get(arc) ?? parseFiling(arc.filingText)`, so an unpopulated map falls back to parsing each filing on demand and returns the identical answer. Removing the write costs one re-parse per filing and changes no output - which is exactly why it was added (it took the live-corpus check from 31s back to 5s), and exactly why no assertion can distinguish it",
+      },
+      {
+        siteId: "relational-boundary:149:25:<><=",
+        kind: "equivalent",
+        reason:
+          'the extra iteration reads lines[i] === undefined, which `?? ""` turns into the empty string, and the blank-line skip at corpus.ts:150 continues before parseRow sees it',
       },
     ],
   },
