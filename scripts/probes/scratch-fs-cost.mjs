@@ -60,7 +60,13 @@ const byName = {};
 for (const c of calls) byName[c] = (byName[c] ?? 0) + 1;
 rmSync(work, { recursive: true, force: true });
 
-console.log(JSON.stringify({ files, roots, fsops: calls.length, secs, exitCode: run.status, byName }, null, 2));
+console.log(
+  JSON.stringify(
+    { files, roots, fsops: calls.length, secs, exitCode: run.status, byName },
+    null,
+    2,
+  ),
+);
 if (run.status !== 0) {
   console.error(`note: vitest exited ${run.status}; counts still reported`);
 }
