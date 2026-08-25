@@ -2453,7 +2453,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // `false || false` and `false && false` are both false. Falsifier: making either group
       // optional in the pattern.
       {
-        siteId: "logical-connector:277:30:||>&&",
+        siteId: "logical-connector:307:30:||>&&",
         kind: "equivalent",
         reason:
           "BORDER_COLOUR_DECL's groups 1 and 2 are both mandatory, so both disjuncts are constantly false and || and && agree; §4.2",
@@ -2464,7 +2464,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // repeated entry cannot move a `> 0`. Falsifier: any consumer reading props by identity,
       // index, or set membership.
       {
-        siteId: "logical-connector:291:30:&&>||",
+        siteId: "logical-connector:321:30:&&>||",
         kind: "equivalent",
         reason:
           "PAINT_PROP group 1 is mandatory so the left conjunct is constantly true; the flip only drops the dedup, and both reads of props are `length > 0`, which a duplicate cannot move; §4.2",
@@ -2475,7 +2475,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // returns one entry per input, so `order.get(token)` is never undefined at this site.
       // Falsifier: a candidate that compiles but is absent from getClassOrder's result.
       {
-        siteId: "integer-literal:294:41:0>1",
+        siteId: "integer-literal:324:41:0>1",
         kind: "equivalent",
         reason:
           "order.get(token) is never undefined here — classify queries getClassOrder with the tokens it just compiled — so the BigInt fallback is unreachable; §4.3",
@@ -2484,7 +2484,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // tokens drawn from that same list, so the optional chain never yields undefined.
       // Falsifier: a token reaching this filter that was not in the classify call above it.
       {
-        siteId: "integer-literal:629:82:0>1",
+        siteId: "integer-literal:659:82:0>1",
         kind: "equivalent",
         reason:
           "rowPaint is built from alternatives.flat() and indexed with tokens from that same list, so the ?? fallback is unreachable; §4.3",
@@ -2496,7 +2496,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // p.order === held.paint.order cannot hold and `>` and `>=` agree on every reachable pair.
       // Falsifier: two distinct classes sharing one order value.
       {
-        siteId: "relational-boundary:343:60:>>>=",
+        siteId: "relational-boundary:373:60:>>>=",
         kind: "equivalent",
         reason:
           "getClassOrder is a total order with a distinct position per class and the compared tokens are always distinct, so the tie the mutant redirects cannot occur; §4.4",
@@ -2508,13 +2508,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // SECOND conjunct is false for it either way and the conjunction's value is unchanged.
       // Falsifier: a one-character Tailwind utility that paints.
       {
-        siteId: "relational-boundary:385:29:>>>=",
+        siteId: "relational-boundary:415:29:>>>=",
         kind: "equivalent",
         reason:
           "the length test is a pre-filter and the props conjunct beside it excludes every token the boundary could admit, so the conjunction is unchanged; §4.5",
       },
       {
-        siteId: "integer-literal:385:31:0>1",
+        siteId: "integer-literal:415:31:0>1",
         kind: "equivalent",
         reason:
           "same conjunction: a one-char token has no paint entry, so the props conjunct excludes it whichever way the length boundary falls; §4.5",
@@ -2527,13 +2527,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // side-divider row — identical problem lists for a clean, a double-spaced and a one-char
       // paint string. Falsifier: a consumer reading token spelling or counting tokens directly.
       {
-        siteId: "relational-boundary:561:81:>>>=",
+        siteId: "relational-boundary:591:81:>>>=",
         kind: "equivalent",
         reason:
           "an empty token admitted by >= 0 carries no paint, and every consumer of alternatives reads paint; probed against a live divider row with identical output; §4.6",
       },
       {
-        siteId: "integer-literal:561:83:0>1",
+        siteId: "integer-literal:591:83:0>1",
         kind: "equivalent",
         reason:
           "a one-char token dropped by > 1 carries no paint, same probe, same identical output; §4.6",
@@ -2547,7 +2547,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // spellings). `<=` and `<` therefore agree on the whole domain. Falsifier: a caller passing
       // a value not of the form b/255.
       {
-        siteId: "relational-boundary:474:33:<=><",
+        siteId: "relational-boundary:504:33:<=><",
         kind: "equivalent",
         reason:
           "lin's domain is {b/255 : b in 0..255} and 0.03928*255 = 10.0164 is not an integer, so no input reaches the boundary — all 256 enumerated; §4.7",
