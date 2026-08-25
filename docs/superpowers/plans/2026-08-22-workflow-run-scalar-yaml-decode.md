@@ -369,7 +369,7 @@ accepts whatever it did not model.
    escaped with a live mutant.
 
 **The allowlist, and the hole review found in its first cut.** The question is inverted: what this
-arc may touch is small, known and mine to declare, so the check names those five declarations and
+arc may touch is small, known and mine to declare, so the check names those seven declarations and
 denies the rest of the file. But the first cut skipped `ImportDeclaration` and `ExportDeclaration`
 when collecting owners, and accepted any changed line with no owner — so two statement classes were
 unowned and therefore exempt. Review demonstrated it with a live wrong report: swapping the imported

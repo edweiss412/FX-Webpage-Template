@@ -258,8 +258,12 @@ correct authoring into a broken build.
 
 ## 4. Documented limits
 
-Carried from round 0. Each is a case where the repair is CONSERVATIVE and SIGNALED, never silently
-wrong, and each files here rather than as a review round.
+Carried from round 0. Each files here rather than as a review round, and all but one is a case where
+the repair is CONSERVATIVE and SIGNALED rather than silently wrong. **Item 8 is the exception and says
+so in its own text:** an unresolved alias is a MISCOUNT, which is silent. It is recorded here anyway
+because the census underwrites AC-5's digest-neutrality argument, so a reader weighing that argument
+needs to know its one silent failure direction -- which is exactly the reason not to let a blanket
+"each" paper over it.
 
 1. **A decoded value's internal line numbers are not physical lines.** Sites and advisories from a
    quoted scalar are pinned to the `run:` key's line. For a multi-line quoted scalar the offending

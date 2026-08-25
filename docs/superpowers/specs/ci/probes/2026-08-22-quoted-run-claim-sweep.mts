@@ -14,9 +14,13 @@
 //   EXECUTABLE - a zero-assertion within a window of a quoted executable
 //                scalar fixture.
 //
-// The sweep prints a SELF-TEST first: it must find the known instance at
-// tests/cross-cutting/psqlStartupFileSuppression.test.ts. A sweep that cannot
-// find the case that motivated it reports clean for the wrong reason, so a
+// The sweep prints CANDIDATES first, then the SELF-TEST, then the gate verdict.
+// The self-test ranges over the five REACHABLE declared sites -- not over the
+// case that motivated this sweep, `psqlStartupFileSuppression.test.ts`, which is
+// now one of the two EXEMPT sites: repairing it replaced the zero-assertion the
+// discovery arm looks for, so the arm cannot see it any more and no widening
+// would change that. A sweep that cannot find the sites it CAN reach reports
+// clean for the wrong reason, so a
 // missing self-test hit exits 2 rather than 0.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
