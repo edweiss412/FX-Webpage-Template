@@ -1698,7 +1698,7 @@ The filter is not loose by accident — it covers the eight parser shard files, 
 
 ## BL-REVIEW-ROUND-REPORT-TEST-TIMEOUT-GROWTH — a review-round test derives its expectation from main's merge log, so it slows down with every merge and will eventually time out
 
-**Status:** OPEN. · **Filed:** 2026-08-16 (`docs/mutation-ledger-accuracy`, on behalf of #833, which reported it batch-wide and did not file it) · **Severity:** MEDIUM (a latent flake on a full local clone; CI is structurally immune) · **Class:** test durability · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** fix/yaml-run-scalar-quoting-decode · **Filed:** 2026-08-16 (`docs/mutation-ledger-accuracy`, on behalf of #833, which reported it batch-wide and did not file it) · **Severity:** MEDIUM (a latent flake on a full local clone; CI is structurally immune) · **Class:** test durability · **Effort:** S
 
 `tests/reviewRounds/report.test.ts` — the case `matches the live log when history is available` — builds its expectation by shelling out to `git log --merges --first-parent main --format=%s` (`tests/reviewRounds/report.test.ts:1263-1266`) and comparing it against `mergedArcs(process.cwd())`. Its cost therefore grows with main's merge history, permanently and in one direction, against the fixed `TEST_TIMEOUT_MS = 30_000` (`vitest.projects.ts:179`).
 
@@ -1716,6 +1716,24 @@ mergedArcs()   origin/main   27863ms, 27738ms   -> test PASSES (41 passed)
 **The growth is the durable half.** Main was at 799 first-parent merges when #833 measured, 803 ninety minutes later, and **804** at filing. The trend has no ceiling and no reset.
 
 **Deriving the expectation is DELIBERATE and must not be undone by a careless repair.** The comment above the call says so in terms: "Numbers are derived from the live log, never from literals - a hardcoded 676 makes this a tripwire on the calendar instead of on the producer." A fix that hardcodes the count would trade a slow test for a test that fails on a date, which is the defect the current design already rejected.
+
+**FOURTH measurement, and an INTERIM ceiling shipped, 2026-08-24
+(`fix/yaml-run-scalar-quoting-decode`).** The growth half arrived: after #875
+merged ~98 commits the case stopped fitting at all. Measured on that branch,
+**24.79 s** on a quiet box and **34.66 s** after the merge, against the 30 s
+ceiling — a hard failure of `test:fast`, not a flake, and reproducing on every
+rerun. That arc raised the ceiling to **180 s** in-branch under an explicit
+orchestrator ruling, because a required tier was failing for every arc rather
+than for the one that noticed. It is an INTERIM, and the comment at the test says
+so: the override comes back OUT when the real repair lands, rather than being
+raised again, since a ceiling that only ever moves up has stopped being a
+ceiling.
+
+So the `TEST_TIMEOUT_MS = 30_000` figure above is now the PROJECT default rather
+than this case's ceiling; this one case carries a local 180 s override. The
+direction below remains open and unimplemented — raising the ceiling buys time,
+it does not address the growth, and the real repair (speeding up `mergedArcs`, or
+dropping its second clone) is directed to arc-remerge.
 
 **Not branch-attributable, and CI does not see it.** The input is the `main` ref, so no branch causes or fixes it, and `it.skipIf(isShallow)` (`tests/reviewRounds/report.test.ts:1262`) skips the case entirely on the depth-1 checkouts CI uses. It bites full local clones only — which is to say, it bites developers and agents, not the merge gate.
 
