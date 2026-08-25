@@ -452,6 +452,14 @@ dark, and §9 says so rather than leaving it implied.
   deliberately does not enumerate it, because three rounds showed that enumeration is the wrong shape
   for the question. The retry still works on every path it covers; what is missing is the record, not
   the repair.
+- **The per-attempt stall guard bounds the HEADER phase, not the body read.** The wrapper must return
+  its `Response` for the caller to consume, so its timer is cleared when `fetch()` resolves. If headers
+  arrive and the body then stalls, that read is unbounded and no retry fires. Bounding it would mean
+  buffering the body and returning a reconstructed response, changing what every caller receives on a
+  path whose measured fault is a 502 STATUS with no body stall ever observed. The sibling
+  (`lib/drive/fetch.ts`) does not face this because it OWNS the body read and awaits it before clearing
+  its own timer. Recorded rather than fixed, deliberately.
+
 - **A 502 that outlasts the retry budget still reds.** The budget is bounded on purpose; an outage is
   supposed to surface, and by §3.4 it surfaces exactly as it does today.
 - **Read-only execution proves it for the arguments exercised.** §4.3's arm runs each member inside a

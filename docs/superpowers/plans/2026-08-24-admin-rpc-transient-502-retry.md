@@ -21,8 +21,8 @@ that could not fail for absence:
 
 | guard | discovers an omission? |
 | --- | --- |
-| `governanceViolations` (`tests/ci/_workflowCoverageScan.ts`) | YES — compares declared `governs` against a set DERIVED from the live workflow and demands equality |
-| `tests/cross-cutting/app-e2e-ci-wiring.test.ts` | YES — written for exactly this, comparing the workflow's list against `REQUIRED` |
+| `governanceViolations` (`tests/ci/_workflowCoverageScan.ts`) | PARTLY — derives its expected set from the SAME workflow, so a spec absent from the workflow is absent from both sides (round 4) |
+| `tests/cross-cutting/app-e2e-ci-wiring.test.ts` | PARTLY — compares `REQUIRED` against the workflow's list, so it catches a MISMATCH but not a joint omission from both (round 4) |
 | `tests/log/_metaMutationSurfaceObservability.test.ts` | YES — filesystem-walked, so a new surface fails by default |
 | Task 2's completeness arm | YES — by design, it walks the tree |
 | `tests/mutation/_metaGuardSurfaceRegistry.test.ts` | NO — iterates `GUARD_SURFACES`; enrolment is opt-in |
@@ -130,7 +130,19 @@ request never holds the event loop open.
 **The budget, computed in the sibling's own form** (`timeout * (1 + maxRetries) + backoff`):
 `MAX_SUPABASE_RETRIES = 2` (the sibling's default is 3; two, because this path is a user-visible page
 render rather than a background sync), backoff `250ms * 2^(n-1)` plus up to 250ms jitter, so delays of
-at most 500ms and 750ms. **Worst case: 2000 * 3 + 1250 = 7250ms.**
+at most 500ms and 750ms. **Worst case for the HEADER phase: 2000 * 3 + 1250 = 7250ms.**
+
+That bound is honest about what it covers, because the sibling's situation differs in a way that
+matters. `fetchXlsxExportBytes` awaits `response.arrayBuffer()` BEFORE clearing its timer, so its
+budget covers the whole round trip. A fetch wrapper cannot: it must hand the `Response` back for
+supabase-js to read, so its timer is necessarily cleared when `fetch()` resolves. If headers arrive
+and the BODY then stalls, no rejection reaches the retry loop and that read is unbounded.
+
+**Bounding the body is deliberately NOT done, and the reason is scope rather than difficulty.** It
+would mean buffering the body in the wrapper and returning a reconstructed `Response`, which changes
+what every caller receives on a path where the measured fault class is a 502 STATUS and no body stall
+has ever been observed. The limit is recorded in spec §9 instead. Speculative hardening on an
+unmeasured path is the failure mode this arc has been punished for repeatedly.
 
 Both comparisons the spec asks for, against that number rather than against the backoff alone. Against
 the admin gate: `requireAdmin` resolves `is_session_live` and `is_admin` in parallel, so 7250ms is the
@@ -144,12 +156,29 @@ The emit's code needs a decision, not an assumption. Spec §6 says `SUPABASE_UPS
 `NEW_FORENSIC_CODES` (`tests/log/_auditableMutations.ts`, search `export const NEW_FORENSIC_CODES`),
 whose own comment reads "Every NEW forensic-only code this feature introduces" and which
 `tests/log/_metaAdminOutcomeContract.test.ts` consumes. "No catalog row" and "no registry row at all"
-are different claims. **This task ADDS `SUPABASE_UPSTREAM_RETRY` to `NEW_FORENSIC_CODES`**, rather than deciding and
-recording. "Decide either way" was insufficient for the same reason as the enrolment red above:
+are different claims. **This task ADDS `SUPABASE_UPSTREAM_RETRY` to `NEW_FORENSIC_CODES`, and asserts the membership in its
+own red**, because changing the word "decide" to "ADD" does not make an omission fail. The existing
+meta-test iterates `NEW_FORENSIC_CODES`, so an unregistered producer is invisible to it: an
+implementation emitting the right code while skipping the row completes this task green unless the
+task's own test demands the row. "Decide either way" was insufficient for the same reason as the enrolment red above:
 `tests/log/_metaAdminOutcomeContract.test.ts` checks only codes already registered and has no
 completeness arm, so an omission stays green forever. The list's own comment — "Every NEW
 forensic-only code this feature introduces" — describes this code exactly, so the answer is not
 actually open.
+
+**The stall guard owes its own cases, or removing it entirely leaves this task green.** The sibling
+carries persistent-stall, recovery-after-stall and `clearTimeout` cases
+(`tests/drive/fetch.test.ts`, search `clearTimeoutSpy`); this task carries the same four: a fetch that
+stays pending until aborted is retried with a fresh budget; a stall that persists across every attempt
+exhausts and surfaces a typed failure; a stall on attempt one followed by a fast success resolves; and
+the timer is cleared on the resolved path.
+
+**Abort provenance is a case, not a comment.** The wrapper's own `timedOut` flag is the source of
+truth, never the abort error's name — the sibling states exactly this reason
+(`lib/drive/fetch.ts`, search `not the abort error's name`). So a CALLER-initiated abort via
+`init.signal` is attempted ONCE and rethrown as itself, while a timeout abort is retried. The wrapper
+also CHAINS `init.signal`, or a cancelled request outlives the caller that cancelled it and the
+wrapper has made cancellation weaker than it was. Both directions get a red.
 
 `RETRYABLE_STATUSES = {502, 503, 504}` is a named export, and this task's red pins the SET rather than
 one member: 502, 503 and 504 each retry, and 500 and 429 do NOT. The sibling treats both as transient
@@ -256,6 +285,17 @@ unreachable.**
 | `.github/workflows/app-e2e.yml` file list | execution | AC-5 never runs on any PR |
 | `scripts/check-app-e2e-executed.mjs` `REQUIRED` | the per-spec executed floor | `tests/cross-cutting/app-e2e-ci-wiring.test.ts` fails, by design |
 | `tests/ci/_workflowCoverageScan.ts` `governs` | which env pair covers the spec | the spec runs without its env; the scan flags EVERY governing row, not one |
+
+**These four are checked against EACH OTHER, not against reality, so Task 7 brings its own presence
+red.** `app-e2e-ci-wiring` compares `REQUIRED` against the specs the workflow names, and
+`governanceViolations` derives its expected set from that same workflow. Omit the spec from the
+workflow, `REQUIRED` and every `governs` row together and both guards stay in parity and green, while
+only `testMatch` and the spec file exist — CI never runs AC-5 and nothing says so. The plan's own
+discovery audit had this wrong: those guards discover a MISMATCH between declared sets, not a joint
+omission.
+
+So the task asserts, in its own test, that the spec's basename or path appears in all four: `testMatch`,
+the workflow's file list, `REQUIRED`, and the governing `governs` rows.
 
 The floor is `cases x resolving projects` (this spec resolves under `desktop-chromium` only, so `x 1`),
 never a floor of 1 — the oracle refuses a floor that demands nothing. The `governs` addition goes in
