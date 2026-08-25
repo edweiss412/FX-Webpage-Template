@@ -230,12 +230,12 @@ Both existing contract suites run here and must pass unmodified.
 **The red must fail for ABSENCE, and none of the existing guards does that.**
 `_metaGuardSurfaceRegistry.test.ts` validates entries already present in `GUARD_SURFACES` and never
 discovers unenrolled modules — the registry says enrolment is opt-in in as many words
-(`tests/mutation/source/registry.ts`, search `Enrollment is opt-in`). So both new modules can exist
+(`tests/mutation/source/registry.ts`, search `Enrollment is opt-in`). So the new module can exist
 outside the registry with that suite green, and the companion parity suites can only fail AFTER rows
 exist. Every guard here validates what is declared; none checks for what is missing.
 
 The task therefore brings its own red: `tests/mutation/enrolmentPresence.test.ts (new file)` asserts that
-`GUARD_SURFACES` contains both ids with the `sourcePath` each names. That fails before the rows exist
+`GUARD_SURFACES` contains the enrolled id with the `sourcePath` it names. That fails before the rows exist
 and passes after, which is what the other three cannot do.
 
 **Enrolment has its OWN fan-out of THREE tables, and the earlier red pointed at a file that does not
@@ -249,7 +249,7 @@ companion tables gate the same change:
 | `EXPECTED_LEDGER_KINDS` | `tests/mutation/source/expectedLedgerKinds.ts` | `_metaLedgerKindsDeclarationParity` fails |
 | `EXPECTED_ENV_TOUCHING` | `tests/mutation/_metaPremiseContract.test.ts`, search `EXPECTED_ENV_TOUCHING` | its keys are asserted EQUAL to the suite list, so a new deciding suite without a row fails |
 
-Both new surfaces need rows in all three. Adding only the registry rows leaves two merge-gating
+The enrolled surface needs a row in all three. Adding only the registry row leaves two merge-gating
 contracts red.
 
 **MEASURED CORRECTION: ONE surface, not two.** Sites were enumerated before requesting the score
@@ -280,11 +280,13 @@ four operators on one row would report them while scoring none of the backoff si
 **The row's `suitePaths` must NAME its own deciding suite.** The runner overlays a target only when a Vitest
 suite imports it, so a row pointing elsewhere yields a surface where every mutant survives for reasons
 that have nothing to do with the guard's quality. Closing that loop at the row is the entire reason
-Task 1 authors the predicate as an importable module rather than inline.
+Task 3 authors the wrapper as an importable module rather than inline.
 
-Enrol `lib/supabase/retryEligibility.ts (new)` with a `control` the suite must notice. Declared operators:
-`equality-flip` and `logical-connector` for the predicate, `relational-boundary` and
-`integer-literal` for the backoff arithmetic.
+Enrol `lib/supabase/retryingFetch.ts` with a `control` the suite must notice, `suitePaths` naming
+`tests/supabase/retryingFetch.test.ts` and `tests/supabase/retryingFetch.failureMode.test.ts`, and all
+four declared operators — `relational-boundary` and `integer-literal` reach the backoff arithmetic and
+the attempt counter, `equality-flip` and `logical-connector` reach the status set and the transient
+branch. All 24 sites live in that one module, so the row scores every operator it declares.
 
 Enrolment PRECEDES the first diff dispatch. The score, the unaccepted-survivor set, and the
 `OPERATORS:` tail go in the round-1 `GUARD SURFACE:` line. Score-run slot is requested from bl-orch,
