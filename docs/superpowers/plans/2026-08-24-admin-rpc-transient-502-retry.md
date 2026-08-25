@@ -230,13 +230,13 @@ Both existing contract suites run here and must pass unmodified.
 **The red must fail for ABSENCE, and none of the existing guards does that.**
 `_metaGuardSurfaceRegistry.test.ts` validates entries already present in `GUARD_SURFACES` and never
 discovers unenrolled modules — the registry says enrolment is opt-in in as many words
-(`tests/mutation/source/registry.ts`, search `Enrollment is opt-in`). So the new module can exist
+(`tests/mutation/source/registry.ts`, search `Enrollment is opt-in`). So both new modules can exist
 outside the registry with that suite green, and the companion parity suites can only fail AFTER rows
 exist. Every guard here validates what is declared; none checks for what is missing.
 
 The task therefore brings its own red: `tests/mutation/enrolmentPresence.test.ts (new file)` asserts that
-`GUARD_SURFACES` contains the enrolled id with the `sourcePath` it names. That fails before the rows exist
-and passes after, which is what the other three cannot do.
+`GUARD_SURFACES` contains both enrolled ids with the `sourcePath` each names. That fails before the rows
+exist and passes after, which is what the other three cannot do.
 
 **Enrolment has its OWN fan-out of THREE tables, and the earlier red pointed at a file that does not
 exist** (`tests/mutation/source/registry.test.ts — no such file`), which made it the missing-file state this plan's
@@ -249,28 +249,50 @@ companion tables gate the same change:
 | `EXPECTED_LEDGER_KINDS` | `tests/mutation/source/expectedLedgerKinds.ts` | `_metaLedgerKindsDeclarationParity` fails |
 | `EXPECTED_ENV_TOUCHING` | `tests/mutation/_metaPremiseContract.test.ts`, search `EXPECTED_ENV_TOUCHING` | its keys are asserted EQUAL to the suite list, so a new deciding suite without a row fails |
 
-The enrolled surface needs a row in all three. Adding only the registry row leaves two merge-gating
-contracts red.
+Both enrolled surfaces need a registry row and an `EXPECTED_LEDGER_KINDS` row; only the volatility scan
+is env-touching, so only it takes an `EXPECTED_ENV_TOUCHING` row. Adding the registry rows alone leaves
+merge-gating contracts red.
 
-**MEASURED CORRECTION: ONE surface, not two.** Sites were enumerated before requesting the score
-slot, without executing anything:
+**MEASURED CORRECTION, twice.** The first pass enumerated sites by reading the code and got two
+things wrong. The counts below come from the harness's own enumerator (`enumerateSites` in
+`tests/mutation/source/operators.ts`) run over each candidate, which is the only number that matches
+what the runner will actually generate:
 
-| surface | declared operators | sites |
+| surface | sites | by operator |
 | --- | --- | --- |
-| `lib/supabase/retryingFetch.ts` | relational-boundary, integer-literal, equality-flip, logical-connector | 24 |
-| `lib/supabase/retryEligibility.ts` | equality-flip, logical-connector | **1** |
+| `lib/supabase/retryingFetch.ts` | **40** | statement-removal 14, integer-literal 14, equality-flip 7, logical-connector 4, relational-boundary 1 |
+| `tests/supabase/retryableRpcVolatilityScan.ts` | **18** | statement-removal 13, equality-flip 2, logical-connector 2, integer-literal 1 |
+| `lib/supabase/retryEligibility.ts` | **3** | statement-removal 1, equality-flip 1, integer-literal 1 |
 
-The predicate's defect class is SET MEMBERSHIP and PATH SHAPE, which the declared operators barely
-reach: `equality-flip` finds a single `!== null`, `logical-connector` finds nothing because the
-predicate contains no `&&` or `||`, and neither arithmetic operator has anything to act on. So the
-predicate is NOT enrolled, and its re-disposition is recorded with the probe that shows why — the
-same move the step3 arc made when the registry could not express a Playwright surface, rather than
-enrolling symbolically.
+The first error was the count: the wrapper was recorded at 24 sites against four declared operators,
+and it is 26 against those four, 40 across all of them.
 
-Enrolling it anyway would buy a one-mutant surface whose score says almost nothing while LOOKING like
+The second was the operator list. `statement-removal` was never declared and is the LARGEST operator
+on both enrolled surfaces. A scoped subset leaves the excluded operators' sites unscored, and the
+registry's own convention for guard-extractor rows is `operators: [...OPERATOR_NAMES]` — every one of
+the nineteen `tests/` rows takes it. So both rows declare all operators, which is also the honest
+reading of "declared per-surface honestly": the honest declaration here is not a shorter list.
+
+The predicate's defect class is SET MEMBERSHIP and PATH SHAPE, which no operator reaches: three
+sites in total, one of them a `!== null`. So the predicate is NOT enrolled, and its re-disposition is
+recorded with the probe that shows why — the same move the step3 arc made when the registry could not
+express a Playwright surface, rather than enrolling symbolically.
+
+**The volatility guard IS enrolled, and it took an extraction to become enrollable.** It held its
+decision logic inside a `.test.ts`, which the runner cannot overlay at all — it mutates a `sourcePath`
+a suite IMPORTS. AGENTS.md requires such a surface to be authored as an importable module with a
+referring suite from the start; that was applied to the predicate in Task 1 and missed for the guard
+in Task 2. The logic now lives in `tests/supabase/retryableRpcVolatilityScan.ts` and the suite imports
+it, all 9 tests passing unchanged.
+
+Its 18 sites are what settle the re-disposition question in the other direction: the rule that
+un-enrolled the predicate at 3 sites does not reach a surface at 18, so it is enrolled rather than
+excused.
+
+Enrolling it anyway would buy a near-empty surface whose score says almost nothing while LOOKING like
 coverage, which is the exact shape of claim this arc spent five spec rounds removing from the design.
 
-**So: one registry row.** The runner overlays exactly ONE `surface.sourcePath`
+**So: two registry rows, and the predicate is not one of them.** The runner overlays exactly ONE `surface.sourcePath`
 (`tests/mutation/source/runner.ts`, search `const target = resolve(root, surface.sourcePath)`), so one
 row cannot reach arithmetic living in another module. The predicate (`equality-flip`,
 `logical-connector`) and the wrapper's backoff arithmetic (`relational-boundary`, `integer-literal`)
@@ -282,11 +304,25 @@ suite imports it, so a row pointing elsewhere yields a surface where every mutan
 that have nothing to do with the guard's quality. Closing that loop at the row is the entire reason
 Task 3 authors the wrapper as an importable module rather than inline.
 
-Enrol `lib/supabase/retryingFetch.ts` with a `control` the suite must notice, `suitePaths` naming
-`tests/supabase/retryingFetch.test.ts` and `tests/supabase/retryingFetch.failureMode.test.ts`, and all
-four declared operators — `relational-boundary` and `integer-literal` reach the backoff arithmetic and
-the attempt counter, `equality-flip` and `logical-connector` reach the status set and the transient
-branch. All 24 sites live in that one module, so the row scores every operator it declares.
+Both rows take `operators: [...OPERATOR_NAMES]`, a `control` its own suite must notice, and
+`suitePaths` naming its own deciding suite:
+
+| row | sourcePath | suitePaths |
+| --- | --- | --- |
+| `supabaseRetryingFetch` | `lib/supabase/retryingFetch.ts` | `tests/supabase/retryingFetch.test.ts`, `tests/supabase/retryingFetch.failureMode.test.ts` |
+| `retryableRpcVolatilityScan` | `tests/supabase/retryableRpcVolatilityScan.ts` | `tests/supabase/_metaRetryableRpcVolatility.test.ts` |
+
+Only the second is env-touching (it queries the catalog), so only it takes an `EXPECTED_ENV_TOUCHING`
+row.
+
+**Cost, stated before the slot is taken rather than discovered inside it.** 58 mutants total, 40 plus
+18. Each mutant runs its deciding suite in a fresh child; measured on this branch, the wrapper's two
+suites report 356ms and the volatility suite 383ms, both about a second wall-clock including boot. So
+the estimate is roughly two to four minutes of execution for both surfaces, not the tens of minutes a
+browser-driving surface costs. Both are scored in ONE slot acquisition.
+
+The volatility suite walks `app`, `lib` and `components` reading every `.ts` file, and that walk is
+paid once per mutant — it is already inside the 383ms above, so it is priced, not hidden.
 
 Enrolment PRECEDES the first diff dispatch. The score, the unaccepted-survivor set, and the
 `OPERATORS:` tail go in the round-1 `GUARD SURFACE:` line. Score-run slot is requested from bl-orch,
