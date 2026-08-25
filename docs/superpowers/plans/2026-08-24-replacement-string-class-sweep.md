@@ -94,6 +94,20 @@ reading 54 after an early `return` skipped a chained call's receiver.
 Disposition: **4 excepted** (`docs/**`, spec §6 clause (b)) · **1 capture-preserving**
 (`scrubSentryEvent`) · **51 ordinary wraps**.
 
+## A note on the red-targets below, added after implementation
+
+Four of these cited `tests/cross-cutting/replacementString/scan.ts` as a bare path, which was
+correct when the plan was written: `spec:lint`'s `RED_TARGET_INVALID` requires a LINE only for a
+file that is TRACKED, and this one did not exist yet. Landing Tasks 1 and 2 made it tracked and
+the four citations invalid — a plan authored before its own files exist cannot satisfy that rule
+until the work it describes has been done.
+
+They are repointed at the symbols their `why=` clauses name: `judgeSource` for the accept-set red,
+`population` for the subtraction red, and `walk` for the two planted-defect reds. Repointing a
+line resets the drift clock rather than retiring the citation, so this is the weaker of the two
+durable repairs — the stronger one, naming a symbol instead of a line, is not available here
+because the marker grammar takes `path:line`.
+
 ## Acceptance criteria
 
 Reproduced from the spec so the task markers below resolve against this document. The spec is
@@ -127,7 +141,7 @@ step, not a pass.
 
 ## Task 1 — `judgeSource` and the accept-set
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`judgeSource is a stub returning [], so every reported-kind case asserts a finding and gets none` ac=AC-1,AC-1b,AC-2,AC-3,AC-3b -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts:102` why=`judgeSource is a stub returning [], so every reported-kind case asserts a finding and gets none` ac=AC-1,AC-1b,AC-2,AC-3,AC-3b -->
 
 **Files** (fenced: two do not exist yet, and a citation to an absent file is a hard failure):
 
@@ -192,7 +206,7 @@ it, a visitor that stops descending after classifying a call passes every other 
 
 ## Task 2 — the population, derived from disk
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t population` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`the walk is stubbed to an empty file list, so the new-top-level-directory case finds its synthetic path absent from the population` ac=AC-4,AC-4b -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t population` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts:138` why=`the walk is stubbed to an empty file list, so the new-top-level-directory case finds its synthetic path absent from the population` ac=AC-4,AC-4b -->
 
 Every tracked file matching `\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$`, MINUS `node_modules/**` and
 `docs/**`. Stated as a subtraction so a new top-level directory is covered by default.
@@ -218,7 +232,7 @@ grow in silence.
 
 ## Task 3 — the guard states its premise executably
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t premise` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`the walk has no premise guarding it, so stubbing it to return [] yields zero offenders and the repo-wide assertion passes for the wrong reason` ac=AC-6 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t premise` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts:85` why=`the walk has no premise guarding it, so stubbing it to return [] yields zero offenders and the repo-wide assertion passes for the wrong reason` ac=AC-6 -->
 
 `premise(description, actual, mustExceed)` from `tests/_shared/premise.ts:26`, placed
 unconditionally relative to what it guards and never inside a `.each` callback, whose case count
@@ -237,7 +251,7 @@ commit. Without that pairing the task proves the premise runs, not that it discr
 
 ## Task 4 — the repo-wide scan, against a DECLARED inventory
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t inventory` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts` why=`planted defect: the walk is stubbed to drop one file's findings, so the inventory comparison reports that file's sites missing` ac=AC-1b -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/replacementString.test.ts -t inventory` red-state=authored red-target=`tests/cross-cutting/replacementString/scan.ts:85` why=`planted defect: the walk is stubbed to drop one file's findings, so the inventory comparison reports that file's sites missing` ac=AC-1b -->
 
 **Why an inventory and not a zero-assertion.** Plan review round 2 caught the sequencing defect
 this replaces. A bare "report zero offenders" assertion authored here stays RED until Task 8, so
