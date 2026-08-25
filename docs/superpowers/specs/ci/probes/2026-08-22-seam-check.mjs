@@ -55,38 +55,57 @@ const PERMITTED = new Set([
 // or a removal does not, and the line then falls back to being denied like any
 // other unowned change.
 //
-// The key carries the MODULE SPECIFIER and the TYPE-ONLY flag alongside the
-// imported name, and default imports are recorded too. An earlier version keyed
-// on the imported name alone and read only `NamedImports`, so review round 2 at
-// this base showed four prohibited edits passing: changing an import's module
-// source, deleting the `typescript` default import, renaming it, and making the
-// yaml import `import type`. Each of those is exactly the "same bindings, from
-// somewhere else" substitution the allowance exists to deny, and each was
-// invisible because the thing that changed was not in the key.
-const yamlBindings = (text, label) => {
+// NARROWED, not widened, and that direction is the point. Two rounds ran the
+// other way: the first version keyed on the imported NAME alone, so a changed
+// module source, a deleted or renamed default, and a type-only conversion all
+// false-passed. Adding module + type-only + default to the key fixed those four
+// and the NEXT round found two more the key still could not see -- import
+// ATTRIBUTES (`with { type: "json" }`) and the import PHASE modifier. That is a
+// recognizer growing one grammar feature per round, which AGENTS.md names as the
+// wrong repair direction under same-axis recurrence: each widening is a bigger
+// target for the next round.
+//
+// So the check stops LISTING what matters about an import and instead derives it
+// by SUBTRACTION. Each declaration is split in two:
+//
+//   SKELETON  the declaration text with its named-import list blanked out.
+//             Module source, type-only, default and namespace clauses, import
+//             attributes, phase modifiers -- and anything TypeScript adds later
+//             -- are all inside it, because it is what remains after removing
+//             the one span that is allowed to grow. Nothing enumerates them.
+//   BINDINGS  the name-for-name map of that list, which is the one thing this
+//             arc may extend.
+//
+// The condition: every base declaration's SKELETON must still be present at HEAD
+// byte-for-byte, and its bindings must still be present under the same local
+// names. Adding a binding passes (skeleton unchanged, bindings a superset).
+// Changing anything else fails, because the skeleton it lived in is gone.
+//
+// The first attempt at this narrowing compared the WHOLE declaration text and
+// was too strict -- it denied this arc's own `isSeq` addition, which the
+// allowance exists to permit. Blanking the list is what separates the part that
+// may grow from the part that may not.
+const yamlImports = (text, label) => {
   const sf = ts.createSourceFile(label, text, ts.ScriptTarget.Latest, true);
-  const pairs = new Map();
+  const out = new Map();
   for (const st of sf.statements) {
     if (!ts.isImportDeclaration(st)) continue;
-    const mod = ts.isStringLiteral(st.moduleSpecifier) ? st.moduleSpecifier.text : "<computed>";
-    const clause = st.importClause;
-    if (!clause) continue;
-    const declTypeOnly = clause.isTypeOnly === true;
-    const key = (imported, typeOnly) => `${mod}|${imported}|${typeOnly ? "type" : "value"}`;
-    if (clause.name) pairs.set(key("default", declTypeOnly), clause.name.text);
-    const bindings = clause.namedBindings;
-    if (!bindings) continue;
-    if (ts.isNamespaceImport(bindings)) {
-      pairs.set(key("*", declTypeOnly), bindings.name.text);
-      continue;
-    }
-    if (!ts.isNamedImports(bindings)) continue;
-    for (const el of bindings.elements) {
-      const typeOnly = declTypeOnly || el.isTypeOnly === true;
-      pairs.set(key(el.propertyName?.text ?? el.name.text, typeOnly), el.name.text);
-    }
+    const whole = st.getText(sf);
+    const named = st.importClause?.namedBindings;
+    const list = named && ts.isNamedImports(named) ? named.getText(sf) : null;
+    const skeleton = (list ? whole.replace(list, "{/*NAMED*/}") : whole)
+      .replace(/\s+/g, " ")
+      .trim();
+    const bindings = new Map();
+    if (list && named && ts.isNamedImports(named))
+      for (const el of named.elements)
+        bindings.set(
+          `${el.propertyName?.text ?? el.name.text}|${el.isTypeOnly ? "type" : "value"}`,
+          el.name.text,
+        );
+    out.set(skeleton, bindings);
   }
-  return pairs;
+  return out;
 };
 
 // DOCUMENTED LIMIT, probed rather than reasoned about: a BRAND-NEW import
@@ -111,9 +130,14 @@ const yamlBindings = (text, label) => {
 
 /** True when HEAD's imports are a pure SUPERSET of base's, name-for-name. */
 const importsOnlyGrew = (baseText, headText) => {
-  const base = yamlBindings(baseText, "base");
-  const head = yamlBindings(headText, "head");
-  for (const [imported, local] of base) if (head.get(imported) !== local) return false;
+  const base = yamlImports(baseText, "base");
+  const head = yamlImports(headText, "head");
+  for (const [skeleton, bindings] of base) {
+    const headBindings = head.get(skeleton);
+    if (!headBindings) return false; // the declaration itself changed
+    for (const [imported, local] of bindings)
+      if (headBindings.get(imported) !== local) return false; // a binding moved
+  }
   return true;
 };
 
