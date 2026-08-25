@@ -211,7 +211,6 @@ const EXPECTED_OFFENDERS: readonly string[] = [
   "components/admin/roleRecognizeCopy.ts:127",
   "components/admin/roleRecognizeCopy.ts:127",
   "lib/log/sanitize.ts:6",
-  "lib/observe/scrubSentryEvent.ts:18",
   "lib/parser/personalization.ts:248",
   "lib/sync/feed/shapeHoldEntry.ts:29",
   "lib/sync/feed/shapeHoldEntry.ts:29",
