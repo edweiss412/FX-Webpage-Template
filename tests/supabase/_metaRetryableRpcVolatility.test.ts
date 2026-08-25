@@ -20,39 +20,18 @@
  * NOT in PARALLEL_TEST_GLOBS and therefore runs in the serial project, which is the tier that
  * boots Supabase.
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
-
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { RETRYABLE_RPCS } from "@/lib/supabase/retryEligibility";
 import { premise } from "../_shared/premise";
-
-/**
- * Names deliberately kept OUT of the retry set, each with its reason.
- *
- * Both entries are the completeness arm working as designed rather than a weakening of it.
- * Discovery matches literals against the catalog instead of recognizing call sites, which is
- * deliberately OVER-inclusive: a spurious match forces a name into "retryable or excluded" and
- * can never cause a retry on its own. These two are named in prose and in an audit query's SQL
- * text, never invoked as an RPC from a client, so exclusion is the correct disposition.
- *
- * Excluding is also the SAFE direction if that ever changes: an excluded name is simply not
- * retried.
- */
-const EXCLUSIONS: ReadonlyMap<string, string> = new Map([
-  [
-    "canonicalize_email",
-    "named inside an audit query's SQL text (lib/audit/emailCanonicalization.ts), never called as an RPC",
-  ],
-  [
-    "can_read_show",
-    "named in parser prose about RLS readability (lib/parser/blocks/hotels.ts), never called as an RPC",
-  ],
-]);
-
-const PRODUCT_ROOTS = ["app", "lib", "components"];
+import {
+  EXCLUSIONS,
+  completenessViolations,
+  literalsInProductTree,
+  safetyViolations,
+  type Catalog,
+} from "./retryableRpcVolatilityScan";
 
 const sql = postgres(
   process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
@@ -62,7 +41,6 @@ afterAll(async () => {
   await sql.end({ timeout: 5 });
 });
 
-type Catalog = Map<string, { volatile: boolean }>;
 let catalog: Catalog = new Map();
 
 beforeAll(async () => {
@@ -72,60 +50,6 @@ beforeAll(async () => {
      where n.nspname = 'public'`;
   catalog = new Map(rows.map((r) => [r.proname, { volatile: r.provolatile === "v" }]));
 });
-
-/** Every string literal in the product tree, so discovery never recognizes a CALL. */
-function literalsInProductTree(): Set<string> {
-  const found = new Set<string>();
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir)) {
-      const full = join(dir, entry);
-      if (statSync(full).isDirectory()) {
-        if (entry === "node_modules" || entry.startsWith(".")) continue;
-        walk(full);
-        continue;
-      }
-      if (!/\.tsx?$/.test(entry)) continue;
-      for (const m of readFileSync(full, "utf8").matchAll(/["'`]([A-Za-z0-9_]+)["'`]/g)) {
-        found.add(m[1]!);
-      }
-    }
-  };
-  for (const root of PRODUCT_ROOTS) walk(root);
-  return found;
-}
-
-/** SAFETY arm, as a pure function so a planted input can prove it fails. */
-function safetyViolations(names: Iterable<string>, cat: Catalog): string[] {
-  const out: string[] = [];
-  for (const name of names) {
-    const row = cat.get(name);
-    if (row === undefined) {
-      out.push(`${name}: not resolvable in the catalog`);
-      continue;
-    }
-    if (row.volatile) out.push(`${name}: VOLATILE`);
-  }
-  return out;
-}
-
-/** COMPLETENESS arm, likewise pure. */
-function completenessViolations(
-  literals: Set<string>,
-  cat: Catalog,
-  set: ReadonlySet<string>,
-  exclusions: ReadonlyMap<string, string>,
-): string[] {
-  const out: string[] = [];
-  for (const [name, row] of cat) {
-    if (row.volatile) continue;
-    if (!literals.has(name)) continue;
-    if (set.has(name) || exclusions.has(name)) continue;
-    out.push(
-      `${name}: non-VOLATILE and named in the product tree, but neither retryable nor excluded`,
-    );
-  }
-  return out;
-}
 
 describe("RETRYABLE_RPCS — premises", () => {
   test("the catalog resolved, so an empty result cannot pass this suite vacuously", () => {
