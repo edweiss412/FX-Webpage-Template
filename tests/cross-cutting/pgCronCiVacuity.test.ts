@@ -199,7 +199,7 @@ function writeMutant(edits: Array<{ anchor: string; replaceWith: string }>): str
           "suite refactored; update the probe anchors.",
       );
     }
-    source = source.replace(anchor, replaceWith);
+    source = source.replace(anchor, () => replaceWith);
   }
   const mutant = join(mkdtempSync(join(tmpdir(), "pgcron-mechanism-probe-")), "mutant.txt");
   writeFileSync(mutant, source);

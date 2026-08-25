@@ -1017,8 +1017,8 @@ const MUTANTS = [
       const sanctioned = 'tone === "show" ? "bg-accent" : tone === "set" ? "" : "bg-border-strong"';
       const other = 'active ? "bg-on" : "bg-off"';
       const swapped = CLEAN_WIDGET.replace(sanctioned, "__TMP__")
-        .replace(other, sanctioned)
-        .replace("__TMP__", other);
+        .replace(other, () => sanctioned)
+        .replace("__TMP__", () => other);
       return { ...c, "components/Widget.tsx": swapped };
     },
   },

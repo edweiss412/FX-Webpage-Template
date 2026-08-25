@@ -37,7 +37,7 @@ describe("dry-run bytes", () => {
   it("--checkpoint sends the prompt then a carriage return, with the nonce substituted", () => {
     const plan = planSends({ command: "checkpoint", nonce: NONCE, ...ADDRESSED });
     expect(plan.sends).toEqual([
-      addressPayload(CHECKPOINT_TEXT, ADDRESSED).replace("<NONCE>", NONCE),
+      addressPayload(CHECKPOINT_TEXT, ADDRESSED).replace("<NONCE>", () => NONCE),
       "\r",
     ]);
     expect(plan.sends[0]).toContain(NONCE);

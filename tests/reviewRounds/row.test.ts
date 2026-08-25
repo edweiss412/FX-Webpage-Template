@@ -150,7 +150,7 @@ describe("row serialization (spec §5.3)", () => {
     // `JSON.stringify` runs, so the fixture would not carry the unsafe digits.
     const line = JSON.stringify(ROW).replace(
       new RegExp(`"${field}":\\d+`),
-      `"${field}":9007199254740993`,
+      () => `"${field}":9007199254740993`,
     );
     expect(line).toContain("9007199254740993");
     expect(parseRow(line).ok).toBe(false);
@@ -159,7 +159,7 @@ describe("row serialization (spec §5.3)", () => {
   it.each(NUMERIC_FIELDS)("still accepts a safe integer in %s", (field) => {
     const line = JSON.stringify(ROW).replace(
       new RegExp(`"${field}":\\d+`),
-      `"${field}":${Number.MAX_SAFE_INTEGER}`,
+      () => `"${field}":${Number.MAX_SAFE_INTEGER}`,
     );
     expect(parseRow(line).ok).toBe(true);
   });

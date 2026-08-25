@@ -26,10 +26,14 @@ function strOrEmpty(value: unknown): string {
 }
 
 function fill(template: string, params: { name: string; old: string; new: string }): string {
+  // Replacer functions, not replacement strings. Every value here is free text from the sheet —
+  // crew names and emails — and a replacement string parses `$&`, `` $` ``, `$'` and `$$` in it
+  // as a substitution grammar, so a crew member named `Dana$'X` spliced the rest of the summary
+  // into the middle of their own feed line and lost their name from it.
   return template
-    .replaceAll("{name}", params.name)
-    .replaceAll("{old}", params.old)
-    .replaceAll("{new}", params.new);
+    .replaceAll("{name}", () => params.name)
+    .replaceAll("{old}", () => params.old)
+    .replaceAll("{new}", () => params.new);
 }
 
 // Render the pending MI-11 summary via lib/messages (invariant 5 — no raw

@@ -140,7 +140,7 @@ function sampleXlsxWithZwTabTitle(): ArrayBuffer {
   const files = unzipSync(new Uint8Array(sampleXlsx()));
   const wb = strFromU8(files["xl/workbook.xml"]!);
   premiseHolds("fixture workbook declares the DIAGRAMS tab", wb.includes('name="DIAGRAMS"'));
-  files["xl/workbook.xml"] = strToU8(wb.replace('name="DIAGRAMS"', `name="DIAGRAMS${ZWSP}"`));
+  files["xl/workbook.xml"] = strToU8(wb.replace('name="DIAGRAMS"', () => `name="DIAGRAMS${ZWSP}"`));
   const zip = zipSync(files);
   return zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer;
 }
