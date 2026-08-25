@@ -92,7 +92,10 @@ export async function createSupabaseServerClient() {
     // Installed HERE and nowhere else — the service-role client is deliberately excluded, and
     // spec §6.1's recursion fence depends on that exclusion, because the durable log sink
     // writes through it.
-    global: { fetch: makeRetryingFetch(await maybeForceUpstreamFaults(fetch)) },
+    // baseUrl so ownership is decided against THIS client's PostgREST mount rather than by
+    // scanning the path: a Storage object may legitimately be named `rest/v1/rpc/<fn>`, and a
+    // path-shape match claimed that WRITE and retried it.
+    global: { fetch: makeRetryingFetch(await maybeForceUpstreamFaults(fetch), { baseUrl: url }) },
     cookies: {
       getAll() {
         return cookieStore.getAll().map((c) => ({ name: c.name, value: c.value }));

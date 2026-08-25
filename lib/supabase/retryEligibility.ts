@@ -56,7 +56,35 @@ export const RETRYABLE_RPCS: ReadonlySet<string> = new Set([
  * The leading slash is load-bearing: `/myrest/v1/rpc/x` must NOT match, and it does not, because
  * the character before `rest` is `y` rather than `/`.
  */
-export const RPC_PATH = /(?:^|\/)rest\/v1\/rpc\/([^/]+)$/;
+/**
+ * The PostgREST mount path for a given Supabase base URL, "" when it sits at the root.
+ *
+ * Ownership is decided against THIS, never against a pattern that scans the path. Round 3 widened
+ * the match to "anywhere preceded by a slash" so a proxied deployment would be recognised, and
+ * round 4 showed what that costs: a Storage object may legitimately be NAMED
+ * `rest/v1/rpc/is_admin`, so `POST /storage/v1/object/bucket/rest/v1/rpc/is_admin` matched, the
+ * wrapper claimed a WRITE, and a lost response produced a second delivery — probed at two calls
+ * for Storage upload/update/uploadToSignedUrl and Functions invoke. A recognizer that guesses from
+ * path shape cannot tell a mount point from a file name; the client's own base URL can, and it is
+ * known where the wrapper is constructed.
+ */
+export function basePathOf(baseUrl: string | undefined): string {
+  if (baseUrl === undefined || baseUrl === "") return "";
+  try {
+    const p = new URL(baseUrl).pathname.replace(/\/+$/, "");
+    return p === "/" ? "" : p;
+  } catch {
+    return "";
+  }
+}
+
+/** `<basePath>/rest/v1/rpc/<fn>` → `<fn>`. Exact prefix, single segment, else undefined. */
+export function rpcFunctionName(path: string, basePath = ""): string | undefined {
+  const prefix = `${basePath}/rest/v1/rpc/`;
+  if (!path.startsWith(prefix)) return undefined;
+  const rest = path.slice(prefix.length);
+  return rest.length > 0 && !rest.includes("/") ? rest : undefined;
+}
 
 /** The PostgREST mount point, located the same way and for the same reason. */
 const POSTGREST_PREFIX = "/rest/v1/";
@@ -72,7 +100,7 @@ const IDEMPOTENT_METHODS = new Set(["GET", "HEAD"]);
  * method rather than about what the function can do (spec §4.2). Everything else is eligible
  * only when its method is idempotent.
  */
-export function isRetryEligible(url: string, method: string | undefined): boolean {
+export function isRetryEligible(url: string, method: string | undefined, basePath = ""): boolean {
   let path: string;
   try {
     path = new URL(url).pathname;
@@ -81,8 +109,8 @@ export function isRetryEligible(url: string, method: string | undefined): boolea
     return false;
   }
 
-  const rpc = RPC_PATH.exec(path);
-  if (rpc !== null) return RETRYABLE_RPCS.has(rpc[1]!);
+  const fn = rpcFunctionName(path, basePath);
+  if (fn !== undefined) return RETRYABLE_RPCS.has(fn);
 
   return IDEMPOTENT_METHODS.has((method ?? "GET").toUpperCase());
 }
@@ -132,7 +160,11 @@ export const POSTGREST_RETRYABLE_STATUSES: ReadonlySet<number> = new Set([520, 5
  * to a layer that is not in its call chain at all, so the request simply died: measured at
  * `calls=1 emits=0` on `auth.getUser()` for 503, 520 and a network rejection.
  */
-export function postgrestWillRetry(url: string, method: string | undefined): boolean {
+export function postgrestWillRetry(
+  url: string,
+  method: string | undefined,
+  basePath = "",
+): boolean {
   let path: string;
   try {
     path = new URL(url).pathname;
@@ -140,8 +172,10 @@ export function postgrestWillRetry(url: string, method: string | undefined): boo
     // Unparseable: assume PostgREST is NOT involved, so we keep ownership rather than orphaning.
     return false;
   }
-  // `includes`, not `startsWith`: see RPC_PATH above. A base-path deployment puts the mount point
-  // after a prefix, and anchoring here made every prefixed PostgREST GET look like ours to retry.
-  if (!path.includes(POSTGREST_PREFIX)) return false;
+  // Exact prefix against the client's OWN mount, for the same reason `rpcFunctionName` is: a
+  // Storage or Functions URL can contain `/rest/v1/` in a caller-chosen object name, and an
+  // `includes` test read those as PostgREST. Under a base path both this and the mount move
+  // together, so prefixed PostgREST reads are still recognised.
+  if (!path.startsWith(`${basePath}${POSTGREST_PREFIX}`)) return false;
   return POSTGREST_RETRYABLE_METHODS.has((method ?? "GET").toUpperCase());
 }

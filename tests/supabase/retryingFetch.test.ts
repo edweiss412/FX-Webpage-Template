@@ -203,11 +203,46 @@ describe("retrying fetch — a retry is never silent (spec §6)", () => {
     const inner = vi.fn(async () => (inner.mock.calls.length === 1 ? bad(502) : ok()));
     await makeRetryingFetch(inner, {
       ...instant,
+      // The client's OWN base url, which is how a proxied deployment is configured. Round 4 replaced
+      // the scan-anywhere match with this: the mount is a fact the client knows, not something to
+      // infer from path shape.
+      baseUrl: "http://127.0.0.1:54321/proxy",
       onRetry: (fields) => emitted.push(fields),
     })("http://127.0.0.1:54321/proxy/rest/v1/rpc/is_admin", { method: "POST" });
 
     expect(emitted).toHaveLength(1);
     expect(emitted[0]).toMatchObject({ fn: "is_admin", status: 502, attempt: 1 });
+  });
+
+  test("a STORAGE object named like an rpc is not owned, so a write is never retried", async () => {
+    // no-premise: the transport is an injected stub; nothing here reads a socket, file or clock.
+    //
+    // The P0 that round 4 probed. Making the rpc match fire "anywhere preceded by a slash" — the
+    // round-3 repair for base paths — meant a Storage object legitimately NAMED `rest/v1/rpc/
+    // is_admin` produced `POST /storage/v1/object/bucket/rest/v1/rpc/is_admin`, which the wrapper
+    // claimed and RETRIED. A lost response after the first write is then delivered twice and the
+    // caller is told it succeeded. Ownership is decided against the client's mount now, so this is
+    // one call and the caller keeps the 502 an unwrapped client would have seen.
+    const inner = vi.fn(async () => bad(502));
+    const res = await makeRetryingFetch(inner, {
+      ...instant,
+      baseUrl: "http://127.0.0.1:54321",
+    })("http://127.0.0.1:54321/storage/v1/object/bucket/rest/v1/rpc/is_admin", { method: "POST" });
+
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(502);
+  });
+
+  test("a FUNCTIONS invoke named like an rpc is not owned either", async () => {
+    // no-premise: as above. Same shape, the other constructor the probe swept.
+    const inner = vi.fn(async () => bad(502));
+    const res = await makeRetryingFetch(inner, {
+      ...instant,
+      baseUrl: "http://127.0.0.1:54321",
+    })("http://127.0.0.1:54321/functions/v1/rest/v1/rpc/is_admin", { method: "POST" });
+
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(502);
   });
 
   test("an unparseable URL is ineligible, so no record of it can exist", async () => {

@@ -24,7 +24,12 @@
  */
 import { log } from "@/lib/log";
 
-import { isRetryEligible, postgrestWillRetry, RPC_PATH } from "./retryEligibility";
+import {
+  basePathOf,
+  isRetryEligible,
+  postgrestWillRetry,
+  rpcFunctionName,
+} from "./retryEligibility";
 
 /** Retries AFTER the first attempt. Two, not the sibling's three: this path is a page render. */
 export const MAX_SUPABASE_RETRIES = 2;
@@ -91,6 +96,13 @@ export type RetryingFetchOptions = {
   random?: () => number;
   /** Injectable so the emit is assertable without a log sink. Defaults to `log.warn`. */
   onRetry?: (fields: RetryEmit) => void;
+  /**
+   * The Supabase base URL this fetch is installed on. Ownership is decided against ITS mount path
+   * rather than by scanning for `/rest/v1/` anywhere, because a Storage object may be named
+   * `rest/v1/rpc/<fn>` and a path-shape match claimed those WRITES and retried them. Omitted, the
+   * mount is assumed to be at the root, which is the narrow reading.
+   */
+  baseUrl?: string;
 };
 
 /**
@@ -107,10 +119,10 @@ export type RetryingFetchOptions = {
  * Pinned by "an unparseable URL is ineligible, so no record of it can exist" in
  * `tests/supabase/retryingFetch.test.ts`, which asserts the GATE rather than this fallback.
  */
-function describeTarget(url: string): string {
+function describeTarget(url: string, basePath: string): string {
   try {
     const path = new URL(url).pathname;
-    return RPC_PATH.exec(path)?.[1] ?? path;
+    return rpcFunctionName(path, basePath) ?? path;
   } catch {
     // UNREACHABLE, and now written so that it cannot pretend otherwise. `isRetryEligible` calls
     // `new URL` first and refuses anything that throws, so no unparseable URL ever reaches a retry
@@ -167,6 +179,7 @@ function backoffMs(attempt: number, random: () => number): number {
  * sleeps.
  */
 export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOptions = {}): FetchLike {
+  const basePath = basePathOf(options.baseUrl);
   const maxRetries = options.maxRetries ?? MAX_SUPABASE_RETRIES;
   const timeoutMs = options.timeoutMs ?? PER_ATTEMPT_TIMEOUT_MS;
   const sleep = options.sleep ?? defaultSleep;
@@ -200,7 +213,8 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
     // per-attempt timeout on every request aborted slow INELIGIBLE writes that had already
     // committed server-side: measured `bare 201, wrapped AbortError, commits=1` on both sides. A
     // request this wrapper does not retry must come back exactly as it would with no wrapper at all.
-    const owned = isRetryEligible(url, method) && !postgrestWillRetry(url, method);
+    const owned =
+      isRetryEligible(url, method, basePath) && !postgrestWillRetry(url, method, basePath);
     if (!owned) return inner(input, init);
 
     // A caller can hand us its signal two ways: `fetch(url, { signal })`, or a `Request` that
@@ -335,7 +349,7 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
       // from a fault that never happened, which is how a green run hides a real occurrence.
       onRetry({
         code: RETRY_EMIT_CODE,
-        fn: describeTarget(url),
+        fn: describeTarget(url, basePath),
         status: response?.status ?? null,
         attempt: attempt + 1,
       });

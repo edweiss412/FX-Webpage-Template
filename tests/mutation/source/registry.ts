@@ -3335,6 +3335,24 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [],
   },
   {
+    // Enrolled in round 4, because that round's P0 lived HERE. The base-path repair moved the
+    // ownership decision out of the wrapper and into this module, where no mutation score reached
+    // it — and a scan-anywhere match then claimed Storage writes and retried them. A module that
+    // decides "is this request ours to retry" is exactly the shape the registry exists to hold.
+    id: "supabaseRetryEligibility",
+    sourcePath: "lib/supabase/retryEligibility.ts",
+    suitePaths: ["tests/supabase/retryEligibility.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Inverts the safety decision itself: every retryable name becomes ineligible and every
+    // VOLATILE one becomes eligible, which is the one thing this module must never do.
+    control: {
+      from: "if (fn !== undefined) return RETRYABLE_RPCS.has(fn);",
+      to: "if (fn !== undefined) return !RETRYABLE_RPCS.has(fn);",
+    },
+    accepted: [],
+  },
+  {
     id: "retryableRpcVolatilityScan",
     sourcePath: "tests/supabase/retryableRpcVolatilityScan.ts",
     // Two deciding suites, split by whether they need a database. The walk file carries the

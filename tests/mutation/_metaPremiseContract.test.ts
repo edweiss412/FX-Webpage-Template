@@ -46,8 +46,9 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // to this count, because four of them are generated from a single `test(` call site inside a
   // loop and the classifier counts CALL SITES, not generated cases. Re-measured with
   // classifyTests rather than adjusted by hand.
-  "tests/supabase/retryingFetch.test.ts": 43,
+  "tests/supabase/retryingFetch.test.ts": 45,
   "tests/supabase/retryingFetch.failureMode.test.ts": 3,
+  "tests/supabase/retryEligibility.test.ts": 0,
   "tests/supabase/_metaRetryableRpcVolatility.test.ts": 22,
   "tests/supabase/_metaRetryableRpcVolatilityWalk.test.ts": 0,
   // The claim-sweep suites, enrolled 2026-08-20. Counts are MEASURED, not

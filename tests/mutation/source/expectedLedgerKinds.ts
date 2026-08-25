@@ -272,6 +272,7 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // argument, in the same commit as the accepted row in the registry. The W-NEARMISS
   // note below is the standing warning about exactly this pair of files drifting.
   supabaseRetryingFetch: {},
+  supabaseRetryEligibility: {},
   retryableRpcVolatilityScan: {},
   renderedTextHaystack: {},
   // W-NEARMISS (2026-08-15). Both surfaces were enrolled with an EMPTY ledger, and

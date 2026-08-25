@@ -59,6 +59,30 @@ const METHOD_CHANGING_RPC_OPTIONS = ["get", "head"] as const;
  * guard that fires on safe code gets narrowed by whoever trips it next, which is how the real gap
  * would reopen.
  */
+/**
+ * Peel the type-only wrappers TypeScript ERASES, so the walk sees the value the runtime sees.
+ *
+ * `as`, `satisfies`, `<T>x`, `x!` and parentheses all emit the bare expression. Round 4 probed the
+ * gap: `{ get: true satisfies boolean }`, `({ get: true } satisfies { get?: boolean })`,
+ * `(<const>{ get: true })` and `({ get: true })!` every one compiled to `{ get: true }` and every
+ * one escaped a walk that accepted only a direct object literal with a bare `true`. That is
+ * ordinary syntax here, not an exotic construction — the product tree already carries 35
+ * object-literal `satisfies` and 53 object-literal `as` expressions.
+ */
+function erasedValue(node: ts.Expression): ts.Expression {
+  let n = node;
+  while (
+    ts.isAsExpression(n) ||
+    ts.isSatisfiesExpression(n) ||
+    ts.isParenthesizedExpression(n) ||
+    ts.isNonNullExpression(n) ||
+    ts.isTypeAssertionExpression(n)
+  ) {
+    n = n.expression;
+  }
+  return n;
+}
+
 function rpcMethodChangingOptions(file: string): string[] {
   const src = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
   const hits: string[] = [];
@@ -68,7 +92,8 @@ function rpcMethodChangingOptions(file: string): string[] {
       ts.isPropertyAccessExpression(node.expression) &&
       node.expression.name.text === "rpc"
     ) {
-      for (const arg of node.arguments) {
+      for (const rawArg of node.arguments) {
+        const arg = erasedValue(rawArg);
         if (!ts.isObjectLiteralExpression(arg)) continue;
         for (const prop of arg.properties) {
           if (!ts.isPropertyAssignment(prop)) continue;
@@ -77,11 +102,7 @@ function rpcMethodChangingOptions(file: string): string[] {
           // Unwrap `as const` / `as boolean` / parentheses before asking whether the value is
           // literally true. `{ get: true as const }` is ordinary authoring, and a bare kind check
           // reads its initializer as an AsExpression and lets it through.
-          let value: ts.Expression = prop.initializer;
-          while (ts.isAsExpression(value) || ts.isParenthesizedExpression(value)) {
-            value = value.expression;
-          }
-          if (value.kind === ts.SyntaxKind.TrueKeyword) {
+          if (erasedValue(prop.initializer).kind === ts.SyntaxKind.TrueKeyword) {
             hits.push(`${file}:${name}`);
           }
         }
@@ -271,6 +292,11 @@ describe("the documented limit stays unreachable", () => {
           '  await c.rpc("header", {}, { head: true });',
           '  await c.rpc("explicitly_false", {}, { get: false });',
           '  await c.rpc("as_const", {}, { get: true as const });',
+          '  await c.rpc("satisfies_value", {}, { get: true satisfies boolean });',
+          '  await c.rpc("satisfies_arg", {}, ({ get: true } satisfies { get?: boolean }));',
+          '  await c.rpc("as_const_arg", {}, ({ get: true } as const));',
+          '  await c.rpc("angle_arg", {}, (<const>{ head: true }));',
+          '  await c.rpc("nonnull_arg", {}, ({ head: true })!);',
           '  await c.rpc("dynamic", {}, { get: someFlag });',
           "}",
         ].join("\n"),
@@ -280,7 +306,10 @@ describe("the documented limit stays unreachable", () => {
       // "as_const" IS caught (the unwrap), "dynamic" is NOT (the documented limit), and the
       // select option, the comment and `get: false` stay quiet.
       const hits = rpcMethodChangingOptions(f).map((h) => h.split(":").pop());
-      expect(hits.sort()).toEqual(["get", "get", "head"]);
+      // Every erased form counts; only the genuinely dynamic value is the documented limit.
+      // five get (plain, as-const value, satisfies value, satisfies arg, as-const arg)
+      // and three head (plain, angle-bracket arg, non-null arg).
+      expect(hits.sort()).toEqual(["get", "get", "get", "get", "get", "head", "head", "head"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
