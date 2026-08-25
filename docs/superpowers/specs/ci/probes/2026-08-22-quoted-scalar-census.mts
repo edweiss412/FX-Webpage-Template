@@ -28,14 +28,30 @@ const files = execFileSync("git", ["ls-files", "*.yml", "*.yaml"], { encoding: "
 const tally = new Map<string, number>();
 const quoted: string[] = [];
 let parseFailures = 0;
+const parseFailureFiles: string[] = [];
 
 for (const file of files) {
   const source = readFileSync(file, "utf8");
+  // `parseDocument` does NOT throw on malformed YAML -- it returns a document
+  // carrying `errors` and a partially built tree. Catching a throw therefore
+  // counted nothing, and review found the consequence: one ordinary edit to a
+  // live workflow (`runs-on: [ubuntu-latest`) produced three parser errors while
+  // this census printed `parse failures: 0` and PASSED, having walked a
+  // half-parsed tree. That is the read-correctly-or-signal bound broken in the
+  // silent direction, which is the one direction this arc exists to close.
+  //
+  // Both shapes are failures now: a throw, and a document that reports errors.
   let doc;
   try {
     doc = parseDocument(source);
   } catch {
     parseFailures++;
+    parseFailureFiles.push(`${file} (threw)`);
+    continue;
+  }
+  if (doc.errors.length > 0) {
+    parseFailures++;
+    parseFailureFiles.push(`${file} (${doc.errors.length} parser error(s): ${doc.errors[0]?.message ?? "?"})`);
     continue;
   }
   visit(doc, {
@@ -79,6 +95,17 @@ console.log(`tracked YAML files: ${files.length} (parse failures: ${parseFailure
 for (const [row, count] of [...tally].sort()) console.log(`  ${row} = ${count}`);
 console.log(`QUOTED executable scalars: ${quoted.length}`);
 for (const q of quoted) console.log(`  ${q}`);
+
+// A zero over an UNPARSED file is not a pass either, and for the same reason the
+// empty-population check below exists: the count describes only what was read.
+// This ABORTS rather than warns because AC-6's zero underwrites the arc's
+// digest-neutrality argument, and a zero taken over a half-parsed tree would
+// carry that argument on evidence nobody gathered.
+if (parseFailures > 0) {
+  console.error(`ABORT: ${parseFailures} file(s) did not parse cleanly — the census describes only the rest.`);
+  for (const f of parseFailureFiles) console.error(`  ${f}`);
+  process.exit(2);
+}
 
 // A zero over an empty population is not a pass: if the walk found no
 // executable scalar at all, the zero above describes nothing.
