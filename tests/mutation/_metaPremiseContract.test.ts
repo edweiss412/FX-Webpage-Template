@@ -48,7 +48,7 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // classifyTests rather than adjusted by hand.
   "tests/supabase/retryingFetch.test.ts": 34,
   "tests/supabase/retryingFetch.failureMode.test.ts": 3,
-  "tests/supabase/_metaRetryableRpcVolatility.test.ts": 21,
+  "tests/supabase/_metaRetryableRpcVolatility.test.ts": 24,
   // The claim-sweep suites, enrolled 2026-08-20. Counts are MEASURED, not
   // guessed: each is what the classifier reports today, declared independently
   // so a recognizer that silently stops matching drops them to zero and reds

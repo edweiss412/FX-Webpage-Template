@@ -405,6 +405,55 @@ describe("a NULL argument cannot be mistaken for an executed body", () => {
     );
   });
 
+  test("an unsupported type still produces a correctly-typed NULL, in position", () => {
+    // no-premise: literal inputs.
+    //
+    // The fallback has to emit SOMETHING typed, or the generated call loses an argument and the
+    // arity no longer matches the function. Asserting the exact SQL is what pins that: the mutation
+    // gate found both the push and its `continue` deletable, because nothing read the produced text
+    // for an unsupported type — only the `unsupported` list.
+    expect(buildCallArgs(["some_exotic_type"]).sql).toBe("null::some_exotic_type");
+
+    // And mixed, so the fallback cannot silently swallow the sentinel that follows it. Without the
+    // `continue`, execution falls through and pushes an undefined sentinel after the NULL.
+    const mixed = buildCallArgs(["some_exotic_type", "text"]);
+    expect(mixed.sql).toBe("null::some_exotic_type, ''::text");
+    expect(mixed.unsupported).toEqual(["some_exotic_type"]);
+  });
+
+  test("a STRICT function whose arguments are ALL supported is NOT treated as skipped", () => {
+    // no-premise: literal inputs.
+    //
+    // The boundary the gate found unpinned: `unsupported.length > 0` mutated to `>= 0` makes EVERY
+    // strict function look skipped. That matters for the live set rather than in theory — all
+    // thirteen members use only supported types, so under that mutant a member that became STRICT
+    // would be reported as never-executed while it had in fact run fine.
+    expect(bodyCannotHaveRun(true, [])).toBe(false);
+    expect(bodyCannotHaveRun(true, ["exotic"])).toBe(true);
+    // A non-STRICT function is never skipped, whatever fell back.
+    expect(bodyCannotHaveRun(false, [])).toBe(false);
+    expect(bodyCannotHaveRun(false, ["exotic"])).toBe(false);
+  });
+
+  test("a skipped body is reported as SKIPPED even when the call also raised", () => {
+    // no-premise: literal inputs.
+    //
+    // Precedence, which the gate found unpinned: the skipped-body branch must STOP, or an outcome
+    // carrying both a skipped body and a sqlstate is reported twice and the operator reads two
+    // different explanations for one call. Skipped wins, because a body that never ran explains the
+    // raise rather than being explained by it.
+    const both: ReadOnlyOutcome = {
+      name: "_strict_and_raised",
+      identity: "a exotic",
+      sqlstate: "P0001",
+      message: "forbidden",
+      bodySkipped: true,
+    };
+    const out = readOnlyViolations([both], new Map());
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain("skipped the body entirely");
+  });
+
   test("every supported argument type produces a NON-null literal", () => {
     // no-premise: literal inputs. Guards the sentinel table against a row that silently degrades
     // to NULL, which would reintroduce the STRICT skip for that type.
