@@ -88,7 +88,7 @@ an aside, and it is sequenced before any task that plants through it.
 | claim | verified at |
 | --- | --- |
 | `bootsOf` holds the expression at `tests/mutation/source/shardPartition.ts:45`, and `weightOf` wraps it at `tests/mutation/source/shardPartition.ts:53` | both by `grep -n` |
-| `validateSurface` returns a problems list and range-guards a numeric field already | `tests/mutation/source/registry.ts:56` |
+| `validateSurface` returns a problems list and range-guards a numeric field already | `tests/mutation/source/registry.ts:70` |
 | the plant harness hardcodes both its source dir and its suite | `scripts/mutation-weight-plant.mjs:27` and `scripts/mutation-weight-plant.mjs:28` |
 | the `reject` helper exists at `tests/mutation/_metaGuardSurfaceRegistry.test.ts:35`, and `tests/mutation/_metaGuardSurfaceRegistry.test.ts:41` runs it over every row | both by `grep -n` |
 | `sourceShardPartition`'s control anchor sits INSIDE the body task 3 rewrites | `tests/mutation/source/registry.ts`, row `sourceShardPartition` |
@@ -96,9 +96,9 @@ an aside, and it is sequenced before any task that plants through it.
 | `lptAssign` documents integer arithmetic | `tests/parser/mutation/shardPartition.ts:17` |
 | the env mapping is pinned at `tests/mutation/_metaSourceShardIntegrity.test.ts:274` and the whole `run:` command at `tests/mutation/_metaSourceShardIntegrity.test.ts:282`, both by equality | both by `grep -n` |
 | `check-shard-budget.ts` deliberately decides nothing and takes env, not argv | that file's header |
-| the `budget` job's only step runs the budget checker | `.github/workflows/mutation-harness.yml:280` |
+| the `budget` job's only step runs the budget checker | `.github/workflows/mutation-harness.yml:291` |
 | the workflow's PR path filter names `scripts/check-shard-budget.ts` but nothing under `lib/mutationWeight` | `.github/workflows/mutation-harness.yml:43-53` |
-| `mutationWeightWeights` carries `scoreFloor: 0.9` | `tests/mutation/source/registry.ts:3467` |
+| `mutationWeightWeights` carries `scoreFloor: 0.9` | `tests/mutation/source/registry.ts:3544` |
 | no file under `lib/` imports `tests/` | `rg` over `lib/` |
 | enrolling a surface owes TWO further registrations | `tests/mutation/source/expectedLedgerKinds.ts` (per surface) and `tests/mutation/_metaPremiseContract.test.ts:32` (per suite) — both caught this arc by failing |
 
@@ -288,7 +288,7 @@ zero exit for the suite and a non-zero exit overall.
 
 ## Task 2 — `millisPerBoot` becomes a required field, guarded over the whole registry
 
-<!-- task: red=`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:56` why=`validateSurface accepts a surface with no millisPerBoot, so neither the range arms nor the accept-arm at 200000 have anything to exercise` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:70` why=`validateSurface accepts a surface with no millisPerBoot, so neither the range arms nor the accept-arm at 200000 have anything to exercise` ac=AC-4 -->
 
 **Files:** `tests/mutation/source/registry.ts` (type, 45 rows, `validateSurface`),
 `tests/mutation/_metaGuardSurfaceRegistry.test.ts` (arms),
@@ -449,8 +449,15 @@ an earlier task the bound's declared RED — "before the rate lands" — describ
 that no longer existed at its own starting point. Either the test is written before the
 implementation, which is this task, or its red is fictional.
 
-`bootsOf` is already exported with today's expression VERBATIM and `weightOf` already
-wraps it; this task makes `weightOf` the product.
+**LANDED.** `weightOf` returns `bootsOf(surface) * surface.millisPerBoot`, and the
+`red-target` above cites the pre-implementation tree — `tests/mutation/source/shardPartition.ts:53`
+held the unpriced `weightOf` at drafting and now lands on a brace. Recorded rather than
+repointed, for the same reason the two earlier landed tasks carry the same note: a
+red-target names the defect that made
+the red real, and aiming it at today's code would describe no defect.
+
+`bootsOf` keeps today's expression VERBATIM — it is `sourceShardPartition`'s control
+anchor — and only `weightOf` changed.
 
 **Verbatim is a requirement, not an accident.** `sourceShardPartition`'s registry row uses
 `"surface.accepted.length * (suites - 1) + suites"` as its control anchor, and
@@ -552,7 +559,21 @@ exists, and the task's GREEN is not met until each reports CAUGHT.
 
 The perturbation uses pair 2 because it has the narrowest shipped spread (1.541x) and the
 largest margin, so it is the pair most able to absorb a perturbation without inverting;
-inverting there is the strongest of the three. **The `runAllSuites`-in-code entry is why
+inverting there is the strongest of the three.
+
+**DOCUMENTED LIMIT, found at implementation: the three FIXTURE plants cannot run through
+the plant harness, and are verified by direct perturbation instead.** The harness works by
+copying a target's directory and rewriting the deciding suite's IMPORT SPECIFIER to point
+at the copy. `shardBalance.test.ts` loads its fixtures with `readFileSync` on a
+repo-relative path, not by import, so there is no specifier to rewrite and a plant into the
+scratch copy would be invisible — the suite would read the real fixture and report CAUGHT
+for a mutation it never saw, which is worse than not planting at all. Rather than contort
+the suite into importing JSON so a harness can redirect it, the three are perturbed
+directly against the committed fixtures and restored. Verified at implementation, each
+failing exactly one case: same-run seeding on pair 2, seeding pair 1's excluded arrival
+`controlOutlineResidue`, and multiplying pair 2's heaviest seeded rate (`connectionCensus`)
+by 8.33. The harness keeps the plants whose targets are reached by import; this is a limit
+of the mechanism, recorded rather than papered over. **The `runAllSuites`-in-code entry is why
 the scan is file-wide** — a header-bounded scan cannot see it, and an earlier draft claimed
 both at once.
 
@@ -679,7 +700,7 @@ same defect.
 
 ## Task 5 — the drift report
 
-<!-- task: red=`pnpm vitest run tests/ci/rateDrift.test.ts` red-state=authored red-target=`.github/workflows/mutation-harness.yml:280` why=`the budget job has one step and downloads only elapsed artifacts, so no drift report exists to assert against` ac=AC-5 -->
+<!-- task: red=`pnpm vitest run tests/ci/rateDrift.test.ts` red-state=authored red-target=`.github/workflows/mutation-harness.yml:291` why=`the budget job has one step and downloads only elapsed artifacts, so no drift report exists to assert against` ac=AC-5 -->
 
 **Files:**
 
@@ -800,7 +821,7 @@ left the wiring demonstrations outside the condition that closes the task.
 
 ## Task 6 — nothing verdict-deciding moved on a surface enrolled before this diff
 
-<!-- task: red=`pnpm vitest run tests/mutation/_metaPreexistingSurfaceImmutability.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:151` why=`GUARD_SURFACES is the whole population and no assertion compares any of its pre-existing rows against their values at the merge base, so lowering a scoreFloor or adding an accepted row is invisible to every command this plan runs` ac=AC-7 -->
+<!-- task: red=`pnpm vitest run tests/mutation/_metaPreexistingSurfaceImmutability.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:181` why=`GUARD_SURFACES is the whole population and no assertion compares any of its pre-existing rows against their values at the merge base, so lowering a scoreFloor or adding an accepted row is invisible to every command this plan runs` ac=AC-7 -->
 
 **Files:**
 
@@ -901,7 +922,7 @@ recorded field, plus the deletion.
 
 ## Task 7 — re-score every surface this diff moved
 
-<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx scripts/mutation-score-surfaces.ts sourceShardPartition mutationWeightRecords mutationWeightWeights` red-state=live red-target=`tests/mutation/source/registry.ts:3467` why=`mutationWeightWeights scored 0.7279 against this 0.90 floor with 37 unaccepted survivors, observed 2026-08-25` ac=AC-7 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx scripts/mutation-score-surfaces.ts sourceShardPartition mutationWeightRecords mutationWeightWeights` red-state=live red-target=`tests/mutation/source/registry.ts:3544` why=`mutationWeightWeights scored 0.7279 against this 0.90 floor with 37 unaccepted survivors, observed 2026-08-25` ac=AC-7 -->
 
 **Files:** whatever the triage reaches, which is not knowable before the run. Declaring
 only the ledger files would have presupposed the outcome, and it contradicted this task's

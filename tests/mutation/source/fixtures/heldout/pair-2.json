@@ -1,0 +1,270 @@
+{
+  "seedRun": "meas-32625602788",
+  "scoreRun": "meas-32703467609",
+  "seed": {
+    "browserMutate": 1969,
+    "browserRegistry": 1492,
+    "citationIntent": 1329,
+    "claimSweep": 3582,
+    "connectionCensus": 7671,
+    "controlOutlineScan": 2982,
+    "declaredLimitPins": 2346,
+    "destructiveFileAnalysis": 2724,
+    "executionMethodsDerivation": 1725,
+    "fieldNearMiss": 4581,
+    "fixtureContract": 5777,
+    "heavyReapClassify": 1434,
+    "interactionTimingScan": 6884,
+    "interactiveScanCore": 4465,
+    "ledgerClaimsCore": 3549,
+    "ledgerGit": 22248,
+    "modal-wait-disposition": 4765,
+    "modal-wait-helper-scan": 6241,
+    "mutationSurfaceEnumerate": 3287,
+    "mutationSurfaceTotality": 2888,
+    "paneCompactionCore": 6990,
+    "pgCronSmokes": 1416,
+    "phantomGapExecuted": 1410,
+    "popoverOverlayExtract": 2373,
+    "premiseScan": 6628,
+    "psqlStartupScan": 30456,
+    "redContract": 2153,
+    "renderedTextHaystack": 3353,
+    "reviewRoundCorpus": 5948,
+    "reviewRoundCount": 1339,
+    "reviewRoundFiling": 1945,
+    "rowScanOpener": 5164,
+    "sameOriginServerAction": 1874,
+    "sendAuthScan": 6712,
+    "serializeErrorStructure": 1495,
+    "shardBudget": 1471,
+    "sourceShardPartition": 6150,
+    "spawnBounded": 1401,
+    "specLintNumerics": 1570,
+    "specLintUniversals": 2694,
+    "tapTargetScan": 1511,
+    "taskContract": 1687
+  },
+  "surfaces": [
+    {
+      "surfaceId": "browserMutate",
+      "seconds": 80.743
+    },
+    {
+      "surfaceId": "browserRegistry",
+      "seconds": 86.448
+    },
+    {
+      "surfaceId": "citationIntent",
+      "seconds": 31.877
+    },
+    {
+      "surfaceId": "claimSweep",
+      "seconds": 552.269
+    },
+    {
+      "surfaceId": "connectionCensus",
+      "seconds": 2496.444
+    },
+    {
+      "surfaceId": "controlOutlineScan",
+      "seconds": 196.781
+    },
+    {
+      "surfaceId": "declaredLimitPins",
+      "seconds": 350.923
+    },
+    {
+      "surfaceId": "destructiveFileAnalysis",
+      "seconds": 646.623
+    },
+    {
+      "surfaceId": "executionMethodsDerivation",
+      "seconds": 20.697
+    },
+    {
+      "surfaceId": "fieldNearMiss",
+      "seconds": 184.826
+    },
+    {
+      "surfaceId": "fixtureContract",
+      "seconds": 416.73
+    },
+    {
+      "surfaceId": "heavyReapClassify",
+      "seconds": 25.811
+    },
+    {
+      "surfaceId": "interactionTimingScan",
+      "seconds": 1133.474
+    },
+    {
+      "surfaceId": "interactiveScanCore",
+      "seconds": 1219.922
+    },
+    {
+      "surfaceId": "ledgerClaimsCore",
+      "seconds": 213.206
+    },
+    {
+      "surfaceId": "ledgerGit",
+      "seconds": 2383.075
+    },
+    {
+      "surfaceId": "modal-wait-disposition",
+      "seconds": 298.488
+    },
+    {
+      "surfaceId": "modal-wait-helper-scan",
+      "seconds": 605.683
+    },
+    {
+      "surfaceId": "mutationSurfaceEnumerate",
+      "seconds": 790.878
+    },
+    {
+      "surfaceId": "mutationSurfaceTotality",
+      "seconds": 61.034
+    },
+    {
+      "surfaceId": "paneCompactionCore",
+      "seconds": 1975.454
+    },
+    {
+      "surfaceId": "pgCronSmokes",
+      "seconds": 21.244
+    },
+    {
+      "surfaceId": "phantomGapExecuted",
+      "seconds": 19.732
+    },
+    {
+      "surfaceId": "popoverOverlayExtract",
+      "seconds": 200.052
+    },
+    {
+      "surfaceId": "premiseScan",
+      "seconds": 1356.655
+    },
+    {
+      "surfaceId": "psqlStartupScan",
+      "seconds": 2392.397
+    },
+    {
+      "surfaceId": "redContract",
+      "seconds": 564.165
+    },
+    {
+      "surfaceId": "renderedTextHaystack",
+      "seconds": 55.816
+    },
+    {
+      "surfaceId": "reviewRoundCorpus",
+      "seconds": 587.718
+    },
+    {
+      "surfaceId": "reviewRoundCount",
+      "seconds": 20.756
+    },
+    {
+      "surfaceId": "reviewRoundFiling",
+      "seconds": 202.39
+    },
+    {
+      "surfaceId": "rowScanOpener",
+      "seconds": 109.966
+    },
+    {
+      "surfaceId": "sameOriginServerAction",
+      "seconds": 26.228
+    },
+    {
+      "surfaceId": "sendAuthScan",
+      "seconds": 1966.606
+    },
+    {
+      "surfaceId": "serializeErrorStructure",
+      "seconds": 98.636
+    },
+    {
+      "surfaceId": "shardBudget",
+      "seconds": 46.02
+    },
+    {
+      "surfaceId": "sourceShardPartition",
+      "seconds": 47.694
+    },
+    {
+      "surfaceId": "spawnBounded",
+      "seconds": 18.215
+    },
+    {
+      "surfaceId": "specLintNumerics",
+      "seconds": 820.23
+    },
+    {
+      "surfaceId": "specLintUniversals",
+      "seconds": 347.348
+    },
+    {
+      "surfaceId": "tapTargetScan",
+      "seconds": 2.521
+    },
+    {
+      "surfaceId": "taskContract",
+      "seconds": 273.262
+    }
+  ],
+  "boots": {
+    "browserMutate": 41,
+    "browserRegistry": 58,
+    "citationIntent": 24,
+    "claimSweep": 155,
+    "connectionCensus": 334,
+    "controlOutlineScan": 66,
+    "declaredLimitPins": 150,
+    "destructiveFileAnalysis": 238,
+    "executionMethodsDerivation": 12,
+    "fieldNearMiss": 41,
+    "fixtureContract": 75,
+    "heavyReapClassify": 18,
+    "interactionTimingScan": 167,
+    "interactiveScanCore": 297,
+    "ledgerClaimsCore": 68,
+    "ledgerGit": 107,
+    "modal-wait-disposition": 68,
+    "modal-wait-helper-scan": 101,
+    "mutationSurfaceEnumerate": 254,
+    "mutationSurfaceTotality": 22,
+    "paneCompactionCore": 283,
+    "pgCronSmokes": 15,
+    "phantomGapExecuted": 14,
+    "popoverOverlayExtract": 79,
+    "premiseScan": 197,
+    "psqlStartupScan": 80,
+    "redContract": 263,
+    "renderedTextHaystack": 18,
+    "reviewRoundCorpus": 100,
+    "reviewRoundCount": 17,
+    "reviewRoundFiling": 103,
+    "rowScanOpener": 21,
+    "sameOriginServerAction": 14,
+    "sendAuthScan": 292,
+    "serializeErrorStructure": 66,
+    "shardBudget": 32,
+    "sourceShardPartition": 8,
+    "spawnBounded": 13,
+    "specLintNumerics": 521,
+    "specLintUniversals": 129,
+    "tapTargetScan": 2,
+    "taskContract": 162
+  },
+  "excluded": [],
+  "observed": {
+    "secondsLegs": [5713, 5776, 5677, 5783],
+    "bootsLegs": [4633, 6974, 4524, 6819],
+    "secondsBinding": 5783,
+    "bootsBinding": 6974,
+    "marginSeconds": 1191
+  }
+}

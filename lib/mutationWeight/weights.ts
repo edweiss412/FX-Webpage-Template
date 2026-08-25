@@ -370,6 +370,53 @@ export function buildSeedTable(
   return { ok: true, table };
 }
 
+/**
+ * One held-out pair: rates seeded from an EARLIER run, scored on a LATER one.
+ *
+ * Extracted so the report and the suite that pins AC-3 run the SAME comparison. A
+ * suite that re-implemented it would be asserting against its own arithmetic rather
+ * than against the thing the spec's figures came from, and the two could drift apart
+ * without either failing.
+ *
+ * A surface the seed run never saw is EXCLUDED from both sides rather than priced.
+ * There is no honest fallback: using the later run's own rate makes boots x rate
+ * reproduce that run's seconds exactly, so the surface scores itself. An earlier
+ * version did that and quietly contaminated two of three pairs.
+ */
+export function heldOutMargin(
+  seed: ReadonlyMap<string, number>,
+  laterSurfaces: readonly Measured[],
+  laterModelled: ModelledBoots,
+  shardCount: number,
+): { scored: Measured[]; excluded: string[]; seconds: number[]; boots: number[] } {
+  const scored = laterSurfaces.filter((m) => seed.has(m.surfaceId));
+  const excluded = laterSurfaces
+    .filter((m) => !seed.has(m.surfaceId))
+    .map((m) => m.surfaceId)
+    .sort();
+  const bootsFor = (id: string): number => laterModelled.get(id)?.boots ?? 0;
+  const seconds = legSeconds(
+    lpt(
+      scored.map((m) => ({
+        key: m.surfaceId,
+        w: bootsFor(m.surfaceId) * (seed.get(m.surfaceId) ?? 0),
+      })),
+      shardCount,
+    ),
+    scored,
+    shardCount,
+  );
+  const boots = legSeconds(
+    lpt(
+      scored.map((m) => ({ key: m.surfaceId, w: bootsFor(m.surfaceId) })),
+      shardCount,
+    ),
+    scored,
+    shardCount,
+  );
+  return { scored, excluded, seconds, boots };
+}
+
 export function driftReport(
   declared: ReadonlyMap<string, number>,
   surfaces: readonly Measured[],

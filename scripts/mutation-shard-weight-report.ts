@@ -36,6 +36,7 @@ import {
   buildSeedTable,
   bootRatioStability,
   driftReport,
+  heldOutMargin,
   legSeconds,
   lpt,
   median,
@@ -263,28 +264,14 @@ function main(): void {
       // itself. An earlier version did exactly that and quietly contaminated two of
       // three pairs. Such surfaces are EXCLUDED from both sides of the comparison
       // and named, rather than priced circularly and counted.
-      const scored = later.surfaces.filter((m) => seed.has(m.surfaceId));
-      const excluded = later.surfaces.filter((m) => !seed.has(m.surfaceId));
-      const bootsOfId = (id: string): number => later.modelled.get(id)?.boots ?? 0;
-      const mine = legSeconds(
-        lpt(
-          scored.map((m) => ({
-            key: m.surfaceId,
-            w: bootsOfId(m.surfaceId) * (seed.get(m.surfaceId) ?? 0),
-          })),
-          N,
-        ),
+      // The comparison itself lives in `heldOutMargin`, shared with the suite that
+      // pins AC-3, so the figures below and the assertion there cannot drift apart.
+      const {
         scored,
-        N,
-      );
-      const shipped = legSeconds(
-        lpt(
-          scored.map((m) => ({ key: m.surfaceId, w: bootsOfId(m.surfaceId) })),
-          N,
-        ),
-        scored,
-        N,
-      );
+        excluded,
+        seconds: mine,
+        boots: shipped,
+      } = heldOutMargin(seed, later.surfaces, later.modelled, N);
       say(
         `\n  seed ${earlier.label} -> score ${later.label}  (${String(scored.length)} surfaces scored)`,
       );
@@ -295,7 +282,12 @@ function main(): void {
           `${String(Math.round(Math.abs(bindingLeg(shipped) - bindingLeg(mine))))}s` +
           `; EXCLUDED as unpriceable held-out: ` +
           (excluded.length > 0
-            ? excluded.map((m) => `${m.surfaceId} (${String(Math.round(m.seconds))}s)`).join(", ")
+            ? excluded
+                .map((id) => {
+                  const m = later.surfaces.find((x) => x.surfaceId === id);
+                  return `${id} (${String(Math.round(m?.seconds ?? 0))}s)`;
+                })
+                .join(", ")
             : "none"),
       );
     }

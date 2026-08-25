@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { premise } from "../../_shared/premise";
+import { premise, premiseHolds } from "../../_shared/premise";
 import { GUARD_SURFACES, type GuardSurface } from "./registry";
 import {
   SHARD_BUDGET_SECONDS,
   SOURCE_SHARD_COUNT,
+  bootsOf,
   shardOfSurface,
   sourceShardAssignment,
   surfacesForShard,
@@ -28,12 +29,12 @@ const fakeSurface = (over: Partial<GuardSurface>): GuardSurface => {
 describe("source-mutation shard partition", () => {
   const assignment = sourceShardAssignment();
 
-  it("weighs a surface by modelled child boots: mutants + accepted*(suites-1) + suites", () => {
+  it("counts modelled child boots: mutants + accepted*(suites-1) + suites", () => {
     // Same source file, so the mutant count is identical in both calls; only the
-    // declared suites and ledger size differ. A weight ignoring `suites` gives
+    // declared suites and ledger size differ. A count ignoring `suites` gives
     // delta 0; one ignoring `accepted` gives delta 2; the true formula gives 4.
-    const oneSuite = weightOf(fakeSurface({ suitePaths: ["a"], accepted: [] }));
-    const threeSuites = weightOf(
+    const oneSuite = bootsOf(fakeSurface({ suitePaths: ["a"], accepted: [] }));
+    const threeSuites = bootsOf(
       fakeSurface({
         suitePaths: ["a", "b", "c"],
         accepted: [{ siteId: "x", kind: "equivalent", reason: "fixture" }],
@@ -43,6 +44,41 @@ describe("source-mutation shard partition", () => {
     expect(threeSuites - oneSuite).toBe(4);
     // And the absolute value for the single-suite, empty-ledger case is m + 1.
     expect(oneSuite).toBeGreaterThan(1);
+  });
+
+  it("PRICES the weight: the same boot delta costs 4 x the surface's rate", () => {
+    // The rate is set EXPLICITLY and is deliberately not 1. Under a `*`-to-`+`
+    // mutant the delta is 4 rather than 4 x rate, so the two are distinguishable
+    // only when the rate differs from 1 -- and `fakeSurface` spreads a real
+    // registry row, whose rate could become 1 by an ordinary edit somewhere else
+    // and silently destroy this discriminator while the test kept passing.
+    // Constructing the value beats writing a premise that reds.
+    // Annotated `number` rather than left to literal narrowing: as a literal type the
+    // premise below is statically true and the compiler calls the comparison
+    // unintentional, which would force deleting the very guard that catches a later
+    // edit of this constant to 1.
+    const RATE: number = 7;
+    premiseHolds("the fixture rate is not 1, or a + mutant is indistinguishable", RATE !== 1);
+    const priced = (over: Partial<GuardSurface>) =>
+      weightOf(fakeSurface({ ...over, millisPerBoot: RATE }));
+    const oneSuite = priced({ suitePaths: ["a"], accepted: [] });
+    const threeSuites = priced({
+      suitePaths: ["a", "b", "c"],
+      accepted: [{ siteId: "x", kind: "equivalent", reason: "fixture" }],
+    });
+    // Derived from the boot delta and the rate, never from `weightOf` itself: an
+    // expectation computed from the thing under test cannot notice a rate mutant.
+    expect(threeSuites - oneSuite).toBe(4 * RATE);
+  });
+
+  it("hands lptAssign integers only, which is what its determinism claim rests on", () => {
+    // `lptAssign` documents integer arithmetic and lexicographic ties as the whole
+    // basis of its platform independence. It holds by construction here -- boots is
+    // a count and the rate is validated as an integer -- so this guards the
+    // validator's integrality arm being weakened later rather than the arithmetic.
+    for (const s of GUARD_SURFACES) {
+      expect(Number.isInteger(weightOf(s)), `${s.id} weight must be an integer`).toBe(true);
+    }
   });
 
   it("is total: the union of the four shard slices is exactly the registry (AC-1)", () => {

@@ -53,7 +53,16 @@ export function bootsOf(surface: GuardSurface): number {
 }
 
 export function weightOf(surface: GuardSurface): number {
-  return bootsOf(surface);
+  // Milliseconds, not boots. A boot count prices every surface's boot identically,
+  // and the measured rates span 935 to 4963 ms per modelled boot -- a 5.3x spread
+  // that the count cannot see, so the heaviest leg was being chosen by a number
+  // uncorrelated with what the leg actually costs.
+  //
+  // Integral by construction rather than by rounding: `bootsOf` is a count, and
+  // `validateSurface` rejects a non-integer rate, so the product is an integer and
+  // `lptAssign`'s documented integer arithmetic stays true. A rounding step here
+  // would be dead code, and the gate would eventually say so.
+  return bootsOf(surface) * surface.millisPerBoot;
 }
 
 export function sourceShardAssignment(
