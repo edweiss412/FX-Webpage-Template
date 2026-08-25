@@ -1,3 +1,82 @@
+## BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND — the brace walk counts its own delimiter pair without respecting other constructs, so a `}` inside a nested `$()` closes the `${` early — CLOSED 2026-08-25
+
+**Status:** SHIPPED 2026-08-25 · **Effort (as shipped):** L · **Severity (as filed):** MEDIUM · **Class:** detector fidelity · **Facing:** process · **Shipped by:** `fix/shell-brace-cross-construct`
+
+**Resolution — the walk delegates to the constructs it crosses.** `matchBraceSpan` counted only its own
+`open`/`close` pair while tracking quotes, so a delimiter belonging to a DIFFERENT construct was counted as
+its own. It now asks each foreign construct's own closer where that construct ends and resumes past it,
+over a DEFAULT-DENIED accept-set: an opener nobody listed terminates nothing and keeps exactly today's
+reading, which is what makes the axis closable rather than an open grammar. TWO recognizers, never one
+parameterised by a flag — the bare alphabet where both quote forms open, and the narrower double-quoted one
+where `'`, `$'` and `$"` are literal, because bash's is. The `$$` precedence rule lands in all THREE
+recognizers as one guard per lexical context. An unclosed foreign construct FAILS its enclosing span rather
+than being skipped, because the permissive reading fabricates a call for input bash refuses to parse.
+
+**The close condition, all three parts.** (a) All four shapes resolve: `shapes.mts --expect-repaired` reads
+22/22 accept-set, 5/5 documented-limit UNCHANGED against the merge-base scanner, 4/4 bash-rejected movements
+held, with bash as oracle on every row. (b) The live-corpus scan is within the bound: median CPU 13687 ms
+against a merge-base 14127 ms measured in the SAME process, 0.97x against a 1.5x ceiling. (c) The AC-5
+finding-set digest is UNMOVED at 76 rows / `8ebe8b08d43e6308aa471112d9f086d0118e6238`.
+
+**(b) is worth stating plainly, because this row doubted it.** The row recorded a construct-aware prototype
+taking 400s where the shipped walk took 13s and concluded the obvious repair was not viable as written.
+Measured on what actually shipped, the construct-aware walk costs nothing detectable over the live corpus.
+What that establishes is the SIGN, not the digit: the corpus's spans are too short for the delegation to be
+paid for, and a ratio slightly under 1.0 is contention noise rather than a speed-up.
+
+**TWO CORRECTIONS THIS ROW OWED, both measured rather than argued.**
+
+1. **The caller count.** This row said five callers. The measured figure is SIX call sites of `matchBrace`
+   plus one of `matchBraceEnd`, all funnelling through `matchBraceSpan` — derived by
+   `grep -n 'matchBrace(\|matchBraceEnd(' ` minus the two definitions, not counted from memory. The
+   asymmetry is load-bearing: only `matchBraceEnd`'s single consumer reads `closed`, so a repair changing
+   what `matchBrace` RETURNS on an unclosed span would move six call sites at once, and this one does not.
+
+2. **The population claim, widened and re-run.** This row's zero was scoped to ATTACHED redirection targets
+   carrying a substitution. The arc showed the crossing misreports in ordinary ARGUMENT position too, with
+   no redirection anywhere, which makes a target-scoped census the wrong set to ask about. The greps were
+   therefore re-run POSITION-AGNOSTIC over every mixed `${…}`/`$(…)` nesting in shell and workflow text.
+   **The answer is still zero**, so the conclusion survives its own scope being widened — which is the only
+   way a reader should accept a zero whose question changed. Six live mixed nestings across 2 files remain,
+   and they are why the decline-and-surface branch was refused: an advisory on lexical mixing fires on all
+   six, trading a silent miss with zero live population for a loud wrong answer with six.
+
+**Guard surface.** `psqlStartupScan` scores 50/50 with an EMPTY unaccepted-survivor set over the declared
+operators (`relational-boundary`, `regex-quantifier-bound`): 81 mutants, 50 killed, 31 survivors all
+carrying accepted `equivalent` rows. One row was ADDED by this arc, for `doubleQuotedEnd`'s loop header,
+after deletion was refused (the bound is the loop's only terminator) and a killing test was attempted over
+ten end-of-text inputs and could not be built.
+
+**Documented limits are unchanged**, measured pairwise against the merge-base scanner, and the
+`#`-comment widening is refused as a named mutant even though it makes the walk MORE bash-faithful — which
+is what makes the no-parser-growth fence executable rather than aspirational.
+
+**Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 1 finding 2) · **Severity:** MEDIUM (one shape is a SILENT MISS, which is a forbidden direction, but the live population is zero) · **Class:** detector fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — `matchBrace` is a PRE-EXISTING shared helper with five callers that this arc does not otherwise touch, and the obvious repair is not viable as written: a construct-aware prototype fixes all four shapes and then TIMES OUT over the live corpus at 400s where the shipped walk finishes in 13s, so making it correct needs memoisation or a single-pass tokeniser rather than a patch. · **Reachability:** PROBED — inputs and observations below, each paired with a bash run. · **Incident:** it reached diff round 1 of this arc as a BLOCKING finding and cost that round (corpus row `docs/review-rounds/fix/shell-attached-redirection-target/`); the reviewer reported it as wrong attribution only, and reproduction found the sharper silent-miss shape underneath it.
+
+`matchBrace` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) tracks quotes and escapes but counts only its own `open`/`close` pair, so a delimiter belonging to a DIFFERENT construct is counted as its own. A `}` inside a nested `$()` therefore closes the enclosing `${` early, and a `)` inside a nested `${}` closes the enclosing `$()` early.
+
+Three observable shapes, each paired with what bash actually did:
+
+| input                                 | bash            | scanner                                      |
+| ------------------------------------- | --------------- | -------------------------------------------- |
+| `cat >"$(echo ${A:-)}; psql -c 'x')"` | RAN, exit 0     | **0 sites AND 0 advisories** — a silent miss |
+| `cat >${OUT:-$(echo }; psql -c 'x')}` | RAN             | 1 site, `nested: false` — wrong attribution  |
+| ``cat >$(echo `echo x; psql -c 'x')`` | **RAN NOTHING** | **1 site** — a FABRICATED call               |
+
+**The third was found on 2026-08-22 by `fix/shell-brace-cross-construct` and is the sharpest of the
+three.** The unclosed backtick means bash dies on the unexpected EOF and executes nothing at all, so
+the scanner is not mis-attributing a real call — it is reporting one that does not exist. Over-reporting
+is permitted for the ADVISORY channel and never for a site claiming a call site exists. It surfaced
+while measuring a deliberately weaker candidate walk rather than from the row's own shapes, which is
+why the row did not carry it: an implementation that keeps counting through an unclosed construct
+passes every fixture the first two shapes generate.
+
+**PRE-EXISTING, proven rather than assumed.** The identical inputs were run against `scan.ts` at the merge-base on the DETACHED path, which that arc did not change: base and HEAD agree byte for byte on both shapes. The attached-target work extends an existing defect to a new surface; it does not introduce it. The payload placement is what makes it visible — with psql BEFORE the crossing delimiter the attribution is correct, which is why the reviewer's own three probes did not discriminate.
+
+**Exposure is bounded and measured**, not asserted: the three-surface census reports ZERO substitution-bearing attached targets, so no live call site is currently hidden by this. It is a prospective limit on a guard, which is why it is filed rather than shipped hot.
+
+Close condition: a construct-aware delimiter walk that (a) resolves all four shapes above, (b) completes the live-corpus scan within the shipped walk's order of magnitude, and (c) leaves the AC-5 finding-set digest unmoved — the third is currently unprovable for the prototype, because it cannot finish.
+
 ## BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM — the byte gate fails on a diff that changes no render input — CLOSED 2026-08-24
 
 **Status:** SHIPPED 2026-08-24 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM · **Class:** CI gate fidelity · **Facing:** process · **Shipped by:** `fix/screenshots-drift-instrument`

@@ -311,34 +311,6 @@ The alert pill has two branches. Monitoring-only ("clearing on their own, no act
 
 **This row records the owner question rather than answering it:** should that walk honour `.gitignore`? Honouring it makes the guard agree with what CI actually checks out and with what a contributor can reason about. Declining to makes the guard range over everything physically present, which is a defensible reading for a CONTAINMENT check whose point is that nothing unexpected sits in the tree. The two readings disagree about whether an untracked directory is part of the subject at all, and that is a decision for the surface's owner, not a repair to be picked here.
 
-## BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND — the brace walk counts its own delimiter pair without respecting other constructs, so a `}` inside a nested `$()` closes the `${` early
-
-**Status:** IN PROGRESS · **Branch:** fix/shell-brace-cross-construct · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 1 finding 2) · **Severity:** MEDIUM (one shape is a SILENT MISS, which is a forbidden direction, but the live population is zero) · **Class:** detector fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — `matchBrace` is a PRE-EXISTING shared helper with five callers that this arc does not otherwise touch, and the obvious repair is not viable as written: a construct-aware prototype fixes all four shapes and then TIMES OUT over the live corpus at 400s where the shipped walk finishes in 13s, so making it correct needs memoisation or a single-pass tokeniser rather than a patch. · **Reachability:** PROBED — inputs and observations below, each paired with a bash run. · **Incident:** it reached diff round 1 of this arc as a BLOCKING finding and cost that round (corpus row `docs/review-rounds/fix/shell-attached-redirection-target/`); the reviewer reported it as wrong attribution only, and reproduction found the sharper silent-miss shape underneath it.
-
-`matchBrace` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) tracks quotes and escapes but counts only its own `open`/`close` pair, so a delimiter belonging to a DIFFERENT construct is counted as its own. A `}` inside a nested `$()` therefore closes the enclosing `${` early, and a `)` inside a nested `${}` closes the enclosing `$()` early.
-
-Three observable shapes, each paired with what bash actually did:
-
-| input                                 | bash            | scanner                                      |
-| ------------------------------------- | --------------- | -------------------------------------------- |
-| `cat >"$(echo ${A:-)}; psql -c 'x')"` | RAN, exit 0     | **0 sites AND 0 advisories** — a silent miss |
-| `cat >${OUT:-$(echo }; psql -c 'x')}` | RAN             | 1 site, `nested: false` — wrong attribution  |
-| ``cat >$(echo `echo x; psql -c 'x')`` | **RAN NOTHING** | **1 site** — a FABRICATED call               |
-
-**The third was found on 2026-08-22 by `fix/shell-brace-cross-construct` and is the sharpest of the
-three.** The unclosed backtick means bash dies on the unexpected EOF and executes nothing at all, so
-the scanner is not mis-attributing a real call — it is reporting one that does not exist. Over-reporting
-is permitted for the ADVISORY channel and never for a site claiming a call site exists. It surfaced
-while measuring a deliberately weaker candidate walk rather than from the row's own shapes, which is
-why the row did not carry it: an implementation that keeps counting through an unclosed construct
-passes every fixture the first two shapes generate.
-
-**PRE-EXISTING, proven rather than assumed.** The identical inputs were run against `scan.ts` at the merge-base on the DETACHED path, which that arc did not change: base and HEAD agree byte for byte on both shapes. The attached-target work extends an existing defect to a new surface; it does not introduce it. The payload placement is what makes it visible — with psql BEFORE the crossing delimiter the attribution is correct, which is why the reviewer's own three probes did not discriminate.
-
-**Exposure is bounded and measured**, not asserted: the three-surface census reports ZERO substitution-bearing attached targets, so no live call site is currently hidden by this. It is a prospective limit on a guard, which is why it is filed rather than shipped hot.
-
-Close condition: a construct-aware delimiter walk that (a) resolves all four shapes above, (b) completes the live-corpus scan within the shipped walk's order of magnitude, and (c) leaves the AC-5 finding-set digest unmoved — the third is currently unprovable for the prototype, because it cannot finish.
-
 ## BL-SHELL-UNTERMINATED-PROCESS-SUBSTITUTION-FABRICATES - an UNTERMINATED process substitution is scanned as executable, while the `$(` form is correctly suppressed
 
 **Status:** OPEN · **Facing:** process · **Effort:** M · **Incident:** it consumed diff round 13 of this arc as a BLOCKING finding (corpus row `docs/review-rounds/fix/yaml-run-scalar-quoting-decode/815f61b63957.jsonl`), and round 14 was spent in part correcting the record of it · **Filed:** 2026-08-24 (`fix/yaml-run-scalar-quoting-decode`, diff round 13 finding 1; mechanism corrected at round 14) · **Severity:** MEDIUM (fabricates a site; bounded by the census below) · **Reachability:** PROBED
