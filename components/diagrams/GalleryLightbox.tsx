@@ -274,6 +274,14 @@ export function GalleryLightbox({
   // pause so a 1.0 → 2.5 pinch doesn't fire a dozen intermediate
   // announcements).
   const [liveRegionText, setLiveRegionText] = useState("");
+  /**
+   * The pending scale reset came from NAVIGATION, not from a user de-zoom.
+   *
+   * A ref rather than state: it is read inside the debounced announcement below
+   * and must not itself schedule a render, and it is set in an Embla event
+   * handler that already runs outside React's batching.
+   */
+  const navigatedRef = useRef(false);
   // Tracks whether the live region previously announced "Zoomed in"
   // so the de-zoom transition can emit "Zoomed out" without
   // announcing on the initial scale=1 state.
@@ -418,6 +426,10 @@ export function GalleryLightbox({
       // also resets so the next keyboard +/- bases targets on 1.
       setActiveScale(1);
       requestedScaleRef.current = 1;
+      // The announcement is owed by THIS handler, not by the chevrons: a swipe
+      // changes the slide with no button involved, and since the inactive
+      // slides left the accessibility tree the change is otherwise silent.
+      navigatedRef.current = true;
     }
     emblaApi.on("select", onSelect);
     return () => {
@@ -463,7 +475,18 @@ export function GalleryLightbox({
     // outer ref needed. Each scale change cancels its predecessor's
     // pending setTimeout via the cleanup function below.
     const handle = setTimeout(() => {
-      if (isZoomed(activeScale)) {
+      if (navigatedRef.current) {
+        // Navigation wins the region for this tick, and deliberately says
+        // nothing about zoom: the reset to 1 came from the slide change, not
+        // from the user zooming out, so "Zoomed out" would be a second sentence
+        // about an event that did not happen. Audit P1-B's objection was to
+        // COMPETING polite regions; this is one region emitting one message.
+        navigatedRef.current = false;
+        wasAnnouncedZoomedRef.current = false;
+        const label = items[activeIndex]?.alt?.trim();
+        const position = `${activeIndex + 1} of ${items.length}`;
+        setLiveRegionText(label ? `${label}, ${position}` : `Diagram ${position}`);
+      } else if (isZoomed(activeScale)) {
         const rounded = Math.round(activeScale * 10) / 10;
         setLiveRegionText(`Zoomed in, ${rounded}x`);
         wasAnnouncedZoomedRef.current = true;
@@ -479,7 +502,7 @@ export function GalleryLightbox({
     return () => {
       clearTimeout(handle);
     };
-  }, [activeScale]);
+  }, [activeScale, activeIndex, items]);
 
   const scrollPrev = useCallback(() => {
     // Per shape brief: navigation always resets zoom on the OLD slide
@@ -735,6 +758,17 @@ export function GalleryLightbox({
               return (
                 <figure
                   key={item.id}
+                  // Embla keeps every slide MOUNTED, so without this the whole
+                  // gallery is in the accessibility tree at once: a screen-reader
+                  // user reading the dialog top to bottom meets N figures with
+                  // nothing saying which one the viewport shows, and the chevrons
+                  // move an index nothing in the tree names
+                  // (BL-LIGHTBOX-INACTIVE-SLIDES-IN-A11Y-TREE, design doc
+                  // 2026-08-25-ui-polish-class-sweep-design.md D8). Hiding them
+                  // makes the transition silent, which is why the announcement
+                  // below the Embla `select` handler exists — the two ship
+                  // together or the second half of the problem is worse.
+                  aria-hidden={!isActive}
                   // `relative` is a positioning context only (no offsets, so it
                   // is paint-identical): the demote chip anchors HERE rather
                   // than at the viewport container, or it would hang in place
