@@ -45,6 +45,37 @@ unapplied plant or a non-compiling mutant as a pass.
 
 Tasks on code that does not exist yet are ordinary test-first.
 
+### How a plant is declared, and why two forms are needed
+
+Two consecutive review rounds landed on plant coverage, so this is stated once as a rule
+rather than repaired instance by instance. The harness substitutes literal text: it counts
+occurrences with `text.split(from)` and rewrites with `text.replace(from, to)`, and it
+refuses anything that does not occur exactly once. A prose description of a defect is
+therefore not a plant, and neither is an anchor phrased as an ABSENCE — an anchor saying that a
+surface is missing from the seed cannot occur exactly once, because it does not occur at
+all.
+
+**Form A, for a defect in code that exists NOW.** The literal `from` and `to` strings are
+given in the plan and can be pasted into the harness unchanged. Every Form A entry in this
+document has been checked against the live file for exactly-one occurrence.
+
+**Form B, for a defect in code THIS TASK CREATES.** No literal anchor can honestly be
+given at plan time, because the text it must match does not exist yet and any string
+written now is a guess that will not match. A Form B entry declares the DEFECT, the SUITE
+that must catch it, and nothing else. The literal pair is written during implementation,
+when the code is there to anchor against, and the task's GREEN is not satisfied until
+`node scripts/mutation-weight-plant.mjs` reports CAUGHT for it.
+
+Form B is weaker at plan time and that is honest rather than convenient: it is
+plan-time-uncertifiable by construction, so the certification moves to the task's own
+GREEN where it can actually be run. What is NOT acceptable, and what both those rounds
+correctly rejected, is prose in the `from` column dressed as a literal — that reads as a
+certified plant while being unpasteable.
+
+A fixture plant is Form A whenever the fixture is committed by an earlier task, because a
+JSON value is a literal like any other: `"millisPerBoot": 41200` is a perfectly good
+anchor. It is Form B only when the fixture itself is new in the same task.
+
 **Task 1 exists because that mechanism did not reach two of the tasks that depend on
 it.** The harness resolves its target and its suite from two hardcoded constants
 (`scripts/mutation-weight-plant.mjs:27-28`), so a plant aimed anywhere outside
@@ -138,15 +169,34 @@ the executable step that closes it — plan review round 1 found that no step di
 registry 45, ledger-kinds 45, registry-not-declared [], declared-not-registry []
 ```
 
+**Every Form A plant anchor, checked for exactly-one occurrence** — the harness refuses
+anything else, so an anchor that is not unique is not a plant. Run now, on the live tree:
+
+```
+count  file                                       anchor
+    1  tests/mutation/source/shardPartition.ts    return mutants.length + surface.accepted.length * (s…
+    1  scripts/mutation-shard-weight-report.ts    const boots = bootsOf(s);
+    1  scripts/mutation-shard-weight-report.ts    if (missing.length > 0) {
+    1  .github/workflows/mutation-harness.yml     SHARD_BUDGET_SECONDS: "3600"
+    1  .github/workflows/mutation-harness.yml     run: pnpm tsx scripts/check-shard-budget.ts
+    1  tests/mutation/source/registry.ts          scoreFloor: 0.94,
+    1  tests/mutation/source/registry.ts          id: "mutationWeightRecords",
+```
+
+This sweep is why the immutability plant anchors on `0.94` rather than the `0.9` an earlier
+draft used: that string occurs twelve times and would have been refused. Running the check
+rather than declaring it is the only way that surfaces.
+
 **Current state of every planned `red=` command:**
 
 ```
   task 1  PASSES today: node scripts/mutation-weight-plant.mjs   (no out-of-tree entry declared yet)
   task 2  PASSES today: tests/mutation/_metaGuardSurfaceRegistry.test.ts
   task 3  PASSES today: tests/mutation/source/shardPartition.test.ts
-  task 4  PASSES today: the report reconciles, because weightOf and bootsOf still agree
+  task 4  PASSES today: tests/mutationWeight/instrument.test.ts
   task 5  ABSENT:       tests/ci/rateDrift.test.ts
-  task 6  FAILS today:  the score run, below its floor (dated observation in the marker)
+  task 6  ABSENT:       tests/mutation/_metaPreexistingSurfaceImmutability.test.ts
+  task 7  FAILS today:  the score run, below its floor (dated observation in the marker)
 ```
 
 The count is derived rather than asserted, because asserting it is the class this document
@@ -154,13 +204,13 @@ has already got wrong twice:
 
 ```
 $ grep -o '<!-- task: [^>]*red-state=[a-z]*' <this file> | grep -o 'red-state=[a-z]*' | sort | uniq -c
-      5 red-state=authored
+      6 red-state=authored
       1 red-state=live
 ```
 
 Every `authored` marker names the production line whose absence or defect makes its new
 case fail, verified by READING that line rather than by confirming it resolves. The single
-`live` marker is Task 6, whose command the tree fails today.
+`live` marker is Task 7, whose command the tree fails today.
 
 ## The acceptance criteria these tasks discharge
 
@@ -176,7 +226,7 @@ wording; this is the index.
 | **AC-4** | A surface cannot enrol without a rate: absent fails to compile, and out-of-range fails a named test. | Task 2 |
 | **AC-5** | The drift report names every measured surface, marks which are actionable, keeps declared-but-unmeasured and measured-but-undeclared distinct, and changes no exit status. | Task 5 |
 | **AC-6** | Every weight handed to `lptAssign` is an integer, so its documented platform-independence stays true. | Task 3 |
-| **AC-7** | No verdict-deciding input moves for a surface enrolled before this diff. | Task 6 |
+| **AC-7** | No verdict-deciding input moves for a surface enrolled before this diff. | Task 6 proves it against the merge base; Task 7's triage runs under that guard |
 
 <!-- tasks: depth=2 red-contract -->
 
@@ -203,14 +253,19 @@ for a target to be unresolvable. A harness whose whole contract is that an unapp
 plant is never scored as a pass should say so in its own vocabulary instead of dying
 with a stack trace.
 
-**Plant for this task** (the harness proving itself):
+**Plant for this task** — Form A, and its anchor exists on the tree TODAY:
 
 | defect | file | anchor | becomes | suite |
 | --- | --- | --- | --- | --- |
-| `weightOf` drops the rate | `tests/mutation/source/shardPartition.ts` | `return bootsOf(surface) * surface.millisPerBoot;` | `return bootsOf(surface);` | `tests/mutation/source/shardPartition.test.ts` |
+| boot count miscomposed | `tests/mutation/source/shardPartition.ts` | `return mutants.length + surface.accepted.length * (suites - 1) + suites;` | `return mutants.length + surface.accepted.length * suites + suites;` | `tests/mutation/source/shardPartition.test.ts` |
 
-Declared here, exercised by Task 3. It is the one entry that must go from unreachable to
-CAUGHT, so it is the harness's own acceptance test.
+**This entry, and not the priced-weight one an earlier draft declared, because a task must
+be able to reach its own GREEN.** The priced anchor does not exist until Task 3, so after
+generalisation that plant would move from `ENOENT` to `ANCHOR-FAIL` — never to `CAUGHT` —
+and Task 1 could not close. The anchor above is `bootsOf`'s current expression, and
+`tests/mutation/source/shardPartition.test.ts:43` already asserts the three-suite minus
+one-suite delta is exactly 4, which the mutation changes. Both halves of the cycle exist
+before this task starts, which is what makes it a cycle.
 
 **RED:** add that entry, then `node scripts/mutation-weight-plant.mjs`. Expect a non-zero
 exit from an uncaught `ENOENT` naming a path under the scratch `mutationWeight/`
@@ -279,24 +334,50 @@ own refutation example made executable: two honest 100-second children charged t
 modelled boot give 200,000 ms per modelled boot, which is legitimate and which the
 forbidden bound rejects.
 
-**The bound is a named constant pinned to the workflow, because the two can drift.**
-`SHARD_BUDGET_SECONDS` is a workflow environment value (`3600`), not something registry
-validation can read, so `validateSurface` compares against a `MAX_MILLIS_PER_BOOT`
-constant and `_metaSourceShardIntegrity` asserts it equals that env value times 1000.
-Without the pin, raising the CI budget silently leaves the validator on the old ceiling.
+**The bound reuses machinery that already exists, and this task adds no pin.** An earlier
+draft proposed a new `MAX_MILLIS_PER_BOOT` constant plus a meta-test asserting it matches
+the workflow. Both already exist: `SHARD_BUDGET_SECONDS` is exported from
+`tests/mutation/source/shardPartition.ts:29`, and
+`tests/mutation/_metaSourceShardIntegrity.test.ts:274` already asserts the workflow env
+value equals it. So `validateSurface` compares against `SHARD_BUDGET_SECONDS * 1000` using
+the existing export, and the drift this task was going to guard against is guarded already.
+Inventing the pin would have put a second source of truth beside a working one.
 
 **Requiredness cannot rot silently either.** Changing the field from required to optional
 leaves every current row and every runtime arm green, since all 45 rows would still carry
 a rate. The guard is therefore compile-time: a `@ts-expect-error` on a surface literal
 that omits `millisPerBoot`, which stops compiling the moment the field becomes optional.
 
-**RED:** the marker's command with all six arms and the `@ts-expect-error` case added and
-`validateSurface` untouched. Expect the five rejects to fail (nothing rejects), and the
-`@ts-expect-error` to fail as an unused directive.
+**Step 4, the flag gets its own tests, because nothing else exercises it.** `--seed-rate`
+carries four obligations: repeatable parsing, merging BEFORE the completeness check,
+refusing a rate that matches no row, and refusing a row that no rate matches. None of the
+commands above invokes the report CLI at all, so a `--seed-rate` that silently ignored its
+argument would leave every named command green while the bootstrap stayed impossible. The
+cases drive the CLI directly, beside the existing report tests.
 
-**GREEN:** the same command, all six arms and the type case passing, plus
-`pnpm vitest run tests/mutation/_metaSourceShardIntegrity.test.ts` green over the
-constant pin.
+**Plants** — Form B for the flag this task creates, Form A for the refusal it must not
+undermine:
+
+| form | defect | file | anchor | becomes | suite |
+| --- | --- | --- | --- | --- | --- |
+| B | later `--seed-rate` occurrences dropped | `scripts/mutation-shard-weight-report.ts` | written at implementation | written at implementation | report CLI tests |
+| B | seeded rates merged AFTER the completeness check | `scripts/mutation-shard-weight-report.ts` | written at implementation | written at implementation | report CLI tests |
+| A | completeness refusal disabled | `scripts/mutation-shard-weight-report.ts` | `if (missing.length > 0) {` | `if (false) {` | report CLI tests |
+
+The third is Form A because that refusal exists today at
+`scripts/mutation-shard-weight-report.ts:456`. It is the guard the new flag must not
+weaken, and planting it proves the MERGED table is still checked rather than merely
+assembled.
+
+**RED:** the marker's command with all six arms and the `@ts-expect-error` case added and
+`validateSurface` untouched. Expect the five rejects to fail, since nothing rejects, and
+the `@ts-expect-error` to fail as an unused directive. Then the report CLI cases with
+`--seed-rate` unimplemented: expect the flag to be rejected or ignored, and the
+completeness refusal still firing for the two enrolled rows.
+
+**GREEN:** the same commands, with all six arms, the type case and the four flag
+obligations passing, plus `node scripts/mutation-weight-plant.mjs` reporting CAUGHT for
+all three entries above.
 
 **Commit:** `feat(mutation): require a per-surface millisPerBoot and range-guard it`
 
@@ -360,7 +441,14 @@ excludes `controlOutlineResidue`, the third excludes `connectionCensus`, so the 
 path is exercised rather than assumed. The expectation comes from the SECONDS FIXTURE, never from
 `weightOf` — an expectation derived from the thing under test cannot notice a rate mutant.
 
-New assertion: every weight handed to `lptAssign` is an integer.
+New assertion: every weight handed to `lptAssign` is an integer. **It holds by
+construction, so it guards the validator rather than the arithmetic.** Both factors are
+integers — `bootsOf` counts mutants and suites, and Task 2 rejects a non-integer rate — so
+the product cannot be fractional and no rounding step is needed. An earlier draft declared
+a plant removing a `Math.round` call: that anchor appears nowhere in the implementation
+this task specifies, and even if it did, no valid input would distinguish it. What the
+assertion actually catches is the validator's integrality arm being weakened later, which
+is why it belongs in the suite even though it cannot fail today.
 
 **The consumer that reads a weight as a boot count is pinned here, because it was already
 wrong.** `modelledFrom` in the report called `weightOf` and treated the result as raw
@@ -369,31 +457,58 @@ task. Repaired at `75e63a2a2` to call `bootsOf`; the assertion that keeps it rep
 the report's own reconciliation over a registry whose rate is not one, then requires
 the recovered mutant count to match. Without it the repair is a comment.
 
-Also here: a source-scan assertion that the module header no longer carries its stale
-claim about an absent weight table, and no longer names `runAllSuites`, which does not
-exist. **The scan's
-boundary is the file's leading block comment, delimited by its opening and closing tokens
-and nothing else** — the commit that removes the claim also quotes it in its own message,
-so use-versus-mention is the failure mode, and the scan must not match the phrase where a
-later line legitimately discusses it.
+Also here: a source-scan assertion over two stale strings in
+`tests/mutation/source/shardPartition.ts`. Its header claims the partition has no
+committed weight table, which this task makes false, and it attributes the short-circuit to
+`runAllSuites` — a name that exists nowhere in the repository. The behaviour it describes is
+real and sits at `tests/mutation/source/runner.ts:218`, but under no such name, so that
+citation has been stale independently of this arc.
+
+**The scan is FILE-WIDE for both strings, not header-bounded.** An earlier draft bounded it
+to the leading comment and then claimed one of its plants covered a restoration in code
+OUTSIDE that boundary, which is a straight contradiction: a header-bounded scan cannot see
+outside the header. The boundary description was also wrong on its own terms, since the
+header is a run of `//` lines rather than a block comment with opening and closing tokens.
+Neither string has a legitimate home anywhere in this file once the claim is false and the
+name is absent, so the simple contract is the correct one, and it makes the
+outside-the-header plant meaningful instead of self-contradictory.
 
 **Plants** — every assertion above has one:
 
-| defect | file | anchor | becomes | suite |
-| --- | --- | --- | --- | --- |
-| rate dropped | `tests/mutation/source/shardPartition.ts` | `bootsOf(surface) * surface.millisPerBoot` | `bootsOf(surface)` | `shardPartition.test.ts` |
-| rate added, not multiplied | `tests/mutation/source/shardPartition.ts` | `bootsOf(surface) * surface.millisPerBoot` | `bootsOf(surface) + surface.millisPerBoot` | `shardPartition.test.ts` |
-| weight left fractional | `tests/mutation/source/shardPartition.ts` | `Math.round(` | `(` | `shardPartition.test.ts` |
-| consumer reads a priced weight as boots | `scripts/mutation-shard-weight-report.ts` | `const boots = bootsOf(s);` | `const boots = weightOf(s);` | `shardPartition.test.ts` |
-| header claim restored verbatim | `tests/mutation/source/shardPartition.ts` | ` * The partition is derived` | ` * NO committed weight table. The partition is derived` | `shardPartition.test.ts` |
-| header claim restored, different case | same | same | ` * No Committed Weight Table. The partition is derived` | `shardPartition.test.ts` |
-| `runAllSuites` restored in the header | same | same | ` * Each leg calls runAllSuites. The partition is derived` | `shardPartition.test.ts` |
-| `runAllSuites` restored in CODE, outside the header | `tests/mutation/source/shardPartition.ts` | `export function weightOf` | `export const runAllSuites = null;\nexport function weightOf` | `shardPartition.test.ts` |
-| same-run seeding | tests/mutation/source/fixtures/heldout-2.json | the seed run id | the scored run id | shardBalance.test.ts |
-| arrival priced from the scored run | tests/mutation/source/fixtures/heldout-1.json | `controlOutlineResidue` absent from the seed | the same surface present with the scored run's own rate | shardBalance.test.ts |
-| margin inverted | tests/mutation/source/fixtures/heldout-2.json | pair 2's heaviest seeded rate | that rate times 8.33 | shardBalance.test.ts |
+**Form A entries carry literal anchors verified for exactly-one occurrence on the live
+tree. Everything this task itself writes or rewrites is Form B**, including all three
+fixture plants, because the fixtures are new here, and all four header plants, because
+they act on text this task rewrites.
 
-The last three are why Task 1 comes first. Pair 2 is chosen for the inversion because it
+| form | defect | file | anchor | becomes | suite |
+| --- | --- | --- | --- | --- | --- |
+| A | consumer reads a priced weight as boots | `scripts/mutation-shard-weight-report.ts` | `const boots = bootsOf(s);` | `const boots = weightOf(s);` | `shardPartition.test.ts` |
+| B | rate dropped from the product | `tests/mutation/source/shardPartition.ts` | written at implementation | written at implementation | `shardPartition.test.ts` |
+| B | rate added rather than multiplied | `tests/mutation/source/shardPartition.ts` | written at implementation | written at implementation | `shardPartition.test.ts` |
+| B | stale weight-table claim restored verbatim | `tests/mutation/source/shardPartition.ts` | written at implementation | written at implementation | `shardPartition.test.ts` |
+| B | same claim restored in different case | `tests/mutation/source/shardPartition.ts` | written at implementation | written at implementation | `shardPartition.test.ts` |
+| B | `runAllSuites` restored in the header | `tests/mutation/source/shardPartition.ts` | written at implementation | written at implementation | `shardPartition.test.ts` |
+| B | `runAllSuites` restored in CODE, outside the header | `tests/mutation/source/shardPartition.ts` | written at implementation | written at implementation | `shardPartition.test.ts` |
+| B | seed and score drawn from the SAME run | held-out fixture, pair 2 | written at implementation | written at implementation | shardBalance.test.ts |
+| B | an arrival priced from the scored run's own rate | held-out fixture, pair 1 | written at implementation | written at implementation | shardBalance.test.ts |
+| B | one seeded rate perturbed until the margin inverts | held-out fixture, pair 2 | written at implementation | written at implementation | shardBalance.test.ts |
+
+**Three of these were prose dressed as literals in an earlier draft and one was worse than
+prose.** The header anchors were written in block-comment style (` * `) against a header
+that is a run of `//` lines, so they matched nothing and would have reported ANCHOR-FAIL
+while reading as certified. The fixture entries described a rate in
+prose rather than quoting it, and one named an ABSENCE as the anchor — which cannot occur exactly once
+because it does not occur at all. Under the Form A/B rule they are Form B and honest: the
+defect and the deciding suite are fixed here, the literal pair is written when the text
+exists, and the task's GREEN is not met until each reports CAUGHT.
+
+The perturbation uses pair 2 because it has the narrowest shipped spread (1.541x) and the
+largest margin, so it is the pair most able to absorb a perturbation without inverting;
+inverting there is the strongest of the three. **The `runAllSuites`-in-code entry is why
+the scan is file-wide** — a header-bounded scan cannot see it, and an earlier draft claimed
+both at once.
+
+The fixture entries are why Task 1 comes first. Pair 2 is chosen for the inversion because it
 has the narrowest shipped spread (1.541x) and the largest margin, so it is the pair most
 able to absorb a perturbation without inverting; inverting there is the strongest of the
 three. **The eighth row exists because a header-only scan does not, on its own, catch
@@ -413,7 +528,7 @@ margin was required.
 
 ## Task 4 — the instrument reconciles a priced partition
 
-<!-- task: red=`pnpm tsx scripts/mutation-shard-weight-report.ts --run docs/fixtures/mutationWeight/branch-run` red-state=authored red-target=`lib/mutationWeight/weights.ts:270` why=`reconcile recomputes the partition with w: v.boots, so against a run whose legs came from the priced weight it reports most surfaces as moved and the report exits before any verdict comparison` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/mutationWeight/instrument.test.ts` red-state=authored red-target=`lib/mutationWeight/weights.ts:270` why=`reconcile recomputes the partition with w: v.boots, so a modelled set carrying rates disagrees with legs computed from the priced weight and reports them as moved` ac=AC-1 -->
 
 **Files:** `lib/mutationWeight/weights.ts`, `scripts/mutation-shard-weight-report.ts`,
 `tests/mutationWeight/instrument.test.ts`,
@@ -451,13 +566,40 @@ The second is the one that matters most: a zero fallback silently collapses ever
 old-dump surface to weight 0, which reads as a perfectly balanced partition rather than
 as an error.
 
-**RED:** the marker's command against a committed fixture whose legs came from a priced
-partition and whose dump carries rates. Expect `RECONCILIATION FAILED` naming the moved
-surfaces and a non-zero exit.
+**The red is a unit case, not the report CLI, and an earlier draft had this wrong twice
+over.** That draft pointed the marker at
+`scripts/mutation-shard-weight-report.ts --run docs/fixtures/mutationWeight/branch-run`.
+`docs/fixtures/` does not exist and is not this repo's convention — fixtures for this area
+live under `tests/mutation/source/fixtures` — so the command would have failed on a
+missing directory, a non-zero exit that resembles the red without being it. That is the
+same shape as the ENOENT confusion found in Task 1, which means finding it once did not
+make me sweep for peers; the sweep is what turned this one up. The deeper problem is that
+no artifact from a priced partition can exist at Task 4, since the priced partition has
+never run in CI by then. The fixture would have to be hand-built, and hand-building the
+very leg assignment under test writes the expected answer into the input.
 
-**GREEN:** the same command reconciling clean and reaching the comparison, plus
-`pnpm vitest run tests/mutationWeight/instrument.test.ts` and
-`node scripts/mutation-weight-plant.mjs` green.
+So the property is asserted where it is directly expressible: hand `reconcile` a modelled
+set CARRYING rates together with observed legs computed from the priced partition, and
+expect `ok`. The report CLI keeps its role as the closeout's evidence path rather than
+doubling as a task's red signal.
+
+**The zero-fallback plant needs a fixture that can see it, and none of the existing ones
+can.** The priced case carries rates, so it never evaluates the fallback at all; and the
+rate-less cases already in the suite cannot discriminate either, because their
+single-surface cases always land on the first leg, and their cases with one surface per
+leg place identically whether every weight is zero or positive. This task therefore adds a rate-less
+dump with MORE surfaces than legs and unequal boot counts, where an all-zero weighting
+packs differently from a boots weighting. Without it the `?? 1` to `?? 0` plant would
+report CAUGHT-by-luck or not at all.
+
+**RED:** the marker's command with the three cases above added and `reconcile` still
+weighting by `v.boots`. Expect the priced case to report the surfaces as moved and `ok`
+false.
+
+**GREEN:** the same command with all three passing, plus
+`node scripts/mutation-weight-plant.mjs` reporting CAUGHT for the three entries above and
+`pnpm tsx scripts/mutation-shard-weight-report.ts` reconciling clean against the committed
+held-out fixtures.
 
 **Commit:** `fix(mutation): reconcile a partition priced in milliseconds per boot`
 
@@ -520,12 +662,39 @@ and the process exit status identical with and without drift.
 
 **Plants:**
 
-| defect | file | anchor | becomes | suite |
+**The script's four plants are Form B: it does not exist yet, so no literal anchor written
+now would match it.** Declared as defect and deciding suite; the literal pair is written at
+implementation and the task's GREEN requires CAUGHT for each.
+
+| form | defect | file | suite |
+| --- | --- | --- | --- |
+| B | drift changes the process exit status | scripts/check-rate-drift.ts | rateDrift.test.ts |
+| B | declared-but-unmeasured folded in with drifted | scripts/check-rate-drift.ts | rateDrift.test.ts |
+| B | a required environment value gains a default | scripts/check-rate-drift.ts | rateDrift.test.ts |
+| B | only actionable surfaces reported, the rest dropped | scripts/check-rate-drift.ts | rateDrift.test.ts |
+
+**The five wiring pins get planted broken arms of their own, and an earlier draft had
+none.** Running an equality assertion against correct wiring shows only that the wiring is
+correct today; it does not show that WEAKENING the assertion is detected, which is the
+whole claim a pin makes. The workflow exists, so four of these are Form A with literal
+anchors, and the two path-filter entries are Form B because the lines they must match are
+added by this task:
+
+| form | what is weakened | file | anchor | becomes |
 | --- | --- | --- | --- | --- |
-| drift changes the exit status | scripts/check-rate-drift.ts | `process.exitCode = 0;` | `process.exitCode = drifted.length > 0 ? 1 : 0;` | rateDrift.test.ts |
-| unmeasured folded into drifted | scripts/check-rate-drift.ts | the two distinct report sections | one merged section | rateDrift.test.ts |
-| a required env value gains a default | scripts/check-rate-drift.ts | `requiredCount("SHARD_BUDGET_SECONDS")` | `Number(process.env.SHARD_BUDGET_SECONDS ?? 3600)` | rateDrift.test.ts |
-| only actionable surfaces reported | scripts/check-rate-drift.ts | the full measured loop | the loop filtered to actionable | rateDrift.test.ts |
+| A | budget step's env mapping, to prove the pin is not vacuous | `.github/workflows/mutation-harness.yml` | `SHARD_BUDGET_SECONDS: "3600"` | `SHARD_BUDGET_SECONDS: "7200"` |
+| A | a shell prefix shadows the step env | `.github/workflows/mutation-harness.yml` | `run: pnpm tsx scripts/check-shard-budget.ts` | `run: SHARD_BUDGET_SECONDS=1 pnpm tsx scripts/check-shard-budget.ts` |
+| B | drift step's `if: always()` removed | `.github/workflows/mutation-harness.yml` | written at implementation | |
+| B | records artifact pattern changed | `.github/workflows/mutation-harness.yml` | written at implementation | |
+| B | records artifact destination changed | `.github/workflows/mutation-harness.yml` | written at implementation | |
+| B | the new script's path-filter entry deleted | `.github/workflows/mutation-harness.yml` | written at implementation | |
+| B | `lib/mutationWeight/**` path-filter entry deleted | `.github/workflows/mutation-harness.yml` | written at implementation | |
+
+The second Form A row is the shell-shadow case stated as a mutation rather than as prose:
+a `run:` prefix that shadows the step's `env:` must fail the whole-command equality pin, and
+if it does not, the pin reads the mapping only and is fail-open. The malformed-environment
+arm gets a plant too, in the script's Form B set above, since a direct test of an unplanted
+guard demonstrates the guard runs, not that it discriminates.
 
 **RED:** the marker's command, with the suite committed and the drift script absent.
 Expect a module-resolution failure naming the missing script; then, once the script exists
@@ -537,12 +706,95 @@ pins and `node scripts/mutation-weight-plant.mjs` green over the four plants.
 
 **Commit:** `feat(ci): report per-surface rate drift beside the shard budget`
 
-## Task 6 — re-score every surface this diff moved
+## Task 6 — nothing verdict-deciding moved on a surface enrolled before this diff
+
+<!-- task: red=`pnpm vitest run tests/mutation/_metaPreexistingSurfaceImmutability.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:151` why=`GUARD_SURFACES is the whole population and no assertion compares any of its pre-existing rows against their values at the merge base, so lowering a scoreFloor or adding an accepted row is invisible to every command this plan runs` ac=AC-7 -->
+
+**Files:**
+
+```
+tests/mutation/_metaPreexistingSurfaceImmutability.test.ts   (new)
+tests/mutation/fixtures/preexisting-surfaces.json            (new, generated at the merge base)
+scripts/mutation-weight-plant.mjs                            (plants)
+```
+
+**AC-7 had no executable proof, and the score run is not one.** The score command
+establishes floors and empty unaccepted-survivor sets. It says nothing about whether an
+EXISTING surface's operators, suite paths, accepted ledger, source path, control anchor or
+score floor changed — and a LOWERED floor makes the score command greener, not redder, so
+the one command the plan offered would actively conceal the violation it was supposed to
+catch. Everything AC-7 asserts was prose.
+
+The snapshot is generated FROM THE MERGE BASE, never from HEAD:
+
+```
+git show $(git merge-base origin/main HEAD):tests/mutation/source/registry.ts
+```
+
+Taking it from HEAD would snapshot whatever this diff had already done and then assert the
+diff against itself, which is the tautology this plan's own anti-tautology rule names. Each
+row records the verdict-deciding fields: `operators` sorted, `suitePaths` sorted,
+`accepted` sorted by site id, `sourcePath`, `control`, `scoreFloor`.
+
+**Deletions and additions are both covered, because a subset check is not immutability.** A
+guard that walks only the snapshot's ids passes when a surface is DELETED from the registry.
+So the assertion is two-sided: every snapshot id must be present and field-identical, and
+the live set minus the snapshot set must equal exactly the two ids this arc enrols. A third
+enrolment appearing here fails, which is correct — it would be a registry change this plan
+never reviewed.
+
+**Placed BEFORE the re-score deliberately.** The guard exists to constrain the triage in
+Task 7, where the temptation to lower a floor or ledger a row on `sourceShardPartition` is
+strongest. A guard that lands after the work it constrains is documentation.
+
+**Plants** — Form A, since every anchor is a live registry row today:
+
+| form | defect | file | anchor | becomes |
+| --- | --- | --- | --- | --- |
+| A | an existing floor lowered | `tests/mutation/source/registry.ts` | `scoreFloor: 0.94,` | `scoreFloor: 0.5,` |
+| A | an existing surface deleted | `tests/mutation/source/registry.ts` | `id: "mutationWeightRecords",` | `id: "mutationWeightRecordsX",` |
+
+The first is the case the score command cannot see, and its anchor is `0.94` rather than
+`0.9` for a mechanical reason worth recording: `scoreFloor: 0.9,` occurs TWELVE times in
+the registry, so it is not a valid Form A anchor at all — the harness would refuse it as
+non-unique and report ANCHOR-FAIL. `0.94` occurs exactly once, on `specLintUniversals`,
+which is enrolled well before this diff and therefore in the snapshot. The second entry
+proves the two-sided check rather than the subset check: renaming an id removes one from
+the snapshot's view and adds an unexpected one to the live set, so a one-sided guard
+reports clean.
+
+**RED:** the marker's command with the suite and the merge-base snapshot committed, and one
+plant applied. Expect a failure naming the changed field and surface.
+
+**GREEN:** the same command passing on the unplanted tree, plus
+`node scripts/mutation-weight-plant.mjs` reporting CAUGHT for both entries.
+
+**Commit:** `test(mutation): pin every pre-existing surface against the merge base`
+
+## Task 7 — re-score every surface this diff moved
 
 <!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm tsx scripts/mutation-score-surfaces.ts sourceShardPartition mutationWeightRecords mutationWeightWeights` red-state=live red-target=`tests/mutation/source/registry.ts:3302` why=`mutationWeightWeights scored 0.7279 against this 0.90 floor with 37 unaccepted survivors, observed 2026-08-25` ac=AC-7 -->
 
-**Files:** `tests/mutation/source/registry.ts` (ledger rows only),
+**Files:** whatever the triage reaches, which is not knowable before the run. Declaring
+only the ledger files would have presupposed the outcome, and it contradicted this task's
+own required order: a KILL lands in `tests/mutationWeight/instrument.test.ts` or
+`tests/mutation/source/shardPartition.test.ts`, and a DELETE lands in
+`lib/mutationWeight/weights.ts` or `lib/mutationWeight/records.ts`. Only the third
+disposition touches `tests/mutation/source/registry.ts` and
 `tests/mutation/source/expectedLedgerKinds.ts`.
+
+```
+tests/mutationWeight/instrument.test.ts            kills
+tests/mutation/source/shardPartition.test.ts       kills
+lib/mutationWeight/weights.ts                      deletions
+lib/mutationWeight/records.ts                      deletions
+tests/mutation/source/registry.ts                  ledger rows only
+tests/mutation/source/expectedLedgerKinds.ts       ledger-kind declarations
+```
+
+The run decides which of these are touched. Naming all six is the honest declaration; the
+constraint that matters is the one below about `sourceShardPartition`, not a narrow file
+list that the procedure would have had to violate.
 
 Three surfaces have moved: `sourceShardPartition` (its source is edited by Task 3), and
 `mutationWeightRecords`/`mutationWeightWeights` (their source is edited by Task 4 and
@@ -665,8 +917,12 @@ red-then-green cycles, and inventing a `red=` for one would be satisfying a gram
       The split is derived by the command in the reconciliations section, not retyped —
       an earlier draft asserted a number here and had it wrong.
 - [x] Self-review
-- [ ] **Adversarial review (cross-model)** — Codex, `--stage plan`. Round 1 returned
-      BLOCKING with twelve findings and drove this rewrite; two of them were about code
-      already on the branch and were repaired at `75e63a2a2` rather than planned around.
+- [ ] **Adversarial review (cross-model)** — Codex, `--stage plan`. Three rounds so far,
+      BLOCKING each time, and every finding across all three was accepted rather than
+      refuted. Round 1 drove the rebuild of the task bodies and turned up two live code
+      defects, repaired at `75e63a2a2`. Round 2 showed the reconciler could not model a
+      priced partition, which had made the AC-1 evidence unproducible. Round 3 identified
+      plant declarations as the recurring vector, which is why the Form A/B rule above
+      exists as a rule rather than as five more repairs.
 - [ ] Execution handoff
 
