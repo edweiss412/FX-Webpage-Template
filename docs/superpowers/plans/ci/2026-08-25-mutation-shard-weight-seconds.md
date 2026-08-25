@@ -886,8 +886,15 @@ the live set minus the snapshot set must equal exactly the two ids this arc enro
 enrolment appearing here fails, which is correct — it would be a registry change this plan
 never reviewed.
 
-**The snapshot and both Form A anchors are generated AFTER the registry seam closes, not
-now.** Two other arcs are live registry writers — `#882` enrols two surfaces, and
+**A STALE SNAPSHOT CANNOT SILENTLY WEAKEN THIS, which is what makes the timing a
+convenience rather than a correctness condition.** A snapshot older than the current merge
+base is missing whatever main has enrolled since, so `live minus snapshot` stops equalling
+this branch's own two ids and the additions check fails loudly, naming the surfaces it did
+not expect. Regeneration is one command. Nothing in the guard shells out to git, so it also
+works on a shallow CI checkout, where a merge-base call would not.
+
+**The snapshot and both Form A anchors are regenerated AFTER each absorb, and the final one
+after the registry seam closes.** Two other arcs are live registry writers — `#882` enrols two surfaces, and
 `feat/review-round-arc-sum` enrols a new instant-rounds module at `651c21c13` — and the
 orchestrator's ruling is that every registry and partition commit holds until BOTH merge
 and this branch absorbs them. That has a consequence specific to this task, beyond the
