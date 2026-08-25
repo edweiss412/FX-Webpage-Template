@@ -45,10 +45,24 @@ describe("acCoverage — the live plan corpus", () => {
     }
     premise("undeclared documents actually scanned", undeclared, 30);
     expect(noisy).toEqual([]);
-  }, // A corpus scan over ~700 documents, each parsed with remark. Measured at ~11s
-  // on this machine; the bound is generous so a slower runner does not produce a
+  }, // on this machine; the bound is generous so a slower runner does not produce a // A corpus scan over ~700 documents, each parsed with remark. Measured at ~11s
   // timeout that reads like a finding.
   60_000);
+
+  it("both declaring PLANS are found, and the arm reports zero over each", () => {
+    const declaring = docs.filter((f) => DECLARED.test(readFileSync(f, "utf8")));
+    // Sweep B's assertion, executable. The loose substring grep also matches the
+    // spec's prose describing the grammar; this is the anchored population.
+    expect(declaring.sort()).toEqual([
+      "docs/superpowers/plans/2026-08-21-pane-compaction-send-authorization.md",
+      "docs/superpowers/plans/2026-08-25-planlint-ac-command-observability.md",
+    ]);
+    premiseHolds("both declaring documents were actually read", declaring.length === 2);
+    for (const f of declaring) {
+      const found = checkAcCoverage(viewOf(readFileSync(f, "utf8")), "plan");
+      expect({ [f]: found.map((x) => x.code) }).toEqual({ [f]: [] });
+    }
+  });
 
   it("reports on a document the moment a declaration is planted into it", () => {
     // THE DISCRIMINATOR. The assertion above is satisfied by an arm that reads
