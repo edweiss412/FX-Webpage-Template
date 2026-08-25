@@ -58,8 +58,10 @@ The row scheduled this first. It settles the design.
 
 ```
 $ grep -rl '^| AC-' docs/superpowers/plans/ --include='*.md' | wc -l
-32
+32          # at origin/main; 33 at HEAD, this plan being the addition
 ```
+
+**Every figure in this section is taken at `origin/main`**, the corpus WITHOUT this arc, for the reason section 6.3 gives: this plan joins `docs/superpowers/plans/` when it lands, so a count over that directory moves with the branch. The HEAD figures are given beside each so the difference is visible rather than surprising, and no conclusion here turns on the delta.
 
 Refined to actual tables (a table is a header row, a delimiter row, and data rows; an AC coverage table is one where at least half the data rows begin with an `AC-<digit>` id):
 
@@ -71,9 +73,15 @@ distinct header rows among them:      34
 distinct enclosing headings:          24
 column counts observed:               2 to 6
 tables in the PLAN CORPUS using the fixture's exact header: 1
+
+# at HEAD, with this arc's plan in the corpus: 933 tables, 35 AC tables,
+# 34 distinct headers still, 25 enclosing headings, and 2 using the fixture's
+# header — this plan's own AC table being the second.
 ```
 
-Every AC coverage table in the corpus has a header row unlike every other one. The header naming the command column is spelled, among others, `Producing command`, `Channel`, `Channel the proof arrives on`, `Executable step that PROVES it`, `The executable step, and the channel it arrives on`, `Evidence`, `Notes`, `Task`, `proved by`, `discharged by`, `claimed by`. Exactly one table IN THE PLAN CORPUS uses `| AC | Proved by | Producing command |`, and it is the fixture, because it is the only plan that has been through four review rounds on this class. This document and this arc's plan also use that header, which is why the claim is scoped to the corpus the arm ranges over rather than to the repository.
+Every AC coverage table in the corpus has a header row unlike every other one. The header naming the command column is spelled, among others, `Producing command`, `Channel`, `Channel the proof arrives on`, `Executable step that PROVES it`, `The executable step, and the channel it arrives on`, `Evidence`, `Notes`, `Task`, `proved by`, `discharged by`, `claimed by`. Exactly one table in the plan corpus AT `origin/main` uses `| AC | Proved by | Producing command |`, and it is the fixture, because it is the only plan that had been through four review rounds on this class. At HEAD there are two: this arc's plan adopted the same header, which is the convention spreading rather than a counter-example. The claim is scoped to a rev for that reason — an earlier draft scoped it to the plan corpus instead of the repository, which was the right narrowing and still moved the moment this arc's own plan landed in that corpus.
+
+**The load-bearing number is 34 distinct headers over 34 tables, and it is unchanged at HEAD** (34 distinct over 35, the new one being a repeat of the fixture's). Nothing about the grammar's instability turns on the delta.
 
 **Consequence.** Keying the arm on the header name is a recognizer over open English, which the row forbids and which this repo has measured as the losing move. Keying it on the enclosing heading is the same thing with 24 spellings instead of 34. Keying it on "the last column" is worse than either: it is a silent guess, and section 6.3 shows it producing 42 hard findings on six v1-era tables whose last column is a Notes column.
 
@@ -182,11 +190,13 @@ In `docs/superpowers/plans/2026-08-18-control-outline-border-token.md:70` the ro
 
 The arm was run over every AC coverage table whose last column carries a code span in at least 80 percent of its rows (11 of the 34), as a stand-in for the convention spreading. Full accounting, so no reader recomputes a different total:
 
-| Population | Tables | hard | What they are |
+**Pinned to `origin/main`, for the same reason the census in section 2 is.** This arc's own plan joins the corpus when it lands, so at HEAD the modern bucket reads 6 tables and the total 12 — the extra table being this plan's own, which scores zero. The HARD counts are identical either way, and so is the itemised list below; only the population size moves. An earlier draft pinned the census and left this table unpinned, which is the same self-referential exposure fixed at one site and not its twin.
+
+| Population | Tables (at `origin/main`) | hard | What they are |
 | --- | --- | --- | --- |
 | `v1-pre-deployment-amendments/**` handoffs | 6 | 42 | `AC / Phase X status / Notes` tables whose last column is a Notes column. Every one is a mis-declaration under L-4, not a defect. They are the reason the declaration names its column instead of guessing the last one. |
 | 2026-08 plans | 5 | 6 | one is the fixture (0 hard); the other four carry 6, and all six are true instances of the class |
-| total | 11 | 48 | |
+| total | 11 | 48 | at HEAD: 12 tables, 48 hard — this plan's own table added, scoring zero |
 
 The six true instances, across three documents, are listed so a reader can check the arm against them rather than take the count on trust. They are not repaired by this PR; none of those plans declares a table, so the arm never sees them.
 
