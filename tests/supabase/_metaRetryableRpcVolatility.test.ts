@@ -32,10 +32,15 @@ import { assertLocalDbUrl } from "../db/_localDbUrl";
 import { premise } from "../_shared/premise";
 import {
   EXCLUSIONS,
+  buildCatalog,
+  READ_ONLY_SQLSTATE,
   completenessViolations,
   literalsInProductTree,
+  readOnlyViolations,
   safetyViolations,
   type Catalog,
+  type CatalogRow,
+  type ReadOnlyOutcome,
 } from "./retryableRpcVolatilityScan";
 
 // Guarded, because a raw LOCAL_TEST_DATABASE_URL read is exactly what
@@ -54,14 +59,71 @@ afterAll(async () => {
 });
 
 let catalog: Catalog = new Map();
+let memberCalls: { proname: string; identity: string; args: string }[] = [];
 
 beforeAll(async () => {
-  const rows = await sql<{ proname: string; provolatile: string }[]>`
-    select p.proname, p.provolatile
+  // Every overload is kept. Building `name -> row` collapsed them last-wins, which let a
+  // VOLATILE overload hide behind a STABLE one of the same name (round-1 review).
+  const rows = await sql<{ proname: string; provolatile: string; identity: string }[]>`
+    select p.proname, p.provolatile,
+           pg_get_function_identity_arguments(p.oid) as identity
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public'`;
-  catalog = new Map(rows.map((r) => [r.proname, { volatile: r.provolatile === "v" }]));
+  catalog = buildCatalog(rows);
+
+  // The call text for every overload of every member, built from the catalog rather than
+  // hand-written, so a signature change cannot leave the arm calling a shape that no longer
+  // exists. NULL arguments: the arm asks whether the body can WRITE, never what it returns.
+  const members = [...RETRYABLE_RPCS];
+  memberCalls = await sql<{ proname: string; identity: string; args: string }[]>`
+    select p.proname,
+           pg_get_function_identity_arguments(p.oid) as identity,
+           coalesce(
+             (select string_agg('null::' || format_type(t.oid, null), ', ' order by o.ord)
+                from unnest(p.proargtypes) with ordinality as o(tid, ord)
+                join pg_type t on t.oid = o.tid),
+             '') as args
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = any(${members})`;
 });
+
+/**
+ * Execute one call inside a READ ONLY transaction and report what SQLSTATE, if any, came back.
+ *
+ * The transaction always rolls back, and an optional `setup` runs BEFORE the access mode is set,
+ * which is the only order Postgres allows for creating a planted fixture in the same transaction.
+ *
+ * The outcome is DATA, not an assertion. The arm's verdict is `readOnlyViolations`, a pure
+ * function, so every branch can be driven by a planted outcome rather than by whichever real
+ * member happens to behave that way today.
+ */
+async function runReadOnly(
+  name: string,
+  identity: string,
+  args: string,
+  setup?: (tx: postgres.TransactionSql) => Promise<void>,
+): Promise<ReadOnlyOutcome> {
+  try {
+    await sql.begin(async (tx) => {
+      if (setup !== undefined) await setup(tx);
+      await tx`set transaction read only`;
+      await tx.unsafe(`select public.${name}(${args})`);
+      // Rolled back either way; the arm never leaves state behind, even on the clean path.
+      await tx`rollback`;
+    });
+    return { name, identity, sqlstate: null, message: null };
+  } catch (err) {
+    const e = err as { code?: string; message?: string };
+    // A raise with no SQLSTATE would otherwise read as `null`, which is the CLEAN verdict — the
+    // one direction this must never guess in. Unknown becomes a non-null sentinel instead.
+    return {
+      name,
+      identity,
+      sqlstate: e.code ?? "UNKNOWN",
+      message: e.message ?? null,
+    };
+  }
+}
 
 describe("RETRYABLE_RPCS — premises", () => {
   test("the catalog resolved, so an empty result cannot pass this suite vacuously", () => {
@@ -132,7 +194,7 @@ describe("RETRYABLE_RPCS — safety arm", () => {
   });
 
   test("PLANT: a VOLATILE name in the set fails the arm", () => {
-    const volatileName = [...catalog].find(([, r]) => r.volatile)?.[0];
+    const volatileName = [...catalog].find(([, rows]) => rows.some((r) => r.volatile))?.[0];
     premise("a VOLATILE function exists to plant with", volatileName === undefined ? 0 : 1, 0);
     expect(safetyViolations([volatileName!], catalog)).toHaveLength(1);
   });
@@ -144,47 +206,162 @@ describe("RETRYABLE_RPCS — safety arm", () => {
     expect(safetyViolations(["no_such_function_anywhere"], catalog)).toHaveLength(1);
   });
 
-  test("every member completes inside a READ ONLY transaction", async () => {
-    premise("members to execute inside the READ ONLY transaction", RETRYABLE_RPCS.size, 0);
-    for (const name of RETRYABLE_RPCS) {
-      const args = await sql<{ n: number }[]>`
-        select count(*)::int as n from pg_proc p
-          join pg_namespace ns on ns.oid = p.pronamespace
-         where ns.nspname = 'public' and p.proname = ${name} and p.pronargs = 0`;
-      if (args[0]!.n === 0) continue; // arg-taking members are covered by the planted probe below
-      await sql.begin(async (tx) => {
-        await tx`set transaction read only`;
-        // The assertion is that this DID NOT RAISE. Never a row count: three members are
-        // set-returning and correctly return zero rows, so a row-count assertion would be
-        // tautological and false-failing at once.
-        await tx.unsafe(`select public.${name}()`);
-        await tx`rollback`;
-      });
+  test("every member is EXECUTED inside a READ ONLY transaction", async () => {
+    // The premise is that the arm reaches every overload of every member. It used to filter on
+    // `pronargs = 0`, so 8 of the 13 members were never executed at all and the suite still read
+    // as green — the count assertion below is what makes that visible rather than silent.
+    premise("member overloads to execute", memberCalls.length, 0);
+    expect(new Set(memberCalls.map((c) => c.proname))).toEqual(new Set(RETRYABLE_RPCS));
+
+    const outcomes: ReadOnlyOutcome[] = [];
+    for (const call of memberCalls) {
+      outcomes.push(await runReadOnly(call.proname, call.identity, call.args));
     }
+
+    expect(readOnlyViolations(outcomes)).toEqual([]);
+    // Each outcome is a real execution, not a skip. Without this a future `continue` could
+    // reintroduce the same hole with the violation list still empty.
+    expect(outcomes).toHaveLength(memberCalls.length);
   });
 
-  test("PLANT: a STABLE function that writes through a VOLATILE callee fails the READ ONLY arm", async () => {
+  test("PLANT: a STABLE function that writes through a VOLATILE callee is caught by the arm", async () => {
+    // The case that discriminates this arm from the SAFETY arm: the planted function is declared
+    // STABLE, so volatility checking passes it, and only EXECUTING it under READ ONLY exposes the
+    // write. Without this, deleting the arm entirely would leave the suite green, because every
+    // real member is genuinely read-only.
+    //
+    // The callee must be VOLATILE and the write must happen THROUGH it. A STABLE function that
+    // inserts directly raises 0A000 ("INSERT is not allowed in a non-volatile function"), which is
+    // Postgres refusing the function's declaration rather than the transaction refusing the write
+    // — a plant built that way plants the wrong thing and never reaches 25006. Probed both shapes.
     premise("a live connection to build the planted pair on", catalog.size, 0);
-    // This is the plant that discriminates the READ ONLY arm from volatility-only checking.
-    // Without it, deleting the arm entirely would leave this suite green, because every real
-    // member is genuinely read-only.
-    let raised = false;
-    try {
-      await sql.begin(async (tx) => {
-        await tx.unsafe(`create table _probe_t(x int)`);
+    const outcome = await runReadOnly("_probe_stable_calls_vol", "", "", async (tx) => {
+      await tx.unsafe(`create table _probe_t(x int)`);
+      await tx.unsafe(
+        `create function _probe_vol() returns void language plpgsql volatile as $$ begin insert into _probe_t values (1); end $$`,
+      );
+      await tx.unsafe(
+        `create function _probe_stable_calls_vol() returns void language plpgsql stable as $$ begin perform _probe_vol(); end $$`,
+      );
+    });
+
+    // The exact SQLSTATE, not merely "it raised". A plant asserting only that something threw
+    // passes on a typo in the function name, which is the tautology this arm is most exposed to.
+    expect(outcome.sqlstate).toBe(READ_ONLY_SQLSTATE);
+    expect(readOnlyViolations([outcome], new Map())).toHaveLength(1);
+    // And a declaration cannot excuse it: 25006 is the arm firing, never noise to be waived.
+    expect(readOnlyViolations([outcome], new Map([[outcome.name, "declared"]]))).toHaveLength(1);
+  });
+
+  test("PLANT: an undeclared member that raises is a violation, and a stale declaration is too", () => {
+    // no-premise: every input is a literal built in the test; no catalog, connection, or file is read.
+    //
+    // Both directions of READ_ONLY_INCONCLUSIVE, on planted outcomes so neither rests on which
+    // members happen to raise today.
+    const raised: ReadOnlyOutcome = {
+      name: "_undeclared",
+      identity: "",
+      sqlstate: "P0001",
+      message: "forbidden",
+    };
+    const clean: ReadOnlyOutcome = {
+      name: "_declared",
+      identity: "",
+      sqlstate: null,
+      message: null,
+    };
+    const declared = new Map([["_declared", "a reason"]]);
+
+    expect(readOnlyViolations([raised], declared)).toHaveLength(1);
+    expect(readOnlyViolations([clean], declared)).toHaveLength(1);
+    // And the reasoned-entry rule: a declaration with an EMPTY reason does not excuse anything.
+    expect(
+      readOnlyViolations([{ ...raised, name: "_blank" }], new Map([["_blank", "   "]])),
+    ).toHaveLength(1);
+  });
+});
+
+describe("overloads are kept apart, not collapsed", () => {
+  /**
+   * Round-1 review found the catalog built as `name -> row`, so two overloads of one name
+   * resolved last-wins and a VOLATILE overload could hide behind a STABLE one. A retry is decided
+   * from the `/rpc/<name>` path, which carries no argument types, so hiding it there is exactly
+   * the case that matters.
+   *
+   * `public` contains no overloaded functions, which is WHY nothing observed this. Both halves
+   * are therefore planted: the grouping is driven by a real overloaded pair created in a
+   * rolled-back transaction, and the safety verdict by rows built in memory.
+   */
+  test("PLANT: a real overloaded pair survives the catalog build as two entries", async () => {
+    premise("a live connection to create the planted overloads on", catalog.size, 0);
+    let rows: CatalogRow[] = [];
+    await sql
+      .begin(async (tx) => {
         await tx.unsafe(
-          `create function _probe_vol() returns void language plpgsql volatile as $$ begin insert into _probe_t values (1); end $$`,
+          `create function _probe_ovl(a int) returns void language plpgsql stable as $$ begin end $$`,
         );
         await tx.unsafe(
-          `create function _probe_stable_calls_vol() returns void language plpgsql stable as $$ begin perform _probe_vol(); end $$`,
+          `create function _probe_ovl(a int, b int) returns void language plpgsql volatile as $$ begin end $$`,
         );
-        await tx`set transaction read only`;
-        await tx.unsafe(`select _probe_stable_calls_vol()`);
-      });
-    } catch {
-      raised = true;
-    }
-    expect(raised).toBe(true);
+        rows = await tx<CatalogRow[]>`
+          select p.proname, p.provolatile,
+                 pg_get_function_identity_arguments(p.oid) as identity
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname = 'public' and p.proname = '_probe_ovl'`;
+        await tx`rollback`;
+      })
+      .catch(() => undefined); // the rollback is how this transaction ends; it is not a failure
+
+    // The premise: Postgres really did accept two functions of one name. If the plant silently
+    // created one, every assertion below would pass on a catalog that never faced an overload.
+    premise("planted overloads visible in pg_proc", rows.length, 1);
+
+    const planted = buildCatalog(rows);
+    expect(planted.get("_probe_ovl")).toHaveLength(2);
+    // The collapse, stated as its consequence: the VOLATILE overload is still reachable, so the
+    // name is unsafe. Built `name -> row`, this list holds one entry and may report it clean.
+    expect(safetyViolations(["_probe_ovl"], planted)).toHaveLength(1);
+  });
+
+  test("PLANT: a volatile overload in ANY position condemns the name", () => {
+    // no-premise: the catalog rows are literals built in the test; nothing environmental is read.
+    //
+    // Position matters: a fix that reads `rows[0]` passes the first case and fails the second.
+    const first = buildCatalog([
+      { proname: "f", provolatile: "v", identity: "a integer" },
+      { proname: "f", provolatile: "s", identity: "a integer, b integer" },
+    ]);
+    const last = buildCatalog([
+      { proname: "f", provolatile: "s", identity: "a integer" },
+      { proname: "f", provolatile: "v", identity: "a integer, b integer" },
+    ]);
+    expect(safetyViolations(["f"], first)).toHaveLength(1);
+    expect(safetyViolations(["f"], last)).toHaveLength(1);
+
+    // And the completeness mirror: a name with any volatile overload is already unretryable, so
+    // it owes no entry in the set and must not be reported as a gap.
+    expect(completenessViolations(new Set(["f"]), last, new Set(), new Map())).toEqual([]);
+    // While an all-STABLE name named in the tree still does.
+    const allStable = buildCatalog([
+      { proname: "f", provolatile: "s", identity: "a integer" },
+      { proname: "f", provolatile: "s", identity: "a integer, b integer" },
+    ]);
+    expect(completenessViolations(new Set(["f"]), allStable, new Set(), new Map())).toHaveLength(1);
+  });
+
+  test("PLANT: an exclusion with a blank reason does not excuse a name", () => {
+    // no-premise: the catalog row and both maps are literals built in the test.
+    //
+    // `exclusions.has(name)` accepted an empty string, which is how an exemption gets added with
+    // the justification left for later and never written (round-1 review).
+    const cat = buildCatalog([{ proname: "f", provolatile: "s", identity: "" }]);
+    const literals = new Set(["f"]);
+    expect(completenessViolations(literals, cat, new Set(), new Map([["f", "   "]]))).toHaveLength(
+      1,
+    );
+    expect(
+      completenessViolations(literals, cat, new Set(), new Map([["f", "a real reason"]])),
+    ).toEqual([]);
   });
 });
 

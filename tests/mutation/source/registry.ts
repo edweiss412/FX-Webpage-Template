@@ -3071,8 +3071,8 @@ export const GUARD_SURFACES: GuardSurface[] = [
     ],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.9,
-    // Spends one more attempt than the budget allows. Probed before enrolment:
-    // 2 of 27 tests fail, so the suite does notice.
+    // Spends one more attempt than the budget allows. Re-probed after the round-1 abort
+    // repair: 4 of 42 tests fail across both suites, so the suite does notice.
     control: { from: "attempt >= maxRetries", to: "attempt > maxRetries" },
     accepted: [],
   },
@@ -3084,10 +3084,10 @@ export const GUARD_SURFACES: GuardSurface[] = [
     scoreFloor: 0.9,
     // Demands a name be BOTH retryable and excluded to pass the completeness
     // arm, so the two legitimate exclusions start reporting as violations.
-    // Probed before enrolment: 1 of 9 tests fails.
+    // Re-probed after the round-1 overload/reason repair: 2 of 15 tests fail.
     control: {
-      from: "if (set.has(name) || exclusions.has(name)) continue;",
-      to: "if (set.has(name) && exclusions.has(name)) continue;",
+      from: "if (set.has(name) || hasReasonedEntry(exclusions, name)) continue;",
+      to: "if (set.has(name) && hasReasonedEntry(exclusions, name)) continue;",
     },
     accepted: [],
   },
