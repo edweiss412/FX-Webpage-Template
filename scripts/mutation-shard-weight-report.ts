@@ -1,291 +1,280 @@
 /**
- * Reads the `mutation-records-source-shards-*` artifacts the nightly already
- * uploads and reports what the shard partition ACTUALLY cost, against what
- * `weightOf` modelled it would cost.
+ * What the source-mutation shard partition actually cost, against what the
+ * weight model predicted it would.
  *
- * Every figure the weight-model spec cites is printed by this script, so no
- * number in that document is retyped from a session transcript.
+ * Every figure the weight-model spec cites is printed here, so no number in that
+ * document is retyped from a session transcript.
  *
- * Usage:
- *   gh run download <runId> -D <dir>/meas-<runId> -p 'mutation-records-source-shards-*'
- *   pnpm tsx scripts/mutation-shard-weight-report.ts <dir>/meas-<runId> [more dirs...]
+ * Usage, newest run first:
  *
- * BOTH SIDES OF THE COMPARISON MUST BE ONE TREE. The modelled weights are
- * computed from the CHECKED-OUT registry, which is only the tree the records
- * came from when this runs at that run's own sha. `--modelled <file>` supplies
- * weights dumped at a different sha; the header always says which was used, so
- * a cross-tree reading cannot be made silently.
+ *   gh run download <id> -D <dir>/meas-<id> \
+ *     -p 'mutation-records-source-shards-*' -p 'elapsed-source-shards-*'
+ *   pnpm tsx scripts/mutation-shard-weight-report.ts \
+ *     --run <dir>/meas-<newest>:<modelled-newest.json> \
+ *     --run <dir>/meas-<older>:<modelled-older.json> \
+ *     [--emit-registry]
+ *
+ * A run's modelled boots come from the registry AT THAT RUN'S SHA, which is why
+ * each `--run` may name its own dump. Omitting the dump uses the checked-out
+ * registry, which is correct only when the checkout IS that run's sha -- and
+ * `reconcile` is what proves it rather than assuming it. A failed reconciliation
+ * EXITS NONZERO before any counterfactual is printed: a comparison across two
+ * trees is not a weaker result, it is a different question, and printing it
+ * anyway is how a cross-tree number gets quoted as a measurement.
  */
-import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { basename, join } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { basename } from "node:path";
 
+import { type RunArtifacts, readRun } from "../lib/mutationWeight/records";
+import {
+  type ModelledBoots,
+  type Snapshot,
+  bindingLeg,
+  driftReport,
+  legSeconds,
+  lpt,
+  ratePerModelledBoot,
+  reconcile,
+  seamMagnitude,
+  seedRates,
+  verdictDelta,
+} from "../lib/mutationWeight/weights";
 import { GUARD_SURFACES } from "../tests/mutation/source/registry";
 import { SOURCE_SHARD_COUNT, weightOf } from "../tests/mutation/source/shardPartition";
 
-type Child = { durationMs: number };
-type Outcome = { children?: readonly Child[] };
-type Record_ = { surfaceId: string; outcomes: readonly Outcome[] };
+const N = SOURCE_SHARD_COUNT;
 
-/** What one surface cost, read off the run rather than modelled. */
-export type Measured = {
-  surfaceId: string;
-  leg: number;
-  mutants: number;
-  boots: number;
-  seconds: number;
-};
+const row = (label: string, legs: readonly number[]): string =>
+  `  ${label.padEnd(52)} [${legs.map((x) => String(Math.round(x))).join(", ")}]` +
+  `  binding ${String(Math.round(bindingLeg(legs)))}s  spread ${(bindingLeg(legs) / Math.min(...legs)).toFixed(3)}x`;
 
-export function readRun(dir: string): Measured[] {
-  const out: Measured[] = [];
-  for (const entry of readdirSync(dir)) {
-    const m = /^mutation-records-source-shards-(\d+)$/.exec(entry);
-    if (m === null) continue;
-    const leg = Number(m[1]);
-    for (const file of readdirSync(join(dir, entry))) {
-      if (!file.endsWith(".json")) continue;
-      const rec = JSON.parse(readFileSync(join(dir, entry, file), "utf8")) as Record_;
-      const children = rec.outcomes.flatMap((o) => [...(o.children ?? [])]);
-      out.push({
-        surfaceId: rec.surfaceId,
-        leg,
-        mutants: rec.outcomes.length,
-        boots: children.length,
-        seconds: children.reduce((a, c) => a + c.durationMs, 0) / 1000,
-      });
-    }
+function modelledFrom(file: string | undefined): ModelledBoots {
+  if (file !== undefined) {
+    const raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, number>;
+    return new Map(Object.entries(raw));
   }
-  return out;
+  return new Map(GUARD_SURFACES.map((s) => [s.id, weightOf(s)]));
 }
 
-/**
- * The same greedy LPT the harness uses, restated here over arbitrary weights so
- * a counterfactual weight can be scored without touching the shipped packer.
- * Tie-break on the key, so a rerun cannot report a different partition.
- */
-export function lpt(items: readonly { key: string; w: number }[], n: number): Map<string, number> {
-  const bins = new Array<number>(n).fill(0);
-  const out = new Map<string, number>();
-  for (const it of [...items].sort((a, b) => b.w - a.w || a.key.localeCompare(b.key))) {
-    let best = 0;
-    for (let i = 1; i < n; i += 1) if ((bins[i] ?? 0) < (bins[best] ?? 0)) best = i;
-    bins[best] = (bins[best] ?? 0) + it.w;
-    out.set(it.key, best);
+function parseRuns(argv: readonly string[]): { dir: string; modelledFile?: string }[] {
+  const runs: { dir: string; modelledFile?: string }[] = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] !== "--run") continue;
+    const spec = argv[i + 1];
+    if (spec === undefined) throw new Error("--run needs <dir>[:<modelledJson>]");
+    // rindex, so a Windows-style or absolute path with a colon earlier still splits
+    // on the SEPARATOR rather than on the first colon it happens to contain.
+    const cut = spec.lastIndexOf(":");
+    const looksLikeJson = cut > 0 && spec.slice(cut + 1).endsWith(".json");
+    runs.push(
+      looksLikeJson
+        ? { dir: spec.slice(0, cut), modelledFile: spec.slice(cut + 1) }
+        : { dir: spec },
+    );
   }
-  return out;
+  return runs;
 }
 
-/** Real seconds each leg would have run, had the partition been `assign`. */
-export function legSeconds(
-  assign: Map<string, number>,
-  measured: readonly Measured[],
-  n: number,
-): number[] {
-  const secs = new Map(measured.map((m) => [m.surfaceId, m.seconds]));
-  const bins = new Array<number>(n).fill(0);
-  for (const [id, leg] of assign) bins[leg] = (bins[leg] ?? 0) + (secs.get(id) ?? 0);
-  return bins;
-}
+function describe(label: string, art: RunArtifacts, modelled: ModelledBoots): Snapshot {
+  const { surfaces, elapsed } = art;
+  console.log(`\n=== ${label} — ${String(surfaces.length)} surfaces ===`);
 
-const spread = (b: readonly number[]): number => Math.max(...b) / Math.min(...b);
-const row = (label: string, b: readonly number[]): string =>
-  `  ${label.padEnd(56)} [${b.map((x) => String(Math.round(x))).join(", ")}]  spread ${spread(b).toFixed(3)}x  binding ${String(Math.round(Math.max(...b)))}s`;
+  const rec = reconcile(surfaces, modelled, N);
+  if (!rec.ok) {
+    console.error(
+      `RECONCILIATION FAILED for ${label} — the records and the modelled weights are not one tree.` +
+        (rec.recordOnly.length > 0 ? `\n  in the records only: ${rec.recordOnly.join(", ")}` : "") +
+        (rec.modelOnly.length > 0 ? `\n  in the registry only: ${rec.modelOnly.join(", ")}` : "") +
+        (rec.moved.length > 0
+          ? `\n  observed on a different leg than recomputed: ${rec.moved
+              .map(
+                (m) =>
+                  `${m.surfaceId} (ran on ${String(m.observed)}, recomputes to ${String(m.recomputed)})`,
+              )
+              .join(", ")}`
+          : "") +
+        `\n  Dump the registry's modelled boots at that run's own sha and pass it as --run <dir>:<file>.`,
+    );
+    process.exit(1);
+  }
+  console.log("  reconciliation: records and modelled weights agree on all surfaces and all legs");
 
-/**
- * The rate a surface actually charged: seconds of child wall clock per boot.
- * Zero-boot surfaces have no rate at all rather than a rate of zero, so they are
- * excluded from every rate statistic instead of dragging one toward the floor.
- */
-export const rateOf = (m: Measured): number | undefined =>
-  m.boots > 0 ? m.seconds / m.boots : undefined;
+  const observed = new Array<number>(N).fill(0);
+  for (const m of surfaces) observed[m.leg] = (observed[m.leg] ?? 0) + m.seconds;
+  console.log(row("OBSERVED (the partition CI actually ran)", observed));
 
-const median = (xs: readonly number[]): number => {
-  const v = [...xs].sort((a, b) => a - b);
-  const mid = Math.floor(v.length / 2);
-  return v.length % 2 === 1 ? (v[mid] ?? 0) : ((v[mid - 1] ?? 0) + (v[mid] ?? 0)) / 2;
-};
+  if (elapsed.size > 0) {
+    const parts = [...elapsed]
+      .sort((a, b) => a[0] - b[0])
+      .map(([leg, secs]) => `${String(Math.round((100 * (observed[leg] ?? 0)) / secs))}%`);
+    console.log(
+      `  children explain ${parts.join(" / ")} of each leg's own elapsed.txt ` +
+        `(${[...elapsed]
+          .sort((a, b) => a[0] - b[0])
+          .map(([, s]) => String(s))
+          .join(" / ")}s)`,
+    );
+  } else {
+    console.log("  elapsed-source-shards-* not downloaded, so leg coverage is UNMEASURED here");
+  }
 
-/**
- * What a table measured on an OLDER run would produce if applied to the current
- * corpus. This is the whole staleness question, and its answer turns almost
- * entirely on what a surface the old run never saw is priced at -- so the
- * fallback is a parameter here rather than a hidden choice.
- */
-export function stalenessRows(
-  current: readonly Measured[],
-  older: readonly Measured[],
-  n: number,
-): { label: string; legs: number[] }[] {
-  const old = new Map(older.map((m) => [m.surfaceId, m]));
-  const oldRates = older.map(rateOf).filter((r): r is number => r !== undefined);
-  const maxSeconds = Math.max(...older.map((m) => m.seconds));
-  const fallbacks: { label: string; f: (m: Measured) => number }[] = [
-    { label: "unmeasured priced at the heaviest measured surface", f: () => maxSeconds },
-    {
-      label: "unmeasured priced at the median rate x its boots",
-      f: (m) => median(oldRates) * m.boots,
-    },
-    {
-      label: "unmeasured priced at the MAX rate x its boots",
-      f: (m) => Math.max(...oldRates) * m.boots,
-    },
-  ];
-  return fallbacks.map(({ label, f }) => ({
-    label,
-    legs: legSeconds(
-      lpt(
-        current.map((m) => ({ key: m.surfaceId, w: old.get(m.surfaceId)?.seconds ?? f(m) })),
-        n,
+  const loads = new Array<number>(N).fill(0);
+  for (const m of surfaces) loads[m.leg] = (loads[m.leg] ?? 0) + (modelled.get(m.surfaceId) ?? 0);
+  console.log(row("  ...its MODELLED loads (what the optimiser balanced)", loads));
+
+  const rates = surfaces
+    .map((m) => ({ id: m.surfaceId, r: ratePerModelledBoot(m, modelled) }))
+    .filter((x): x is { id: string; r: number } => x.r !== undefined);
+  const lo = rates.reduce((a, b) => (b.r < a.r ? b : a));
+  const hi = rates.reduce((a, b) => (b.r > a.r ? b : a));
+  console.log(
+    `  ms per MODELLED boot: min ${String(Math.round(lo.r))} (${lo.id})  max ${String(Math.round(hi.r))} (${hi.id})` +
+      `  spread ${(hi.r / lo.r).toFixed(1)}x`,
+  );
+  const modelledTotal = [...modelled.values()].reduce((a, b) => a + b, 0);
+  const observedTotal = surfaces.reduce((a, m) => a + m.observedBoots, 0);
+  console.log(
+    `  boots: modelled ${String(modelledTotal)} vs observed children ${String(observedTotal)} ` +
+      `(${(observedTotal / modelledTotal).toFixed(2)}x) — the rate absorbs this, which is why it is calibrated per MODELLED boot`,
+  );
+  // The static alternatives, scored on the same target. A weight is only worth a
+  // committed number if the numbers you can compute WITHOUT measuring lose to it.
+  // Uniformly scaling modelled boots is not a distinct candidate: LPT is invariant
+  // under a positive scale factor, so "boots x one global rate" IS the shipped
+  // partition and is deliberately not listed as a third row.
+  console.log(
+    row(
+      "  static proxy: mutant count alone",
+      legSeconds(
+        lpt(
+          surfaces.map((m) => ({ key: m.surfaceId, w: m.mutants })),
+          N,
+        ),
+        surfaces,
+        N,
       ),
-      current,
-      n,
     ),
-  }));
-}
+  );
 
-/**
- * The ratified design under a maintenance regime: every surface carries a rate
- * (so an arrival is never unpriced), the rate is the older run's, and a rate
- * that drifted past `threshold` has been refreshed. `Infinity` is the
- * never-maintained floor -- the worst case the design can produce.
- */
-export function declaredRateRows(
-  current: readonly Measured[],
-  older: readonly Measured[],
-  n: number,
-  thresholds: readonly number[],
-): { label: string; refreshed: number; legs: number[] }[] {
-  const old = new Map(older.map((m) => [m.surfaceId, m]));
-  return thresholds.map((t) => {
-    let refreshed = 0;
-    const weights = current.map((m) => {
-      const now = rateOf(m) ?? 0;
-      const prev = old.has(m.surfaceId)
-        ? (rateOf(old.get(m.surfaceId) as Measured) ?? 0)
-        : undefined;
-      // A surface the old run never saw is measured by its ENROLLING AUTHOR, not
-      // guessed -- that requirement is the design, so the simulation must honour it.
-      if (prev === undefined || prev <= 0 || now <= 0)
-        return { key: m.surfaceId, w: m.boots * now };
-      const moved = Math.max(prev, now) / Math.min(prev, now);
-      if (moved > t) refreshed += 1;
-      return { key: m.surfaceId, w: m.boots * (moved > t ? now : prev) };
-    });
-    return {
-      label: `declared rate, drift alarm at ${t === Infinity ? "never refreshed" : `${String(t)}x`}`,
-      refreshed,
-      legs: legSeconds(lpt(weights, n), current, n),
-    };
-  });
+  const cheapest = surfaces
+    .filter((m) => m.childMillis.length > 0)
+    .reduce((a, m) => a + Math.min(...m.childMillis), 0);
+  console.log(
+    `  one cheapest boot per surface totals ${String(Math.round(cheapest / 1000))}s ` +
+      `(what a measure-at-partition-time pre-pass would cost)`,
+  );
+  return { label, surfaces, modelled };
 }
 
 function main(): void {
-  const args = process.argv.slice(2);
-  const mi = args.indexOf("--modelled");
-  const modelledFile = mi >= 0 ? args[mi + 1] : undefined;
-  // `mi + 1` is 0 when the flag is ABSENT, which silently ate the first
-  // directory argument; the guard is what makes the exclusion conditional.
-  const dirs = args.filter((a, i) => mi < 0 || (i !== mi && i !== mi + 1));
-  if (dirs.length === 0)
-    throw new Error("usage: mutation-shard-weight-report.ts <recordDir> [...]");
+  const argv = process.argv.slice(2);
+  const specs = parseRuns(argv);
+  if (specs.length === 0)
+    throw new Error("usage: --run <dir>[:<modelledJson>] [--run ...] [--emit-registry]");
 
-  const modelled = new Map<string, number>();
-  if (modelledFile !== undefined && existsSync(modelledFile)) {
-    for (const [k, v] of Object.entries(
-      JSON.parse(readFileSync(modelledFile, "utf8")) as Record<string, number>,
-    ))
-      modelled.set(k, v);
-    console.log(`modelled weights: ${modelledFile} (dumped at the records' own sha)`);
-  } else {
-    for (const s of GUARD_SURFACES) modelled.set(s.id, weightOf(s));
+  const snaps: Snapshot[] = specs.map((s) =>
+    describe(basename(s.dir), readRun(s.dir), modelledFrom(s.modelledFile)),
+  );
+
+  if (snaps.length >= 2) {
+    console.log(`\n=== HELD OUT: a rate seeded on one run, scored on a LATER one ===`);
     console.log(
-      "modelled weights: recomputed from the CHECKED-OUT registry — valid only at the records' sha",
+      "  Scored on the LATER run's own seconds, so the seed never sees the run it is judged on.\n" +
+        "  An arrival the seed run never saw is priced by its enrolling author, which is what the\n" +
+        "  required field buys and what a bolt-on table cannot have.",
     );
-  }
-
-  for (const dir of dirs) {
-    const measured = readRun(dir);
-    if (measured.length === 0) throw new Error(`no records under ${dir}`);
-    const n = SOURCE_SHARD_COUNT;
-    console.log(`\n=== ${basename(dir)} — ${String(measured.length)} surfaces ===`);
-
-    const observed = new Array<number>(n).fill(0);
-    for (const m of measured) observed[m.leg] = (observed[m.leg] ?? 0) + m.seconds;
-    console.log(row("OBSERVED (the partition CI actually ran)", observed));
-
-    const known = measured.filter((m) => modelled.has(m.surfaceId));
-    if (known.length === measured.length) {
-      const asModelled = lpt(
-        known.map((m) => ({ key: m.surfaceId, w: modelled.get(m.surfaceId) ?? 0 })),
-        n,
+    for (let i = 0; i < snaps.length - 1; i += 1) {
+      const later = snaps[i] as Snapshot;
+      const earlier = snaps[i + 1] as Snapshot;
+      const seed = seedRates([earlier]);
+      const weights = later.surfaces.map((m) => {
+        const boots = later.modelled.get(m.surfaceId) ?? 0;
+        const rate = seed.get(m.surfaceId) ?? ratePerModelledBoot(m, later.modelled) ?? 0;
+        return { key: m.surfaceId, w: boots * rate };
+      });
+      const mine = legSeconds(lpt(weights, N), later.surfaces, N);
+      const shipped = legSeconds(
+        lpt(
+          later.surfaces.map((m) => ({
+            key: m.surfaceId,
+            w: later.modelled.get(m.surfaceId) ?? 0,
+          })),
+          N,
+        ),
+        later.surfaces,
+        N,
       );
-      const drift = [...asModelled].filter(
-        ([id, leg]) => measured.find((m) => m.surfaceId === id)?.leg !== leg,
-      );
+      const arrivals = later.surfaces.filter((m) => !seed.has(m.surfaceId)).map((m) => m.surfaceId);
+      console.log(`\n  seed ${earlier.label} -> score ${later.label}`);
+      console.log(row("    seconds-calibrated weight", mine));
+      console.log(row("    shipped modelled-boots weight", shipped));
       console.log(
-        `  reconciliation: recomputed partition vs observed legs — ${drift.length === 0 ? "IDENTICAL" : `${String(drift.length)} MISMATCH(ES): ${drift.map(([i]) => i).join(", ")}`}`,
-      );
-      const loads = new Array<number>(n).fill(0);
-      for (const [id, leg] of asModelled) loads[leg] = (loads[leg] ?? 0) + (modelled.get(id) ?? 0);
-      console.log(row("  ...its MODELLED loads (what the optimiser balanced)", loads));
-    } else {
-      console.log(
-        `  reconciliation SKIPPED: ${String(measured.length - known.length)} surface(s) absent from the modelled set`,
+        `    binding leg ${bindingLeg(mine) <= bindingLeg(shipped) ? "IMPROVED" : "REGRESSED"} by ` +
+          `${String(Math.round(Math.abs(bindingLeg(shipped) - bindingLeg(mine))))}s` +
+          `; arrivals priced by their author: ${arrivals.length > 0 ? arrivals.join(", ") : "none"}`,
       );
     }
 
-    const bySeconds = lpt(
-      measured.map((m) => ({ key: m.surfaceId, w: m.seconds })),
-      n,
-    );
-    console.log(
-      row("LPT over MEASURED SECONDS (the accurate weight)", legSeconds(bySeconds, measured, n)),
-    );
-    for (const [name, f] of [
-      ["boots (count only)", (m: Measured) => m.boots],
-      ["mutants (count only)", (m: Measured) => m.mutants],
-    ] as const)
+    console.log(`\n=== VERDICTS across consecutive runs — the bar AC-1 has to clear ===`);
+    for (let i = 0; i < snaps.length - 1; i += 1) {
+      const later = snaps[i] as Snapshot;
+      const earlier = snaps[i + 1] as Snapshot;
+      const d = verdictDelta(earlier.surfaces, later.surfaces);
       console.log(
-        row(
-          `LPT over ${name}`,
-          legSeconds(
-            lpt(
-              measured.map((m) => ({ key: m.surfaceId, w: f(m) })),
-              n,
-            ),
-            measured,
-            n,
-          ),
-        ),
+        `  ${earlier.label} -> ${later.label}: ${String(d.moved.length)} of ${String(d.sharedSiteIds)} shared siteIds moved ` +
+          `across ${String(d.sharedSurfaces)} shared surfaces` +
+          (d.moved.length > 0
+            ? ` — ${d.moved.map((m) => `${m.surfaceId} ${m.siteId} ${m.from}->${m.to}`).join("; ")}`
+            : ""),
       );
+    }
 
-    const total = measured.reduce((a, m) => a + m.seconds, 0);
-    const heaviest = measured.reduce((a, m) => (m.seconds > a.seconds ? m : a));
-    console.log(
-      `  corpus ${String(Math.round(total))}s; a perfectly balanced leg is ${String(Math.round(total / n))}s; ` +
-        `the heaviest single surface (${heaviest.surfaceId}, ${String(Math.round(heaviest.seconds))}s) floors every partition`,
+    const newest = snaps[0] as Snapshot;
+    const prior = snaps[1] as Snapshot;
+
+    const seeded = seedRates([prior]);
+    const proposed = new Map(
+      newest.surfaces.map((m) => [
+        m.surfaceId,
+        (newest.modelled.get(m.surfaceId) ?? 0) *
+          (seeded.get(m.surfaceId) ?? ratePerModelledBoot(m, newest.modelled) ?? 0),
+      ]),
     );
-    const rates = measured.map(rateOf).filter((r): r is number => r !== undefined);
+    const seam = seamMagnitude(newest.modelled, proposed, N);
     console.log(
-      `  seconds-per-boot: min ${Math.min(...rates).toFixed(2)}  max ${Math.max(...rates).toFixed(2)}  spread ${(Math.max(...rates) / Math.min(...rates)).toFixed(1)}x`,
+      `\n=== SEAM: ${String(seam.length)} of ${String(newest.modelled.size)} surfaces ` +
+        `(${String(Math.round((100 * seam.length) / newest.modelled.size))}%) change leg under the new weight ===\n  ${seam.join(", ")}`,
+    );
+    const declared = seedRates([prior]);
+    const { drifted, unmeasured } = driftReport(declared, newest.surfaces, newest.modelled, 2);
+    console.log(
+      `\n=== DRIFT of a ${prior.label} table against ${newest.label} — every surface, ranked ===`,
+    );
+    for (const d of drifted.slice(0, 8))
+      console.log(
+        `  ${d.actionable ? "ACTIONABLE" : "          "} ${d.surfaceId.padEnd(28)} ` +
+          `declared ${String(d.declaredMillis).padStart(6)}ms  observed ${String(d.observedMillis).padStart(6)}ms  ${d.ratio.toFixed(2)}x`,
+      );
+    console.log(
+      `  ...${String(Math.max(0, drifted.length - 8))} further surfaces named in full output; ` +
+        `${String(drifted.filter((d) => d.actionable).length)} actionable, ` +
+        `unmeasured: ${unmeasured.length > 0 ? unmeasured.join(", ") : "none"}`,
     );
   }
 
-  // With two or more runs, the first is "now" and the second is the table a
-  // weight model would have been carrying. Every row is scored on NOW's real
-  // seconds, so the weight is the only thing that varies between them.
-  if (dirs.length >= 2) {
-    const current = readRun(dirs[0] as string);
-    const older = readRun(dirs[1] as string);
-    const n = SOURCE_SHARD_COUNT;
-    const unseen = current.filter((m) => !older.some((o) => o.surfaceId === m.surfaceId));
-    console.log(
-      `\n=== a table from ${basename(dirs[1] as string)} applied to ${basename(dirs[0] as string)} ===` +
-        `\n  surfaces the older run never saw: ${unseen.length === 0 ? "none" : unseen.map((m) => `${m.surfaceId} (${String(Math.round(m.seconds))}s)`).join(", ")}`,
-    );
-    for (const r of stalenessRows(current, older, n))
-      console.log(row(`bolt-on table, ${r.label}`, r.legs));
-    for (const r of declaredRateRows(current, older, n, [1.25, 1.5, 2, Infinity]))
-      console.log(row(`${r.label} (${String(r.refreshed)} refreshed)`, r.legs));
+  if (argv.includes("--emit-registry")) {
+    const seed = seedRates(snaps);
+    const out = "millis-per-boot.json";
+    writeFileSync(out, `${JSON.stringify(Object.fromEntries([...seed].sort()), null, 1)}\n`);
+    const missing = GUARD_SURFACES.filter((s) => !seed.has(s.id)).map((s) => s.id);
+    console.log(`\nwrote ${out} with ${String(seed.size)} rates`);
+    if (missing.length > 0) {
+      console.error(
+        `ENROLLED BUT UNMEASURED, so no rate can be emitted for: ${missing.join(", ")}. ` +
+          `Run the surface and read its rate, rather than guessing one.`,
+      );
+      process.exit(1);
+    }
   }
 }
 
