@@ -79,7 +79,7 @@ describe("only `replace` and `replaceAll` are matched", () => {
   // Without these, the two guards that decide WHETHER a call is a replace call are pinned only by
   // the repo-wide assertion — a remote kill that depends on the corpus containing some other
   // method call with two arguments. It does, but a local fixture says so directly.
-  const others = [
+  const others: [string, string][] = [
     ["a differently named method", `s.notReplace(a, v)`],
     ["a same-shaped call on another name", `s.substring(a, v)`],
     ["a bare function call", `replace(a, v)`],
