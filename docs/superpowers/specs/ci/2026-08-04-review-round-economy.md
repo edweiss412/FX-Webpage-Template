@@ -87,6 +87,8 @@ The meta-test is the binding gate: it runs in existing CI, is visible to every h
 
 A stage reaching 4 counted rounds obliges a filing section for that stage. Stages are independent: an arc may owe a filing for `diff` and owe nothing for `spec`.
 
+**Amended 2026-08-22 — the threshold's unit.** A stage now reaches it EITHER per `(arc, stage)` as above, OR by the arc's rounds summed across every base of one branch directory, counting distinct `(baseSha, round)` pairs. See `docs/superpowers/specs/ci/2026-08-22-review-round-arc-sum.md` (2026-08-22) §3.1.
+
 ## 5. Record format
 
 ### 5.1 New flags
@@ -115,6 +117,8 @@ The corpus path is docs/review-rounds/&lt;branch&gt;/&lt;baseSha12&gt;.jsonl, wi
 **`<baseSha12>` is the first 12 characters of `git merge-base origin/main HEAD`, and it is what makes an arc an identity rather than a name.** A branch name is not unique over time: this repository has already reused three across distinct PRs — `feat/attention-alert-routing` (#524, #526, #529), `feat/watch-reconcile-backoff` (#597, #620), and `feat/role-vocab-settings-desktop-grid` (#402, #431). Keyed on branch alone, a later arc reusing a merged arc's name inherits its corpus and its filing: the old rounds are legal duplicates under §5.5, the old filing satisfies §7.1, and the gate reports compliance for an arc that burned four rounds and filed nothing. That is silent wrongness, not a conservative outcome, so it is a defect rather than a documented limit.
 
 The merge base is stable for the life of an arc. `origin/main` advancing does not move it — only rebasing the branch, or merging main into it, does. When that happens the arc splits into two directories and under-obliges: the conservative direction, visible in the report as two short arcs, and the same behavior already documented for a rename (§8.3).
+
+**Amended 2026-08-22 — the base-move half of this is no longer accepted.** A residual obligation sums the arc's rounds across every base of one branch directory, so a base move no longer under-obliges. The RENAME half stands unchanged. See `docs/superpowers/specs/ci/2026-08-22-review-round-arc-sum.md` (2026-08-22) §3.1 and its §4 limit 7.
 
 `baseSha` is recorded on every row (§5.3) so the corpus stays self-describing when rows are read outside their directory.
 
@@ -157,6 +161,8 @@ All scalars. There is no array field and no free-text field, so a row is bounded
 ### 5.4 Which rows count
 
 Every dispatch appends a row. The threshold counts **distinct `round` values among rows with `status === "verdict"`**.
+
+**Amended 2026-08-22 — the counting rule is unchanged; what it is counted OVER is not.** The same two conjuncts now also feed a per-directory sum over distinct `(baseSha, round)` pairs, because `round` alone collapses two bases that both restart at 1. See `docs/superpowers/specs/ci/2026-08-22-review-round-arc-sum.md` (2026-08-22) §3.1.
 
 **The counting rule is exactly two conjuncts, and `failureReason` is not one of them:** `status === "verdict"` AND `stage` in `spec`/`plan`/`diff`. Nothing else participates.
 
@@ -258,7 +264,9 @@ Over-obligation — a filing demanded where nothing was mechanizable — costs o
 
 1. **Dispatches outside codex-guard record nothing.** `AGENTS.md` already says review dispatches should route through the wrapper; this is one more reason. Visible as a silent arc (§9).
 2. **The corpus can be hand-edited or omitted before commit.** Out of threat model (§8.1). CI cannot see rounds never committed.
-3. **Anything that moves the merge base or the branch name splits the arc** — a rename, a rebase, or merging main into the branch. The arc reads as two short arcs and under-obliges. Conservative direction, visible in the report, accepted (§5.2). **The caller's `--round` counter restarts at 1 on the new side of a split**, because `round` is declared within an arc and the new side is a new arc: a dispatch carrying the pre-split arc's next number lands as a gap under §7.1 assertion 2, which reads as "rows were lost or hand-edited" and is the one diagnosis that is not true here. Demonstrated live on this arc — merging main moved its base to `48b280b949cc` and the next dispatch declared `--round 6` into an otherwise empty corpus. The operator-visible round number survives in `label` (`diff-wrapper-r6`), which the gate does not constrain, so restarting the counter costs no history.
+3. **Amended 2026-08-22 — the merge-base half is repaired; the rename half stands.** A residual clause sums the arc across every base of one branch directory, so a base move no longer under-obliges (`docs/superpowers/specs/ci/2026-08-22-review-round-arc-sum.md` (2026-08-22) §3.1). A rename still splits the arc and still under-obliges. The original text follows, and the `--round` restart it describes remains correct and by design.
+
+   **Anything that moves the merge base or the branch name splits the arc** — a rename, a rebase, or merging main into the branch. The arc reads as two short arcs and under-obliges. Conservative direction, visible in the report, accepted (§5.2). **The caller's `--round` counter restarts at 1 on the new side of a split**, because `round` is declared within an arc and the new side is a new arc: a dispatch carrying the pre-split arc's next number lands as a gap under §7.1 assertion 2, which reads as "rows were lost or hand-edited" and is the one diagnosis that is not true here. Demonstrated live on this arc — merging main moved its base to `48b280b949cc` and the next dispatch declared `--round 6` into an otherwise empty corpus. The operator-visible round number survives in `label` (`diff-wrapper-r6`), which the gate does not constrain, so restarting the counter costs no history.
 4. **Only the summary row is durable.** Transcripts stay in the machine-local `--out` directory. Losing one loses detail, not the count.
 5. **`--round` is caller-declared and can be wrong.** A wrong value shows as a contiguity gap (§7.1 assertion 2) unless it duplicates an existing round, in which case the wave undercounts by one. Accepted: the alternative is the derivation race (§5.5).
 6. **`findingCount` is `null` for any reviewer that omits the declared line.** Never inferred (§3).
