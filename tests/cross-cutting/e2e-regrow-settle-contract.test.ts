@@ -33,12 +33,13 @@ const regrowSlice = (): string => {
 
 /**
  * Characters after an arming site within which its retry must appear. Measured
- * against the real file, not guessed: the two sites put `.toPass(` at +734 and
- * +735, so 900 clears both by ~165 while staying far short of the 2,304 that
- * separate the sites. A 600-char window would REJECT the correct implementation —
- * that was measured too. When prose pushed a site past the window, the comment
- * moved above the arming click rather than the window widening: a window that
- * grows to accommodate comments stops being a guard.
+ * against the real file, not guessed: the single surviving site puts `.toPass(`
+ * at +659, so 900 clears it by 241. A 600-char window would REJECT the correct
+ * implementation — that was measured too. When prose pushed a site past the
+ * window, the comment moved above the arming click rather than the window
+ * widening: a window that grows to accommodate comments stops being a guard, and
+ * that is exactly what happened when T-REGROW was re-derived for the docked
+ * anchor — the explanation of each assertion sits above the arming click.
  */
 const ARM_WINDOW = 900;
 
@@ -47,9 +48,17 @@ const CALLBACK_OPENER = "expect(async () => {";
 
 /**
  * Per arming site, the measurement fields whose presence inside the retry callback
- * is what makes the retry REAL. Site 1 is the ladder sweep, which settles on the
- * armed body having grown past the idle one; site 2 is the real run, which asserts
- * the clip-rect invariant and that placement re-ran.
+ * is what makes the retry REAL.
+ *
+ * ONE site since the dock. T-REGROW used to arm twice: once in a ladder that
+ * swept viewports for a height where the idle body fit its side uncapped and the
+ * armed body did not, and once in the real run. That state is unreachable at
+ * EVERY viewport now — the room on the chosen side grows at 0.85 per viewport
+ * pixel while the body is capped at `min(0.7*vh, 480)`, so the room outruns the
+ * body (derivation:
+ * docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md §2).
+ * The ladder went with it, and the surviving site carries every field the two
+ * used to split — which is why this list got LONGER as it got shorter by one row.
  *
  * DOCUMENTED LIMIT, stated so it is not rediscovered: this is a source-text
  * TRIPWIRE, not a proof of semantics. It cannot tell an assertion from the same
@@ -62,8 +71,18 @@ const CALLBACK_OPENER = "expect(async () => {";
  * the case itself running in `lifecycle-layout-e2e`.
  */
 const ARM_SITE_REQUIRED_FIELDS: readonly (readonly string[])[] = [
-  ["natural", "idle.natural"],
-  ["bodyTop", "bodyBottom", "boundsTop", "boundsBottom", "inlineMaxHeight"],
+  [
+    "scrollHeight",
+    "idle!.scrollHeight",
+    "roomOnChosenSide",
+    "natural",
+    "inlineMaxHeight",
+    "overflow",
+    "bodyTop",
+    "bodyBottom",
+    "boundsTop",
+    "boundsBottom",
+  ],
 ];
 
 describe("T-REGROW settle contract", () => {
@@ -90,9 +109,11 @@ describe("T-REGROW settle contract", () => {
       sites.push(i);
       i = slice.indexOf("archive-show-confirm-button", i + 1);
     }
-    expect(sites.length, "T-REGROW should arm the confirm exactly twice (ladder + real run)").toBe(
-      2,
-    );
+    // ONE arming site since the dock retired the ladder — see
+    // ARM_SITE_REQUIRED_FIELDS above. Pinned as an EQUALITY, not a floor: a
+    // re-added ladder would arm a second time and must come back through this
+    // guard rather than past it.
+    expect(sites.length, "T-REGROW should arm the confirm exactly once (the real run)").toBe(1);
     sites.forEach((at, n) => {
       const window = slice.slice(at, at + ARM_WINDOW);
       // Proximity alone would accept a one-shot measurement followed by an

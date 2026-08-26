@@ -69,14 +69,31 @@ const SITES: ReadonlyArray<{
   },
   {
     name: "T-TRANSITION",
-    anchor: "await page.setViewportSize({ width: 390, height: 560 });",
+    // 420, not 560. The case used to resize ACROSS THE SIDE FLIP, and the dock
+    // retired that boundary: ShareHub's trigger sits on the panel floor, so the
+    // module answers `top` at every height and no viewport pair flips it. The
+    // resize now crosses the CAP boundary at vh 467 instead (derivation:
+    // docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md §2),
+    // which is a boundary of the same kind and the one witness left that proves
+    // placement re-ran.
+    anchor: "await page.setViewportSize({ width: 390, height: 420 });",
     slice: {
       from: 'test("T-TRANSITION:',
       to: 'test("T-CARET-OPENER',
     },
-    // The case asserts the side flipped, the confirm node SURVIVED (not
-    // remounted), and the panel-containment maths.
-    forbidden: ["data-transition-probe", "sameConfirmNode", "popoverStillOpen", "withinBounds"],
+    // The case asserts the cap crossing, that the cap equals the room, that the
+    // confirm node SURVIVED (not remounted), and the panel-containment maths.
+    // `after.cap` and `roomOnChosenSide` join the list with the new witness: the
+    // predicate may watch the styles settle, it may not read the answer the case
+    // is there to check.
+    forbidden: [
+      "data-transition-probe",
+      "sameConfirmNode",
+      "popoverStillOpen",
+      "withinBounds",
+      "after.cap",
+      "roomOnChosenSide",
+    ],
   },
 ];
 
