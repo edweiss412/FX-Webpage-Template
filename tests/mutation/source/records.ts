@@ -44,6 +44,21 @@ export type RunRecord = {
   passed: boolean;
   score: number;
   outcomes: readonly MutantOutcome[];
+  /**
+   * Why this surface produced no score, when it produced none.
+   *
+   * OPTIONAL, and absent on every ordinary record. A surface whose evaluation
+   * throws never reaches `evaluateGate`, so it has no score and no outcomes --
+   * and `{passed: false, score: 0, outcomes: []}` is byte-indistinguishable
+   * from a surface that legitimately scored zero. Without a cause the record
+   * cannot tell a red baseline from a source-read failure or an infrastructure
+   * fault, which is the whole reason the fault channel exists at all.
+   *
+   * Optional rather than defaulted: a `fault: ""` on every record would satisfy
+   * a presence check while discriminating nothing. `readRunRecord` is a bare
+   * `JSON.parse`, so no existing record or reader is affected by the addition.
+   */
+  fault?: string;
 };
 
 /**
@@ -225,6 +240,8 @@ export function emitRunRecord(input: {
   passed: boolean;
   score: number;
   outcomes: readonly MutantOutcome[];
+  /** See `RunRecord.fault`. Omitted on every ordinary record. */
+  fault?: string;
   env?: NodeJS.ProcessEnv;
   dir?: string;
   cap?: number;
@@ -238,6 +255,11 @@ export function emitRunRecord(input: {
       passed: input.passed,
       score: input.score,
       outcomes: input.outcomes,
+      // Spread-or-omit, matching how this file already threads its optional
+      // options: an explicit `fault: undefined` would serialize the key away
+      // under JSON.stringify but still fail an `"fault" in record` assertion
+      // before it is written.
+      ...(input.fault === undefined ? {} : { fault: input.fault }),
     },
     {
       ...(input.dir === undefined ? {} : { dir: input.dir }),
