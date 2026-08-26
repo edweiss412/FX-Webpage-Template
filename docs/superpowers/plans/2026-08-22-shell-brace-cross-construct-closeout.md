@@ -446,3 +446,38 @@ neither.
 A third failure in the PREVIOUS run — a `BaselineNotGreenError` on
 `replacementString` — is gone here. It was caused by this tree lacking the #888
 hotfix at that run's start, and absorbing it fixed the baseline (49/49).
+
+## Acceptance re-established on the merged tree
+
+Every figure in this document was measured before the branch absorbed `origin/main` for the fourth
+time (`ae8e9544b` — #882's code, #884's registry, #893's 49-row ledger demotion). Two of the
+acceptance channels read the LIVE tree rather than a frozen blob, so re-running them was not
+optional, and one of them had a real reason to move: **AC-5's digest ranges over `docs/**`, and #893
+rewrote both ledger files.**
+
+| channel | command | result on the merged tree |
+| --- | --- | --- |
+| AC-1 | `shapes.mts --expect-repaired`, first tally | `22/22 accept-set rows meet their post-repair expectation` |
+| AC-3 | same run, second tally | `5/5 documented-limit rows UNCHANGED against tests/cross-cutting/psqlStartupFiles/scan.ts at ae8e9544b55a` |
+| AC-3b | same run, third tally | `4/4 bash-rejected rows hold their RECORDED base -> candidate movement` |
+| AC-5 | `baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238` | `PASS` over 76 rows, exit 0 |
+
+**AC-3 is the one that proves the re-run was worth doing**, because its tally names the merge base and
+the merge base MOVED. It re-derived against `ae8e9544b55a` and still reads UNCHANGED rather than
+VACUOUS — and VACUOUS is a pass-shaped output that proves nothing about scope, which is why the plan
+says so in the mapping. A channel that silently re-anchors to a new base and reports success is
+exactly the shape this arc spent four rounds learning to distrust.
+
+AC-5's finding set did not move: 76 rows, digest `8ebe8b08d43e…` unchanged. Moving 49 rows between
+two ledger files preserves their content, and this probe scans content.
+
+AC-6 is not re-run. Its ratio comes from a same-session pair of measurements over `scan.ts`, which no
+absorbed merge touched — the stamped blob is still `156964332499`, so re-measuring would compare the
+same two inputs at a different moment of machine contention and could only make the number noisier.
+
+**One method note, because the first attempt produced a pass-shaped failure.** AC-5 was first invoked
+with the ELIDED digest this document writes in prose (`8ebe8b08…`), and the probe compared it against
+the full value and printed `FAIL: finding set MOVED` while the finding set had not moved at all. The
+exit code read 0 because it was taken off the end of a pipe rather than off the command. Both halves
+are worth avoiding: an elided figure is for reading, never for passing to a flag, and an exit status
+belongs to the last process in a pipeline.
