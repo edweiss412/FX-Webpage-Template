@@ -34,7 +34,7 @@ import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { cn } from "@/lib/ui/cn";
-import { SECONDARY_ACTION_CLASS } from "@/lib/ui/actionClass";
+import { SECONDARY_ACTION_CLASS, SECONDARY_ACTION_ON_TINTED_CLASS } from "@/lib/ui/actionClass";
 
 export type RescanSheetButtonProps = {
   driveFileId: string;
@@ -54,6 +54,20 @@ export type RescanSheetButtonProps = {
    * pass `isPublishRunActive` here.
    */
   disabled?: boolean;
+  /**
+   * The button stands on a TINTED card (`warning-bg` / `info-bg` / `danger-bg`)
+   * rather than a neutral ground, so its resting outline takes the plate token.
+   *
+   * A prop, not a class, because nothing in this button's own class string can
+   * say what it is standing on, and `cn` does not merge Tailwind conflicts, so a
+   * caller cannot append a second `border-*` and get a defined winner. Default
+   * false: every other call site is on a neutral ground and renders unchanged.
+   *
+   * ONE caller sets it — the archived-tab rescan notice in
+   * `components/admin/wizard/step3ReviewSections.tsx`, whose card is `bg-info-bg`
+   * (design doc 2026-08-25-ui-polish-class-sweep-design.md, D2).
+   */
+  onTintedPlate?: boolean;
 };
 
 // The route's RescanResult → JSON mapping (app/api/admin/onboarding/rescan-sheet/route.ts).
@@ -117,6 +131,7 @@ export function RescanSheetButton({
   wizardSessionId,
   resultPlacement,
   disabled,
+  onTintedPlate,
 }: RescanSheetButtonProps) {
   const placement = resultPlacement ?? "stacked";
   const router = useRouter();
@@ -203,7 +218,16 @@ export function RescanSheetButton({
         // outline has since moved to `border-text-faint` (2026-08-14, DESIGN
         // §1.2a) and this call site inherited it with no edit here, which is
         // the point of the constant. `self-start` is placement.
-        className={cn(SECONDARY_ACTION_CLASS, "self-start")}
+        //
+        // `onTintedPlate` picks the plate variant, which differs in the outline
+        // token alone. It is a prop because ONE of this button's callers renders
+        // it inside a tinted card and the rest do not, and nothing in the
+        // button's own class string could tell them apart (design doc
+        // 2026-08-25-ui-polish-class-sweep-design.md, D2).
+        className={cn(
+          onTintedPlate ? SECONDARY_ACTION_ON_TINTED_CLASS : SECONDARY_ACTION_CLASS,
+          "self-start",
+        )}
       >
         {pending ? "Re-scanning…" : "Re-scan this sheet"}
       </button>

@@ -95,6 +95,7 @@
   --color-text-strong: var(--color-text-strong-runtime);
   --color-text-subtle: var(--color-text-subtle-runtime);
   --color-text-faint: var(--color-text-faint-runtime);
+  --color-control-outline-tinted: var(--color-control-outline-tinted-runtime);
   --color-border: var(--color-border-runtime);
   --color-border-strong: var(--color-border-strong-runtime);
   --color-accent: var(--color-accent-runtime);
@@ -370,6 +371,18 @@
   --color-text-strong-runtime: #0e0f12;
   --color-text-subtle-runtime: #5a5b62;
   --color-text-faint-runtime: #8b8c92;
+  /* Control outline on a TINTED plate only (DESIGN §1.2a, design doc
+     2026-08-25-ui-polish-class-sweep-design.md D2). --color-text-faint is the
+     outline everywhere else and clears 3:1 on all four neutral grounds; on
+     warning-bg / info-bg / danger-bg it lands at 2.79-3.04, under the floor in
+     one theme per plate. This token exists so the plates clear without retuning
+     the shared one, which would push the neutral grounds the other way. Light:
+     3.62 warning / 3.42 info / 3.42 danger, and 3.99 against the control's own
+     bg-surface fill. Deliberately LIGHTER than --color-text-subtle (5.79-6.13
+     on the same plates) so §1.2a's hover-heavier-than-rest relation survives
+     the raised resting weight. All three relations are asserted, not pinned as
+     constants, in tests/styles/secondary-action-contrast.test.ts. */
+  --color-control-outline-tinted-runtime: #7e7f86;
   --color-border-runtime: #e5e4e0;
   --color-border-strong-runtime: #cfcdc7;
   --color-accent-runtime: #ff8c1a;
@@ -429,6 +442,9 @@
     --color-text-strong-runtime: #f5f3ee;
     --color-text-subtle-runtime: #9c9a93;
     --color-text-faint-runtime: #74736d;
+    /* Tinted-plate control outline; see the light block. Dark: 3.65 warning /
+       4.55 info / 4.17 danger, under --color-text-subtle's 4.72-5.89. */
+    --color-control-outline-tinted-runtime: #88867f;
     --color-border-runtime: #2a2b30;
     --color-border-strong-runtime: #3a3b40;
     --color-accent-runtime: #ff8c1a;
@@ -478,6 +494,9 @@
   --color-text-strong-runtime: #f5f3ee;
   --color-text-subtle-runtime: #9c9a93;
   --color-text-faint-runtime: #74736d;
+  /* Tinted-plate control outline; see the light block. Dark: 3.65 warning /
+     4.55 info / 4.17 danger, under --color-text-subtle's 4.72-5.89. */
+  --color-control-outline-tinted-runtime: #88867f;
   --color-border-runtime: #2a2b30;
   --color-border-strong-runtime: #3a3b40;
   --color-accent-runtime: #ff8c1a;
@@ -1245,14 +1264,30 @@ details[open] > summary [data-agenda-day-count] {
      the RefAnchor copy-link 🔗 and structural links alone. The underline is the
      link affordance (WCAG 1.4.1). At rest the link INHERITS the surrounding
      high-contrast text color (≈16:1 on the page bg, AAA) so body links clear
-     WCAG AA 1.4.3 everywhere — including on the tinted Callout/aside fills,
-     where the link inherits the box's own text color. The brand accent is NOT
-     used in ANY state — including :hover: --color-accent-on-bg is 4.11:1 on
-     --color-bg and ≈3.6–3.9:1 on the tinted Callout/aside fills, below the
-     4.5:1 normal-text floor, and WCAG 1.4.3 is not waived for hover text (see
-     BL-ACCENT-ON-BG-AA-CONTRAST). This matches the Header/Breadcrumb chrome,
-     which also style links as text-color + underline. Hover feedback comes from
-     the cursor and the always-present underline, not a color change. */
+     WCAG AA 1.4.3 everywhere, including on the tinted Callout fills, where the
+     link inherits the box's own text color.
+
+     The brand accent is NOT used in ANY state, :hover included. The reason is
+     hierarchy, not contrast, and that correction is the point of this
+     paragraph: --color-accent-on-bg measures 5.34:1 light and 9.39:1 dark on
+     --color-bg; on the tinted Callout fills (app/help/_components/Callout.tsx)
+     it measures 4.78:1 light and 8.19:1 dark on info-bg, and 5.05:1 light and
+     6.56:1 dark on warning-bg. Every one of those clears the 4.5:1 normal-text
+     floor. This paragraph used to say 4.11:1 and "below the floor", which was
+     true of #c25e00 and stopped being true on 2026-07-16 when
+     BL-ACCENT-ON-BG-AA-CONTRAST moved the light token to #a65000
+     (BACKLOG-archive.md:7875); the comment survived the fix that invalidated it
+     and kept asserting a failure that had been repaired
+     (BL-GLOBALS-STALE-ACCENT-CONTRAST-COMMENT, corrected 2026-08-25).
+
+     What holds regardless of the numbers: this matches the Header/Breadcrumb
+     chrome, which also styles links as text-color + underline, and PRODUCT.md
+     reserves the signature orange for "this matters now". Spending it on a
+     routine prose link dilutes the one cue that means something. Hover feedback
+     comes from the cursor and the always-present underline, not a color change.
+     tests/styles/accentCommentFigures.test.ts parses the figures above out of
+     this comment and recomputes them from the tokens, so the next retune reds
+     here instead of rotting. */
   .help-prose :is(p, li, dd, td) a {
     text-decoration: underline;
     text-underline-offset: 2px;

@@ -124,7 +124,20 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // counted survivor at all: an `accepted-gap` appearing here would be this surface's
   // first, owing its own filing AND a `scoreFloor` edit, and a new equivalent row is a
   // coverage regression to explain.
-  psqlStartupScan: { equivalent: 30 },
+  // THIRTY-ONE from 2026-08-25: BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND adds
+  // `doubleQuotedEnd`, the second of the two per-context recognizers the crossing
+  // repair introduces, and its loop header is a FURTHER SITE of the same one
+  // argument above rather than a new story. The row is owed an explanation because
+  // a new equivalent row is a coverage regression: the explanation is that the
+  // repair adds a character-indexing loop, and every such loop on this surface has
+  // carried this bound. Deletion was refused for the reason the family already
+  // records -- the bound is the loop's only terminator, so removing it moves
+  // termination into the predicate where an equality-flip mutant hangs -- which is
+  // also why the family's fifth member could be deleted and this one cannot: that
+  // one sat in a removable branch, this is a loop header. A killing test was
+  // attempted over ten inputs driving an unterminated double-quoted span to end of
+  // text and could not be built; the row carries that probe.
+  psqlStartupScan: { equivalent: 31 },
   // The pane-compaction classifier, enrolled with an EMPTY ledger: it is a pure
   // classifier over injected fixtures, so every survivor is repayable by a test
   // rather than blessable. A row appearing here later is a coverage regression

@@ -177,6 +177,52 @@ test("first-contact gate -> sign-in CTA href -> authed revisit bootstraps and re
   }
 });
 
+// BL-SWITCH-PERSON-GOOGLE-LOOPBACK: for a viewer resolved via a live Google
+// session, "Not you? Switch person" used to clear the picker entry only; the
+// next resolve re-minted the same identity through picker-bootstrap. The clear
+// now also signs THIS device out, so the tap lands on the first-contact gate.
+test("Switch person signs a Google-resolved viewer out and lands on the first-contact gate", async ({
+  browser,
+}) => {
+  const show = track(
+    await seedShowWithCrew({
+      crew: [{ name: "Alice Cooper", role: "A1", email: NON_ADMIN_CREW_FIXTURE.email }],
+    }),
+  );
+  const url = `/show/${show.slug}/${show.shareToken}`;
+  const ctx = await browser.newContext({ baseURL: BASE_URL });
+  try {
+    const page = await ctx.newPage();
+    await signInAs(page, NON_ADMIN_CREW_FIXTURE, { baseUrl: BASE_URL });
+    await page.goto(url, { waitUntil: "networkidle" });
+    await expect(page.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
+    await expectResolvedIdentity(page, "Alice Cooper");
+    // Premise: this identity was minted by the bootstrap leg (Google session +
+    // no prior entry), so a switch that only cleared the entry would re-mint it.
+    expect((await ctx.cookies()).some((c) => isSupabaseAuthCookieName(c.name))).toBe(true);
+
+    const trigger = page.getByTestId("avatar-menu-trigger");
+    await expect(async () => {
+      await trigger.click();
+      await expect(page.getByRole("menu")).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
+    await page.getByTestId("avatar-menu-switch-person").click();
+
+    await expect(page.getByTestId("sign-in-or-skip-gate")).toBeVisible(AFTER_SERVER_ACTION);
+    await expect(page.getByTestId("crew-shell")).toHaveCount(0);
+
+    // The reload is the proof that the SESSION ended: with a live session the
+    // resolve would bootstrap Alice again and the shell would be back. The jar
+    // is deliberately NOT the oracle for what was cleared (see the Mode B
+    // case's note below).
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(page.getByTestId("sign-in-or-skip-gate")).toBeVisible(AFTER_SERVER_ACTION);
+    await expect(page.getByTestId("crew-shell")).toHaveCount(0);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test("Mode B shared-device: Google session matches no crew row -> 'Signed in as someone else' header", async ({
   browser,
 }) => {

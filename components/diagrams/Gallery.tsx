@@ -30,7 +30,11 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, ImageOff } from "lucide-react";
 
-import { AnnounceLogRegion, useAnnounceLog } from "@/components/admin/announceLog";
+import {
+  ANNOUNCE_LOG_TTL_MS,
+  AnnounceLogRegion,
+  useAnnounceLog,
+} from "@/components/admin/announceLog";
 import { GalleryLightbox } from "@/components/diagrams/GalleryLightbox";
 import Image from "next/image";
 import { makeDiagramLoader } from "@/lib/images/diagramLoader";
@@ -164,7 +168,13 @@ export function Gallery({
    */
   const lightboxOpenRef = useRef(false);
 
-  const { announce: announceInGallery, entries: galleryEntries } = useAnnounceLog();
+  // ttlMs: unpruned, a failure sentence lives for the whole page session, so a
+  // crew member who hits one image failure carries it under every later diagram
+  // they open (BL-DIAGRAMS-ANNOUNCE-CHANNEL-TTL). 30s is far past any plausible
+  // delivery-queue residence, which is the strand hazard the module weighs.
+  const { announce: announceInGallery, entries: galleryEntries } = useAnnounceLog({
+    ttlMs: ANNOUNCE_LOG_TTL_MS,
+  });
   // The DIALOG's channel, owned here rather than inside the lightbox: this
   // component is the one that must still be able to append while that dialog is
   // mid-exit, and it is the one that knows which channel is audible.
@@ -172,7 +182,7 @@ export function Gallery({
     announce: announceInDialog,
     entries: dialogEntries,
     reset: resetDialogChannel,
-  } = useAnnounceLog();
+  } = useAnnounceLog({ ttlMs: ANNOUNCE_LOG_TTL_MS });
 
   // The re-open flush, DEFERRED BY ONE COMMIT on purpose. A re-open cancels an
   // exit, so `onExitComplete` never fires and the buffer would strand — but

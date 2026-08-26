@@ -979,7 +979,22 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                            spans; hover moves the border, never fades toward the
                            page bg (impeccable critique P1+P2, 2026-07-22) */
                         "border border-text-faint bg-surface-sunken text-text hover:border-text-subtle"
-                      : "bg-warning-bg text-warning-text hover:bg-warning-bg/80"
+                      : /* The boundary is the emphasis this branch was missing.
+                           It already had the tinted fill and the filled dot;
+                           without an outline it read QUIETER than the monitoring
+                           branch beside it, because `text-text` on
+                           `bg-surface-sunken` is ~15:1 while `text-warning-text`
+                           on `bg-warning-bg` is 8.8:1 — the pill meaning
+                           "nothing to do" outranked the one meaning "you are
+                           needed" (BL-REVIEW-MODAL-QUIET-PILL-OUTRANKS-URGENT,
+                           design doc 2026-08-25-ui-polish-class-sweep-design.md
+                           D9). The urgent branch GAINS rather than the
+                           monitoring branch dimming: dimming would trade a
+                           hierarchy problem for a legibility one on a pill an
+                           operator has to read. `border-warning-text` is the
+                           plate's own text colour, 8.79:1 light / 9.64:1 dark
+                           against the fill it encloses. */
+                        "border border-warning-text bg-warning-bg text-warning-text hover:bg-warning-bg/80"
                   }`}
                 >
                   {/* Decorative dot — the count text carries the meaning; live
