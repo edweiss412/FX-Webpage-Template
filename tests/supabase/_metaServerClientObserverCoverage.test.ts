@@ -44,6 +44,10 @@ const FACTORIES: Record<string, number> = {
   // one added beside them.
   "lib/supabase/server.ts": 2,
   "lib/supabase/browser.ts": 1,
+  // Observed, not exempt. It was exempted as "not a request path" and round-4 review showed the
+  // ground was FALSE: two server actions in app/admin/dev/actions.ts construct it per request.
+  // An exemption is only ever as good as the sentence justifying it, and this one was wrong.
+  "lib/dev/materialize/client.ts": 1,
 };
 
 /**
@@ -54,10 +58,6 @@ const EXEMPT: Record<string, { count: number; ground: string }> = {
   "app/api/test-auth/set-session/route.ts": {
     count: 2,
     ground: "test-auth gated (ENABLE_TEST_AUTH + bearer); never a production request path",
-  },
-  "lib/dev/materialize/client.ts": {
-    count: 1,
-    ground: "a one-line indirection so tests can stub the module; not a request path",
   },
 };
 

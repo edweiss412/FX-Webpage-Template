@@ -148,6 +148,31 @@ describe("both server-side factories are wired to the transport observer", () =>
   });
 });
 
+describe("the materialize factory is observed too", () => {
+  test("a 502 through createMaterializeClient IS observed", async () => {
+    // Round-4 review found this exempted as "not a request path", and the ground was FALSE:
+    // app/admin/dev/actions.ts is a "use server" module and constructs this client inside two
+    // server actions (applyAttentionScenario at :544, clearAttentionScenario at :600), both
+    // behind assertSameOriginServerAction and requireDeveloperIdentity. Their zero-write fault
+    // paths return infra_error without reaching logAdminOutcome, so an upstream fault there was
+    // swallowed with no durable record — exactly what the consequence bound forbids.
+    const codes: Array<string | null> = [];
+    setLogSink(async (record) => {
+      codes.push(record.code);
+    });
+    globalThis.fetch = vi.fn(async () => kong502()) as unknown as typeof globalThis.fetch;
+
+    const { createMaterializeClient } = await import("@/lib/dev/materialize/client");
+    const client = createMaterializeClient("http://127.0.0.1:54321", "test-key");
+    await client.from("shows").select("id");
+
+    expect(
+      codes.filter((c) => c === "SUPABASE_UPSTREAM_FAULT"),
+      "the materialize client's upstream fault must leave a record",
+    ).not.toHaveLength(0);
+  });
+});
+
 describe("a retry's own emit cannot re-enter the wrapper", () => {
   /**
    * Two independent grounds, both consequences of decisions taken for other reasons, which is
