@@ -641,7 +641,7 @@ v4 (| VENUE NAME | opener)   opener="VENUE NAME"   gate=false  warnings=[…]   
 
 ## BL-MUTATION-HARNESS-MAIN-RED — the source-mutation gate is red on main, every PR inherits it, and the failure set turns over faster than a row can name it
 
-**Status:** OPEN. · **Filed:** 2026-08-16 (found while shipping `chore/round-economy-enforcement-pair`, whose own enrolled surfaces passed) · **Re-scoped:** 2026-08-16 (`docs/mutation-ledger-accuracy`) · **Severity:** MEDIUM (a permanently red non-required gate trains every arc to read its verdict as noise, which is how the twelve-survivor catch of #786 nearly did not happen) · **Class:** CI gate fidelity · **Effort:** S-M
+**Status:** IN PROGRESS · **Branch:** fix/mutation-gate-fidelity · **Filed:** 2026-08-16 (found while shipping `chore/round-economy-enforcement-pair`, whose own enrolled surfaces passed) · **Re-scoped:** 2026-08-16 (`docs/mutation-ledger-accuracy`) · **Severity:** MEDIUM (a permanently red non-required gate trains every arc to read its verdict as noise, which is how the twelve-survivor catch of #786 nearly did not happen) · **Class:** CI gate fidelity · **Effort:** S-M
 
 **Renamed away from a title carrying a count.** This entry shipped as `…-TWO-SURFACES`, and within the same day it was filed (`a49ef67a4`, 08:55) the count went two, three, four — while the MEMBERS turned over completely, so that both originally-named failures have stopped reproducing and not one of the four failures below is one the original row mentioned. The count was the fastest-staling fact in the row, so the id no longer carries one. Nothing else cites the old id; this heading was its only occurrence.
 
@@ -705,7 +705,7 @@ for (const s of GUARD_SURFACES) { const k = s.accepted.reduce((a,r)=>{a[r.kind]=
 
 ## BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH — the source shards blew the 3600s budget on main, four days after the row that closed the wall-clock ceiling was archived
 
-**Status:** OPEN. · **Filed:** 2026-08-20 (`docs/mutation-harness-main-red-filing`, from arc-browser's pre-task verification of the nightly reds) · **Facing:** process · **Severity:** MEDIUM (it fails a non-required gate today; the same growth censors a quarter of the source gate's annotations at the next enrolment) · **Class:** CI capacity · **Effort:** S-M
+**Status:** IN PROGRESS · **Branch:** fix/mutation-gate-fidelity · **Filed:** 2026-08-20 (`docs/mutation-harness-main-red-filing`, from arc-browser's pre-task verification of the nightly reds) · **Facing:** process · **Severity:** MEDIUM (it fails a non-required gate today; the same growth censors a quarter of the source gate's annotations at the next enrolment) · **Class:** CI capacity · **Effort:** S-M
 
 **Incident:** the `budget` job FAILED on the scheduled `main` run of **2026-08-18** — [run 32111856491](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32111856491) — with `leg source-shards-1 took 4442s, over the 3600s budget`, `leg source-shards-2 took 4562s, over the 3600s budget`, `leg source-shards-3 took 4025s, over the 3600s budget`, then `check-shard-budget: 3 failure(s)`. It failed AGAIN on **2026-08-19** — [run 32228276600](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32228276600) — with `leg source-shards-0 took 5210s, over the 3600s budget` plus warnings on all three remaining legs. The last scheduled `main` run to pass it, [32007234397](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32007234397) (08-17), carried a single warning: `leg source-shards-3 took 3404s, over 75% of the 3600s budget`. The binding leg went from 94.6% of budget to 144.7% in two nightlies.
 
@@ -747,7 +747,7 @@ That lexical count is validated rather than trusted: at HEAD it agrees with the 
 
 ## BL-MUTATION-HARNESS-PR-TRIGGER-FANOUT — the harness's path-filtered PR trigger runs the whole matrix on every harness-touching PR, and those legs compete with that PR's own required checks
 
-**Status:** OPEN. · **Filed:** 2026-08-16 (`docs/mutation-ledger-accuracy`, from the shipping arc of #834 — it existed only in that arc's handoff message until now) · **Severity:** MEDIUM (it does not fail anything; it delays the merge path for exactly the PRs least able to afford it) · **Class:** CI capacity · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** fix/mutation-gate-fidelity · **Filed:** 2026-08-16 (`docs/mutation-ledger-accuracy`, from the shipping arc of #834 — it existed only in that arc's handoff message until now) · **Severity:** MEDIUM (it does not fail anything; it delays the merge path for exactly the PRs least able to afford it) · **Class:** CI capacity · **Effort:** S
 
 #834 split `mutation-harness` from ONE queued job into a matrix, and the same PR gave the workflow a path-filtered `pull_request` trigger. The trigger was right on its own terms — `workflow_dispatch` on a NEW workflow only works once the file is on the default branch, so a path-filtered PR run was the only way to validate the sharding against real Actions before merging it. What was not priced is the standing cost afterwards.
 
