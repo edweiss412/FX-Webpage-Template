@@ -584,9 +584,11 @@ function checkGuardSurfaceDeclarations(cfg) {
   if (bad.length > 0) {
     usageError(
       `round-1 diff brief declares guard surfaces without dispatchable evidence:\n${bad.join("\n")}\n` +
-        `each GUARD SURFACE: line in a round-1 diff brief must carry its own MUTATION SCORE ` +
-        `(<killed>/<total> plus "0 unaccepted survivors" plus OPERATORS: <declared names, or all>) ` +
-        `or CANNOT-EXPRESS: <probe citation> — see AGENTS.md convergence-criterion bullet 4`,
+        `each GUARD SURFACE: line in a round-1 diff brief must carry its own MUTATION SCORE, ` +
+        `or a CANNOT-EXPRESS: <probe citation>. One conforming line, verbatim:\n` +
+        `  GUARD SURFACE: <surface>, MUTATION SCORE: 4/4, 0 unaccepted survivors, OPERATORS: all\n` +
+        `The separator grammar is CLOSED: whitespace or one of , ; -- and not the word ` +
+        `"plus" or "and". See AGENTS.md convergence-criterion bullet 4.`,
     );
   }
 }
