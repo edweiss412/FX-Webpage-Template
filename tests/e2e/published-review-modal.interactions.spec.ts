@@ -961,18 +961,57 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     //
     // Unknown codes are actionable by classification (neither inbox-routed nor
     // auto-resolving) — the same seed code the deeplink suite uses.
+    // EIGHT DISTINCT codes, and each part of that is load-bearing.
+    //
+    // EIGHT, because the dock separated the two elements this case pits against
+    // each other: the attention menu anchors under the header and the share hub
+    // is in the footer (spec 2026-08-25-review-modal-strip-dock §3.1), so they
+    // overlap only when the menu is tall enough to span the column. The count
+    // is MEASURED, not guessed: at six rows the menu rendered
+    // [408,122 400x293] against a hub at [691,502 113x44] — the x ranges
+    // overlap and the y ranges miss by 87px, so the precondition failed. At
+    // ~49px per row, two more rows close it. Menu height is its content's
+    // height here (293 is well under the `max-h-96` cap), which is why row
+    // COUNT is the lever and a shorter viewport is not: the menu is fitted
+    // against the panel, so shrinking the panel shrinks the menu with it.
+    //
+    // DISTINCT, because `admin_alerts_one_unresolved_idx` permits only one
+    // unresolved alert PER CODE. It forbids duplicates, not breadth: six
+    // unresolved alerts of six different codes is a legal production state, so
+    // this fixture constructs a reachable arrangement rather than an impossible
+    // one.
+    //
+    // The set is DERIVED, not hand-picked: `lib/admin/attentionItems.ts:274`
+    // classifies an alert actionable as `!isInboxRouted(code) &&
+    // !isAutoResolving(code)` (`lib/messages/adminSurface.ts:58`,
+    // `lib/adminAlerts/audience.ts:63`). Applying that filter to
+    // MESSAGE_CATALOG's key order yields 256 actionable codes; these are the
+    // first eight. Fixture-only — no catalog entry is added or changed.
+    const ZORDER_CODES = [
+      "GOOGLE_NO_CREW_MATCH",
+      "AMBIGUOUS_EMAIL_BINDING",
+      "SESSION_IDLE_TIMEOUT",
+      "SESSION_ABSOLUTE_TIMEOUT",
+      "SHEET_PROCESS_FAILED",
+      "STALE_WRITE_ABORTED",
+      "STALE_MANUAL_REPLAY_ABORTED",
+      "STALE_PUSH_ABORTED",
+    ] as const;
     const { data, error } = await admin
       .from("admin_alerts")
-      .insert({
-        show_id: show.showId,
-        code: "SYNC_DELAYED_SEVERE",
-        context: {},
-        raised_at: new Date().toISOString(),
-      })
-      .select("id")
-      .single();
-    if (error || !data) throw new Error(`T-HUB-ZORDER alert seed failed: ${error?.message}`);
-    const alertIds = [data.id as string];
+      .insert(
+        ZORDER_CODES.map((code) => ({
+          show_id: show.showId,
+          code,
+          context: {},
+          raised_at: new Date().toISOString(),
+        })),
+      )
+      .select("id");
+    if (error || !data || data.length !== ZORDER_CODES.length) {
+      throw new Error(`T-HUB-ZORDER alert seed failed: ${error?.message}`);
+    }
+    const alertIds = data.map((r) => r.id as string);
 
     try {
       // A SHORT panel, not the wide POPUP default, and the dock is why. The
@@ -1004,7 +1043,9 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       const ib = Math.min(menuBox.y + menuBox.height, hubBox.y + hubBox.height);
       expect(
         ir > ix && ib > iy,
-        "the attention menu and the share-hub button must overlap for this test to mean anything",
+        "the attention menu and the share-hub button must overlap for this test to mean anything — " +
+          `menu [${Math.round(menuBox.x)},${Math.round(menuBox.y)} ${Math.round(menuBox.width)}x${Math.round(menuBox.height)}] ` +
+          `hub [${Math.round(hubBox.x)},${Math.round(hubBox.y)} ${Math.round(hubBox.width)}x${Math.round(hubBox.height)}]`,
       ).toBe(true);
 
       const hit = await page.evaluate(
