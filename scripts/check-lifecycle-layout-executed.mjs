@@ -82,8 +82,17 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
    * quarantined suite that looks executed. A test that proves something ends green.
    */
   const executed = new Map();
-  const walk = (suites) => {
+  const walk = (suites, suitePath = []) => {
     for (const suite of suites ?? []) {
+      // The enclosing describe titles are part of the identity, matching the app
+      // sibling (scripts/check-app-e2e-executed.mjs). Whole-diff review round 3
+      // probed the unqualified form THIS script still carried: append a case with
+      // the same file, line and leaf title under a different describe, give it no
+      // result, and the two collapse into one key — the oracle reported
+      // "ok — tap-target-inline-controls.layout.spec.ts 6" for a run where one of
+      // the six never executed. That is the partially-dark run this oracle exists
+      // to refuse. The reporter preserves the nesting; this walk now carries it.
+      const here = suite.title ? [...suitePath, String(suite.title)] : suitePath;
       for (const spec of suite.specs ?? []) {
         const base = String(spec.file ?? "")
           .split("/")
@@ -95,10 +104,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
           if (!executed.has(base)) executed.set(base, new Set());
           executed
             .get(base)
-            .add(`${spec.file}:${spec.line}:${spec.title}|${test.projectId ?? "?"}`);
+            .add(
+              `${here.join(" > ")}::${spec.file}:${spec.line}:${spec.title}|${test.projectId ?? "?"}`,
+            );
         }
       }
-      walk(suite.suites);
+      walk(suite.suites, here);
     }
   };
   walk(report.suites);

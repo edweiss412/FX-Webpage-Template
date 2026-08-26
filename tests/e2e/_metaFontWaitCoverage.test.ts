@@ -34,7 +34,8 @@
 //      tests/e2e/helpers/** with comments stripped: FOUR exported helpers
 //      navigate directly (driveToState, openShowReviewFrameAt,
 //      openShowReviewModalAt, openStep3Modal), plus openShowReviewModal
-//      transitively; 11 specs call one AND read geometry. `signInAs` is NOT
+//      transitively; 12 specs call one AND read geometry, of which 11 carry no
+//      fonts wait (font-binding.spec.ts already waits). `signInAs` is NOT
 //      one of them and an earlier draft of this note wrongly said it was: it
 //      posts through page.request.post (helpers/signInAs.ts:60) and never
 //      replaces the document, so counting it inflated the census and would
