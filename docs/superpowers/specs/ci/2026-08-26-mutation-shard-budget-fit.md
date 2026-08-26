@@ -75,7 +75,7 @@ deleted and the budget asserted instead. This spec is that moment.
 | --- | --- | --- |
 | 23,080 s | measured leg wall clock, four legs, boot-count partition, smaller registry (`BACKLOG.md`, `BL-MUTATION-SHARD-BUDGET-AGGREGATE-OVER`, routed from `dbconn`) | `n = 8` |
 | 18,025 s | modelled priced weight, 48 surfaces (`docs/superpowers/specs/ci/2026-08-25-mutation-shard-weight-seconds-design.md`, via the bl-orch handoff) | `n = 6` |
-| 18,651.7 s | modelled priced weight, live registry today | see §1.2 |
+| 18,695.7 s | modelled priced weight, live registry today | see §1.2 |
 
 All three are correct about their own input. Two are MODELLED and one is MEASURED, and the
 model under-prices, which is why the modelled figure alone gives the wrong answer.
@@ -89,10 +89,10 @@ Packing the live registry's priced weights with `lptAssign`:
 
 | N | modelled makespan | fits the 3,600 s budget |
 | --- | --- | --- |
-| 4 | 4,666.3 s | no, 29.6% over |
-| 5 | 3,732.9 s | no, 3.7% over |
-| 6 | 3,112.7 s | yes, 13.5% margin |
-| 7 | 2,667.5 s | yes, 25.9% margin |
+| 4 | 4,675.2 s | no, 29.9% over |
+| 5 | 3,740.4 s | no, 3.9% over |
+| 6 | 3,119.2 s | yes, 13.4% margin |
+| 7 | 2,673.3 s | yes, 25.7% margin |
 | 8 | 2,444.0 s | yes, 32.1% margin |
 
 From N = 8 upward the modelled makespan stops moving, pinned by the single heaviest surface.
@@ -139,25 +139,38 @@ Verbatim output of the header's command (4) over both run directories:
 
 ```
 overhead_max=216.8s modelled-only=mutationWeightRecords,mutationWeightWeights,supabaseRetryingFetch,retryableRpcVolatilityScan
-N=6 leg_elapsed=4404.4s margin=-804.4s -22.3% OVER
-N=7 leg_elapsed=3838.9s margin=-238.9s -6.6% OVER
-N=8 leg_elapsed=3298.6s margin=301.4s 8.4% FITS
+N=6 leg_elapsed=4234.7s margin=-634.7s -17.6% OVER
+N=7 leg_elapsed=3844.1s margin=-244.1s -6.8% OVER
+N=8 leg_elapsed=3284.5s margin=315.5s 8.8% FITS
 N=9 leg_elapsed=3273.7s margin=326.3s 9.1% FITS
 N=10 leg_elapsed=3273.7s margin=326.3s 9.1% FITS
 ```
 
 | N | children on the binding leg | leg elapsed | margin | fits |
 | --- | --- | --- | --- | --- |
-| 6 | 4,187.6 s | 4,404.4 s | 22.3% over | no |
-| 7 | 3,622.2 s | 3,838.9 s | 6.6% over | no |
-| 8 | 3,081.8 s | 3,298.6 s | 301.4 s, 8.4% | yes |
+| 6 | 4,017.9 s | 4,234.7 s | 17.6% over | no |
+| 7 | 3,627.3 s | 3,844.1 s | 6.8% over | no |
+| 8 | 3,067.7 s | 3,284.5 s | 315.5 s, 8.8% | yes |
 | 9 | 3,056.9 s | 3,273.7 s | 326.3 s, 9.1% | yes |
 | 10 | 3,056.9 s | 3,273.7 s | 326.3 s, 9.1% | yes |
 
-**N = 8 is RATIFIED.** It is the smallest N that fits. Seven misses by 238.9 s, which no
+**These figures moved once, after a sibling merge, and the move is recorded rather than
+smoothed.** PR #901 changed `connectionCensus`'s source and deciding suite. That surface is a
+partition INPUT: its mutant count went 334 boots to 341, its weight 2,096.2 s to 2,140.1 s, and the
+corpus total 18,651.7 s to 18,695.7 s. Every figure above was re-derived on the post-merge tree
+rather than carried, because a weight change re-packs the whole partition and a carried number
+would be a claim about a tree that no longer exists.
+
+The conclusion did not move and the margin improved slightly, from 301.4 s to 315.5 s. It could
+not have moved much, and the reason is §1.4's: at N = 8 the makespan is pinned by
+`controlOutlineResidue`, and `connectionCensus` at 2,253.7 s realized is still well below it. A
+sibling merge would have to move the HEAVIEST surface, or push a second one past it, to change the
+answer here.
+
+**N = 8 is RATIFIED.** It is the smallest N that fits. Seven misses by 244.1 s, which no
 rounding closes.
 
-Margin at N = 8: **301.4 s, or 8.4% of the budget.** That is thin, and it is stated as thin.
+Margin at N = 8: **315.5 s, or 8.8% of the budget.** That is thin, and it is stated as thin.
 §4 L-1 and L-3 say what it does not cover.
 
 ### §1.4 Why not a larger N
@@ -166,7 +179,7 @@ Margin at N = 8: **301.4 s, or 8.4% of the budget.** That is thin, and it is sta
 partition, so no shard count can place less than one surface on a leg. Every N of 9 or more
 therefore produces the same leg: 3,056.9 s of children plus 216.8 s of overhead, 3,273.7 s.
 
-Against N = 8's 3,298.6 s that is an improvement of **24.9 s, or 0.7% of the budget**, for at
+Against N = 8's 3,284.5 s that is an improvement of **10.8 s, or 0.3% of the budget**, for at
 least one more runner job. The shard count has essentially stopped being the variable.
 
 ### §1.5 Robustness of the choice, and what the fallbacks actually are
@@ -184,7 +197,7 @@ splits them into two pairs:
   reason it is written down rather than smoothed over.
 
 Their combined modelled weight is 333.8 s. Inflating all four by the worst under-pricing
-observed anywhere in the corpus, 2.19x, moves the N = 8 binding leg to 3,344.7 s, still inside
+observed anywhere in the corpus, 2.19x, moves the N = 8 binding leg to 3,317.8 s, still inside
 the budget. The choice does not turn on them.
 
 Using the worst-observed figure per surface is what makes this robust to the older run's
@@ -347,7 +360,7 @@ describes the four-shard regime and is rewritten to describe the one the count n
 - **L-3. Run-to-run variance reaches 1.29x on identical work, and its effect on the floor is an
   EXTRAPOLATION.** On the 42 surfaces measured in all three downloaded runs, run `32703467609`
   took 22,949.0 s where the other two took 17,683.2 s and 17,849.0 s. That is a real slow-runner
-  event, one occurrence in three observed, and the 8.4% margin at N = 8 does not cover it.
+  event, one occurrence in three observed, and the 8.8% margin at N = 8 does not cover it.
   What is NOT measured, and an earlier draft asserted anyway: that run does not contain
   `controlOutlineResidue` at all, which was enrolled after it, so no observation says the atomic
   floor scales by 1.29x. It says 42 OTHER surfaces did. If the floor scales similarly, a run that
