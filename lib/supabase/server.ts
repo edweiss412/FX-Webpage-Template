@@ -13,6 +13,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies, headers } from "next/headers";
 
+import { makeObservingFetch } from "./observeTransport";
 import { makeRetryingFetch } from "./retryingFetch";
 
 const SUPABASE_PKCE_VERIFIER_COOKIE_RE = /^sb-[^-]+-auth-token-code-verifier(?:\.\d+)?$/;
@@ -95,7 +96,18 @@ export async function createSupabaseServerClient() {
     // baseUrl so ownership is decided against THIS client's PostgREST mount rather than by
     // scanning the path: a Storage object may legitimately be named `rest/v1/rpc/<fn>`, and a
     // path-shape match claimed that WRITE and retried it.
-    global: { fetch: makeRetryingFetch(await maybeForceUpstreamFaults(fetch), { baseUrl: url }) },
+    global: {
+      // The observer sits UNDER the retry wrapper and OVER the fault injector, and both
+      // positions are load-bearing. Under the retry, so it records every ATTEMPT rather than the
+      // one replayed outcome: a 502 the retry absorbs must still leave a record. Over the
+      // injector, because the injector short-circuits its inner fetch while faults remain, so an
+      // observer beneath it would never see a forced 502 and AC-4's local proof would be
+      // impossible to run.
+      fetch: makeRetryingFetch(
+        makeObservingFetch(await maybeForceUpstreamFaults(fetch), { baseUrl: url }),
+        { baseUrl: url },
+      ),
+    },
     cookies: {
       getAll() {
         return cookieStore.getAll().map((c) => ({ name: c.name, value: c.value }));
@@ -141,5 +153,18 @@ export function createSupabaseServiceRoleClient() {
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
   return createClient(url, resolvedServiceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
+    global: {
+      // OBSERVED but never RETRIED, and those are two different decisions with two different
+      // reasons. The retry wrapper is excluded here because the durable log sink writes through
+      // this client and a retry's own emit would re-enter it. The observer is safe because its
+      // fence is the log LEVEL: it emits at debug, which the app_events level CHECK makes unable
+      // to persist, so it cannot observe its own write.
+      //
+      // LATE-BOUND deliberately. supabase-js resolves `fetch` per request when no global.fetch is
+      // supplied, so an eager `makeObservingFetch(fetch, …)` here would pin the transport at
+      // factory-call time and silently break every suite that swaps globalThis.fetch AFTER
+      // constructing this client. Three do, and two of them are outside tests/supabase/.
+      fetch: makeObservingFetch((input, init) => globalThis.fetch(input, init), { baseUrl: url }),
+    },
   });
 }
