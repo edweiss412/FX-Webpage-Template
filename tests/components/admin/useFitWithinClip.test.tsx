@@ -12,7 +12,7 @@
  * the extension existing.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 
 import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
 import { premiseHolds } from "../../_shared/premise";
@@ -273,12 +273,12 @@ describe("useFitWithinClip", () => {
 
   test("(g) a burst of window resizes coalesces to ONE apply per frame", () => {
     const { fitted } = mount();
-    // Mount costs TWO applies today: the layout effect runs, then the ref
-    // callback's `attachCount` bump re-runs it. Known debt, tracked as
-    // BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — pinned here so a change to the
-    // mount path is visible rather than silently absorbed into the delta below.
+    // ONE attach is ONE measure. The ref callback owns the wiring and returns
+    // its teardown, so nothing re-runs the measure behind it. Pinned here so a
+    // regression to two is visible rather than silently absorbed into the
+    // coalescing delta below.
     const afterMount = applyCount;
-    expect(afterMount, "mount measure count changed").toBe(2);
+    expect(afterMount, "mount measure count changed").toBe(1);
 
     geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
     for (let i = 0; i < 12; i += 1) fireEvent(window, new Event("resize"));
@@ -337,6 +337,83 @@ describe("useFitWithinClip", () => {
     fireEvent(window, new Event("resize"));
     flushFrames();
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  test("(h2) the ref callback with a null node: no measure, no throw", () => {
+    // Unreachable under React 19 cleanup refs — React calls the returned
+    // teardown instead of re-invoking with null — but `RefCallback` admits it,
+    // and returning `undefined` there is what React expects.
+    //
+    // `renderHook` hands back the callback directly. Two earlier drafts were
+    // worse: the first read a property the harness never sets, so the call was
+    // a no-op and the case asserted nothing; the second captured into an outer
+    // variable during render, which `react-hooks/globals` rejects as a render
+    // side effect, and rightly.
+    const { result } = renderHook(() => useFitWithinClip("k"));
+    const before = applyCount;
+
+    // PREMISE (own inputs): a callback must actually have been returned, or
+    // every assertion below is about nothing.
+    premiseHolds("the hook returned a ref callback", typeof result.current === "function");
+
+    expect(() => result.current(null)).not.toThrow();
+    expect(applyCount - before, "a null node must not measure").toBe(0);
+  });
+
+  test("(h3) after unmount, a resize does not measure a detached node", () => {
+    const { view } = mount();
+    const afterMount = applyCount;
+    view.unmount();
+    fireEvent(window, new Event("resize"));
+    flushFrames();
+    // Red under M13 (the whole teardown removed): the listener would still be
+    // attached and `nodeRef` would still point at the detached node, so this
+    // resize would measure. M3 alone (dropping only `nodeRef.current = null`)
+    // does NOT reach here — the listener is gone either way.
+    expect(applyCount - afterMount, "a resize after unmount measured a dead node").toBe(0);
+  });
+
+  test("(h12) the ResizeObserver callback re-measures against the new geometry", () => {
+    const observed: Element[] = [];
+    const constructed: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(cb: ResizeObserverCallback) {
+          constructed.push(cb);
+        }
+        observe(target: Element) {
+          observed.push(target);
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+
+    const { outer, inner, fitted } = withOffsetParent(() => mount());
+    expect(fitted.style.maxHeight).toBe(expectedPx());
+
+    // PREMISE (this case's own inputs): the hook must have handed the
+    // constructor a callback AND observed both ancestors. The COUNT is not
+    // asserted — it differs by tree, and a `=== 1` premise would abort before
+    // the assertion on the very tree this case exists to pin.
+    premiseHolds(
+      "the hook constructed an observer and observed both ancestors",
+      constructed.length >= 1 && observed.includes(outer) && observed.includes(inner),
+    );
+    // The LAST is the live one: a torn-down earlier instance must not be fired.
+    const fire = constructed[constructed.length - 1];
+    if (fire === undefined) throw new Error("unreachable: premise asserted length >= 1");
+
+    for (const target of [outer, inner]) {
+      geometry = { ...geometry, clipBottom: geometry.clipBottom - 40 };
+      fire([{ target } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+      flushFrames();
+      expect(
+        fitted.style.maxHeight,
+        `a resize reported for ${String(target.getAttribute("data-testid"))} did not re-measure`,
+      ).toBe(expectedPx());
+    }
   });
 
   test("(g4) a non-transform transitionend does not re-measure", () => {
