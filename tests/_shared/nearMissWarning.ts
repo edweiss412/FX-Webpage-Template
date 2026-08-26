@@ -28,12 +28,25 @@ export type NearMissPair = {
 
 export function nearMissWarningPair(): NearMissPair {
   const parsed = parseSheet(readFileSync(FIXTURE, "utf8"), FIXTURE);
-  const real = parsed.warnings.find((w) => w.code === "UNKNOWN_FIELD");
+  // MIXED CASE deliberately. Whole-diff round 1: the helper used to take the first
+  // UNKNOWN_FIELD, whose candidate is the all-caps `VENUE ADDRESS`, so a local
+  // trim-and-uppercase guard at either RENDER SITE passed every component and browser
+  // case while corrupting 41 of the 65 baseline candidates. The corpus round-trip in
+  // tests/parser/candidateLabel.test.ts pins the RULE; only a mixed-case value pins the
+  // CALL SITES. This fixture carries `Client Phone`, `Client Email` and
+  // `Backdrop / Scenic`, so the selection is real corpus data, not a constructed string.
+  const real = parsed.warnings.find(
+    (w) =>
+      w.code === "UNKNOWN_FIELD" &&
+      typeof w.candidate === "string" &&
+      w.candidate !== w.candidate.toUpperCase(),
+  );
 
   // PREMISE ON ITSELF. Without these, a fixture change makes every suite reading this helper
   // vacuously green, and the failure would surface three files away as a confusing null-render
   // assertion instead of here as the thing that actually broke.
-  if (!real) throw new Error(`${FIXTURE} produced no UNKNOWN_FIELD warning`);
+  if (!real)
+    throw new Error(`${FIXTURE} produced no UNKNOWN_FIELD warning with a mixed-case candidate`);
   if (typeof real.candidate !== "string" || real.candidate.trim().length === 0)
     throw new Error(`${FIXTURE}'s first UNKNOWN_FIELD carries no usable candidate`);
 

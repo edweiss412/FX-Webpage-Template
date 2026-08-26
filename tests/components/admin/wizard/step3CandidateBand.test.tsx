@@ -47,10 +47,11 @@ describe("wizard step-3 candidate line", () => {
   it("names the matched candidate on the row", () => {
     renderRows([withCandidate]);
     const line = screen.getByTestId(tid(0, "candidate"));
-    expect(line.textContent).toContain(withCandidate.candidate);
-    // Grammar: this surface's flatter rendering of the same information grammar (spec §4.1).
-    expect(line.textContent).toMatch(/^Closest match /);
-    expect(line.textContent).toContain(withCandidate.candidate);
+    // EXACT, not containment. Whole-diff round 1: containment passes on appended or
+    // trailing stale text, and with an all-caps fixture it also passed a call site that
+    // uppercased. The fixture is mixed-case now and this is an equality assertion, so
+    // both mutations fail here.
+    expect(line.textContent).toBe(`Closest match ${withCandidate.candidate}`);
   });
 
   it("renders no candidate line when the key is absent", () => {

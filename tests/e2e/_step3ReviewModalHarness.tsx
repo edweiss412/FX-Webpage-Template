@@ -107,10 +107,12 @@ export function nearMissHarnessWarnings(): ParseWarning[] {
     {
       severity: "warn" as const,
       code: "UNKNOWN_FIELD",
-      message: "Unrecognized client row label: 'Addres'; looks like 'VENUE ADDRESS'",
-      blockRef: { kind: "client", name: "Addres" },
-      rawSnippet: "Addres | 1270 Avenue of the Americas",
-      candidate: "VENUE ADDRESS",
+      message: "Unrecognized client row label: 'Backdrup'; looks like 'Backdrop / Scenic'",
+      blockRef: { kind: "client", name: "Backdrup" },
+      rawSnippet: "Backdrup | black velour",
+      // MIXED CASE on purpose: an all-caps candidate cannot catch a call site that
+      // uppercases, which is what whole-diff round 1 found. Real corpus value.
+      candidate: "Backdrop / Scenic",
     },
     {
       severity: "warn" as const,

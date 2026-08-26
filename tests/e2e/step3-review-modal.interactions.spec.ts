@@ -621,12 +621,15 @@ test("candidate line and row-label gate, in a real browser", async ({ page }) =>
   // Row 0 carries a candidate: the line names it, in this surface's flatter grammar.
   await expect(row(0, "candidate")).toHaveCount(1);
   await expect(row(0, "candidate")).toContainText("Closest match");
-  await expect(row(0, "candidate")).toContainText("VENUE ADDRESS");
+  await expect(row(0, "candidate")).toHaveText("Closest match Backdrop / Scenic");
 
   // Row 1 is an UNKNOWN_FIELD with NO candidate, which is what a pre-detector persisted row
   // looks like. No line, and the card is otherwise unchanged: its row label still renders.
   await expect(row(1, "candidate")).toHaveCount(0);
-  await expect(row(1, "label")).toHaveText("Zzz");
+  // EXACT full text, which pins the lead-in AND the value. Whole-diff round 1 caught this
+  // as deterministically red: toHaveText is equality after whitespace normalization, and
+  // the row label gained a "Sheet row " lead-in after this spec last ran green.
+  await expect(row(1, "label")).toHaveText("Sheet row Zzz");
 
   // AC-8 in a real browser: row 2 is PULL_SHEET_PARSE_PARTIAL, whose rawSnippet is a RAW table
   // row. Ungated, labelFromRawSnippet renders its first cell (`| 2x`) as a field label that is

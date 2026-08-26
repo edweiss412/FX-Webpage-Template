@@ -58,10 +58,12 @@ const ROUTED_WARNINGS = [
   {
     severity: "warn",
     code: "UNKNOWN_FIELD",
-    message: "unknown venue field e2e; looks like 'VENUE ADDRESS'",
-    rawSnippet: "Addres | e2e-venue-address",
-    blockRef: { kind: "client", name: "Addres" },
-    candidate: "VENUE ADDRESS",
+    message: "unknown backdrop field e2e; looks like 'Backdrop / Scenic'",
+    rawSnippet: "Backdrup | e2e-backdrop",
+    blockRef: { kind: "client", name: "Backdrup" },
+    // MIXED CASE on purpose: an all-caps candidate cannot catch a call site that
+    // uppercases, which is what whole-diff round 1 found.
+    candidate: "Backdrop / Scenic",
   },
 ];
 
@@ -303,7 +305,7 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
 
     // EXACTLY ONE of the two UNKNOWN_FIELD rows carries a candidate, so exactly one band.
     await expect(values).toHaveCount(1);
-    await expect(values.first()).toHaveText("VENUE ADDRESS");
+    await expect(values.first()).toHaveText("Backdrop / Scenic");
     await expect(bands.first()).toContainText("Closest match");
 
     // The two bands share one flex container and wrap at a narrow width. Assert they are on
