@@ -1,0 +1,203 @@
+# Plan — Supabase upstream fault class
+
+Spec: `docs/superpowers/specs/2026-08-25-supabase-upstream-fault-class.md`. Branch `fix/supabase-upstream-fault-class`. One commit per task, red then green on the SAME command.
+
+Two tasks are already committed, ahead of this plan, because the spec's own first scheduled step required the harness before the prose and because round 1 surfaced a live defect that could not wait:
+
+- `29e30584e` — the plant-four harness and its recursion fence (14 cases).
+- `567314667` — one bounded target describer for both transport emits, after round 1 probed a Storage identifier leak.
+
+## 1. Meta-test inventory
+
+- **CREATES** a walked guard at tests/supabase/_metaServerClientObserverCoverage.test.ts (new in Task 2) — a walked guard making a NEW directly-constructed server-side Supabase client fail by default.
+- **EXTENDS** `tests/supabase/serverClientWiring.test.ts` — the observer's install site and the REQUIRED composition order.
+- **EXTENDS** `tests/ci/_metaE2eWorkflowCoverage.test.ts` — the capture chain's workflow half.
+- **EXTENDS** `tests/mutation/source/registry.ts` and its `EXPECTED_ENV_TOUCHING` companion.
+- **NOT extended:** the five `_metaInfraContract` siblings. `observeTransport.ts` carries `// not-subject-to-meta:` with its ground — it never sees a `{ data, error }` pair, only the HTTP exchange underneath one — the same disposition `lib/supabase/retryingFetch.ts` already holds. No `lib/admin/**` loader is touched.
+- **NOT extended:** `tests/auth/advisoryLockRpcDeadlock.test.ts`. No `pg_advisory*` surface is touched.
+- **NOT extended:** `tests/log/_metaMutationSurfaceObservability.test.ts`. No mutation surface is added; verified green against the current diff.
+
+## 2. Advisory-lock holder topology
+
+N/A. This plan edits no file containing `pg_advisory`.
+
+## 3. Plan-time sweeps, run and pasted
+
+### 3.1 Every Supabase client construction in the scanner's roots
+
+```
+$ grep -rn 'createClient(\|createServerClient(\|createBrowserClient(' app lib components | grep -v '\.test\.'
+app/api/test-auth/set-session/route.ts:193   createClient
+app/api/test-auth/set-session/route.ts:229   createServerClient
+lib/supabase/server.ts:89                    createServerClient
+lib/supabase/server.ts:142                   createClient
+lib/observe/query/events.ts:64               (comment mention)
+lib/supabase/browser.ts:45                   createBrowserClient
+lib/dev/materialize/client.ts:18             createClient
+lib/validation/reseedFixtures.ts:19          (comment mention)
+
+$ grep -rn 'import(.*@supabase' app lib components
+(no output)
+```
+
+| Hit | Disposition |
+|---|---|
+| `lib/supabase/server.ts:89` | SANCTIONED. Cookie-bound factory; Task 1 installs the observer. |
+| `lib/supabase/server.ts:142` | SANCTIONED. Service-role factory; Task 1 installs the observer, late-bound. |
+| `lib/supabase/browser.ts:45` | SANCTIONED, NOT observed. Browser-side; the record is a server log line. |
+| `app/api/test-auth/set-session/route.ts:193` and `app/api/test-auth/set-session/route.ts:229` | EXEMPT. Test-auth gated, never a production request path. |
+| `lib/dev/materialize/client.ts:18` | EXEMPT. A one-line indirection so tests can stub the module. |
+| `lib/observe/query/events.ts:64`, `lib/validation/reseedFixtures.ts:19` | NEGATIVE CONTROLS. Comment mentions; the scanner must stay silent. |
+
+No dynamic `await import("@supabase/…")` exists in the roots. The scanner handles the form anyway, covered by a SYNTHETIC fixture, and this plan says plainly that the live tree has no instance so nobody later reads that case as evidence one exists. The live dynamic constructions are all under `scripts/`, excluded on the stated ground in spec §9.3.
+
+### 3.2 The scanner prototyped and controlled before implementation
+
+Run against the live tree it finds exactly the six real constructions above and stays SILENT on both comment mentions. Controls in the same run:
+
+| Fixture | Expected | Result |
+|---|---|---|
+| new static `createClient` import + call | FIRES (fail-by-default) | found |
+| dynamic `const { createClient } = await import(…)` + call | FIRES | found |
+| type-only `SupabaseClient` import + a comment naming `createClient()` | SILENT | silent |
+| a STRING literal naming `createClient(` above a real call | fires on the CALL ONLY | correct |
+
+The fourth is the discriminating one and the reason the scanner strips comments and string literals before matching: a bare grep flags the two live mentions and the string, so it would be noise from its first run and get suppressed rather than fixed.
+
+### 3.3 Suites that would break on an eager `fetch` capture
+
+```
+$ for f in $(grep -rln 'globalThis.fetch\|vi.stubGlobal("fetch"' tests/); do grep -ql 'ServiceRole' "$f" && echo "$f"; done
+tests/supabase/serverClientWiring.test.ts
+tests/api/diagram-asset-route.test.ts
+tests/onboarding/finalizeCasDougEditSelfHeal.db.test.ts
+```
+
+Two of the three are outside `tests/supabase/`, so a `tests/supabase`-scoped run would report green while they were broken. Task 1 runs all three by explicit file list.
+
+## 4. Framework contracts this plan depends on
+
+Every claim about framework behaviour carries its source, the way code claims carry `file:line`.
+
+| Claim | Verified at |
+|---|---|
+| supabase-js resolves `fetch` per request when no `global.fetch` is supplied, and through the supplied one when it is | supabase-js 2.105.1, bundled CommonJS entry, `resolveFetch`, lines 96-99 |
+| Playwright forwards a web server's stderr by default but its stdout only on an explicit `stdout: "pipe"` | playwright 1.59.1, bundled web-server plugin, the two `launchedProcess` stream handlers |
+| `router.refresh()` merges the RSC payload without remounting, so no navigation loading boundary appears | Next docs shipped in the package, `use-router` reference |
+| the loading file wraps the page and nested layouts but NOT the layout in its own segment, and a layout's runtime data access shows no fallback | Next docs shipped in the package, `loading` file-conventions reference |
+
+The last two are recorded because they refuted a mechanism the spec's first draft proposed. Nothing in the shipped plan depends on them; they are here so the refutation is not re-derived.
+
+## 4a. Acceptance criteria, and what proves each
+
+Every task's `ac=` resolves here. The spec states the criteria; this table names the executable proof, so a task cannot claim an AC that nothing checks.
+
+| AC | Proof |
+|---|---|
+| **AC-1** | Task 1's cases in `tests/supabase/serverClientWiring.test.ts`: a 502 observed AND retried on the cookie-bound client, a 502 observed on the service-role client, that observation not persisting through the real sink, and a `globalThis.fetch` swapped after construction still honoured. |
+| **AC-2** | Already green at `29e30584e` and tightened at `e1c75e7bc`: fourteen plants plus four fence cases, with the clone-and-discard and rebuild-the-Request mutants each killing a case. |
+| **AC-3** | Task 2's walked guard, proven fail-by-default against a synthetic fourth construction and silent against the two live comment mentions. |
+| **AC-4** | Task 3's two halves: `stdout: "pipe"` on the baseline webServer, and the redirect-shaped workflow whose structural assertions include no `shell:` key on any step in the job. Regression gate: `_metaE2eWorkflowCoverage` still reports all twenty specs covered. |
+| **AC-5** | `describeTransportTarget` as the single describer for both emits, already landed at `567314667`, with the Storage path probed rather than argued. |
+| **AC-6** | Task 5's registry row plus a measured `pnpm heavy:mutation pnpm mutation:guards` score with zero unaccepted survivors. |
+| **AC-7** | Task 6: both rows in `BACKLOG-archive.md` carrying spec §9 and §9a, markers gone in the same commit, and no new `BL-`/`DEF-` row anywhere in the diff. |
+
+## 5. Tasks
+
+<!-- tasks: depth=3 red-contract -->
+
+### Task 1 — install the observer on both server-side factories
+<!-- task: red=`pnpm vitest run tests/supabase/serverClientWiring.test.ts` red-state=authored red-target=`lib/supabase/server.ts:98` why=`the cookie-bound client composes only makeRetryingFetch and the service-role client passes no global.fetch at all, so neither factory emits an observation` ac=AC-1 -->
+
+RED: new cases in the existing wiring suite. The cookie-bound client OBSERVES a 502 and still retries it (proving the observer is under the retry wrapper, so it sees every attempt rather than the replayed outcome); the service-role client OBSERVES a 502; the service-role client's observation does NOT persist, driven through the real sink; and a `globalThis.fetch` swapped AFTER construction is honoured.
+
+GREEN, with the composition REQUIRED rather than merely pinned:
+
+```
+cookie-bound:  retry → observer → injector → real fetch
+service-role:  observer → (late-bound) real fetch
+```
+
+The observer sits OUTSIDE the test injector deliberately. The injector short-circuits its inner fetch while faults remain, so an observer placed inside it would never see a forced 502 and AC-4's local proof would be impossible. "Innermost" therefore means innermost of the PRODUCTION wrappers.
+
+The service-role install uses a late-binding thunk, `(input, init) => globalThis.fetch(input, init)`, reproducing today's per-request resolution exactly. An eager capture would pin the transport at factory-call time and break §3.3's suites.
+
+**Relitigation pre-empt for the diff brief.** `serverClientWiring.test.ts` records that "a design that extended an observer to the service-role client re-opened exactly this recursion". That finding is what the ratified fence CORRECTS: the fence belongs on the log level, not the client scope. The old design emitted at a persisting level; this one emits at `debug`, which the `app_events` level CHECK makes unable to persist.
+
+Regression gate: the three suites in §3.3, plus `tests/supabase/upstreamFaultInjectorContract.test.ts`.
+
+### Task 2 — walked server-client coverage guard
+<!-- task: red=`pnpm vitest run tests/supabase/_metaServerClientObserverCoverage.test.ts` red-state=authored red-target=`lib/supabase/server.ts:89` why=`no walked guard exists, so a fourth directly-constructed server-side client is caught by nothing` ac=AC-3 -->
+
+Walks `app`, `lib`, `components` with the shared `walkSourceFiles` and the shared source-extension constant rather than a privately re-declared regex — `tests/supabase/retryableRpcVolatilityScan.ts:258-262` records a round-4 finding where a private regex let a `.mts` site through. Strips comments and string literals before matching, per §3.2.
+
+Premise, via `tests/_shared/premise.ts`: assert the walk found the three known factories BEFORE asserting anything about exemptions. Without it an empty walk — a wrong root, an extension miss — passes vacuously, which is the exact shape the cited finding records.
+
+The four controls of §3.2 ship in the same commit as the scanner.
+
+### Task 3 — the capture chain, BOTH halves
+<!-- task: red=`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`.github/workflows/app-e2e.yml:188` why=`the run step redirects nowhere and no step extracts anything, and playwright.config.ts sets no stdout on the baseline webServer so the records never leave Playwright` ac=AC-4 -->
+
+**Half 1, `playwright.config.ts`:** `stdout: "pipe"` on the FIRST `webServer` entry, the port-3000 baseline server, which `app-e2e.yml` boots via `BASELINE_SERVER_ONLY`. Blast radius stated: `crew-e2e` boots the same entry via `CREW_E2E_ONLY`, so its logs also gain the server's stdout. More output, not different behaviour.
+
+**Half 2, `.github/workflows/app-e2e.yml`:** the redirect shape from spec §7.2. Structural assertions, via the `yaml` parser the suite already imports, asserting what the probe established rather than what the design item says:
+
+- the invocation stays inline with a redirect and NO pipe;
+- **no step in the app-e2e job carries a `shell:` key** — the breaker invisible from reading either file alone;
+- the extract step carries `id:` and `if: always()`;
+- the dump step's `if:` references `steps.<id>.outputs`.
+
+Regression gate: `_metaE2eWorkflowCoverage` must still report all twenty app-e2e specs covered. That is the check that would have caught the original design, and it costs one command.
+
+**Task 4 is DROPPED by the ratified disposition.** The page-segment settle helper is not built. Named here, without a task heading, so the commit numbering below still matches this plan rather than silently renumbering.
+
+### Task 5 — mutation enrollment and measured score (AFTER absorbing `origin/main`)
+<!-- task: red=`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:3547` why=`observeTransport.ts is a guard-shaped module with two referring suites and no registry row, so its score is unmeasured` ac=AC-6 -->
+
+One row: `id: "observeTransport"`, `sourcePath: "lib/supabase/observeTransport.ts"`, both harness files as `suitePaths`, `operators: [...OPERATOR_NAMES]`, `scoreFloor: 0.9`, `accepted: []`, and a control the suites demonstrably notice. Candidate: `from: "return status >= 500;"` `to: "return status > 500;"`, which the "every 5xx records" plant kills. Verified `from` occurs in the source at plan time.
+
+**Also owed, and measured rather than estimated.** Enrolment puts both harness suites under `tests/mutation/_metaPremiseContract.test.ts`, which walks enrolled suites. `classifyTests` against this tree:
+
+```
+tests/supabase/observeTransport.plantFour.test.ts:      total=10, all environment-touching, 1 with an exemption
+tests/supabase/observeTransport.recursionFence.test.ts: total=4,  all environment-touching, 1 with an exemption
+```
+
+So `EXPECTED_ENV_TOUCHING` takes `10` and `4` — per suite, not a combined 14 — and **twelve of the fourteen cases need their `no-premise:` exemption written**. The exemption is the honest form: the classifier reports a case as touching for what the wrapper CAN reach, not what the test does, and these drive an injected stub.
+
+**Sequencing.** `#894` (merged `e381de76e`) added an accepted-row symbol-correspondence oracle under tests/mutation/, an oracle that WALKS registry rows. This task lands only after the branch absorbs `origin/main`, which happens on Eric's word because ledger merges are serialized.
+
+Then `pnpm heavy:mutation pnpm mutation:guards`, and the MEASURED score for every affected surface goes on the `GUARD SURFACE:` line of the round-1 diff brief. Re-derived, never quoted.
+
+<!-- tasks: end -->
+
+<!-- tasks: depth=3 -->
+
+### Task 6 — graduate both rows (the PR's LAST commit)
+<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` ac=AC-7 -->
+
+Task 6 sits in its OWN task region, without the `red-contract` attribute the region above carries. The reason is mechanical rather than a dodge: a `red-contract` marker requires a `red-target=` naming a production surface, and this task's defective surface is a root-level ledger file, which the marker grammar rejects as bare-filename shorthand. The red is still stated in prose below, and the same command still goes red then green.
+
+Both rows move to `BACKLOG-archive.md` carrying spec §9 and §9a, and the IN PROGRESS markers come off in the SAME commit. Last commit of the PR, before the merge, never after.
+
+`BACKLOG.md` conflict resolution, if any, by set arithmetic with one extractor on both parents: open = main's open minus rows this branch archived; archive == exact union; assert zero rows both open and archived and zero lost. Cut rows heading-to-any-next-heading.
+
+<!-- tasks: end -->
+
+## 6. Checklist
+
+- [ ] Tasks 1-3 implemented TDD, one commit each
+- [ ] Absorb `origin/main` on Eric's word
+- [ ] Task 5: registry row, `EXPECTED_ENV_TOUCHING`, twelve exemptions, measured score
+- [ ] Self-review
+- [ ] Adversarial review (cross-model), plan stage, to APPROVE
+- [ ] Whole-diff cross-model review to APPROVE
+- [ ] Twelve required checks green (GraphQL `statusCheckRollup`, 5-minute floor, one query per poll, RATE_LIMIT means no information)
+- [ ] Task 6 lands LAST
+- [ ] READINESS to bl-orch; do NOT merge
+
+## 7. Working rules adopted mid-arc
+
+- Stage explicit paths, never `git add -A`: `tests/specLint/cli.test.ts` writes scratch inside the tracked tree during a full run.
+- Before every codex-guard dispatch, grep the brief and print counts for REVIEWER ONLY, the consequence bound, `PROBE DOMAIN:`, the threat fence, and the VERDICT/FINDINGS instruction. Every count must be 1.
+- Run the guard that READS a surface before designing against it. Two review rounds here were spent on shapes an existing guard already rejected.
