@@ -122,29 +122,27 @@ Each item carries its ratification. Verify the citation; do not re-derive the de
    `components/admin/PublishedToggle.tsx` changes: not the switch label, not `RETRY_COPY`, not the
    sublines, not the finalize chip. This spec moves geometry and adds a direction.
 
-5. **The banner stays an absolutely-positioned overlay; the flip is a direction, not a re-skin.**
-   The considered alternative was rendering the refusal in flow as the footer's first line, above
-   the strip row, which would need no measurement, no cap and no predicate. Rejected for three
-   reasons, recorded so a reviewer does not re-derive them: (a) the ratified decision and the arc
-   brief both specify a banner that *opens upward*, i.e. an overlay with a direction; (b) an in-flow
-   banner grows the dock, which shoves the change list mid-scroll, whereas an overlay leaves the
-   scroll position untouched — errors here are momentary by design
-   (`components/admin/PublishedToggle.tsx:69-70`, the `POPOVER_POSITION` docblock: "This is
-   ERROR-ONLY: errors are momentary"); (c) it would retire the overlay skin wholesale, taking with it the T4
-   containment / fit / scroll / keyboard obligations in `tests/e2e/popover-clip-fit.spec.ts`, the
-   `popoverOverlayRegistry` row (`tests/components/admin/showpage/popoverOverlayRegistry.ts:105-111`)
-   and the `z-banner` rule against `ReSyncButton`'s `z-overlay`
-   (`components/admin/ReSyncButton.tsx:57`) — a far larger blast radius than the direction it
-   replaces, in a file whose fit hook is fenced (§1.2).
+5. **The banner stays an out-of-flow overlay; the side is chosen, not re-skinned.** The considered
+   alternative was rendering the refusal IN FLOW as the footer's first line, above the strip row.
+   Rejected for three reasons, recorded so a reviewer does not re-derive them: (a) the ratified
+   decision and the arc brief both specify a banner that *opens upward*, i.e. an overlay with a side;
+   (b) an in-flow banner grows the dock, which shoves the change list mid-scroll, whereas an overlay
+   leaves the scroll position untouched — errors here are momentary by design
+   (`components/admin/PublishedToggle.tsx:69-70`: "This is ERROR-ONLY: errors are momentary"); (c) it
+   would retire the overlay skin wholesale, taking with it the T4 containment / fit / scroll /
+   keyboard obligations in `tests/e2e/popover-clip-fit.spec.ts`, the registry row
+   (`tests/components/admin/showpage/popoverOverlayRegistry.ts:105-111`), and the `z-banner` rule
+   against Re-sync's `z-overlay` (`components/admin/ReSyncButton.tsx:57`) — a far larger blast radius
+   than choosing a side.
 
-6. **The direction is MEASURED, never hardcoded to the new dock.** Once the strip is docked, room
-   below its anchor is negative on every supported viewport, so the up arm is what production takes
-   in practice. The predicate still measures, for a stated reason: a hardcoded `bottom-full` encodes
-   today's dock into the toggle, and the census assertion in §7 would then restate a constant
-   instead of measuring a surface. The down arm is not dead — it is the default, it is what runs
-   when nothing clips, and it is exercised end to end by the replica entry
-   (`tests/e2e/_publishedToggleClipLiveEntry.tsx`), which is where T4's four down-direction
-   obligations live.
+6. **The side is MEASURED, never hardcoded to the new dock.** Once the strip is docked, the space
+   below its anchor is negative at every supported viewport, so the top side is what production takes
+   in practice. The placement module still measures, for a stated reason: hardcoding a side would
+   encode today's dock into the overlay, and §7's assertion would then restate a constant instead of
+   measuring a surface. The bottom side is not dead — it is `preferredSide`, it is what wins every
+   tie (`lib/popover/position.ts:129`), and it is what the replica entry
+   (`tests/e2e/_publishedToggleClipLiveEntry.tsx`) exercises, which is where T4's four
+   bottom-side obligations live.
 
 7. **The header bound ships in this arc.** bl-orch's 2026-08-25 SCOPE CALL B, quoted in full in §0.
    The deferral this spec originally proposed is superseded. Equally not relitigable in the other
@@ -453,106 +451,145 @@ classes and test ids; the `subHeader` slot stays available and is still exercise
 `tests/components/admin/review/reviewModalShell.test.tsx` and `tests/e2e/_shareLinkFlashLiveEntry.tsx`
 (see §9).
 
-### §3.2 The refusal banner gains an upward arm
+### §3.2 The refusal banner migrates to the placement module
 
-`POPOVER_POSITION` splits into a direction-free base and two direction arms:
+**This replaces the "add an upward arm to `POPOVER_POSITION`" design of this spec's first draft.** The
+first draft was going to invent a direction predicate and a second fit hook. The repo already has
+both, in a module built for exactly this panel, and a structural guard that steers new work toward it.
+Finding that is the point of the mandatory citation pass; using it is the point of
+`subtract-before-you-add`.
 
-| constant | value |
-|---|---|
-| `POPOVER_BASE` | `absolute inset-x-0 z-banner overflow-x-hidden overflow-y-auto rounded-sm p-2 text-sm wrap-break-word shadow-tile` |
-| `POPOVER_DOWN` | `top-full mt-1` |
-| `POPOVER_UP` | `bottom-full mb-1` |
-
-`top-full`/`mt-1` are today's values, unchanged in the down arm. `bottom-full`/`mb-1` are the mirror:
-`bottom-full` places the banner's bottom edge at the anchor's padding-box top, and `mb-1` reproduces
-`BANNER_OFFSET = 4` on the other side. Nothing else in the skin changes — same `z-banner`, same
-`inset-x-0` full-anchor-width banner, same `overflow-y-auto`, same border/background/focus classes at
-the call site (`components/admin/PublishedToggle.tsx:202`).
-
-The arm is chosen by `direction` from §3.3 and applied only in the `showError` branch of the
-`inline`/`settings` variant. The `showFinalize` chip and the `card` arm are untouched: both are in
-flow and cannot be clipped (§2.3).
-
-### §3.3 Direction predicate
-
-A new hook, `useFlipWithinClip`, returns `{ ref, direction }` and is attached to the banner node
-INSTEAD OF `useFitWithinClip` (never alongside it — see §3.4). It is called unconditionally in
-`PublishedToggle` for rules-of-hooks, exactly as `fitRef` is today (`components/admin/PublishedToggle.tsx:130-133`), with the same
-re-apply key (`errorCode != null || genericError`).
-
-Measured quantities, all from the same layout pass:
+**The mechanism.** `lib/popover/position.ts`'s `computePopoverPlacement` takes a `preferredSide` and
+returns the side it actually chose plus a fitted `maxHeight`, both bounded by the host rect
+(`lib/popover/position.ts:122-135`):
 
 ```
-anchor  = node.offsetParent            // the shell footer (relative), see §3.1
-clip    = findClippingAncestor(node)   // the review-modal panel (overflow-clip)
-
-roomBelow = floor(clip.bottom - anchor.bottom - GUTTER - OFFSET)
-roomAbove = floor(anchor.top    - clip.top     - GUTTER - OFFSET)
+if (height0 <= space(preferredSide)) side = preferredSide;
+else if (height0 <= space(other))    side = other;          // <- the flip
+else { side = space(preferredSide) >= space(other) ? preferredSide : other; maxHeight = space(side); }
 ```
 
-`GUTTER = DEFAULT_CLIP_GUTTER` (8) and `OFFSET = 4` (the `mt-1`/`mb-1` gap), both imported or
-declared as named constants — never repeated as literals.
+That is the whole of scope item 2, already written and already unit-tested
+(`tests/lib/popover/position.test.ts`). The tie-break this spec's first draft had to invent is the
+`>=` on the last line: **ties go to `preferredSide`**, which for this banner is `bottom` — the same
+"down is the stable default" the first draft argued for, but implemented once rather than twice.
 
-The predicate is measured against the ANCHOR, not the banner: the banner's own top edge depends on
-the direction, so a predicate keyed to it would be circular.
+**The migration, mirroring the two that came before it.** `components/admin/PublishedToggle.tsx`:
 
-```
-chooseDirection({ roomBelow, roomAbove }):
-  if roomBelow >= MIN_FITTED_HEIGHT        -> "down"
-  if roomAbove >  roomBelow                -> "up"
-  else                                     -> "down"
-```
+1. Portal the banner into the panel via `PopoverHostContext`
+   (`components/admin/HoverHelp.tsx:77`), the provider the shell already wraps around the entire panel
+   interior (`components/admin/review/ReviewModalShell.tsx:643`).
+2. Position it with `placeWithinVisibleViewport` (`lib/popover/place.ts:33`) inside
+   `withNaturalSize` (`lib/popover/naturalSize.ts`), driven by a `createRafCoalescer`
+   (`lib/popover/rafCoalescer.ts`) — the template is `ShareHub`'s `applyPlacement`
+   (`components/admin/showpage/ShareHub.tsx:268-400`), which this banner's version is a strict
+   simplification of.
+3. `preferredSide: "bottom"`, `align: "left"`.
+4. **The trigger is the StatusStrip root, not the switch.** This is what preserves the CASP2-2
+   full-strip-width intent (`components/admin/PublishedToggle.tsx:49-58`: a full-width banner "reads
+   as belonging to the strip", and the pre-CASP2-2 right-anchored `max-w-60` box "sat at a phantom
+   right edge while a long title wrapped the toggle far-left"). Passing the strip as the trigger and
+   its width as `naturalSize.width` yields a strip-width, strip-aligned box — the same visual
+   contract, now reachable.
+5. **No caret.** The banner has never had one; the returned `caret` is ignored, and no caret element
+   is added. `computePopoverPlacement` returns it unconditionally, so ignoring it is the adaptation,
+   not a gap.
+6. `POPOVER_POSITION`'s `absolute inset-x-0 top-full mt-1` becomes `absolute` plus the declared cap
+   the placement core reads as its `cap` input, in the `max-h-[...]` idiom ShareHub uses
+   (`components/admin/showpage/ShareHub.tsx:897`). Everything else in the skin — `z-banner`,
+   `overflow-y-auto`, the border, background, focus ring, `wrap-break-word` — is unchanged.
 
-Stated as one sentence: **down unless down does not fit and up is strictly better.**
+**What this design DELETES relative to the first draft:** a new pure flip module beside `lib/layout/fitWithinClip.ts`, a new DOM hook beside
+`components/admin/useFitWithinClip.ts`, a coordinate-reflection trick over
+`computeFittedMaxHeight`, a hand-written direction predicate with its own guard table, a duplicated
+`ResizeObserver`/`transitionend`/`resize` wiring, and the documented limit that admitted the
+duplication. Net new modules: zero.
 
-**Tie-break, explicitly.** When both rooms are under the floor and they are EQUAL, the result is
-`"down"`. Down is the stable default: it is today's unconditional behavior, it is what the existing
-`isFloorClamped` dev warning already describes, and a tie resolved toward the new arm would make the
-direction flicker on a panel oscillating by a pixel during a resize.
+### §3.2a The SAME move is forced on Re-sync's three overlays (round-1 finding 1)
 
-**Guard conditions.** Every one of these yields `"down"` and no written cap, which is byte-identical
-to today's uncapped behavior:
+The first draft declared `components/admin/ReSyncButton.tsx` untouched. That was wrong, and the
+component's own docblock says why:
 
-| input | result |
-|---|---|
-| `node` null (not yet attached, or detached) | no measurement runs at all |
-| `findClippingAncestor` returns `null` (nothing clips) | `"down"`, and any stale inline `max-height` is REMOVED |
-| `offsetParent` is `null` (anchor `display:none`, or a `fixed` ancestor) | `"down"`, no cap written |
-| `offsetParent` is not an `Element` | `"down"`, no cap written |
-| any of `clip.top`, `clip.bottom`, `anchor.top`, `anchor.bottom` non-finite | `"down"`, no cap written |
-| anchor of zero height (`top === bottom`) | measured normally — a zero-height anchor is a real geometry, not an error |
-| `roomBelow` and `roomAbove` both negative | `"down"` unless `roomAbove > roomBelow`; the overhang warning fires (§3.4) |
+> All THREE result surfaces anchor to the BAND, not the strip: the component's root is a fragment, so
+> it generates no box and these resolve their containing block to the nearest positioned ancestor —
+> the subheader band (`relative`, ReviewModalShell.tsx), which is what gives them full-band width. The
+> strip root deliberately has no `relative` for exactly this reason.
+> (`components/admin/ReSyncButton.tsx:50-55`)
 
-**Initial state.** `direction` starts `"down"` and is corrected in a `useLayoutEffect`, before paint,
-for the same reason `useFitWithinClip` uses a layout effect (`components/admin/useFitWithinClip.ts:134-136`): a passive effect gives the
-overlay one painted frame at the wrong anchor and it visibly snaps.
+`OVERLAY_PANEL` is `absolute inset-x-0 top-full z-overlay max-h-[min(50vh,20rem)] overflow-y-auto …`
+(`components/admin/ReSyncButton.tsx:72-74`), shared by `admin-resync-error`,
+`admin-resync-shrink-confirm` and `admin-resync-success`, each given to `useFitWithinClip`
+(`components/admin/ReSyncButton.tsx:111-113`).
 
-### §3.4 The cap in the up direction, and why one node never has two owners
+**Docking the strip re-anchors all three to the footer**, where `top-full` puts them below the
+panel's clip edge. A height cap cannot move a box upward, so their content — including the shrink
+confirm's decision buttons, the precise controls
+`docs/superpowers/specs/2026-08-01-admin-popover-overlay-cluster` exists to keep reachable — becomes
+unreachable. **This is not a class-sweep preference; it is forced.** The dock breaks these three, so
+repairing them is part of shipping the dock.
 
-An upward banner is bounded by the clip's TOP edge, and `computeFittedMaxHeight` is written for the
-bottom edge. Feeding it the downward geometry of an upward banner returns a uselessly large number:
-the banner's top is then ABOVE the anchor while `clipBottom` is the panel floor, so
-`clipBottom - elementTop` exceeds the banner's own height and, with `cap` = `+Infinity` (§2.3), the
-written `max-height` never binds. The banner would then be cut at the panel's top edge with its
-scroll tail stranded — the precise defect the module exists to prevent.
+They take the same migration as §3.2, for the same reason, which is what makes this one move rather
+than two: `preferredSide: "bottom"`, trigger = the StatusStrip root (preserving the full-band width
+the docblock calls load-bearing), `max-h-[min(50vh,20rem)]` staying as the declared cap the placement
+core reads. Their three registry rows move to `placement-module` alongside the banner's.
 
-The up arm therefore reuses the SAME arithmetic through a coordinate reflection, rather than
-reimplementing it:
+**One visible consequence, stated rather than discovered later.** The panels currently ABUT the band's
+bottom edge with no `mt-*`, deliberately, "so it reads as attached to the strip rather than floating
+free over the rail", and `T-OVERLAY` pins that abut to within 1px
+(`components/admin/ReSyncButton.tsx:67-70`, `tests/e2e/published-review-modal.interactions.spec.ts:670`).
+The placement module applies `GAP = 6` (`lib/popover/position.ts:16`), a module constant with no
+per-call override, so the abut becomes a 6px gap. The original rationale was about a panel hanging
+DOWN over the rail; opening upward from a bottom dock it is over the change list either way, and a 6px
+gap is exactly what `ShareHub`'s popover already does from this same strip. `T-OVERLAY`'s abut
+assertion is retargeted to the 6px gap, and the change goes to the invariant-8 impeccable gate as a
+visible change to a shipped surface rather than being absorbed silently.
 
-```
-fittedAbove({ bannerBottom, clipTop, cap, gutter }) =
-  computeFittedMaxHeight({ elementTop: -bannerBottom, clipBottom: -clipTop, cap, gutter })
-```
+**`z-overlay` vs `z-banner` survives the migration.** `components/admin/ReSyncButton.tsx:56-62` records
+it as a RULE, not a default: both overlays anchor to the same ancestor and are independently
+triggerable, and an unspecified z-index can leave the shrink confirm rendered UNDERNEATH the publish
+popover while focus sits on "Keep current version". Both keep their z-classes; the placement module
+writes position, never z-index.
 
-because `(-clipTop) - (-bannerBottom) === bannerBottom - clipTop`. `isFloorClamped` takes the same
-reflection, so the floor, the clamp semantics and the dev warning are identical in both directions by
-construction rather than by a second implementation kept in sync by hand.
+### §3.3 The registry row changes disposition, and that IS the finding
 
-**One node, one owner.** `useFitWithinClip` and `useFlipWithinClip` both write `max-height` on the
-node they are given, so attaching both would produce two writers racing on one style property.
-`useFlipWithinClip` owns the banner node outright and handles BOTH directions itself; `fitRef` is no
-longer attached in the `inline`/`settings` arm. `useFitWithinClip` keeps every other consumer
-(`ReSyncButton`, `AttentionMenu`) untouched.
+`tests/components/admin/showpage/popoverOverlayRegistry.ts:105-111` carries
+`published-toggle-popover` as `fit-within-clip`, with this reason:
+
+> Absolutely anchored inside the sticky strip inside the review-modal panel (overflow-clip, NOT a
+> scroll container); useFitWithinClip caps it against that edge. **Full-width inset-x-0, so
+> side-flipping buys nothing.**
+
+Both halves are now false. The "sticky strip" never existed (§2.3). And "side-flipping buys nothing"
+was true only while the anchor sat mid-panel — this arc moves it to the panel floor, where side
+flipping buys the entire feature. The registry's own `fit-within-clip` reasons name that condition
+explicitly ("Full-width inset-x-0, where flipping sides buys nothing, so the placement module is not
+worth the churn", `tests/components/admin/showpage/popoverOverlayRegistry.ts:89`), so the trigger
+for migration is stated in the registry and this arc fires it.
+
+That row and Re-sync's three (§3.2a) all become `placement-module` — four rows, one move. `IMPORT_FOR_DISPOSITION`
+(`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts:31-39`) then requires
+`components/admin/PublishedToggle.tsx` to import from `@/lib/popover/position` and no longer checks
+for the `useFitWithinClip` import — so the guard verifies the migration rather than obstructing it.
+
+**This is the third migration in the series, not a novel move.** `HoverHelp` migrated 2026-07-22 and
+`ShareHub` 2026-07-24, the latter from exactly this failure: "before this it was the live instance of
+the defect (armed Archive confirm unreachable at every phone height)"
+(`tests/components/admin/showpage/popoverOverlayRegistry.ts:78-81`).
+
+### §3.4 The concurrency fence is no longer engaged for the banner
+
+The first draft needed a second hook because `components/admin/useFitWithinClip.ts` is owned by
+`arc-layoutmeasure` and could not be given a direction (§1.2). Under §3.2 the banner **stops
+consuming that hook** rather than forking it, so this arc neither edits nor duplicates the fenced
+files. `ReSyncButton` and `AttentionMenu` keep the hook and are untouched.
+
+One consequence for §7. The per-anchor reachability table in
+`lib/layout/fitWithinClip.ts:32-43` documents the anchors the FIT hook serves. The PublishedToggle
+banner leaves that set, so its entry is not filled in with a number — it is **retired**, replaced by
+one line recording that the anchor migrated to the placement module on this arc and naming where the
+measurement lives. That is a smaller and safer edit to the fenced file than the first draft's, and it
+leaves the docblock true rather than describing an anchor it no longer serves. The measured numbers
+still land, in §7's test and in the registry row's reason.
 
 ### §3.5 The `#share-access` deep link
 
@@ -572,19 +609,19 @@ Pinned by AC-6.
 | AC-2 | Panel column equation holds within 0.5px at 375x812 (sheet) and 1280x900 (`≥sm`): sheet `grab + header + main + footer === panel.clientHeight`; `≥sm` `header + main + footer === panel.clientHeight` (grab hidden, height 0). |
 | AC-3 | The footer's bottom edge equals the panel's content bottom within 0.5px, and the body region's height equals `panel.clientHeight` minus the other terms — i.e. the scroll region fills the remainder. |
 | AC-4 | The strip root's rendered width equals the footer's content-box width within 0.5px (the `w-full` chain of §5). |
-| AC-5 | Driving a refusal through the REAL modal at 375x667 renders `[data-testid="published-toggle-popover"]`, and its measured direction is `up`: `banner.bottom <= anchor.top + 0.5` and `banner.top >= panel.top - 0.5`. |
+| AC-5 | Driving a refusal through the REAL modal renders `[data-testid="published-toggle-popover"]` with `data-popover-side="top"` (the placement module's own output), the banner's rect lies entirely inside the panel, and its bottom sits `GAP` above the trigger's top within 0.5px. Asserted at all four domain viewports, each with the attention load set EXPLICITLY rather than inherited: round-1 finding 2 established that `tests/e2e/_pillFocusLiveEntry.tsx:101-107` boots at 1 actionable + 1 needs-look + 1 self-heal, a load of 3 that is outside the declared domain, so every refusal case calls `__setItems` first. |
 | AC-6 | `document.querySelector("#share-access")` is the strip root, and that root is inside the footer. |
-| AC-7 | Measured at 375x667 through the real modal: `roomBelow < FLOOR` (the fact that justifies the flip) and `roomAbove > FLOOR`, with the margin recorded in the `fitWithinClip.ts` docblock. |
-| AC-8 | The banner's written `max-height` equals `roomAbove` within 0.5px when the up arm is taken, and the banner's rendered height never exceeds it. |
+| AC-7 | Measured at 375x667 through the real modal, in the placement module's own terms: `spaceBelow` is under the banner's natural height and `spaceAbove` exceeds it, so the top side is chosen because it is the only one that fits. Both numbers recorded — in the test and in the migrated registry row's reason — and the retired `lib/layout/fitWithinClip.ts` entry cross-references them. |
+| AC-8 | When the banner does not fit on either side, the placement module's `maxHeight` is written and the banner's rendered height equals the space on the chosen side within 0.5px; when it does fit, no `max-height` beyond the declared CSS cap is written and the rendered height is the natural height. Both branches are asserted, because asserting only the capped one passes against a component that never caps. |
 | AC-9 | T4's four down-direction obligations against the replica panel still pass unchanged (containment, height-matches-room, scroll-not-strand, tab + ArrowDown). |
 | AC-10 | `HarnessStateOverrides` accepts a `setPublished` override; omitted, `modalElement` still passes `NOOP_OK`, and every existing harness consumer is byte-identical. |
-| AC-11 | `chooseDirection` returns `"down"` for every guard condition in §3.3's table, and `"down"` on an exact tie under the floor. |
+| AC-11 | The CONSUMER handles `kind: "hidden"` the way `ShareHub` does: on a degenerate measurement (SSR, jsdom, mid-unmount, zero-area trigger) the banner is left `visibility: hidden` with no `data-popover-side`, and recovers on the next frame rather than writing NaN coordinates. The placement algebra's own boundaries are already owned by `tests/lib/popover/position.test.ts` and are NOT re-asserted here — re-testing an imported pure module through a component is the tautology this arc is meant to avoid. |
 | AC-12 | `rg -n -i 'sticky\s+(status\s?)?strip\|sticky\s+StatusStrip' app components tests lib` returns zero hits, AND all seven sites in §2.3 name the real positioned ancestor, AND the triaged remainder in §2.3 is unchanged. Dated records under `docs/` are out of the sweep by §2.3. |
 | AC-13 | `BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED` is archived with the measured numbers, in the same commit that removes its in-progress marker. |
-| AC-14 | **The item-count sweep.** At 375x667, for attention loads 0 (menu closed), 2 (menu open) and 30 (menu open), the header's height equals its 0-item height within 0.5px, the strip's rect lies entirely inside the panel, and the publish switch's rect lies entirely inside the panel. This is the executable form of "reachable on every supported phone" and it is the arc's central assertion. |
-| AC-15 | At those same three loads the panel column sums to `panel.clientHeight` within 0.5px (grab + header + main + footer in sheet mode), so no child overflows and the body never collapses to 0. |
+| AC-14 | **The full domain sweep, 4 viewports x 3 loads = 12 combinations, not 3.** For each of 375x667, 375x844, 390x560 and 390x844, crossed with attention loads 0 (menu closed), 2 and 30 (menu open): the header's height equals its 0-load height AT THAT VIEWPORT within 0.5px, the strip's rect lies entirely inside the panel, and the publish switch's rect lies entirely inside the panel. This is the executable form of "reachable on every supported phone" and it is the arc's central assertion. Round-1 finding 2: the first draft asserted only the three combinations at 375x667 while §11 declared twelve, leaving nine unpinned. The baseline is per-viewport because header height is width-dependent. |
+| AC-15 | At all twelve combinations the panel column sums to `panel.clientHeight` within 0.5px (grab + header + main + footer in sheet mode; no grab term at `≥sm`), so no child overflows and the body never collapses to 0. |
 | AC-16 | Step 3's modal header is byte-identical: `ReviewModalShell.tsx` is unmodified, and `tests/components/admin/review/reviewModalShell.test.tsx` passes unchanged, including the T-STEP3-INVARIANT cases. |
-| AC-17 | The pill's full copy survives the cap: at 30 items every segment (`10 issues`, the middot, `20 monitoring`) is present in the pill's `textContent`, and no segment carries `display: none` or an ellipsis. The accessible name of the dialog still contains the complete title despite `line-clamp-2`. |
+| AC-17 | The pill's full copy survives the cap: at 30 items every segment (`10 issues`, the middot, `20 monitoring`) is present in the pill's `textContent`, and no segment carries `display: none` or an ellipsis. **Plus geometric containment, which text assertions cannot establish (round-1 finding 5): the pill's rect and its `relative` wrapper's rect both lie within the capped cluster's rect, and the pill's rect does not intersect the title block's rect.** The accessible name of the dialog still contains the complete title despite `line-clamp-2`. |
 | AC-18 | The cap is written once, as `max-sm:max-w-40` on the action cluster; the sweep test derives its expectations from measured rects (the cluster's rendered width, the 0-item header height) and never repeats `160` or `164.19` as a literal. |
 
 ---
@@ -609,7 +646,8 @@ browser by the AC-2/AC-3/AC-4 Playwright assertions; jsdom computes no layout an
 | `<footer>` (`relative`) | refusal banner (`absolute inset-x-0`) | spans the footer's padding box | `relative` on the footer + `inset-x-0` on the banner | `components/admin/review/ReviewModalShell.tsx:727`, §3.2 |
 | `<header>` (`flex items-start gap-3`) | text block | takes the width the cluster leaves, never less than the header width minus `160px` minus the gap | `min-w-0 flex-1` on the block + `max-sm:max-w-40` on the cluster — **NEW, and it is the header bound** | `components/admin/showpage/PublishedReviewModal.tsx:902`, `components/admin/showpage/PublishedReviewModal.tsx:952`, §3.0 |
 | text block | `h2` inner span | at most two rendered lines below `sm`; full text still in the a11y tree | `max-sm:line-clamp-2` — **NEW** | `components/admin/showpage/PublishedReviewModal.tsx:913`, §3.0 |
-| `<header>` action cluster (`items-center`) | pill | wraps inside the cap instead of overflowing it; at 30 items it measures `65.59` tall, which exceeds the `44px` close button, so the CLUSTER's height is pill-driven in the stress state — it still does not drive the header, because the text block is taller | `min-w-0` + `max-sm:flex-wrap` on the pill, `items-center` on the cluster | §3.0 |
+| `<header>` action cluster (capped, `flex items-center`) | **the pill's `relative` wrapper — a DIRECT flex item, which the first draft's table skipped (round-1 finding 5)** | must not exceed the cluster's cap; a flex item defaults to `min-width: auto`, so its min-content width can force it WIDER than a capped parent | **`min-w-0` on that wrapper — NEW.** `items-center` is cross-axis only and transfers no width cap; nothing else in the chain constrains this element | `components/admin/showpage/PublishedReviewModal.tsx:966` |
+| the pill's `relative` wrapper | pill button | wraps inside the cap instead of overflowing it; at 30 items it measures `65.59` tall, which exceeds the `44px` close button, so the CLUSTER's height is pill-driven in the stress state — it still does not drive the header, because the text block is taller | `min-w-0` + `max-sm:flex-wrap` on the pill | `components/admin/showpage/PublishedReviewModal.tsx:976`, §3.0 |
 
 **The load-bearing flip, stated once.** `StatusStrip.tsx:215-222` records that `w-full` is defensive
 "today" and would become load-bearing "the moment the band became a flex container". The footer IS a
@@ -677,23 +715,35 @@ structural-premise assertion and adds the measurement. It does not trade one for
    `findClippingAncestor` performs.
 2. **Drive the refusal** through the real modal at 375x667 via `window.__setRefusal` plus a click on
    `[data-testid="published-toggle"]`, and wait for `[data-testid="published-toggle-popover"]`.
-3. **Measure** `roomBelow` and `roomAbove` from the anchor and clip rects, by the §3.3 formulas, using
-   the file's existing `GUTTER` and `BANNER_OFFSET` constants.
-4. **Assert** `roomBelow < FLOOR` and `roomAbove > FLOOR` (AC-7); direction is up (AC-5); the written
-   `max-height` matches `roomAbove` within 0.5px (AC-8).
+3. **Measure the space on each side**, using the placement module's own quantities so the test and
+   the implementation cannot disagree about what "room" means: with `bounds` = the panel rect inset
+   by `VIEWPORT_INSET` and `trigger` = the StatusStrip root,
+   `spaceBelow = max(0, bounds.bottom - trigger.bottom - GAP)` and
+   `spaceAbove = max(0, trigger.top - bounds.top - GAP)`
+   (`lib/popover/position.ts:114-115`). `GAP` and `VIEWPORT_INSET` are imported from that module,
+   never retyped.
+4. **Assert** `spaceBelow` is under the banner's natural height while `spaceAbove` exceeds it — which
+   is what makes the top side the CHOSEN one rather than an arbitrary one — and that the banner
+   carries `data-popover-side="top"`, sits entirely inside the panel, and its bottom is `GAP` above
+   the trigger's top within 0.5px (AC-5, AC-7, AC-8).
 
-Both measured numbers are recorded in the `MIN_FITTED_HEIGHT` docblock at
-`lib/layout/fitWithinClip.ts:38-43`, in the same per-anchor form the Re-sync and AttentionMenu
-entries use, replacing the "room NOT measured" paragraph. **This is the one edit this arc makes to a
-fenced file (§1.2), and it lands only after the number exists.**
+Both measured numbers are recorded, and the fenced file's edit shrinks accordingly. The per-anchor
+table at `lib/layout/fitWithinClip.ts:32-43` documents the anchors the FIT hook serves; this anchor
+leaves that set, so its entry is **retired** — replaced by one line naming the migration and where the
+measurement lives — rather than filled in with a number for a hook that no longer serves it. That is
+the arc's only edit to a fenced file, it is a deletion plus a cross-reference, and it lands only after
+the measurement exists.
 
-**Anti-tautology.** The assertions are derived from measured rects inside the page, never from a
-hardcoded pixel value; no literal fitted height appears in the spec file, matching the existing
-contract at `popover-clip-fit.spec.ts:22-24`. `roomAbove > FLOOR` would pass on a stub, so AC-8 pins
-the WRITTEN cap against the same measurement — a private ref writing `max-height: 1px` satisfies
-containment and direction but fails AC-8, which is the precedent the T4 block already records
-(`tests/e2e/popover-clip-fit.spec.ts:583-586`). The direction assertion compares `banner.bottom` against `anchor.top`, not against the
-panel, because a banner that failed to move would still sit inside the panel.
+**Anti-tautology.** Every assertion derives from rects measured inside the page; no literal pixel
+value appears in the spec file, matching the existing contract at
+`tests/e2e/popover-clip-fit.spec.ts:22-24`. Three separate escapes are closed deliberately:
+`spaceAbove > naturalHeight` alone would pass against a component that never places at all, so the
+`data-popover-side` assertion pins that the module ran and chose; `data-popover-side="top"` alone
+would pass against a component that writes the attribute and no coordinates, so the `GAP`-above-trigger
+assertion pins the geometry; and containment alone is satisfied by a private ref writing
+`max-height: 1px`, which is the escape cross-model review already found on the T4 block
+(`tests/e2e/popover-clip-fit.spec.ts:583-586`), so AC-8 asserts BOTH branches — capped when neither
+side fits, uncapped when the chosen side does.
 
 ---
 
@@ -708,61 +758,97 @@ No zombie column.
 
 ## §9 Blast radius, and the class sweep
 
-Two independent sweeps on 2026-08-25, each stated as the command that produced it rather than as a
-list someone has to keep current:
+**The first draft's cover was narrower than it claimed, and round-1 finding 1 is that defect.** Its
+placement sweep was `rg -n 'subHeader|show-status-strip|-footer|StatusStrip'` — case-SENSITIVE on
+`subHeader`, which is the PROP spelling. The rendered test id is lower-case `subheader`, and
+`published-review-modal.interactions.spec.ts` builds its selector as `` `${BASE}-subheader` ``. So an
+entire class of placement assertion was invisible to a sweep that reported itself complete. The
+corrected cover is case-insensitive, and it is the reason this section is longer than the draft's.
 
-- **Placement:** `rg -n 'subHeader|show-status-strip|-footer|StatusStrip' app components tests` —
-  every site that asserts or replicates where the strip lives.
-- **Stale anchor claim:** the `rg` in §2.3 — every site that calls the strip sticky.
+### The three sweeps, as commands
 
-| site | effect | action |
+1. `rg -n -i 'subheader' app components tests -g '*.ts' -g '*.tsx'` — every site that names the band,
+   by prop OR by test id.
+2. `rg -n -i 'sticky\s+(status\s?)?strip|sticky\s+StatusStrip' app components tests lib` — §2.3.
+3. `rg -n 'absolute[^"]*top-full' components -g '*.tsx'` — **NEW, and it is what would have caught
+   finding 1 unaided.** Every overlay anchored below its ancestor is a candidate the moment that
+   ancestor moves to the panel floor. Output: `components/admin/PublishedToggle.tsx`,
+   `components/admin/ReSyncButton.tsx`, `components/admin/showpage/ShareHub.tsx` (a COMMENT quoting
+   its own superseded anchoring — already `placement-module`),
+   `components/admin/review/ReviewModalShell.tsx` (the slot comments), and
+   `components/layout/ThemeToggle.tsx` (outside the modal entirely). The two live ones are exactly the
+   two this arc migrates.
+
+### Sweep 1 dispositions
+
+| site | disposition |
+|---|---|
+| `components/admin/review/ReviewModalShell.tsx:116, 140, 697, 702` | **Untouched.** The slot keeps existing; one consumer stops using it. |
+| `components/admin/showpage/PublishedReviewModal.tsx:12, 897, 1104, 1113` | Task 3 — the move plus three comment claims that the strip lives in the band. |
+| `components/admin/showpage/StatusStrip.tsx:55` | Task 3 — its docblock names the band as its container and the source of its padding and seam. |
+| `components/admin/showpage/ShowReviewModalSkeleton.tsx:58, 113` | Task 4. |
+| `components/admin/ReSyncButton.tsx:53` | §3.2a — the docblock that establishes finding 1. |
+| `tests/e2e/published-review-modal.layout.spec.ts` (24 hits) | Task 5 — the column equation and the band-composition case. |
+| `tests/e2e/skeletonBandParity.spec.ts` (15 hits) | Task 4 — A/B/D/E retargeted, tolerances unchanged. |
+| **`tests/e2e/published-review-modal.interactions.spec.ts:627, 667, 691, 728, 825, 1102, 1143`** | **MISSED BY THE DRAFT.** `SUBHEADER` is built from `` `${BASE}-subheader` ``, and T-OVERLAY (`tests/e2e/published-review-modal.interactions.spec.ts:670`) and T-OVERLAY-BOUNDS (`tests/e2e/published-review-modal.interactions.spec.ts:737`) pin the Re-sync panel's abut and bounds against the BAND. Retargeted to the footer with the 6px placement gap (§3.2a). |
+| **`tests/e2e/admin-parse-panel.spec.ts:274, 278`** | **MISSED BY THE DRAFT.** Locates the strip via `getByTestId("published-show-review-subheader")`. Retargeted. |
+| **`tests/e2e/stackedBandLayout.spec.ts:78`** | **MISSED BY THE DRAFT, and it refutes the draft's own disposition.** The draft called this file placement-agnostic on the strength of a `show-status-strip` grep; its `BAND` constant is `[data-parity="loaded"] [data-testid="published-show-review-subheader"]`, so it locates THROUGH the band. Retargeted. |
+| **`tests/e2e/published-review-modal.deeplink.spec.ts:212`** | **MISSED BY THE DRAFT.** A comment establishing the deep-link contract in terms of the "pinned subheader band". Corrected, and §3.5's `#share-access` behaviour re-checked against it. |
+| **`tests/e2e/_skeletonParityHarness.tsx:128`** | **MISSED BY THE DRAFT.** A comment tying assertion E to the subheader's width and wrap behaviour. Corrected with Task 4. |
+| `tests/e2e/_shareLinkFlashLiveEntry.tsx:20, 82, 126` | Task 8 — prop plus two comments. |
+| `tests/components/admin/showpage/publishedReviewModal.test.tsx:865, 888, 899` | Task 3 — retargeted. |
+| `tests/components/admin/review/reviewModalShell.test.tsx` | **Untouched, and that is AC-16.** |
+| `tests/parser/blocks/transport.test.ts` (4 hits) | **FALSE POSITIVE, named rather than silently filtered:** "subheader" there is a spreadsheet column sub-header in the transport parser. Unrelated to the shell slot. |
+
+### Overlays and their registry rows
+
+| overlay | row today | after |
 |---|---|---|
-| `tests/e2e/published-review-modal.layout.spec.ts:24-37, 246-308` | The panel-column equation names `subheader` and asserts `FOOTER` count 0 in both modes. | **Update in place** to the §4 AC-2/AC-3 form. This IS the layout-dimensions test; do not add a second one beside it. |
-| `tests/e2e/attention-modal-gallery.spec.ts:535` | Comment + `MODAL_BOXES` assert the published modal never renders `-footer`. | Update the comment; add the footer box to the containment list. |
-| `tests/components/admin/showpage/publishedReviewModal.test.tsx:865-899` | Asserts the strip renders in the subHeader band and that the band owns the surface/border/padding. | Retarget to the footer. |
-| `tests/components/admin/showpage/publishedModalFreshnessCue.test.tsx:111` | Reads `data-section-freshness-flash` off `published-show-review-freshness-band`. | No change — the testid and attribute move with the div. |
-| `components/admin/showpage/ShowReviewModalSkeleton.tsx:114` | The loading skeleton mirrors the strip's band placement, so a skeleton with a top band followed by a modal with a bottom dock is a visible jump on every open. | **Repair in this PR** — same shape, same surface, no decision needed. This is the class sweep's one product-facing peer. |
-| `tests/e2e/skeletonBandParity.spec.ts` (T-SKELETON-BANDS) | Asserts EXACTLY 3 bands (header, subheader, body) in both the skeleton and the loaded modal, plus subheader class parity (B), seam-offset parity (D, ≤8px) and band-height parity (E, ≤4px at both viewports). Every one of those names the subheader. | **Retarget in this PR**: the three bands become header, body, footer; `-subheader` count 0 and `-footer` count 1 in both states; B/D/E retarget to the footer, with D measuring the body→footer seam. Tolerances unchanged. |
-| `components/admin/showpage/ShowReviewModalSkeleton.tsx:113-165` | The skeleton passes the band as `subHeader`, with a ≥sm row mirror and a `<sm` stacked mirror, both already `w-full`. | **Move the whole fragment to `footer`**, unchanged in content. It is what keeps skeletonBandParity green. |
-| `tests/e2e/_statusStripToggleHarness.tsx:170-179` (`errorProbeHtml`) | A HAND-ROLLED replica of the banner's `absolute inset-x-0 top-full` geometry — not the real component — backing invariant (d), which measures the real error CONTENT's WIDTH in a width-governing box. | No class change: direction does not affect width, and nothing clips in that harness so the real component would take the down arm there anyway. **Comment updated** to say the replica pins width only and that direction is out of its scope. |
-| `tests/e2e/_shareLinkFlashLiveEntry.tsx:126` | A replica entry mounting the REAL shell with the REAL strip in `subHeader`. Its assertions are about the share-link flash cue's colors, not geometry, but a replica that contradicts production placement is a fixture that will mislead the next reader. | **Repair in this PR** — one prop rename, no assertion change expected. |
-| `tests/components/admin/review/reviewModalShell.test.tsx:169-235, 334-345` | Exercises the `subHeader` slot generically against a test Host, not against `PublishedReviewModal`. **Explicitly in review scope by the §0 ruling**, because the header bound sits one level above shell chrome that Step 3 also mounts. | No change expected, and that expectation is itself the assertion: `ReviewModalShell.tsx` is unmodified, so every case here must pass untouched (AC-16). A change needed here would mean §3.0 restructured the shell, which the ruling forbids. |
-| `tests/components/admin/showpage/publishedReviewModal.test.tsx` header cases | Assert the header's two-child structure, the title/subline content and the pill's four states. | Extended, not rewritten: add the `max-sm` cap and clamp classes to the structural assertions. Content and state assertions unchanged — the bound changes geometry, not copy (AC-17). |
-| `components/admin/wizard/Step3ReviewModal.tsx:521` | The other `ReviewModalShell` consumer, and the only one that already passes `footer`. | Untouched. It is the proof that the footer slot works as a dock before this arc uses it. |
-| The seven stale-anchor sites enumerated in §2.3 | Each asserts the strip is sticky and/or is the banner's positioned ancestor. Both halves are false today and stay false after the dock. | **Repair all six in this PR.** Cover is the §2.3 `rg` returning zero live hits (AC-12), not the table. |
-| `docs/superpowers/plans/admin/2026-07-17-casp2-*.md`, `docs/superpowers/specs/admin/2026-07-17-casp2-*.md` | Same phrase, in dated historical records. | **Deliberately unchanged** (§2.3). |
-| `tests/e2e/statusStripToggleLayout.spec.ts` | Real-browser geometry for the compact inline toggle in the strip; its overhang assertions are about the FINALIZE chip staying in flow, not about the refusal banner's direction. | Comments corrected (site 6 above); assertions unchanged — verify green, do not adjust. |
-| `components/admin/ReSyncButton.tsx`, `AttentionMenu` | Other `useFitWithinClip` consumers. | Untouched — the hook is not edited and keeps every consumer it has. |
+| `published-toggle-popover` | `fit-within-clip` | `placement-module` (§3.3) |
+| `admin-resync-error` | `fit-within-clip` | `placement-module` (§3.2a) |
+| `admin-resync-shrink-confirm` | `fit-within-clip` | `placement-module` (§3.2a) |
+| `admin-resync-success` | `fit-within-clip` | `placement-module` (§3.2a) |
+| `share-hub-popover`, HoverHelp body | `placement-module` | unchanged — the precedents |
+| AttentionMenu | unchanged | its anchor is the HEADER, at the top of the panel, which the dock does not move |
 
-**Disposition.** Every peer either repairs in this PR or carries its reason in the row above. Nothing
-is deferred to a follow-up, so no `BL-` filing is owed under exception (a), (b) or (c). The two
-judgment calls, stated so a reviewer verifies rather than re-derives: `ShowReviewModalSkeleton` is
-repaired because a skeleton that contradicts the modal it precedes is a visible jump on every open,
-which is product-facing; the dated `docs/` records are not repaired because correcting a dated record
-destroys the evidence of what a decision was taken against.
+`components/admin/useFitWithinClip.ts` keeps `AttentionMenu` and loses these four consumers. It is
+neither edited nor forked (§3.4).
 
----
+### Other
+
+| site | disposition |
+|---|---|
+| `components/admin/showpage/ShowReviewModalSkeleton.tsx:113-165` | Task 4 — move the fragment, content unchanged; both mirrors already carry `w-full`. |
+| `tests/e2e/_statusStripToggleHarness.tsx:170-179` (`errorProbeHtml`) | A hand-rolled replica of the OLD banner geometry, backing an invariant about the real error content's WIDTH. Comment updated to say it pins width only; no clipping ancestor exists in that harness, so the placement module would place it unbounded there anyway. |
+| The seven stale-anchor sites in §2.3 | Task 8. Cover is §2.3's `rg` returning zero (AC-12). |
+| Dated `docs/superpowers/**/2026-07-17-casp2-*.md` | **Deliberately unchanged** (§2.3). |
+
+**Disposition.** Every peer is repaired in this PR. Nothing is deferred, so no `BL-` filing is owed
+under exception (a), (b) or (c). The two judgment calls, so a reviewer verifies rather than re-derives:
+`ShowReviewModalSkeleton` is repaired because a skeleton that contradicts the modal it precedes is a
+visible jump on every open; the dated `docs/` records are not repaired because correcting a dated
+record destroys the evidence of what a decision was taken against.
 
 ## §10 Documented limits
 
 Each is a conservative outcome plus a surfaced signal, not a silent wrong answer. Per the
 consequence bound in §11, these are limits, not findings.
 
-1. **Two fit hooks, not one.** `useFlipWithinClip` duplicates the observer wiring of
-   `useFitWithinClip` rather than adding a direction to it, because `arc-layoutmeasure` owns that
-   file for the duration of this arc (§1.2). Consequence: a future change to the attach mechanism
-   must be applied twice. **Re-file trigger:** when `feat/fitwithinclip-measure-class` merges and the
-   fence lifts, fold `direction` into the single hook and delete the second. Recorded here rather
-   than in the ledger: the repair changes nothing a crew member, admin or operator observes, so it is
-   process-facing and the 2026-08-25 process mint freeze sends it to the owning surface's
-   documented-limits record.
+1. **Re-sync's panels gain a 6px gap where they used to abut.** `GAP` is a module constant in
+   `lib/popover/position.ts:16` with no per-call override, so migrating the three Re-sync overlays
+   changes their abut to a 6px offset (§3.2a). Consequence is cosmetic and one-directional; the
+   alternative — a per-call gap parameter — widens a shared placement module to preserve one
+   consumer's spacing, which is the churn the module exists to avoid. **Re-file trigger:** the
+   invariant-8 impeccable gate rejecting the gap on this surface.
 
-2. **Both directions under the floor.** When `roomBelow` and `roomAbove` are both under
-   `MIN_FITTED_HEIGHT`, the banner takes the down arm and overhangs its clip edge, exactly as today,
-   with the existing dev-only `isFloorClamped` warning firing. Collapsing the box instead would
-   strand every control inside it — the least-bad of two bad options, and the choice
-   `fitWithinClip.ts:28-30` already ratified. Not reachable on any supported viewport after the dock:
-   `roomAbove` at 375x667 is measured in §7 and exceeds the floor by the margin recorded there.
+2. **Neither side fits.** When the banner's wrapped height exceeds the space on both sides, the
+   placement module picks the larger side and writes `maxHeight = space(side)`
+   (`lib/popover/position.ts:129-131`), so the banner is capped to the room it has and scrolls
+   internally — never cut, never collapsed. When even that is degenerate (the trigger spans the
+   bounds vertically) it returns `kind: "hidden"`, and the consumer leaves the banner unpositioned
+   and recovers next frame (AC-11). Both outcomes are conservative and observable, so both are limits
+   rather than findings. Not reachable at any domain viewport after the dock: §7 measures
+   `spaceAbove` at 375x667 and it exceeds the banner's natural height.
 
 3. **Measured at the fixture viewports.** This spec's own new measurement is at 375x667, the
    tightest supported phone and the viewport the row names. The declared probe domain (§11) is
@@ -793,6 +879,30 @@ consequence bound in §11, these are limits, not findings.
 
 ---
 
+## §10a Round-1 triage record
+
+Five findings, spec round 1 (`docs/review-rounds/`, `--stage spec --round 1`, verdict BLOCKING). All
+five were admissible; none is refuted. Recorded here so a later round does not re-derive them and so
+the two that DISSOLVED are shown to dissolve rather than asserted to.
+
+| # | finding | disposition |
+|---|---|---|
+| 1 | Docking breaks Re-sync's three overlays, and both sweeps missed them | **REPAIRED, §3.2a.** The migration extends to all four overlays. The sweep defect is repaired separately in §9: the draft's `subHeader` grep was case-sensitive against a lower-case test id, and the corrected cover finds four more files the draft missed — including two the finding did not name (`published-review-modal.deeplink.spec.ts`, `_skeletonParityHarness.tsx`) and one whose disposition the draft got positively wrong (`stackedBandLayout.spec.ts` locates THROUGH the band). |
+| 2 | ACs cover 3 of the 12 declared domain combinations; the refusal case never sets a load, and the entry boots at load 3 | **REPAIRED.** AC-14/AC-15 now range over all twelve; AC-5 asserts at all four viewports with the load set explicitly. |
+| 3 | The reflection is off by the footer's `border-t`: `bottom-full` is padding-box, `getBoundingClientRect().top` is border-box | **DISSOLVED, and here is why rather than that.** The finding is correct against the draft's arithmetic. It has no subject under §3.2: there is no `bottom-full` and no reflection. `computePopoverPlacement` derives both sides from ONE trigger rect and writes viewport coordinates (`y = trigger.top - GAP - height` for the top side, `lib/popover/position.ts:134`), so both sides are measured in the same border-box coordinate system and no padding-box quantity enters the computation. The border width is inside `trigger.top` on both sides and cancels. |
+| 4 | Cap ownership across two renders: the up cap depends on `bannerBottom`, but the effect that chooses up runs while the DOM still carries the down-arm classes | **DISSOLVED, and here is why.** The finding is correct against the draft's two-phase design. §3.2 has one phase: `withNaturalSize` measures the body with class caps active and NO inline constraints (`lib/popover/naturalSize.ts`), `computePopoverPlacement` returns `side` and `maxHeight` together from that one measurement, and `applyPlacement` writes position and cap in the same pass. Nothing reads the banner's CURRENT rect to decide where it goes, so there is no stale-position window to own. This is the same single-pass structure `ShareHub` has run since 2026-07-24. |
+| 5 | §5 skips the pill's `relative` wrapper, a direct flex item of the capped cluster | **REPAIRED.** §5 now models the three-level chain and adds `min-w-0` on that wrapper; AC-17 gains geometric containment, since text-presence assertions cannot establish it. |
+
+**What findings 3 and 4 cost, and what that says.** Both were real defects in arithmetic the draft
+invented, and both stopped existing the moment the design used the module that already existed. That
+is the round-economy lesson in one arc: the draft's `chooseDirection` and its reflection were 40 lines
+of new reasoning surface, and a reviewer found two defects in them on the first pass. The replacement
+adds none, because `lib/popover/position.ts` has been reviewed and unit-tested since 2026-07-22. The
+correction was not prompted by these findings — it came from the citation pass finding the registry
+guard — but the findings measure what the draft would have cost.
+
+---
+
 ## §11 Convergence criterion (carried into every review brief)
 
 **Consequence bound.** At every supported viewport, and at every attention load in the probe domain,
@@ -817,8 +927,12 @@ ancestor stacking are out of scope and file to §10.
 
 ## §12 Out of scope
 
-- Any change to `components/admin/useFitWithinClip.ts` or `lib/layout/fitWithinClip.ts` other than
-  the `lib/layout/fitWithinClip.ts:38-43` docblock (§1.2).
+- Any change to `components/admin/useFitWithinClip.ts`, and any change to
+  `lib/layout/fitWithinClip.ts` other than RETIRING the PublishedToggle entry in its per-anchor
+  docblock (§3.4). The banner and the three Re-sync overlays stop consuming that hook rather than
+  forking it, so the §1.2 fence is not engaged.
+- `AttentionMenu`'s overlay. Its anchor is the header, at the TOP of the panel, which the dock does
+  not move; it keeps `useFitWithinClip` and its registry row is unchanged.
 - Any user-visible copy change in `PublishedToggle` (§1.1 item 4).
 - The wizard's Step 3 modal, which never passes `subHeader` and is asserted unchanged by
   `tests/components/admin/review/reviewModalShell.test.tsx:334-345` (AC-16).
