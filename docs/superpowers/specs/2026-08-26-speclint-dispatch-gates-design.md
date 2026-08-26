@@ -92,8 +92,14 @@ On `--stage spec` or `--stage plan`, in the pre-dispatch validation phase:
 
 1. **Coverage.** At least one `--lint-doc` is required. A spec or plan dispatch
    naming no artifact is refused.
-2. **Enforcement.** Any `--lint-doc` whose report carries one or more hard
-   findings is refused, naming the file and its hard count.
+2. **Enforcement.** EVERY `--lint-doc` is checked, and any whose report carries
+   one or more hard findings refuses the dispatch, naming each failing file and
+   its hard count. The wrapper already accepts the flag repeatably
+   (`scripts/codex-guard.mjs:82`) and real dispatches cite a spec plus its
+   probe records, so a gate reading only the first document would dispatch a
+   hard artifact whenever a clean one was named ahead of it — and would pass
+   every single-document test. The refusal names ALL failing documents in one
+   message rather than the first, so one run fixes one round.
 
 Both refuse through the existing `usageError` (`scripts/codex-guard.mjs:45`),
 which writes to stderr and exits 2 — before any lock, dispatch, result artifact, or
@@ -105,9 +111,22 @@ artifacts and blocking on it would be its own waste.
 
 The hard count comes from the report the arm already produces — the
 `summary: <hard> hard, <advisory> advisory` line rendered at
-`scripts/spec-lint.ts:208` and validated by `embedReport`'s frame clauses. One
-extractor, one spawn: the arm reuses the existing invocation at
-`scripts/codex-guard.mjs:1873` rather than adding a second spawn site.
+`scripts/spec-lint.ts:208`. One extractor, one spawn: the arm reuses the existing
+invocation at `scripts/codex-guard.mjs:1873` rather than adding a second spawn
+site.
+
+**`embedReport` does not validate that line's grammar, and the gate must not
+assume it does.** Its clauses (`scripts/codex-guard.mjs:312-368`) check that a
+`summary:` line exists, is unique, and is last — not that a count can be read
+out of it. Probed: a report whose final line is `summary: banana` passes
+`embedReport` intact. An extractor that fell back to zero on that would dispatch
+a hard artifact while every frame clause stayed green, which is the silent-wrong
+case the consequence bound rules out. So the count extraction is a THIRD refusal,
+not a parse with a default: a report that exits 0 or 1 and whose summary line
+does not match `summary: <int> hard, <int> advisory` exactly is refused as an
+infra fault, naming the file and the line it could not read. This is distinct
+from the `{0,1}` status check at `scripts/codex-guard.mjs:1920`, which is about the exit code and is
+untouched; both refuse, for different reasons, and the tests plant both.
 
 ### 3.2 The escape
 
@@ -175,10 +194,24 @@ uses — was run against all 100:
 
 | measure | count |
 | --- | --- |
-| plans declaring at least one id under the body grammar | 58 of 100 |
+| plans declaring at least one id under the body grammar | 56 of 100 |
 | plans flagged UNCLAIMED (declared, cited by no marker) | 25 of 100 |
 | plans flagged UNDECLARED (marker cites an id the grammar does not declare) | 60 of 100 |
-| ... restricted to plans that declare at least one id | 18 of 100 |
+| ... restricted to plans that declare at least one id | 16 of 100 |
+
+**These are the v2 numbers.** Spec review R1 refuted v1's with three
+corpus-demonstrated grammar defects, all repaired in the committed probe: the id
+regex accepted only dot-separated segments and so split the live hyphenated
+`AC-2b-pattern`
+(`docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md:24`),
+against `lib/specLint/taskContract.ts:38` which accepts `[.-]`; secondary ids
+were collected from a 200-CHARACTER window, which counted a cross-reference to
+another document's id as a declaration here (`AC-11.11` at
+`docs/superpowers/plans/2026-08-09-help-report-surface.md:61`, on a line that
+declares AC-6); and the same window truncated CITED ids on long marker lines.
+The corrected grammar moves 58 to 56 and 18 to 16 and leaves 25 and 60 where they
+were, so the structural reading below survives its own repair — but the v1
+claim that all 25 are real drift does not, and is withdrawn in §4.4.
 
 The 60 is the decisive number, and it is not measuring drift. It is measuring the
 grammar. In 42 of the 100 plans the acceptance criteria are **not declared in the
@@ -198,29 +231,76 @@ A definition that reds 60 of 100 plans is a definition, not a finding. No body
 grammar can be right here, because the corpus genuinely holds four conventions
 and one of them puts the declaration in another file.
 
-### 4.2 The design: declaration by opt-in region
+### 4.2 The design decision, ESCALATED — not taken here
 
-**A plan declares its acceptance criteria by opting a region in**, exactly as it
-opts a coverage table in today. `lib/specLint/acCoverage.ts:20` is the precedent
-in the same subsystem for the same domain: one table, one explicit comment, and
-`tests/specLint/acCoverageCorpus.test.ts` asserts the arm **contributes nothing to
-any document that carries no declaration**.
+R1 finding 1 is correct and it is the reason this section no longer states a
+choice. The first draft declared criteria by an opt-in region marker, on the
+`acCoverage` precedent. The objection that lands: **no plan carries the marker,
+nothing requires a future plan to add it, and every live example the spec itself
+cites still lints clean after this ships.** That is a silent false negative
+across the whole declared probe domain, and §10's consequence bound allows a
+conservative REFUSAL or a conservative FLAG — not silence. The design closed the
+row on paper. `acCoverage` is also a weaker precedent than the draft claimed: it
+governs one optional table a plan may or may not have, whereas this row concerns
+acceptance criteria in enrolled plans generally.
 
-```
-<!-- ac-declared -->
-- AC-1: clamped tier on open; original only after intent, all four path classes.
-- AC-2: the drift instrument reports the changed file set.
-<!-- ac-declared: end -->
-```
+Together with §4.4 the position is:
 
-Inside the region, a declaration is a list item whose content begins with the id.
-Outside it, nothing is a declaration. The grammar is closed, it is scoped to a
-region an author wrote on purpose, and it ranges over no open document.
+- A corpus-wide mechanical check **cannot** ship, because the inference it rests
+  on is false for a 19-instance documented convention. It would red 25 merged
+  plans, most of them correctly written.
+- An opt-in check **can** ship and closes nothing, which R1 establishes.
 
-The sub-id edge the corpus carries is handled by the same rule rather than by a
-special case: `- AC-10 no in-flow growth (class contract) + AC-10b real-browser
-viewport containment.` declares both ids, because both are id-shaped tokens on a
-declaring line.
+Both branches are real, and the choice between them changes this arc's scope, so
+it is the orchestrator's call and not the implementer's:
+
+- **(A) Migrate.** The body grammar IS the declaration; an unclaimed id must
+  carry an explicit disposition on its declaring line (`RETIRED`, or a
+  discharged-by-Task-N token). Closes the row live and for good. Costs a one-line
+  edit to each of 25 merged plans, in this PR, and a convention every future plan
+  must follow.
+- **(B) Opt-in as drafted**, shipped honestly: the arm is real, the corpus is
+  untouched, and the spec records that the row's live instances stay unflagged
+  until a plan opts in. Cheap, and the row's own incident would not have been
+  caught by it.
+- **(C) Ship the lint gate alone** and re-file the AC arm's premise defect
+  against the row, since what this measurement found is that the row as written
+  asks for a check the corpus cannot support.
+
+Recommendation: **(A)**, because it is the only branch where the row's incident
+gets caught, and the 25 edits are a bounded one-time cost that buys a live
+invariant. The migration is mechanical and every edit is a plan stating something
+its own prose already says.
+
+The lint gate (§3) does not depend on this and is unaffected whichever branch is
+taken.
+
+### 4.2.1 Region edge cases, specified whichever branch is taken
+
+R1 finding 3: a declaration region has failure modes the first draft left with no
+behaviour and no signal, and "deleting or mistyping one marker" is one ordinary
+edit from the supplied syntax. Each is answered rather than left to the
+implementation:
+
+| case | behaviour |
+| --- | --- |
+| opener with no closer | the region is REFUSED, not extended to EOF. `TASK_AC_REGION_UNCLOSED`, reported on the opener. Extending to EOF makes every incidental id in the rest of the plan a declaration; ignoring it silently swallows every real one. |
+| closer with no opener | `TASK_AC_REGION_UNOPENED`, reported on the closer. |
+| a second opener inside an open region | `TASK_AC_REGION_DUPLICATE`, reported on the inner opener, matching `TASK_ENROLL_DUPLICATE`'s posture at `lib/specLint/taskContract.ts:28`. |
+| sequential regions (close, then open again) | LEGAL. Declarations union across regions, matching the multi-region task design at `docs/superpowers/specs/2026-08-09-task-enrollment-multi-region-design.md`. |
+| a marker or bullet inside a fenced code block | inert, both directions. The document model already elides fenced blocks; a plan quoting the syntax to document it neither opens a region nor declares an id. |
+| a near-miss marker (`<!-- ac-declared:begin -->`) | `TASK_AC_REGION_MALFORMED`, paired ANY/strict like every sibling arm (`lib/specLint/taskContract.ts:30`, `lib/specLint/acCoverage.ts:19`, `lib/specLint/redContract.ts:36`, `lib/specLint/fixtureContract.ts:34`). Without it the typo opens no region, every declared id goes invisible, and the arm reports clean. |
+
+The opener and closer belong to ONE colonised family, matching every sibling arm
+rather than the asymmetric pair the first draft showed:
+`<!-- ac-declared: begin -->` and `<!-- ac-declared: end -->`.
+
+**A region is inert in a plan with no task region.** `checkTaskContract` returns
+early unless the kind is `plan` and a `tasks:` line is present
+(`lib/specLint/taskContract.ts:314`). That is conservative (silence, not a wrong
+answer) and consistent with the arm's scope, but an author who writes a region
+and no task region gets nothing and cannot tell that from clean, so it is stated
+here and in §9.
 
 ### 4.3 The two codes
 
@@ -238,24 +318,42 @@ region. In a plan WITH a region, an id that resolves in prose but is not declare
 is `TASK_AC_UNDECLARED`; a cited id appearing nowhere at all stays
 `TASK_AC_UNRESOLVED`. The two never fire on one id.
 
-### 4.4 Corpus impact
+### 4.4 What the 25 unclaimed plans actually are, and why it blocks the row
 
-**0 of 100 plans newly flagged.** No plan carries the region marker yet, so the
-arm is silent on the entire live corpus on the day it ships — the same property
-`acCoverage` has and the same property its corpus test pins.
+The first draft claimed all 25 were real drift. **That claim is withdrawn.** R1
+refuted it, and reading the 25 splits them three ways:
 
-The 25 UNCLAIMED plans the body grammar found are not discarded: they are real
-drift, and two were read closely enough to say so.
-`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28-31` declares AC-3, AC-4
-and AC-7, names them in the `## Task 10` heading at `docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:207`, and no marker cites them
-— Task 10 is a CI-evidence procedure with no executable red, so those criteria
-genuinely have no executable owner, which is the incident finding verbatim.
-`docs/superpowers/plans/2026-08-15-theme-persistence-note/plan.md:51` declares
-AC-10b on a shared bullet, the prose at `docs/superpowers/plans/2026-08-15-theme-persistence-note/plan.md:78` assigns it to task N2b, and the only
-marker citing that family, at `docs/superpowers/plans/2026-08-15-theme-persistence-note/plan.md:72`, cites `ac=…,AC-10` without AC-10b. Both are
-findings the arm would report the day those plans opt in. Neither is repaired
-here: they are merged plans for shipped work, and editing them is not this arc's
-scope.
+1. **Real drift** — a criterion nobody scheduled.
+2. **Discharged outside the marker region, said in prose.** This is an
+   ESTABLISHED convention with its own wording, not an oversight. The clearest
+   statement of it is
+   `docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md:24`:
+   "**AC-6 is discharged by Task 12**, which sits outside the red-contract region
+   (bookkeeping-and-merge tail, not a TDD unit) and so states its discharge in
+   prose along with the red-then-green it must still observe." A grep for that
+   family of phrasing across the plans corpus returns 19 occurrences.
+   `docs/superpowers/plans/2026-08-21-app-e2e-batch2.md` is the same shape: AC-3,
+   AC-4 and AC-7 are named in the `## Task 10` heading at `docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:207`, and Task 10 is
+   a CI-evidence procedure with no executable red, so it carries no marker.
+3. **Deliberately RETIRED, argued at length.**
+   `docs/superpowers/plans/ci/2026-08-24-mutation-scratch-fs-event-storm.md:93`
+   declares AC-6 RETIRED with the deferred tier, and
+   `docs/superpowers/plans/ci/2026-08-24-mutation-scratch-fs-event-storm.md:165`
+   gives the arithmetic for it.
+
+**So the row's premise does not hold on this corpus.** The row reasons that an
+unclaimed criterion means "no task is scheduled to write that assertion". For
+categories 2 and 3 that inference is false, and those categories are not a
+handful of stragglers: they are a documented convention with 19 instances.
+
+Scoping does not rescue it. The obvious narrowing is the `red-contract` region,
+an EXISTING opt-in whose semantics are exactly "this region's tasks carry
+executable red" — 47 of the 100 plans use it. Measured: 15 of those 47 still
+flag, the same ~32% rate as the whole corpus. There is no subset of the corpus
+where "declared and unclaimed" means what the row says it means.
+
+That leaves the design decision in §4.2 unresolved, and it is escalated rather
+than taken here — see §4.2.
 
 ### 4.5 Wiring
 
@@ -263,14 +361,23 @@ Each new code gets a `CODE_FIXTURES` row at `tests/specLint/taskContractWiring.t
 and the count in the title at `tests/specLint/taskContractWiring.test.ts:180` moves from ten to twelve. That test asserts
 hard severity, exit 1, and rendered `FAIL` per code.
 
-The class sweep is derived, not enumerated, and the obvious single source is
-insufficient: `lib/specLint/taskContract.ts` has NINE `fail(...)` call sites while
-`CODE_FIXTURES` carries TEN rows, because `TASK_ENROLL_EMPTY` is not raised
-through `fail`. A sweep keyed on `fail(` alone would miss it and report a
-complete cover. The code set is therefore the union of the `fail(...)` sites and
-the `CODE_FIXTURES` keys, asserted equal to each other; the enrolled-plan set
-comes from a filesystem walk for `<!-- tasks: depth=`. (Measured 2026-08-26: 9
-and 10 respectively.)
+The class sweep is derived, not enumerated, and the first derivation this spec
+proposed was wrong in a way worth recording. It claimed nine `fail(...)` sites
+against ten `CODE_FIXTURES` rows and concluded `TASK_ENROLL_EMPTY` was raised by
+some other means. It is not: it is raised through `fail` like every other code,
+at `lib/specLint/taskContract.ts:259`, merely formatted across four lines. The
+nine was an artifact of a same-line `grep 'fail("TASK_'`; the file has twelve
+`fail(` occurrences and ten distinct codes.
+
+That also kills the repair the first draft proposed. Unioning a same-line
+extraction with the `CODE_FIXTURES` keys and comparing the union back to those
+keys is circular: the fixture registry supplies the very member the production
+census failed to find, so a NEW multiline-formatted code with no fixture would
+pass. The cover is therefore taken from the production source alone, parsed
+rather than grepped — every string literal in first-argument position of a `fail`
+call — and asserted equal to the `CODE_FIXTURES` key set. A code the parser
+cannot see is a code the sweep reports missing, which is the direction that
+matters.
 
 ## 5. The guard-surface refusal's message
 
@@ -356,13 +463,22 @@ the first `###` sub-row.
 3. **`--no-lint-gate` is a real escape and is meant to be used.** A run that
    declares it is doing something different from a run that forgot. The gate does
    not distinguish a good reason from a bad one.
-4. **The AC arm is silent until a plan opts in.** By construction, and the same
-   property `acCoverage` has. The 25 plans in §4.4 stay unflagged until they carry
-   a region.
-5. **`TASK_AC_UNDECLARED` requires a region.** In a plan with no region, a marker
-   citing a prose-only mention is still accepted by `resolvesId`. Closing that
-   without a region would red 60 of 100 plans (§4.1).
-6. **The guard-surface separator grammar stays closed.** A brief writing "plus"
+4. **The AC arm's live reach is unresolved and escalated** (§4.2). Under branch
+   (B) it is silent on the corpus until a plan opts in, which R1 correctly calls
+   a silent false negative rather than a conservative outcome; under (A) it is
+   live at the cost of a 25-plan migration. This is recorded as an open decision,
+   not as an accepted limit.
+5. **`TASK_AC_UNDECLARED` cannot ship corpus-wide in any branch.** In 42 of the
+   100 plans the criteria live in the sibling spec and the plan carries only a
+   coverage map, so requiring a plan-body declaration for every cited id reds 60
+   of 100 (§4.1). It is therefore opt-in under every branch, including (A).
+6. **A region is inert in a plan with no task region** (§4.2.1), and the author
+   cannot distinguish that from clean.
+7. **The count extractor refuses rather than defaults.** A `summary:` line that
+   does not match the exact count grammar is an infra fault, not a zero (§3.1).
+   A renderer change to that line therefore blocks dispatches until the grammar
+   is updated — loud, and deliberately so.
+8. **The guard-surface separator grammar stays closed.** A brief writing "plus"
    is refused; the message and the docs now show a conforming line. Widening the
    grammar to accept English conjunctions is declined in both directions.
 
