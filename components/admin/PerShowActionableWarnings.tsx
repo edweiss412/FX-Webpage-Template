@@ -2,6 +2,7 @@ import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { autocorrectGuidance } from "@/lib/messages/autocorrectGuidance";
 import type { ParseWarning } from "@/lib/parser/types";
@@ -274,6 +275,72 @@ export function PerShowActionableWarnings({
           </span>
         ) : null;
 
+        // The matched vocabulary label the near-miss detector attached (spec §3.2). Same band
+        // grammar as `Sheet row` above, which is the shipped detail-band idiom, with its own
+        // testids.
+        //
+        // `Closest match` is a NOUN phrase, so it reads as a field label like every other
+        // eyebrow in this family (`Sheet row`, `Phone`, `Email`) rather than a predicate. It is
+        // also the weaker and more accurate claim: `candidate` is `match.entry.raw`, the first
+        // spelling inserted when the vocabulary was built, so on the live corpus it can be a
+        // SECTION HEADER (`DETAILS/ROOM DIAGRAM`, knownSections.ts), one of several equally
+        // valid aliases shown in the shoutiest form (`VENUE ADDRESS`, aliases.ts), or a known
+        // corpus typo (`DIagrams`, types.ts). "Looks like" asserts resemblance and is at its
+        // most confident exactly where it is least right.
+        //
+        // NOT mono, and that is the point of the pairing. `Sheet row` is Doug's own string and
+        // mono invites the character-by-character comparison. This is OUR nearest vocabulary
+        // entry, and mono would read as "reproduce this exactly" under a card whose imperative
+        // is "rename the row" (spec §8 limit 4).
+        //
+        // `min-w-0` + `wrap-break-word` match the twin on wizard step 3 and the sibling
+        // `fieldBand` value above, which carries `min-w-0` + `break-all`. Without them the
+        // value cannot wrap INSIDE its band: the enclosing detail band is `flex-wrap`, but
+        // that wraps BETWEEN bands. The longest vocabulary entry today is 25 characters
+        // (`Hotel Contact Information`, measured over `buildVocabulary()`'s 132 entries), so
+        // it clears a 390px viewport by a margin that is a property of the DATA, not of the
+        // CSS. Word-boundary wrapping rather than `break-all`: these are labels with spaces,
+        // not the junk values `fieldBand` quotes.
+        //
+        // No `w.code` gate. The guard is on the FIELD, and `candidate` is set on no other code
+        // (fieldNearMiss.ts is the sole producer), so a second predicate could only ever agree
+        // with the first.
+        const candidate = candidateLabel(w);
+        const candidateBand: ReactNode = candidate ? (
+          <span
+            className="inline-flex min-w-0 flex-wrap items-center gap-1.5"
+            data-testid="per-show-actionable-candidate"
+          >
+            <span className="text-[10px] font-semibold tracking-wider text-warning-text uppercase">
+              Closest match
+            </span>
+            <span
+              className="min-w-0 text-xs wrap-break-word text-text"
+              data-testid="per-show-actionable-candidate-value"
+            >
+              {candidate}
+            </span>
+          </span>
+        ) : null;
+
+        // §3.3 collapse. `present()` (CompactAlertCard.tsx) is four inequalities, and a JSX
+        // fragment is an object satisfying all four, so wrapping unconditionally would render a
+        // bordered but EMPTY band on every card with no detail content. The shell deliberately
+        // does not special-case that (compactAlertCard.test.tsx asserts the band RENDERS for 0,
+        // NaN and [], over a comment saying adapters normalize), so the collapse belongs here.
+        // Written as a conditional rather than `[a, b].filter(Boolean)`: an array of children
+        // needs keys, and two literal children in a fragment do not.
+        const detail = detailBand ?? fieldBand;
+        const combinedDetail: ReactNode =
+          detail && candidateBand ? (
+            <>
+              {detail}
+              {candidateBand}
+            </>
+          ) : (
+            (detail ?? candidateBand)
+          );
+
         const sheetLink: ReactNode = href ? (
           <a
             href={href}
@@ -343,7 +410,7 @@ export function PerShowActionableWarnings({
                   />
                 ) : null
               }
-              detailBand={detailBand ?? fieldBand}
+              detailBand={combinedDetail}
               controlsBand={controlsBand}
             />
           </li>

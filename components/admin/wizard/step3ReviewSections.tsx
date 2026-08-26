@@ -134,6 +134,7 @@ import {
   type SchedulePhase,
 } from "@/lib/crew/agendaDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { Avatar } from "@/components/atoms/Avatar";
 import { CrewRowActions, type CrewRowOutcome } from "@/components/admin/wizard/CrewRowActions";
@@ -3100,13 +3101,57 @@ export function WarningsBreakdown({
                         // row, so this is the only per-row discriminator — makes otherwise-
                         // identical entries scannable and identifies the row when the deep
                         // link is absent.
-                        const rowLabel = labelFromRawSnippet(w.rawSnippet);
+                        // Only UNKNOWN_FIELD writes rawSnippet in the `<label> | <value>`
+                        // shape (`lib/parser/warnings.ts:425` is its sole producer). THREE
+                        // other code families put a pipe in that field and are not that shape,
+                        // so ungated this rendered a fragment as a field label that appears
+                        // nowhere in the sheet:
+                        //
+                        //   PULL_SHEET_AMBIGUOUS_FORMAT  pull-sheet.ts  a raw table row
+                        //   PULL_SHEET_PARSE_PARTIAL     pull-sheet.ts  a raw table row
+                        //   DAY_RESTRICTION_DOUBLE_LOCATION  personalization.ts:85
+                        //                                    `name: X | role: Y` -> `name: X`
+                        //
+                        // Measured: `| 2x | Shure SM58 | wireless | Case 3 |` rendered `| 2x`.
+                        // Same gate the per-show surface has carried since audit idx46/#217;
+                        // this is the half of that sweep that never landed here, not a
+                        // widening of it. The third family was found by the impeccable audit,
+                        // which noticed the first version of this comment under-claimed.
+                        const rowLabel =
+                          w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
+                        // The lead-in is not decoration: with the candidate line below
+                        // carrying one, this was the only unlabeled line on the row, and it is
+                        // the MORE important of the two facts (it is the string Doug searches
+                        // his sheet for). Same information grammar as the per-show band, in
+                        // this surface's flatter type ramp. The value keeps its own span so a
+                        // by-text query still matches the label alone.
                         return rowLabel ? (
                           <span
                             data-testid={`wizard-step3-card-${dfid}-warning-${i}-label`}
                             className="wrap-break-word text-xs text-text-subtle"
                           >
-                            {rowLabel}
+                            Sheet row <span className="font-mono text-text">{rowLabel}</span>
+                          </span>
+                        ) : null;
+                      })()}
+                      {(() => {
+                        // The vocabulary label the near-miss detector matched (spec §4.2).
+                        // Deliberately NOT a band: this surface's row label above is a plain
+                        // text-xs line with no eyebrow, so an eyebrow on the candidate alone
+                        // would make the suggestion louder than the row it belongs to.
+                        //
+                        // `Closest match` rather than `Looks like`, and NOT mono, for the same
+                        // reason as the per-show band: this is OUR nearest vocabulary entry,
+                        // which on the live corpus can be a section header, an alias-order
+                        // winner, or a corpus typo, so it must not read as a string to
+                        // reproduce. Spec §8 limit 4.
+                        const candidate = candidateLabel(w);
+                        return candidate ? (
+                          <span
+                            data-testid={`wizard-step3-card-${dfid}-warning-${i}-candidate`}
+                            className="wrap-break-word text-xs text-text-subtle"
+                          >
+                            Closest match <span className="text-text">{candidate}</span>
                           </span>
                         ) : null;
                       })()}

@@ -2113,6 +2113,36 @@ export const GUARD_SURFACES: GuardSurface[] = [
     ],
   },
   {
+    // Enrolled BEFORE this surface's own round-1 diff review, per
+    // "enrolment precedes review" — the run's score feeds the brief's
+    // GUARD SURFACE: line the codex-guard dispatch gate checks.
+    //
+    // `scripts/codex-guard.mjs` itself stays CANNOT-EXPRESS (ratified, measured:
+    // `docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md`
+    // §1.1 item 8 — the runner overlays a target only when a Vitest suite
+    // imports it, and every tests/codexGuard suite SPAWNS the script). The lib
+    // half is expressible, which is exactly why the decision was authored as an
+    // importable core with a bare-node bridge rather than inline in the wrapper.
+    //
+    // Both suites are load-bearing. The unit suite decides behaviour; the parity
+    // suite is what makes a mutant visible in the code LIVE DISPATCHES run,
+    // since the wrapper imports the .mjs bridge and never the .ts.
+    id: "specLintGate",
+    millisPerBoot: 900,
+    sourcePath: "lib/specLintGate/gate.ts",
+    suitePaths: ["tests/specLintGate/bridgeParity.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // Positive control: coerces an unreadable summary to zero, which is the
+    // silent-dispatch defect the whole arm exists to prevent. If the suites
+    // cannot kill this, they are not pinning the contract they claim to.
+    control: {
+      from: "return m === null ? null : Number(m[1]);",
+      to: "return m === null ? 0 : Number(m[1]);",
+    },
+    accepted: [],
+  },
+  {
     // Enrolled by the enforcement-pair arc (its spec §6.3, dogfood): enrolment
     // precedes this surface's own round-1 diff review, and the run's score
     // feeds the brief's GUARD SURFACE: line that the new codex-guard dispatch
@@ -3798,6 +3828,28 @@ export const GUARD_SURFACES: GuardSurface[] = [
       from: "if (fn !== undefined) return RETRYABLE_RPCS.has(fn);",
       to: "if (fn !== undefined) return !RETRYABLE_RPCS.has(fn);",
     },
+    accepted: [],
+  },
+  {
+    id: "observeTransport",
+    sourcePath: "lib/supabase/observeTransport.ts",
+    // Both harnesses, because they pin different properties of the same module: the plants pin
+    // the four transport states and the transparency of request, response and rejection; the
+    // fence suite pins the LEVEL, which is the only thing making the service-role install safe.
+    suitePaths: [
+      "tests/supabase/observeTransport.plantFour.test.ts",
+      "tests/supabase/observeTransport.recursionFence.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // MEASURED with scripts/mutation-score-surfaces.ts, not estimated: 10s of child wall clock
+    // over 10 modelled boots. The shard partition is priced in this number, so an enrolment
+    // carrying a guessed one would weight the partition by something nobody measured.
+    millisPerBoot: 969,
+    // Narrows the fault set by one status. The plants iterate 500 through 599 and assert each
+    // records, so 500 stops recording and the suite notices — a live behaviour change rather than
+    // a formatting one.
+    control: { from: "return status >= 500;", to: "return status > 500;" },
     accepted: [],
   },
   {

@@ -93,6 +93,44 @@ function harnessWarnings(): ParseWarning[] {
   }));
 }
 
+/**
+ * The near-miss trio, in ONE render so the assertions are a controlled comparison:
+ * an UNKNOWN_FIELD carrying the label the detector matched, one carrying none (which is what a
+ * pre-detector persisted row looks like), and a PULL_SHEET_PARSE_PARTIAL whose rawSnippet is a
+ * raw table row, for the row-label gate.
+ *
+ * Reached ONLY through the live entry's `?nearMiss=1` flag, so every existing case navigates
+ * without it, passes `{}` to buildSectionData, and renders byte-identically to before.
+ */
+export function nearMissHarnessWarnings(): ParseWarning[] {
+  return [
+    {
+      severity: "warn" as const,
+      code: "UNKNOWN_FIELD",
+      message: "Unrecognized client row label: 'Backdrup'; looks like 'Backdrop / Scenic'",
+      blockRef: { kind: "client", name: "Backdrup" },
+      rawSnippet: "Backdrup | black velour",
+      // MIXED CASE on purpose: an all-caps candidate cannot catch a call site that
+      // uppercases, which is what whole-diff round 1 found. Real corpus value.
+      candidate: "Backdrop / Scenic",
+    },
+    {
+      severity: "warn" as const,
+      code: "UNKNOWN_FIELD",
+      message: "Unrecognized client row label: 'Zzz'",
+      blockRef: { kind: "client", name: "Zzz" },
+      rawSnippet: "Zzz | nothing we read",
+    },
+    {
+      severity: "warn" as const,
+      code: "PULL_SHEET_PARSE_PARTIAL",
+      message: 'Pull sheet case "Case 3" has a row with unparseable qty.',
+      blockRef: { kind: "pull_sheet" },
+      rawSnippet: "| 2x | Shure SM58 | wireless | Case 3 |",
+    },
+  ];
+}
+
 /** §9.1 long-content header case: a single UNBREAKABLE token (no spaces, no
  *  hyphens — hyphens are CSS soft-break opportunities), plus a long client and
  *  a maximal 4-segment dates summary. */

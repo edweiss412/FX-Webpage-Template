@@ -598,6 +598,46 @@ for (const { mode, width, height, hiddenNav } of TAB_MODES) {
 // attribute lifecycle is identical: steady tint instead of a fade, removed
 // with the attribute by the WARNING_HIGHLIGHT_MS timer) ──────────────────────
 
+test("candidate line and row-label gate, in a real browser", async ({ page }) => {
+  // `?nearMiss=1` is the third flag in this entry's existing idiom (alongside ?deferActions=1
+  // and ?resolution=1). Every OTHER case navigates without it and passes `{}` to
+  // buildSectionData, which is byte-identical to the no-argument call, so no existing case moves.
+  await page.goto(`${baseUrl}live.html?nearMiss=1`);
+  await page.evaluate(() => document.fonts.ready);
+  await expect(page.locator(PANEL)).toBeVisible();
+
+  const row = (i: number, suffix: string) =>
+    page.locator(`[data-testid="wizard-step3-card-${HARNESS_DFID}-warning-${i}-${suffix}"]`);
+
+  // Premise: the three seeded rows rendered at all. Without this every absence assertion
+  // below is satisfied by a page that rendered no warnings.
+  for (const i of [0, 1, 2]) {
+    await expect(
+      page.locator(`[data-testid="wizard-step3-card-${HARNESS_DFID}-warning-${i}"]`),
+      `warning row ${i} rendered`,
+    ).toHaveCount(1);
+  }
+
+  // Row 0 carries a candidate: the line names it, in this surface's flatter grammar.
+  await expect(row(0, "candidate")).toHaveCount(1);
+  await expect(row(0, "candidate")).toContainText("Closest match");
+  await expect(row(0, "candidate")).toHaveText("Closest match Backdrop / Scenic");
+
+  // Row 1 is an UNKNOWN_FIELD with NO candidate, which is what a pre-detector persisted row
+  // looks like. No line, and the card is otherwise unchanged: its row label still renders.
+  await expect(row(1, "candidate")).toHaveCount(0);
+  // EXACT full text, which pins the lead-in AND the value. Whole-diff round 1 caught this
+  // as deterministically red: toHaveText is equality after whitespace normalization, and
+  // the row label gained a "Sheet row " lead-in after this spec last ran green.
+  await expect(row(1, "label")).toHaveText("Sheet row Zzz");
+
+  // AC-8 in a real browser: row 2 is PULL_SHEET_PARSE_PARTIAL, whose rawSnippet is a RAW table
+  // row. Ungated, labelFromRawSnippet renders its first cell (`| 2x`) as a field label that is
+  // not in the sheet. Row 1's label above is the control against a gate that suppressed all.
+  await expect(row(2, "label")).toHaveCount(0);
+  await expect(row(2, "candidate")).toHaveCount(0);
+});
+
 test("§K13: callout jump button jumps to the warning row in view, flash present then gone", async ({
   page,
 }) => {

@@ -264,6 +264,7 @@ Every other section referencing a number refers here. The env-override DOMAIN is
 | numeric flags | argv/env | caller/tests | §5/§6 budgets; §7 validation | timing/attempt bounds |
 | `CODEX_GUARD_BIN` | env | tests | spawner | test seam; absent → `codex` from PATH |
 | `CODEX_HOME` | env | codex itself | rung 1 lock/cache paths | cache-clear target |
+| `--no-lint-gate` | argv → `cfg.noLintGate` | caller; `tests/codexGuard/harness.ts` injects it for callers not testing the gate | pre-dispatch lint gate (§15) | waives BOTH the coverage and enforcement arms; no other effect |
 
 No zombie flags: every row has all four columns live.
 
@@ -290,3 +291,43 @@ artifact, or corpus row. Canonical text, grammar, accept-set, and documented
 limits live in `docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md`
 §2 (no restatement here — two copies drift). Tests:
 `tests/codexGuard/guardSurfaceGate.test.ts`.
+
+## 15. Pre-dispatch spec:lint gate (2026-08-26 amendment — cross-reference only)
+
+The input-guard family (§7) gained a second pre-dispatch check. On `--stage spec`
+or `--stage plan`, the wrapper refuses — exit 2, before lock, dispatch, result
+artifact, or corpus row — when it is given no `--lint-doc` at all, when any named
+document's report carries a hard finding, or when a report's `summary:` line
+carries no readable count. Advisory findings never block, and `--no-lint-gate`
+waives it.
+
+**The decision is not in this file.** `lib/specLintGate/gate.ts` holds it, with
+`scripts/specLintGate.mjs` as the bare-node bridge the wrapper imports and
+`tests/specLintGate/bridgeParity.test.ts` pinning the two equal. That shape is
+this file's own §1.1-item-8 remedy for `codex-guard.mjs` being CANNOT-EXPRESS to
+the source-mutation registry, and it is why the gate is expressible where the
+wrapper is not.
+
+Canonical text, grammar, arms and documented limits live in
+`docs/superpowers/specs/2026-08-26-speclint-dispatch-gates-design.md` §3 (no
+restatement here — two copies drift). Tests: `tests/codexGuard/lintGate.test.ts`,
+`tests/specLintGate/bridgeParity.test.ts`.
+
+**Documented limit — this file would fail the gate it now describes.** `pnpm
+spec:lint` reports 26 hard on it, unchanged by the 2026-08-26 amendment (26 at
+`HEAD` before it, 26 after). Ten are the result-artifact filename and the rest are
+per-machine or runtime artifact names (the models cache, hook scripts under the
+per-account Claude config dir, a temp-HOME codex dir) written in backticks and
+therefore read as repository citations. They are correct as prose and wrong as
+citations.
+
+This paragraph does not name them in backticks, deliberately: the first draft did
+and added three more hard findings to the very count it was reporting.
+
+Not repaired here, and the reason is that the friction is hypothetical rather than
+actual: the gate refuses a dispatch that names a document with `--lint-doc`, and
+nobody dispatches a review citing THIS spec as the artifact under review — an arc
+cites its own. Absorbing 26 citation edits in a file this arc only added a
+cross-reference to would be scope creep, and `--no-lint-gate` is the escape for an
+artifact mid-repair. Recorded here, on the surface that owns the debt, so the next
+arc to touch this file knows the count and does not rediscover it.

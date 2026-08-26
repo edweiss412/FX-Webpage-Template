@@ -12,6 +12,7 @@ vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers()),
 }));
 
+import { resetLogSink, setLogSink } from "@/lib/log";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const KONG_502 = "An invalid response was received from the upstream server";
@@ -32,6 +33,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   globalThis.fetch = realFetch;
+  resetLogSink();
   vi.restoreAllMocks();
 });
 
@@ -61,6 +63,113 @@ describe("createSupabaseServerClient is wired to the retrying fetch", () => {
     await supabase.from("shows").insert({ id: "x" });
 
     expect(calls).toBe(1);
+  });
+});
+
+describe("both server-side factories are wired to the transport observer", () => {
+  test("the cookie-bound client OBSERVES a 502 and still retries it", async () => {
+    // The observer sits UNDER the retry wrapper, so it records every attempt rather than the one
+    // replayed outcome. A 502 the retry absorbs must still leave a record: an absorbed fault that
+    // leaves none is indistinguishable from a fault that never happened, which is how a green run
+    // hides a real occurrence.
+    const levels: Array<{ level: string; code: string | null }> = [];
+    setLogSink(async (record) => {
+      levels.push({ level: record.level, code: record.code });
+    });
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return calls === 1 ? kong502() : ok();
+    }) as unknown as typeof globalThis.fetch;
+
+    const supabase = await createSupabaseServerClient();
+    const { error } = await supabase.rpc("is_admin");
+
+    expect(calls, "the retry still absorbed it").toBe(2);
+    expect(error).toBeNull();
+    expect(
+      levels.filter((l) => l.code === "SUPABASE_UPSTREAM_FAULT"),
+      "the absorbed 502 left an observation",
+    ).toHaveLength(1);
+  });
+
+  test("the service-role client OBSERVES a 502", async () => {
+    // It has no `global.fetch` at all before this task, so nothing on that client is observed.
+    const codes: Array<string | null> = [];
+    setLogSink(async (record) => {
+      codes.push(record.code);
+    });
+    globalThis.fetch = vi.fn(async () => kong502()) as unknown as typeof globalThis.fetch;
+
+    const { createSupabaseServiceRoleClient } = await import("@/lib/supabase/server");
+    const supabase = createSupabaseServiceRoleClient();
+    await supabase.from("app_events").insert({ level: "info" });
+
+    expect(codes.filter((c) => c === "SUPABASE_UPSTREAM_FAULT")).not.toHaveLength(0);
+  });
+
+  test("the service-role client's own observation does NOT persist", async () => {
+    // The recursion fence, driven through the REAL factory rather than an injected collector.
+    // The durable sink writes through this very client, so an observation that persisted would
+    // observe its own write, without bound.
+    const persists: boolean[] = [];
+    setLogSink(async (record, persist) => {
+      if (record.code === "SUPABASE_UPSTREAM_FAULT") persists.push(persist);
+    });
+    globalThis.fetch = vi.fn(async () => kong502()) as unknown as typeof globalThis.fetch;
+
+    const { createSupabaseServiceRoleClient } = await import("@/lib/supabase/server");
+    await createSupabaseServiceRoleClient().from("app_events").insert({ level: "info" });
+
+    expect(persists.length).toBeGreaterThan(0);
+    expect(
+      persists.every((p) => p === false),
+      "no observation may persist",
+    ).toBe(true);
+  });
+
+  test("the service-role client's fetch stays LATE-BOUND", async () => {
+    // supabase-js resolves `fetch` per request when no global.fetch is supplied, so an EAGER
+    // capture in the factory would pin the transport at construction time. Three suites swap
+    // globalThis.fetch after constructing this client, two of them outside tests/supabase/, so a
+    // scoped run would report green while they were broken.
+    const { createSupabaseServiceRoleClient } = await import("@/lib/supabase/server");
+    const supabase = createSupabaseServiceRoleClient();
+
+    let reached = 0;
+    globalThis.fetch = vi.fn(async () => {
+      reached += 1;
+      return ok();
+    }) as unknown as typeof globalThis.fetch;
+
+    await supabase.from("app_events").select("id");
+
+    expect(reached, "the post-construction swap must be honoured").toBe(1);
+  });
+});
+
+describe("the materialize factory is observed too", () => {
+  test("a 502 through createMaterializeClient IS observed", async () => {
+    // Round-4 review found this exempted as "not a request path", and the ground was FALSE:
+    // app/admin/dev/actions.ts is a "use server" module and constructs this client inside two
+    // server actions (applyAttentionScenario at :544, clearAttentionScenario at :600), both
+    // behind assertSameOriginServerAction and requireDeveloperIdentity. Their zero-write fault
+    // paths return infra_error without reaching logAdminOutcome, so an upstream fault there was
+    // swallowed with no durable record — exactly what the consequence bound forbids.
+    const codes: Array<string | null> = [];
+    setLogSink(async (record) => {
+      codes.push(record.code);
+    });
+    globalThis.fetch = vi.fn(async () => kong502()) as unknown as typeof globalThis.fetch;
+
+    const { createMaterializeClient } = await import("@/lib/dev/materialize/client");
+    const client = createMaterializeClient("http://127.0.0.1:54321", "test-key");
+    await client.from("shows").select("id");
+
+    expect(
+      codes.filter((c) => c === "SUPABASE_UPSTREAM_FAULT"),
+      "the materialize client's upstream fault must leave a record",
+    ).not.toHaveLength(0);
   });
 });
 

@@ -117,6 +117,55 @@ const IDEMPOTENT_METHODS = new Set(["GET", "HEAD"]);
  * DOCUMENTED LIMIT: a 502 on a non-PostgREST idempotent request is not absorbed. Nothing absorbed
  * it before this arc either, so the behaviour is unchanged rather than lost.
  */
+/**
+ * How many path segments a record may carry when the target is not an RPC.
+ *
+ * THREE, derived rather than chosen: it is the smallest bound that keeps `/rest/v1/<table>`
+ * intact. A record that cannot say WHICH table faulted is not worth writing, and every shape past
+ * the third segment is an identifier rather than a name.
+ */
+const MAX_TARGET_SEGMENTS = 3;
+
+/**
+ * The name a transport emit may record for a request. `<base>/rest/v1/rpc/<fn>` becomes `<fn>`;
+ * anything else becomes a BOUNDED prefix of its path.
+ *
+ * It lives here, beside `rpcFunctionName` and `basePathOf`, because it is built from both and
+ * because ONE describer is the point. Two emits name a target -- the retry wrapper's `RetryEmit`
+ * and the observer's `TransportObservation` -- and both reach a log sink, the retry wrapper's
+ * through `log.warn`, which PERSISTS. Each had its own copy returning the whole pathname on the
+ * non-RPC branch.
+ *
+ * Round-1 review probed the consequence against ordinary service-role Storage traffic, not a
+ * constructed URL: `/storage/v1/object/diagram-snapshots/show_123/rev_7/private-diagram.png`
+ * carries a show id, a revision and a private object key, and dropping the query string leaves
+ * every one of them. The retry wrapper's own copy was bounded only by what `isRetryEligible`
+ * happens to admit today, which is a coincidence rather than a guarantee: widen eligibility and
+ * the leak appears with nothing to notice it. Sharing the describer makes the bound a property of
+ * the EMIT instead.
+ *
+ * The query string is dropped on every branch, including the unparseable one, which answers a
+ * constant carrying no request data at all.
+ */
+export function describeTransportTarget(url: string, basePath = ""): string {
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    return "unparseable-url";
+  }
+
+  const fn = rpcFunctionName(path, basePath);
+  if (fn !== undefined) return fn;
+
+  // The mount prefix is stripped BEFORE counting, or a proxied deployment spends its whole budget
+  // on its own prefix and every record truncates to the mount.
+  const mounted = basePath !== "" && path.startsWith(basePath) ? path.slice(basePath.length) : path;
+  const segments = mounted.split("/").filter((seg) => seg.length > 0);
+  if (segments.length <= MAX_TARGET_SEGMENTS) return `/${segments.join("/")}`;
+  return `/${segments.slice(0, MAX_TARGET_SEGMENTS).join("/")}/…`;
+}
+
 export function isRetryEligible(
   url: string,
   method: string | undefined,
