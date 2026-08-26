@@ -206,6 +206,16 @@ async function makeCopy(
   t: Template,
   patch: ShowRow,
   opts: { withReservations: boolean } = { withReservations: true },
+  /**
+   * Called the INSTANT the show row exists, before anything that can still
+   * throw. Registration used to happen on the caller's side after `makeCopy`
+   * returned, so a failure in the token lookup or the reservation copy left a
+   * committed show that `afterAll` never saw and never deleted — probed by the
+   * diff reviewer across all four downstream failure paths, each leaving
+   * `showInserted: true` with an empty cleanup registry. Ownership must begin
+   * where the row does.
+   */
+  onInserted: (c: Copy) => void = () => {},
 ): Promise<Copy> {
   const showId = randomUUID();
   const suffix = showId.slice(0, 8);
@@ -224,6 +234,10 @@ async function makeCopy(
     unpublish_token: null,
     unpublish_token_expires_at: null,
   });
+  // The row exists from here on, so it is owned from here on. Everything below
+  // can still throw; none of it may strand a show.
+  const registered: Copy = { showId, slug, shareToken: "", driveFileId };
+  onInserted(registered);
 
   // The share token is MINTED BY THE DB on show insert (show_share_tokens is
   // keyed by show_id, and an explicit insert here collides with that row —
@@ -256,7 +270,8 @@ async function makeCopy(
       );
     }
   }
-  return { showId, slug, shareToken: token.share_token as string, driveFileId };
+  registered.shareToken = token.share_token as string;
+  return registered;
 }
 
 test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)", () => {
@@ -280,9 +295,10 @@ test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)",
   }
 
   async function copy(patch: ShowRow, opts?: { withReservations: boolean }): Promise<Copy> {
-    const c = await makeCopy(t, patch, opts);
-    created.push(c);
-    return c;
+    // Registration is handed to makeCopy rather than done on this side, so the
+    // show is owned by the cleanup list from the moment its row is committed
+    // and not from the moment the whole setup happens to succeed.
+    return makeCopy(t, patch, opts, (c) => created.push(c));
   }
 
   test.beforeAll(async () => {
