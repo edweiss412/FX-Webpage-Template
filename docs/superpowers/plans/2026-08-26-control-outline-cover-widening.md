@@ -342,15 +342,21 @@ Order: write that assertion in `tests/styles/interactiveScanCore.test.ts` over t
 
 scripts/ac15-width-parity.mts (created by this task), run twice inside it: once after STEP 1 (opt-in, nothing repaired) and once at the end.
 
+**The key is an ORDINAL, not a line.** A line is not an identity across this task: STEP 2b adds a `cn` import to `components/admin/telemetry/EventFilters.tsx`, which shifts every element below it, and a line-keyed comparison would report the correct repair as `<absent>` on both targets and stop the task. The stable identity is the Nth element of that tag in that file, in walk order, which no colour swap reorders.
+
 ```ts
 import { scanInteractiveElements, allStrings } from "../tests/styles/interactiveScanCore";
 const WIDTH = /^(?:border|border-[tblrxy]|border-\d+|border-[tblrxy]-\d+)$/;
 export function widthsByElement(root: string, opts?: ScanOptions): Map<string, string> {
   const out = new Map<string, string>();
+  const seen = new Map<string, number>();
   for (const el of scanInteractiveElements(root, opts)) {
+    const stem = `${el.file}:${el.tag}`;
+    const n = seen.get(stem) ?? 0;
+    seen.set(stem, n + 1);
     const toks = allStrings(el).flatMap((s) => s.split(/\s+/))
       .filter((t) => WIDTH.test(t.replace(/^[^:]*:/, ""))).sort();
-    out.set(`${el.file}:${el.line}:${el.tag}`, toks.join(" "));
+    out.set(`${stem}#${n}`, toks.join(" "));
   }
   return out;
 }
@@ -365,12 +371,14 @@ The variant-prefix strip (`t.replace(/^[^:]*:/, "")`) is deliberate: `max-sm:bor
 **Both controls run at plan time against the live tree**, because an instrument nobody has watched succeed and fail is not an instrument:
 
 ```
-$ pnpm exec tsx tmp-width.mts
-POSITIVE CONTROL (unchanged tree): targets=362 differences=0
-NEGATIVE CONTROL (one planted width change): app/admin/dev/page.tsx:151:button: before=[border] after=[border-2]
+POSITIVE CONTROL (unchanged tree):     targets=362 differences=0
+NEGATIVE CONTROL (planted width):      app/admin/dev/page.tsx:button#0: before=[border] after=[border-2]
+KEY-STABILITY CONTROL (capture, then insert 2 lines at the top of
+components/admin/telemetry/EventFilters.tsx, then compare):
+                                       targets=362 differences=0
 ```
 
-Zero differences on an unchanged tree, and a single planted `border` to `border-2` is named with both sides. In Task 5 the two scans are the real before and after over the 23 swap targets, with both flags on, and the run's output goes in the commit message. Any non-empty difference is a layout change this arc did not authorise and stops the task.
+Zero differences on an unchanged tree; a single planted `border` to `border-2` named with both sides; and zero differences after a two-line insertion above every element in one file, which is the control for the line-instability the ordinal key exists to remove. The third one is captured to a snapshot BEFORE the insertion and compared after, because comparing a shifted tree to itself would have passed under the broken key too. In Task 5 the two scans are the real before and after over the 23 swap targets, with both flags on, and the run's output goes in the commit message. Any non-empty difference is a layout change this arc did not authorise and stops the task.
 
 **STEP 6, the pins.** `_metaControlOutlineResidue.test.ts:386` to 22; `_metaControlOutlineResidue.test.ts:392` to 5; a new `count("inner-chrome")` assertion at 10; `_metaControlOutlineResidue.test.ts:393`, `_metaControlOutlineResidue.test.ts:394`, `_metaControlOutlineResidue.test.ts:400`, `_metaControlOutlineResidue.test.ts:401`, `_metaControlOutlineResidue.test.ts:402` unchanged. `tintedPlateOutline.test.ts:215` `neutralFaintCount` 4 to 9 (§4.3).
 
