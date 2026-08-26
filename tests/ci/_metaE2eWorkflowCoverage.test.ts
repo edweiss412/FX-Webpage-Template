@@ -2456,3 +2456,116 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     expect(unreviewedLivePairs(row({}), extraValue)[0]).toMatch(/NEW_LIVE|K=v2/);
   });
 });
+
+/**
+ * The upstream-fault capture chain (supabase-upstream-fault-class spec §7).
+ *
+ * Two obstacles sit between an observation and a CI log, and only one of them lives in the
+ * workflow. Both are asserted here, because a chain proves nothing when either half is missing.
+ *
+ * Every predicate below is a STRING EQUALITY on a short fixed command, and three review rounds
+ * are why. Shape predicates ("names the log file", "greps the code and writes an output",
+ * "references steps.<id>.outputs") were each satisfied by a mutant that ships a capture chain
+ * producing nothing on a failed run: a replay step running `rm app-e2e.log`; an extract step
+ * grepping the code out of some other input and writing a hardcoded `count=0`; an unconstrained
+ * dump body; a dump condition reversed to `== '0'`, so records are dumped exactly when there are
+ * none; a redirect to `wrong.log` while every later step reads `app-e2e.log`; and an extract body
+ * that deletes the load-bearing `|| true` or appends an overwriting echo.
+ *
+ * What separates those from the real thing IS the exact text, so equality is the right predicate.
+ * Its cost is a test edit on the day a command legitimately changes, which is the intended cost.
+ */
+describe("the upstream-fault capture chain", () => {
+  const APP_E2E = join(ROOT, ".github/workflows/app-e2e.yml");
+  const LOG = "app-e2e.log";
+  const CODE = "SUPABASE_UPSTREAM_FAULT";
+
+  type Step = { name?: string; id?: string; if?: string; run?: string; shell?: string };
+  const steps = (): Step[] => {
+    const doc = parse(readFileSync(APP_E2E, "utf8")) as {
+      jobs?: Record<string, { steps?: Step[] }>;
+    };
+    const job = doc.jobs?.["app-e2e"];
+    expect(job, "the app-e2e job must exist").toBeDefined();
+    return job?.steps ?? [];
+  };
+  const byName = (fragment: string): Step => {
+    const found = steps().filter((s) => (s.name ?? "").includes(fragment));
+    expect(found, `exactly one step whose name contains ${fragment}`).toHaveLength(1);
+    return found[0] as Step;
+  };
+
+  it("the playwright invocation redirects to the log the later steps read, with NO pipe", () => {
+    const run = byName("Run app-e2e").run ?? "";
+    expect(run, "the invocation must not pipe").not.toContain("|");
+    // The redirect TARGET, not merely the presence of a redirect: `> wrong.log 2>&1` satisfies a
+    // has-a-redirect predicate while every later step reads a file nothing wrote.
+    expect(run.trimEnd().endsWith(`> ${LOG} 2>&1`), `must redirect to ${LOG}`).toBe(true);
+  });
+
+  it("NO step in the app-e2e job carries a `shell:` key", () => {
+    // The breaker that is invisible from reading either the workflow or the scanner alone: a
+    // `shell:` anywhere in the job makes scanWorkflowCoverage refuse the job's coverage claims,
+    // and all twenty app-e2e specs then read as covered by no workflow.
+    expect(
+      steps()
+        .filter((s) => s.shell !== undefined)
+        .map((s) => s.name ?? "?"),
+    ).toEqual([]);
+  });
+
+  it("the replay step is exactly `cat <log>` and runs on failure", () => {
+    const step = byName("Replay the app-e2e log");
+    expect(step.if).toBe("always()");
+    expect((step.run ?? "").trim()).toBe(`cat ${LOG}`);
+  });
+
+  it("the extract step's body is exactly the two lines that make its output mean something", () => {
+    const step = byName("Extract upstream-fault records");
+    expect(step.id).toBe("upstream-faults");
+    expect(step.if).toBe("always()");
+    expect((step.run ?? "").trim()).toBe(
+      [
+        `count=$(grep --count '${CODE}' ${LOG} || true)`,
+        'echo "count=${count:-0}" >> "$GITHUB_OUTPUT"',
+      ].join("\n"),
+    );
+  });
+
+  it("the dump step's body and condition are both exact", () => {
+    const step = byName("Dump upstream-fault records");
+    expect((step.run ?? "").trim()).toBe(`grep '${CODE}' ${LOG}`);
+    expect((step.if ?? "").replace(/\s+/g, " ").trim()).toBe(
+      "always() && steps.upstream-faults.outputs.count != '0'",
+    );
+  });
+
+  it("the replay precedes the executed-count oracle", () => {
+    // The oracle runs on the success path with no `if:`, so a failure there would strand the log
+    // unshown if the replay came after it.
+    const names = steps().map((s) => s.name ?? "");
+    const replay = names.findIndex((n) => n.includes("Replay the app-e2e log"));
+    const oracle = names.findIndex((n) => n.includes("Executed-count oracle"));
+    expect(replay).toBeGreaterThan(-1);
+    expect(oracle).toBeGreaterThan(-1);
+    expect(replay).toBeLessThan(oracle);
+  });
+
+  it("the baseline webServer pipes its stdout, or nothing above matters", () => {
+    // Playwright forwards a web server's stderr by default but its stdout only on an explicit
+    // "pipe", and log.debug reaches stdout. Without this every record is discarded INSIDE
+    // Playwright and the entire chain above is decorative while staying green.
+    const cfg = readFileSync(join(ROOT, "playwright.config.ts"), "utf8");
+    const open = cfg.indexOf("webServer: [");
+    expect(open, "the webServer array must be findable").toBeGreaterThan(-1);
+    // Bounded by the END of the first entry, not by its `url:` key. An earlier draft sliced at
+    // `indexOf("url:")` and found a COMMENT mentioning `url:` several lines above the real key,
+    // so the window closed before the entry's own fields and the assertion could never pass.
+    const entryEnd = cfg.indexOf("\n    },", open);
+    expect(entryEnd, "the first webServer entry must be delimited").toBeGreaterThan(open);
+    expect(
+      cfg.slice(open, entryEnd),
+      'the baseline webServer entry must set stdout: "pipe"',
+    ).toContain('stdout: "pipe"');
+  });
+});

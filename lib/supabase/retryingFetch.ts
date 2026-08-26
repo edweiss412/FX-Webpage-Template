@@ -26,9 +26,9 @@ import { log } from "@/lib/log";
 
 import {
   basePathOf,
+  describeTransportTarget,
   isRetryEligible,
   postgrestWillRetry,
-  rpcFunctionName,
 } from "./retryEligibility";
 
 /** Retries AFTER the first attempt. Two, not the sibling's three: this path is a page render. */
@@ -125,36 +125,6 @@ export type RetryingFetchOptions = {
    */
   baseUrl?: string;
 };
-
-/**
- * `/rest/v1/rpc/<fn>` → `<fn>`, else the path, so the record names WHAT was retried.
- *
- * The QUERY STRING is dropped on every branch, including the unparseable one. PostgREST carries
- * filters there (`?email=eq.<address>`), and the emit persists through `log.warn`, so a raw URL
- * here would write a crew member's email to a durable sink — breaking `RetryEmit`'s own "never
- * arguments" contract in the one branch nobody looks at.
- *
- * That branch is UNREACHABLE, and the reason is worth stating so nobody removes the guard on the
- * grounds that it never fires: `isRetryEligible` calls `new URL` first and returns false when it
- * throws, so an unparseable URL is refused before any retry and no record of it can be built.
- * Pinned by "an unparseable URL is ineligible, so no record of it can exist" in
- * `tests/supabase/retryingFetch.test.ts`, which asserts the GATE rather than this fallback.
- */
-function describeTarget(url: string, basePath: string): string {
-  try {
-    const path = new URL(url).pathname;
-    return rpcFunctionName(path, basePath) ?? path;
-  } catch {
-    // UNREACHABLE, and now written so that it cannot pretend otherwise. `isRetryEligible` calls
-    // `new URL` first and refuses anything that throws, so no unparseable URL ever reaches a retry
-    // and no record of one can be built. The previous form stripped query and fragment here — two
-    // `[0]` index literals the mutation gate flagged as SURVIVING, because nothing can execute this
-    // line to kill them. Rather than accept two mutants on code that cannot run, the branch returns
-    // a CONSTANT: it carries no request data, so it cannot leak a PostgREST filter, and it holds no
-    // operand for a mutant to move.
-    return "unparseable-url";
-  }
-}
 
 /**
  * The reason an aborted signal carries, or a DOMException matching what fetch would throw.
@@ -370,7 +340,7 @@ export function makeRetryingFetch(inner: FetchLike, options: RetryingFetchOption
       // from a fault that never happened, which is how a green run hides a real occurrence.
       onRetry({
         code: RETRY_EMIT_CODE,
-        fn: describeTarget(url, basePath),
+        fn: describeTransportTarget(url, basePath),
         status: response?.status ?? null,
         attempt: attempt + 1,
       });
