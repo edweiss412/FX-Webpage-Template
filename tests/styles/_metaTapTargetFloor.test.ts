@@ -10,6 +10,7 @@ const CATEGORIES = new Set([
   "full-bleed",
   "padding-arithmetic",
   "under-floor-filed",
+  "dev-only-unstyled",
   "unresolvable-dynamic",
 ]);
 import { scanTapTargets } from "./tapTargetScan";
@@ -57,6 +58,48 @@ describe("repo-wide tap-height floor (spec §5)", () => {
     const live = new Set(unclassified.map(key));
     expect(TAP_TARGET_CENSUS.filter((r) => !live.has(key(r))).map(key)).toEqual([]);
   });
+  /**
+   * `dev-only-unstyled` is a DOCUMENTED LIMIT, not a filing, and its bar is what
+   * keeps that honest.
+   *
+   * The dev panel was ratified as an unstyled developer tool on 2026-08-25
+   * (design doc 2026-08-25-ui-polish-class-sweep-design.md, D5, closing
+   * `BL-ADMIN-DEV-PANEL-TAP-FLOOR`). Two things make that a defensible position
+   * rather than a shrug, and both are asserted here because a position nobody
+   * can check decays into a shrug on its own.
+   *
+   * First, the surface is genuinely unreachable in production: its classes are
+   * excluded from Tailwind's source scan, so `min-h-tap-min` added there today
+   * emits no CSS at all while making a static guard report a floor the browser
+   * never applies. That is strictly worse than an honest row, and it is the
+   * argument the ledger entry itself made. If the exclusion ever goes away the
+   * argument goes with it, so the exclusion is the row's executable premise.
+   *
+   * Second, a documented limit owes a RE-FILE TRIGGER — the condition under
+   * which it stops being one. Without it, "documented limit" is just a category
+   * that never has to answer for itself again.
+   */
+  it("every dev-only-unstyled row is still excluded from the Tailwind source scan", () => {
+    const rows = TAP_TARGET_CENSUS.filter((r) => r.category === "dev-only-unstyled");
+    premiseHolds("there is a dev-only-unstyled row to check", rows.length > 0);
+    const globals = readFileSync("app/globals.css", "utf8");
+    for (const r of rows) {
+      expect(
+        globals,
+        `${r.file} is categorised dev-only-unstyled but is no longer @source-excluded, so its classes DO compile and the ratification's premise is gone`,
+      ).toContain(`@source not "../${r.file}"`);
+    }
+  });
+
+  it("every dev-only-unstyled row names the condition that would re-file it", () => {
+    for (const r of TAP_TARGET_CENSUS.filter((r) => r.category === "dev-only-unstyled")) {
+      expect(
+        r.reason.toLowerCase(),
+        `${r.file}:${r.line} is a documented limit with no re-file trigger`,
+      ).toContain("re-file trigger");
+    }
+  });
+
   it("reasons are never blank; filed rows carry a resolvable backlog ref", () => {
     for (const r of TAP_TARGET_CENSUS) {
       expect(r.reason.trim().length).toBeGreaterThan(0);

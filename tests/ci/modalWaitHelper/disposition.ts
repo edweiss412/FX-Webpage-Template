@@ -472,7 +472,9 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 17 since batch 2 (2026-08-22): no-raw-codes' route walk now navigates
     // through crawlTargetFor(routePath), which moves that site to the
     // route-census-loops rule below, where it always belonged.
-    expectedCount: 17,
+    // 18 since 2026-08-25 (feat/switch-person-google-signout): picker-flow's
+    // switch-person case navigates to the seeded show URL held in `url`.
+    expectedCount: 18,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -693,7 +695,9 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a reload or history step on /admin, /admin/needs-attention, the picker, or a crew route — the loader under test is not the ?show= one; interactions.spec.ts:397 is the inverse case, stepping BACK off ?show= to close the modal and asserting its absence",
     },
-    expectedCount: 18,
+    // 19 since 2026-08-25 (feat/switch-person-google-signout): picker-flow's
+    // switch-person case reloads the crew route to prove the session ended.
+    expectedCount: 19,
     match: (c) =>
       [
         "admin-nav-layout-dimensions.spec.ts",

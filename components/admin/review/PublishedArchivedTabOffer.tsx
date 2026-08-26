@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 
 import type { PullSheetOverrideWire } from "@/components/admin/review/sectionData";
+import { cn } from "@/lib/ui/cn";
 import {
   ARCHIVED_TAB_BTN,
   ARCHIVED_TAB_GHOST_BTN,
@@ -165,7 +166,7 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className={ARCHIVED_TAB_BTN}
+            className={cn(ARCHIVED_TAB_BTN, "border-text-faint")}
             disabled={pending}
             aria-busy={pending}
             aria-label={`Include gear from ${tabName}`}
@@ -276,7 +277,7 @@ export function PublishedArchivedTabIncludedNote(props: BaseProps) {
               ghost reads as a text link. Mirrors the wizard S3 Revoke's bordered treatment. */}
           <button
             type="button"
-            className={ARCHIVED_TAB_BTN}
+            className={cn(ARCHIVED_TAB_BTN, "border-text-faint")}
             disabled={pending}
             aria-busy={pending}
             onClick={undo}

@@ -336,27 +336,41 @@ export function RoleRecognizeControl({
             </label>
           ))}
 
-          {/* Financial: caution associated via aria-describedby so it never
-              folds into the checkbox's accessible name. Spans both columns on
-              desktop (mock). */}
-          <div className="flex min-h-tap-min items-start gap-2.5 py-1 sm:col-span-2">
-            <input
-              type="checkbox"
-              id={`${uid}-fin`}
-              data-testid={tid("role-recognize-check-FINANCIALS")}
-              aria-describedby={`${uid}-fin-cap`}
-              checked={checks.FINANCIALS}
-              disabled={saving}
-              onChange={() => toggle("FINANCIALS")}
-              className="mt-0.5 size-5 accent-accent"
-            />
-            <span className="flex flex-col gap-0.5">
-              <label htmlFor={`${uid}-fin`} className="cursor-pointer text-sm text-text">
-                {COPY.CHECKBOX_FINANCIAL}
-              </label>
-              <span id={`${uid}-fin-cap`} className="text-xs text-warning-text">
-                {COPY.FINANCIAL_CAUTION}
-              </span>
+          {/* Financial: the caution is bound with `aria-describedby` so it never folds
+              into the checkbox's accessible name, and it sits OUTSIDE the label for the
+              same reason (design doc 2026-08-25-ui-polish-class-sweep-design.md, D6).
+              What changed: `min-h-tap-min` used to sit on the row `div` while the
+              `<label htmlFor>` was a SIBLING of the input, so the floor was on an
+              element that toggles nothing and the real target was one text line
+              (BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR). The label now wraps the checkbox and
+              its short caption and carries the floor, mirroring the A1/V1/L1 siblings
+              above exactly. The caution drops its indent and runs full width, which
+              is the one visual change: it reads as a note under the row rather than
+              as a second line of the caption. `pl-7` (28px) re-aligns it under
+              the caption text rather than under the checkbox: the label's own
+              indent is `size-5` plus `gap-2.5`, 30px, and 28px is the nearest
+              spacing token — 2px under, which reads as aligned and keeps the
+              value out of the arbitrary-bracket syntax this project avoids.
+              Spans both columns on desktop (mock). */}
+          <div className="flex flex-col gap-0.5 sm:col-span-2">
+            <label
+              htmlFor={`${uid}-fin`}
+              className="flex min-h-tap-min cursor-pointer items-center gap-2.5 py-1"
+            >
+              <input
+                type="checkbox"
+                id={`${uid}-fin`}
+                data-testid={tid("role-recognize-check-FINANCIALS")}
+                aria-describedby={`${uid}-fin-cap`}
+                checked={checks.FINANCIALS}
+                disabled={saving}
+                onChange={() => toggle("FINANCIALS")}
+                className="size-5 shrink-0 accent-accent"
+              />
+              <span className="text-sm text-text">{COPY.CHECKBOX_FINANCIAL}</span>
+            </label>
+            <span id={`${uid}-fin-cap`} className="pl-7 text-xs text-warning-text">
+              {COPY.FINANCIAL_CAUTION}
             </span>
           </div>
         </div>

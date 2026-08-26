@@ -572,10 +572,17 @@ export function StagedReviewCard({
                   {allowed.map((action) => {
                     const id = `item-${item.id}-${action}`;
                     return (
+                      // `min-h-tap-min` plus vertical padding: the label IS the
+                      // target for a native radio, and this one was one text
+                      // line high (BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR). The row
+                      // deferred it under class-sweep exception (c), "a surface
+                      // this branch does not otherwise touch" — this branch
+                      // touches it, so (c) no longer fences it (design doc
+                      // 2026-08-25-ui-polish-class-sweep-design.md, D7).
                       <label
                         key={action}
                         htmlFor={id}
-                        className="flex cursor-pointer items-center gap-2 text-sm text-text"
+                        className="flex min-h-tap-min cursor-pointer items-center gap-2 py-1 text-sm text-text"
                       >
                         <input
                           id={id}
