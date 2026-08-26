@@ -150,10 +150,31 @@ it is a hand-maintained enumeration of something a command can derive.
 **The defense, and it replaces every per-task list as the GREEN criterion:**
 
 > **A task is GREEN when the whole tree is green, not when its own red command passes.** Every task's
-> GREEN step runs, and must pass: `pnpm typecheck`, `pnpm heavy pnpm test`, and every e2e suite the
-> task's files appear in — under BOTH configs, using each suite's own config. The task's `red=` selects
-> the ONE command that must have been observed failing first; it is a red criterion, never the green
-> one.
+> GREEN step runs these FOUR commands, and every one must pass. The task's `red=` selects the ONE
+> command that must have been observed failing first; it is a red criterion, never the green one.
+>
+> ```
+> pnpm typecheck
+> pnpm heavy pnpm test
+> pnpm heavy node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts \
+>   tests/e2e/popover-clip-fit.spec.ts tests/e2e/published-review-modal.layout.spec.ts \
+>   tests/e2e/skeletonBandParity.spec.ts tests/e2e/stackedBandLayout.spec.ts \
+>   tests/e2e/statusStripToggleLayout.spec.ts
+> pnpm heavy node_modules/.bin/playwright test \
+>   tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/admin-parse-panel.spec.ts \
+>   tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/attention-modal-gallery.spec.ts \
+>   tests/e2e/step3-review-modal.layout.spec.ts tests/e2e/attention-pill-focus.spec.ts
+> ```
+
+**The e2e suites are ENUMERATED ONCE for the whole arc, not derived per task, and round-4 finding 2 is
+why.** "Every suite the task's files appear in" is not a runnable instruction: the two configs use
+explicit allow-lists, and a default-config suite exercises the real app **without importing the changed
+component at all**, so no source-reference search can find it. A derivation that cannot see its own
+inputs is worse than an enumeration, because it reads as complete. This list is fixed for the arc, every
+task runs all of it, and adding a suite is a reviewed edit in one place.
+
+The last two are heavy phases (non-interactive playwright), hence `pnpm heavy` per the semaphore rule.
+The default-config run needs the app and Supabase; preflight confirmed the local stack.
 
 Three consequences worth stating so this is not read as boilerplate:
 
@@ -242,6 +263,9 @@ exactly what round-1 finding 5 caught in the first draft.
 **Ends green:** the banner still anchors within the band, the module picks `bottom` there, and the
 full-tree GREEN criterion above is what proves nothing else moved.
 
+**Ends green:** the banner still anchors within the band, the module picks `bottom` there, and the
+full-tree GREEN criterion above is what proves nothing else moved.
+
 **The transition-audit obligation lands HERE, not in a task of its own (round-2 finding 1).**
 `docs/agents/writing-plans.md` mandates a transition-audit TASK for any component with a Transition
 Inventory. A separate task cannot have a valid red for this one: the subject it would assert —
@@ -280,14 +304,20 @@ smuggling in motion — and that case is green throughout and is not this task's
 
 ## T2a — migrate Re-sync's three overlays
 
-<!-- task: red=`pnpm vitest run tests/components/ReSyncButton.test.tsx` red-state=authored red-target=`components/admin/ReSyncButton.tsx:73` why=`OVERLAY_PANEL is absolute inset-x-0 top-full and the component root is a fragment, so all three panels resolve their containing block by walking up; the unit suite asserts those exact tokens and the migrated set removes two of them` ac=AC-19 -->
+<!-- task: red=`node_modules/.bin/playwright test tests/e2e/published-review-modal.interactions.spec.ts -g "T-OVERLAY"` red-state=authored red-target=`components/admin/ReSyncButton.tsx:73` why=`OVERLAY_PANEL is absolute inset-x-0 top-full and the component root is a fragment, so the three panels are CSS-anchored to the band: they carry no data-popover-side, are not portaled into the host, and abut the band rather than sitting GAP away from the trigger` ac=AC-19 -->
 
-Its own behavioural red, which is why it is a task rather than half of T2 (round-3 finding 3).
-`tests/components/ReSyncButton.test.tsx:284` asserts
-`OVERLAY_TOKENS = ["absolute", "inset-x-0", "top-full", "z-overlay", "overflow-y-auto"]`. The red is
-that list rewritten to the migrated set — `absolute`, `w-full`, `z-overlay`, `overflow-y-auto`, with
-`inset-x-0` and `top-full` gone — which fails until the component migrates. A production-side fact, not
-a test-local one.
+**The red is the DEFAULT-config `T-OVERLAY`, not the unit suite — round-4 finding 3.** The obvious red
+was rewriting `OVERLAY_TOKENS` (`tests/components/ReSyncButton.test.tsx:284`) to the migrated set. That
+is exactly the escape this plan already rejected for T2: changing a shared class constant and its
+expected token list turns the command green while all three overlays stay on `useFitWithinClip`, with
+no portal, no host, no placement call and no side result. A token list observes a string, not a
+behaviour.
+
+`T-OVERLAY` retargeted DOES observe the behaviour: `data-popover-side` present, the panel portaled into
+the host rather than a descendant of the strip, and its top edge `GAP` from the trigger rather than
+abutting. None of that can pass while the component still resolves its containing block by walking up.
+The unit suite's token list is updated in the same commit as a secondary structural assertion — a good
+pin and a worthless red, exactly as the registry meta-test was for T2.
 
 **`tests/components/ReSyncButton.test.tsx:284`** asserts `OVERLAY_TOKENS = ["absolute", "inset-x-0",
 "top-full", "z-overlay", "overflow-y-auto"]`. `top-full` and `inset-x-0` go; `absolute`, `z-overlay`
@@ -318,7 +348,7 @@ from its own root — one mechanism for both consumers, not two.
 **Ends green** by the full-tree criterion, which is what covers the default-config interaction suite
 this task retargets.
 
-## T3 — the harness can drive a refusal through the real modal
+## T3 — the refusal driver, and the transition inventory it makes assertable
 
 <!-- task: red=`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts` red-state=authored red-target=`tests/e2e/_publishedReviewModalHarness.tsx:375` why=`modalElement hardcodes setPublished: NOOP_OK, so a click on the real modal's switch resolves ok, calls router.refresh, and no banner ever mounts` ac=AC-10 -->
 
@@ -335,6 +365,7 @@ commit's GREEN step, enumerated from `rg -ln '_pillFocusLiveEntry' tests/`:
 `tests/e2e/attention-pill-focus.spec.ts`, `tests/e2e/popover-clip-fit.spec.ts`, and
 `tests/components/admin/sheetIconLinkContainment.test.ts` — the last is a vitest consumer, easy to
 miss when thinking of the entry as e2e-only.
+
 
 **Anti-tautology.** The case asserts a DISTINCTIVE substring of `FINALIZE_OWNED_SHOW`'s catalog copy —
 "busy with a setup-wizard publish" (`lib/messages/catalog.ts:2279-2280`) — not that the copy is
@@ -364,7 +395,14 @@ panel. The 0-load baseline is per-viewport because header height is width-depend
    `h2`'s inner span (`components/admin/showpage/PublishedReviewModal.tsx:913`) gains `max-sm:line-clamp-2`.
 
 `max-sm:max-w-[10rem]` is the spelling AC-18 names; `10rem` is `160px`, swept in spec §3.0 across eight
-cap values and three loads. **`line-clamp-2` has no existing usage in this repo**, so the task asserts
+cap values and three loads.
+
+**AC-18 requires EXACTLY ONE occurrence of that token, and round-4 finding 5 is right that nothing
+inspected it.** The browser assertions measure geometry and the emitted `line-clamp`; neither can tell
+`max-sm:max-w-[10rem]` from a second copy of the cap somewhere else, which is the drift AC-18 exists to
+prevent. A source-scan case asserts the token occurs exactly once across `components/`, and that the
+occurrence is on the action cluster element. A probe today finds it only in this plan and the spec — no
+test contract at all. **`line-clamp-2` has no existing usage in this repo**, so the task asserts
 the EMITTED style (`getComputedStyle(span).webkitLineClamp === "2"`), not the class string — an
 un-emitted utility is a silent no-op, which is the failure class this whole arc exists to remove.
 
@@ -494,6 +532,14 @@ and `spaceAbove` above it, `data-popover-side="top"`, containment, and the width
 below, so the module picks `bottom` — which is what makes them a valid red here and would have made
 them vacuous in a later task.
 
+**AC-7's registry tail gets an instrument (round-4 finding 5).** AC-7 requires the two measured room
+values to appear in the migrated registry row's `reason`; T5 measured them and nothing asserted where
+they landed, and the registry meta-test checks only disposition imports and non-empty reasons. A
+`tests/components/admin/showpage/` case now asserts the `published-toggle-popover` row's `reason`
+contains both numbers as literals. Deliberately a STRING assertion on a hand-written field: the value
+of that row is that a human reading the registry sees the measurement, so what is asserted is that a
+human would.
+
 **`lib/layout/fitWithinClip.ts:38-43`**: the PublishedToggle entry is RETIRED, not filled in — the
 anchor has left the set that docblock describes. One line naming the migration and where the
 measurement lives. The arc's only fenced-file edit.
@@ -509,7 +555,7 @@ site spec §9's discovery command provably cannot reach.
 
 ## T6 — the stale-anchor class sweep
 
-<!-- task: red=`! grep -rniE 'sticky[[:space:]]+(status[[:space:]]?)?strip|sticky[[:space:]]+StatusStrip' app components tests lib` red-state=live why=`six live sites assert the StatusStrip is sticky and is the banner's positioned ancestor; both halves are false today and stay false after the dock` ac=AC-12 -->
+<!-- task: red=`! grep -rniE "sticky[[:space:]]+(status[[:space:]]?)?strip|sticky[[:space:]]+StatusStrip|strip.s .sticky top-0|positioned ancestor .{0,2}sticky" app components tests lib` red-state=live why=`eight live sites assert the StatusStrip is sticky or is the banner's positioned ancestor; both halves are false today and stay false after the dock` ac=AC-12 -->
 
 **A LIVE red, RUN at plan time, and NEGATED.** A grep that finds matches exits 0, so the un-negated
 form reported green while the defect was present — `--exec-red` caught that as `RED_ALREADY_GREEN`.
@@ -524,14 +570,18 @@ components/admin/PublishedToggle.tsx:52
 components/admin/PublishedToggle.tsx:67
 tests/components/admin/PublishedToggle.test.tsx:485
 tests/components/admin/showpage/popoverOverlayRegistry.ts:110
+tests/e2e/_statusStripToggleHarness.tsx:104
+tests/e2e/popover-clip-fit.spec.ts:135
 tests/e2e/statusStripToggleLayout.spec.ts:18
 tests/e2e/statusStripToggleLayout.spec.ts:160
 ```
 
-Two more sites the narrow pattern misses and the sweep repairs anyway, named because a cover that
-hides its exclusions is the defect three spec rounds were spent on:
-`tests/e2e/popover-clip-fit.spec.ts:135` (word order) and `tests/e2e/_statusStripToggleHarness.tsx:104`
-(`sticky top-0`). GREEN is the pattern returning zero AND both of those corrected.
+**Two legitimate survivors are deliberately OUTSIDE the pattern**, because no regex can tell them from
+the class: `components/agenda/AgendaPdfViewer.tsx:161` is a genuinely sticky element in an unrelated
+component, and `tests/components/admin/showpage/publishedReviewModal.test.tsx:898` is a NEGATIVE
+assertion ("the strip carries no ... sticky pin") that is correct and must stay. A wider pattern
+catches both and can never go green. This is the enumeration-with-triage spec §2.3 already declared,
+and it is why this red is scoped to strings rather than to the word.
 
 **`tests/e2e/statusStripToggleLayout.spec.ts` is edited here and is now IN the spec's exact changed
 set** (round-2 finding 6: the task edited a path the set omitted, so T7's bidirectional comparison
@@ -545,7 +595,7 @@ deliberately unchanged** — a dated record states what was true when written.
 
 ## T7 — graduate the row
 
-<!-- task: red=`grep -q 'BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED' BACKLOG-archive.md` red-state=live why=`the row is still in the open ledger, so the archive does not contain it and the grep exits 1` ac=AC-13 -->
+<!-- task: red=`grep -A40 'BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED' BACKLOG-archive.md | grep -qE 'spaceAbove|room above'` red-state=live why=`the row is still in the open ledger, so the archive contains neither the identifier nor the measured room value and the pipeline exits 1` ac=AC-13 -->
 
 **It has a real RED and stays INSIDE the region (round-2 finding 2).** The first draft exempted this
 task as "docs, so guard-green is its contract", and that was wrong: invariant 1 says EVERY task is
@@ -554,6 +604,12 @@ invariant. The exemption was also unnecessary, which is the embarrassing part �
 there all along. `grep -q 'BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED' BACKLOG-archive.md` exits 1 today
 because the row is still open, and 0 once it is archived. Red then green, same command, verified at
 plan time: `grep_rc=1`.
+
+**AC-13 requires the measured NUMBERS in the archive entry, not just the identifier (round-4 finding
+5).** The red greps for the id, which an archive entry with no measurement would satisfy. It is
+strengthened to require both: the identifier AND the measured `spaceAbove` value, in
+`BACKLOG-archive.md`. Red today on both counts, green only when the entry carries what the row was
+filed to obtain — which is the whole point of graduating this row rather than closing it.
 
 `tests/docs/_metaLedgerInProgress.test.ts` runs beside it as the structural gate — it is what makes
 removing the marker in this same commit non-optional, since archives categorically reject in-flight
