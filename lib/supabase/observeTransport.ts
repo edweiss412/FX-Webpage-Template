@@ -36,7 +36,7 @@
  */
 import { log } from "@/lib/log";
 
-import { basePathOf, rpcFunctionName } from "./retryEligibility";
+import { basePathOf, describeTransportTarget } from "./retryEligibility";
 
 /**
  * The observation's forensic code, and the string a CI grep looks for.
@@ -84,23 +84,6 @@ function isUpstreamFault(status: number): boolean {
   return status >= 500;
 }
 
-/**
- * `<base>/rest/v1/rpc/<fn>` → `<fn>`, else the path. The QUERY STRING is dropped on every branch.
- *
- * Unlike the retry wrapper's sibling, the unparseable branch here IS reachable: nothing gates this
- * function behind an eligibility check that parses the URL first, so a caller handing the client a
- * malformed URL reaches it. It answers a constant, which carries no request data and so cannot
- * leak a filter.
- */
-function describeTarget(url: string, basePath: string): string {
-  try {
-    const path = new URL(url).pathname;
-    return rpcFunctionName(path, basePath) ?? path;
-  } catch {
-    return "unparseable-url";
-  }
-}
-
 function urlOf(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.href;
@@ -144,7 +127,7 @@ export function makeObservingFetch(
   ): void => {
     onObserve({
       code: UPSTREAM_FAULT_CODE,
-      target: describeTarget(urlOf(input), basePath),
+      target: describeTransportTarget(urlOf(input), basePath),
       status,
       kind,
     });

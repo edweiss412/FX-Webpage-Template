@@ -19,6 +19,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  describeTransportTarget,
   POSTGREST_RETRYABLE_STATUSES,
   RETRYABLE_RPCS,
   basePathOf,
@@ -208,5 +209,57 @@ describe("the schema a request names, which the URL does not carry", () => {
     expect(isRetryEligible(RPC.replace("is_admin", "some_writer"), "POST", "", "public")).toBe(
       false,
     );
+  });
+});
+
+describe("describeTransportTarget — one bound, shared by every emit that names a target", () => {
+  const BASE = "";
+
+  test("an RPC is named by its function, never by its path", () => {
+    expect(describeTransportTarget("http://h/rest/v1/rpc/is_admin", BASE)).toBe("is_admin");
+  });
+
+  test("a PostgREST table read keeps the table name and drops the filters", () => {
+    // The table name is schema, not data. A record that cannot say WHICH table faulted is not
+    // worth writing.
+    expect(describeTransportTarget("http://h/rest/v1/crew_members?email=eq.a%40b.com", BASE)).toBe(
+      "/rest/v1/crew_members",
+    );
+  });
+
+  test("a Storage object path is truncated before the bucket's contents", () => {
+    // This is the round-1 finding, swept to its class. Both emits that name a target now come
+    // through here, so the bound is a property of the DESCRIBER rather than a coincidence of
+    // whatever `isRetryEligible` happens to admit today. The retry wrapper's own emit persists
+    // through log.warn, so its exposure was the more serious of the two even though no live
+    // request reaches it.
+    const target = describeTransportTarget(
+      "http://h/storage/v1/object/diagram-snapshots/show_123/rev_7/private.png?token=s",
+      BASE,
+    );
+    expect(target).toBe("/storage/v1/object/…");
+    for (const leak of ["show_123", "rev_7", "private", "token", "diagram-snapshots"]) {
+      expect(target, `must not carry ${leak}`).not.toContain(leak);
+    }
+  });
+
+  test("a path at the bound is not decorated with a truncation marker it did not earn", () => {
+    expect(describeTransportTarget("http://h/auth/v1/token", BASE)).toBe("/auth/v1/token");
+  });
+
+  test("a mounted base path is stripped before the segments are counted", () => {
+    // Otherwise a proxy mount spends the whole budget on its own prefix and every record
+    // truncates to the mount, which is the shape retryingFetch.test.ts:199 already records as a
+    // durable-sink defect.
+    expect(describeTransportTarget("http://h/proxy/rest/v1/rpc/is_admin", "/proxy")).toBe(
+      "is_admin",
+    );
+    expect(describeTransportTarget("http://h/proxy/rest/v1/crew_members", "/proxy")).toBe(
+      "/rest/v1/crew_members",
+    );
+  });
+
+  test("an unparseable URL carries no request data at all", () => {
+    expect(describeTransportTarget("::::", BASE)).toBe("unparseable-url");
   });
 });

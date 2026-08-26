@@ -115,6 +115,60 @@ describe("plant 1 — a 5xx is recorded", () => {
     expect(observation.target).toBe("/rest/v1/crew_members");
     expect(JSON.stringify(observation)).not.toContain("example.com");
     expect(JSON.stringify(observation)).not.toContain("email");
+    // The PATH shapes beyond PostgREST are covered by their own describe block below; this
+    // case pins only the query string, which is where PostgREST puts its filters.
+  });
+});
+
+describe("the record carries no request data, on ANY path shape", () => {
+  test("a Storage object path is truncated before the bucket's contents", async () => {
+    // Round-1 review probed this against ordinary service-role Storage traffic, not an
+    // adversarial URL. The observer runs on the service-role client, which uploads diagram
+    // snapshots, and the previous form returned the WHOLE pathname for every non-RPC request:
+    // the show id, the revision and the private object key all reached a log sink. Dropping the
+    // query string was never sufficient, because these are path segments.
+    const { seen, onObserve } = collector();
+    const fetchFn = makeObservingFetch(async () => new Response("{}", { status: 502 }), {
+      baseUrl: BASE,
+      onObserve,
+    });
+
+    await fetchFn(
+      `${BASE}/storage/v1/object/diagram-snapshots/show_123/rev_7/private-diagram.png?token=secret`,
+      { method: "POST" },
+    );
+
+    const observation = only(seen, "observation");
+    expect(observation.target).toBe("/storage/v1/object/…");
+    for (const leak of ["show_123", "rev_7", "private-diagram", "secret", "diagram-snapshots"]) {
+      expect(JSON.stringify(observation), `must not carry ${leak}`).not.toContain(leak);
+    }
+  });
+
+  test("a PostgREST table read keeps the table name, which is schema and not data", async () => {
+    // The truncation is bounded rather than total: three segments is chosen so `/rest/v1/<table>`
+    // survives intact. A record that cannot say WHICH table faulted is not worth writing.
+    const { seen, onObserve } = collector();
+    const fetchFn = makeObservingFetch(async () => new Response("{}", { status: 503 }), {
+      baseUrl: BASE,
+      onObserve,
+    });
+
+    await fetchFn(`${BASE}/rest/v1/crew_members?email=eq.someone%40example.com`, { method: "GET" });
+
+    expect(only(seen, "observation").target).toBe("/rest/v1/crew_members");
+  });
+
+  test("a short path is not decorated with a truncation marker it did not earn", async () => {
+    const { seen, onObserve } = collector();
+    const fetchFn = makeObservingFetch(async () => new Response("{}", { status: 502 }), {
+      baseUrl: BASE,
+      onObserve,
+    });
+
+    await fetchFn(`${BASE}/auth/v1/token`, { method: "POST" });
+
+    expect(only(seen, "observation").target).toBe("/auth/v1/token");
   });
 });
 
