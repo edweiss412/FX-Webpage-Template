@@ -295,12 +295,24 @@ Item 2 is the sharp one and it is why the `workflow_dispatch` run below is manda
 | event | rows | runner jobs |
 | --- | --- | --- |
 | pull request, today | 20 | **19** (`notify` skipped) |
-| pull request, after R4 | 20 | **2** |
+| pull request, after R4 | **4** | **2** |
 | schedule on `main` | 20 | **20** |
 | `workflow_dispatch` on `main` | 20 | **20** |
 | `workflow_dispatch` on a feature branch | 20 | **19** (`notify` skipped) |
 
-Verified against run 32958581720, a real pull-request run: 20 job rows, of which exactly one (`notify`) is `skipped`.
+Verified against run 32958581720, a real pull-request run: 20 job rows, of which exactly one (`notify`) is `skipped`. The after-row is verified against run 33012271661 on this arc's own pull request.
+
+**The after-row's ROW count is 4, not 20, and an earlier draft of this table said 20.** A matrix job whose condition is false collapses to ONE row rather than expanding to eight, because GitHub evaluates a job's condition BEFORE matrix expansion; `budget` and `notify` are then never created at all, both being `needs:`-dependent on jobs that did not run. Measured:
+
+```
+parser-shards    completed  skipped
+source-shards    completed  skipped
+parser-gates     queued
+source-gates     in_progress
+rows = 4    non-skipped = 2
+```
+
+Worth recording rather than quietly fixing: the condition-before-expansion fact came from this spec's own plan-stage review, which cited the GitHub workflow-syntax documentation for it while correcting AC-5. The fact was recorded and the row count was still carried over from the unconditional matrix. The runner-job number was right throughout; only the row number was wrong, which is exactly the rows-versus-runners conflation that review had flagged.
 
 So the narrowing is **19 runner jobs to 2**. Against today's sixteen fan-outs, eleven cancelled mid-flight, that is the whole of the capacity this arc returns, and it dwarfs R2's eleven added nightly minutes.
 
