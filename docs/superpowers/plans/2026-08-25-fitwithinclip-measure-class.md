@@ -663,6 +663,19 @@ Bounded in practice: three consumers exist and their overlays open one at a time
 Recorded, not repaired, because the alternative is deferring the measure, which reintroduces the
 uncapped paint the synchronous measure exists to prevent. That trade is settled in spec §4.2.
 
+### Task 2's TDD deviation: accepted, with the compensating control named
+
+Diff review round 1 finding 1 raised Task 2's invariant 1 and 6 violation as a P0: its production
+change was subsumed by Task 1, so its RED was never observed separately. The deviation is recorded in
+full under Task 2 above, which is how the reviewer found it; it was never concealed.
+
+**Orchestrator ruling, 2026-08-26: accepted as a recorded deviation.** The invariants exist to
+guarantee a red was observed for the behaviour, and that guarantee is met here by another route: case
+`(h)` ships as a PIN and mutant **M2, restoring the second ancestor walk, turns it red** — run and
+recorded in §5. Un-batching forty commits would destroy more evidence than it creates. No
+`DEFERRED.md` entry is filed, deliberately: a `DEF-` row for a process deviation is precisely what the
+2026-08-25 process-mint freeze refuses, and the plan already carries the record.
+
 ### Not raised, and why
 
 The floor-clamp case, where the room below the anchor is under `MIN_FITTED_HEIGHT` and the overlay
