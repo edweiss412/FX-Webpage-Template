@@ -20,6 +20,7 @@ import re
 import sys
 
 SPEC = "docs/superpowers/specs/2026-08-25-fitwithinclip-measure-class.md"
+PLAN = "docs/superpowers/plans/2026-08-25-fitwithinclip-measure-class.md"
 SUITE = "tests/components/admin/useFitWithinClip.test.tsx"
 
 ID = re.compile(r"\(([a-z]+\d*)\)")
@@ -45,8 +46,26 @@ def main() -> int:
     print("§5.1 DEFINES     :", " ".join(sorted(defined)))
     print("suite ALREADY HAS:", " ".join(sorted(existing)))
     missing = sorted(used - defined - existing)
-    print("UNRESOLVED       :", " ".join(missing) if missing else "none")
-    return 1 if missing else 0
+    print("UNRESOLVED (spec):", " ".join(missing) if missing else "none")
+
+    # The PLAN too, and this is why the widening exists. Diff review round 1
+    # finding 3 caught the plan crediting `(h5)` and `(h7)`, neither of which
+    # the suite declares. This checker could not have caught it: it read the
+    # spec and nothing else, so every id the plan cites went unchecked. The
+    # gap was in the instrument's DOMAIN, not in its logic, and fixing the two
+    # ids by hand would have left the hole open for the next one.
+    #
+    # The plan is an execution document, so its ids resolve against the SUITE
+    # (the real authority) or against a §5.1 definition. Backticked spans are
+    # stripped by the same rule the spec uses: a plan naming an id in order to
+    # discuss it is a mention, not a use.
+    plan = io.open(PLAN, encoding="utf-8").read()
+    plan_used = set(ID.findall(strip_code(plan)))
+    plan_missing = sorted(plan_used - defined - existing)
+    print("plan USES        :", " ".join(sorted(plan_used)))
+    print("UNRESOLVED (plan):", " ".join(plan_missing) if plan_missing else "none")
+
+    return 1 if (missing or plan_missing) else 0
 
 
 if __name__ == "__main__":

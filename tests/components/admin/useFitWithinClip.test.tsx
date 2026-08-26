@@ -415,6 +415,56 @@ describe("useFitWithinClip", () => {
     expect(applyCount - afterMount, "a resize after unmount measured a dead node").toBe(0);
   });
 
+  /*
+   * (h23) and (h24) pin LISTENER REMOVAL, which (h3) above cannot see.
+   *
+   * Diff review round 1 finding 3: (h3) asserts an `applyCount` delta, and a
+   * leaked listener does not move that count. The leaked handler still fires,
+   * `coalescer.schedule` still books a frame, and `apply()` then returns at its
+   * null-node guard because teardown cleared `nodeRef` — so the measure never
+   * happens and the count sits still while the listener is attached. The
+   * SCHEDULER is the only place the leak is observable, so these assert on
+   * `frames` rather than on `applyCount`.
+   *
+   * Each carries a POSITIVE CONTROL firing the same event while still mounted.
+   * Without it both cases would pass if the event scheduled nothing at all,
+   * which is the vacuous pass this pair exists to rule out.
+   */
+  test("(h23) after unmount, a resize schedules NO frame: the window listener is really gone", () => {
+    const { view } = mount();
+
+    fireEvent(window, new Event("resize"));
+    expect(frames.size, "control: a resize while MOUNTED must schedule a frame").toBe(1);
+    flushFrames();
+
+    view.unmount();
+    fireEvent(window, new Event("resize"));
+
+    expect(
+      frames.size,
+      "a resize after unmount scheduled a frame: the window listener leaked",
+    ).toBe(0);
+  });
+
+  test("(h24) after unmount, transitionend on the former positioned ancestor schedules NO frame", () => {
+    // The hook captures `positioned` at attach, so the listener sits on `inner`
+    // and stays there after withOffsetParent restores the descriptor. Teardown
+    // must remove it from that same captured node.
+    const { view, inner } = withOffsetParent(() => mount());
+
+    fireEvent(inner, transitionEnd("transform"));
+    expect(frames.size, "control: transitionend while MOUNTED must schedule a frame").toBe(1);
+    flushFrames();
+
+    view.unmount();
+    fireEvent(inner, transitionEnd("transform"));
+
+    expect(
+      frames.size,
+      "transitionend after unmount scheduled a frame: the ancestor listener leaked",
+    ).toBe(0);
+  });
+
   test("(h12) the ResizeObserver callback re-measures against the new geometry", () => {
     const observed: Element[] = [];
     const constructed: ResizeObserverCallback[] = [];

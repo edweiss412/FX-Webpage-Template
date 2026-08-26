@@ -16,7 +16,7 @@ Declared before the tasks, per the writing-plans rule. This arc CREATES no meta-
 | Meta-test | CREATES / EXTENDS / covered by default | Why |
 | --- | --- | --- |
 | `tests/components/_metaScrollNeutralMeasurement.test.ts` | covered by default, stays green | It walks `components/` and `lib/` from disk (`tests/components/_metaScrollNeutralMeasurement.test.ts:22`) and forbids a cap-clearing assignment — `.style.maxHeight = ""` — outside `lib/popover/naturalSize.ts`. The refactor keeps `withNaturalSize` as the only clear, and writes caps with `el.style.maxHeight = \`${fitted}px\`` and `removeProperty("max-height")`, neither of which matches `CLEAR_RE`. Verified by running it in Task 1's GREEN step, not assumed. |
-| `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` | covered by default, stays green, **and constrains the diff** | Two claims, and the second is load-bearing. (a) Each registered consumer IMPORTS the hook from `@/components/admin/useFitWithinClip` and does not re-declare it locally; the refactor changes internals, not module path, export name, or `RefCallback<HTMLElement>` return type. (b) `components/admin/useFitWithinClip.ts` is itself registered as a consumer of `createRafCoalescer` with `requiresCancelAdoption: true` (`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:120-125`), whose comment says why: so that a future local `requestAnimationFrame` plus frame-id bookkeeping inside the hook fails HERE rather than quietly reintroducing the per-event forced reflow. **The coalescer moves into the ref callback and its `.cancel()` must move with it.** That is not a nice-to-have: mutant M8 turns this meta-test red as well as (g3) and (h5), which is stated in §5 so the mutant run is read correctly. |
+| `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` | covered by default, stays green, **and constrains the diff** | Two claims, and the second is load-bearing. (a) Each registered consumer IMPORTS the hook from `@/components/admin/useFitWithinClip` and does not re-declare it locally; the refactor changes internals, not module path, export name, or `RefCallback<HTMLElement>` return type. (b) `components/admin/useFitWithinClip.ts` is itself registered as a consumer of `createRafCoalescer` with `requiresCancelAdoption: true` (`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:120-125`), whose comment says why: so that a future local `requestAnimationFrame` plus frame-id bookkeeping inside the hook fails HERE rather than quietly reintroducing the per-event forced reflow. **The coalescer moves into the ref callback and its `.cancel()` must move with it.** That is not a nice-to-have: mutant M8 turns this meta-test red as well as (g3), which is stated in §5 so the mutant run is read correctly. (An earlier version named `(h5)` here too; the suite declares no such case, and planting M8 turns exactly `(g3)` red.) |
 | `tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` | covered by default, stays green | Its `fit-within-clip` predicate is an IMPORT regex (`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts:37`), deliberately not `/useFitWithinClip/`, which had matched a file carrying its own local copy. Unmoved by an internals change. |
 | `tests/components/admin/showpage/popoverOverlayRegistry.ts` | covered by default, stays green | Prose rows recording which overlay is clip-safe by which route (`tests/components/admin/showpage/popoverOverlayRegistry.ts:49`, `tests/components/admin/showpage/popoverOverlayRegistry.ts:89`, `tests/components/admin/showpage/popoverOverlayRegistry.ts:110`, `tests/components/admin/showpage/popoverOverlayRegistry.ts:117`). No claim about the hook's internals. |
 | a NEW registry-style meta-test | **NONE, with the reason** | The diff adds no Supabase call boundary (invariant 9), no mutation surface (invariant 10), no advisory-lock holder (invariant 2), no DB artifact, and no `admin_alerts` row. It removes a `useState` and a `useLayoutEffect` from one client hook. The class this arc closes is already derived-covered by the two greps in spec §4.1, which are re-run in Task 3 as a closeout sweep rather than described. |
@@ -163,8 +163,10 @@ is the fix: every row names its task, and a row without one is a plan defect.
 | M5 | Drop `reapplyKey` from the ref callback's dependency list | (c) reapplyKey re-measure | Task 1 |
 | M6 | Defer the mount measure into `coalescer.schedule()` instead of calling `apply()` | (g2) no-frame pin AND the Task 4 first-paint sampler | Task 4 |
 | M7 | Observe `findClippingAncestor(node)`'s result but pass `null` to `observer.observe` | (d) clip ancestor observed | Task 2 |
-| M8 | Drop `coalescer.cancel()` from the teardown | (g3) unmount-with-frame-pending, (h5) reapplyKey-change-with-frame-pending, AND `_metaSharedHelperAdoption` (`requiresCancelAdoption: true` on this file's own registry row) | Task 3 |
-| M9 | Move `positioned.removeEventListener` AFTER `coalescer.cancel()` in the teardown | (h7) transitionend mid-teardown | Task 3 |
+| M8 | Drop `coalescer.cancel()` from the teardown | (g3) unmount-with-frame-pending, AND `_metaSharedHelperAdoption` (`requiresCancelAdoption: true` on this file's own registry row). **Measured: planting M8 turns exactly (g3) red.** | Task 3 |
+| M9 | Move `positioned.removeEventListener` AFTER `coalescer.cancel()` in the teardown | **NOTHING. Measured: planted, suite stayed 33/33 green.** Accepted gap, see below. | Task 3 |
+| M25 | Delete `window.removeEventListener("resize", coalescer.schedule)` from the teardown | (h23) resize-after-unmount-schedules-no-frame. **Measured: turns (h23), (g) and (g3) red.** | round-1 repair |
+| M26 | Delete `positioned.removeEventListener("transitionend", …)` from the teardown | (h24) transitionend-after-unmount-schedules-no-frame. **Measured: turns (h24) red and nothing else.** | round-1 repair |
 | M10 | Make the ref callback's dependency list unstable — add an inline `{}` dep | (h9) unchanged-re-render costs nothing | Task 3 |
 | M11 | `new ResizeObserver(() => {})` — observer constructed, callback dead | (h12) the observer callback re-measures, on both observed targets | Task 1 |
 | M12 | Reintroduce ANY state update on the attach path — `const [n, setN] = useState(0)` bumped in the ref callback | (h14) one owner render per appearance | Task 3 |
@@ -178,6 +180,32 @@ is the fix: every row names its task, and a row without one is a plan defect.
 | M19 | Skip `removeProperty("max-height")` on the nothing-clips branch, leaving the stale cap | (h20) `F to N`, and family A. Kills NOTHING on the DIRECT edge today | Task 3 |
 | M20 | Skip `observer?.disconnect()` when no clip was found — `if (clip) observer?.disconnect()` | (h21) `N to D`. Leaves a live observer on a live ancestor after the node is gone; kills NOTHING today | Task 3 |
 | M21 | Detach-and-reattach even when nothing was attached — treat a `reapplyKey` change as unconditionally `X to D to Y` | (h16), whose shipped shape is a key change WITH the first attach: one attach, no detach | Task 3 |
+
+**M9 is an accepted gap, and the rows above it used to claim two cases that do not exist.** Diff
+review round 1 finding 3 caught this table crediting `(h5)` with M8 and `(h7)` with M9. The suite
+declares neither, and it never did. Both claims were repaired by measurement rather than by
+deletion:
+
+- M8's real pin is `(g3)` alone. Planted, `(g3)` goes red and nothing else does, so the phantom
+  `(h5)` was never load-bearing.
+- **M9 kills nothing.** Planted, the suite stayed 33/33 green. jsdom tears down synchronously, so no
+  `transitionend` can arrive in the window between `coalescer.cancel()` and the listener's removal,
+  and the ordering the mutant perturbs is not observable here at all. This is an unkillable mutant
+  on a dead ordering, not a missing test, and it is recorded as an accepted gap rather than paired
+  with a case that would not catch it. The ordering is still written the safe way, and the comment
+  at that site says why.
+
+What the round-1 repair DID add is different from what those phantoms claimed: `(h23)` and `(h24)`
+pin LISTENER REMOVAL, which `(h3)` structurally cannot see. `(h3)` asserts an `applyCount` delta, and
+a leaked listener never moves that count — the handler fires, a frame is booked, and `apply()` then
+returns at its null-node guard because teardown cleared `nodeRef`. M25 and M26 are the mutants that
+prove the new pair bites, and M26 turns exactly one case red, which is the discrimination `(h3)`
+lacked. Before this repair M26 escaped the suite entirely.
+
+The instrument that should have caught the phantoms was itself too narrow: the committed case-id
+parity checker read the SPEC and nothing else, so every id the plan cited went unchecked. It now
+reads the plan too, which is a derived cover rather than a two-id patch, and it reproduces the
+finding independently.
 
 M6 is the one that matters most and the one the unit suite alone under-covers: (g2) proves no frame was SCHEDULED in jsdom, which is a proxy. Task 4's sampler proves the overlay was never PAINTED uncapped in a real engine, which is the property.
 

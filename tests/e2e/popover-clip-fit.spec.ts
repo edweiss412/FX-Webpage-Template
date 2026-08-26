@@ -665,10 +665,19 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
     // (`no frame was sampled at all`, firstPresent -1) where the spec passes
     // alone, and the message could not say which. So wait for the first row
     // explicitly, and report installed-ness separately from the rows.
+    // Waits for a PRESENT row, not merely a row. Diff review round 1 finding 2
+    // probed the earlier `length > 0` predicate and showed it is already true
+    // during hydration, when every row is `present: false`:
+    //   {"waitCondition":true,"firstPresent":-1,"presentCount":0}
+    // So that version widened the race instead of closing it, and a green run
+    // showed the race had not occurred once, not that it could not occur. This
+    // predicate cannot be satisfied by absent rows, so `firstPresent >= 0`
+    // below is guaranteed rather than hoped for. Arming is still asserted
+    // separately: an absent row must PRECEDE the first present one.
     await page.waitForFunction(
       () => {
-        const w = window as unknown as { __clipFrames?: unknown[] };
-        return Array.isArray(w.__clipFrames) && w.__clipFrames.length > 0;
+        const w = window as unknown as { __clipFrames?: { present: boolean }[] };
+        return Array.isArray(w.__clipFrames) && w.__clipFrames.some((f) => f.present);
       },
       undefined,
       { timeout: 15_000 },
