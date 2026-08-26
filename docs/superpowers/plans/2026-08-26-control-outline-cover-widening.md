@@ -85,12 +85,23 @@ $ grep -n "RESIDUE_CENSUS.length\|count(\"" tests/styles/_metaControlOutlineResi
 
 `tests/styles/tintedPlateOutline.test.ts:215` pins `components/admin/wizard/step3ReviewSections.tsx` at 4 legitimate `border-text-faint` occurrences, counted CODE-ONLY with comments stripped. Task 5 adds five to that file (the textarea at 4206 and the four painted children at 1226, 1768, 1779 and 3788), so the pin moves to 9 in the same commit or the plate suite reds for a reason that has nothing to do with plates. Verified at plan time:
 
+Run, not described. `stripCommentsForFile` takes `(src, filePath)` in that order and resolves only from the repo root, so the script sits at the root while it runs:
+
 ```
-$ tsx -e 'stripCommentsForFile(readFileSync(f), f).match(/border-text-faint/g).length'   # f = step3ReviewSections.tsx
-CODE_ONLY_COUNT=4
-$ grep -c "border-text-faint" components/admin/wizard/step3ReviewSections.tsx           # raw, includes 2 comment lines
-6
+$ cat > tmp-count.mts <<'EOF'
+import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "./tests/_shared/stripComments";
+const f = "components/admin/wizard/step3ReviewSections.tsx";
+const raw = readFileSync(f, "utf8");
+console.log("code-only:", (stripCommentsForFile(raw, f).match(/border-text-faint/g) ?? []).length);
+console.log("raw:      ", (raw.match(/border-text-faint/g) ?? []).length);
+EOF
+$ pnpm exec tsx tmp-count.mts && rm tmp-count.mts
+code-only: 4
+raw:       6
 ```
+
+Code-only 4 is the number `neutralFaintCount` records; raw 6 counts the two occurrences inside comments at `components/admin/wizard/step3ReviewSections.tsx:1416` and `components/admin/wizard/step3ReviewSections.tsx:1420`, which is the inflation the registry's own docstring warns about.
 
 No other file this diff touches appears in that registry. Checked against all seven rows (`DataQualityWarningControls`, `archivedTabOffer`, `PublishedArchivedTabOffer`, `RoleMappingRow`, `lib/ui/actionClass.ts`, `RescanSheetButton`, `step3ReviewSections`).
 
@@ -327,20 +338,39 @@ Order: write that assertion in `tests/styles/interactiveScanCore.test.ts` over t
 
 **STEP 5, the twelve registrations.** `switch-track`, citing `DESIGN.md §1.2a` and the 1.43:1 / 1.75:1 OFF ring: `components/admin/telemetry/AutoRefreshControl.tsx:105` and `components/admin/settings/DeveloperToggleButton.tsx:93`. `inner-chrome`, each citing §1.2a's non-interactive-chrome clause and recording its measured ratio: `components/admin/IgnoredSheetsDisclosure.tsx:80` and `components/admin/IgnoredSheetsDisclosure.tsx:97`; `components/admin/RecentAutoAppliedStrip.tsx:474`; `components/admin/nav/AdminNav.tsx:154`; `components/admin/ShowsTable.tsx:288`; `components/admin/wizard/step3ReviewSections.tsx:2431`; `components/admin/UnarchiveShowButton.tsx:113`; `components/admin/ArchiveShowButton.tsx:232`, `components/admin/ArchiveShowButton.tsx:243`, `components/admin/ArchiveShowButton.tsx:253`. The last two share a key at multiplicity two and therefore take TWO rows (§4.2).
 
-**STEP 5b, AC-15, which had no executable form and now has one.** The claim is that the multiset of border-WIDTH utilities across every swap target is identical before and after, so a colour swap cannot have moved layout. Run it, do not assert it in prose:
+**STEP 5b, AC-15, with an instrument that has been run rather than sketched.** The claim is that no swap moved layout. Counting width tokens per SOURCE OCCURRENCE gets this wrong on the one target whose className moves: `components/admin/telemetry/EventFilters.tsx:40` has three `border` occurrences at base (the dead fallback plus two call sites) and one after, while the rendered element carries exactly one either way. So the comparison is per ELEMENT, through the scanner, which is also the only vocabulary the rest of this arc uses.
+
+scripts/ac15-width-parity.mts (created by this task), run twice inside it: once after STEP 1 (opt-in, nothing repaired) and once at the end.
+
+```ts
+import { scanInteractiveElements, allStrings } from "../tests/styles/interactiveScanCore";
+const WIDTH = /^(?:border|border-[tblrxy]|border-\d+|border-[tblrxy]-\d+)$/;
+export function widthsByElement(root: string, opts?: ScanOptions): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const el of scanInteractiveElements(root, opts)) {
+    const toks = allStrings(el).flatMap((s) => s.split(/\s+/))
+      .filter((t) => WIDTH.test(t.replace(/^[^:]*:/, ""))).sort();
+    out.set(`${el.file}:${el.line}:${el.tag}`, toks.join(" "));
+  }
+  return out;
+}
+export function compare(a: Map<string,string>, b: Map<string,string>, targets: string[]): string[] {
+  return targets.filter((k) => (a.get(k) ?? "<absent>") !== (b.get(k) ?? "<absent>"))
+    .map((k) => `${k}: before=[${a.get(k) ?? "<absent>"}] after=[${b.get(k) ?? "<absent>"}]`);
+}
+```
+
+The variant-prefix strip (`t.replace(/^[^:]*:/, "")`) is deliberate: `max-sm:border` is a width on a responsive skin and must be compared like any other, which matters for `components/admin/ReSyncButton.tsx:213`.
+
+**Both controls run at plan time against the live tree**, because an instrument nobody has watched succeed and fail is not an instrument:
 
 ```
-$ python3 - <<'PY'   # over the 23 swap targets of spec 6.1 and 6.2, base vs HEAD
-import re, subprocess
-WIDTH = re.compile(r"(?<![\w-])(?:border|border-[tblrxy]|border-\d+|border-[tblrxy]-\d+)(?![\w-])")
-def multiset(rev, path, lo, hi):
-    src = subprocess.run(["git","show",f"{rev}:{path}"],capture_output=True,text=True).stdout.split("\n")
-    return sorted(WIDTH.findall(" ".join(src[lo-1:hi])))
-# one row per swap target; the window is the element's opening tag through its className
-PY
+$ pnpm exec tsx tmp-width.mts
+POSITIVE CONTROL (unchanged tree): targets=362 differences=0
+NEGATIVE CONTROL (one planted width change): app/admin/dev/page.tsx:151:button: before=[border] after=[border-2]
 ```
 
-The window per target is its opening tag through the end of its className expression, and the two multisets must be equal for all 23. `components/admin/telemetry/EventFilters.tsx:40` is the one target whose className MOVES (STEP 2b rewrites it), so its window is compared against the union of the fallback and the two call sites at base. The output goes in the commit message; a difference on any target is a layout change this arc did not authorise and stops the task.
+Zero differences on an unchanged tree, and a single planted `border` to `border-2` is named with both sides. In Task 5 the two scans are the real before and after over the 23 swap targets, with both flags on, and the run's output goes in the commit message. Any non-empty difference is a layout change this arc did not authorise and stops the task.
 
 **STEP 6, the pins.** `_metaControlOutlineResidue.test.ts:386` to 22; `_metaControlOutlineResidue.test.ts:392` to 5; a new `count("inner-chrome")` assertion at 10; `_metaControlOutlineResidue.test.ts:393`, `_metaControlOutlineResidue.test.ts:394`, `_metaControlOutlineResidue.test.ts:400`, `_metaControlOutlineResidue.test.ts:401`, `_metaControlOutlineResidue.test.ts:402` unchanged. `tintedPlateOutline.test.ts:215` `neutralFaintCount` 4 to 9 (§4.3).
 
