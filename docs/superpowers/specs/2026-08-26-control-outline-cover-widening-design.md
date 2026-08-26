@@ -287,7 +287,7 @@ site is named by the tinted-plate guard alone (§6.3).
 | `components/admin/dev/MaterializeCard.tsx:164` `<select>` | `border border-border bg-surface` | `surface` |
 | `components/admin/dev/MaterializeCard.tsx:179` `<select>` | `border border-border bg-surface` | `surface` |
 | `components/admin/dev/SwitcherControls.tsx:119` `<select>` | `border border-border bg-surface hover:border-accent` | `surface` |
-| `components/admin/telemetry/EventFilters.tsx:40` `<input>` | `border border-border bg-surface` (second alternative; the first is the `className` prop) | `surface` |
+| `components/admin/telemetry/EventFilters.tsx:40` `<input>` | `border border-border bg-surface`, but in a DEAD fallback: see §6.4, which is where this one is repaired | `surface` |
 | `components/admin/telemetry/EventFilters.tsx:101` `<select>` | `border border-border bg-surface` | `surface` |
 | `components/admin/wizard/step3ReviewSections.tsx:4195` `<textarea>` | `border border-border-strong bg-surface` | `surface` |
 | `components/shared/ReportModal.tsx:705` `<textarea>` | `border border-border bg-bg` | `bg` |
@@ -380,6 +380,52 @@ ratification and its date in the docstring.
 
 `--color-text-faint` measures **3.04:1 light / 2.79:1 dark** against `warning-bg`, under the floor in
 dark, which is why `--color-control-outline-tinted` exists (`DESIGN.md:188`).
+
+### 6.4 One element whose weak paint is in a branch that never renders
+
+`components/admin/telemetry/EventFilters.tsx:40` is the one site where swapping what the transcript
+names would clear the guard and leave the rendered pixels weak. Its className is
+`className ?? "min-h-tap-min rounded border border-border bg-surface px-2"`
+(`components/admin/telemetry/EventFilters.tsx:46`), so the scanner reports two alternatives: the prop
+path, which it cannot read, and that fallback. **Both live call sites supply their own className**
+(`components/admin/telemetry/EventFilters.tsx:80` and
+`components/admin/telemetry/EventFilters.tsx:130`), each carrying the same `border border-border
+bg-surface` recipe, so the fallback is dead. Repairing only the fallback removes the readable weak
+token, `isResidue` goes false, and both rendered controls stay at 1.27:1. That is precisely the silent
+wrong clear the consequence bound forbids, reached through a guard that would report green.
+
+**The repair is to move the paint to where it renders, not to chase the strings.** `FilterTextInput`
+takes the outline recipe as its own unconditional base and merges the caller's className:
+`className={cn("min-h-tap-min rounded border border-text-faint bg-surface px-2", className)}` with
+`cn` from `lib/ui/cn.ts:45`. The call site at
+`components/admin/telemetry/EventFilters.tsx:80` then passes only its `flex-1`, and the one at
+`components/admin/telemetry/EventFilters.tsx:130` passes nothing. Afterwards the element has ONE
+alternative whose literal the resolver reads, `unresolved` stays true because the prop is still
+unreadable, and the token the guard reads is the token that paints. It also deletes a dead branch and a
+recipe duplicated three times, which is why this is a repair rather than a workaround.
+
+**The class, swept rather than patched.** The shape is "a multi-alternative element whose weak
+alternative is not the one that renders". Six of the 35 reddened elements carry more than one
+alternative: `components/admin/OnboardingWizard.tsx:258` (four), and
+`components/admin/ShowRowActions.tsx:647`, `components/admin/wizard/CrewRowActions.tsx:270`,
+`components/admin/telemetry/AutoRefreshControl.tsx:105`,
+`components/admin/settings/DeveloperToggleButton.tsx:93` and this one (two each). In the other five,
+every alternative is a live render state of the same element and the scanner reads all of them, so
+repairing the element repairs what renders. This is the only one whose alternatives are "a prop I
+cannot read" against "a default nobody uses", and it is the only one where the two can disagree.
+
+**What AC-9 counts, stated because this site is what makes the question sharp.** Its unit is the
+ELEMENT, not the source line. `components/admin/telemetry/EventFilters.tsx:40` is named by the red, and
+repairing it touches three source spans that feed one className expression. Editing those spans is
+repairing the named element; it is not a hand-extension, which would be repairing an element the red
+never named.
+
+**What stays uncovered, and it is smaller than before.** A future call site could still pass a weak
+`border-*` that overrides the base, and the scanner would report `unresolved` without seeing the token.
+That is the same prop-flow limit the module already declares
+(`tests/styles/interactiveScanCore.ts:27-30`, and the `ClaimedRowButton` case in its own suite): the
+element stays in the census as unresolved rather than clearing, so the direction is conservative.
+Recorded as L7.
 
 ## 7. Consumer-by-consumer population accounting
 
@@ -654,7 +700,12 @@ here, so nothing about that record moves. A vacuous row would be worse than an h
   `filed-defect`, `literal-outline`.
 - **AC-8** An `inner-chrome` row whose live element is `admittedAs: "element"` is refused, with the
   refusal asserted against a constructed subject.
-- **AC-9** The count of sites repaired that do not appear in the §6 red transcript is **zero**.
+- **AC-9** The count of ELEMENTS repaired that do not appear in the §6 red transcript is **zero**.
+  Repairing one element may touch several source spans that feed its className (§6.4); the unit is the
+  element the red named, never the line.
+- **AC-9b** After the repair, `components/admin/telemetry/EventFilters.tsx:40` has ONE alternative, its
+  literal carries `border-text-faint`, and neither call site supplies a `border-*` token. Asserted, so
+  a repair that clears the guard while the pixels stay weak cannot pass.
 - **AC-10** `--color-control-outline-tinted` vs `--color-bg` is pinned in `DESIGN.md` §1.2 and asserted
   in `tests/styles/secondary-action-contrast.test.ts`, in the same commit.
 - **AC-11** `components/admin/dev/SwitcherControls.tsx:122` carries `hover:border-accent-on-bg`, and
@@ -771,5 +822,11 @@ finding.
 - **L5. An unresolved className is admitted and never cleared.** Unchanged behaviour
   (`tests/styles/interactiveScanCore.ts:27-30`). A painted child whose class string the resolver cannot
   read is reported `unresolved` and stays in the census, which is the conservative direction.
+- **L7. A className arriving through a prop is unreadable, so a caller can override a base recipe
+  unseen.** §6.4. Unchanged from today and conservative: the element reports `unresolved` and never
+  clears, so it stays in the census rather than passing. Reading it means prop-flow resolution, which
+  the module declines by name (`tests/styles/interactiveScanCore.ts:27-30`). RE-FILE TRIGGER: a control
+  whose only resting outline arrives through a caller's className reaching `main` at `border-border` or
+  `border-border-strong`.
 - **L6. The `inner-chrome` bar cannot verify that a registered element really is chrome.** §8. Same
   posture as `switch-track`, and for the same reason: it is a ruling, not a projection.
