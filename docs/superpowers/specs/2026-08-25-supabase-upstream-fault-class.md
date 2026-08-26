@@ -277,7 +277,7 @@ Verified shape, `covered = true`:
 - **Invariant 10.** No mutation surface is added. `setAlertOnSyncProblems` already carries `logAdminOutcome` at `setAlertOnSyncProblems.ts:59-64`; if the arc touches it, its `AUDITABLE_MUTATIONS` row and success-branch proof are re-verified rather than assumed.
 - **Invariant 2.** No advisory-lock surface is touched.
 - **Invariant 8.** In force only if a `components/**` file is touched. §9.2 records the one candidate and why it is a documented limit instead.
-- **Mutation registry.** `supabaseRetryingFetch` (`tests/mutation/source/registry.ts:3547`), `supabaseRetryEligibility` (`tests/mutation/source/registry.ts:3565`) and `retryableRpcVolatilityScan` (`tests/mutation/source/registry.ts:3579`) are already enrolled at `scoreFloor: 0.9`, `operators: [...OPERATOR_NAMES]`, `accepted: []`. `observeTransport.ts` is a guard-shaped importable module with referring suites, so it is enrolled and scored **before** the round-1 diff dispatch, and the measured score, the empty unaccepted-survivor set and the operator set go on the `GUARD SURFACE:` line.
+- **Mutation registry.** `supabaseRetryingFetch` (`tests/mutation/source/registry.ts:3553`), `supabaseRetryEligibility` (`tests/mutation/source/registry.ts:3571`) and `retryableRpcVolatilityScan` (`tests/mutation/source/registry.ts:3585`) are already enrolled at `scoreFloor: 0.9`, `operators: [...OPERATOR_NAMES]`, `accepted: []`. `observeTransport.ts` is a guard-shaped importable module with referring suites, so it is enrolled and scored **before** the round-1 diff dispatch, and the measured score, the empty unaccepted-survivor set and the operator set go on the `GUARD SURFACE:` line.
 
 ---
 

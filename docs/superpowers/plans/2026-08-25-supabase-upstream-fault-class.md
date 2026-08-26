@@ -13,6 +13,8 @@ Two tasks are already committed, ahead of this plan, because the spec's own firs
 - **EXTENDS** `tests/supabase/serverClientWiring.test.ts` — the observer's install site and the REQUIRED composition order.
 - **EXTENDS** `tests/ci/_metaE2eWorkflowCoverage.test.ts` — the capture chain's workflow half.
 - **EXTENDS** `tests/mutation/source/registry.ts` and its `EXPECTED_ENV_TOUCHING` companion.
+- **EXTENDS** `tests/mutation/enrolmentPresence.test.ts` — its `REQUIRED_ENROLMENTS` list. This is not bookkeeping: that list currently holds only `supabaseRetryingFetch`, `supabaseRetryEligibility` and `retryableRpcVolatilityScan`, so **without adding `observeTransport` to it FIRST, adding the registry row produces no red at all** and Task 5's whole red-then-green cycle is vacuous. The requirement is authored before the row.
+- **EXTENDS** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — archive membership, documented-limit provenance, and the no-new-id arm (Task 6).
 - **NOT extended:** the five `_metaInfraContract` siblings. `observeTransport.ts` carries `// not-subject-to-meta:` with its ground — it never sees a `{ data, error }` pair, only the HTTP exchange underneath one — the same disposition `lib/supabase/retryingFetch.ts` already holds. No `lib/admin/**` loader is touched.
 - **NOT extended:** `tests/auth/advisoryLockRpcDeadlock.test.ts`. No `pg_advisory*` surface is touched.
 - **NOT extended:** `tests/log/_metaMutationSurfaceObservability.test.ts`. No mutation surface is added; verified green against the current diff.
@@ -135,6 +137,8 @@ Premise, via `tests/_shared/premise.ts`: assert the walk found the three known f
 
 The four controls of §3.2 ship in the same commit as the scanner.
 
+**Collection and CI wiring, stated because the project rules require every new test file to name them.** The new guard is collected by `BASE_INCLUDE` in the SERIAL project of `vitest.projects.ts` and runs in the `unit-suite-db` job; no `testMatch` entry, workflow path-filter or new job is added, because `tests/supabase/**` is already inside that project's include. This is a recording of an existing contract rather than a change to one, and it is here so nobody has to re-derive it from the config.
+
 ### Task 3 — the capture chain, BOTH halves
 <!-- task: red=`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`.github/workflows/app-e2e.yml:188` why=`this run step redirects nowhere and no following step extracts anything, so a record that reached the job output would still not be surfaced` ac=AC-4 -->
 
@@ -142,14 +146,20 @@ The four controls of §3.2 ship in the same commit as the scanner.
 
 **Half 2, `.github/workflows/app-e2e.yml`:** the redirect shape from spec §7.2. Structural assertions, via the `yaml` parser the suite already imports:
 
-- the invocation stays inline with a redirect and NO pipe;
+- the invocation stays inline, carries NO pipe, and its redirect target is EXACTLY `app-e2e.log` — a redirect to any other file satisfies a "has a redirect" predicate while every later step reads a log that was never written;
 - **no step in the app-e2e job carries a `shell:` key** — the breaker invisible from reading either file alone;
 - the replay step carries `if: always()` and its `run:`, trimmed, EQUALS `cat app-e2e.log`;
-- the extract step carries `id: upstream-faults` and `if: always()`, and its `run:` contains BOTH `grep -c 'SUPABASE_UPSTREAM_FAULT' app-e2e.log` and `echo "count=${count:-0}" >> "$GITHUB_OUTPUT"`, so the value written is the one the grep produced;
+- the extract step carries `id: upstream-faults` and `if: always()`, and its `run:`, trimmed, EQUALS the exact two lines below. Substring containment is not enough and round 3 probed why: it holds while the load-bearing `|| true` is deleted (so the step fails every green run, `grep -c` exiting 1 on zero matches) and while a second `echo "count=0" >> "$GITHUB_OUTPUT"` is appended AFTER the correct one, overwriting it;
+
+  ```
+  count=$(grep -c 'SUPABASE_UPSTREAM_FAULT' app-e2e.log || true)
+  echo "count=${count:-0}" >> "$GITHUB_OUTPUT"
+  ```
+
 - the dump step's `run:`, trimmed, EQUALS `grep 'SUPABASE_UPSTREAM_FAULT' app-e2e.log`;
 - the dump step's `if:`, normalised for whitespace, EQUALS `always() && steps.upstream-faults.outputs.count != '0'`.
 
-**These are string equalities on short fixed commands, deliberately, and round 2 is why.** The previous draft asserted shape — "names the log file", "greps the code and writes an output", "references `steps.<id>.outputs`" — and round 2 named four mutants that satisfy all of it: a replay step running `rm app-e2e.log`; an extract step grepping the code out of some other input and then writing a hardcoded `count=0`; a dump step whose `run:` nothing constrains at all; and a dump condition that references the output but reverses the comparison to `== '0'`, so records are dumped exactly when there are none. Every one of those ships a capture chain that produces nothing on a failed run while the suite stays green.
+**All four are string equalities on short fixed commands, deliberately, and rounds 2 and 3 are why.** The previous draft asserted shape — "names the log file", "greps the code and writes an output", "references `steps.<id>.outputs`" — and round 2 named four mutants that satisfy all of it: a replay step running `rm app-e2e.log`; an extract step grepping the code out of some other input and then writing a hardcoded `count=0`; a dump step whose `run:` nothing constrains at all; and a dump condition that references the output but reverses the comparison to `== '0'`, so records are dumped exactly when there are none. Every one of those ships a capture chain that produces nothing on a failed run while the suite stays green.
 
 A shape predicate cannot separate those from the real thing, because what distinguishes them IS the exact text. These commands are four short lines that will not change without someone editing this workflow deliberately, so equality is the right predicate and its cost is a test edit on the day the command legitimately changes.
 
@@ -207,9 +217,18 @@ Task 6 sits in its OWN task region, without the `red-contract` attribute the reg
 
 Both rows move to `BACKLOG-archive.md` carrying spec §9 and §9a, and the IN PROGRESS markers come off in the SAME commit. The two cannot be split: archives categorically reject in-progress entries, so a commit that archives a row while its marker stands is red by construction.
 
-**On "the PR's last commit", and the tension round 2 exposed.** Invariant 12 says the markers come off in the last commit before the merge; the fleet's review rule says the diff the final review examined must be the diff that merges. Those pull in opposite directions the moment the whole-diff review returns a finding, because the repair then lands after Task 6.
+**On "the PR's last commit", and how both rules hold.** Invariant 12 says the markers come off in the PR's LAST commit; the fleet's review rule says the diff the final review examined must be the diff that merges. They pull apart the moment the whole-diff review returns a finding, because the repair would then land after Task 6.
 
-The invariant's PURPOSE settles it: the marker must never reach `main`, because a merged marker names a branch the merge just deleted and `_metaLedgerInProgress` then reds on main until someone clears it. Nothing about that requires Task 6 to be literally last — it requires the markers to be OFF at merge time and to stay off. So the ordering here is Task 6, then the whole-diff review on the complete diff, then any repair that review produces. A repair commit does not re-add a marker, so the invariant holds throughout, and the review sees the ledger moves rather than a diff missing its last commit.
+**The previous draft resolved this by reading the invariant's purpose and relaxing its letter. That was wrong, and round 3 was right to call it P0.** An invariant is not mine to weaken from the inside of a plan it governs; if it genuinely needed relaxing, that is an orchestrator decision, not a paragraph in this document. And the reading was convenient in the direction that saved me work, which is the tell.
+
+Both rules hold under one ordering, at the cost of one cheap re-application:
+
+1. every other task lands;
+2. Task 6 lands — the archive move and the marker removal, together, because the archive rejects an in-progress entry;
+3. the whole-diff review runs on that COMPLETE diff;
+4. **if it returns anything**, the repair lands, and then Task 6 is RE-APPLIED as a fresh final commit: revert the ledger commit, land the repair, re-commit the identical ledger change. Task 6 is literally last again, and the reviewed diff is the merged diff.
+
+Step 4 costs two extra commits on a docs-only change and it costs them only when the review is non-empty. That is a small price for not reinterpreting an invariant, and it is the whole reason the ordering is written out rather than left to judgement at the time.
 
 **The task extends `tests/docs/_metaDeferralLedgerGraduation.test.ts`, because its own red command cannot prove AC-7.** Round 1 established the gap: `_metaLedgerInProgress` validates opted-in flight markers and forbids in-progress entries inside archives, and it is green when both rows simply stay OPEN with no markers at all. So the task could do nothing and its command would pass. The graduation suite is where archive membership and provenance already live, so this task adds to it:
 
@@ -219,7 +238,7 @@ The invariant's PURPOSE settles it: the marker must never reach `main`, because 
 
 **The third arm needs a base and a positive control, and round 2 was right that it had neither.** This branch genuinely adds zero novel ids, so an implementation that always returns the empty set passes and nothing notices. Both are specified rather than left to the implementer:
 
-- **Base:** `git merge-base origin/main HEAD`, so the comparison is against what this branch actually diverged from rather than against a moving `origin/main`. The id sets come from the same one extractor §3 uses on both parents.
+- **Base: `origin/main`'s TIP, not the merge base.** Round 3 probed the reason and it is decisive: `tests/docs/**` runs in the parallel project, whose PR workflow checks out at depth one and then fetches `origin/main` with `--depth=1`, so the ancestry is grafted away and `git merge-base` cannot resolve in the checkout where this test actually runs. A test that computes correctly on a developer machine and cannot run at all in required CI is worse than no test, because it looks like coverage. Comparing id SETS against main's tip needs no ancestry — the tip blob is exactly what a depth-one fetch provides — and it answers the question the directive actually asks: does this branch introduce an id that is not already somewhere in the ledger corpus. The id sets come from the same one extractor §3 uses on both parents.
 - **Positive control:** the check runs against a CONSTRUCTED pair of ledger texts, one carrying a novel `BL-` heading the other lacks, and must report exactly that id. That control lives in the test, not in a transcript, so it keeps discriminating after this arc.
 
 Without the control the arm is a claim about this branch; with it, it is a check. The distinction matters because a directive nobody can verify is a directive that decays, and this one was given to an arc rather than to the repo.
@@ -235,9 +254,9 @@ Without the control the arm is a claim about this branch; with it, it is a check
 - [ ] Task 5: registry row, `EXPECTED_ENV_TOUCHING` re-measured, sixteen exemptions of eighteen, measured score
 - [ ] Self-review
 - [ ] Adversarial review (cross-model), plan stage, to APPROVE
-- [ ] **Task 6 lands** — the ledger moves, the marker removal and the graduation-test extension
+- [ ] **Task 6 lands** — the ledger moves, the marker removal and the graduation-test extension, in one commit
 - [ ] **Whole-diff cross-model review to APPROVE, AFTER Task 6**, so the reviewed diff is the diff that merges
-- [ ] Any repair the whole-diff review produces lands AFTER it, and the markers stay off
+- [ ] If that review returned anything: revert Task 6, land the repair, **re-apply Task 6 as the final commit** — so invariant 12 holds literally and the reviewed diff is still the merged one
 - [ ] Twelve required checks green (GraphQL `statusCheckRollup`, 5-minute floor, one query per poll, RATE_LIMIT means no information)
 - [ ] READINESS to bl-orch; do NOT merge
 
