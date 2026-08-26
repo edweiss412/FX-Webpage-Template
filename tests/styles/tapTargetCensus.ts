@@ -370,7 +370,15 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/PublishedToggle.tsx",
-    line: 292,
+    // Re-keyed 292 -> 459 by review-modal-strip-dock T2, which added the
+    // placement effect above this component. The element, its recipe and this
+    // row's reason are all unchanged — only the address moved, which is the
+    // line-keyed churn the mutation registry records as
+    // BL-MUTATION-SITEID-LINE-KEYED-CHURN in its own domain. Verified a MOVE
+    // rather than a new violation: both census arms failed with one entry each
+    // (one missing, one stale), and the element's context is byte-identical
+    // against the pre-change file.
+    line: 459,
     tag: "button",
     category: "padding-arithmetic",
     reason:
