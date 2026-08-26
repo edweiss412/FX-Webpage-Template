@@ -144,22 +144,36 @@ The four controls of §3.2 ship in the same commit as the scanner.
 
 - the invocation stays inline with a redirect and NO pipe;
 - **no step in the app-e2e job carries a `shell:` key** — the breaker invisible from reading either file alone;
-- the replay step exists, carries `if: always()`, and its `run:` names the log file;
-- the extract step carries `id:` AND `if: always()`, and its `run:` both greps the fault code and writes the count to `$GITHUB_OUTPUT`;
-- the dump step carries `if: always()` AND references `steps.<that id>.outputs`.
+- the replay step carries `if: always()` and its `run:`, trimmed, EQUALS `cat app-e2e.log`;
+- the extract step carries `id: upstream-faults` and `if: always()`, and its `run:` contains BOTH `grep -c 'SUPABASE_UPSTREAM_FAULT' app-e2e.log` and `echo "count=${count:-0}" >> "$GITHUB_OUTPUT"`, so the value written is the one the grep produced;
+- the dump step's `run:`, trimmed, EQUALS `grep 'SUPABASE_UPSTREAM_FAULT' app-e2e.log`;
+- the dump step's `if:`, normalised for whitespace, EQUALS `always() && steps.upstream-faults.outputs.count != '0'`.
 
-**The last three are the anti-tautology repair, and round 1 was right that the first draft needed it.** Asserting only "an extract step exists with an id" passes while that step greps the wrong string, writes no output, or is skipped exactly when the run failed — which is to say it passes while a failed app-e2e produces no visible fault records at all. The assertions pin the COMMANDS and the conditions, not the presence of steps.
+**These are string equalities on short fixed commands, deliberately, and round 2 is why.** The previous draft asserted shape — "names the log file", "greps the code and writes an output", "references `steps.<id>.outputs`" — and round 2 named four mutants that satisfy all of it: a replay step running `rm app-e2e.log`; an extract step grepping the code out of some other input and then writing a hardcoded `count=0`; a dump step whose `run:` nothing constrains at all; and a dump condition that references the output but reverses the comparison to `== '0'`, so records are dumped exactly when there are none. Every one of those ships a capture chain that produces nothing on a failed run while the suite stays green.
+
+A shape predicate cannot separate those from the real thing, because what distinguishes them IS the exact text. These commands are four short lines that will not change without someone editing this workflow deliberately, so equality is the right predicate and its cost is a test edit on the day the command legitimately changes.
 
 **Half 1 gets its own assertion, in the same suite.** Round 1's sharpest instance: every assertion above can pass while `playwright.config.ts` still lacks `stdout: "pipe"`, and then every record stays inside Playwright and the whole chain is decorative. So the suite also asserts that the baseline `webServer` entry sets `stdout: "pipe"`. A structural check on the config file, alongside the ones on the workflow, because the chain is only as real as its weaker half.
 
 Regression gate: `_metaE2eWorkflowCoverage` must still report all twenty app-e2e specs covered. That is the check that would have caught the original design, and it costs one command.
 
-**The end-to-end proof is a LOCAL run, and the plan says so rather than pretending CI can do it.** Spec AC-4 requires a record observed in the captured stream against an injected fault. No CI assertion can supply that: §2 of the spec measures 2 to 6 ambient faults per attempt, so a CI grep finding the code proves only that the gateway faulted, never that the injected request produced the record. So Task 3 ends with a one-time local verification, its command and output pasted into the closeout: boot the baseline server with `ENABLE_TEST_AUTH`, drive one request carrying `x-test-force-upstream-502`, and show the `SUPABASE_UPSTREAM_FAULT` line arriving in the redirected log. It crosses all three boundaries the structural assertions cannot — the Supabase client, Playwright's stream forwarding, and the workflow redirect — and it is the only step in this plan whose evidence is a transcript rather than an assertion.
+**The end-to-end proof is a LOCAL run, and the plan says so rather than pretending CI can do it.** Spec AC-4 requires a record observed in the captured stream against an injected fault. No CI assertion can supply that: §2 of the spec measures 2 to 6 ambient faults per attempt, so a CI grep finding the code proves only that the gateway faulted, never that the injected request produced the record. So Task 3 ends with a one-time local verification, its command and output pasted into the closeout.
+
+**It reuses the existing injector case rather than restating its recipe**, because round 2 showed the recipe was incomplete in a way that fails silently. `maybeForceUpstreamFaults` (`lib/supabase/server.ts:48-56`) gates on FOUR things, not two: `ENABLE_TEST_AUTH=true`, a `TEST_AUTH_SECRET` of at least sixteen characters, an `authorization` header matching that secret EXACTLY, and the `x-test-force-upstream-502` count header. Naming only the first and last is a recipe under which nothing is injected and the run then finds an ambient record and mistakes it for the proof — which is the one failure mode this step exists to rule out.
+
+`tests/e2e/admin-upstream-retry.spec.ts:23-28` already carries the complete gate as `FORCE_HEADERS`, including `authorization: "Bearer fxav-m3-test-auth-2026-DO-NOT-SHIP"` matching the baseline server's inline `TEST_AUTH_SECRET`. The verification runs THAT spec against the redirected log:
+
+```
+pnpm exec playwright test tests/e2e/admin-upstream-retry.spec.ts --project=desktop-chromium --retries=0 > app-e2e.log 2>&1
+grep -c 'SUPABASE_UPSTREAM_FAULT' app-e2e.log
+```
+
+The count must exceed what the same command yields with the injector's header removed. A bare non-zero count is not the proof; the DIFFERENCE is, for exactly the ambient-rate reason above. It crosses all three boundaries the structural assertions cannot — the Supabase client, Playwright's stream forwarding, and the workflow redirect — and it is the only step in this plan whose evidence is a transcript rather than an assertion.
 
 **Task 4 is DROPPED by the ratified disposition.** The page-segment settle helper is not built. Named here, without a task heading, so the commit numbering below still matches this plan rather than silently renumbering.
 
 ### Task 5 — mutation enrollment and measured score (AFTER absorbing `origin/main`)
-<!-- task: red=`pnpm vitest run tests/mutation/enrolmentPresence.test.ts` red-state=authored red-target=`lib/supabase/observeTransport.ts:1` why=`this module is guard-shaped with two referring suites and no registry row, so nothing measures whether its suites pin it` ac=AC-6 -->
+<!-- task: red=`pnpm vitest run tests/mutation/enrolmentPresence.test.ts` red-state=authored red-target=`lib/supabase/observeTransport.ts:108` why=`this module is guard-shaped with two referring suites and no registry row, so nothing measures whether its suites pin it` ac=AC-6 -->
 
 One row: `id: "observeTransport"`, `sourcePath: "lib/supabase/observeTransport.ts"`, both harness files as `suitePaths`, `operators: [...OPERATOR_NAMES]`, `scoreFloor: 0.9`, `accepted: []`, and a control the suites demonstrably notice. Candidate: `from: "return status >= 500;"` `to: "return status > 500;"`, which the "every 5xx records" plant kills. Verified `from` occurs in the source at plan time.
 
@@ -191,7 +205,11 @@ The red command is `_metaDeferralLedgerGraduation`, not `_metaLedgerInProgress`,
 
 Task 6 sits in its OWN task region, without the `red-contract` attribute the region above carries. The reason is mechanical rather than a dodge: a `red-contract` marker requires a `red-target=` naming a production surface, and this task's defective surface is a root-level ledger file, which the marker grammar rejects as bare-filename shorthand. The red is still stated in prose below, and the same command still goes red then green.
 
-Both rows move to `BACKLOG-archive.md` carrying spec §9 and §9a, and the IN PROGRESS markers come off in the SAME commit. Last commit of the PR, before the merge, never after.
+Both rows move to `BACKLOG-archive.md` carrying spec §9 and §9a, and the IN PROGRESS markers come off in the SAME commit. The two cannot be split: archives categorically reject in-progress entries, so a commit that archives a row while its marker stands is red by construction.
+
+**On "the PR's last commit", and the tension round 2 exposed.** Invariant 12 says the markers come off in the last commit before the merge; the fleet's review rule says the diff the final review examined must be the diff that merges. Those pull in opposite directions the moment the whole-diff review returns a finding, because the repair then lands after Task 6.
+
+The invariant's PURPOSE settles it: the marker must never reach `main`, because a merged marker names a branch the merge just deleted and `_metaLedgerInProgress` then reds on main until someone clears it. Nothing about that requires Task 6 to be literally last — it requires the markers to be OFF at merge time and to stay off. So the ordering here is Task 6, then the whole-diff review on the complete diff, then any repair that review produces. A repair commit does not re-add a marker, so the invariant holds throughout, and the review sees the ledger moves rather than a diff missing its last commit.
 
 **The task extends `tests/docs/_metaDeferralLedgerGraduation.test.ts`, because its own red command cannot prove AC-7.** Round 1 established the gap: `_metaLedgerInProgress` validates opted-in flight markers and forbids in-progress entries inside archives, and it is green when both rows simply stay OPEN with no markers at all. So the task could do nothing and its command would pass. The graduation suite is where archive membership and provenance already live, so this task adds to it:
 
@@ -199,7 +217,12 @@ Both rows move to `BACKLOG-archive.md` carrying spec §9 and §9a, and the IN PR
 - each archived body carries the documented limits it graduated with, keyed on the section anchors rather than on prose;
 - the diff introduces no new `BL-`/`DEF-` id anywhere, which is Eric's directive made checkable rather than remembered.
 
-The third is the one worth having beyond this arc: a directive nobody can verify is a directive that decays. Stated as a check it survives the arc that was told it.
+**The third arm needs a base and a positive control, and round 2 was right that it had neither.** This branch genuinely adds zero novel ids, so an implementation that always returns the empty set passes and nothing notices. Both are specified rather than left to the implementer:
+
+- **Base:** `git merge-base origin/main HEAD`, so the comparison is against what this branch actually diverged from rather than against a moving `origin/main`. The id sets come from the same one extractor §3 uses on both parents.
+- **Positive control:** the check runs against a CONSTRUCTED pair of ledger texts, one carrying a novel `BL-` heading the other lacks, and must report exactly that id. That control lives in the test, not in a transcript, so it keeps discriminating after this arc.
+
+Without the control the arm is a claim about this branch; with it, it is a check. The distinction matters because a directive nobody can verify is a directive that decays, and this one was given to an arc rather than to the repo.
 
 `BACKLOG.md` conflict resolution, if any, by set arithmetic with one extractor on both parents: open = main's open minus rows this branch archived; archive == exact union; assert zero rows both open and archived and zero lost. Cut rows heading-to-any-next-heading.
 
@@ -209,12 +232,13 @@ The third is the one worth having beyond this arc: a directive nobody can verify
 
 - [ ] Tasks 1-3 implemented TDD, one commit each
 - [ ] Absorb `origin/main` on Eric's word
-- [ ] Task 5: registry row, `EXPECTED_ENV_TOUCHING`, twelve exemptions, measured score
+- [ ] Task 5: registry row, `EXPECTED_ENV_TOUCHING` re-measured, sixteen exemptions of eighteen, measured score
 - [ ] Self-review
 - [ ] Adversarial review (cross-model), plan stage, to APPROVE
-- [ ] Whole-diff cross-model review to APPROVE
+- [ ] **Task 6 lands** — the ledger moves, the marker removal and the graduation-test extension
+- [ ] **Whole-diff cross-model review to APPROVE, AFTER Task 6**, so the reviewed diff is the diff that merges
+- [ ] Any repair the whole-diff review produces lands AFTER it, and the markers stay off
 - [ ] Twelve required checks green (GraphQL `statusCheckRollup`, 5-minute floor, one query per poll, RATE_LIMIT means no information)
-- [ ] Task 6 lands LAST
 - [ ] READINESS to bl-orch; do NOT merge
 
 ## 7. Working rules adopted mid-arc
