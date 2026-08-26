@@ -38,12 +38,19 @@ ADDS none; it re-dispositions four. Mechanical diff of `POPOVER_OVERLAY_REGISTRY
 stated changes, run 2026-08-25:
 
 ```
-$ rg -n 'disposition: "' tests/components/admin/showpage/popoverOverlayRegistry.ts | sort | uniq -c
+$ rg -n 'disposition: "' tests/components/admin/showpage/popoverOverlayRegistry.ts \
+    | sed 's/.*disposition: //' | sort | uniq -c
+      5 "fit-within-clip",
+      2 "placement-module",
 ```
+
+Round-3 finding 6: the first draft's command kept the line numbers, so `uniq -c` saw seven distinct
+lines and printed `1` seven times — it looked mechanical and aggregated nothing. Stripping to the
+disposition before sorting is what makes it a count.
 
 | disposition | rows before | rows after | delta | which |
 |---|---|---|---|---|
-| `placement-module` | 2 | 6 | +4 | HoverHelp body, `share-hub-popover` (unchanged); `published-toggle-popover` (Task 6); `admin-resync-{error,shrink-confirm,success}` (Task 6a) |
+| `placement-module` | 2 | 6 | +4 | HoverHelp body, `share-hub-popover` (unchanged); `published-toggle-popover` (**T2**); `admin-resync-{error,shrink-confirm,success}` (**T2a**) |
 | `fit-within-clip` | 5 | 1 | −4 | the same four move out; **`published-show-review-attention-menu` REMAINS** |
 | `not-clip-constrained`, `unverified-gap` | unchanged | unchanged | 0 | untouched |
 
@@ -107,10 +114,10 @@ criteria themselves live in the spec's §4 — this is the mapping, not a second
 | AC-16 | STRUCTURAL | T4, T5 (asserted by NOT editing the shell) |
 | AC-17 | REAL (load-30 cells) | T4 |
 | AC-18 | STRUCTURAL | T4 |
-| AC-19 | REAL | T5 |
+| AC-19 | REAL | T2a, T5 |
 | AC-20 | REPLICA 1-4 ∪ DEGENERATE | T1, T2 |
 
-## Task boundaries — why there are seven tasks and not thirteen
+## Task boundaries — why there are eight tasks and not thirteen
 
 **Round-1 findings 4 and 5 were one finding about boundaries; round-2 finding 1 was a third instance of it.** The first draft had thirteen tasks and
 three of them left the tree RED at their own commit: docking the strip broke the skeleton parity, the
@@ -130,6 +137,34 @@ pending across commits is not a TDD sequence — it is one change split at the w
 - **The transition audit is not a task.** Its subject — a placed side attribute on one node — is
   CREATED by T2, so a separate task's case passes when authored (round-2 finding 1) or leaves the tree
   red if authored first. It lands inside T2, with the rule's purpose served and the deviation stated.
+
+### The structural defense for the task-boundary class (fourth occurrence)
+
+Round 3's finding 2 says it plainly: task boundaries leaving the tree red is now the **fourth**
+occurrence across three rounds, and the previous three repairs were all the same move — find the
+suites a task breaks, list them, fix them in that task. Round 1 listed some. Round 2 listed more.
+Round 3 found three more `SUBHEADER` uses in one file (`tests/e2e/published-review-modal.interactions.spec.ts:825`, `tests/e2e/published-review-modal.interactions.spec.ts:1102`, `tests/e2e/published-review-modal.interactions.spec.ts:1143`) that all three lists
+had missed. **A per-task file list is the wrong instrument**, for the same reason §9's transcript was:
+it is a hand-maintained enumeration of something a command can derive.
+
+**The defense, and it replaces every per-task list as the GREEN criterion:**
+
+> **A task is GREEN when the whole tree is green, not when its own red command passes.** Every task's
+> GREEN step runs, and must pass: `pnpm typecheck`, `pnpm heavy pnpm test`, and every e2e suite the
+> task's files appear in — under BOTH configs, using each suite's own config. The task's `red=` selects
+> the ONE command that must have been observed failing first; it is a red criterion, never the green
+> one.
+
+Three consequences worth stating so this is not read as boilerplate:
+
+1. **A file list can now only be wrong in the cheap direction.** Listing too few files no longer ships a
+   red tree — the full run catches it before the commit. The lists that remain in each task are
+   navigation aids for the implementer, explicitly NOT the completeness claim they were being read as.
+2. **It costs wall clock, and that is the trade.** A full suite plus e2e per task is minutes, against a
+   round per missed dependant — and this arc has spent four.
+3. **It subsumes the ordering argument.** The migration-before-dock constraint below stays because it is
+   still the cheapest order, but if it were violated the full run would fail at that commit rather than
+   two commits later.
 
 **The migration precedes the dock.** `T-OVERLAY` reads the band with a non-null assertion
 (`document.querySelector(SUBHEADER)!`, `tests/e2e/published-review-modal.interactions.spec.ts:685-691`),
@@ -161,9 +196,15 @@ every time.
 
 **Ends green:** nothing consumes the field yet, so no other suite moves.
 
-## T2 — migrate the four clipped overlays to the placement stack
+## T2 — migrate the refusal banner to the placement stack
 
 <!-- task: red=`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts` red-state=authored red-target=`components/admin/PublishedToggle.tsx:61` why=`POPOVER_POSITION is absolute inset-x-0 top-full: the banner is a CSS-anchored child of its ancestor, never portaled and never placed, so it carries no data-popover-side and its box is not bounded by the host rect` ac=AC-8,AC-9,AC-11,AC-20 -->
+
+**Scope: the BANNER only. Re-sync's three overlays are T2a** — round-3 finding 3: the replica entry
+mounts only `PublishedToggle`, so a red expressed through it is satisfied by migrating the banner
+while all three Re-sync overlays keep their old implementation. One task cannot hold two migrations
+when only one of them has a red. Splitting is safe: migrating the banner alone leaves Re-sync anchored
+in the band and working, so this task ends green on its own.
 
 **Files:** `components/admin/PublishedToggle.tsx`, `components/admin/ReSyncButton.tsx`,
 `components/admin/showpage/StatusStrip.tsx`, `tests/components/admin/showpage/popoverOverlayRegistry.ts`,
@@ -198,17 +239,8 @@ panel, a strip-shaped trigger, and four geometries derived from the algebra's br
 migration because a fixture split from the code it exercises has no valid red of its own — which is
 exactly what round-1 finding 5 caught in the first draft.
 
-**`tests/components/ReSyncButton.test.tsx:284`** asserts `OVERLAY_TOKENS = ["absolute", "inset-x-0",
-"top-full", "z-overlay", "overflow-y-auto"]`. `top-full` and `inset-x-0` go; `absolute`, `z-overlay`
-and `overflow-y-auto` stay. Updated here, in the commit that changes them — round-1 finding 8.
-
-**`T-OVERLAY` and `T-OVERLAY-BOUNDS`** (`tests/e2e/published-review-modal.interactions.spec.ts:670`,
-`tests/e2e/published-review-modal.interactions.spec.ts:737`) are retargeted in this commit, under the DEFAULT config. Their abut becomes the module's
-`GAP`, imported rather than retyped; `LONG_DETAIL`'s docblock (`tests/e2e/published-review-modal.interactions.spec.ts:629-635`) states a width figure and a
-measured line count for the old band width, both retargeted.
-
-**Ends green:** the overlays still anchor within the band, the module picks `bottom` there, and every
-retargeted assertion is retargeted here rather than left for a later task.
+**Ends green:** the banner still anchors within the band, the module picks `bottom` there, and the
+full-tree GREEN criterion above is what proves nothing else moved.
 
 **The transition-audit obligation lands HERE, not in a task of its own (round-2 finding 1).**
 `docs/agents/writing-plans.md` mandates a transition-audit TASK for any component with a Transition
@@ -230,17 +262,61 @@ Spec §6's inventory, every pair and every compound, asserted in this commit:
 | compound | assertion |
 |---|---|
 | side changes mid-resize | a resize burst produces ONE `applyPlacement` per frame (`createRafCoalescer`) |
-| banner present during the panel's entrance transform | a `transitionend` listener exists and filters `propertyName === "transform"` |
-| banner present while the freshness flash animates | the flash mutates no property the placement reads |
-| banner present while the AttentionMenu opens | existing mutual exclusion, re-run unchanged |
+| banner present during the panel's entrance transform | **the compound is EXERCISED, not inspected** (round-3 finding 5): open the modal with a refusal already pending so the banner mounts during the entrance, then assert the settled placement equals the placement measured after `transitionend`. Asserting a listener exists proves wiring, not behaviour. |
+| banner present while the freshness flash animates | **DOCUMENTED LIMIT, not an assertion** (round-3 finding 5). The claim is that the flash mutates no property the placement reads; proving it needs a placement-count probe across an animation whose own duration is the thing being raced, and a flaky compound test is worse than a stated limit. The flash animates `background`/`color` on the band div, neither of which enters `getBoundingClientRect`. Re-file trigger: a placement observed moving during a flash. |
+| banner present while the AttentionMenu opens | **NEW test, written here.** Round-3 finding 5 is right that the existing mutual-exclusion block tests AttentionMenu against ShareHub and never the banner, so citing it was citing coverage that does not exist. The new case drives a refusal, opens the menu, and asserts the banner is dismissed — the same contract, for the pair that was never covered. |
 | banner present while a Re-sync overlay is open | both placed by the same module against the same host; `z-overlay` vs `z-banner` unchanged and the module writes no z-index. Asserted with BOTH open. |
 | banner mounts on the first frame after the modal opens | **a DEGENERATE measurement is intercepted and the banner is left unpositioned and VISIBLE** — round-2 finding 7: the first draft's row said `visibility: hidden`, inverting AC-11 in the one place an implementer reads it as an obligation. `visibility: hidden` is reserved for a real `kind: "hidden"`. |
 
-`components/admin/PublishedToggle.tsx` REMAINS in `transitionAudit.test.tsx`'s `SERVER_RENDERED` list
-(`tests/components/admin/transitionAudit.test.tsx:45`) — the regression pin against this migration
-smuggling in motion. That existing case stays green and is NOT this task's red.
+**The inventory assertions are WRITTEN INTO `tests/components/admin/transitionAudit.test.tsx`**, which
+is therefore CHANGED by this task and is in the spec's exact changed set. Round-3 finding 4: the first
+draft said that file "remains unchanged", which contradicted the set and would have failed T7's
+bidirectional gate. What stays unchanged is the EXISTING case —
+`components/admin/PublishedToggle.tsx` remains in `SERVER_RENDERED`
+(`tests/components/admin/transitionAudit.test.tsx:45`), the regression pin against this migration
+smuggling in motion — and that case is green throughout and is not this task's red.
 
 
+
+## T2a — migrate Re-sync's three overlays
+
+<!-- task: red=`pnpm vitest run tests/components/ReSyncButton.test.tsx` red-state=authored red-target=`components/admin/ReSyncButton.tsx:73` why=`OVERLAY_PANEL is absolute inset-x-0 top-full and the component root is a fragment, so all three panels resolve their containing block by walking up; the unit suite asserts those exact tokens and the migrated set removes two of them` ac=AC-19 -->
+
+Its own behavioural red, which is why it is a task rather than half of T2 (round-3 finding 3).
+`tests/components/ReSyncButton.test.tsx:284` asserts
+`OVERLAY_TOKENS = ["absolute", "inset-x-0", "top-full", "z-overlay", "overflow-y-auto"]`. The red is
+that list rewritten to the migrated set — `absolute`, `w-full`, `z-overlay`, `overflow-y-auto`, with
+`inset-x-0` and `top-full` gone — which fails until the component migrates. A production-side fact, not
+a test-local one.
+
+**`tests/components/ReSyncButton.test.tsx:284`** asserts `OVERLAY_TOKENS = ["absolute", "inset-x-0",
+"top-full", "z-overlay", "overflow-y-auto"]`. `top-full` and `inset-x-0` go; `absolute`, `z-overlay`
+and `overflow-y-auto` stay. Updated here, in the commit that changes them — round-1 finding 8.
+
+**`tests/e2e/published-review-modal.interactions.spec.ts` has SEVEN `SUBHEADER` uses, not two**
+(round-3 finding 2, probed): the constant at `tests/e2e/published-review-modal.interactions.spec.ts:627`, then `tests/e2e/published-review-modal.interactions.spec.ts:667`, `tests/e2e/published-review-modal.interactions.spec.ts:691`, `tests/e2e/published-review-modal.interactions.spec.ts:728`, `tests/e2e/published-review-modal.interactions.spec.ts:825`, `tests/e2e/published-review-modal.interactions.spec.ts:1102` and
+`tests/e2e/published-review-modal.interactions.spec.ts:1143`. `T-OVERLAY` and `T-OVERLAY-BOUNDS` are two of them; `tests/e2e/published-review-modal.interactions.spec.ts:825` is a geometry read and `tests/e2e/published-review-modal.interactions.spec.ts:1102` /
+`tests/e2e/published-review-modal.interactions.spec.ts:1143` are further band-scoped evaluates, one of which searches the band's DESCENDANTS for focus order
+— so a portaled overlay vanishes from that query the instant this task lands, before the band is even
+removed. All seven are retargeted in this commit, under the DEFAULT config.
+
+That this is the third list to be incomplete is the argument for the full-tree GREEN criterion above,
+not for a fourth list. Their abut becomes the module's
+`GAP`, imported rather than retyped; `LONG_DETAIL`'s docblock (`tests/e2e/published-review-modal.interactions.spec.ts:629-635`) states a width figure and a
+measured line count for the old band width, both retargeted.
+
+
+Three overlays, three placement effects, not one shared effect with a switch: `fitErrorRef`,
+`fitShrinkRef` and `fitSuccessRef` (`components/admin/ReSyncButton.tsx:111-113`) are independent nodes,
+and a single ref would silently place whichever mounted last. `max-h-[min(50vh,20rem)]` stays as the
+declared cap; colours and per-overlay layout classes are untouched, which is what keeps `DESIGN.md`
+§1.2a out of this diff.
+
+`ReSyncButtonProps` gains the same optional anchor ref `PublishedToggle` takes, passed by `StatusStrip`
+from its own root — one mechanism for both consumers, not two.
+
+**Ends green** by the full-tree criterion, which is what covers the default-config interaction suite
+this task retargets.
 
 ## T3 — the harness can drive a refusal through the real modal
 
@@ -360,7 +436,7 @@ value derived rather than typed:
 
 | # | relation | assertion |
 |---|---|---|
-| 1 | panel → grab | `grab.width === panel.clientWidth ± 0.5`; height 44 in sheet, 0 at `≥sm` |
+| 1 | panel → grab | **mode-conditional, because `sm:hidden` makes the whole rect 0x0 rather than a zero-height full-width strip** (round-3 finding 1: the first draft demanded full width AND zero height in the same breath, which no implementation can satisfy at 1280x900). Sheet: `grab.width === panel.clientWidth ± 0.5` and `grab.height === 44 ± 0.5`. `≥sm`: `grab.width === 0` and `grab.height === 0`, and `getComputedStyle(grab).display === "none"` so the zero is the class doing its job rather than a missing element |
 | 2 | panel → header | `header.width === panel.clientWidth ± 0.5` |
 | 3 | panel → body | `body.height === panel.clientHeight - (grab + header + footer) ± 0.5`, and `> 0` |
 | 4 | panel → footer | `footer.width === panel.clientWidth ± 0.5` AND `footer.bottom === panel.bottom ± 0.5` |
