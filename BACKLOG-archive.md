@@ -73,6 +73,7 @@ one file about another file's state is reachable by no discovery command — two
 instances were found by reading, one in `step3-review-modal.layout.spec.ts` and
 one in `_shareLinkFlashLiveEntry.tsx`, and §9 records that residue as a limit
 rather than attempting a fifth widening of a grep.
+
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount — CLOSED 2026-08-26
 
 **Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** S · **Shipped by:** `feat/fitwithinclip-measure-class`
