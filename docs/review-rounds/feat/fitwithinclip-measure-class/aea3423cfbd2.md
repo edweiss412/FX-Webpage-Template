@@ -1,0 +1,23 @@
+# Review rounds — `feat/fitwithinclip-measure-class` @ `aea3423cfbd2`
+
+## plan — 2 rounds
+
+**Examined:** **2 counted `plan` rounds in THIS file** (`aea3423cfbd2.jsonl`), declaring 7 and 4 findings. **Cross-base arc total for the plan stage: 4 rounds**, counting distinct `(baseSha, round)` pairs across every base of this branch directory per the arc-sum rule: 2 here and 2 in the sibling `e381de76ea87.jsonl`, which declared 8 and 6. Twenty-five findings across the four rounds, then the stage closed at the four-round cap by orchestrator ruling with all twenty-five repaired. Both verdicts recorded in this file are BLOCKING; the stage never returned an APPROVE, and it is filed as closed at the cap rather than converged.
+
+**Mechanizable:** one, and it is the reason the stage ran to the cap.
+
+declined: the process-facing mint freeze ratified 2026-08-25 forbids opening a queue row for it, and the done condition here is a property of a lint arm rather than a number a product arc would notice moving.
+
+Seventeen of the twenty-five findings were one class wearing four costumes. The plan carried an inventory in a summary table and then restated the same mapping inside individual task bodies. Each round I repaired the table, the reviewer found a task body still reciting the superseded mapping, and the next round found another. Three consecutive repairs failed the same way because each fixed the instance the reviewer named instead of the shape. What closed it was not a better repair but a structural one: Tasks 3, 4 and 5 became referential, so no task body restates an inventory that a table owns, and the duplicate cannot be authored in the first place. That is the class-sweep rule arriving three rounds later than it should have, and the cost of the delay was rounds 2, 3 and most of 4.
+
+A checker could enforce it. It would parse a plan for a table that declares a mapping, then assert no task body under the same document repeats a key from that table with a different value. I am not filing it. Under the freeze the admission test is whether the done condition names a number outside the process, and "the plan lint pins what it claims" does not: it is a claim about an open input space, refutable once per round by anyone paid to refute it, which is the loop the freeze exists to stop. The narrowing that actually worked cost one authoring decision and no tooling.
+
+**Judgment:** the other eight, and two of them at this base were P0s that no lint would have caught.
+
+Round 4 found the task order circular. Task 5 ran `pnpm test`, which collects `tests/docs/_metaInvariant8Closeout.test.ts`, and that guard stays red until the impeccable marker lands in Task 6. Task 6 in turn required Task 5 green before it could run. Neither task was wrong on its own and the dependency only exists because one guard reads a document another task writes, which is invisible unless you trace what the suite collects rather than what the task says it does. The repair was to run Task 6 before Task 5.
+
+Round 4 also found that the plan had no commit step anywhere. Four rounds of review, twenty-one findings already repaired, and nobody had noticed that a plan whose every task mutates tracked files never said to commit any of it. Invariant 6 requires a commit per task, so the plan contradicted a plan-wide invariant by omission for its entire life. Omissions are the hard case for both reviewers and lints: the document reads as complete because everything present is correct. Every mutating task now carries its conventional-commit line.
+
+The remaining six were ordinary and worth their rounds: an ordering-shift bound that needed stating, citation lifetime for six citations that later moved or were deleted, and mutant coverage that needed a "Run in" column because two mutants could not be exercised in the harness the plan named.
+
+**Infra:** one, and it is mine rather than the wrapper's. This file's `plan` rows declare rounds 3 and 4, which `roundGaps` (`lib/reviewRounds/count.ts:84`) reads as a non-contiguous stage because contiguity is per file, per stage, from 1. The cause is the trap AGENTS.md documents verbatim: absorbing `origin/main` between plan rounds 2 and 3 moved the merge base, which opened this file, and the first dispatch into a new file is round 1. I passed the arc-wide numbers forward instead. The rows are otherwise accurate and the arc-sum count is unaffected, since distinct `(baseSha, round)` pairs still total 4 and this filing is owed either way. Recording it here because the gate's own diagnosis for a gap is "rows were lost or hand-edited", and that is the one explanation which is not true.

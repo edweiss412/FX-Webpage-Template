@@ -140,7 +140,7 @@ and falls through to the existing byte comparison, which fails without attributi
 limit (§8.1), not a silent wrong answer: the gate still goes red, it just cannot say why.
 
 **Convergence criterion.** The instrument records runner identity, wall clock and decoded-pixel hashes on
-**both** outcomes; the marker scan covers every JSX-returning fault branch reachable from the manifest and
+**both** outcomes; the marker scan covers every JSX-returning fault branch reachable from the manifest EXCEPT a ternary whose guard `classifyExpression` cannot classify (see the coverage limit in section 8), and
 enumerates its residue by name; §6 assigns one mechanism per reading **except the geometry row, which
 narrows to a bounded candidate set** (§8.5) — a ceiling stated rather than claimed away. Settled by §9’s
 acceptance tests.
@@ -230,7 +230,7 @@ record — degraded attribution, never silence.
 
 ### 4.3 Layer 1 — `data-render-fault`, honestly scoped
 
-Every fault branch reachable from the manifest that **directly returns JSX** carries
+Every fault branch reachable from the manifest that **directly returns JSX** through an `IfStatement`, `CaseClause` or `CatchClause` carries
 `data-render-fault="<reason>"` on the element it already renders — shape 1, shape 5, and the §4.2.1
 replacement branches alike.
 
@@ -243,7 +243,7 @@ declaration is local (`components/admin/Dashboard.tsx:282`, called at
 (`app/admin/_finalizeCheckpoint.ts:38`, called at `app/admin/page.tsx:177`); `in`-operator narrowing on
 `"kind"`; a `catch` clause whose `try` reaches a throwing loader; a `switch` case on a result kind; or
 `tileErrors` population (`lib/data/getShowForViewer.ts:224`). Anything outside the accept-set is
-**reported by name**, never silently dropped.
+**reported by name**, never silently dropped — on those three arms. The `ConditionalExpression` arm has no residue fallback and drops an unclassifiable guard silently; that is a declined asymmetry, recorded in the coverage limit in section 8.
 
 **Resolution is through the declaration, never through the name.** A scan keyed on the identifier
 `isInfraError` is a denylist with one entry: it breaks on a rename, on an alias at the import site, and on
@@ -253,11 +253,13 @@ a second predicate spelled differently. Two live predicates already differ in sp
 
 A derived-cover meta-test walks the manifest-derived roots, classifies every consumer, and:
 
-- demands the attribute on every JSX-returning fault branch (shapes 1 and 5, and the replacements);
+- demands the attribute on every JSX-returning fault branch the `IfStatement`, `CaseClause` and
+  `CatchClause` arms reach (shapes 1 and 5, and the replacements). The `ConditionalExpression` arm
+  drops an unclassifiable guard silently; see the coverage limit in section 8;
 - skips shapes 2 and 3 with a recorded reason;
 - **reports shape 4 and the non-`infra_error` shapes as an enumerated residue**, pinned in a reasoned
   registry naming each flag and each capture output it can reach. The §4.2 table is that registry’s initial
-  content. The residue is visible and named, never silently absent.
+  content. The residue is visible and named, never silently absent — for the three arms that report one. The `ConditionalExpression` arm is the declared exception; see the coverage limit in section 8.
 
 **The route parser must read template literals.** Four of the seven manifest routes are template literals,
 the first at `scripts/help-screenshots.manifest.ts:73` with peers at lines 97, 105 and 113; the remaining
@@ -480,9 +482,26 @@ what surfaced both mechanisms; closing them together would have shipped a false 
    byte comparison, which fails without attribution. Shape-4 members that remove and add content in
    compensating amounts are the realistic instance. Re-file trigger: a recurrence whose `faultHits` is
    empty, whose geometry matches, and whose pixel deltas are long-run.
-2. **Layer 1 covers branches that directly return JSX.** Shapes 2, 3 and 4 are an enumerated residue
-   (§4.2), not a covered population — named, not silent. Shape 5 and the §4.2.1 replacements ARE covered,
-   because the accept-set is keyed on the rendering construct rather than on a comparison spelling.
+2. **Layer 1 covers branches that directly return JSX, through three of its four arms.** Shapes 2, 3 and 4
+   are an enumerated residue (§4.2), not a covered population — named, not silent. Shape 5 and the §4.2.1
+   replacements ARE covered, because the accept-set is keyed on the rendering construct rather than on a
+   comparison spelling.
+
+   **The `ConditionalExpression` arm is the exception, and the asymmetry is DECLINED rather than closed**
+   (`fix/screenshots-drift-residue`, 2026-08-25). The `IfStatement` arm falls back to a fault-vocabulary
+   probe and reports an unclassifiable guard as `unknown` residue; the ternary arm has no fallback and
+   drops it in silence. Re-probed on the live tree: **719** ternaries under the derived roots return JSX in
+   `whenTrue`, **79** of those carry a fault-vocabulary guard and are unclassifiable, and **70 of the 79
+   sit in `"use client"` files** — interaction state, not a server-render fault, and this instrument
+   captures server-rendered output. Of the nine in server components, four are emptiness checks and two are
+   already registered, so the fallback would buy roughly three new sites for 79 hand-written reasons. The
+   vocabulary probe is the wrong filter on this arm.
+
+   **Re-file trigger, computed rather than promised:** the count of server-component ternaries that are
+   unclassifiable, fault-vocabulary AND unregistered rises above **7**, its resting value today.
+   `tests/help/_metaRenderFaultMarking.test.ts` asserts that bound, re-derives the 719 and 79 above and
+   compares them to the arm's own comment, and pins each registered site as still unreached — so these
+   figures cannot go stale silently, which is how the previous pair (714 and 91) did.
 3. **A live Postgres wall-clock dependency is left in place.** `purgeAndRotateIfStale`, called on every
    `/admin` request, runs `now()` and `now() - interval '24 hours'` in inline SQL
    (`lib/onboarding/sessionLifecycle.ts:351`, and again at lines 352, 355 and 388). The frozen-now header

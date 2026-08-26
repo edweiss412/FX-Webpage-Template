@@ -130,8 +130,8 @@ const GUTTER = 8;
 const CSS_CAP = 384;
 /** Mirrors MIN_FITTED_HEIGHT (lib/layout/fitWithinClip.ts) — the collapse floor. */
 const FLOOR = 48;
-/** The refusal banner's offset below the strip it anchors to (`mt-1`). */
-const BANNER_OFFSET = 4;
+/** The refusal banner's offset below the strip it anchors to (`mt-1`). Reference only. */
+const _BANNER_OFFSET = 4;
 /** The strip is the banner's positioned ancestor (`sticky` ⇒ positioned). */
 const STRIP = '[data-testid="show-status-strip"]';
 
@@ -601,6 +601,133 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
       Math.abs(m.height - m.available),
       `banner height ${m.height} does not match the available room ${m.available}`,
     ).toBeLessThanOrEqual(0.5);
+  });
+
+  test("the banner is never PAINTED crossing the clip edge, from the very first frame", async ({
+    page,
+  }) => {
+    // The containment case above measures AFTER settle. This one measures from
+    // the FIRST painted frame, which is the property the synchronous mount
+    // measure provides and the only one deferring it to a frame breaks.
+    //
+    // It lives on the BANNER, not the AttentionMenu. The first draft sampled the
+    // menu and did NOT discriminate: planting the deferred-measure mutant killed
+    // 18 unit cases and two e2e cases and left that draft green, because the
+    // menu's natural height at this viewport fits inside the panel anyway, so an
+    // uncapped frame crosses nothing. A fixture that cannot express the
+    // difference reports no difference. The banner genuinely overflows, and the
+    // premise below asserts that rather than assuming it.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 390, height: 560 });
+
+    // ARMED BEFORE THE APPEARANCE, via an init script: `openToggleBanner`
+    // navigates, so a sampler installed after it returns misses the frames under
+    // test. Records a row on EVERY frame INCLUDING absent ones — those are what
+    // prove the recorder preceded the appearance.
+    await page.addInitScript(
+      ([clipSel, bannerSel]) => {
+        const w = window as unknown as {
+          __clipFrames?: {
+            present: boolean;
+            overlayBottom?: number;
+            clipBottom?: number;
+            scrollH?: number;
+            clientH?: number;
+          }[];
+        };
+        w.__clipFrames = [];
+        const tick = () => {
+          const clip = document.querySelector(clipSel as string);
+          const banner = document.querySelector(bannerSel as string);
+          if (clip === null || banner === null) {
+            w.__clipFrames!.push({ present: false });
+          } else {
+            w.__clipFrames!.push({
+              present: true,
+              overlayBottom: banner.getBoundingClientRect().bottom,
+              clipBottom: clip.getBoundingClientRect().bottom,
+              scrollH: banner.scrollHeight,
+              clientH: banner.clientHeight,
+            });
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      },
+      [TOGGLE_CLIP, TOGGLE_BANNER] as const,
+    );
+
+    await openToggleBanner(page);
+
+    // An empty sample is AMBIGUOUS on its own: `?? []` reads identically whether
+    // the init script never ran and `__clipFrames` is absent, or it ran and no
+    // frame elapsed. Running the whole standalone config surfaced exactly that
+    // (`no frame was sampled at all`, firstPresent -1) where the spec passes
+    // alone, and the message could not say which. So wait for the first row
+    // explicitly, and report installed-ness separately from the rows.
+    // Waits for a PRESENT row, not merely a row. Diff review round 1 finding 2
+    // probed the earlier `length > 0` predicate and showed it is already true
+    // during hydration, when every row is `present: false`:
+    //   {"waitCondition":true,"firstPresent":-1,"presentCount":0}
+    // So that version widened the race instead of closing it, and a green run
+    // showed the race had not occurred once, not that it could not occur. This
+    // predicate cannot be satisfied by absent rows, so `firstPresent >= 0`
+    // below is guaranteed rather than hoped for. Arming is still asserted
+    // separately: an absent row must PRECEDE the first present one.
+    await page.waitForFunction(
+      () => {
+        const w = window as unknown as { __clipFrames?: { present: boolean }[] };
+        return Array.isArray(w.__clipFrames) && w.__clipFrames.some((f) => f.present);
+      },
+      undefined,
+      { timeout: 15_000 },
+    );
+
+    const sampler = await page.evaluate(() => {
+      const w = window as unknown as {
+        __clipFrames?: {
+          present: boolean;
+          overlayBottom?: number;
+          clipBottom?: number;
+          scrollH?: number;
+          clientH?: number;
+        }[];
+      };
+      return { installed: Array.isArray(w.__clipFrames), frames: w.__clipFrames ?? [] };
+    });
+    expect(
+      sampler.installed,
+      "the init script never ran: window.__clipFrames is absent, so no sampling happened at all",
+    ).toBe(true);
+    const frames = sampler.frames;
+
+    const firstPresent = frames.findIndex((f) => f.present);
+    // (1) ARMING: an absent row must precede the first present one, or sampling
+    // may have begun after the overlay already corrected itself.
+    expect(firstPresent, "no frame was sampled at all").toBeGreaterThanOrEqual(0);
+    expect(
+      firstPresent,
+      "the sampler was not armed before the banner appeared: no absent frame precedes it",
+    ).toBeGreaterThan(0);
+
+    const present = frames.filter((f) => f.present);
+    // (2) NON-VACUITY.
+    expect(present.length, "no frame with the banner present was sampled").toBeGreaterThan(0);
+
+    // (3) PREMISE: the banner must actually overflow, or an uncapped frame would
+    // cross nothing and this case could not discriminate a deferred measure.
+    const last = present[present.length - 1];
+    expect(
+      (last?.scrollH ?? 0) > (last?.clientH ?? 0),
+      "premise not met: the banner does not overflow, so containment is vacuous here",
+    ).toBe(true);
+
+    // (4) CONTAINMENT on every frame, the first included.
+    const crossed = present.filter((f) => (f.overlayBottom ?? 0) > (f.clipBottom ?? 0) + 0.5);
+    expect(
+      crossed.map((f) => `${f.overlayBottom} > ${f.clipBottom}`),
+      "the banner crossed the clip edge on at least one painted frame",
+    ).toEqual([]);
   });
 
   test("the capped banner scrolls rather than stranding its tail", async ({ page }) => {

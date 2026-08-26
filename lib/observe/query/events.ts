@@ -87,7 +87,7 @@ function applyEventFilters<
   if (filters.requestId) b = b.eq("request_id", filters.requestId);
   const sinceHours = filters.sinceHours === undefined ? 24 : filters.sinceHours;
   if (sinceHours != null) {
-    const since = new Date(Date.now() - sinceHours * 3_600_000).toISOString();
+    const since = new Date(Date.now() - sinceHours * 3_600_000).toISOString(); // not-render-side: observe read-path window; both executions are non-render — the pnpm observe CLI, and the developer capture action app/admin/_devCaptureAction.ts, which is a "use server" action building a downloaded diagnostic bundle
     b = b.gte("occurred_at", since);
   }
   if (filters.q) b = b.ilike("message", `%${escapeIlike(filters.q)}%`);

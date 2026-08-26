@@ -30,7 +30,7 @@ export async function resolveAdminAlert(
   const supabase = client ?? createSupabaseServiceRoleClient();
   let query = supabase
     .from("admin_alerts")
-    .update({ resolved_at: new Date().toISOString() })
+    .update({ resolved_at: new Date().toISOString() }) // not-render-side: mutation timestamp (resolved_at write)
     .eq("code", input.code)
     .is("resolved_at", null);
 
@@ -57,7 +57,7 @@ export async function resolveAdminAlerts(
   const supabase = client ?? createSupabaseServiceRoleClient();
   let query = supabase
     .from("admin_alerts")
-    .update({ resolved_at: new Date().toISOString() })
+    .update({ resolved_at: new Date().toISOString() }) // not-render-side: mutation timestamp (resolved_at write)
     .in("code", [...input.codes])
     .is("resolved_at", null);
   query = input.showId === null ? query.is("show_id", null) : query.eq("show_id", input.showId);

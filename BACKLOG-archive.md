@@ -1,3 +1,33 @@
+## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** S · **Shipped by:** `feat/fitwithinclip-measure-class`
+
+**Resolution — the second measure went, and the re-render that caused it went with it.** The row named the doubled measure; the measurement found the re-render underneath it was the larger cost. `useFitWithinClip` held the node in a ref and an `attachCount` counter in state, and the counter was a layout-effect dependency, so the ref callback's bump re-ran the effect and measured a second time. The counter now leaves the hook entirely: a React 19 cleanup-returning callback ref owns the observer wiring and returns its own teardown, which is the mechanism the counter was standing in for. The owning component no longer re-renders on every attach **and every detach**.
+
+**Measured per consumer, renders / `apply()` / ancestor walks per attach** (spec §0.1). Production improves or holds on every metric for every consumer, and the shape converges all three onto 1/1/1:
+
+| Consumer          | Production before | Production after | Strict Mode before | Strict Mode after |
+| ----------------- | ----------------- | ---------------- | ------------------ | ----------------- |
+| `ReSyncButton` ×3 | 2 / 1 / 2         | **1 / 1 / 1**    | 4 / 1 / 2          | **2 / 2 / 2**     |
+| `PublishedToggle` | 2 / 2 / 4         | **1 / 1 / 1**    | 4 / 2 / 4          | **2 / 2 / 2**     |
+| `AttentionMenu`   | 2 / 2 / 4         | **1 / 1 / 1**    | 4 / 3 / 6          | **2 / 2 / 2**     |
+
+**Measures per attach do NOT fall uniformly, and saying they did was the arc's own overreach**, caught at diff review round 2: `ReSyncButton` was already at 1 and stays at 1, and under Strict Mode it goes 1 to 2, because a cleanup-returning ref opts into the replay. That replay is DEVELOPMENT-ONLY, verified against the shipped bundles rather than the docs — the double-invoke symbols appear 101 times in the installed `react-dom` development client and **zero** times in its production build. Unit case (h13) pins the dev cost exactly rather than wishing it down.
+
+Case (g)'s assertion moved from 2 to 1, which is the row made executable. Mutant M1 turns it red.
+
+## BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK — `findClippingAncestor` walks the tree twice per effect run — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** S · **Shipped by:** `feat/fitwithinclip-measure-class`
+
+**Resolution — `apply()` now returns the clip ancestor it already resolved, so the caller stops re-walking.** The row was explicit that hoisting the result would be wrong, and it was right: `apply()` still walks on EVERY invocation, because the ancestor chain can change between measures. Only the wiring's second walk was redundant, and only for the run that had just called `apply()`. Ancestor walks per measure go 2 to 1, and that one does hold for every consumer.
+
+Unit case (h) pins it with an expectation DERIVED from the harness's own chain rather than typed, counting `getComputedStyle` calls on ancestors only. Mutants M2 and M7 each turn it red.
+
+**The two rows were one arc** because they named the same trigger — a refactor of the hook's attach mechanism — on the same effect body. Both rows' own trigger conditions said as much, and neither was worth a standalone change.
+
+**Not repaired here, filed instead:** the clip SUBSCRIPTION is still resolved once per attach and never updated, so an ancestor that starts clipping later is never observed (`BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION`, with a committed probe). That is the subscription path, not the measure path this arc closed. Also filed: `BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN`.
+
 ## BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE — the empty-state catalog's only real-browser proof navigates a route the picker pivot retired — CLOSED 2026-08-25
 
 **Status:** SHIPPED 2026-08-25 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM · **Class:** e2e coverage · **Facing:** product · **Shipped by:** `fix/e2e-proof-retired-route-subpixel`
@@ -21,6 +51,102 @@
 **The second half, restated correctly, and decided.** The row said `lifecycle-layout-e2e` is path-filtered. It is not: there is no `push:` trigger at all, so it never runs on `main` by construction. No `push:` trigger is added, because the UNFILTERED `pull_request` trigger already means every change reaching `main` ran this spec on its own head. What the row observed was an ATTRIBUTION problem — an arc with no rendering code in its diff ate a red produced by a flake — and that flake is fixed at its source. The residual (an interaction present on `main` but on neither contributing PR head) costs four cold builds per merge on an advisory job with no owner; the decision and its re-file trigger are recorded in the workflow header.
 
 **Two guards were strengthened on the way, both found by review probes rather than by the arc.** The fixture `shows` writes moved onto the per-show advisory lock (invariant 2) with an executable proof, after a probe showed `walker-routes` is equally green with the lock deleted; that proof went through three shapes before landing on one with no recognizer at all — it drives the real callers through an injected spawn and compares emitted SQL. And the lifecycle execution oracle's case identity gained the enclosing describe path, closing a collapse that let a partially dark parameterized run report its floor.
+
+## BL-SERVER-TIME-GUARD-EXCLUDES-LIB — the server-time guard's population never walked `lib/` — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** M · **Severity (as filed):** LOW · **Class:** guard fidelity · **Facing:** process · **Shipped by:** `fix/screenshots-drift-residue`
+
+**Resolution — the population grows by RENDER REACHABILITY, not by directory.** `discoverScanRoots()` seeded
+`components` plus manifest-derived `app/<segment>` roots, so `lib/**` was never walked and
+`lib/admin/loadAppEvents.ts:45` was a live unwaived survivor the guard reported clean over. The population is
+now that root walk PLUS every `lib/**` module those files import DIRECTLY at runtime, resolved through
+`resolveSpecifier`, which already existed for the render-fault scanner and was exported rather than rebuilt.
+
+**The numbers that chose depth 1**, all measured under the guard's own filters (comments stripped,
+`lib/time/now.ts` self-exempt, `"use client"` skipped, per-line waivers honoured): **depth 1 is 211 modules
+and 13 violations**, depth 2 is 319 and 22, unbounded is 396 and 31, and the whole directory is 532 and 55.
+All four reach the survivor. Probed: every violation unbounded depth adds sits in a module whose only `app/`
+importers are under `app/api/**` or a cron path, so depth 1 loses no render-side survivor while the naive
+widening would have been a 55-line waiver-writing exercise.
+
+**One repair, twelve waivers.** `lib/admin/loadAppEvents.ts:45` is REPAIRED, not waived: `/admin/dev/telemetry`
+awaits it during SSR and that page already reads its instant through `lib/time/now.ts`. The twelve are bound
+to their site AND their reason family by a registry, because a bare count of 12 passes when a contributor
+repairs some other violation and waives the survivor instead — the exact outcome this row existed to prevent.
+
+**`resolveSpecifier` gained the two directory-index forms**, without which five live imports of `@/lib/log`
+and `@/lib/parser` miss and the population is 209 — a clean run over a smaller population rather than a
+failure. The scanner's candidate SET is pinned by a digest over sorted `file:line:form:marked`, not merely its count of 35, so a change that adds one candidate and drops another cannot pass unnoticed.
+
+**Documented limit.** The guard's roots are `components/**` and `app/admin/**`; every manifest route is under
+`/admin`, so `app/show` and `app/me` are outside the population. Probed at close: zero live time calls under
+either. Re-file trigger: a live time call under either root, or a manifest route outside `/admin`.
+
+## BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY — the marking scanner's ternary arm drops what its if-arm reports — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM · **Class:** guard fidelity · **Facing:** process · **Shipped by:** `fix/screenshots-drift-residue`
+
+**Resolution, in two halves: the asymmetry is DECLINED, and the registry's honesty is REPAIRED.**
+
+**The decline, and the measurement that forced it.** Re-probed on the live tree: **719** JSX-in-`whenTrue`
+ternaries under the derived roots, **79** unclassifiable on a fault-vocabulary guard, and **70 of those 79 in
+`"use client"` files** — interaction state (`errorCode`, `state.kind === "error"`, `persistFailed`), not a
+server-render fault, and this instrument captures server-rendered output. Of the nine in server components,
+four are emptiness checks and two were already registered, so the fallback would have bought roughly three
+new sites for 79 hand-written reasons. That answers the question this row left open: **the vocabulary probe is
+the wrong filter on this arm.** The arm keeps its bare `continue`, and the limit is recorded at the arm, in
+the registry docblock, and in the coverage limit of the 2026-08-22 design.
+
+**Re-file trigger, computed rather than promised:** the count of server-component ternaries that are
+unclassifiable, fault-vocabulary AND unregistered rises above **7**, its resting value today. The suite
+asserts that bound, re-derives 719 and 79 and compares them to the arm's own comment, and pins each
+registered site as still unreached — so these figures cannot go stale silently, which is how the previous
+pair (714 and 91) did in eight days.
+
+**The registry was the actual defect.** `FLAG_RESIDUE` was named for one cause while four of its seven rows
+had three others. It is now `UNREACHED_RESIDUE`, keyed `file:line:flag`, each entry declaring one of two
+causes that ONE derivation function computes from the node at that line — so **the count of entries whose
+stated cause is false is 0, computed rather than promised.** Two causes and not three: which arm holds the
+fault is not decidable without a fault oracle the scanner does not have, so it stays in prose. Both conjuncts
+of `unreached-no-ternary` are pinned by their own control and no control iterates a hand-written list: two
+derive from `scanCandidates()`, and the no-ternary control derives from the registry's own keys filtered by
+the AST, since a ternary entry is by definition not a candidate. Deleting either conjunct fails. Coordinates are verified per cause and each half asserts uniqueness in the file.
+
+**The prior design's four normative coverage claims were false at HEAD** once the decline was ratified — a
+ternary whose `whenTrue` is JSX directly returns JSX and is reachable from the manifest. Each is now
+qualified to the three arms that report.
+
+## BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED — one `dashboard-overview-light.webp` byte drift, population comparison executed and returning UNTESTED — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** M · **Severity (as filed):** LOW · **Class:** CI-INFRA · **Facing:** process · **Shipped by:** `fix/screenshots-drift-residue`
+
+**Resolution — the comparison was EXECUTED, and its outcome is a decline rather than an answer.** Eight
+evidence records were collected inside their retention window: **six `pull_request` and two
+`workflow_dispatch`**, against this row's minimum of four with at least two per trigger.
+
+**The numbers.** **4 distinct `cpuModel` values** across the eight; `runnerArch` X64, `runnerOs` Linux and
+`cpuCount` 4 on every one; eight distinct `runnerName`. `dashboard-overview/light` — the identity that drifted
+— holds **ONE `pixelSha256` on all eight**, across all four CPU models AND both triggers, and seven other
+identities are likewise single-valued. The six `crew-preview-*` identities hold two values and the split is by
+**head branch**, not by runner: both minority records are `feat/ui-polish-class-sweep`, which changed crew
+rendering and updated its own baselines, and two CPU models appear on BOTH sides of that split. Zero
+identities moved `pixelSha256` while the source tree held still.
+
+**What the eight records CANNOT settle, which is the point.** Not one reproduces the drift, so eight passing
+runs are not evidence about a failure none of them contains, and the comparison this row actually schedules —
+a reproducing run against a non-reproducing one — cannot be built out of passing runs alone. **The runner
+reading is UNTESTED, not negative.** The same correction applies to this row's trigger hypothesis: two
+dispatch records agreeing with six PR records does not refute "the trigger is the difference", because
+neither trigger reproduced the failure. The mis-sample criticism of the old 0/9 probe stands; the variable it
+named is untested.
+
+**The pin is extended to nothing**, no repair is opened and no perceptual-tolerance comparator is built, per
+this row's own scope decision. **Re-file trigger: the next failure of the `Check screenshot drift` STEP**, whose
+uploaded record is the reproducing sample the population lacks. Not any red run of the job — Supabase
+startup, capture and evidence verification each fail independently and leave no such sample. The full per-run table is in section 1.5 of
+`docs/superpowers/specs/ci/2026-08-25-drift-residue-design.md`, because `retention-days: 7` expires the
+artifacts and the evidence record is never committed — within a week that table is the only surviving
+association between a runner and a hash.
 
 ## BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND — the brace walk counts its own delimiter pair without respecting other constructs, so a `}` inside a nested `$()` closes the `${` early — CLOSED 2026-08-25
 
