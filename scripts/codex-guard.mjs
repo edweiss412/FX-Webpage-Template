@@ -19,6 +19,7 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
 import { emitRow, resolveArc } from "./reviewRoundEmit.mjs";
+import { decide as decideLintGate } from "./specLintGate.mjs";
 
 const GUARD_VERSION = 1;
 
@@ -95,6 +96,10 @@ function parseArgs(argv) {
       flags.fallback = true;
       continue;
     }
+    if (a === "--no-lint-gate") {
+      flags.noLintGate = true;
+      continue;
+    }
     if (!takesValue.has(a)) usageError(`unknown flag: ${a}`);
     const v = argv[++i];
     if (v === undefined) usageError(`${a} requires a value`);
@@ -166,6 +171,7 @@ function buildConfig(flags) {
     resolve(process.env.CODEX_GUARD_TSX ?? join(cfg.cwd, "node_modules/tsx/dist/cli.mjs")),
     resolve(process.env.CODEX_GUARD_SPEC_LINT ?? join(cfg.cwd, "scripts/spec-lint.ts")),
   ];
+  cfg.noLintGate = flags.noLintGate === true;
   cfg.codexHome = expandPath(process.env.CODEX_HOME || join(homedir(), ".codex"));
 
   try {
@@ -1934,6 +1940,19 @@ if (cfg.lintDocs.length > 0) {
       `embedded lint reports total ${emitted} bytes, over the ${cfg.lintBudgetBytes}-byte budget`,
     );
   }
+}
+
+// The pre-dispatch lint gate (design §3). Runs here because the reports are
+// complete and nothing has been dispatched: no lock, no result artifact, no
+// corpus row. The DECISION lives in ./specLintGate.mjs so it is expressible to
+// the source-mutation registry; this file keeps the side effects.
+{
+  const g = decideLintGate({
+    stage: cfg.stage,
+    reports: cfg.lintReports ?? [],
+    waived: cfg.noLintGate === true,
+  });
+  if (g.kind === "refuse") usageError(g.message);
 }
 
 cfg.prompt = composePrompt(cfg);

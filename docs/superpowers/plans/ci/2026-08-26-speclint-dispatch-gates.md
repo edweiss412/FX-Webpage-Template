@@ -130,7 +130,7 @@ its new case fail, verified absent on the live tree at `b30413cf5`.
 
 <!-- tasks: depth=2 red-contract -->
 
-## Task 1: the lint-gate core as an enrolled leaf
+## Task 1: the enforcement arm, and the enrolled core it is built from
 
 <!-- task: red=`pnpm vitest run tests/codexGuard/lintGate.test.ts -t enforcement` red-state=authored red-target=`scripts/codex-guard.mjs:1939` why=`the lint loop's only refusal is the {0,1} status check at :1920; a status of 1 means hard findings and falls through to cfg.prompt = composePrompt(cfg) at :1939, so a hard document DISPATCHES. The new case drives the real CLI over a planted hard document and asserts exit 2, which fails against that fall-through. An unresolved-import RED would be invalid by construction (docs/agents/writing-plans.md:15), so this task's RED is the wrapper's observable behaviour and the leaf is the shape the GREEN takes` ac=AC-1,AC-2,AC-3 -->
 
