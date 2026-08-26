@@ -41,11 +41,22 @@ import { describe, expect, it } from "vitest";
  *   - HoverHelp coalescer     -> hoverHelpVisualViewport.test.tsx (open/closed
  *                                scheduling) and hoverHelpLifecycle.test.tsx
  *                                (close/unmount cancels the pending frame).
- *   - ReSyncButton fit        -> tests/components/ReSyncButton.test.tsx,
- *                                "overlay is capped to the room left inside a
- *                                clipping ancestor".
- *   - PublishedToggle fit     -> tests/components/admin/PublishedToggle.test.tsx,
- *                                "the banner is capped against the clip ancestor".
+ *   - ReSyncButton
+ *     coalescer               -> tests/e2e/published-review-modal.interactions.spec.ts,
+ *                                T-OVERLAY and the three T-OVERLAY-BOUNDS
+ *                                branches, which measure the placed geometry
+ *                                against the real modal panel. The fit backstop
+ *                                this line used to name went with the migration.
+ *   - PublishedToggle
+ *     coalescer               -> tests/e2e/popover-clip-fit.spec.ts, the four
+ *                                "§3.6 — the module selects the side" cases,
+ *                                which drive each branch of the placement
+ *                                algebra against a real clip panel. The fit
+ *                                backstop this line used to name went with the
+ *                                migration: the banner is no longer capped by
+ *                                the hook, so a unit assertion about that cap
+ *                                would pin behaviour the component no longer
+ *                                has.
  *   - AttentionMenu fit       -> attentionMenu.test.tsx, "the scroller is capped
  *                                against the clip ancestor, not just by the CSS
  *                                cap", plus the settled-fit browser cases in
@@ -96,11 +107,17 @@ const ROWS: readonly AdoptionRow[] = [
     module: "@/lib/popover/rafCoalescer",
     requiresCancelAdoption: true,
   },
+  // Migrated off the fit hook 2026-08-25 (feat/review-modal-strip-dock): the
+  // refusal banner is placed by the module now, so what this consumer shares
+  // with ShareHub and HoverHelp is the frame throttle rather than the cap. The
+  // row moves rather than being deleted — the point of the registry is that a
+  // consumer cannot quietly stop sharing a helper, and that applies just as
+  // much when it starts sharing a different one.
   {
     consumer: "components/admin/PublishedToggle.tsx",
-    helper: "useFitWithinClip",
-    module: "@/components/admin/useFitWithinClip",
-    requiresCancelAdoption: false,
+    helper: "createRafCoalescer",
+    module: "@/lib/popover/rafCoalescer",
+    requiresCancelAdoption: true,
   },
   {
     consumer: "components/admin/showpage/AttentionMenu.tsx",
@@ -108,11 +125,14 @@ const ROWS: readonly AdoptionRow[] = [
     module: "@/components/admin/useFitWithinClip",
     requiresCancelAdoption: false,
   },
+  // Migrated 2026-08-25 with PublishedToggle: three overlays, three placement
+  // effects, all sharing the frame throttle. Moves rather than being deleted,
+  // for the same reason the PublishedToggle row moved.
   {
     consumer: "components/admin/ReSyncButton.tsx",
-    helper: "useFitWithinClip",
-    module: "@/components/admin/useFitWithinClip",
-    requiresCancelAdoption: false,
+    helper: "createRafCoalescer",
+    module: "@/lib/popover/rafCoalescer",
+    requiresCancelAdoption: true,
   },
   // The hook coalesces its own event-driven re-measures, so it consumes the
   // shared throttle exactly as ShareHub and HoverHelp do. Registered so a future

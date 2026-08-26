@@ -16,6 +16,7 @@ import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/re
 import "@testing-library/jest-dom/vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
+import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { AdminAnnounceProvider } from "@/components/admin/AdminAnnounceProvider";
 
 const refreshMock = vi.fn();
@@ -281,7 +282,15 @@ describe("ReSyncButton", () => {
       }),
     }) as unknown as Response;
 
-  const OVERLAY_TOKENS = ["absolute", "inset-x-0", "top-full", "z-overlay", "overflow-y-auto"];
+  // `inset-x-0` and `top-full` went with the migration (spec
+  // 2026-08-25-review-modal-strip-dock §3.2a): the module writes `left`/`top`
+  // from a measured trigger rect, so CSS anchoring would fight it, and `w-full`
+  // takes over the width `inset-x-0` used to supply. `absolute` and
+  // `overflow-y-auto` STAY deliberately — the overlay registry's recognizer
+  // qualifies an element that is positioned AND scrolls internally, so dropping
+  // either would take these three panels out of the registry they are being
+  // re-dispositioned in.
+  const OVERLAY_TOKENS = ["absolute", "w-full", "z-overlay", "overflow-y-auto"];
 
   /** Every overlay panel anchors to the BAND, caps its height and scrolls
    *  internally (§6.7). Asserted per branch — relocating two of three is the
@@ -535,77 +544,98 @@ describe("ReSyncButton", () => {
       expect(re.test(stripped), `raw code '${code}' must not appear in DOM`).toBe(false);
     }
   });
-  // ── Clip-fit cap (ReviewModalShell's `overflow-clip`) ──────────────────────
+  // ── Overlay placement (ReviewModalShell's `overflow-clip`) ────────────────
   //
   // The modal panel clips its children so its opaque bands stop painting over
-  // its rounded corners. Every Re-sync overlay anchors `top-full` to the band
-  // INSIDE that panel, so the CSS `max-h-[min(50vh,20rem)]` alone can leave the
-  // box cut at the panel's edge — and because each overlay has its own
-  // `overflow-y-auto`, the cut lands on the TAIL OF THE SCROLL RANGE, which is
-  // where the shrink confirm's decision buttons sit.
+  // its rounded corners, and each overlay has its own `overflow-y-auto`, so a
+  // box cut at the panel's edge loses the TAIL OF ITS SCROLL RANGE — which is
+  // where the shrink confirm's decision buttons sit. That consequence is
+  // unchanged by the migration; what changed is who prevents it.
   //
-  // jsdom computes no layout, so the rects are stubbed: the numbers are the
-  // ones measured on the real published harness at 375x812 (band bottom 456,
-  // panel bottom 667), and the assertion is that the component wires the
-  // measurement up at all — the arithmetic itself is pinned in
-  // tests/lib/fitWithinClip.test.ts.
-  function renderInsideClippingPanel(overlayTop: number, panelBottom: number) {
-    const host = document.createElement("div");
-    // Longhands, and `hidden` rather than `clip`: jsdom does not expand the
-    // `overflow` shorthand into computed longhands and does not recognize
-    // `clip`. The contract under test is "any non-visible overflow clips", so
-    // `hidden` exercises the same branch the real panel's `overflow-clip` does.
-    host.style.overflowX = "hidden";
-    host.style.overflowY = "hidden";
-    host.getBoundingClientRect = () =>
-      ({
-        top: 0,
-        bottom: panelBottom,
-        left: 0,
-        right: 375,
-        width: 375,
-        height: panelBottom,
-      }) as DOMRect;
-    document.body.appendChild(host);
+  // It used to be useFitWithinClip, which walked up to the nearest clipping
+  // ancestor and wrote a measured max-height. It is now the placement module,
+  // which takes its bound from the host supplied through PopoverHostContext and
+  // its anchor from a ref handed down by StatusStrip — no walk, and a side
+  // choice the CSS version could not make.
+  //
+  // WHAT REPLACED "overlay is capped to the room left inside a clipping
+  // ancestor". That test asserted a measured 203px (667 − 456 − 8) written by
+  // useFitWithinClip, which found its bound by WALKING UP to the nearest
+  // clipping ancestor. The overlays do not use that hook any more (spec
+  // 2026-08-25-review-modal-strip-dock §3.2a) and the module does not walk: it
+  // takes the host from PopoverHostContext and the trigger from a ref handed
+  // down by StatusStrip. There is no clipping-ancestor walk left to assert.
+  //
+  // The cap claim moved to real layout, where it can actually be decided:
+  // T-OVERLAY-BOUNDS in published-review-modal.interactions.spec.ts measures
+  // all three branches against the real modal panel. jsdom computes no layout,
+  // so the number this test used to assert came entirely from stubs.
+  //
+  // What jsdom still proves is the wiring, for all THREE overlays at once —
+  // which matters here in a way it did not for the single-overlay case: three
+  // independent nodes each get their own placement effect, and "two of three
+  // migrated" is the documented half-done failure mode this file already warns
+  // about for the skin tokens.
+  // PER BRANCH, and the name is the reason. Diff review round 1 (P2) caught the
+  // first version driving only SHOW_BUSY_RETRY while claiming "all three":
+  // production has three INDEPENDENT `createPortal` sites and three independent
+  // refs, so shrink-confirm or success could stay unported and a single-branch
+  // case would pass. That is the same "relocating two of three is the documented
+  // half-done failure mode" this file already warns about for the skin tokens,
+  // and the browser backstop that would otherwise catch it was itself broken by
+  // the stale-locator finding in the same round.
+  const PORTAL_BRANCHES = [
+    {
+      name: "error",
+      testid: "admin-resync-error",
+      body: { ok: false, error: "SHOW_BUSY_RETRY" },
+    },
+    {
+      name: "shrink confirm",
+      testid: "admin-resync-shrink-confirm",
+      body: {
+        ok: true,
+        result: { outcome: "shrink_held", detail: "crew 5→2", heldModifiedTime: "T1" },
+      },
+    },
+    {
+      name: "success",
+      testid: "admin-resync-success",
+      body: { ok: true, result: { outcome: "applied" } },
+    },
+  ] as const;
 
-    const proto = HTMLElement.prototype as unknown as { getBoundingClientRect: () => DOMRect };
-    const originalRect = proto.getBoundingClientRect;
-    proto.getBoundingClientRect = function stub(this: HTMLElement) {
-      if (this === host) return originalRect.call(this);
-      return {
-        top: overlayTop,
-        bottom: overlayTop,
-        left: 0,
-        right: 375,
-        width: 375,
-        height: 0,
-      } as DOMRect;
-    };
-    const restore = () => {
-      proto.getBoundingClientRect = originalRect;
-      host.remove();
-    };
-    return { host, restore };
+  for (const branch of PORTAL_BRANCHES) {
+    test(`the ${branch.name} overlay portals into the popover host, not into the strip`, async () => {
+      const hostEl = document.createElement("div");
+      document.body.appendChild(hostEl);
+      const anchor = document.createElement("div");
+      document.body.appendChild(anchor);
+      const hostRef = { current: hostEl };
+      const anchorRef = { current: anchor };
+      try {
+        fetchMock.mockResolvedValue({
+          json: async () => branch.body,
+        } as unknown as Response);
+        const { getByTestId, findByTestId } = render(
+          <PopoverHostContext.Provider value={hostRef}>
+            <ReSyncButton slug="my-show" anchorRef={anchorRef} />
+          </PopoverHostContext.Provider>,
+        );
+        fireEvent.click(getByTestId("admin-resync-button"));
+        const panel = await findByTestId(branch.testid);
+        expect(panel.parentElement, `the ${branch.name} overlay is a child of the HOST`).toBe(
+          hostEl,
+        );
+        // Degenerate measurement (jsdom): intercepted and left VISIBLE, never
+        // hidden. A pending decision about the show's data must stay readable.
+        expect(panel.style.visibility).not.toBe("hidden");
+      } finally {
+        hostEl.remove();
+        anchor.remove();
+      }
+    });
   }
-
-  test("overlay is capped to the room left inside a clipping ancestor", async () => {
-    const { host, restore } = renderInsideClippingPanel(456, 667);
-    try {
-      fetchMock.mockResolvedValue({
-        json: async () => ({ ok: false, error: "SHOW_BUSY_RETRY" }),
-      } as unknown as Response);
-      const { getByTestId, findByTestId } = render(<ReSyncButton slug="my-show" />, {
-        container: host,
-      });
-      fireEvent.click(getByTestId("admin-resync-button"));
-      const panel = await findByTestId("admin-resync-error");
-      // 667 − 456 − 8 (gutter). Without the wiring this is "" (CSS cap only),
-      // which is exactly the 109px-cut bug at 375x667.
-      await waitFor(() => expect(panel.style.maxHeight).toBe("203px"));
-    } finally {
-      restore();
-    }
-  });
 
   test("overlay keeps the CSS cap when nothing clips it", async () => {
     fetchMock.mockResolvedValue({

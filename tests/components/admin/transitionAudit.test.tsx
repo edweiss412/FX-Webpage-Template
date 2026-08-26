@@ -205,3 +205,94 @@ describe("resolve-label transitions", () => {
     vi.unstubAllGlobals();
   });
 });
+
+// ---------------------------------------------------------------------------
+// The refusal banner's transition inventory (spec
+// 2026-08-25-review-modal-strip-dock §6). Asserted HERE, in the task that
+// creates the states, rather than in a task of its own — a separate task could
+// have no valid red for it, since the subject it would assert is created by
+// this one, so a case authored afterwards passes the moment it is written and
+// one authored beforehand leaves the tree red across a commit boundary. The
+// rule's purpose is that the inventory gets asserted; this serves it.
+//
+// Rows A↔B and A↔C ("instant BY DESIGN") are already covered for this file by
+// the SERVER_RENDERED sweep above, which bans motion libraries, AnimatePresence
+// and mount-animation utilities across every listed surface. What that sweep
+// does NOT pin is the banner's own `transition-` classes or the single-side
+// invariant, so those are here. The compound rows that need real layout —
+// one placement per resize frame, the entrance transform, a Re-sync overlay
+// open at the same time — are exercised against a real browser in
+// tests/e2e/popover-clip-fit.spec.ts and published-review-modal.interactions.spec.ts,
+// because jsdom computes no geometry and could not tell those outcomes apart.
+// ---------------------------------------------------------------------------
+describe("refusal banner — transition inventory (§6)", () => {
+  const banner = () => src("components/admin/PublishedToggle.tsx");
+
+  it("A↔B and A↔C are instant: the banner skin declares no transition or animation", () => {
+    // POPOVER_POSITION is the banner's own class const. A `transition-*` here
+    // would animate a box whose left/top the module rewrites on every resize
+    // frame, which is the layout-property animation DESIGN.md §5.4 bans.
+    // THE WHOLE `cn(...)` CALL, not its first argument. Round 3 proved the
+    // earlier regex fake by planting `transition-opacity` as a SECOND argument:
+    // the capture group only ever saw the first string, so the test reported no
+    // transition while one was declared. `cn()` takes any number of arguments
+    // and conditional ones, so reading argument one pins nothing.
+    const call = /const POPOVER_POSITION = cn\(([\s\S]*?)\n\);/.exec(banner())?.[1] ?? "";
+    expect(call, "PREMISE: the skin const must be found, or this asserts nothing").not.toBe("");
+    // PREMISE the premise: the captured text must contain a class we KNOW is
+    // there, or an empty-ish match would satisfy every negative below.
+    expect(call, "PREMISE: the captured call must hold the real skin").toMatch(/z-banner/);
+    expect(call).not.toMatch(/\btransition-/);
+    expect(call).not.toMatch(/\banimate-/);
+    expect(call).not.toMatch(/\bduration-/);
+  });
+
+  it("B↔C: exactly ONE node carries data-popover-side, written and cleared in one place", () => {
+    const s = banner();
+    // ONE WRITE is the discriminating claim: two write sites would mean two
+    // nodes could carry the attribute at once and a reader could not tell which
+    // side won. CLEARS are a different matter and are asserted as "at least
+    // one", deliberately loosened from "exactly one" — diff review round 1
+    // added a second clear on the degenerate path, where a bare return used to
+    // leave a stale side behind. Pinning the clear count would have made a
+    // correctness fix look like a regression, which is the wrong thing for a
+    // guard to do; what must stay unique is the write.
+    const writes = s.match(/dataset\["popoverSide"\]\s*=/g) ?? [];
+    const deletes = s.match(/delete\s+\w+\.dataset\["popoverSide"\]/g) ?? [];
+    expect(writes, "exactly one write site for the side").toHaveLength(1);
+    expect(deletes.length, "at least one clear site for the side").toBeGreaterThanOrEqual(1);
+    // And exactly one PLACED node. Counting `data-testid` occurrences would be
+    // wrong here and the first draft of this case got it wrong: the finalize
+    // hint deliberately SHARES the popover testid while being an in-flow chip
+    // (see "the finalize chip and the idle state are untouched" in
+    // PublishedToggle.test.tsx), so there are two such elements by design and
+    // they are mutually exclusive branches of one ternary. What must be unique
+    // is the node the placement effect drives, which is the one holding the
+    // body ref.
+    const placed = s.match(/ref=\{bodyRef\}/g) ?? [];
+    expect(placed, "exactly one node is placed by the effect").toHaveLength(1);
+  });
+
+  it("a resize burst schedules through the shared coalescer and cancels on unmount", () => {
+    const s = banner();
+    // The compound row "side changes mid-resize": every listener schedules
+    // through createRafCoalescer, so a burst produces one applyPlacement per
+    // frame rather than one per event. The cancel is what stops a pending
+    // frame from firing into an unmounted tree.
+    expect(s).toMatch(/createRafCoalescer\(applyPlacement\)/);
+    expect(s).toMatch(/coalescer\.cancel\(\)/);
+    // (TARGET, EVENT) PAIRS, not counts. Round 3 proved the count version fake
+    // by turning the scroll removal into a DUPLICATE resize removal: three
+    // additions, three removals, test green, one leaked scroll listener. A
+    // count cannot see a mismatched target or event name, which is the only
+    // interesting way this breaks.
+    const pairs = (re: RegExp) =>
+      [...s.matchAll(re)].map(([, target, event]) => `${target}:${event}`).sort();
+    const added = pairs(/(\w+)\??\.addEventListener\(\s*"(\w+)"/g);
+    const removed = pairs(/(\w+)\??\.removeEventListener\(\s*"(\w+)"/g);
+    expect(added.length, "PREMISE: the effect must add listeners").toBeGreaterThan(0);
+    expect(removed, `every (target, event) added is removed — added ${added.join(", ")}`).toEqual(
+      added,
+    );
+  });
+});

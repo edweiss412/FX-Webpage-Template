@@ -1,3 +1,79 @@
+## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** M · **Severity (as filed):** LOW-MEDIUM · **Class:** layout measurement · **Facing:** product · **Shipped by:** `feat/review-modal-strip-dock`
+
+**Resolution — the anchor has its number, and it is not the number the row expected.**
+
+    375x667, load 30, strip docked at the panel floor:
+      spaceAbove = 342.94px    spaceBelow = 0    banner natural height = 142px
+      side = top               cap = (none)
+
+There is no room BELOW the docked strip at any viewport height, so the placement
+module puts the refusal banner in the 342.94px above it, uncapped, because the
+banner needs 142. `MIN_FITTED_HEIGHT` (48) is over-satisfied seven times and
+never binds at this anchor. Emitted by "the row's obligation — real-surface
+anchor room" in `tests/e2e/popover-clip-fit.spec.ts`.
+
+**The row named two obstacles and both were real; neither was the actual defect.**
+It recorded that the banner mounts only on a refusal "which the real-modal
+harness cannot drive", and that its anchor "renders below the clip window". Both
+were true. `_publishedReviewModalHarness.tsx` hardcoded `setPublished: NOOP_OK`,
+so every click resolved `ok` and no banner ever mounted; and at 30 attention
+items the strip measured 713.03..911.03 against a panel bottom of 667.
+
+What the pre-spec measurement found is that the SECOND obstacle was a symptom of
+something the row did not suspect. The strip was not too low because the strip
+was wrong — it was too low because the HEADER grew. A composite alert pill
+reading "20 issues · 10 monitoring" widens the `shrink-0` action cluster, which
+starves the `min-w-0 flex-1` title column beside it, which wraps the title until
+the header alone is taller than the panel: 587.97px against a 164.19px baseline
+at 375px. The switch was unreachable because the header had pushed the entire
+strip out of the panel. Docking alone would not have fixed it at that load, and
+capping the header alone would not have fixed it either; the arc needed both,
+which is why its scope was widened by ruling after the spike rather than at
+filing time.
+
+**What shipped.** The header's action cluster is capped below `sm`
+(`max-sm:max-w-40`, chosen from a sweep of eight cap values against three loads)
+with the title clamped to two lines and the pill allowed to wrap inside the cap.
+The strip is docked from the shell's `subHeader` slot to its `footer` slot, so
+its distance from the panel top no longer depends on header height. Four clipped
+overlays — the refusal banner and Re-sync's error, shrink-confirm and success
+panels — migrated from CSS anchoring to the shipped placement module, which is
+what lets the banner FLIP above the strip when there is no room below it. CSS
+anchoring cannot flip, which is why the dock forced the migration rather than
+merely accompanying it. The harness gained a `setPublished` override so a
+refusal is drivable through the real modal, and the placement stack gained a
+dev-only diagnostic for a geometry no caller can act on.
+
+**The fenced entry is RETIRED, not filled in.** `lib/layout/fitWithinClip.ts`'s
+per-anchor list documents the anchors the FIT HOOK serves. This anchor left that
+set when it migrated, so a room figure there would describe a mechanism it no
+longer uses — the same error the docblock's own next sentence already corrects
+about generalizing one anchor's number to three. It carries a deletion plus a
+cross-reference to where the measurement lives.
+
+**Verified where it could be, and flagged where it could not.** 96 passed across
+the five standalone-config e2e suites; the four placement branches (bottom fits,
+flip, cap above floor, cap below floor) are each driven with two-sided premises
+so a fixture that drifts onto a neighbouring branch fails loudly. Two
+default-config suites — `admin-lifecycle-layout.spec.ts` and
+`published-review-modal.interactions.spec.ts` — could not be made green in the
+worktree for reasons upstream of this arc (a per-test archived-show fixture a
+database seed did not supply), and real CI is their gate; it seeds by
+construction. ShareHub's per-viewport side tables were re-derived analytically
+rather than measured, from the fact that `spaceBelow` is 0 at every height once
+the strip is docked.
+
+**Documented limits carried forward, rather than closed by assertion.** Bottom-
+side placement is now unreachable THROUGH ShareHub by construction, so the
+per-viewport loop that existed to exercise both sides covers one; the bottom
+branch is covered at module level by the replica cases instead. And a comment in
+one file about another file's state is reachable by no discovery command — two
+instances were found by reading, one in `step3-review-modal.layout.spec.ts` and
+one in `_shareLinkFlashLiveEntry.tsx`, and §9 records that residue as a limit
+rather than attempting a fifth widening of a grep.
+
 ## BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE — a dispatch spends reviewer attention on lint the wrapper could have refused — CLOSED 2026-08-26
 
 **Graduated:** 2026-08-26 on `feat/speclint-dispatch-gates` (PR #904). **Status:** SHIPPED.

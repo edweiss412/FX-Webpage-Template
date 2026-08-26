@@ -110,8 +110,13 @@ export function ShowReviewModalSkeleton({ onClose }: { onClose?: () => void } = 
           </div>
         </>
       }
-      subHeader={
-        // The control strip's band. Mirrors StatusStrip's own root row classes
+      footer={
+        // The control strip's DOCK (spec 2026-08-25-review-modal-strip-dock
+        // §3.1). The skeleton mirrors the loaded modal's column exactly, so it
+        // moves in the same commit: a placeholder still sitting in the subheader
+        // band would shift the whole layout at the moment real data arrives,
+        // which is the one thing a skeleton exists to prevent.
+        // Mirrors StatusStrip's own root row classes
         // (`flex-wrap` below sm, `sm:flex-nowrap`) so the placeholder wraps at
         // 390px the way the real strip does — a non-wrapping placeholder would
         // under-report the band height at exactly the viewport where the real

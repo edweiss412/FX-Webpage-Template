@@ -6,7 +6,8 @@
  * fixture data, to static markup for the standalone real-browser layout
  * harness. jsdom computes NO layout, so the §6.6 panel-column equations
  * (grab + header + main === panel in sheet mode; header + main === panel in
- * popup/two-pane mode, NO footer element) MUST be measured end-to-end in a
+ * popup/two-pane mode, and a FOOTER holding the docked status strip) MUST be
+ * measured end-to-end in a
  * real browser (Tailwind v4 does not default `.flex` to `align-items:
  * stretch`).
  *
@@ -21,7 +22,7 @@
  * useSearchParams resolves null outside Next and the nav helper only builds
  * closures — nothing fires in a static render). The share token is a FIXTURE
  * VALUE (not null) so the strip's share hub renders: T-HUB-FLUSH
- * (modal-header-reconciliation §8) measures its right edge against the band's
+ * (modal-header-reconciliation §8) measures its right edge against the footer's
  * content box, and a null token would make that assertion silently vacuous.
  * `resolveOrigin` reads only NEXT_PUBLIC_SITE_ORIGIN — no window, no browser
  * API — so the static render stays server-safe.
@@ -38,6 +39,7 @@ import {
   type AppRouterInstance,
 } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { PublishedReviewModal } from "@/components/admin/showpage/PublishedReviewModal";
+import type { PublishedReviewModalProps } from "@/components/admin/showpage/PublishedReviewModal";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
@@ -260,6 +262,13 @@ export type HarnessStateOverrides = {
    *  lib/parser/dataGaps.ts:409-435) plus the unmatched "Ghost Crew" fallback.
    *  false ≡ omitted; takes precedence over withCrewWarnings when both are set. */
   withCappedCrewWarnings?: boolean;
+  /** review-modal-strip-dock §7: lets a probe drive a REFUSAL through the REAL
+   *  modal. Until this existed the refusal banner was unreachable from the
+   *  shared harness at all — `setPublished` was hardcoded to NOOP_OK, so every
+   *  click resolved `ok`, refreshed, and mounted no banner. That is half of why
+   *  this arc's row had no measured anchor room. Omitted ≡ NOOP_OK, so every
+   *  existing harness page renders byte-identically. */
+  setPublished?: PublishedReviewModalProps["setPublished"];
 };
 
 /** T5 fixture warnings (spec 2026-07-23-crew-warning-attachment §5.5): the
@@ -372,7 +381,7 @@ export function modalElement(
     archived,
     published,
     finalizeOwned: false,
-    setPublished: NOOP_OK,
+    setPublished: state.setPublished ?? NOOP_OK,
     isLive,
     lastSyncedAt: "2026-05-02T12:00:00.000Z",
     lastCheckedAt: "2026-05-02T12:00:00.000Z",

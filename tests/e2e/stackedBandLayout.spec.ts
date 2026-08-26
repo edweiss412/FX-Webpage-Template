@@ -75,7 +75,12 @@ test.afterAll(async () => {
 });
 
 const S = (name: string) => `[data-parity="loaded"] [data-testid="${name}"]`;
-const BAND = `[data-parity="loaded"] [data-testid="published-show-review-subheader"]`;
+// The strip's slot. Named BAND from when it was the subheader band; it is
+// the footer since the dock (spec 2026-08-25-review-modal-strip-dock §3.1).
+// The name is kept because every assertion below is about the STRIP's row
+// and reads correctly either way — renaming would churn the whole file to
+// say the same thing.
+const BAND = `[data-parity="loaded"] [data-testid="published-show-review-footer"]`;
 
 async function open390(page: Page): Promise<void> {
   await page.emulateMedia({ reducedMotion: "reduce" });

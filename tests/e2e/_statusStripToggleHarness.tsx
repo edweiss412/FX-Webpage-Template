@@ -100,8 +100,11 @@ function wrap(node: React.ReactElement): React.ReactElement {
   );
 }
 
-/** The real admin-layout document-flow shell so the window is the scroll container
- *  and the strip's `sticky top-0` behaves as in-app. */
+/** The real admin-layout document-flow shell so the window is the scroll
+ *  container, as in-app. The strip has NO sticky pin of its own — this comment
+ *  claimed `sticky top-0` and outlived the retired standalone show page, which
+ *  is where that pin lived; `PAGE_ONLY_CHROME` in statusStrip.test.tsx asserts
+ *  its absence. */
 function shell(inner: React.ReactElement): string {
   return renderToStaticMarkup(
     React.createElement(
