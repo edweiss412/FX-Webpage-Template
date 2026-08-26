@@ -234,9 +234,16 @@ RED:
 7. Add case (h12) **before touching the wiring**, per spec §5.1: replace case (d)'s throwaway `ResizeObserver` stub with one that CAPTURES the constructor callback, then invoke it once with the clip ancestor resized and once with the positioned ancestor resized, asserting the cap re-derives from the new geometry each time. This is the only re-measure signal with no behavioural case, and Task 1 is the task that moves it — covering it afterwards would mean the move happened unobserved. Its red is mutant M11, which on the unmodified tree kills nothing at all.
 8. Observe red. Paste every failure line into the commit.
 
-The (h12) body, written out so it can be typechecked and reviewed rather than described:
+The (h12) body, written out so it can be typechecked and reviewed rather than described.
 
-<!-- fixture: why=`the stub must CAPTURE the constructor callback and the hook must observe both ancestors, or "the callback re-measures" is a claim about nothing` -->
+**Deliberately NOT enrolled for `--exec-red` splicing.** An earlier draft marked both embedded blocks
+with `<!-- fixture: why=… -->`. That turns `tests/specLint/fixtureAcceptance.test.ts` red: its
+"no shipped code inspects an unenrolled block" case proves the arm is silent on UNENROLLED blocks by
+requiring the tracked corpus to hold zero ENROLLED ones, so the first plan to enrol anything breaks
+its premise. The enrolment bought a fixture-satisfiability check worth less than a corpus-wide guard,
+so the blocks ship unmarked and are typechecked by splicing them into a copy of the real suite
+instead (§3's pre-draft pass).
+
 ```tsx
 test("(h12) the ResizeObserver callback re-measures against the new geometry", () => {
   const observed: Element[] = [];
@@ -319,7 +326,6 @@ Then RUN mutants M1, M3, M4, M5, M11, M12 and M13 against the green tree, confir
 
 RED — add case (h) to `tests/components/admin/useFitWithinClip.test.tsx`:
 
-<!-- fixture: why=`the harness chain must be at least two ancestors deep and the clip must be the OUTER one, or a per-walk count of 1 would be indistinguishable from a count of 2` -->
 ```tsx
 test("(h) one attach walks the ancestor chain exactly once", () => {
   // The walk visits every ancestor up to and INCLUDING the first non-visible
