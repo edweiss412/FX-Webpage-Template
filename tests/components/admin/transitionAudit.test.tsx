@@ -232,11 +232,19 @@ describe("refusal banner — transition inventory (§6)", () => {
     // POPOVER_POSITION is the banner's own class const. A `transition-*` here
     // would animate a box whose left/top the module rewrites on every resize
     // frame, which is the layout-property animation DESIGN.md §5.4 bans.
-    const skin = /const POPOVER_POSITION = cn\(\s*"([^"]*)"/.exec(banner())?.[1] ?? "";
-    expect(skin, "PREMISE: the skin const must be found, or this asserts nothing").not.toBe("");
-    expect(skin).not.toMatch(/\btransition-/);
-    expect(skin).not.toMatch(/\banimate-/);
-    expect(skin).not.toMatch(/\bduration-/);
+    // THE WHOLE `cn(...)` CALL, not its first argument. Round 3 proved the
+    // earlier regex fake by planting `transition-opacity` as a SECOND argument:
+    // the capture group only ever saw the first string, so the test reported no
+    // transition while one was declared. `cn()` takes any number of arguments
+    // and conditional ones, so reading argument one pins nothing.
+    const call = /const POPOVER_POSITION = cn\(([\s\S]*?)\n\);/.exec(banner())?.[1] ?? "";
+    expect(call, "PREMISE: the skin const must be found, or this asserts nothing").not.toBe("");
+    // PREMISE the premise: the captured text must contain a class we KNOW is
+    // there, or an empty-ish match would satisfy every negative below.
+    expect(call, "PREMISE: the captured call must hold the real skin").toMatch(/z-banner/);
+    expect(call).not.toMatch(/\btransition-/);
+    expect(call).not.toMatch(/\banimate-/);
+    expect(call).not.toMatch(/\bduration-/);
   });
 
   it("B↔C: exactly ONE node carries data-popover-side, written and cleared in one place", () => {
@@ -273,12 +281,18 @@ describe("refusal banner — transition inventory (§6)", () => {
     // frame from firing into an unmounted tree.
     expect(s).toMatch(/createRafCoalescer\(applyPlacement\)/);
     expect(s).toMatch(/coalescer\.cancel\(\)/);
-    // Every listener the effect adds is removed again. Counted rather than
-    // eyeballed: an added-but-not-removed listener is the leak this row exists
-    // to catch, and the counts are what make it visible.
-    const added = s.match(/addEventListener\(/g) ?? [];
-    const removed = s.match(/removeEventListener\(/g) ?? [];
+    // (TARGET, EVENT) PAIRS, not counts. Round 3 proved the count version fake
+    // by turning the scroll removal into a DUPLICATE resize removal: three
+    // additions, three removals, test green, one leaked scroll listener. A
+    // count cannot see a mismatched target or event name, which is the only
+    // interesting way this breaks.
+    const pairs = (re: RegExp) =>
+      [...s.matchAll(re)].map(([, target, event]) => `${target}:${event}`).sort();
+    const added = pairs(/(\w+)\??\.addEventListener\(\s*"(\w+)"/g);
+    const removed = pairs(/(\w+)\??\.removeEventListener\(\s*"(\w+)"/g);
     expect(added.length, "PREMISE: the effect must add listeners").toBeGreaterThan(0);
-    expect(removed.length, "every listener added is removed").toBe(added.length);
+    expect(removed, `every (target, event) added is removed — added ${added.join(", ")}`).toEqual(
+      added,
+    );
   });
 });

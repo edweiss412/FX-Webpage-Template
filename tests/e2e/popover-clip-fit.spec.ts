@@ -1352,9 +1352,16 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
       `title block right ${m!.title.right} overlaps the cluster at ${m!.cluster.left}`,
     ).toBeLessThanOrEqual(m!.cluster.left + 0.5);
 
-    // The clamp is visual only; the full title stays in the accessibility tree.
-    expect(m!.accessibleTitle.length, "the clamped title is not truncated for AT").toBeGreaterThan(
-      0,
+    // The clamp is visual only; the FULL title stays in the accessibility tree.
+    // Round 3: asserting non-empty accepted any one-character string, so
+    // truncation passed for the exact reason this assertion claims to exclude.
+    // Compared against the harness fixture's own title now
+    // (`MODAL_TITLE`, tests/e2e/_publishedReviewModalHarness.tsx:95). Inlined
+    // rather than imported: that module is bundled out-of-process and its
+    // header forbids importing it from a spec, since the Playwright transform
+    // rewrites its JSX.
+    expect(m!.accessibleTitle, "the clamped title is not truncated for AT").toBe(
+      "Published Modal Layout Fixture",
     );
   });
 

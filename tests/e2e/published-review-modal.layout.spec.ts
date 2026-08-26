@@ -20,9 +20,10 @@
  *   3. serve harness.html over node:http; measure `getBoundingClientRect()`.
  *
  * T-LAYOUT — modal-header-reconciliation §6.1/§8 rewrites the §6.6 equations
- * from TWO bands to THREE: the status strip has moved out of the header and
- * into the shell's `subHeader` band, so the panel column is
- * header + subheader + main. Asserted (±0.5px) at 375×812 (sheet) and
+ * from TWO bands to THREE: the status strip moved out of the header, and since
+ * 2026-08-25-review-modal-strip-dock §3.1 it lives in the shell's `footer`
+ * rather than its `subHeader` band, so the panel column is
+ * header + main + footer. Asserted (±0.5px) at 375×812 (sheet) and
  * 1280×900 (popup/two-pane):
  *   - sheet (<sm):  grab + header + main + footer === panel.clientHeight
  *   - ≥sm:          header + main + footer === panel.clientHeight
@@ -1035,14 +1036,24 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
               // (e.g. the live ping under reduced motion) is not orange on screen.
               if ((el as HTMLElement).getClientRects().length === 0) continue;
               const cs = getComputedStyle(el);
-              const hit =
-                cs.backgroundColor === accent ||
+              // PER-SIDE colour AND that side's own WIDTH. Round 3 (P2): every
+              // side's colour was gated on `borderTopWidth >= 0`, which is
+              // always true for a computed width, and never on the width of the
+              // side being tested. A probe set an accent `borderRightColor`
+              // with all four widths at 0px and the census reported it painted.
+              // Zero-width border colours also commonly resolve from
+              // `currentColor`, so this misread accent TEXT as an accent border
+              // — inflating the very set this case exists to hold at exactly
+              // the sanctioned members.
+              const paintedBorder = (
                 [
-                  cs.borderTopColor,
-                  cs.borderRightColor,
-                  cs.borderBottomColor,
-                  cs.borderLeftColor,
-                ].some((c) => c === accent && parseFloat(cs.borderTopWidth) >= 0);
+                  [cs.borderTopColor, cs.borderTopWidth],
+                  [cs.borderRightColor, cs.borderRightWidth],
+                  [cs.borderBottomColor, cs.borderBottomWidth],
+                  [cs.borderLeftColor, cs.borderLeftWidth],
+                ] as const
+              ).some(([c, w]) => c === accent && parseFloat(w) > 0);
+              const hit = cs.backgroundColor === accent || paintedBorder;
               if (!hit) continue;
               rawCount += 1;
               let node: Element | null = el;

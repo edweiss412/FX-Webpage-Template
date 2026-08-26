@@ -1,7 +1,12 @@
 /**
  * tests/e2e/skeletonBandParity.spec.ts (modal-header-reconciliation §6.1.1 — Task 9)
  *
- * T-SKELETON-BANDS. `ReviewModalShell` has THREE consumers, not two, and the
+ * T-SKELETON-BANDS. The strip DOCKED to the shell's footer on 2026-08-25
+ * (2026-08-25-review-modal-strip-dock §3.1); references to a subheader band
+ * below describe the pre-dock shape and the parity this suite now asserts is
+ * header + body + footer in BOTH states.
+ *
+ * `ReviewModalShell` has THREE consumers, not two, and the
  * third — `ShowReviewModalSkeleton` — renders through the SAME shell with the
  * SAME identifiers as the loaded published modal. If it keeps the OLD nested
  * two-band header, a slow `/admin?show=<slug>` load shows the before-state
@@ -16,7 +21,7 @@
  * differ by construction and no fixture makes them equal. Demanding equality
  * would buy a CI flake, or a "fix" that distorts one side to chase pixels.
  * The assertions are scoped to the invariant that actually causes the visible
- * snap — where the header->subheader seam sits — plus the structural facts
+ * snap — where the header seam sits, and where the footer's does — plus the structural facts
  * that ARE exactly assertable:
  *
  *   A  exactly 3 bands (header, subheader, body), same count as loaded — EXACT

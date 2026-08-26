@@ -680,7 +680,7 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     }, FOOTER);
   }
 
-  test("T-OVERLAY: the shrink confirm anchors to the BAND and its focused control is genuinely topmost", async ({
+  test("T-OVERLAY: the shrink confirm is placed against the STRIP and its focused control is genuinely topmost", async ({
     page,
   }) => {
     await stubSync(page, SHRINK_BODY);
@@ -779,17 +779,42 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       // into the panel with `absolute z-banner`, not anchored to a band with
       // `inset-x-0 top-full`. A decoy still wearing the old skin would test a
       // stacking contest against an element the app no longer produces.
-      decoy.className = "absolute z-banner w-full";
-      decoy.style.top = "0px";
-      decoy.style.left = "0px";
-      decoy.style.height = "400px";
+      // COVERS THE WHOLE PANEL. A fixed 400px block at the panel's top does not
+      // reach the shrink confirm, which is placed near the panel FLOOR since the
+      // dock — so `elementFromPoint` returned the control because nothing was
+      // over it, not because it won on z-index. Round 3 caught that, and the
+      // premise below now proves coverage rather than assuming it. Filling the
+      // panel makes the contest unconditional at any placement.
+      decoy.className = "absolute z-banner";
+      decoy.style.inset = "0";
       decoy.style.background = "red";
       document.querySelector(panelSel)!.appendChild(decoy);
     }, PANEL);
     await expect(keep, "focus is unchanged by the decoy").toBeFocused();
+
+    // PREMISE: the decoy must actually COVER the focused control's centre.
+    // Round 3 (P1): the decoy is positioned by hardcoded coordinates, and if it
+    // does not overlap, `elementFromPoint` returns the control regardless of
+    // z-index — so the stacking test passes with no stacking contest at all.
+    // The point sampled below is the control's centre, so that is the point
+    // whose coverage has to be established.
+    const covers = await keep.evaluate((el) => {
+      const decoy = document.getElementById("popover-decoy");
+      if (decoy === null) return false;
+      const b = el.getBoundingClientRect();
+      const d = decoy.getBoundingClientRect();
+      const cx = b.left + b.width / 2;
+      const cy = b.top + b.height / 2;
+      return cx >= d.left && cx <= d.right && cy >= d.top && cy <= d.bottom;
+    });
+    expect(
+      covers,
+      "the decoy must cover the focused control's centre, or this proves nothing about z-order",
+    ).toBe(true);
+
     expect(
       await topmost(),
-      "the confirm still wins over a z-40 band-anchored overlay (the publish popover's layer)",
+      "the confirm still wins over a z-banner panel-portaled overlay (the publish popover's layer)",
     ).toBe(true);
   });
 

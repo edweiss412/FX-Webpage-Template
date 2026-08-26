@@ -6,7 +6,8 @@
  * fixture data, to static markup for the standalone real-browser layout
  * harness. jsdom computes NO layout, so the §6.6 panel-column equations
  * (grab + header + main === panel in sheet mode; header + main === panel in
- * popup/two-pane mode, NO footer element) MUST be measured end-to-end in a
+ * popup/two-pane mode, and a FOOTER holding the docked status strip) MUST be
+ * measured end-to-end in a
  * real browser (Tailwind v4 does not default `.flex` to `align-items:
  * stretch`).
  *
@@ -21,7 +22,7 @@
  * useSearchParams resolves null outside Next and the nav helper only builds
  * closures — nothing fires in a static render). The share token is a FIXTURE
  * VALUE (not null) so the strip's share hub renders: T-HUB-FLUSH
- * (modal-header-reconciliation §8) measures its right edge against the band's
+ * (modal-header-reconciliation §8) measures its right edge against the footer's
  * content box, and a null token would make that assertion silently vacuous.
  * `resolveOrigin` reads only NEXT_PUBLIC_SITE_ORIGIN — no window, no browser
  * API — so the static render stays server-safe.

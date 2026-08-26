@@ -1428,9 +1428,16 @@ describe("AC-18 — the header cap has exactly one definition", () => {
     const files = walk("components");
     expect(files.length, "PREMISE: the walk must find components").toBeGreaterThan(50);
 
+    // COMMENTS ARE NOT DEFINITIONS. Round 3 defeated the raw-substring version
+    // with an ordinary explanatory comment containing the cap: the count went
+    // one to two while the single real definition was untouched. A census that
+    // a comment can move is measuring prose, not code — and this is my own
+    // guard, written to close exactly this kind of escape.
+    const stripComments = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
     const hits: string[] = [];
     for (const f of files) {
-      const src = readFileSync(f, "utf8");
+      const src = stripComments(readFileSync(f, "utf8"));
       let idx = src.indexOf(CAP);
       while (idx !== -1) {
         hits.push(`${f}:${src.slice(0, idx).split("\n").length}`);
