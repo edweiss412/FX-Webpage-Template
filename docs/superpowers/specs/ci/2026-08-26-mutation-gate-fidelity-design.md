@@ -53,7 +53,7 @@ So on the merged tree the failure set is **two surfaces**, and the `budget` job 
 | `fix/supabase-upstream-fault-class` | 3 | 2 cancelled, 1 failure |
 | `fix/mutation-shard-budget-six` | 3 | 2 cancelled, 1 failure |
 
-**Sixteen full-matrix fan-outs in one day, eleven of them cancelled by the next push before producing any verdict.** At `SOURCE_SHARD_COUNT` 8 the matrix is **20 jobs, 18 of them full test legs** (8 parser shards + parser gates + 8 source shards + source gates + budget + notify).
+**Sixteen full-matrix fan-outs in one day, eleven of them cancelled by the next push before producing any verdict.** At `SOURCE_SHARD_COUNT` 8 the matrix is **20 job rows, 18 of them full test legs** (8 parser shards + parser gates + 8 source shards + source gates + budget + notify). Rows are not runner jobs — §3.4 separates the two, because `notify` is skipped on every pull request.
 
 ---
 
@@ -414,6 +414,6 @@ The project rule for this is explicit: when the round after a comprehensive re-a
 
 ## 8. Meta-test inventory
 
-- **CREATES:** the child-vitest fixture proving per-surface fault isolation (§3.1).
+- **CREATES:** the per-surface fault-isolation cover in `tests/mutation/source/surfaceCases.test.ts`, driving the REAL `registerSurfaceCases` through an INJECTED registrar and counting what a faulted surface registered (§3.1). **There is no child-vitest fixture** — an earlier draft named one and it is dropped, so this inventory and AC-1 name one mechanism between them rather than two.
 - **EXTENDS:** `tests/db/connectionCensus.test.ts` (§3.3).
 - **UNTOUCHED, declared:** `_metaSourceShardIntegrity.test.ts`, `_metaGuardSurfaceRegistry.test.ts`, `_metaSpawnDisposition.test.ts` — no new or renamed ceiling constant, no matrix or step-accounting change beyond `run:` steps and a job-level `if:`, and no `millisPerBoot` bound change.
