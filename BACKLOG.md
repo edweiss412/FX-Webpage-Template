@@ -511,49 +511,6 @@ review round:
 the plant-four harness BEFORE the spec, since three prose designs in a row each introduced the next
 round's defect.
 
-## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
-
-**Effort:** S
-
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02), and pinned by
-`tests/components/admin/useFitWithinClip.test.tsx` case (g), which asserts the count is 2 so a
-change to the mount path is visible rather than silently absorbed.
-
-`useFitWithinClip` measures once when the layout effect runs, then the ref callback's
-`setAttachCount` bump re-runs the effect and it measures again. Both passes see a valid node
-and compute the same number, so the second is pure cost: one extra forced synchronous reflow
-(write, read, read, read, write) per mount, on every overlay the hook serves.
-
-The bump exists for a real reason — these overlays mount long after their owner, so an effect
-keyed on the ref alone would run once with `null` and never wire the observers up. The fix is
-not to remove it but to stop needing it: React 19 lets a ref callback return a cleanup, so the
-callback itself could own the observer wiring and the state counter could go away entirely.
-
-**Trigger:** a refactor of the hook's attach mechanism, or evidence that mount cost matters on
-a surface with many simultaneous overlays. Not worth a standalone change at two reflows.
-
----
-
-## BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK — `findClippingAncestor` walks the tree twice per effect run
-
-**Effort:** S
-
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
-
-`apply()` walks up from the node to resolve the clip ancestor, and the layout effect walks
-again immediately afterwards to decide what to observe. Each walk calls `getComputedStyle` on
-every ancestor until it finds a non-`visible` overflow.
-
-Hoisting the result is not free: `apply()` must re-walk on every invocation, because the
-ancestor chain can change between measures (an overlay can be reparented, and an ancestor's
-overflow can change). Only the effect's own second walk is redundant, and only for the run
-that just called `apply()`.
-
-**Trigger:** profiling that shows ancestor-walk cost is material, or a refactor that already
-restructures the effect body. Micro-optimisation otherwise.
-
----
-
 ## Merged from the plans backlog (2026-08-02)
 
 `docs/superpowers/plans/BACKLOG.md` was a second, disjoint `BL-` registry: 53 entries under
@@ -834,3 +791,92 @@ The filter is not loose by accident — it covers the eight parser shard files, 
 **Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
 
 **First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
+
+---
+
+## BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN — the portal measures three times on every open, and its placement loop is why
+
+**Status:** OPEN · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, class sweep §4.2) · **Facing:** product · **Severity:** LOW-MEDIUM (three forced synchronous reflows per menu open on a shipped admin surface; correct output, redundant cost) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — unpicking the convergence loop is a redesign of a placement surface the fitWithinClip arc does not otherwise touch, with its own e2e geometry suite and viewport-source registry. · **Reachability:** PROBED — the run below, against `origin/main` at `449f29fab`.
+
+`components/admin/AnchoredPortal.tsx` runs `measureAndApply` three times for one closed → open
+transition. Counting anchor-rect reads, one per `measureAndApply`
+(`components/admin/AnchoredPortal.tsx:141`), in a jsdom harness that renders the portal closed and
+then re-renders it open:
+
+```
+PROBE closedReads=0 measureRunsOnOpenCommit=3
+```
+
+Two layout effects both cover the open commit: the gated one
+(`components/admin/AnchoredPortal.tsx:191`) and the deliberately ungated every-commit one
+(`components/admin/AnchoredPortal.tsx:254`). The `setApplied` they produce re-renders, which fires
+the ungated effect a third time; `commit` then drops the unchanged placement and the loop settles.
+So the third run is a convergence step of the design, not a stray call, and the second is the only
+plainly redundant one.
+
+**Why it is not a one-line deletion.** `components/admin/AnchoredPortal.tsx:245-253` documents at
+length why the every-commit effect is unconditional: it is the only subscription that catches a
+POSITION-ONLY anchor move, which `ResizeObserver` explicitly does not report — a background
+`router.refresh()` that reorders rows without changing any dimension moves the anchor under a panel
+that is a body child with absolute coordinates. Deleting the gated effect's own `measureAndApply`
+instead would leave the pre-paint guarantee resting on the ungated effect being declared after it,
+which is a silent coupling rather than a repair. Either direction is a design decision on the
+placement loop, so it wants its own arc and its own review.
+
+This row does not assert what the converged number should be. Deciding that is the work.
+
+**Trigger:** an arc that already restructures `AnchoredPortal`'s placement effects, or profiling
+that shows open-time reflow cost is material on the shows dashboard.
+
+**First scheduled step:** re-run the probe against the live surface (not only jsdom) via
+`tests/e2e/rowactions-geometry.spec.ts`, to establish whether the third run's placement is ever
+DIFFERENT from the second's — if it never is, the convergence step is dead weight and the repair
+narrows to the gated effect.
+
+---
+
+## BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION — a clip ancestor that starts clipping is never observed, and the stale cap is silent
+
+**Status:** OPEN · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, spec review R12 finding 1) · **Facing:** product · **Severity:** MEDIUM (a wrong cap on a shipped admin overlay with no diagnostic; reachable only when an ancestor's overflow changes without a re-attach) · **Class:** subscription freshness · **Effort:** M · **Reachability:** PROBED — the transcript below, and it is IDENTICAL on the current hook and on the refactor, so this is pre-existing and not introduced.
+
+`useFitWithinClip` resolves the clip ancestor once per ATTACH and wires its `ResizeObserver` from that
+result. `apply()` re-walks on every invocation, so the CAP is recomputed correctly on every signal —
+but the SUBSCRIPTION set is never updated. If an ancestor starts clipping after the attach, the
+overlay's cap corrects on the next signal and then goes stale, because the newly-clipping ancestor is
+not observed and its resizes deliver nothing.
+
+Probed on the existing two-ancestor unit topology: mount unclipped, make `outer` clip, deliver a
+window resize, then resize only the new clip ancestor. Byte-identical on both hooks:
+
+```
+STALE ATTACH_UNCLIPPED   cap=""      liveObservers=1 targets=[["inner"]]
+STALE RERENDER_NOW_CLIPS cap=""      liveObservers=1 targets=[["inner"]]
+STALE AFTER_SIGNAL       cap="322px" liveObservers=1 targets=[["inner"]]
+STALE NEW_CLIP_RESIZE    cap="322px" liveObservers=1 targets=[["inner"]] deliverable=0 expectedCap="222px" diagnostics=0
+```
+
+The last line is the defect: the correct cap is 222px, the written cap is 322px, nothing was
+delivered, and the floor-clamp diagnostic did not fire because the geometry is not floor-clamped. So
+the outcome is **neither correct nor signaled** — the one outcome the hook's own consequence bound
+forbids.
+
+**Why it is not repaired in the arc that found it.** That arc's subject is the MEASURE path: how many
+times `apply()` runs and how many times the chain is walked. This is the SUBSCRIPTION path, a
+different mechanism with no overlap in the diff, and the repair is a behaviour change to a path the
+arc never touches — re-resolving the observed set when the resolved clip differs, which needs its own
+cases and its own mutant. Repairing it there would have been an unreviewed behaviour change smuggled
+into a measure-count refactor. **Class-sweep exception (c):** a redesign of a surface the PR does not
+otherwise change, in a different class from the one being swept.
+
+**Reachability bound, stated so the severity is not overread.** An ancestor's `overflow` changing
+without a re-attach is uncommon: on the three shipped consumers the clip ancestor is the review-modal
+panel, which is `overflow-clip` for its whole life. The probe constructs the transition directly. No
+live surface is known to take it today, which is why this is MEDIUM rather than HIGH — but the
+consequence when it is taken is a silently wrong cap, which is why it is filed rather than demoted.
+
+**Trigger:** any consumer whose clip ancestor's `overflow` becomes non-`visible` from state, or a
+fourth consumer whose ancestor chain is not the review-modal panel.
+
+**First scheduled step:** decide between re-resolving the observed set inside the coalesced path
+(cheap, but adds a disconnect/rebuild per signal that finds a different clip) and observing the whole
+ancestor chain up to the clip (steadier, more observers). Both need the probe above as their red.
