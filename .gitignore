@@ -108,7 +108,7 @@ sdd/
 tests/.spec-lint-fixtures*/
 
 # Scoped source-mutation shard scratch files. `tests/mutation/_metaSourceShardIntegrity.test.ts`
-# pins the FOUR real shard files byte-for-byte and reds while a fifth exists, so a scoped
+# pins the real shard files byte-for-byte and reds while an extra one exists, so a scoped
 # per-surface run creates one of these, measures, and deletes it. The file is untracked BY
 # DESIGN, which makes `git add -A tests/` exactly the command that captures it -- a sibling
 # arc put four required checks red on a PR that way, and every commit after it carried the
@@ -123,7 +123,7 @@ tests/mutation/guardSurfaces.shardTMP*.test.ts
 # covers -- `sheetIconLinkContainment` reds on exactly that.
 __pycache__/
 *.pyc
-# Scoped-shard scratch for the source-mutation harness. `guardSurfaces.shard0..3`
+# Scoped-shard scratch for the source-mutation harness. The shard files below the count
 # are the REAL, committed shards that `_metaSourceShardIntegrity` pins byte-for-byte;
 # anything above that range is a throwaway that scopes a run to one surface and must
 # never be committed. It reached main-bound commits once already, via `git add -A`
@@ -134,7 +134,7 @@ __pycache__/
 #
 # A control in the tree rather than in anyone's intentions: "I will remember to stage
 # by path" is the shape of discipline that fails at hour six of an arc.
-tests/mutation/guardSurfaces.shard[4-9].test.ts
+tests/mutation/guardSurfaces.shard[8-9].test.ts
 
 # Scratch probe scripts for spec/plan calibration (the `.probe/` convention used by
 # this arc's authoring session; `docs/superpowers/plans/ci/2026-08-19-planlint-declared-limit-pin-collision-HANDOFF.md`

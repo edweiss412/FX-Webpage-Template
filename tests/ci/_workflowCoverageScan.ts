@@ -1557,7 +1557,7 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       "non-positive-integer instead, which is how an absent leg cannot stop being absent.",
   },
   SOURCE_SHARD_COUNT: {
-    values: [{ text: "4", governs: [] }],
+    values: [{ text: "8", governs: [] }],
     reason:
       "Source-mutation shard count, same derive-don't-list contract and same integrity pin as " +
       "PARSER_SHARD_COUNT (tests/mutation/source/shardPartition.ts SOURCE_SHARD_COUNT). Raising " +
