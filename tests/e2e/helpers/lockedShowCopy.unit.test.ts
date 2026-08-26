@@ -38,73 +38,109 @@ const DFID = "empty-state-spec:abc12345";
 const TEMPLATE = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
 /**
- * Classify one transaction's statement ORDER and return every way it fails the
- * invariant. Positions come from the emitted text, so a reordering moves them.
+ * Classify the transaction as a whole and return every way it fails invariant 2.
  *
- * Deliberately NOT a "does the string contain a lock" check: containment is
- * satisfied by a lock placed after the write, or outside the transaction, both
- * of which leave the write unprotected.
+ * WHITELIST, NOT BLACKLIST, and that is the repair spec review round 3 forced.
+ * The first version compared string INDICES — first `begin`, last `commit`,
+ * first write, plus a scan for a literal `commit;` in between — and a reviewer
+ * probe walked straight through it with four shapes it returned `[]` for: a
+ * transaction committed BEFORE the lock, a `rollback;` between the lock and the
+ * write, an `end;` doing the same, and a second write placed after the
+ * protected transaction. Every one leaves a `shows` write unlocked.
+ *
+ * Patching those four in would have invited a fifth. So this does not enumerate
+ * what is forbidden; it states the ONE sequence that is allowed and rejects
+ * everything else, including any statement it cannot classify. `lockedStatement`
+ * emits exactly one shape, so accepting exactly one shape is honest rather than
+ * strict: there is nothing legitimate for this to turn away.
+ *
+ * CONSEQUENCE BOUND: the transaction is either exactly
+ * `begin` → `pg_advisory_xact_lock` → one write → `commit`, or it fails here by
+ * name. An unrecognized statement is a failure, never a pass.
  */
 function lockOrderProblems(sql: string): string[] {
-  const problems: string[] = [];
-  const begin = sql.indexOf("begin;");
-  const commit = sql.lastIndexOf("commit;");
-  const locks = [...sql.matchAll(/pg_advisory_xact_lock\(/g)].map((m) => m.index ?? -1);
-  const write = sql.search(/\b(insert|update|delete)\s+(into|from|public\.)/i);
+  const statements = sql
+    .split(";")
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
 
-  if (begin < 0) problems.push("no begin");
-  if (commit < 0) problems.push("no commit");
-  if (write < 0) problems.push("no write statement this analyzer can place");
-  if (locks.length === 0) problems.push("no advisory lock");
-  // Single-holder rule: exactly one acquisition per transaction. Two is the
-  // nesting invariant 2 forbids, and it deadlocks under burst.
-  if (locks.length > 1) problems.push(`${locks.length} advisory locks in one transaction`);
+  type Kind = "begin" | "lock" | "write" | "commit" | "other";
+  const classify = (st: string): Kind => {
+    const head = st.toLowerCase();
+    if (/^begin\b/.test(head)) return "begin";
+    if (/^select\s+pg_advisory_xact_lock\(/.test(head)) return "lock";
+    if (/^(insert\s+into|update|delete\s+from)\b/.test(head)) return "write";
+    if (/^commit\b/.test(head)) return "commit";
+    return "other";
+  };
+
+  const kinds = statements.map(classify);
+  const problems: string[] = [];
+
+  // Fail-closed on anything unclassified, naming it, so a future statement type
+  // is a red test rather than a silent pass. `rollback`, `end`, `savepoint` and
+  // a second `begin` all land here.
+  kinds.forEach((k, i) => {
+    if (k === "other") problems.push(`unrecognized statement: ${statements[i]!.slice(0, 60)}`);
+  });
+
+  const shape = kinds.filter((k) => k !== "other").join(",");
+  if (shape !== "begin,lock,write,commit") {
+    problems.push(`transaction shape is [${shape}], must be exactly [begin,lock,write,commit]`);
+  }
   if (problems.length > 0) return problems;
 
-  const lock = locks[0]!;
-  if (!(begin < lock)) problems.push("lock is not inside the transaction");
-  if (!(lock < write)) problems.push("lock is acquired AFTER the write it must cover");
-  if (!(write < commit)) problems.push("write is not inside the transaction");
-  // A commit between the lock and the write releases it before the write runs.
-  const between = sql.slice(lock, write);
-  if (/\bcommit;/.test(between)) problems.push("a commit sits between the lock and the write");
-  // The lock must be keyed on the show, not on a constant.
   if (!/hashtext\('show:'\s*\|\|/.test(sql)) problems.push("lock is not keyed on 'show:' || <id>");
   return problems;
 }
 
 describe("lockedShowCopy emits a correctly-ordered locked transaction", () => {
-  test("PREMISE: the analyzer rejects each way this shape is known to go wrong", () => {
+  test("PREMISE: the analyzer rejects every escape found so far, not just the first three", () => {
     const good = lockedStatement(DFID, deleteShowBody(DFID));
-    // The premise is that lockOrderProblems DISCRIMINATES. Without these three
-    // the green assertions below would hold for an analyzer that returns [] for
-    // everything, which is the tautology this project's guard-premise rule bans.
-    const lockDeleted = good.replace(/select pg_advisory_xact_lock\([^;]*\);/, "");
-    const lockAfterWrite = lockedStatement(DFID, deleteShowBody(DFID))
-      .replace(/select pg_advisory_xact_lock\([^;]*\);/, "")
-      .replace(
-        /(returning id;)/,
-        `$1\n    select pg_advisory_xact_lock(hashtext('show:' || '${DFID}'));`,
-      );
-    const commitBetween = good.replace(
-      /(select pg_advisory_xact_lock\([^;]*\);)/,
-      "$1\n    commit;\n    begin;",
-    );
-    const doubleLock = good.replace(/(select pg_advisory_xact_lock\([^;]*\);)/, "$1\n    $1");
-
-    expect(lockOrderProblems(lockDeleted), "lock deleted must be caught").toContain(
-      "no advisory lock",
-    );
-    expect(lockOrderProblems(lockAfterWrite), "lock after the write must be caught").toContain(
-      "lock is acquired AFTER the write it must cover",
-    );
-    expect(lockOrderProblems(commitBetween), "a commit between must be caught").toContain(
-      "a commit sits between the lock and the write",
-    );
-    expect(
-      lockOrderProblems(doubleLock).join(" "),
-      "a nested second acquisition must be caught",
-    ).toContain("advisory locks in one transaction");
+    const lock = `select pg_advisory_xact_lock(hashtext('show:' || '${DFID}'));`;
+    // Each mutant leaves at least one `shows` write outside a held lock. The
+    // first three cost arc C review rounds 4, 5 and 6 one per round; the last
+    // four were found by spec review round 3 walking through the INDEX-based
+    // analyzer this whitelist replaced.
+    const mutants: Array<[string, string]> = [
+      ["lock deleted", good.replace(/select pg_advisory_xact_lock\([^;]*\);/, "")],
+      [
+        "lock after the write",
+        good
+          .replace(/select pg_advisory_xact_lock\([^;]*\);/, "")
+          .replace(/returning id;/, (m) => `${m}\n    ${lock}`),
+      ],
+      [
+        "commit between lock and write",
+        good.replace(
+          /select pg_advisory_xact_lock\([^;]*\);/,
+          (m) => `${m}\n    commit;\n    begin;`,
+        ),
+      ],
+      [
+        "nested second acquisition",
+        good.replace(/select pg_advisory_xact_lock\([^;]*\);/, (m) => `${m}\n    ${m}`),
+      ],
+      ["commit BEFORE the lock", good.replace(/begin;/, (m) => `${m}\n    commit;`)],
+      [
+        "rollback between lock and write",
+        good.replace(/select pg_advisory_xact_lock\([^;]*\);/, (m) => `${m}\n    rollback;`),
+      ],
+      [
+        "end between lock and write",
+        good.replace(/select pg_advisory_xact_lock\([^;]*\);/, (m) => `${m}\n    end;`),
+      ],
+      [
+        "a second write after the transaction",
+        `${good}\n    delete from public.shows where drive_file_id = 'other';`,
+      ],
+    ];
+    for (const [name, sql] of mutants) {
+      expect(lockOrderProblems(sql), `${name} must be caught:\n${sql}`).not.toEqual([]);
+    }
+    // And the real thing is accepted, so the controls above are not passing
+    // because the analyzer rejects everything.
+    expect(lockOrderProblems(good), good).toEqual([]);
   });
 
   test("the COPY transaction holds the lock for its insert", () => {
