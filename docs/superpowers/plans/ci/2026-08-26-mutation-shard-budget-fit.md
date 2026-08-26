@@ -187,8 +187,9 @@ form on exactly that ground, which is the check working.
 Step B. Create the shard-range guard (below) in its own file, **tests/mutation/_metaShardRangeTracked.test.ts**,
 for the reason that section gives. It PASSES on today's tree, which proves nothing yet. Then raise `SOURCE_SHARD_COUNT` to 8 and
 change NOTHING else, and run both suites. Record every red: `_metaSourceShardIntegrity` fails on
-the workflow matrix, on the budget-step env, on the shard-file count, and on the new guard, which
-now reports shard4 through shard7 as ignored. That last one is the guard failing on the real
+the workflow matrix, on the budget-step env, on the shard-file count, and on the `mutation:guards`
+script's target list, which still names only shard0 through shard3 and is missing four; and the new
+guard fails reporting shard4 through shard7 as ignored. That last one is the guard failing on the real
 defect rather than a constructed proxy, and it is why the guard is written here rather than in a
 task of its own that could never have been red.
 
@@ -340,7 +341,15 @@ measurements.
 So the held-out comparison runs at the shard count ITS OWN FIXTURE was measured at, derived from
 the fixture rather than pinned to a literal: `fx.observed.secondsLegs.length`. Each pair then
 declares its own leg count by construction, a future pair measured at a different count works with
-no edit, and the assertion is unchanged in strength. The claim under test is whether the
+no edit, and the assertion is unchanged in strength.
+
+**That access needs a type widening, which plan review caught and which is a repair rather than a
+concession.** The JSON fixtures carry `secondsLegs` and `bootsLegs`, but the `Fixture` type at
+`tests/mutation/source/shardBalance.test.ts:29-33` declares only `secondsBinding`, `bootsBinding`
+and `marginSeconds`, so `fx.observed.secondsLegs.length` is `TS2339` against the live type and
+`pnpm typecheck` in closeout would fail. The task adds `secondsLegs: number[]` and
+`bootsLegs: number[]` to that type, which is not an invention: those keys are already in every
+committed pair fixture and the type was simply narrower than its data. The claim under test is whether the
 seconds-calibrated weight beats the boot-count weight on held-out data, which is a question about
 WEIGHTS; reading the shipped shard count there was a coupling to a constant the claim does not
 depend on. This is a decoupling, not a weakening: same fixtures, same assertions, same recorded
@@ -360,9 +369,13 @@ rg -n -i '\bfour\b|4 LPT|\[0, ?1, ?2, ?3\]|shard0\.\.shard3' \
 
 The repair is to DE-NUMBER, so the same sites cannot rot again at the next change, not to write 8
 where 4 was. Spec review found six members my own first sweep missed and plan review found two more, which is
-the reason this is a command plus a triaged table rather than a remembered list. The command's raw
-output on this tree is about thirty lines, most of them "four" in an unrelated sense, so the N/A
-rows below are part of the answer and not omissions from it. Members and dispositions:
+the reason this is a command plus a triaged table rather than a remembered list. The command's raw output on this
+tree is 129 lines, of which thirteen are members; the rest are "four" in an unrelated sense (four
+required checks, four registries, four review rounds, four guards). A first draft of this sentence
+said "about thirty", which was the size of a `head -30` view rather than of the output. The ratio
+is the point: at roughly one member per ten hits, the N/A rows below are part of the answer and not
+omissions from it, and no rule strict enough to catch the two members hand sweeps missed would stay
+green. Members and dispositions:
 
 | site | disposition |
 | --- | --- |
