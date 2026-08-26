@@ -186,7 +186,7 @@ selector. So the test drives a failure at each later stage and asserts the reaso
 <!-- task: red=`pnpm vitest run tests/help/_metaRenderFaultMarking.test.ts` red-state=authored red-target=`components/admin/RecentAutoAppliedStrip.tsx:726` why=`the degradation branch carries no structural marker` ac=AC-3,AC-4,AC-8 -->
 
 AST meta-test mirroring `discoverScanRoots()` (`tests/help/_metaServerTimeGuard.test.ts:11`): derive roots
-from the manifest, classify every consumer, demand `data-render-fault` on every JSX-returning fault branch,
+from the manifest, classify every consumer the `IfStatement`, `CaseClause` and `CatchClause` arms reach, demand `data-render-fault` on every JSX-returning fault branch,
 skip non-rendering forms with a recorded reason, and report the flag-shaped residue by name. Then add the
 attribute to the 21 branches it names.
 
@@ -227,7 +227,7 @@ must be **reported by name**. This is the accept-set discipline's own test: a re
 known forms is a denylist.
 
 **One fixture proves that fixture, not the boundary.** The assertion is over a declared CANDIDATE UNIVERSE
-— every JSX-returning branch the scan locates by structure alone, independent of guard form — and requires
+— every JSX-returning branch the scan's three reporting arms locate by structure alone, independent of guard form — and requires
 each member to be either accepted under one of the six named forms or reported by name. A scanner that
 special-cases the single chosen fixture satisfies a one-fixture test and still drops the next unknown
 construct; it cannot satisfy a partition assertion over a derived universe.
@@ -598,3 +598,10 @@ The end-to-end refusal of a real capture on a marked branch is **not verified by
 it needs a browser and a seeded database. AC-5's CI cells cover it.
 
 impeccable-gate: critique=RAN audit=RAN p0=0 p1=1 dispositions=recorded
+
+> **Amended 2026-08-26 (`fix/screenshots-drift-residue`).** The `ConditionalExpression` arm has no residue
+> fallback and drops an unclassifiable guard SILENTLY — a declined asymmetry, not a gap left open. The two
+> coverage sentences above are therefore scoped to the three arms that report.
+> `components/admin/IgnoredSheetsDisclosure.tsx:79` is the live counterexample: JSX in `whenTrue`,
+> `classifyExpression` null, no candidate emitted. See the coverage limit in section 8 of
+> `docs/superpowers/specs/ci/2026-08-22-screenshots-drift-degraded-render-design.md`.
