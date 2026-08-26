@@ -1,6 +1,47 @@
 {
-  "baseSha": "d4324ba0a269681e0fdd02d9710ae420318f998b",
+  "baseSha": "ae8e9544b55a6353ab304c030eda534b2806d71b",
   "rows": [
+    {
+      "id": "acCoverage",
+      "sourcePath": "lib/specLint/acCoverage.ts",
+      "suitePaths": [
+        "tests/specLint/acCoverage.test.ts",
+        "tests/specLint/acCoverageCli.test.ts",
+        "tests/specLint/acCoverageCorpus.test.ts",
+        "tests/specLint/acCoverageIncidents.test.ts"
+      ],
+      "operators": [
+        "equality-flip",
+        "integer-literal",
+        "logical-connector",
+        "regex-quantifier-bound",
+        "relational-boundary",
+        "statement-removal"
+      ],
+      "scoreFloor": 0.95,
+      "control": {
+        "from": "return s !== \"\" && !s.startsWith(\"#\");",
+        "to": "return s !== \"\" && s.startsWith(\"#\");"
+      },
+      "accepted": [
+        {
+          "siteId": "integer-literal:77:87:1>2",
+          "kind": "equivalent"
+        },
+        {
+          "siteId": "logical-connector:97:35:||>&&",
+          "kind": "equivalent"
+        },
+        {
+          "siteId": "regex-quantifier-bound:19:21:{0,3}>{0,4}",
+          "kind": "equivalent"
+        },
+        {
+          "siteId": "regex-quantifier-bound:20:17:{0,3}>{0,4}",
+          "kind": "equivalent"
+        }
+      ]
+    },
     {
       "id": "browserMutate",
       "sourcePath": "tests/mutation/browser/mutate.ts",
@@ -1170,6 +1211,28 @@
       "accepted": []
     },
     {
+      "id": "retryableRpcVolatilityScan",
+      "sourcePath": "tests/supabase/retryableRpcVolatilityScan.ts",
+      "suitePaths": [
+        "tests/supabase/_metaRetryableRpcVolatility.test.ts",
+        "tests/supabase/_metaRetryableRpcVolatilityWalk.test.ts"
+      ],
+      "operators": [
+        "equality-flip",
+        "integer-literal",
+        "logical-connector",
+        "regex-quantifier-bound",
+        "relational-boundary",
+        "statement-removal"
+      ],
+      "scoreFloor": 0.9,
+      "control": {
+        "from": "if (set.has(name) || hasReasonedEntry(exclusions, name)) continue;",
+        "to": "if (set.has(name) && hasReasonedEntry(exclusions, name)) continue;"
+      },
+      "accepted": []
+    },
+    {
       "id": "reviewRoundCorpus",
       "sourcePath": "lib/reviewRounds/corpus.ts",
       "suitePaths": ["tests/docs/_metaReviewRoundEconomy.test.ts"],
@@ -1772,6 +1835,47 @@
           "kind": "equivalent"
         }
       ]
+    },
+    {
+      "id": "supabaseRetryEligibility",
+      "sourcePath": "lib/supabase/retryEligibility.ts",
+      "suitePaths": ["tests/supabase/retryEligibility.test.ts"],
+      "operators": [
+        "equality-flip",
+        "integer-literal",
+        "logical-connector",
+        "regex-quantifier-bound",
+        "relational-boundary",
+        "statement-removal"
+      ],
+      "scoreFloor": 0.9,
+      "control": {
+        "from": "if (fn !== undefined) return RETRYABLE_RPCS.has(fn);",
+        "to": "if (fn !== undefined) return !RETRYABLE_RPCS.has(fn);"
+      },
+      "accepted": []
+    },
+    {
+      "id": "supabaseRetryingFetch",
+      "sourcePath": "lib/supabase/retryingFetch.ts",
+      "suitePaths": [
+        "tests/supabase/retryingFetch.failureMode.test.ts",
+        "tests/supabase/retryingFetch.test.ts"
+      ],
+      "operators": [
+        "equality-flip",
+        "integer-literal",
+        "logical-connector",
+        "regex-quantifier-bound",
+        "relational-boundary",
+        "statement-removal"
+      ],
+      "scoreFloor": 0.9,
+      "control": {
+        "from": "attempt >= maxRetries",
+        "to": "attempt > maxRetries"
+      },
+      "accepted": []
     },
     {
       "id": "tapTargetScan",
