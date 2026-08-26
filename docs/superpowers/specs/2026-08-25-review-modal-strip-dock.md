@@ -980,6 +980,7 @@ lib/layout/fitWithinClip.ts
 lib/popover/place.ts
 tests/components/ReSyncButton.test.tsx
 tests/components/admin/PublishedToggle.test.tsx
+tests/components/admin/_metaPopoverViewportSource.test.ts
 tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts
 tests/components/admin/showpage/popoverOverlayRegistry.ts
 tests/components/admin/showpage/publishedReviewModal.test.tsx
@@ -989,20 +990,18 @@ tests/e2e/_pillFocusLiveEntry.tsx
 tests/e2e/_publishedReviewModalHarness.tsx
 tests/e2e/_publishedToggleClipLiveEntry.tsx
 tests/e2e/_shareLinkFlashLiveEntry.tsx
-tests/e2e/_skeletonParityHarness.tsx
 tests/e2e/_statusStripToggleHarness.tsx
 tests/e2e/admin-lifecycle-layout.spec.ts
-tests/e2e/admin-parse-panel.spec.ts
-tests/e2e/attention-modal-gallery.spec.ts
 tests/e2e/popover-clip-fit.spec.ts
-tests/e2e/published-review-modal.deeplink.spec.ts
 tests/e2e/published-review-modal.interactions.spec.ts
 tests/e2e/published-review-modal.layout.spec.ts
 tests/e2e/skeletonBandParity.spec.ts
 tests/e2e/stackedBandLayout.spec.ts
+tests/e2e/standalone-baseline.json
 tests/e2e/statusStripToggleLayout.spec.ts
 tests/e2e/step3-review-modal.layout.spec.ts
 tests/lib/popover/placeWarning.test.ts
+tests/styles/tapTargetCensus.ts
 ```
 
 Plus the documents the arc writes: this spec, its plan, `BACKLOG.md` and `BACKLOG-archive.md`,

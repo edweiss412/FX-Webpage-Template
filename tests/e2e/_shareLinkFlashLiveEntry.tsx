@@ -17,7 +17,7 @@
  * ReviewModalShell's clip and PopoverHostContext. That was not enough: it
  * reproduced exactly the one attribute A18 happened to target and nothing else,
  * so a rule scoped to any OTHER real ancestor went undetected. It now mounts the
- * REAL `ReviewModalShell` with the REAL `StatusStrip` in its `subHeader` slot,
+ * REAL `ReviewModalShell` with the REAL `StatusStrip` in its `footer` slot,
  * which is what A28 (a rule scoped to the modal root) needs in order to fail.
  *
  * The rotate is driven through the PRODUCTION OVERRIDE SEAM, not the server
@@ -79,7 +79,10 @@ function stripProps(): StatusStripProps {
 }
 
 /**
- * The REAL ReviewModalShell, with the REAL StatusStrip in its subHeader slot.
+ * The REAL ReviewModalShell, with the REAL StatusStrip in its footer slot
+ * (docked 2026-08-25; a harness left in the subHeader slot would reproduce a
+ * topology production no longer has, and anything measured through it would
+ * describe the wrong modal).
  *
  * A hand-built panel carrying `data-review-modal-panel` was not enough: it
  * reproduced only the one attribute an adversary happened to target, so any
@@ -123,7 +126,7 @@ function Harness() {
                 Flash Harness Show
               </h2>
             }
-            subHeader={<StatusStrip {...stripProps()} />}
+            footer={<StatusStrip {...stripProps()} />}
           >
             <div className="h-[420px] px-4 py-3 text-sm text-text-subtle">
               Panel body. The popover portals into this panel, so its clip and stacking context are

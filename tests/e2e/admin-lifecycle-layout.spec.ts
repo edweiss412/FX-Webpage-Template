@@ -587,6 +587,10 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
         return {
           natural,
           spaceBelow: boundsBottom - t.bottom - 6, // GAP
+          // Added with the dock: the rung that selects a viewport now asks for
+          // the room on whichever side the module CHOSE, and docked at the panel
+          // floor that side is always the one this value describes.
+          spaceAbove: t.top - boundsTop - 6, // GAP
           boundsTop,
           boundsBottom,
           side: body.dataset["popoverSide"] ?? null,
@@ -642,7 +646,21 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       }).toPass({ timeout: 15_000 });
       const armed = await measure();
       if (!armed) continue;
-      if (idle.natural <= idle.spaceBelow && idle.spaceBelow < armed.natural) {
+      // SIDE-AGNOSTIC since the dock (spec 2026-08-25-review-modal-strip-dock
+      // §3.1). This rung used to require `idle.natural <= idle.spaceBelow`, i.e.
+      // that BELOW was the fitting side. The strip is now docked at the panel
+      // floor, so `spaceBelow` is 0 at every viewport height — measured 0 at
+      // 375x667 in popover-clip-fit.spec.ts's §7 case — and that predicate can
+      // never be satisfied again. It would fail reporting "the armed/idle
+      // height delta may have changed", which is not the cause and would send
+      // the next reader down the wrong path.
+      //
+      // What the rung is actually looking for is a height where the IDLE body
+      // fits on its chosen side and the ARMED body does not, which is what
+      // forces a re-place. Expressed against the room on whichever side the
+      // module picked, that survives the dock unchanged.
+      const idleRoom = idle.side === "top" ? idle.spaceAbove : idle.spaceBelow;
+      if (idle.natural <= idleRoom && idleRoom < armed.natural) {
         chosen = height;
         break;
       }
@@ -650,16 +668,20 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     }
     expect(
       chosen,
-      "no swept viewport isolates 'idle fits below, armed does not'; the armed/idle height delta may have changed",
+      "no swept viewport isolates 'idle fits on its chosen side, armed does not'; the armed/idle height delta may have changed",
     ).not.toBeNull();
 
     // Real run at the found height.
     const { popover } = await openHub(chosen!);
     const idle = await measure();
     expect(idle).not.toBeNull();
-    // Precondition: below was chosen and needed NO cap. This is the state that
-    // goes stale; if it ever stops holding the case below proves nothing.
-    expect(idle!.side, "idle should be placed below at the chosen height").toBe("bottom");
+    // Precondition: a side was chosen and needed NO cap. This is the state that
+    // goes stale; if it ever stops holding the case below proves nothing. The
+    // SIDE is no longer asserted to be a particular one — docked at the panel
+    // floor the hub has no room below it, so the module always picks `top`, and
+    // pinning that here would restate the dock rather than test the re-place.
+    expect(idle!.side, "the module placed the idle popover").not.toBeNull();
+    expect(idle!.inlineMaxHeight, "the idle popover needed no cap").toBe("");
 
     // Re-placement is an async effect DOWNSTREAM of the growth, so confirm-button
     // visibility is not the settle signal these assertions need. A fixed wait read
@@ -691,9 +713,22 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
   // the ~14.14px axis-aligned box of the ROTATED shape. Every assertion below
   // is therefore on the caret's CENTRE, which rotation leaves invariant; edge
   // comparisons would drift by ~2px per side and silently loosen the pin.
+  // BOTH heights place `top` since the dock (spec §3.1), and that is a real
+  // narrowing of what this loop covers rather than a relabel. It existed to
+  // exercise both placement sides, because "a side-specific bug would otherwise
+  // hide on whichever side the default viewport picks". With the strip docked at
+  // the panel floor `spaceBelow` is 0 at every height, so BOTTOM is unreachable
+  // through ShareHub by construction — no viewport restores it.
+  //
+  // The bottom branch is still covered, at the level where it can be: the
+  // replica cases in popover-clip-fit.spec.ts ("§3.6 — the module selects the
+  // side") drive bottom-fits, the flip, and both cap branches directly against
+  // the algebra. What is lost is bottom coverage THROUGH THIS COMPONENT, and
+  // that is recorded rather than papered over. Both heights are kept: they still
+  // exercise the caret and focus at two panel sizes.
   for (const [height, expectedSide] of [
     [560, "top"],
-    [844, "bottom"],
+    [844, "top"],
   ] as const) {
     test(`T-CARET @ 390x${height}: caret abuts the ${expectedSide} placement and clears both corners`, async ({
       page,
@@ -902,9 +937,22 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
   // returns it to the trigger that opened it. Checked on BOTH placements,
   // because the portal writes position imperatively and a side-specific bug
   // would otherwise hide on whichever side the default viewport picks.
+  // BOTH heights place `top` since the dock (spec §3.1), and that is a real
+  // narrowing of what this loop covers rather than a relabel. It existed to
+  // exercise both placement sides, because "a side-specific bug would otherwise
+  // hide on whichever side the default viewport picks". With the strip docked at
+  // the panel floor `spaceBelow` is 0 at every height, so BOTTOM is unreachable
+  // through ShareHub by construction — no viewport restores it.
+  //
+  // The bottom branch is still covered, at the level where it can be: the
+  // replica cases in popover-clip-fit.spec.ts ("§3.6 — the module selects the
+  // side") drive bottom-fits, the flip, and both cap branches directly against
+  // the algebra. What is lost is bottom coverage THROUGH THIS COMPONENT, and
+  // that is recorded rather than papered over. Both heights are kept: they still
+  // exercise the caret and focus at two panel sizes.
   for (const [height, expectedSide] of [
     [560, "top"],
-    [844, "bottom"],
+    [844, "top"],
   ] as const) {
     test(`T-FOCUS @ 390x${height} (${expectedSide}): focus enters the dialog and Escape returns it`, async ({
       page,

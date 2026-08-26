@@ -345,7 +345,7 @@ describe("StatusStrip", () => {
       const trigger = screen.getByTestId("admin-resync-button");
       // Failure mode: a `<div data-testid="strip-resync">` wrapper becomes the
       // flex item, so the row gap and `items-center` apply to the wrapper and
-      // the absolute panels lose the band's full width — while every focus and
+      // the placed panels lose the slot's full width — while every focus and
       // order test still passes. The trigger must be a DIRECT strip child.
       expect(trigger.parentElement, "Re-sync is a bare strip row item").toBe(strip);
       expect(screen.getAllByTestId("admin-resync-button")).toHaveLength(1);
@@ -600,13 +600,13 @@ describe("StatusStrip", () => {
 
   // REWRITTEN from the "chrome variant" describe (modal-header-reconciliation
   // §6.5, Task 2). The `chrome` prop is deleted and both arms collapse to ONE
-  // layout literal — the `subHeader` band (ReviewModalShell.tsx) owns the
+  // layout literal — the shell's slot (ReviewModalShell.tsx) owns the
   // surface, the seam and the padding now.
   //
   // The "defaults to page chrome" case is RETIRED: the `page` arm ceases to
   // exist, so it has no subject. Its sibling is NOT retired — the intent (the
   // strip must not carry container chrome, which would double-seam and
-  // double-pad the band) is the only guard against page chrome being re-added,
+  // double-pad the slot) is the only guard against page chrome being re-added,
   // and retiring both would remove it silently.
   describe("container chrome", () => {
     const PAGE_ONLY_CHROME = [
@@ -622,7 +622,7 @@ describe("StatusStrip", () => {
       "py-2",
     ];
 
-    it("carries NO container chrome — the band supplies surface, seam and padding", () => {
+    it("carries NO container chrome — the shell slot supplies surface, seam and padding", () => {
       renderStrip();
       const classes = screen.getByTestId("show-status-strip").className.split(/\s+/);
       for (const token of PAGE_ONLY_CHROME) {
