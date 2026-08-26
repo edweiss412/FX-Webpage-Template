@@ -491,14 +491,21 @@ describe("mutation-harness matrices are pinned to their constants", () => {
    * constant to the worst leg observed today would instead re-break the moment a
    * surface is enrolled -- which is exactly how this arc's own defect surfaced.
    *
-   * This does NOT fix the imbalance producing those times. `weightOf` prices child
-   * boots at a flat rate while measured per-mutant rates span roughly 1.19 s to
-   * 23.45 s, so the partition balances the wrong quantity by up to ~30x per
-   * surface, which is how a 1.006x load spread yields a 1.56x wall-clock spread.
-   * That is filed as BL-MUTATION-WEIGHT-MODEL-BOOT-COUNT-ONLY. Repairing it
-   * repartitions every surface and invalidates every in-flight arc's assignment at
-   * once, so it is deliberately NOT bundled here. This case guarantees the
-   * imbalance stays DIAGNOSABLE; it does not claim to remove it.
+   * This case does NOT fix the imbalance producing those times, and until this
+   * branch nothing did. `weightOf` USED TO price child boots at a flat rate while
+   * measured per-mutant rates spanned roughly 1.19 s to 23.45 s, so the partition
+   * balanced the wrong quantity by up to ~30x per surface, which is how a 1.006x
+   * load spread yielded a 1.56x wall-clock spread. That was filed as
+   * BL-MUTATION-WEIGHT-MODEL-BOOT-COUNT-ONLY and is REPAIRED by the branch this
+   * comment ships on: `weightOf` is now `bootsOf(surface) * surface.millisPerBoot`,
+   * so the partition balances modelled seconds. The row is archived, not open.
+   *
+   * The ceiling this case pins is still worth its own guarantee, and the reason has
+   * outlived the imbalance: a repriced partition is still a partition, a leg can
+   * still overrun, and a leg cancelled at the ceiling reports nothing for any
+   * surface it holds. This case guarantees a breach stays DIAGNOSABLE. It never
+   * claimed to remove the imbalance, and it does not now claim credit for the
+   * repair that did.
    */
   it("gives every measured leg a ceiling that cannot silence a budget breach (AC-9)", () => {
     // A leg must survive overrunning its whole budget AND still have time to

@@ -53,10 +53,21 @@ export function bootsOf(surface: GuardSurface): number {
 }
 
 export function weightOf(surface: GuardSurface): number {
-  // Milliseconds, not boots. A boot count prices every surface's boot identically,
-  // and the measured rates span 935 to 4963 ms per modelled boot -- a 5.3x spread
-  // that the count cannot see, so the heaviest leg was being chosen by a number
-  // uncorrelated with what the leg actually costs.
+  // Milliseconds, not boots. A boot count prices every surface's boot identically
+  // and the measured rates do not agree: at 52 enrolled surfaces they span 762 to
+  // 18212 ms per modelled boot, a factor of 23.9, none of which the count can see.
+  // So the heaviest leg was being chosen by a number uncorrelated with what the leg
+  // actually costs.
+  //
+  // THOSE TWO NUMBERS ROT, and this comment has already rotted once: it read "935 to
+  // 4963 ms per modelled boot -- a 5.3x spread", which was the min and max of the
+  // surfaces enrolled the day it was written. Four later enrolments moved the max by
+  // 3.7x and nobody moved the sentence, so it understated the very problem it exists
+  // to justify. Treat the figures above as dated rather than current, and re-derive:
+  //
+  //   pnpm tsx -e 'import {GUARD_SURFACES} from "./tests/mutation/source/registry.ts";
+  //     const r = GUARD_SURFACES.map((s) => s.millisPerBoot).sort((a, b) => a - b);
+  //     console.log(r[0], r.at(-1), (r.at(-1) / r[0]).toFixed(2) + "x");'
   //
   // Integral by construction rather than by rounding: `bootsOf` is a count, and
   // `validateSurface` rejects a non-integer rate, so the product is an integer and
