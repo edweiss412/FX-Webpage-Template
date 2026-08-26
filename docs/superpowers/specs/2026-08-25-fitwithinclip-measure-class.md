@@ -20,75 +20,67 @@ Two mechanisms, both on the mount path:
 
 The two compound: each of the two mount measures drags its own pair of walks along.
 
-### §0.1 — Baseline, measured on the shape the consumers actually use
+### §0.1 — Baseline, measured per consumer, because there are three shapes and not one
 
-**Round 3 moved this section's ground, and the correction matters more than the finding that
-prompted it.** The first two drafts measured the unit suite's harness, in which the ref-bearing node
-is present at the owner's FIRST render. **No consumer does that.** All five call sites render their
-overlay conditionally, so the node appears on a later render while the owner stays mounted — which
-is exactly what the hook's own docblock says the counter exists for
-(`components/admin/useFitWithinClip.ts:72-75`). On that shape the numbers are different, and one of
-them is different in the uncomfortable direction.
+**This is the section's third rewrite and the last one it should need, because it stops modelling the
+consumers and measures them.** Round 3 killed the first version, which used the unit harness. Round 4
+killed the second, which generalised one conditional-host probe to "all five call sites". Three
+rounds on one vector is the same-vector trigger, so what follows is the comprehensive re-analysis
+that rule demands: every shipped lifecycle enumerated from its component source, measured, and
+pinned individually.
 
-Round 3 also established that this app runs in Strict Mode: `next.config.ts` never sets
-`reactStrictMode`, and Next enables it for the App Router when unset — its own build code says so
-inline, `'process.env.__NEXT_STRICT_MODE_APP': // When next.config.js does not have reactStrictMode
-it's enabled by default.` React 19 replays a callback ref that RETURNS A CLEANUP, which is precisely
-what §2 introduces. So the arc opts into a replay the current code does not experience, and the
-table has to carry both modes or it is not a measurement.
+**There are three lifecycles, not one**, and the difference is structural rather than incidental:
 
-**Strict Mode's replay is development-only in the installed React**, verified against the shipped
-bundles rather than from documentation:
+| Consumer | Shape, read from the component | Cited at |
+| --- | --- | --- |
+| `ReSyncButton` (three instances) | No `reapplyKey`. The node is behind a flag on the SAME owner, so it appears on a later render. | `components/admin/ReSyncButton.tsx:111-113`, node at `components/admin/ReSyncButton.tsx:235`, `components/admin/ReSyncButton.tsx:261` and `components/admin/ReSyncButton.tsx:317` |
+| `PublishedToggle` | The `reapplyKey` **is** the condition that mounts the node — `errorCode != null \|\| genericError` gates both. So the key flips in the same commit that attaches the node. | `components/admin/PublishedToggle.tsx:132`, node at `components/admin/PublishedToggle.tsx:201` |
+| `AttentionMenu` | The hook is called inside `AttentionMenuPanel`, which is "Mounted only while open", and the node is rendered unconditionally in THAT panel's JSX. From the hook's owner the node is present at its FIRST render. `entered` then flips after mount. | `components/admin/showpage/AttentionMenu.tsx:61-72`, node at `components/admin/showpage/AttentionMenu.tsx:173` |
 
-```
-$ rg -c 'StrictLegacyMode|StrictEffectsMode|doubleInvokeEffect|runWithFiberInDEV' \
-    node_modules/react-dom/cjs/react-dom-client.production.js
-(no match)
-$ rg -c 'StrictLegacyMode|StrictEffectsMode|doubleInvokeEffect|runWithFiberInDEV' \
-    node_modules/react-dom/cjs/react-dom-client.development.js
-101
-```
+So the always-present shape — the one the first draft measured and the second dismissed as used by no
+route — **is** a shipped surface. It is `AttentionMenuPanel`. The second draft's "all five use a late
+conditional host" and "all five currently measure once" were both false.
 
-Probe: the live conditional-host shape — owner mounts with no overlay, overlay appears, `reapplyKey`
-flips, overlay disappears — driven once bare and once inside `<StrictMode>`, counting
-`getBoundingClientRect` on the fitted node (one per `apply()`,
-`components/admin/useFitWithinClip.ts:96`), `getComputedStyle` on ancestors (two per walk in this
-two-deep chain), and owner render passes. Run 2026-08-25 against `origin/main` at `449f29fab` and
-against the §2 shape.
+**Strict Mode is on and its replay is development-only.** `next.config.ts` never sets
+`reactStrictMode`, and Next enables it for the App Router when unset, per its own inline build
+comment. React 19 replays a callback ref that returns a cleanup, which is what §2 introduces.
+Verified dev-only against the shipped bundles rather than from documentation: the strict
+double-invoke symbols appear 101 times in the installed `react-dom` development client build and
+**zero** times in its production build.
 
-**Per overlay APPEARANCE, on the live shape:**
+Probe: each of the three shapes reconstructed from the component structure above, driven through one
+overlay appearance, once bare and once inside `<StrictMode>`, counting owner render passes,
+`apply()` calls (one `getBoundingClientRect` on the fitted node each) and ancestor walks (two
+`getComputedStyle` calls each in this two-deep chain). Run 2026-08-25 against `origin/main` at
+`449f29faba03` and against the §2 shape.
 
-| Metric | Production (no replay) | | Development (Strict Mode) | |
+**Per overlay appearance — renders / `apply()` / ancestor walks:**
+
+| Consumer | Production before | Production after | Strict Mode before | Strict Mode after |
 | --- | --- | --- | --- | --- |
-| | before | after | before | after |
-| Owner render passes | 2 | **1** | 4 | **2** |
-| `apply()` calls | 1 | 1 | 1 | **2** |
-| Ancestor walks | 2 | **1** | 2 | 2 |
+| `ReSyncButton` ×3 | 2 / 1 / 2 | **1 / 1 / 1** | 4 / 1 / 2 | **2 / 2 / 2** |
+| `PublishedToggle` | 2 / 2 / 4 | **1 / 1 / 1** | 4 / 2 / 4 | **2 / 2 / 2** |
+| `AttentionMenu` | 2 / 2 / 4 | **1 / 1 / 1** | 4 / 3 / 6 | **2 / 2 / 2** |
 
-Per overlay DISAPPEARANCE, owner render passes go 2 → **1** in production and 4 → **2** in
-development; nothing measures on that path in either shape.
+**What the table says, stated plainly and including the one cell that moves the wrong way.**
 
-For completeness, the unit suite's always-present harness — the shape the first two drafts measured,
-which no route builds — goes from 2 applies and 4 walks to 1 and 1.
-
-**Read the table honestly, because one cell moves the wrong way.**
-
-- **The win is renders, not applies.** The counter calls `setAttachCount` on every attach AND every
-  detach, and each of those is a state update that re-renders the owner's whole subtree. Removing it
-  halves the render passes on both edges of every overlay's life, in both modes. A render pass costs
-  considerably more than one `getComputedStyle` walk, and this is the axis
-  `BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE` never named.
-- **Ancestor walks halve in production**, which is `BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK` closing
-  exactly as written.
-- **`apply()` calls rise from one to two in DEVELOPMENT ONLY.** The cleanup-returning ref opts into
-  Strict Mode's replay; production never runs it, as the bundle grep above shows. This is a real
-  cost paid by developers, it is stated here rather than buried, and it is carried in §7 as a
-  documented limit.
-- **`BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE`'s stated premise does not hold on any live surface.**
-  "The hook measures twice on every mount" is true of a ref present at first render and false of all
-  five call sites, which measure once. The row's prescribed fix is still the right change; the reason
-  is the doubled render, not a doubled measure. That re-disposition is recorded here rather than
-  quietly inherited, and it is why this section leads with renders.
+- **In production every consumer improves or holds on every metric.** Render passes halve 2 → 1
+  across all three. `apply()` halves for `PublishedToggle` and `AttentionMenu` and holds at 1 for
+  `ReSyncButton`. Ancestor walks go 2 → 1 and 4 → 1.
+- **In development render passes halve 4 → 2 across all three**, and walks improve or hold: 2 → 2,
+  4 → 2, and `AttentionMenu` threefold, 6 → 2.
+- **The single regression is `ReSyncButton`'s development `apply()` count, 1 → 2.** It is the only
+  consumer that measures once today, and the cleanup-returning ref opts it into the replay.
+  `PublishedToggle` holds at 2 and `AttentionMenu` improves from 3 to 2, so this is one cell of
+  twelve, in the mode no admin runs. §7 carries it as a documented limit.
+- **The proposed shape converges all three consumers onto identical costs** — 1/1/1 in production and
+  2/2/2 under the replay — where today they range from 2/1/2 to 4/3/6. Uniformity is worth naming: it
+  means the hook's cost stops depending on which of three lifecycles its caller happens to have.
+- **`BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE`'s premise holds for two of three consumers, not "every
+  mount" and not "none".** `PublishedToggle` and `AttentionMenu` do measure twice per appearance
+  today; `ReSyncButton` measures once. The row is right about the defect and wrong about its reach,
+  and the fix it prescribes is correct for all three either way. This is recorded rather than
+  inherited, and it is the third and final correction this section has needed.
 
 ### §0.2 — Why it is worth doing
 
@@ -309,8 +301,11 @@ components/admin/showpage/AttentionMenu.tsx:173  fitRef  :: (node: HTMLElement |
 Same count, same sites, inferred type instead of the declared one. The checker sees the call
 signature whether or not anyone wrote it down, which is the whole difference from a grep.
 
-**All eighteen classified, by reading each site.** Nine author a callback in place and every one of
-them writes to a ref map or ref array and sets NO state: `pageRefs.current[i] = node`,
+**All eighteen classified, by reading each site: 8 + 5 + 4 + 1 = 18.** Round-4 finding 3 caught this
+sentence claiming nine in-place authors, which totalled nineteen against a derived set of eighteen.
+**Eight** author a callback in place — four in `ShowReviewSurface`, two in `AvatarMenu`, one in
+`AgendaPdfViewer`, one in `Gallery` — and every one writes to a ref map or ref array and sets NO
+state: `pageRefs.current[i] = node`,
 `thumbRefs.current.set(item.id, node)`, `itemRefs.current[0] = el`, `itemRefs.current[1] = el`, and
 four `railItemRefs`/`sectionElsRef` `.set`/`.delete` pairs. Five are this hook's consumers, which are
 instances OF the shape's fix, not instances of the shape. Four are pass-throughs that author no
@@ -399,8 +394,9 @@ wrong; naming it per case is the repair. The spike ran all 15 against the §2 sh
   ```
 
   Three of the hook's four re-measure signals have behavioural cases — `window` resize by (f), `transitionend` by (e)/(e2)/(g4), a `reapplyKey` change by (c). The fourth, the one covering a resizing panel and a growing band, has none. **This arc must not inherit that hole**, because the observer wiring is exactly what moves from the layout effect into the ref callback: a mis-wire there would be invisible to every case above. (h12) captures the callback the hook hands the constructor, invokes it once for the clip ancestor and once for the positioned ancestor, and asserts the cap re-derives from the NEW geometry each time. Concrete failure mode: mutant M11, `new ResizeObserver(() => {})`, which today kills nothing.
+- **New (h15), (h16), (h17) — one case per shipped lifecycle, both modes.** Round-4 finding 1. §0.1 has three rows because there are three consumer shapes, and a table with three rows pinned by cases modelling one of them is the same defect the round charged. (h15) drives the `ReSyncButton` shape (no key, node behind a flag on the same owner), (h16) the `PublishedToggle` shape (the key IS the mounting condition, so both change in one commit), and (h17) the `AttentionMenuPanel` shape (node present at the panel's first render, key flips after mount). Each asserts renders, applies and walks for its row, bare and under `<StrictMode>`, against the exact numbers in §0.1 — including the one cell that regresses, which (h15) pins at 2 rather than pretending it is 1. Concrete failure mode: any implementation that improves one lifecycle by pessimising another, which every previous version of this suite would have reported as success.
 - **New (h13) the Strict Mode replay is measured, not discovered later.** Round-3 finding 1. The suite renders its harness bare, so nothing in it would have shown that a cleanup-returning ref opts into React 19's replay and doubles `apply()` in development. (h13) mounts the conditional-host harness inside `<StrictMode>` and asserts the replay's counts EXACTLY — two applies per appearance, and two owner renders where the current code takes four. It pins the cost in the direction it actually moves rather than asserting it away, so a future change that makes the replay worse is visible. Concrete failure mode: any implementation that measures a third time under replay, or that regresses the render halving this arc's main win depends on.
-- **New (h14) the conditional-host shape, bare.** The existing harness attaches its ref at the owner's first render, which no consumer does. (h14) is the same harness with the overlay behind a flag, asserting one apply and one walk per appearance and — the load-bearing one — ONE owner render pass where the counter takes two. Concrete failure mode: reintroducing any state update on the attach path, which is the defect `BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE` actually names once its premise is corrected.
+- **New (h14) the conditional-host shape, bare.** Retained as the minimal statement of the arc's headline, and deliberately narrower than (h15)-(h17): it asserts one render per appearance on the plainest shape, which is the assertion mutant M12 exists to break. The existing harness attaches its ref at the owner's first render, which no consumer does. (h14) is the same harness with the overlay behind a flag, asserting one apply and one walk per appearance and — the load-bearing one — ONE owner render pass where the counter takes two. Concrete failure mode: reintroducing any state update on the attach path, which is the defect `BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE` actually names once its premise is corrected.
 - **New (h8) `reapplyKey`-change counts, and (h9) unchanged-key counts.** Round-1 finding 1, and the sharpest of the round: §0.1's table is the acceptance condition and only its MOUNT row had a pin. Case (c) (`tests/components/admin/useFitWithinClip.test.tsx:193`) checks the cap after a key change and counts nothing, and no case re-rendered with an UNCHANGED key at all. (h8) asserts one apply and one walk across a key change; (h9) asserts zero of each across a re-render that changes nothing. Concrete failure mode, and it is not hypothetical: a ref callback whose identity churns every render — the exposure §7 documents — re-attaches and re-measures on every render while satisfying every other assertion in this suite, because every other assertion is about a single mount. Four cells of the acceptance table were unfalsifiable; these two cases close all four. Both run on the existing always-present harness, which is why (h14) exists alongside them.
 
 A test that only proves `apply` was called is worthless here: the whole subject is **how many times**. Every new case asserts a count or an absence, and each names the mutant it kills.
@@ -411,7 +407,24 @@ jsdom computes no layout, so the containment claim in §3 cannot be settled ther
 
 **On which surfaces, corrected.** An earlier draft named "the `ReSyncButton` band" here. That file cannot drive it: `tests/e2e/popover-clip-fit.spec.ts` builds exactly two live entries, `tests/e2e/_pillFocusLiveEntry.tsx` and `tests/e2e/_publishedToggleClipLiveEntry.tsx` (`tests/e2e/popover-clip-fit.spec.ts:44-46`), and `rg -ln 'ReSyncButton' tests/e2e/ | rg popover-clip-fit` returns nothing. The pin lands on the two surfaces that exist there — the `AttentionMenu` scroller and the `PublishedToggle` banner — both of which consume this hook. A third live entry for `ReSyncButton` would be a new harness, not a pin, and its three overlays call the identical hook.
 
-**What the new case adds that the two existing containment cases (`tests/e2e/popover-clip-fit.spec.ts:310`, `tests/e2e/popover-clip-fit.spec.ts:565`) do not.** Both existing containment cases measure AFTER settle, so a second after-settle assertion would be redundant with them. The property this refactor puts at risk is the FIRST PAINTED FRAME: the measure moved from the owner's layout effect to ref-attach, and the only reason it is synchronous at all is that an overlay must never be painted uncapped. So the new case samples on EVERY frame from first appearance, under `emulateMedia({ reducedMotion: "reduce" })` so the entrance transform cannot distort a sampled rect, and asserts containment on all of them. It carries an executable premise that at least one frame was sampled — a sampler that never fired would make the loop vacuously true, which is exactly the degenerate shape the premise rule exists for.
+**What the new case adds that the two existing containment cases (`tests/e2e/popover-clip-fit.spec.ts:310`, `tests/e2e/popover-clip-fit.spec.ts:565`) do not.** Both existing containment cases measure AFTER settle, so a second after-settle assertion would be redundant with them. The property this refactor puts at risk is the FIRST PAINTED FRAME: the measure moved from the owner's layout effect to ref-attach, and the only reason it is synchronous at all is that an overlay must never be painted uncapped. So the new case samples on EVERY frame from first appearance, under `emulateMedia({ reducedMotion: "reduce" })` so the entrance transform cannot distort a sampled rect, and asserts containment on all of them. **Its premise must assert ARMING, not merely sampling.** Round-4 finding 2: "at least one frame was sampled" permits sampling to begin after the overlay has already corrected itself, which would make this case a slower copy of the two after-settle cases above. So the sampler records a row on every frame INCLUDING frames where the node is absent, and the case asserts, in this order:
+
+1. the recording contains at least one ABSENT row BEFORE its first present row — an executable statement that the recorder preceded the appearance;
+2. at least one PRESENT row exists, so the containment loop is not vacuous;
+3. every present row satisfies `overlayBottom <= clipBottom + 0.5`.
+
+This repo already states the requirement, in prose, on its one existing sampler
+(`tests/e2e/section-header-reconcile.layout.spec.ts:117-119`), quoted verbatim:
+
+```
+THE RECORDER IS ARMED BEFORE THE CLICK. Sampling that starts after the event
+has already been dispatched can miss the first frames — exactly the frames a
+short tween lives in — and would make the oracle pass for the wrong reason.
+```
+
+Round 4's finding was that this spec asked for a sampler without carrying that requirement.
+Assertion 1 is that prose made executable, which is the whole difference between a contract and a
+comment.
 
 Both the overlay rect and the clip rect are read in **one** `page.evaluate` per measurement. `boundingBox()` is viewport-relative and Playwright actionability scrolls before it measures, so two separate reads can be taken against two different scroll positions and manufacture a phantom overlap. Tolerance is 0.5px, matching the existing containment cases.
 
@@ -439,9 +452,9 @@ Carried verbatim into every review brief for this arc.
 - **The ancestor chain is resolved once per attach for observation purposes.** If an overlay is reparented without a `reapplyKey` change or a resize, the observed clip ancestor is stale until the next signal. This is today's behaviour, unchanged — `apply()` still re-walks on every invocation, so the *measurement* is never stale, only the *subscription*. Reparenting a live overlay is outside the threat fence.
 - **The `PublishedToggle` anchor room is unmeasured**, recorded at `lib/layout/fitWithinClip.ts:38-43` with an open row. Untouched.
 - **`AnchoredPortal` measures three times per open**, §4.2, filed as `BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN`.
-- **`apply()` runs twice per appearance in DEVELOPMENT, where it ran once.** Strict Mode replays a cleanup-returning callback ref, and §2 introduces the cleanup. Production is unaffected — the replay is absent from React's production client bundle entirely (§0.1's grep over the two installed `react-dom` builds, which are untracked `node_modules` artifacts rather than repo files) — so no admin ever pays it, but a developer profiling an overlay open in `next dev` sees two forced reflows where they saw one. Accepted deliberately, in exchange for halving the owner render passes on both edges of every overlay's life in BOTH modes, which is the larger cost by a wide margin. Pinned by (h13) so it cannot drift further. Re-file trigger: a third apply under replay, or React changing the replay's scope.
+- **`ReSyncButton`'s development `apply()` count goes 1 to 2.** ONE consumer of three, in ONE mode: it is the only shape that measures once today, and the cleanup-returning ref opts it into Strict Mode's replay. `PublishedToggle` holds at 2 and `AttentionMenu` improves 3 to 2 (§0.1). Production is unaffected on all three — the replay is absent from React's production client build entirely (§0.1's grep over the two installed `react-dom` bundles, which are untracked `node_modules` artifacts rather than repo files) — so no admin ever pays it, but a developer profiling a Re-sync overlay in `next dev` sees two forced reflows where they saw one. Accepted deliberately against render passes halving on all three consumers in both modes. Pinned exactly by (h15) so it cannot drift further. Re-file trigger: a third apply under replay on any consumer, or React changing the replay's scope.
 - **Shape 2 is bounded to its named resolver.** §4.1's scope derivation excludes a second call site of `findClippingAncestor`, and the manual sweep covers the two sibling measure surfaces the popover registry names. A module that resolves some OTHER value inside a measure function and re-resolves it in the same run is not excluded by any command here; settling that repo-wide is dataflow analysis, which `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:30-33` already rules out for a structural cover. Re-file trigger: a second measure surface adopting the resolve-then-re-resolve pattern, which the popover registry would name as it is added.
-- **The measure now precedes the owner's layout effects.** Moving it from the owner's layout effect to the ref attach makes it EARLIER in the same commit. What it now precedes is empty today on both counts: no consumer declares a `useLayoutEffect` (`rg -n 'useLayoutEffect' components/admin/ReSyncButton.tsx components/admin/PublishedToggle.tsx components/admin/showpage/AttentionMenu.tsx` returns nothing), and all five refs sit on a plain `<div>` in the owner's own JSX with no intervening component boundary, read at each site. A future consumer adding a geometry-mutating layout effect in the same commit would have it run AFTER the measure rather than before. Re-file trigger: any `useLayoutEffect` appearing in a file that calls `useFitWithinClip`.
+- **The measure now precedes the owner's layout effects.** Moving it from the owner's layout effect to the ref attach makes it EARLIER in the same commit. What it now precedes is empty today on both counts: no consumer declares a `useLayoutEffect` (`rg -n 'useLayoutEffect' components/admin/ReSyncButton.tsx components/admin/PublishedToggle.tsx components/admin/showpage/AttentionMenu.tsx` returns nothing), and all five refs sit on a plain `<div>` in their hook-owner's own JSX with no intervening component boundary, read at each site — where for `AttentionMenu` that owner is `AttentionMenuPanel`, not `AttentionMenu` (§0.1). A future consumer adding a geometry-mutating layout effect in the same commit would have it run AFTER the measure rather than before. Re-file trigger: any `useLayoutEffect` appearing in a file that calls `useFitWithinClip`.
 - **The coalescer's `.cancel()` is a registered obligation, not just good hygiene.** `components/admin/useFitWithinClip.ts` is registered as a consumer of `createRafCoalescer` with `requiresCancelAdoption: true` (`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:120-125`), whose comment states the reason: so a future local `requestAnimationFrame` plus frame-id bookkeeping inside the hook fails there rather than quietly reintroducing the per-event forced reflow. The coalescer moves into the ref callback and its `.cancel()` moves with it.
 
 ## §8 — Invariants
