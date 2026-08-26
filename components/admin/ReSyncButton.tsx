@@ -107,6 +107,21 @@ const DISMISS_BUTTON = cn(
 );
 
 /**
+ * Clears any placement a previous pass wrote. Shared by every early return that
+ * cannot produce a new placement, so an overlay is never left wearing stale
+ * coordinates, a stale cap, a stale side or a stale `visibility` with no signal.
+ * Unpositioned and VISIBLE is AC-11's disposition for an unmeasurable geometry.
+ */
+function resetPlacement(body: HTMLElement): void {
+  body.style.visibility = "";
+  body.style.removeProperty("left");
+  body.style.removeProperty("top");
+  body.style.removeProperty("max-height");
+  body.style.removeProperty("max-width");
+  delete body.dataset["popoverSide"];
+}
+
+/**
  * Places ONE overlay against the strip, portaled into the popover host (spec
  * 2026-08-25-review-modal-strip-dock §3.2a).
  *
@@ -133,7 +148,15 @@ function usePlacedOverlay(active: boolean, anchorRef?: RefObject<HTMLElement | n
     // the core correctly calls unplaceable and would hide. Without an anchor
     // there is nothing honest to measure, so it stays unpositioned and VISIBLE.
     const trigger = anchorRef?.current ?? null;
-    if (!body || !trigger) return;
+    if (!body || !trigger) {
+      // CLEARS, exactly as the degenerate path below does. Round 1 fixed that
+      // path and left this one returning bare, which is the same defect one
+      // early-return over: `anchorRef` is OPTIONAL, so an overlay can outlive
+      // its anchor and keep stale coordinates, a stale cap and a stale side
+      // with nothing signalled. Diff review round 2 caught the half-swept fix.
+      if (body) resetPlacement(body);
+      return;
+    }
     const host = hostRef?.current ?? document.body;
     const toRect = (r: DOMRect): Rect => ({
       left: r.left,
@@ -143,7 +166,15 @@ function usePlacedOverlay(active: boolean, anchorRef?: RefObject<HTMLElement | n
       right: r.right,
       bottom: r.bottom,
     });
-    const hostRectOrNull = host === document.body ? null : toRect(host.getBoundingClientRect());
+    // A zero-area HOST is degenerate too, and guarding only the trigger and the
+    // natural rect let it through: invalid bounds reach the core, which
+    // correctly returns `kind: "hidden"`, and ALL FOUR overlays vanish — the
+    // precise outcome AC-11 forbids for an unmeasurable geometry. Falling back
+    // to `null` here means viewport-only bounds, which is the same disposition
+    // a body-hosted overlay already gets and is measurable. (Round 2, 🔴.)
+    const hostRaw = host === document.body ? null : host.getBoundingClientRect();
+    const hostRectOrNull =
+      hostRaw === null || hostRaw.width <= 0 || hostRaw.height <= 0 ? null : toRect(hostRaw);
     const triggerRect = trigger.getBoundingClientRect();
     const placement = withNaturalSize(body, (probe) => {
       const naturalRect = body.getBoundingClientRect();
@@ -174,18 +205,8 @@ function usePlacedOverlay(active: boolean, anchorRef?: RefObject<HTMLElement | n
     });
     if (placement === null) {
       // A degenerate measurement CLEARS any prior placement rather than
-      // returning bare. A bare return kept whatever the last successful pass
-      // wrote — `visibility: hidden`, stale coordinates, a stale cap, a stale
-      // side — so an overlay could stay invisible or mispositioned with no new
-      // diagnostic, which violates the correct-or-signalled bound in the very
-      // case the bound exists for. Unpositioned and VISIBLE is AC-11's
-      // disposition, and that is now what the caller actually gets.
-      body.style.visibility = "";
-      body.style.removeProperty("left");
-      body.style.removeProperty("top");
-      body.style.removeProperty("max-height");
-      body.style.removeProperty("max-width");
-      delete body.dataset["popoverSide"];
+      // returning bare, for the reason resetPlacement documents.
+      resetPlacement(body);
       return;
     }
     if (placement.kind === "hidden") {

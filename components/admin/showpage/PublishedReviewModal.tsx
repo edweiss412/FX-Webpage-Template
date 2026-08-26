@@ -1108,15 +1108,24 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                  To-confirm state; the Overview notice card is the detail. */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-text-subtle"
+                className="inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-text-subtle"
               >
                 Alerts unavailable
               </span>
             ) : (
-              /* §5.1 in-sync state (S3C-1 clean-dot recipe, DESIGN.md §92). */
+              /* §5.1 in-sync state (S3C-1 clean-dot recipe, DESIGN.md §92).
+                 `min-w-0` here and on the degraded branch above for the same
+                 reason the interactive pill's wrapper carries it (§3.0): these
+                 are DIRECT children of the capped cluster, and a flex item
+                 defaults to `min-width: auto`, so its min-content width can
+                 defeat the 160px cap. Round 1 added it to the interactive
+                 branch only; diff review round 2 found the two non-interactive
+                 branches still uncovered, reachable at attention load 0 with
+                 `alertsDegraded`. "Alerts unavailable" is ~100px of label, and
+                 with padding, the gap and the close target it exceeds the cap. */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-status-positive-text"
+                className="inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-status-positive-text"
               >
                 <span
                   aria-hidden="true"
