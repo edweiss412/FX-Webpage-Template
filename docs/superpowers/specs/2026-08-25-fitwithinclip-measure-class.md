@@ -266,7 +266,7 @@ The four that remain unreachable, named rather than elided: `F → U`, `N → U`
 | U → F | Instant, synchronous, pre-paint. One `apply()`, one walk. The whole point: no animation, no frame. Case (g2) pins that no frame is scheduled |
 | U → N | Instant. `apply()` finds no clip and removes `max-height` rather than writing one. Case (b) |
 | F → N | Instant. The stale fit is **removed**, not retained. Family A pin `tests/components/admin/useFitWithinClip.test.tsx:368` |
-| N → F | Instant. The fit derives from the declared cap, not from an absent one. Family B pin `tests/components/admin/useFitWithinClip.test.tsx:380` |
+| N → F | Instant. A cap is WRITTEN where none existed. **(h19), new here** — round-6 finding 1 established this row had no pin at all: it cited family B, which is clipped → clipped (`tests/components/admin/useFitWithinClip.test.tsx:380`), not unclipped → clipped |
 | F → D | Teardown: disconnect observer, remove both listeners, cancel any pending frame, null the node ref. Case (g3) `tests/components/admin/useFitWithinClip.test.tsx:305` |
 | N → D | Same teardown. No observer was created for the clip, so `disconnect()` on the (possibly null) observer is the only difference, already guarded by `observer?.` |
 | **Compound:** `reapplyKey` changes while a coalesced frame is pending | The detach cancels the pending frame (`coalescer.cancel()`), the re-attach measures synchronously. The stale frame can never land on the new wiring, because each attach owns its own coalescer instance |
@@ -276,6 +276,21 @@ The four that remain unreachable, named rather than elided: `F → U`, `N → U`
 | D → N | Same, where nothing clips on the new attach: `max-height` is removed rather than written, and no clip is observed |
 | **Compound:** a `transitionend` arrives mid-teardown | The listener is removed before `coalescer.cancel()`, so a late event cannot schedule after the cancel |
 | **Compound:** the conditional host disappears and reappears while the owner stays mounted | The live shape at `ReSyncButton` and `PublishedToggle`. F → D → F, with the teardown's `nodeRef.current = null` in between so a stale `apply()` cannot measure a removed node |
+
+**Every row's cited pin was re-verified against what the case actually transitions**, because round 6
+found one that did not. The three pre-existing clip-state cases are `mount({clips: false})` with no
+re-render (U → N, case (b)), `clips: true` then `clips={false}` (F → N, family A) and `clips: true`
+then `clips` (F → F, family B). **None of them is unclipped → clipped**, which is why `N → F` needed
+a case rather than a citation. The remaining rows check out: `U → F` by (g)/(g2)/(h), `F → D` by
+(g3)/(h3), and `D → F` by (c), whose `reapplyKey` flip with `clips` true throughout is a detach and
+re-attach.
+
+**Why this row is worth a case and not a shrug.** On `N → F` the hook must WRITE a cap where none
+existed, rather than update one. An implementation that only ever updated an existing inline value
+would leave the overlay uncapped — and `isFloorClamped` is FALSE at this fixture's geometry
+(`available` 322 against a 384 cap and a 48 floor), so the diagnostic would not fire. Uncapped and
+silent is precisely the outcome §6's bound forbids, and every case the row used to cite would have
+stayed green through it.
 
 Nothing here animates. Every transition is instant by design: this hook exists to write a cap **before** the browser paints, and any easing on the cap itself would be a visible resize of a panel the user is already reading.
 
@@ -427,6 +442,7 @@ wrong; naming it per case is the repair. The spike ran all 15 against the §2 sh
 - **(g) mount count.** `expect(afterMount).toBe(2)` at `tests/components/admin/useFitWithinClip.test.tsx:281` becomes `toBe(1)`, and the comment above it (`tests/components/admin/useFitWithinClip.test.tsx:276-279`) stops citing a row that no longer exists — it explains instead that one attach is one measure, and that the count is pinned so a regression to two is visible rather than absorbed into the coalescing delta below it. The coalescing deltas in the rest of (g) (`tests/components/admin/useFitWithinClip.test.tsx:288`, `tests/components/admin/useFitWithinClip.test.tsx:292`) are unchanged and stay green.
 - **(g2) synchronous mount.** Unchanged, stays green. This is the pin that stops the refactor drifting the measure into a frame.
 - **New (h) walk control.** On the existing always-present harness. Counts `getComputedStyle` calls on **ancestors only** across one mount — the fitted node's own declared-cap read is excluded, so the number is the walk and nothing else. The assertion is stated in ancestor-call units and its expected value is **derived from the harness's own chain**: the walk visits every ancestor up to and including the first non-`visible` overflow, which in this fixture is `inner` then `outer`, so one walk is `ANCESTORS_TO_CLIP.length` calls. Never hardcoded, so deepening the fixture cannot silently satisfy it. Concrete failure modes caught, in the same units: restoring the effect body's second walk doubles it; regressing the attach mechanism to two measures doubles it again.
+- **New (h19) unclipped → clipped writes a cap where none existed.** Round-6 finding 1: §3.1's `N → F` row cited family B, which is clipped → clipped. No case in the suite goes unclipped → clipped, so a defect confined to that path leaves the overlay uncapped with the floor-clamp diagnostic silent — `isFloorClamped` is false at this geometry. (h19) mounts with `clips: false`, asserts `style.maxHeight === ""`, re-renders with `clips` true, and asserts the derived value (322px at the fixture's geometry, computed from `computeFittedMaxHeight` rather than typed). Concrete failure mode: an `apply()` that updates an existing cap but does not create one.
 - **New (h18) the hook is called and its ref is never attached.** The fourth runtime path (§0.1), and the DEFAULT variant of `PublishedToggle`. Renders a component that calls the hook and never uses the returned callback; asserts zero applies, zero walks, and no throw across several re-renders. Concrete failure mode: any implementation that measures or wires from the hook BODY rather than from the attach, which would make the card variant do layout work for an overlay it never renders.
 - **New (h2) null-node arm.** Calls the returned ref callback with `null` directly and asserts it neither measures nor throws. Concrete failure mode: a teardown-only implementation that assumes a non-null node crashes on any consumer still passing `null`.
 - **New (h3) teardown nulls the node.** After unmount, a stale `apply()` must not measure. Concrete failure mode: fact 1 above — React never calls `ref(null)` any more, so an implementation that relies on it leaves `nodeRef.current` pointing at a detached node.
