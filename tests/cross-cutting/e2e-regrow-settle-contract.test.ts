@@ -34,7 +34,7 @@ const regrowSlice = (): string => {
 /**
  * Characters after an arming site within which its retry must appear. Measured
  * against the real file, not guessed: the single surviving site puts `.toPass(`
- * at +659, so 900 clears it by 241. A 600-char window would REJECT the correct
+ * at +827, so 900 clears it by 73. A 600-char window would REJECT the correct
  * implementation — that was measured too. When prose pushed a site past the
  * window, the comment moved above the arming click rather than the window
  * widening: a window that grows to accommodate comments stops being a guard, and
@@ -57,8 +57,13 @@ const CALLBACK_OPENER = "expect(async () => {";
  * pixel while the body is capped at `min(0.7*vh, 480)`, so the room outruns the
  * body (derivation:
  * docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md §2).
- * The ladder went with it, and the surviving site carries every field the two
- * used to split — which is why this list got LONGER as it got shorter by one row.
+ * The ladder went with it. The surviving site carries every field the two used
+ * to split PLUS `gapToTrigger`, which is the assertion the old case never had:
+ * `lib/popover/position.ts:135` places a `top` body at
+ * `trigger.top - GAP - effectiveHeight`, so a body that grows without re-placing
+ * keeps its old `y` and eats the gap. Containment cannot see that — the overhang
+ * is into the trigger, not out of the clip rect. That is why this list got
+ * LONGER as it got shorter by one row.
  *
  * DOCUMENTED LIMIT, stated so it is not rediscovered: this is a source-text
  * TRIPWIRE, not a proof of semantics. It cannot tell an assertion from the same
@@ -74,10 +79,10 @@ const ARM_SITE_REQUIRED_FIELDS: readonly (readonly string[])[] = [
   [
     "scrollHeight",
     "idle!.scrollHeight",
+    "gapToTrigger",
     "roomOnChosenSide",
     "natural",
     "inlineMaxHeight",
-    "overflow",
     "bodyTop",
     "bodyBottom",
     "boundsTop",
