@@ -231,10 +231,9 @@ A definition that reds 60 of 100 plans is a definition, not a finding. No body
 grammar can be right here, because the corpus genuinely holds four conventions
 and one of them puts the declaration in another file.
 
-### 4.2 The design decision, ESCALATED — not taken here
+### 4.2 The design decision, and how it was taken
 
-R1 finding 1 is correct and it is the reason this section no longer states a
-choice. The first draft declared criteria by an opt-in region marker, on the
+R1 finding 1 is correct and it is the reason this section changed. The first draft declared criteria by an opt-in region marker, on the
 `acCoverage` precedent. The objection that lands: **no plan carries the marker,
 nothing requires a future plan to add it, and every live example the spec itself
 cites still lints clean after this ships.** That is a silent false negative
@@ -251,74 +250,94 @@ Together with §4.4 the position is:
   plans, most of them correctly written.
 - An opt-in check **can** ship and closes nothing, which R1 establishes.
 
-Both branches are real, and the choice between them changes this arc's scope, so
-it is the orchestrator's call and not the implementer's:
+Both branches were real and the choice changed this arc's scope, so it went to the
+orchestrator. **Ruled 2026-08-26: branch (A), migrate.** The alternatives and the
+reasoning are kept because the decision is the load-bearing part of this section:
 
-- **(A) Migrate.** The body grammar IS the declaration; an unclaimed id must
-  carry an explicit disposition on its declaring line (`RETIRED`, or a
-  discharged-by-Task-N token). Closes the row live and for good. Costs a one-line
-  edit to each of 25 merged plans, in this PR, and a convention every future plan
-  must follow.
-- **(B) Opt-in as drafted**, shipped honestly: the arm is real, the corpus is
-  untouched, and the spec records that the row's live instances stay unflagged
-  until a plan opts in. Cheap, and the row's own incident would not have been
-  caught by it.
-- **(C) Ship the lint gate alone** and re-file the AC arm's premise defect
-  against the row, since what this measurement found is that the row as written
-  asks for a check the corpus cannot support.
+- **(A) MIGRATE — RULED.** The body grammar IS the declaration; an id that no
+  marker cites must carry an explicit disposition on its own declaring line.
+  Closes the row live and permanently. Costs a one-line edit to each of the 25
+  flagged plans, in this PR.
+- **(B) Opt-in region.** Rejected: a silent false negative, which fails the
+  consequence bound in §10. The row's own incident would not have been caught.
+- **(C) Ship the lint gate alone and re-file the AC premise defect.** Rejected:
+  re-filing is a process-facing ledger row, which this arc's directive and the
+  process mint freeze both forbid.
 
-Recommendation: **(A)**, because it is the only branch where the row's incident
-gets caught, and the 25 edits are a bounded one-time cost that buys a live
-invariant. The migration is mechanical and every edit is a plan stating something
-its own prose already says.
+**Constraints on (A), ratified with the ruling and binding on the implementation:**
 
-The lint gate (§3) does not depend on this and is unaffected whichever branch is
-taken.
+1. Each of the 25 edits states ONLY what that plan's prose already says — a
+   `RETIRED` or a discharged-by-Task-N, cited from the plan's own line. Never a
+   reinterpretation, and never an inference from task structure.
+2. A plan whose prose does NOT settle the disposition is not given one. It goes
+   in the PR body under "Unfixed peers" and stays flagged.
+3. The convention gets ONE paragraph in `docs/agents/writing-plans.md`, not in
+   `AGENTS.md`.
+4. The gate's probe domain is the live plans corpus, and its done condition is
+   **zero unclaimed ids on that corpus** — a number, checkable, external to the
+   guard.
 
-### 4.2.1 Region edge cases, specified whichever branch is taken
+Constraint 2 is what keeps this from being the reinterpretation the corpus would
+punish: §4.4 found three categories under one flag, and only the plan's own text
+can say which one an id is in.
 
-R1 finding 3: a declaration region has failure modes the first draft left with no
-behaviour and no signal, and "deleting or mistyping one marker" is one ordinary
-edit from the supplied syntax. Each is answered rather than left to the
-implementation:
+The lint gate (§3) never depended on this and is unaffected by the ruling.
+
+### 4.2.1 Declaration and disposition edge cases
+
+R1 finding 3 asked for behaviour and a signal on every marker edge case. Branch
+(A) has no region marker, so most of that table is moot — but the same duty
+applies to the declaration and disposition grammar, and "one ordinary edit from
+the supplied syntax" is the same fence:
 
 | case | behaviour |
 | --- | --- |
-| opener with no closer | the region is REFUSED, not extended to EOF. `TASK_AC_REGION_UNCLOSED`, reported on the opener. Extending to EOF makes every incidental id in the rest of the plan a declaration; ignoring it silently swallows every real one. |
-| closer with no opener | `TASK_AC_REGION_UNOPENED`, reported on the closer. |
-| a second opener inside an open region | `TASK_AC_REGION_DUPLICATE`, reported on the inner opener, matching `TASK_ENROLL_DUPLICATE`'s posture at `lib/specLint/taskContract.ts:28`. |
-| sequential regions (close, then open again) | LEGAL. Declarations union across regions, matching the multi-region task design at `docs/superpowers/specs/2026-08-09-task-enrollment-multi-region-design.md`. |
-| a marker or bullet inside a fenced code block | inert, both directions. The document model already elides fenced blocks; a plan quoting the syntax to document it neither opens a region nor declares an id. |
-| a near-miss marker (`<!-- ac-declared:begin -->`) | `TASK_AC_REGION_MALFORMED`, paired ANY/strict like every sibling arm (`lib/specLint/taskContract.ts:30`, `lib/specLint/acCoverage.ts:19`, `lib/specLint/redContract.ts:36`, `lib/specLint/fixtureContract.ts:34`). Without it the typo opens no region, every declared id goes invisible, and the arm reports clean. |
+| a declaration inside a fenced code block | inert. The document model elides fenced blocks, so a plan documenting the convention neither declares nor disposes. |
+| a near-miss disposition (misspelled, wrong case) | the id stays unclaimed and is REPORTED. The grammar is closed and fails toward the finding, never toward silence — an accept-set, not a deny-set. |
+| a disposition on a line that declares two ids | disposes BOTH, matching how the line declares both (`- AC-10 … + AC-10b …`). A plan needing to dispose one and not the other splits the line. |
+| a disposition on a line declaring nothing | inert, and not an error: an ordinary sentence may contain the word. |
+| an id declared twice, disposed once | disposed. The id is one criterion; the plan mentioning it twice is not two criteria. |
+| a cited id that is also declared and disposed | claimed, and the disposition is redundant but not an error. A task claiming it is stronger evidence than a line saying someone else will. |
 
-The opener and closer belong to ONE colonised family, matching every sibling arm
-rather than the asymmetric pair the first draft showed:
-`<!-- ac-declared: begin -->` and `<!-- ac-declared: end -->`.
+The accept-set direction is what matters here: an unrecognised disposition
+reports the id rather than exempting it, so a typo costs a visible finding and
+never a silent pass.
 
-**A region is inert in a plan with no task region.** `checkTaskContract` returns
-early unless the kind is `plan` and a `tasks:` line is present
-(`lib/specLint/taskContract.ts:314`). That is conservative (silence, not a wrong
-answer) and consistent with the arm's scope, but an author who writes a region
-and no task region gets nothing and cannot tell that from clean, so it is stated
-here and in §9.
-
-### 4.3 The two codes
+### 4.3 The codes, under the ruled design
 
 Both hard, exit 1, rendered `FAIL`, never `ADVISORY`.
 
-- **`TASK_AC_UNCLAIMED`** — an id declared in the region that no task marker's
-  `ac=` cites. Reported on the declaring line. No task is scheduled to write that
-  assertion.
-- **`TASK_AC_UNDECLARED`** — a marker citing an id that the region does not
-  declare, in a plan that HAS a region. Reported on the marker line. This is the
-  passing-mention defect: today `resolvesId` accepts any prose occurrence.
+- **`TASK_AC_UNCLAIMED`** — an id the plan declares in its body that no task
+  marker's `ac=` cites AND whose declaring line carries no disposition. Reported
+  on the declaring line. This is the row's defect: no task is scheduled to write
+  that assertion, and nothing on the line says otherwise.
+- **`TASK_AC_UNDECLARED`** — a marker citing an id the plan does not declare, in
+  a plan that carries at least one declaration. Reported on the marker line. This
+  is the passing-mention defect: today `resolvesId` accepts any prose occurrence.
 
-`TASK_AC_UNRESOLVED` is unchanged and keeps its current meaning for plans with no
-region. In a plan WITH a region, an id that resolves in prose but is not declared
-is `TASK_AC_UNDECLARED`; a cited id appearing nowhere at all stays
-`TASK_AC_UNRESOLVED`. The two never fire on one id.
+`TASK_AC_UNRESOLVED` is unchanged: a cited id appearing nowhere in the plan at
+all. The three never fire on one id — `UNRESOLVED` needs no occurrence,
+`UNDECLARED` needs an occurrence that is not a declaration, and `UNCLAIMED` needs
+a declaration.
 
-### 4.4 What the 25 unclaimed plans actually are, and why it blocks the row
+**The disposition grammar**, closed and drawn from what the corpus already
+writes (§4.4):
+
+- `RETIRED` on the declaring line, and
+- a discharged-by reference naming the owning task.
+
+A disposition exempts the id from `TASK_AC_UNCLAIMED` and from nothing else.
+The gate does not read the reason, judge it, or check that the named task exists
+— presence, not prose quality, the same posture the guard-surface arm takes at
+`scripts/codex-guard.mjs:526`. What makes it honest is constraint 1 in §4.2: the
+author may only write what the plan already says.
+
+**`TASK_AC_UNDECLARED` remains opt-in and does not ship corpus-wide**, under this
+branch as under any other: 42 of the 100 plans declare their criteria in the
+sibling spec, so requiring a plan-body declaration for every cited id reds 60 of
+100 (§4.1). It fires only in a plan that already declares at least one id.
+
+### 4.4 What the 25 unclaimed plans actually are
 
 The first draft claimed all 25 were real drift. **That claim is withdrawn.** R1
 refuted it, and reading the 25 splits them three ways:
@@ -352,8 +371,10 @@ executable red" — 47 of the 100 plans use it. Measured: 15 of those 47 still
 flag, the same ~32% rate as the whole corpus. There is no subset of the corpus
 where "declared and unclaimed" means what the row says it means.
 
-That leaves the design decision in §4.2 unresolved, and it is escalated rather
-than taken here — see §4.2.
+This is why the ruled design (§4.2) makes the plan state the disposition rather
+than having the gate infer it. Three categories sit under one flag, and only the
+plan's own text can say which one an id is in — which is also why constraint 1
+forbids the author from writing anything the plan does not already say.
 
 ### 4.5 Wiring
 
@@ -463,17 +484,21 @@ the first `###` sub-row.
 3. **`--no-lint-gate` is a real escape and is meant to be used.** A run that
    declares it is doing something different from a run that forgot. The gate does
    not distinguish a good reason from a bad one.
-4. **The AC arm's live reach is unresolved and escalated** (§4.2). Under branch
-   (B) it is silent on the corpus until a plan opts in, which R1 correctly calls
-   a silent false negative rather than a conservative outcome; under (A) it is
-   live at the cost of a 25-plan migration. This is recorded as an open decision,
-   not as an accepted limit.
-5. **`TASK_AC_UNDECLARED` cannot ship corpus-wide in any branch.** In 42 of the
-   100 plans the criteria live in the sibling spec and the plan carries only a
-   coverage map, so requiring a plan-body declaration for every cited id reds 60
-   of 100 (§4.1). It is therefore opt-in under every branch, including (A).
-6. **A region is inert in a plan with no task region** (§4.2.1), and the author
-   cannot distinguish that from clean.
+4. **The disposition is trusted, not verified.** The gate checks that a
+   declaring line carries one; it does not read the reason, judge it, or confirm
+   the named task exists. Presence, not prose quality — the same posture as the
+   guard-surface arm. The honesty of a disposition rests on §4.2's constraint 1
+   and on review, not on the gate.
+5. **`TASK_AC_UNDECLARED` does not ship corpus-wide.** In 42 of the 100 plans
+   the criteria live in the sibling spec and the plan carries only a coverage
+   map, so requiring a plan-body declaration for every cited id reds 60 of 100
+   (§4.1). It fires only in a plan that already declares at least one id.
+6. **The whole arm is inert in a plan with no task region.** `checkTaskContract`
+   returns early unless the kind is `plan` and a `tasks:` line is present
+   (`lib/specLint/taskContract.ts:314`), so a plan that declares criteria and
+   enrols no tasks is unchecked. Conservative (silence, not a wrong answer), and
+   consistent with the arm's scope, but an author cannot distinguish it from
+   clean.
 7. **The count extractor refuses rather than defaults.** A `summary:` line that
    does not match the exact count grammar is an infra fault, not a zero (§3.1).
    A renderer change to that line therefore blocks dispatches until the grammar
@@ -497,16 +522,14 @@ or proceed, and neither is a visual state.
 
 ## 10. Acceptance criteria
 
-<!-- ac-declared -->
 - AC-1: on `--stage spec|plan`, a `--lint-doc` whose report carries hard findings is refused with exit 2, naming the file and its hard count, with zero fake-codex calls, no lock, no result artifact and no corpus row; the same document at 0 hard dispatches unchanged.
 - AC-2: on `--stage spec|plan`, a dispatch naming no `--lint-doc` is refused with exit 2; `--no-lint-gate` waives both arms; `--stage diff` and `--stage task` are untouched.
 - AC-3: advisory findings never refuse — a document with advisory findings and 0 hard dispatches.
-- AC-4: `TASK_AC_UNCLAIMED` fires on an id declared in an `ac-declared` region that no marker cites, hard, exit 1, rendered `FAIL`.
-- AC-5: `TASK_AC_UNDECLARED` fires on a marker citing an id a region does not declare, hard, exit 1, rendered `FAIL`; a cited id appearing nowhere stays `TASK_AC_UNRESOLVED`, and the two never both fire on one id.
-- AC-6: the arm contributes nothing to any plan carrying no region — asserted over every enrolled plan walked from disk, reporting zero newly-flagged plans (100 plans at authoring time, 2026-08-26).
+- AC-4: `TASK_AC_UNCLAIMED` fires on an id the plan declares that no marker cites and whose declaring line carries no disposition; hard, exit 1, rendered `FAIL`. A disposition on that line exempts it and nothing else, and an unrecognised disposition still reports.
+- AC-5: `TASK_AC_UNDECLARED` fires on a marker citing an id the plan does not declare, in a plan that declares at least one; hard, exit 1, rendered `FAIL`. A cited id appearing nowhere stays `TASK_AC_UNRESOLVED`, and no id ever draws two of the three.
+- AC-6: the live plans corpus reports ZERO unclaimed ids — asserted over every enrolled plan walked from disk, after the migration in §4.2. This is the done condition: a number outside the guard, checkable by anyone, that a later plan can move.
 - AC-7: the guard-surface refusal prints one conforming `GUARD SURFACE:` line verbatim, and the AGENTS.md bullet shows the same line; the separator grammar is unchanged and a "plus" line is still refused with exit 2 and no result artifact.
 - AC-8: both ledger rows are archived with `provenance: "feat/speclint-dispatch-gates"`, and the heading arithmetic proves the two `##` headings moved while all seven `###` sub-rows stayed in `BACKLOG.md`, each named in the assertion.
 - AC-9: `taskContract` scores at or above its `scoreFloor` of 0.95 with zero unaccepted survivors at the shipping head.
-<!-- ac-declared: end -->
 
 impeccable-gate: N/A — no UI surface
