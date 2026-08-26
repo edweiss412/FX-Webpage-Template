@@ -35,6 +35,10 @@ The marker contract is red-then-green on the SAME command inside one task. The w
 
 Task 6 is separable because it reds a DIFFERENT command: the tinted-plate guard's own opt-in.
 
+**The declared region covers Tasks 1 to 6 and stops there, and that is a correction rather than a convenience.** The region's contract is red-then-green on ONE command inside one task, and Tasks 7 to 10 cannot satisfy it, each for its own reason. Task 7's e2e spec and Task 8's transition suite are REGRESSION PINS: they assert relationships that already hold, so a guard test that passes the moment it is authored is exactly what the contract rejects, and a marker whose only "red" is the file not existing yet is a test-local red the RED-validity rule forbids by name. Task 9's guard validates marker GRAMMAR and disclaims any check on whether the gate ran or its findings are honest (`tests/docs/_invariant8Closeout.ts:11-16`), so a `why=` claiming it reads §12 dispositions asserts something the guard does not do. Task 10's defect lives in `BACKLOG.md`, a root-level file a marker cannot cite at all (`lib/specLint/citations.ts:55`).
+
+The first draft gave all four markers anyway, and every one of them was invalid. Enrolment is opt-in by design, so the honest form is to enrol what has a cycle and to state what the other four owe instead. **What they owe is written into each task**, and it is not weaker than a marker: a planted defect that must be observed failing before the task is done. A pin nobody has watched fail is a pin nobody has tested.
+
 **The prose moves with its cause, not in a task of its own.** A standalone "rewrite `DESIGN.md`" task has no executable red, and inventing a prose guard to give it one is the shape that cost PR #776 18 rounds and 33 findings on a single paragraph. So Task 5 carries `DESIGN.md:319-329`, the `DESIGN.md:260-261` mechanism sentence, the §1.2a sorting rule and `tests/styles/subtleInteractiveScan.ts:15-23`; Task 6 carries `DESIGN.md:412-418`, `DESIGN.md:445-449` and `tests/styles/tintedPlateOutline.test.ts:33-41`. The invariant-8 dual gate is what reviews the `DESIGN.md` diff, and it is Task 9.
 
 ## 4. Reconciliation sweeps, authored AND RUN at plan time
@@ -59,7 +63,7 @@ tests/styles/interactiveScanCore.test.ts:477,479        DEFAULT, unchanged (pars
 tests/styles/tintedPlateOutline.test.ts:56              OPT IN both flags (Task 6)
 ```
 
-Fifteen call sites, every one dispositioned: two opt in, four thread options into a fixture helper, nine keep the default.
+Fifteen call sites, every one dispositioned: **two opt in, five thread options into a fixture helper** (the four in `_metaControlOutlineResidue.test.ts` plus `tests/styles/interactiveScanCore.test.ts:68`), **and eight keep the default**. 2 + 5 + 8 = 15.
 
 **4.2 The residue registry counts this diff moves.**
 
@@ -94,16 +98,25 @@ No other file this diff touches appears in that registry. Checked against all se
 
 A `siteId` is `<operator>:<line>:<column>:<mutation>`, so an insertion above an accepted site invalidates the row and the score reds on a survivor nobody introduced.
 
+The inventory is DERIVED, not counted: two hand counts of one of these arrays disagreed with each other and with the array during the spec stage, so the plan carries the extractor and its output.
+
 ```
-$ grep -n 'siteId: "' tests/mutation/source/registry.ts   # interactiveScanCore rows, source lines
-141, 153, 180, 236, 285, 312, 380, 383, 394        (11 rows; two share line 383)
-$ ... controlOutlineResidue rows, source lines
-45, 51, 62, 80, 307, 321, 324, 373, 659            (9 rows)
+$ python3 - <<'PY'
+import re
+s = open("tests/mutation/source/registry.ts").read()
+for sid in ["interactiveScanCore", "controlOutlineScan", "controlOutlineResidue"]:
+    i = s.index(f'id: "{sid}"'); j = s.find('    id: "', i + 10)
+    ids = re.findall(r'siteId: "([^"]+)"', s[i : j if j > 0 else len(s)])
+    print(sid, len(ids), sorted({int(x.split(":")[1]) for x in ids}))
+PY
+interactiveScanCore    11 [141, 153, 180, 236, 285, 312, 380, 383, 394]
+controlOutlineScan      0 []
+controlOutlineResidue  14 [45, 51, 62, 80, 307, 321, 324, 373, 415, 504, 591, 659]
 ```
 
 `interactiveScanCore`: `ScanElement` ends at `tests/styles/interactiveScanCore.ts:65`, so adding `admittedAs` there inserts N lines above ALL eleven and every one shifts by exactly +N; columns are unaffected. Everything else this task adds (`ScanOptions` at ~865, the resolution helpers at ~876) lands below 394.
 
-`controlOutlineResidue`: only 659 sits below the `ResidueCategory` and `RESIDUE_CATEGORIES` additions at ~463-476, so only that one shifts. The import change and the `residueOf` signature change are in place, adding no line.
+`controlOutlineResidue`: the additions at roughly 463-476 sit above **four rows on lines 504, 591 and 659** (591 carries two), so those four shift and the **ten rows on lines 45 through 415** do not (415 also carries two). Four plus ten is the fourteen the extractor counted, which is the check that the split is over ROWS and not over lines. The import change and the `residueOf` signature change are in place, adding no line, and `controlOutlineScan` has an empty `accepted` with nothing to shift.
 
 Task 8 applies the shift by construction and the score run confirms zero unaccepted survivors. It also re-verifies each reason still describes the mutation at its new site by READING it, because a resolving siteId establishes nothing about what is there.
 
@@ -213,9 +226,20 @@ GREEN: add `inner-chrome` to `ResidueCategory` and `RESIDUE_CATEGORIES`, add its
 
 **What is red and why:** with the guard opted in and nothing repaired, the census reports 29 unregistered keys covering 35 elements. That red is the deliverable; record it before repairing.
 
-**STEP 1, the red.** Opt `residueOf` in at `tests/styles/controlOutlineResidue.ts:449` with `{ textEntry: true, paintedChildren: true }`, thread the same options through the four helpers in `_metaControlOutlineResidue.test.ts` (lines 232, 268, 600, 1767), run the suite, and commit the failure output to docs/superpowers/specs/probes/2026-08-26-control-outline-cover-red-at-head.txt (created by this task). It must name the 35 elements of spec §6.1 and §6.2 and nothing else. **If it names an element those tables do not hold, stop: the spec's population is wrong and the plan is invalid until it is re-derived.**
+**STEP 1, the red, and read what the command actually prints.** Opt `residueOf` in at `tests/styles/controlOutlineResidue.ts:449` with `{ textEntry: true, paintedChildren: true }`, thread the same options through the four helpers in `_metaControlOutlineResidue.test.ts` (lines 232, 268, 600, 1767), and run the suite.
 
-**STEP 2, Family A, 13 sites**, each to the token its GROUND requires (spec §9): `app/admin/settings/admins/AddAdminForm.tsx:73` and `app/admin/settings/admins/AddAdminForm.tsx:84`; `components/admin/BellPanel.tsx:838` and `components/admin/BellPanel.tsx:849`; `components/admin/ShowsTable.tsx:455`; the shared `CONTROL` constant in `components/admin/dev/MaterializeCard.tsx` (covering `components/admin/ShowsTable.tsx:152`, `components/admin/ShowsTable.tsx:164`, `components/admin/ShowsTable.tsx:179`); `components/admin/dev/SwitcherControls.tsx:119`; `components/admin/telemetry/EventFilters.tsx:40` and `components/admin/telemetry/EventFilters.tsx:101`; `components/admin/wizard/step3ReviewSections.tsx:4195`; `components/shared/ReportModal.tsx:705`.
+The suite's failure list is **keyed**, not per element: `_metaControlOutlineResidue.test.ts:410-414` iterates `LIVE.keys` and prints ONE representative element per key. So it reports **29 unregistered keys**, not 35 elements, and a stop condition phrased over 35 elements cannot be evaluated from it. Two artifacts, therefore, and both are committed to docs/superpowers/specs/probes/2026-08-26-control-outline-cover-red-at-head.txt (created by this task):
+
+1. the suite's own failure output, whose 29 keys must be exactly the 29 the spec's §7.1 derivation names;
+2. the per-ELEMENT enumeration, produced by the same script that produced the spec's committed transcript (`docs/superpowers/specs/probes/2026-08-26-control-outline-cover-red.txt`), whose 35 rows must be exactly spec §6.1 plus §6.2.
+
+**If either artifact holds a member its table does not, stop: the spec's population is wrong and this plan is invalid until it is re-derived.** AC-9 is checked against artifact 2, because its unit is the element.
+
+**STEP 2, Family A, 13 sites**, each to the token its GROUND requires (spec §9): `app/admin/settings/admins/AddAdminForm.tsx:73` and `app/admin/settings/admins/AddAdminForm.tsx:84`; `components/admin/BellPanel.tsx:838` and `components/admin/BellPanel.tsx:849`; `components/admin/ShowsTable.tsx:455`; the shared `CONTROL` constant at `components/admin/dev/MaterializeCard.tsx:39` (covering `components/admin/dev/MaterializeCard.tsx:152`, `components/admin/dev/MaterializeCard.tsx:164` and `components/admin/dev/MaterializeCard.tsx:179`); `components/admin/dev/SwitcherControls.tsx:119`; `components/admin/telemetry/EventFilters.tsx:40` and `components/admin/telemetry/EventFilters.tsx:101`; `components/admin/wizard/step3ReviewSections.tsx:4195`; `components/shared/ReportModal.tsx:705`.
+
+**STEP 2b, `EventFilters`, which is the one site where repairing what the red names is not enough** (spec §6.4). Its weak paint sits in a dead fallback at `components/admin/telemetry/EventFilters.tsx:46` while both live call sites supply their own className at `components/admin/telemetry/EventFilters.tsx:80` and `components/admin/telemetry/EventFilters.tsx:130`. Swapping only the fallback clears `isResidue` and leaves both rendered controls weak. So, in order: DELETE the `className` prop from `FilterTextInput` (its declaration at `components/admin/telemetry/EventFilters.tsx:25` and its type at `components/admin/telemetry/EventFilters.tsx:31`); give it `grow?: boolean`; make the element's className `cn("min-h-tap-min rounded border border-text-faint bg-surface px-2", grow && "flex-1")` with `cn` from `lib/ui/cn.ts:45`; pass `grow` at `components/admin/telemetry/EventFilters.tsx:80` and nothing at `components/admin/telemetry/EventFilters.tsx:130`.
+
+Then the AC-9b assertion, which is what stops a future repair from regressing this: a case in `tests/styles/interactiveScanCore.test.ts` over a fixture shaped like this one, asserting that the element's resolved strings contain the base recipe and that a PLANTED caller `className="!border-border"` cannot reach it because the prop does not exist. The planted override is the point: without it the case passes on any component that happens to be correct today.
 
 **STEP 3, the hover half.** `components/admin/dev/SwitcherControls.tsx:122` moves `hover:border-accent` to `hover:border-accent-on-bg` in the same edit as its rest, per `DESIGN.md:309-316`. It is the only site in the repo with this defect (§4.5).
 
@@ -235,45 +259,49 @@ GREEN: the same command passes with the census at 22 rows.
 
 **What is red and why:** the derived arm gains a member carrying the neutral token on a plate.
 
-RED: opt the scan in at `tests/styles/tintedPlateOutline.test.ts:56`. The derived list moves 8 to 9 and the new member fails. Add the `--color-control-outline-tinted` vs `--color-bg` RELATION to `tests/styles/secondary-action-contrast.test.ts` (clears 3:1 in both themes, read off the live tokens), which also fails until the `DESIGN.md` row exists.
+RED: opt the scan in at `tests/styles/tintedPlateOutline.test.ts:56`. The derived list moves 8 to 9 and the new member fails both of its assertions. That is the whole red, and the marker's command is this suite alone.
+
+**The contrast relation is an ADDITION, not part of the red, and saying so is the correction.** `--color-control-outline-tinted` vs `--color-bg` already measures 3.82:1 light and 5.22:1 dark on the live tokens, so a relation assertion over them passes the moment it is written and could never be a red. It ships under AC-10 as a regression pin beside the `DESIGN.md` §1.2 row it records, in the same commit, exactly as the AGENTS.md pre-code mechanical UI gate requires of a newly-pinned pair. Its own check at authoring time is a planted retune, not a red step.
 
 GREEN: move `components/admin/MaintenanceResetButtons.tsx:308` to `border-control-outline-tinted`; INVERT the "left alone" pin at `tests/styles/tintedPlateOutline.test.ts:252-261` rather than deleting it, asserting the plate token with the ratification and its date in the docstring, exactly as `DESIGN.md:337-352` records for the ShareHub skin; add the row (3.82:1 / 5.22:1) to `DESIGN.md` §1.2; rewrite `DESIGN.md:412-418`, `DESIGN.md:445-449` and `tests/styles/tintedPlateOutline.test.ts:33-41`.
 
+<!-- tasks: end -->
+
 ## Task 7 — layout dimensions, in a real browser
 
-<!-- task: red=`pnpm heavy pnpm test:e2e tests/e2e/control-outline-dimensions.layout.spec.ts` red-state=authored red-target=`tests/e2e/control-outline-dimensions.layout.spec.ts` why=`the spec file does not exist, so the run collects nothing; once authored, each pair asserts a rect relationship that only the shipped classes satisfy` ac=AC-13 -->
+**Outside the declared region (§3): a regression pin, verified by a planted defect rather than by a red-green marker.**
 
-Assert spec §14's five parent/child pairs by `getBoundingClientRect()` at 390px, light and dark, within 0.5px. Server boot: the repo's Playwright config's own `webServer` (`playwright.config.ts`, prod build, 127.0.0.1-pinned port). Readiness gate: a per-spec hydration wait in the shape of `tests/e2e/published-review-modal.reopen.spec.ts:48`, never `networkidle` alone. Any `locator.evaluate` sampler that can outlive its element is written detach-safe.
+Assert spec §14's five parent/child pairs by `getBoundingClientRect()` at 390px, light and dark, within 0.5px, in tests/e2e/control-outline-dimensions.layout.spec.ts (created by this task).
+
+**Wiring is a step, not an assumption.** `playwright.config.ts` selects specs by an explicit basename alternation, so a new file that no alternation names collects NOTHING however it is invoked, including by explicit CLI path. This task adds the escaped basename control-outline-dimensions.layout to the `mobile-safari` alternation at `playwright.config.ts:83` (390px is that project's viewport) and confirms collection with `pnpm exec playwright test --list` BEFORE writing an assertion. The existing tap-target-inline-controls.layout entry in that same alternation is the precedent for the dotted form and for how the dot is escaped.
+
+**Harness, corrected.** The `webServer` at `playwright.config.ts:263-267` runs `pnpm build && pnpm start` only under `CI`; locally it runs `pnpm dev`. Readiness gate: a per-spec hydration wait in the shape of `tests/e2e/published-review-modal.reopen.spec.ts:48`, never `networkidle` alone. Any `locator.evaluate` sampler that can outlive its element is written detach-safe. The run goes through `pnpm heavy` (non-interactive playwright is a heavy phase); `--ui` and `--debug` are never wrapped.
+
+**Its own check, since no marker guards it.** Before the task is done, each of the five pairs is observed FAILING against a planted defect: temporarily remove the class that guarantees that pair (the child's `size-8`, the parent's `min-h-tap-min`, the tile span's `min-h-tap-min`), confirm the assertion reds, restore. A pin nobody has watched fail is a pin nobody has tested. Record the five observations in the commit message.
 
 ## Task 8 — transition audit, and re-score the three enrolled surfaces
 
-<!-- task: red=`pnpm vitest run tests/styles/controlOutlineTransitions.test.ts` red-state=authored red-target=`tests/styles/controlOutlineTransitions.test.ts` why=`the suite does not exist, so nothing asserts that each swapped ternary keeps its transition-colors or is deliberately instant, and nothing covers the wizard pill's six state pairs` ac=AC-13,AC-17 -->
+**Outside the declared region (§3): a regression pin plus a measurement, neither of which is a red-green cycle.**
 
-The transition suite walks every ternary render among the swapped elements and asserts each keeps its `transition-colors` or is deliberately instant, covering both compound cases spec §15 names.
+The transition suite, tests/styles/controlOutlineTransitions.test.ts (created by this task), walks every ternary render among the swapped elements and asserts each keeps its `transition-colors` or is deliberately instant, covering both compound cases spec §15 names. **Its own check:** each assertion is observed failing against a planted removal of the `transition-colors` token it names, restored after. The wizard pill's six state pairs are asserted against `components/admin/OnboardingWizard.tsx:166`, which is where `transition-colors duration-fast` actually lives, so the suite reads the base rather than restating spec prose.
 
-Then the score. Announce the class-lock take to bl-orch at `wY:p8` before the run and the release after. `pnpm heavy:mutation pnpm mutation:guards`, never plain `pnpm heavy`. The shard is derived by LPT from the registry (`tests/mutation/source/shardPartition.ts:90`), never carried by hand. Apply the §4.4 siteId shift by construction, re-measure `millisPerBoot` for the two opted-in suites, reconcile `tests/mutation/_metaPremiseContract.test.ts`'s per-suite premise counts, and re-verify each `accepted` reason by READING its new site. `controlOutlineScan` has `scoreFloor: 1` and no slack.
+Then the score. Announce the class-lock take to bl-orch at `wY:p8` before the run and the release after. `pnpm heavy:mutation pnpm mutation:guards`, never plain `pnpm heavy`. The shard is derived by LPT from the registry (`tests/mutation/source/shardPartition.ts:90`), never carried by hand. Apply the §4.4 shift by construction: **eleven** `interactiveScanCore` rows shift by the lines inserted above source line 141, and **four** `controlOutlineResidue` rows (504, both at 591, and 659) shift by the lines the category additions insert. Re-measure `millisPerBoot` for the two opted-in suites, reconcile `tests/mutation/_metaPremiseContract.test.ts`'s per-suite premise counts, and re-verify each `accepted` reason by READING its new site, because a resolving siteId establishes nothing about what is there. `controlOutlineScan` has `scoreFloor: 1` and no slack. AC-17 is the criterion.
 
 ## Task 9 — invariant-8 dual gate
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-26-control-outline-cover-widening.md:5` why=`the closeout marker names a §12 that does not yet hold dispositions, so the closeout meta-test has no recorded critique or audit outcome to read` ac=AC-14 -->
+**Outside the declared region (§3).** `tests/docs/_invariant8Closeout.ts:11-16` says in its own words that it verifies a declaring unit CARRIES a well-formed claim, and not that the gate ran or that its findings are honest. So there is no command this task can turn from red to green by running the gate, and a `why=` claiming otherwise would assert something the guard does not do.
 
 Run both halves of the AGENTS.md invariant-8 gate on the affected diff, with the canonical v3 setup gates (the context.mjs context load of PRODUCT.md and DESIGN.md, then the register reference read). Every P0 and P1 fixed in-branch.
 
-This task's commit does three things together, per §0: it records the findings and dispositions in §12, it rewrites this paragraph to name both halves explicitly, and it adds the filled `impeccable-gate:` line at the top of this file. None of the three is valid without the other two.
+This task's commit does three things together, per §0: it records the findings and dispositions in §12, it rewrites this paragraph to name both halves explicitly, and it adds the filled `impeccable-gate:` line at the top of this file. None of the three is valid without the other two, and `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` must be green after that commit and is run to confirm it.
 
 ## Task 10 — archive the row
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` red-state=authored red-target=`tests/docs/_metaLedgerInProgress.test.ts:81` why=`the archived entry still carries **Status:** IN PROGRESS with a Branch field, so the archives-hold-no-in-flight-work filter matches it and the assertion fails on a non-empty list` ac=AC-9 -->
+**Outside the declared region (§3).** The defect this task removes lives in `BACKLOG.md`, and a marker's `red-target=` rejects any path with no directory separator (`lib/specLint/citations.ts:55`), so the ledger entry cannot be cited in a marker at all.
 
-**Citation note.** A marker's `red-target=` rejects a path with no directory separator
-(`lib/specLint/citations.ts:55`), so the ledger entry that actually carries the defect cannot be cited
-here: `BACKLOG.md` and `BACKLOG-archive.md` both sit at the repo root. The target names the assertion
-that fails and the `why=` names the ledger state that makes it fail, which is the closest legal form.
-The red is still produced by the ledger content this task writes, not by anything test-local.
+Graduate `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` into `BACKLOG-archive.md` with both rulings, the derived population, the corrected line anchors, the two sites `DESIGN.md` named that the row missed, and the switch-track fence.
 
-Graduate `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` into the archive with both rulings, the derived population, the corrected line anchors, the two sites `DESIGN.md` named that the row missed, and the switch-track fence. The IN PROGRESS marker comes off in the SAME commit that archives it, and that commit is the PR's last.
-
-<!-- tasks: end -->
+**The red is observed, not skipped.** Move the entry to the archive with its `**Status:** IN PROGRESS · **Branch:**` marker still attached and run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts`: the archives-hold-no-in-flight-work filter matches it and the assertion fails on a non-empty list. Record that output in the commit message, THEN remove the marker and confirm the same command green. The marker comes off in this commit, which is the PR's last, so it never reaches `main`.
 
 ## 12. Invariant-8 dual-gate dispositions
 
