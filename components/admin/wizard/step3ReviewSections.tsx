@@ -3101,7 +3101,16 @@ export function WarningsBreakdown({
                         // row, so this is the only per-row discriminator — makes otherwise-
                         // identical entries scannable and identifies the row when the deep
                         // link is absent.
-                        const rowLabel = labelFromRawSnippet(w.rawSnippet);
+                        // Only UNKNOWN_FIELD writes rawSnippet in the `<label> | <value>`
+                        // shape. PULL_SHEET_* carries a RAW pipe-delimited row (pull-sheet.ts
+                        // sets `rawSnippet: nonFiveColumnRow` and `rawSnippet: row`), so
+                        // ungated this rendered a garbled first-cell fragment as a field label
+                        // that is not in the sheet: for `| 2x | Shure SM58 | wireless | Case 3 |`
+                        // it rendered `| 2x`. Same gate the per-show surface has carried since
+                        // audit idx46/#217; this is the half of that sweep that never landed
+                        // here, not a widening of it.
+                        const rowLabel =
+                          w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
                         return rowLabel ? (
                           <span
                             data-testid={`wizard-step3-card-${dfid}-warning-${i}-label`}
