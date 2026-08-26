@@ -31,7 +31,7 @@ That set is the closure the diff review converges against. A reviewer-proposed N
 
 ## 3. Why the sweep is ONE task and not four
 
-The marker contract is red-then-green on the SAME command inside one task. The widened cover and the repairs it names cannot be separated without breaking that cycle: opting the residue guard in makes `_metaControlOutlineResidue` red on 35 keys at once, and any task repairing only some of them leaves the same command red at its own end. So Task 5 carries the opt-in, all 23 swaps, the 12 registrations and the pin moves, and its body records the observed red before the repairs. That is the row's own sequence executed inside one commit rather than spread across four red ones.
+The marker contract is red-then-green on the SAME command inside one task. The widened cover and the repairs it names cannot be separated without breaking that cycle: opting the residue guard in makes `_metaControlOutlineResidue` red on 29 keys covering 35 elements at once, and any task repairing only some of them leaves the same command red at its own end. So Task 5 carries the opt-in, all 23 swaps, the 12 registrations and the pin moves, and its body records the observed red before the repairs. That is the row's own sequence executed inside one commit rather than spread across four red ones.
 
 Task 6 is separable because it reds a DIFFERENT command: the tinted-plate guard's own opt-in.
 
@@ -135,13 +135,79 @@ components/admin/dev/SwitcherControls.tsx:122
 
 One site, and it is the Family A `<select>`. Seven of the eight `hover:border-border-strong` hits are card links in `app/help/tour/page.mdx`, outside the `.tsx` corpus and outside every swap set here; the eighth is `components/admin/HoverHelp.tsx`, whose rest is already `border-text-faint` and therefore already heavier on hover.
 
-## 5. Layout-dimensions task
+## 5. Dimensional Invariants, verbatim
 
-Mandatory because spec §14 carries a Dimensional Invariants table. Task 7 asserts, in a real browser at 390px in both themes, that every parent/child pair in that table keeps the relationship the table states, by `getBoundingClientRect()` within 0.5px. jsdom is not sufficient and is not used.
+`docs/agents/writing-plans.md:8` requires the plan body to carry the spec's exact list rather than a
+pointer to it. Copied from spec §14; the spec is canonical if the two ever diverge.
 
-## 6. Transition-audit task
+Every repair in §6 replaces one border COLOUR token with another. Nothing here changes a border
+width, a padding, a radius or a display mode, so no box model moves. Stated anyway, because a
+colour-only claim is exactly the kind that turns out to be false once a diff exists.
 
-Mandatory because spec §15 carries a Transition Inventory, now covering the wizard pill's six state pairs. Task 8's suite walks every ternary render among the swapped elements and asserts each keeps its `transition-colors` or is deliberately instant, including both compound cases the inventory names.
+| Parent | Child | Relationship | What guarantees it |
+| --- | --- | --- | --- |
+| `<button>` `components/admin/ShowRowActions.tsx:631` (`min-h-tap-min min-w-tap-min`) | `<span>` at `components/admin/ShowRowActions.tsx:647` | child is the 32px visual inside the 44px target, deliberately smaller | `size-8` on the child, `min-h-tap-min min-w-tap-min` on the parent; neither is touched |
+| `<button>` `components/admin/wizard/CrewRowActions.tsx:260` (`size-tap-min`) | `<span>` at `components/admin/wizard/CrewRowActions.tsx:270` | same | `size-8` on the child; neither is touched |
+| `<a>` `components/admin/wizard/step3ReviewSections.tsx:1217` (`size-tap-min`) | `<span>` at `components/admin/wizard/step3ReviewSections.tsx:1226` | same | `size-8` on the child; neither is touched |
+| `<a>` `components/admin/wizard/VenueMapTile.tsx:134` (the whole tile) | `<span>` at `components/admin/wizard/VenueMapTile.tsx:121` | the child IS the 44px target here, absolutely positioned in the tile's bottom band | `min-h-tap-min` on the child, `absolute inset-x-2.5 bottom-2.5`; neither is touched |
+| `<button>` `components/admin/ReSyncButton.tsx:175` (`min-h-tap-min min-w-tap-min`) | `<span>` at `components/admin/ReSyncButton.tsx:213` | the `max-sm:` skin is `h-8` inside the 44px rect, and the button keeps its real rect | `h-8` on the child; neither is touched |
+
+**Border width is 1px at every swap target.** No target carries `border-2` or a side-only width, so a
+colour swap cannot change a computed size. AC-15 asserts the width utility set is identical before and
+after across the whole swap.
+
+## 6. Transition Inventory, verbatim
+
+`docs/agents/writing-plans.md:9` requires the same of the transition table. Copied from spec §15, all
+THREE of its tables. Task 8 asserts over this whole inventory, not over a subset of it.
+
+THREE swap targets animate their outline colour, and two REGISTERED tracks do. The swap changes what is
+tweened on the three; the two tracks keep their recipe and are here so the inventory is complete over
+what the widened cover admits, not only over what moves. Every other target has no colour transition,
+which is stated rather than left blank.
+
+`components/admin/ShowRowActions.tsx:647` and `components/admin/wizard/CrewRowActions.tsx:270` are
+two-state (closed, open), so one unordered pair each, listed below in both directions.
+
+| Element | Pair | Transition |
+| --- | --- | --- |
+| `components/admin/ShowRowActions.tsx:647` | closed to open | `transition-colors duration-fast`, unchanged; the tween now runs `text-faint` unfilled to `text-faint` on `surface-sunken` instead of `border` to `border-strong` |
+| `components/admin/ShowRowActions.tsx:647` | open to closed | the same tween in reverse, unchanged |
+| `components/admin/wizard/CrewRowActions.tsx:270` | both directions | byte-identical recipe to the two rows above |
+| `components/admin/telemetry/AutoRefreshControl.tsx:105` | OFF to ON, ON to OFF | `transition-colors`, unchanged, and the recipe is unchanged: the track is registered, not swapped |
+| `components/admin/settings/DeveloperToggleButton.tsx:93` | OFF to ON, ON to OFF | same, through `TRACK_BASE`; registered, not swapped |
+
+`components/admin/OnboardingWizard.tsx:258` has FOUR states, so six pairs, and the pill DOES animate:
+`base` at `components/admin/OnboardingWizard.tsx:166` carries `transition-colors duration-fast` and the
+visual is `cn(base, pillState)`. Only the `isDone` arm's border moves in this diff
+(`border-border-strong` to `border-text-faint` at `components/admin/OnboardingWizard.tsx:240`), so every
+pair with `done` on one side changes what is tweened and the other three do not.
+
+| Pair | Border endpoints after the swap | Transition |
+| --- | --- | --- |
+| active to done | `accent-edge` to `text-faint` | `transition-colors duration-fast`; the done endpoint moves, the tween is unchanged in kind |
+| done to active | `text-faint` to `accent-edge` | same, reversed |
+| visited to done | `transparent` to `text-faint` | same; a transparent endpoint tweens to a visible one, as it did before at a lower weight |
+| done to visited | `text-faint` to `transparent` | same, reversed |
+| unreached to done | `transparent` to `text-faint` | same; `unreached` and `visited` share the border token and differ in text colour |
+| done to unreached | `text-faint` to `transparent` | same, reversed |
+| active to visited, visited to active | `accent-edge` to `transparent` | unchanged by this diff |
+| active to unreached, unreached to active | `accent-edge` to `transparent` | unchanged by this diff |
+| visited to unreached, unreached to visited | `transparent` to `transparent` | unchanged by this diff; the border is not what distinguishes these two |
+
+Every other swap target:
+
+| Element | Pair | Transition |
+| --- | --- | --- |
+| every Family A field | rest to focus, focus to rest | the focus cue is a `focus-visible:ring-*`, not a border tween; unchanged in both directions |
+| `components/admin/dev/SwitcherControls.tsx:119` | rest to hover, hover to rest | no `transition-colors` on this element today. The hover token moves from `accent` to `accent-on-bg` and the switch stays instant, matching its two neighbours at `components/admin/dev/SwitcherControls.tsx:29` and `components/admin/dev/SwitcherControls.tsx:145`, which are also instant |
+| `components/admin/wizard/VenueMapTile.tsx:121`, `components/admin/ReSyncButton.tsx:213`, `components/admin/telemetry/CronRunSummaryCard.tsx:26`, the four `step3ReviewSections` visuals | single-state | no state pair exists; instant by construction |
+
+**Compound cases.** A menu trigger's open/closed tween can be interrupted by a re-render that swaps the
+whole className string, because the two arms are a ternary rather than a variant: true today, unchanged
+by a colour swap, no arm added or removed. And a wizard pill can change `pillState` while a previous
+`transition-colors` is still running, since the four arms are also a ternary chain on one element; the
+browser retargets the running colour tween, which is the behaviour today at the old token.
 
 ## 7. Acceptance criteria
 
@@ -182,7 +248,11 @@ RED: add cases asserting `scanFixtureFiles({...}, { textEntry: true })` admits `
 
 GREEN: add `ScanOptions`, thread it through `scanInteractiveElements` into `isInScope`, and admit `textarea`, `select` and `input` at any type when `options.textEntry === true`. The comparison is `=== true`, never truthiness.
 
-Also add the AC-1 case: with both flags off, `scanInteractiveElements(process.cwd())` returns `file:line:tag` output identical to a call with no options argument at all. This is the premise every measured number in the spec rests on.
+**AC-1's control, and why the obvious form of it is worthless.** Comparing flags-off against an omitted argument compares two paths through the SAME changed implementation: both can drift identically and pass. The comparison that means something is against `b30413cf5`, and it has two halves because they answer different questions.
+
+*One-time, exact, recorded.* Materialise the base scanner (`git show b30413cf5:tests/styles/interactiveScanCore.ts` into a temp module), run both over `process.cwd()`, and assert the `file:line:tag` lists are byte-identical. Same for AC-2's 421 and AC-5's 362 / 362 / 57 / 362. These numbers are true of THIS corpus at THIS base, so they are a task-time verification whose transcript goes in the commit message, not a shipped test: pinned exactly, they would red on every unrelated PR that adds a control, which is why the live suites all use `>= 300` / `> 200` floors.
+
+*Shipped, structural, drift-proof.* What "unchanged" actually means survives corpus growth and is asserted permanently: with both flags off, no returned element has `admittedAs: "painted-child"`, and no `textarea`, no `select`, and no `<input>` outside `type="checkbox" | "radio"` appears. Over the live corpus, and over a fixture that contains one of each so the assertion cannot pass vacuously.
 
 ## Task 2 — the `paintedChildren` axis and `admittedAs`
 
@@ -239,13 +309,38 @@ The suite's failure list is **keyed**, not per element: `_metaControlOutlineResi
 
 **STEP 2b, `EventFilters`, which is the one site where repairing what the red names is not enough** (spec §6.4). Its weak paint sits in a dead fallback at `components/admin/telemetry/EventFilters.tsx:46` while both live call sites supply their own className at `components/admin/telemetry/EventFilters.tsx:80` and `components/admin/telemetry/EventFilters.tsx:130`. Swapping only the fallback clears `isResidue` and leaves both rendered controls weak. So, in order: DELETE the `className` prop from `FilterTextInput` (its declaration at `components/admin/telemetry/EventFilters.tsx:25` and its type at `components/admin/telemetry/EventFilters.tsx:31`); give it `grow?: boolean`; make the element's className `cn("min-h-tap-min rounded border border-text-faint bg-surface px-2", grow && "flex-1")` with `cn` from `lib/ui/cn.ts:45`; pass `grow` at `components/admin/telemetry/EventFilters.tsx:80` and nothing at `components/admin/telemetry/EventFilters.tsx:130`.
 
-Then the AC-9b assertion, which is what stops a future repair from regressing this: a case in `tests/styles/interactiveScanCore.test.ts` over a fixture shaped like this one, asserting that the element's resolved strings contain the base recipe and that a PLANTED caller `className="!border-border"` cannot reach it because the prop does not exist. The planted override is the point: without it the case passes on any component that happens to be correct today.
+**The assertion comes FIRST, and the first draft of it was tautological.** A fixture asserting "a planted caller `className="!border-border"` cannot reach the element" passes on the BROKEN shape too, because the scanner never follows prop flow at all (`tests/styles/interactiveScanCore.test.ts:85-87` pins exactly that), so the planted class is invisible either way. It proves nothing about whether the prop exists.
+
+The discriminating property is that the element's ENTIRE className is readable, which is what "no caller can contribute a token" means in the only vocabulary the guard has. So AC-9b is:
+
+```
+the scanned element for components/admin/telemetry/EventFilters.tsx:40 has unresolved === false
+```
+
+On today's shape the className is `className ?? "<literal>"` with `className` a prop the resolver cannot read, so `unresolved` is TRUE and the assertion reds. It stays true for any shape that merges a caller string, including the `cn(base, className)` form spec §6.4 rejected, so this single assertion also rules out the wrong repair. It goes green only when every contributing expression resolves to file-local literals. The implementation must therefore reach a form the resolver reads end to end; if `grow && "flex-1"` does not (check `resolveExpression`'s binary handling before writing it), use a ternary over two literals.
+
+Order: write that assertion in `tests/styles/interactiveScanCore.test.ts` over the LIVE corpus, observe it red, then make the production edit above, then observe it green. That is a real red-green cycle inside Task 5 on a second command, and the commit records both observations.
 
 **STEP 3, the hover half.** `components/admin/dev/SwitcherControls.tsx:122` moves `hover:border-accent` to `hover:border-accent-on-bg` in the same edit as its rest, per `DESIGN.md:309-316`. It is the only site in the repo with this defect (§4.5).
 
 **STEP 4, Family B swaps, 10 sites.** `components/admin/wizard/VenueMapTile.tsx:121`; `components/admin/OnboardingWizard.tsx:258` (the `pillState` done arm at `components/admin/OnboardingWizard.tsx:240` only); `components/admin/ShowRowActions.tsx:647` (both arms); `components/admin/wizard/CrewRowActions.tsx:270` (both arms); `components/admin/wizard/step3ReviewSections.tsx:1226`, `components/admin/wizard/step3ReviewSections.tsx:1768`, `components/admin/wizard/step3ReviewSections.tsx:1779`, `components/admin/wizard/step3ReviewSections.tsx:3788`; `components/admin/ReSyncButton.tsx:213`; `components/admin/telemetry/CronRunSummaryCard.tsx:26`.
 
 **STEP 5, the twelve registrations.** `switch-track`, citing `DESIGN.md §1.2a` and the 1.43:1 / 1.75:1 OFF ring: `components/admin/telemetry/AutoRefreshControl.tsx:105` and `components/admin/settings/DeveloperToggleButton.tsx:93`. `inner-chrome`, each citing §1.2a's non-interactive-chrome clause and recording its measured ratio: `components/admin/IgnoredSheetsDisclosure.tsx:80` and `components/admin/IgnoredSheetsDisclosure.tsx:97`; `components/admin/RecentAutoAppliedStrip.tsx:474`; `components/admin/nav/AdminNav.tsx:154`; `components/admin/ShowsTable.tsx:288`; `components/admin/wizard/step3ReviewSections.tsx:2431`; `components/admin/UnarchiveShowButton.tsx:113`; `components/admin/ArchiveShowButton.tsx:232`, `components/admin/ArchiveShowButton.tsx:243`, `components/admin/ArchiveShowButton.tsx:253`. The last two share a key at multiplicity two and therefore take TWO rows (§4.2).
+
+**STEP 5b, AC-15, which had no executable form and now has one.** The claim is that the multiset of border-WIDTH utilities across every swap target is identical before and after, so a colour swap cannot have moved layout. Run it, do not assert it in prose:
+
+```
+$ python3 - <<'PY'   # over the 23 swap targets of spec 6.1 and 6.2, base vs HEAD
+import re, subprocess
+WIDTH = re.compile(r"(?<![\w-])(?:border|border-[tblrxy]|border-\d+|border-[tblrxy]-\d+)(?![\w-])")
+def multiset(rev, path, lo, hi):
+    src = subprocess.run(["git","show",f"{rev}:{path}"],capture_output=True,text=True).stdout.split("\n")
+    return sorted(WIDTH.findall(" ".join(src[lo-1:hi])))
+# one row per swap target; the window is the element's opening tag through its className
+PY
+```
+
+The window per target is its opening tag through the end of its className expression, and the two multisets must be equal for all 23. `components/admin/telemetry/EventFilters.tsx:40` is the one target whose className MOVES (STEP 2b rewrites it), so its window is compared against the union of the fallback and the two call sites at base. The output goes in the commit message; a difference on any target is a layout change this arc did not authorise and stops the task.
 
 **STEP 6, the pins.** `_metaControlOutlineResidue.test.ts:386` to 22; `_metaControlOutlineResidue.test.ts:392` to 5; a new `count("inner-chrome")` assertion at 10; `_metaControlOutlineResidue.test.ts:393`, `_metaControlOutlineResidue.test.ts:394`, `_metaControlOutlineResidue.test.ts:400`, `_metaControlOutlineResidue.test.ts:401`, `_metaControlOutlineResidue.test.ts:402` unchanged. `tintedPlateOutline.test.ts:215` `neutralFaintCount` 4 to 9 (§4.3).
 
@@ -283,7 +378,7 @@ Assert spec §14's five parent/child pairs by `getBoundingClientRect()` at 390px
 
 **Outside the declared region (§3): a regression pin plus a measurement, neither of which is a red-green cycle.**
 
-The transition suite, tests/styles/controlOutlineTransitions.test.ts (created by this task), walks every ternary render among the swapped elements and asserts each keeps its `transition-colors` or is deliberately instant, covering both compound cases spec §15 names. **Its own check:** each assertion is observed failing against a planted removal of the `transition-colors` token it names, restored after. The wizard pill's six state pairs are asserted against `components/admin/OnboardingWizard.tsx:166`, which is where `transition-colors duration-fast` actually lives, so the suite reads the base rather than restating spec prose.
+The transition suite, tests/styles/controlOutlineTransitions.test.ts (created by this task), ranges over §6's WHOLE inventory and not over the swapped elements alone: all three tables, so the two registered switch tracks and the non-ternary instant cases are covered as well as the ternaries. One case per row, plus the two compound cases §6 names. A round-1 draft scoped the walk to "ternary renders among the swapped elements", which could pass while covering neither the tracks nor the instant rows. **Its own check, and it is two plants because the inventory has two kinds of row.** For every row that names a transition, the assertion is observed failing against a planted REMOVAL of the `transition-colors` token it names. For every row declared deliberately instant (the Family A focus rows, `components/admin/dev/SwitcherControls.tsx:119`, and the single-state visuals in §6's third table), there is no token to remove, so the plant is the opposite one: ADD a `transition-colors` to that element and observe the instant-row assertion red. Both plants restored after. A round-1 draft claimed the removal plant for all of them, which is impossible for the rows that have nothing to remove. The wizard pill's six state pairs are asserted against `components/admin/OnboardingWizard.tsx:166`, which is where `transition-colors duration-fast` actually lives, so the suite reads the base rather than restating spec prose.
 
 Then the score. Announce the class-lock take to bl-orch at `wY:p8` before the run and the release after. `pnpm heavy:mutation pnpm mutation:guards`, never plain `pnpm heavy`. The shard is derived by LPT from the registry (`tests/mutation/source/shardPartition.ts:90`), never carried by hand. Apply the §4.4 shift by construction: **eleven** `interactiveScanCore` rows shift by the lines inserted above source line 141, and **four** `controlOutlineResidue` rows (504, both at 591, and 659) shift by the lines the category additions insert. Re-measure `millisPerBoot` for the two opted-in suites, reconcile `tests/mutation/_metaPremiseContract.test.ts`'s per-suite premise counts, and re-verify each `accepted` reason by READING its new site, because a resolving siteId establishes nothing about what is there. `controlOutlineScan` has `scoreFloor: 1` and no slack. AC-17 is the criterion.
 
@@ -293,7 +388,9 @@ Then the score. Announce the class-lock take to bl-orch at `wY:p8` before the ru
 
 Run both halves of the AGENTS.md invariant-8 gate on the affected diff, with the canonical v3 setup gates (the context.mjs context load of PRODUCT.md and DESIGN.md, then the register reference read). Every P0 and P1 fixed in-branch.
 
-This task's commit does three things together, per §0: it records the findings and dispositions in §12, it rewrites this paragraph to name both halves explicitly, and it adds the filled `impeccable-gate:` line at the top of this file. None of the three is valid without the other two, and `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` must be green after that commit and is run to confirm it.
+This task's commit does three things together, per §0: it records the findings and dispositions in §12, it rewrites this paragraph to name both halves explicitly, and it adds the filled `impeccable-gate:` line at the top of this file. None of the three is valid without the other two.
+
+**Its own planted failure**, which this task owes like the other unenrolled ones: make the two edits in the wrong order. Add the explicit half-names WITHOUT the marker line, run `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts`, and observe it red with "declares the invariant-8 dual gate but carries no valid impeccable-gate marker line". Then add the marker and observe it green. Both observations in the commit message. This is the guard doing the only thing it claims to do, which is why it is the right plant for it.
 
 ## Task 10 — archive the row
 
