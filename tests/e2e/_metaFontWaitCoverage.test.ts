@@ -19,6 +19,62 @@
 // the code that implements them. `_metaFontWaitCoverageMutants.test.ts` is what
 // keeps this row falsifiable: this file's only input is a corpus that passes, so
 // on its own it cannot tell a working guard from one that returns nothing.
+//
+// DOCUMENTED LIMITS, measured 2026-08-25 (spec
+// docs/superpowers/specs/2026-08-25-e2e-proof-retired-route-subpixel-design.md
+// section 7.3). Two properties bound what this guard can see. Both are recorded
+// rather than fixed, because fixing either is a redesign of this surface rather
+// than a repair to it, and the arc that measured them was closing two unrelated
+// rows.
+//
+//   1. `analyzeSource` is SINGLE-FILE. It builds a `noResolve` program over one
+//      source (_fontWaitCoverage.ts:573-582), so a spec that navigates through a
+//      HELPER has no `page.goto` of its own, no navigation site is found, and
+//      the file reports zero problems however it measures. Probe over
+//      tests/e2e/helpers/** with comments stripped: FOUR exported helpers
+//      navigate directly (driveToState, openShowReviewFrameAt,
+//      openShowReviewModalAt, openStep3Modal), plus openShowReviewModal
+//      transitively; 12 specs call one AND read geometry, of which 11 carry no
+//      fonts wait (font-binding.spec.ts already waits). `signInAs` is NOT
+//      one of them and an earlier draft of this note wrongly said it was: it
+//      posts through page.request.post (helpers/signInAs.ts:60) and never
+//      replaces the document, so counting it inflated the census and would
+//      have made any rule built on it fire almost corpus-wide.
+//      `tap-target-inline-controls.layout.spec.ts` is exactly that shape; it is
+//      deliberately NOT added to CALLERS below, because a row for a file whose
+//      navigation this analyzer cannot see would pass unconditionally forever,
+//      which is the tautological-guard failure the AGENTS.md guard-premise rule
+//      names. Its barrier is enforced by a real-browser premise test in the spec
+//      itself instead.
+//   2. CALLERS is HAND-ENUMERATED, so a spec absent from it is unchecked
+//      whatever the analyzer would say. Probe: running `analyzeSource` over all
+//      105 e2e specs reports live problems in 10 files, none of them in CALLERS
+//      (admin-layout-dimensions, admin-lifecycle-layout,
+//      admin-nav-layout-dimensions, deep-link-walker, help-mobile,
+//      help-typography, notify-toggles, sign-in-page,
+//      stage-restricted-crew-schedule, telemetry-layout).
+//
+// Repairing (2) means enrolling ten specs, each needing a real e2e run to
+// confirm the added await did not move its timing. Repairing (1) means import
+// resolution plus a per-helper judgement about whether a call really navigates
+// the measured document — `signInAs` merely LOOKS like one, and a rule that
+// took the resemblance would fire on nearly every spec in the corpus.
+//
+// RE-FILE TRIGGER: a flake traced to a fallback-frame measurement in any of the
+// ten files above, or a new navigate-then-measure helper.
+//
+// The two censuses reproduce DIFFERENTLY, and conflating them was an error in an
+// earlier draft of this note: `analyzeSource` is single-file by construction and
+// cannot derive a helper-caller census at all.
+//   • analyzer census (10 files): run `analyzeSource` over every
+//     `tests/e2e/*.spec.ts` and difference the reporting files against CALLERS.
+//   • helper census (12 call-and-measure, 11 without a wait): walk
+//     `tests/e2e/helpers/**` WITH COMMENTS STRIPPED for exported functions whose
+//     body calls `page.goto`, close that set transitively, then intersect the
+//     specs calling one against the specs reading geometry. Stripping comments is
+//     load-bearing: `signInAs`'s comment mentions `page.goto`, its body does not
+//     (it posts through `page.request.post`), and counting it inflates the set to
+//     nearly the whole corpus.
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";

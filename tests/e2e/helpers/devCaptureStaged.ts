@@ -732,6 +732,71 @@ export async function seedOneVariantWithHook(
   }
 }
 
+/** Budget for the panel entrance. The animation itself is 220ms at the mobile
+ *  viewport (`--duration-normal`, app/globals.css:285); this is a loud-failure
+ *  ceiling, not a sleep. */
+const ENTRANCE_SETTLE_BUDGET_MS = 5_000;
+
+/**
+ * Hand the page back only once the review panel has FINISHED animating in.
+ *
+ * WHY. `waitForSelector("[data-step3-review-panel]")` resolves when the panel
+ * enters the DOM, which is the instant its CSS entrance animation STARTS:
+ * `step3-details-sheet-rise` over `--duration-normal` (220ms) at the mobile
+ * viewport, `step3-details-pop-in` over `--duration-fast` (120ms) at >=640px
+ * (app/globals.css:977-991, :917-945, :284-285). A `getBoundingClientRect`
+ * taken inside that window returns rects that are internally inconsistent
+ * between the transformed panel and its descendants.
+ *
+ * MEASURED (2026-08-25, 39 runs x 14 reads at 40ms on one head under CI
+ * posture, spec docs/superpowers/specs/2026-08-25-e2e-proof-retired-route-subpixel-design.md §3):
+ * 537 of 546 reads were bit-identical; all 9 outliers fell within 120ms of the
+ * panel appearing and none after. 3 of 39 runs had a bad FIRST read — the 7.7%
+ * flake BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE was filed on. One outlier was a
+ * NEGATIVE 0.290px inset, which no font metric can produce; that is what ruled
+ * out the rasterisation hypothesis and pointed here instead.
+ *
+ * PLACED ON THE HELPER, not on the call sites, so it is a DERIVED cover: every
+ * present and future caller of `openStep3Modal` inherits it and a newly added
+ * measurement cannot forget it (AGENTS.md class-sweep — sweep to a derivation,
+ * not an enumeration; the same reasoning as `rectOf` in crew-page.spec.ts:226).
+ *
+ * `document.fonts.ready` is settled here too. It is NOT the fix for the defect
+ * above and is not redundant with it: it closes the separate fallback-frame arm
+ * that tests/e2e/_metaFontWaitCoverage.test.ts exists for, on a helper that
+ * navigates and whose callers measure.
+ */
+async function settleReviewPanelEntrance(page: Page): Promise<void> {
+  const unfinished = await page.evaluate(async (budgetMs: number) => {
+    const panel = document.querySelector("[data-step3-review-panel]");
+    if (!panel) return ["the panel vanished before its entrance could settle"];
+    const running = panel.getAnimations({ subtree: true });
+    // `.catch` per animation: a CANCELLED animation rejects `finished`, and a
+    // cancelled entrance is settled for our purposes — it is not still moving.
+    const settled = await Promise.race([
+      Promise.all(running.map((a) => a.finished.catch(() => undefined))).then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), budgetMs)),
+    ]);
+    if (settled) return [];
+    return panel
+      .getAnimations({ subtree: true })
+      .filter((a) => a.playState === "running")
+      .map((a) => ("animationName" in a ? String(a.animationName) : "unnamed"));
+  }, ENTRANCE_SETTLE_BUDGET_MS);
+  if (unfinished.length > 0) {
+    // Loud, not a silent continue: an entrance that never finishes means every
+    // downstream measurement is unsound, and a timeout that shrugged would put
+    // us back where the flake started.
+    throw new Error(
+      `openStep3Modal: review panel entrance did not settle within ${ENTRANCE_SETTLE_BUDGET_MS}ms ` +
+        `(still running: ${unfinished.join(", ")})`,
+    );
+  }
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+  });
+}
+
 export async function openStep3Modal(page: Page, driveFileId: string): Promise<void> {
   const sessionId = sessionByDfid.get(driveFileId);
   if (sessionId === undefined) throw new Error("openStep3Modal: unknown driveFileId");
@@ -747,6 +812,7 @@ export async function openStep3Modal(page: Page, driveFileId: string): Promise<v
       await expect(more).toBeVisible({ timeout: 3_000 });
       await more.click();
       await page.waitForSelector("[data-step3-review-panel]");
+      await settleReviewPanelEntrance(page);
       return;
     } catch (err) {
       lastErr = err;
