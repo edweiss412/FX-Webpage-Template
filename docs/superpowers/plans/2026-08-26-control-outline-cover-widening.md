@@ -2,7 +2,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` · **Row:** `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` · **Branch:** `fix/control-outline-cover` · **Base:** `b30413cf5`
 
-## 0. The invariant-8 marker, and why it is not here yet
+impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=0 dispositions=none
+
+## 0. The invariant-8 marker, and why it was not here until Task 9
 
 `tests/docs/_invariant8Closeout.ts` fails a plan unit that DECLARES the dual gate (its prose names both halves) and carries no valid `impeccable-gate:` line, and it treats the documented template line as MALFORMED outside a template file (`parseMarkers`, the `TEMPLATE_FORM` branch). The two legal forms are the filled `critique=… audit=… p0=… p1=… dispositions=…` line and the `N/A` line, and this arc has a UI surface so `N/A` is not available to it.
 
@@ -424,9 +426,9 @@ Then the score. Announce the class-lock take to bl-orch at `wY:p8` before the ru
 
 **Outside the declared region (§3).** `tests/docs/_invariant8Closeout.ts:11-16` says in its own words that it verifies a declaring unit CARRIES a well-formed claim, and not that the gate ran or that its findings are honest. So there is no command this task can turn from red to green by running the gate, and a `why=` claiming otherwise would assert something the guard does not do.
 
-Run both halves of the AGENTS.md invariant-8 gate on the affected diff, with the canonical v3 setup gates (the context.mjs context load of PRODUCT.md and DESIGN.md, then the register reference read). Every P0 and P1 fixed in-branch.
+Ran `/impeccable critique` and `/impeccable audit` on the affected diff, with the canonical v3 setup gates (the context.mjs context load of PRODUCT.md and DESIGN.md, then the product register read). Zero P0 and zero P1, so nothing needed fixing in-branch; §12 records both halves, their evidence, and the degraded banner the critique command requires when its two assessments do not run as isolated sub-agents.
 
-This task's commit does three things together, per §0: it records the findings and dispositions in §12, it rewrites this paragraph to name both halves explicitly, and it adds the filled `impeccable-gate:` line at the top of this file. None of the three is valid without the other two.
+This task's commit did three things together, per §0: it records the findings and dispositions in §12, it rewrites this paragraph to name both halves explicitly, and it adds the filled `impeccable-gate:` line at the top of this file. None of the three is valid without the other two.
 
 **Its own planted failure**, which this task owes like the other unenrolled ones: make the two edits in the wrong order. Add the explicit half-names WITHOUT the marker line, run `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts`, and observe it red with "declares the invariant-8 dual gate but carries no valid impeccable-gate marker line". Then add the marker and observe it green. Both observations in the commit message. This is the guard doing the only thing it claims to do, which is why it is the right plant for it.
 
@@ -440,4 +442,68 @@ Graduate `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` into `BACKLOG-archive.md` wit
 
 ## 12. Invariant-8 dual-gate dispositions
 
-Filled by Task 9.
+⚠️ DEGRADED: single-context (four sub-agents spawned across two attempts, all four went idle without
+returning a report, and two did not answer direct follow-up messages). The `critique` command mandates
+two isolated sub-agents and permits inline only when none is exposed. One IS exposed here, so this is a
+harness failure rather than unavailability, and the banner says so rather than the run passing itself
+off as isolated. Both assessments were then run in this context.
+
+**Register:** product (admin UI that SERVES the product). Setup gates run: context.mjs context load of
+PRODUCT.md + DESIGN.md, then the skill's product register reference.
+
+### critique — Assessment A (design review, inline)
+
+**AI slop verdict: no.** A contrast repair on an existing token system, with no new visual vocabulary,
+no new component shapes and no decorative additions.
+
+The result was checked where it is most likely to be wrong, which is a row that mixes control kinds:
+
+- `components/admin/BellPanel.tsx` config row, the case the spec named as a split treatment living
+  inside one row of one panel: after the sweep all three controls (two `type="number"` inputs and the
+  Save button) read `border-text-faint`. The split is closed rather than moved.
+- `components/admin/dev/SwitcherControls.tsx`: all three of the `<select>` and its two lexical
+  neighbours read `border-text-faint`, and all three read `hover:border-accent-on-bg`. The one bare
+  `hover:border-accent` in the repo is gone, so no control ships a hover lighter than its rest.
+
+**Hierarchy** reads correctly: controls at 3.35:1 now sit above chrome deliberately left at 1.15-1.44:1,
+which is the direction `DESIGN.md` §1.2a's scope paragraph asks for. Nothing in the diff makes a status
+chip subordinate that should not be; the ten `inner-chrome` registrations are each a chip, pill,
+decorative label or alert banner, and none is a control's boundary.
+
+**Missed peers: none structurally possible.** Anything still weak after the sweep is registered in
+`RESIDUE_CENSUS` with a category and a form-checked reason, so a control left as the quieter half of a
+visible pair would have to be a registration error, not an omission. The twelve rows were read
+individually against that question.
+
+**User-visible copy: unchanged by this diff.** The only prose edited is `DESIGN.md`, which is internal
+documentation.
+
+- **P0: none.**
+- **P1: none.**
+- P3 (not fixed, recorded): the `broken-image` warnings below are pre-existing and out of this diff's
+  scope.
+
+### critique — Assessment B (detector + mechanical evidence, inline)
+
+The skill's detect.mjs from the plugin cache over the 15 changed component files: exit 0, **9 findings, all
+`warning` / `broken-image`**, 7 in `components/admin/wizard/VenueMapTile.tsx` and 2 in
+`components/admin/wizard/step3ReviewSections.tsx`.
+
+**All 9 are pre-existing.** Running the same detector against `origin/main`'s copies of those two files
+returns the identical 9. This diff introduces none of them, and both files' `<img>` tags carry real
+runtime `src` expressions the detector cannot read statically.
+
+### audit — technical quality
+
+| check | result |
+| --- | --- |
+| contrast, the arc's own subject | 4 real-browser cases at 390px in light and dark assert computed border colour against the surface behind it at >= 3:1, and were verified to RED with the pre-sweep tokens planted back |
+| token discipline | 0 raw hex, 0 arbitrary-value colour classes introduced |
+| em dash in user-visible copy | 0 in any `.tsx`; the 4 hits are `DESIGN.md` documentation prose |
+| raw apostrophe in JSX text | 0 introduced |
+| 44px tap targets | no element lost its floor. `EventFilters.tsx` goes 5 -> 3 occurrences because three of main's five were duplicate declarations of ONE element's floor (a dead fallback plus two call sites); the repair collapses them to the one that renders |
+| dimensional invariants | 2 pairs measured in a real browser, 2 more measured in the mounted step-3 tree, 1 recorded as a documented limit with its probe; `scripts/ac15-width-parity.mts` shows 0 width differences across all 767 elements |
+| responsive | the `max-sm` skin on `components/admin/ReSyncButton.tsx:213` measured at 390px in both themes |
+| suites | `secondary-action-contrast`, `design-figure-parity`, `_metaEmDashCopy`, `controlOutlineDimensions`, `controlOutlineTransitions`, `tintedPlateOutline`, `_metaTapTargetFloor`, `focusRingContrast`: 8 files, 119 tests, all green |
+
+- **P0: none. P1: none.**
