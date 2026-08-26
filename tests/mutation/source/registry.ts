@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { SHARD_BUDGET_SECONDS } from "./budget";
 import { type AcceptedSurvivor } from "./ledger";
 import { OPERATOR_NAMES, type OperatorName } from "./operators";
 
@@ -19,6 +20,19 @@ export type GuardSurface = {
   operators: OperatorName[];
   /** Minimum acceptable mutation score, in (0, 1]. */
   scoreFloor: number;
+  /**
+   * Milliseconds of real wall clock per MODELLED boot, measured, not estimated.
+   *
+   * REQUIRED, and that is the point: the shard partition is priced in this, so a
+   * surface enrolled without one would be weighted by a number nobody measured.
+   * Absent is a compile error rather than a test failure, which is the earliest
+   * and loudest place to catch it.
+   *
+   * Per MODELLED boot, not per observed child: the two differ by up to 4.60x on
+   * one surface, and calibrating per modelled boot is what makes the count bias
+   * cancel instead of compound.
+   */
+  millisPerBoot: number;
   /**
    * A deliberately behavior-changing edit the surface's own suite MUST notice.
    *
@@ -74,6 +88,22 @@ export function validateSurface(surface: GuardSurface): string[] {
   }
   for (const op of surface.operators) {
     if (!KNOWN_OPERATORS.has(op)) problems.push(`${surface.id}: undeclared operator: ${op}`);
+  }
+
+  // The rate the shard partition is priced in. Bounded ABOVE by the shard budget and
+  // NOT by MUTANT_TIMEOUT_MS: the rate is per MODELLED boot, and one modelled boot
+  // stands for up to 4.60 observed children, so two honest 100-second children give
+  // 200_000 ms per modelled boot while neither child approaches a 180_000 ms timeout.
+  // The tighter bound would refuse an ordinary enrolment after an ordinary slowdown,
+  // which is a false positive on a guard whose whole job is admitting real measurements.
+  const rate = surface.millisPerBoot;
+  if (!Number.isInteger(rate) || rate <= 0) {
+    problems.push(`${surface.id}: millisPerBoot must be a positive integer, got ${String(rate)}`);
+  } else if (rate > SHARD_BUDGET_SECONDS * 1000) {
+    problems.push(
+      `${surface.id}: millisPerBoot ${rate} exceeds the whole shard budget ` +
+        `(${SHARD_BUDGET_SECONDS * 1000} ms); no single boot can cost an entire leg`,
+    );
   }
 
   const floor = surface.scoreFloor;
@@ -175,6 +205,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "captureRenderFault",
+    millisPerBoot: 935,
     sourcePath: "scripts/capture-render-fault.ts",
     suitePaths: ["tests/help/renderFaultDetector.test.ts"],
     operators: ["relational-boundary", "equality-flip", "integer-literal"],
@@ -206,6 +237,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "premiseScan",
+    millisPerBoot: 3206,
     sourcePath: "tests/mutation/source/premiseScan.ts",
     suitePaths: [
       "tests/mutation/source/premiseScan.test.ts",
@@ -266,6 +298,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // every rule is reachable from a literal row table, which is why the module is
     // pure and the CLI is not the enrolled surface.
     id: "heavyReapClassify",
+    millisPerBoot: 985,
     sourcePath: "lib/heavyReap/classify.ts",
     suitePaths: ["tests/heavyReap/classify.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -281,6 +314,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // whole-diff review, because that review's brief must carry a
     // `GUARD SURFACE:` line with a real score.
     id: "paneCompactionCore",
+    millisPerBoot: 6980,
     sourcePath: "scripts/lib/pane-compaction-core.ts",
     suitePaths: [
       "tests/paneCompaction/bands.test.ts",
@@ -431,6 +465,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // AC-3). Authored as an importable module with a referring suite from the
     // start, so enrolment is a registry row rather than a restructuring.
     id: "modal-wait-helper-scan",
+    millisPerBoot: 4840,
     sourcePath: "tests/ci/modalWaitHelper/scan.ts",
     // TWO deciding suites since the candidate-contract v2 arc (2026-08-17): the
     // corpus suite, and the premise proofs, whose constructed fixtures are the
@@ -510,6 +545,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // survivor can hide in. Registry-expressible shape by construction — an
     // importable module whose two referring suites already exist.
     id: "modal-wait-disposition",
+    millisPerBoot: 3504,
     sourcePath: "tests/ci/modalWaitHelper/disposition.ts",
     suitePaths: [
       "tests/ci/_metaModalWaitHelper.test.ts",
@@ -575,6 +611,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // that only `checkCitations` can exercise, and the corpus suite pins the
     // measured tier table.
     id: "citationIntent",
+    millisPerBoot: 1328,
     sourcePath: "lib/specLint/citationIntent.ts",
     suitePaths: [
       "tests/specLint/citationIntent.test.ts",
@@ -595,6 +632,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // wiring suite is listed because it holds the span-exclusion coordinates,
     // which no other suite observes.
     id: "redContract",
+    millisPerBoot: 1432,
     sourcePath: "lib/specLint/redContract.ts",
     suitePaths: [
       "tests/specLint/redContract.test.ts",
@@ -666,6 +704,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // deciding assertion. If a survivor turns out to need it, it belongs here —
     // placement outside suitePaths buys zero score (the #831 lesson).
     id: "declaredLimitPins",
+    millisPerBoot: 2342,
     sourcePath: "lib/specLint/declaredLimitPins.ts",
     suitePaths: [
       "tests/specLint/declaredLimitPins.test.ts",
@@ -729,6 +768,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "fixtureContract",
+    millisPerBoot: 4184,
     sourcePath: "lib/specLint/fixtureContract.ts",
     suitePaths: [
       "tests/specLint/fixtureContract.test.ts",
@@ -763,6 +803,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "taskContract",
+    millisPerBoot: 1126,
     sourcePath: "lib/specLint/taskContract.ts",
     // BOTH suites, and the second one is load-bearing: `compareFindings` is
     // exercised only by the ordering suite, so without it every mutant inside
@@ -944,6 +985,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "ledgerClaimsCore",
+    millisPerBoot: 2537,
     sourcePath: "scripts/lib/ledger-claims-core.ts",
     suitePaths: ["tests/scripts/ledgerClaimsCheck.test.ts", "tests/scripts/ledgerClaims.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -985,6 +1027,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "ledgerGit",
+    millisPerBoot: 2197,
     sourcePath: "scripts/lib/ledger-git.ts",
     // The seam suite is registered because the runner executes ONLY registered
     // suites (tests/mutation/source/runner.ts:129, :142) — without this row the
@@ -1068,6 +1111,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "destructiveFileAnalysis",
+    millisPerBoot: 1450,
     sourcePath: "tests/db/_destructiveFileAnalysis.ts",
     suitePaths: ["tests/db/destructiveFileAnalysis.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -1180,6 +1224,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "pgCronSmokes",
+    millisPerBoot: 945,
     sourcePath: "tests/cross-cutting/pgCronSmokes.ts",
     suitePaths: ["tests/cross-cutting/pgCronSmokesUnit.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -1230,6 +1275,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "acCoverage",
+    millisPerBoot: 5006,
     sourcePath: "lib/specLint/acCoverage.ts",
     suitePaths: [
       "tests/specLint/acCoverage.test.ts",
@@ -1310,6 +1356,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "claimSweep",
+    millisPerBoot: 2825,
     sourcePath: "lib/specLint/claimSweep.ts",
     suitePaths: [
       "tests/specLint/claimSweepNumeric.test.ts",
@@ -1483,6 +1530,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "reviewRoundCount",
+    millisPerBoot: 1309,
     sourcePath: "lib/reviewRounds/count.ts",
     suitePaths: ["tests/reviewRounds/count.test.ts", "tests/docs/_metaReviewRoundEconomy.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -1502,6 +1550,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "reviewRoundInstant",
+    millisPerBoot: 1205,
     sourcePath: "lib/reviewRounds/instant.ts",
     suitePaths: [
       "tests/reviewRounds/instant.test.ts",
@@ -1613,6 +1662,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "specLintNumerics",
+    millisPerBoot: 1435,
     sourcePath: "lib/specLint/numerics.ts",
     suitePaths: ["tests/specLint/numerics.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -1929,6 +1979,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "specLintUniversals",
+    millisPerBoot: 1796,
     sourcePath: "lib/specLint/universals.ts",
     suitePaths: [
       "tests/specLint/universals.test.ts",
@@ -2026,6 +2077,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "reviewRoundCorpus",
+    millisPerBoot: 1082,
     sourcePath: "lib/reviewRounds/corpus.ts",
     suitePaths: ["tests/docs/_metaReviewRoundEconomy.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2066,6 +2118,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // feeds the brief's GUARD SURFACE: line that the new codex-guard dispatch
     // gate checks.
     id: "reviewRoundFiling",
+    millisPerBoot: 1955,
     sourcePath: "lib/reviewRounds/filing.ts",
     suitePaths: ["tests/reviewRounds/filing.test.ts", "tests/docs/_metaReviewRoundEconomy.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2135,6 +2188,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "phantomGapExecuted",
+    millisPerBoot: 941,
     // A `.mjs` module, unlike every row above it: the phantom-gap job's diagram
     // step needs a plain-node CLI, so the logic ships as ESM the wrapper can
     // import without a transpile step.
@@ -2165,6 +2219,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "popoverOverlayExtract",
+    millisPerBoot: 2367,
     sourcePath: "tests/components/admin/showpage/_popoverOverlayExtract.ts",
     suitePaths: ["tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2194,6 +2249,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "renderedTextHaystack",
+    millisPerBoot: 1903,
     sourcePath: "tests/help/_renderedTextHaystack.ts",
     suitePaths: ["tests/help/_metaUiLabelCrosswalk.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2208,6 +2264,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "interactionTimingScan",
+    millisPerBoot: 4280,
     sourcePath: "scripts/scan-interaction-timings.ts",
     suitePaths: [
       "tests/docs/_metaInteractionTimingInventory.test.ts",
@@ -2384,6 +2441,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   //    its own file rather than part of `_helpers.ts`.
   {
     id: "fieldNearMiss",
+    millisPerBoot: 2124,
     sourcePath: "lib/parser/fieldNearMiss.ts",
     // The per-class suite decides first (it is the cheaper boot and kills most mutants),
     // the 65-row corpus baseline second: guard-calibration mutants that keep every
@@ -2416,6 +2474,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "rowScanOpener",
+    millisPerBoot: 2441,
     sourcePath: "lib/parser/blocks/_rowScan.ts",
     suitePaths: [
       "tests/parser/fieldNearMiss.test.ts",
@@ -2456,6 +2515,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   // meta-test plus the enrolment run itself.
   {
     id: "browserRegistry",
+    millisPerBoot: 996,
     sourcePath: "tests/mutation/browser/registry.ts",
     suitePaths: ["tests/mutation/browser/registry.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2471,6 +2531,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "browserMutate",
+    millisPerBoot: 1489,
     sourcePath: "tests/mutation/browser/mutate.ts",
     suitePaths: ["tests/mutation/browser/mutate.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2502,6 +2563,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "interactiveScanCore",
+    millisPerBoot: 2674,
     sourcePath: "tests/styles/interactiveScanCore.ts",
     // All three suites: the core's own unit + fixture cases, plus the two
     // guards that consume it. A mutant that survives the unit cases can still
@@ -2607,6 +2669,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   // than an honest absence: the gate's no-mutants condition exists to say so.
   {
     id: "tapTargetScan",
+    millisPerBoot: 1008,
     sourcePath: "tests/styles/tapTargetScan.ts",
     suitePaths: ["tests/styles/_metaTapTargetFloor.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2632,6 +2695,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   // resolver operators. Re-scored at 65/65 with zero unaccepted survivors.
   {
     id: "controlOutlineScan",
+    millisPerBoot: 1983,
     sourcePath: "tests/styles/controlOutlineScan.ts",
     suitePaths: ["tests/styles/_metaControlOutlineFill.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2654,6 +2718,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "controlOutlineResidue",
+    millisPerBoot: 9737,
     sourcePath: "tests/styles/controlOutlineResidue.ts",
     suitePaths: ["tests/styles/_metaControlOutlineResidue.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2821,6 +2886,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "executionMethodsDerivation",
+    millisPerBoot: 1261,
     sourcePath: "scripts/execution-methods/lib.ts",
     suitePaths: ["tests/db/executionMethodsManifest.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2852,6 +2918,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // this pair is 48 sites, 20-30 min. A wider subset is a future registry
     // change carrying its own numbers, not a finding against this row.
     id: "psqlStartupScan",
+    millisPerBoot: 18212,
     sourcePath: "tests/cross-cutting/psqlStartupFiles/scan.ts",
     suitePaths: ["tests/cross-cutting/psqlStartupFileSuppression.test.ts"],
     operators: ["relational-boundary", "regex-quantifier-bound"],
@@ -3195,6 +3262,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "serializeErrorStructure",
+    millisPerBoot: 1494,
     sourcePath: "lib/log/serializeError.ts",
     suitePaths: ["tests/log/serializeError.test.ts"],
     operators: [
@@ -3215,6 +3283,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "sameOriginServerAction",
+    millisPerBoot: 1406,
     sourcePath: "lib/auth/sameOriginServerAction.ts",
     suitePaths: ["tests/auth/sameOriginServerAction.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -3240,6 +3309,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // records what the combined shape costs, scoring 0.27 with 18 of 19 survivors
     // in code no referring suite could execute through an import.
     id: "shardBudget",
+    millisPerBoot: 980,
     sourcePath: "lib/ci/shardBudget.ts",
     suitePaths: ["tests/ci/shardBudget.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -3251,6 +3321,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "sourceShardPartition",
+    millisPerBoot: 4207,
     sourcePath: "tests/mutation/source/shardPartition.ts",
     // TWO deciding suites, and the second is load-bearing rather than tidy. The
     // unit suite decides every BEHAVIOUR in this module, but it reads
@@ -3297,6 +3368,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "mutationSurfaceEnumerate",
+    millisPerBoot: 2487,
     sourcePath: "tests/log/mutationSurface/enumerate.ts",
     suitePaths: [
       "tests/log/mutationSurface/enumerate.test.ts",
@@ -3372,6 +3444,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "mutationSurfaceTotality",
+    millisPerBoot: 2660,
     sourcePath: "tests/log/mutationSurface/totality.ts",
     suitePaths: [
       "tests/log/mutationSurface/enumerate.test.ts",
@@ -3416,6 +3489,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "spawnBounded",
+    millisPerBoot: 1400,
     sourcePath: "tests/mutation/source/spawnBounded.ts",
     suitePaths: ["tests/mutation/source/spawnBounded.test.ts"],
     operators: ["equality-flip", "logical-connector", "integer-literal", "statement-removal"],
@@ -3459,6 +3533,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "sendAuthScan",
+    millisPerBoot: 4708,
     sourcePath: "tests/paneCompaction/sendAuthScan.ts",
     suitePaths: ["tests/paneCompaction/_metaSendAuthSingleRead.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -3488,6 +3563,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "connectionCensus",
+    millisPerBoot: 6276,
     sourcePath: "tests/db/_connectionCensus.ts",
     suitePaths: ["tests/db/connectionCensus.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -3529,6 +3605,147 @@ export const GUARD_SURFACES: GuardSurface[] = [
     ],
   },
   /**
+   * The shard-weight instrument, enrolled 2026-08-25 with the arc that wrote it
+   * (`BL-MUTATION-WEIGHT-MODEL-BOOT-COUNT-ONLY`).
+   *
+   * Enrolled BEFORE the first whole-diff dispatch, per the AGENTS.md rule, because
+   * its defect class is exactly the one this registry exists to catch: it reports a
+   * plausible number while the thing it measures has moved. Every figure in that
+   * arc's spec comes out of these two modules, so a silent defect here is a silent
+   * defect in a ratified design.
+   *
+   * Two rows because the arc split the instrument in two modules, the same way the
+   * invariant-10 engine above is split: `records.ts` decides what a run COST,
+   * `weights.ts` decides what that cost MEANS for the partition. One suite decides
+   * both, and it is paired with `scripts/mutation-weight-plant.mjs`, which plants
+   * fifteen named defects into a copy and requires the suite to go red on each.
+   *
+   * `[...OPERATOR_NAMES]`, not a scoped subset. A subset would leave the excluded
+   * operators' sites unscored while the number still read as the surface's score.
+   */
+  {
+    id: "mutationWeightRecords",
+    millisPerBoot: 977,
+    sourcePath: "lib/mutationWeight/records.ts",
+    suitePaths: ["tests/mutationWeight/instrument.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Reads every leg as leg 0. The suite lays a record down under
+    // `mutation-records-source-shards-2` and asserts the leg comes from the
+    // DIRECTORY, so a constant defeats it.
+    control: { from: "const leg = Number(rec[1]);", to: "const leg = 0;" },
+    accepted: [
+      {
+        siteId: "logical-connector:94:31:||>&&",
+        kind: "equivalent",
+        reason:
+          'The duration guard\'s first disjunction, `typeof d !== "number" || !Number.isFinite(d)`. ' +
+          "EQUIVALENT because every value reaching it came through `JSON.parse`, and over that " +
+          "domain the first clause IMPLIES the second: `Number.isFinite` never coerces, so a " +
+          "non-number is never finite. `A && B` is therefore just `A`, and the mutant reduces to " +
+          "`A || d < 0` -- the same predicate. The only witness would be a value that IS a number " +
+          "and is NOT finite, i.e. NaN or Infinity, and neither survives a JSON round trip: both " +
+          "serialise to `null`, which the guard already refuses via the first clause. " +
+          'PROBED: every JSON-representable shape ("1000", true, false, null, -1, 0, 0.5, 1500, ' +
+          "{}, [], absent, 1e308) round-tripped through JSON.stringify/parse and evaluated against " +
+          "both predicates -- zero values differ. Recorded as a row rather than repaid with an " +
+          "assertion because no assertion CAN kill it: the input that would distinguish the two " +
+          "cannot reach this function. The other five survivors on this surface WERE repaid with " +
+          "assertions, because each of them changes behaviour on an input a fixture can express.",
+      },
+      {
+        siteId: "statement-removal:130:7:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "The early exit after a records directory is consumed. Removing it falls through " +
+          "to the elapsed-directory branch, and the two patterns are anchored regexes whose " +
+          "literal prefixes differ at the first character -- mutation-records- against " +
+          "elapsed- -- so no entry can match both and the fall-through can never take that " +
+          "branch. Probed: zero strings match both. The statement is kept because deleting " +
+          "it would make correctness depend implicitly on that disjointness.",
+      },
+    ],
+  },
+  {
+    id: "mutationWeightWeights",
+    millisPerBoot: 1015,
+    sourcePath: "lib/mutationWeight/weights.ts",
+    suitePaths: ["tests/mutationWeight/instrument.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Reports the SHORTEST leg as the binding one. The binding leg is the whole
+    // criterion the weight change is judged on, so inverting it is the defect that
+    // would matter most and the suite pins it directly.
+    control: { from: "Math.max(...legs)", to: "Math.min(...legs)" },
+    accepted: [
+      {
+        siteId: "integer-literal:20:42:0>1",
+        kind: "equivalent",
+        reason:
+          "median returns early on an empty array, so `mid` is a valid index whenever this " +
+          "line is reached and `v[mid]` is never undefined. noUncheckedIndexedAccess demands " +
+          "the coalesce; no input evaluates it.",
+      },
+      {
+        siteId: "integer-literal:20:63:0>1",
+        kind: "equivalent",
+        reason:
+          "The even-length branch, so length is at least 2 and `mid` is at least 1, making " +
+          "`v[mid - 1]` a valid index. Argued separately from its neighbours because the " +
+          "reason differs: this one turns on mid >= 1, not on the early return.",
+      },
+      {
+        siteId: "integer-literal:20:79:0>1",
+        kind: "equivalent",
+        reason:
+          "Same line as the first, second occurrence: `v[mid]` in the even branch, where the " +
+          "early return already guarantees the index.",
+      },
+      {
+        siteId: "integer-literal:116:42:0>1",
+        kind: "equivalent",
+        reason:
+          "`new Array(n).fill(0)` to `.fill(1)` offsets every bin by the same amount. The " +
+          "only reads compare bins against each other to find the least loaded, and a " +
+          "uniform offset preserves that order, so the returned assignment is identical. " +
+          "The bins array itself is never returned.",
+      },
+      {
+        siteId: "integer-literal:120:52:0>1",
+        kind: "equivalent",
+        reason:
+          "`bins` is Array(n).fill(0), so every index in [0, n) is defined and the loop " +
+          "index runs 1..n-1. At n = 0 the loop body never executes at all. Unreachable in " +
+          "both regimes.",
+      },
+      {
+        siteId: "integer-literal:120:72:0>1",
+        kind: "equivalent",
+        reason:
+          "`bins[best]` with best in [0, n) for n >= 1. At n = 0 the inner loop never runs, " +
+          "so best stays 0 and every key is assigned bin 0 whatever this default is -- the " +
+          "returned map is identical, which is the only observable.",
+      },
+      {
+        siteId: "integer-literal:121:33:0>1",
+        kind: "equivalent",
+        reason:
+          "The accumulation read, same index argument as the comparison above. At n = 0 it " +
+          "writes a bins entry nothing reads, since best is pinned at 0 and the map records " +
+          "best rather than the load.",
+      },
+      {
+        siteId: "integer-literal:477:62:0>1",
+        kind: "equivalent",
+        reason:
+          "`scored` is `laterSurfaces.filter((m) => seed.has(m.surfaceId))`, so every surface " +
+          "reaching this line is one `seed` contains and `seed.get` cannot return undefined. " +
+          "The sibling coalesce four lines up is NOT equivalent and is killed by a test: " +
+          "modelled boots can genuinely be missing where a seed rate cannot.",
+      },
+    ],
+  },
+  /**
    * BL-ADMIN-LOADER-CI-TRANSIENT (2026-08-24): both surfaces enrolled BEFORE
    * the first diff dispatch, per the AGENTS.md convergence rule. The defect
    * class is exactly "reports OK while the output moved" — the wrapper decides
@@ -3551,6 +3768,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "supabaseRetryingFetch",
+    millisPerBoot: 1856,
     sourcePath: "lib/supabase/retryingFetch.ts",
     suitePaths: [
       "tests/supabase/retryingFetch.test.ts",
@@ -3569,6 +3787,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // it — and a scan-anywhere match then claimed Storage writes and retried them. A module that
     // decides "is this request ours to retry" is exactly the shape the registry exists to hold.
     id: "supabaseRetryEligibility",
+    millisPerBoot: 762,
     sourcePath: "lib/supabase/retryEligibility.ts",
     suitePaths: ["tests/supabase/retryEligibility.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -3583,6 +3802,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "retryableRpcVolatilityScan",
+    millisPerBoot: 1073,
     sourcePath: "tests/supabase/retryableRpcVolatilityScan.ts",
     // Two deciding suites, split by whether they need a database. The walk file carries the
     // mkdtemp fixtures and runs anywhere; the other asserts against the live catalog. That
@@ -3606,6 +3826,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "replacementString",
+    millisPerBoot: 4963,
     sourcePath: "tests/cross-cutting/replacementString/scan.ts",
     suitePaths: ["tests/cross-cutting/replacementString.test.ts"],
     // All six declared operators, deliberately. A scoped subset leaves the excluded operators'

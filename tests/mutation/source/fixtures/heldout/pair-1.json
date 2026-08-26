@@ -1,0 +1,275 @@
+{
+  "seedRun": "meas-32703467609",
+  "scoreRun": "meas-32822546867",
+  "seed": {
+    "browserMutate": 1969,
+    "browserRegistry": 1490,
+    "citationIntent": 1328,
+    "claimSweep": 3563,
+    "connectionCensus": 7474,
+    "controlOutlineScan": 2982,
+    "declaredLimitPins": 2339,
+    "destructiveFileAnalysis": 2717,
+    "executionMethodsDerivation": 1725,
+    "fieldNearMiss": 4508,
+    "fixtureContract": 5556,
+    "heavyReapClassify": 1434,
+    "interactionTimingScan": 6787,
+    "interactiveScanCore": 4107,
+    "ledgerClaimsCore": 3135,
+    "ledgerGit": 22272,
+    "modal-wait-disposition": 4390,
+    "modal-wait-helper-scan": 5997,
+    "mutationSurfaceEnumerate": 3114,
+    "mutationSurfaceTotality": 2774,
+    "paneCompactionCore": 6980,
+    "pgCronSmokes": 1416,
+    "phantomGapExecuted": 1409,
+    "popoverOverlayExtract": 2532,
+    "premiseScan": 6887,
+    "psqlStartupScan": 29905,
+    "redContract": 2145,
+    "renderedTextHaystack": 3101,
+    "reviewRoundCorpus": 5877,
+    "reviewRoundCount": 1221,
+    "reviewRoundFiling": 1965,
+    "rowScanOpener": 5236,
+    "sameOriginServerAction": 1873,
+    "sendAuthScan": 6735,
+    "serializeErrorStructure": 1494,
+    "shardBudget": 1438,
+    "sourceShardPartition": 5962,
+    "spawnBounded": 1401,
+    "specLintNumerics": 1574,
+    "specLintUniversals": 2693,
+    "tapTargetScan": 1261,
+    "taskContract": 1687
+  },
+  "surfaces": [
+    {
+      "surfaceId": "browserMutate",
+      "seconds": 80.71
+    },
+    {
+      "surfaceId": "browserRegistry",
+      "seconds": 86.47
+    },
+    {
+      "surfaceId": "citationIntent",
+      "seconds": 31.862
+    },
+    {
+      "surfaceId": "claimSweep",
+      "seconds": 562.604
+    },
+    {
+      "surfaceId": "connectionCensus",
+      "seconds": 2229.081
+    },
+    {
+      "surfaceId": "controlOutlineResidue",
+      "seconds": 3056.884
+    },
+    {
+      "surfaceId": "controlOutlineScan",
+      "seconds": 196.27
+    },
+    {
+      "surfaceId": "declaredLimitPins",
+      "seconds": 350.723
+    },
+    {
+      "surfaceId": "destructiveFileAnalysis",
+      "seconds": 468.522
+    },
+    {
+      "surfaceId": "executionMethodsDerivation",
+      "seconds": 20.69
+    },
+    {
+      "surfaceId": "fieldNearMiss",
+      "seconds": 110.799
+    },
+    {
+      "surfaceId": "fixtureContract",
+      "seconds": 422.723
+    },
+    {
+      "surfaceId": "heavyReapClassify",
+      "seconds": 25.804
+    },
+    {
+      "surfaceId": "interactionTimingScan",
+      "seconds": 932.826
+    },
+    {
+      "surfaceId": "interactiveScanCore",
+      "seconds": 1090.336
+    },
+    {
+      "surfaceId": "ledgerClaimsCore",
+      "seconds": 214.475
+    },
+    {
+      "surfaceId": "ledgerGit",
+      "seconds": 288.868
+    },
+    {
+      "surfaceId": "modal-wait-disposition",
+      "seconds": 327.665
+    },
+    {
+      "surfaceId": "modal-wait-helper-scan",
+      "seconds": 585.435
+    },
+    {
+      "surfaceId": "mutationSurfaceEnumerate",
+      "seconds": 700.283
+    },
+    {
+      "surfaceId": "mutationSurfaceTotality",
+      "seconds": 59.028
+    },
+    {
+      "surfaceId": "paneCompactionCore",
+      "seconds": 1977.521
+    },
+    {
+      "surfaceId": "pgCronSmokes",
+      "seconds": 21.248
+    },
+    {
+      "surfaceId": "phantomGapExecuted",
+      "seconds": 19.733
+    },
+    {
+      "surfaceId": "popoverOverlayExtract",
+      "seconds": 186.421
+    },
+    {
+      "surfaceId": "premiseScan",
+      "seconds": 659.42
+    },
+    {
+      "surfaceId": "psqlStartupScan",
+      "seconds": 1938.371
+    },
+    {
+      "surfaceId": "redContract",
+      "seconds": 565.053
+    },
+    {
+      "surfaceId": "renderedTextHaystack",
+      "seconds": 45.341
+    },
+    {
+      "surfaceId": "reviewRoundCorpus",
+      "seconds": 164.323
+    },
+    {
+      "surfaceId": "reviewRoundCount",
+      "seconds": 22.763
+    },
+    {
+      "surfaceId": "reviewRoundFiling",
+      "seconds": 203.308
+    },
+    {
+      "surfaceId": "rowScanOpener",
+      "seconds": 68.894
+    },
+    {
+      "surfaceId": "sameOriginServerAction",
+      "seconds": 26.246
+    },
+    {
+      "surfaceId": "sendAuthScan",
+      "seconds": 1378.597
+    },
+    {
+      "surfaceId": "serializeErrorStructure",
+      "seconds": 98.605
+    },
+    {
+      "surfaceId": "shardBudget",
+      "seconds": 47.04
+    },
+    {
+      "surfaceId": "sourceShardPartition",
+      "seconds": 43.192
+    },
+    {
+      "surfaceId": "spawnBounded",
+      "seconds": 18.204
+    },
+    {
+      "surfaceId": "specLintNumerics",
+      "seconds": 789.791
+    },
+    {
+      "surfaceId": "specLintUniversals",
+      "seconds": 347.617
+    },
+    {
+      "surfaceId": "tapTargetScan",
+      "seconds": 3.021
+    },
+    {
+      "surfaceId": "taskContract",
+      "seconds": 273.276
+    }
+  ],
+  "boots": {
+    "browserMutate": 41,
+    "browserRegistry": 58,
+    "citationIntent": 24,
+    "claimSweep": 155,
+    "connectionCensus": 334,
+    "controlOutlineResidue": 251,
+    "controlOutlineScan": 66,
+    "declaredLimitPins": 150,
+    "destructiveFileAnalysis": 238,
+    "executionMethodsDerivation": 12,
+    "fieldNearMiss": 41,
+    "fixtureContract": 75,
+    "heavyReapClassify": 18,
+    "interactionTimingScan": 167,
+    "interactiveScanCore": 297,
+    "ledgerClaimsCore": 68,
+    "ledgerGit": 108,
+    "modal-wait-disposition": 70,
+    "modal-wait-helper-scan": 101,
+    "mutationSurfaceEnumerate": 254,
+    "mutationSurfaceTotality": 22,
+    "paneCompactionCore": 283,
+    "pgCronSmokes": 15,
+    "phantomGapExecuted": 14,
+    "popoverOverlayExtract": 79,
+    "premiseScan": 197,
+    "psqlStartupScan": 80,
+    "redContract": 263,
+    "renderedTextHaystack": 18,
+    "reviewRoundCorpus": 100,
+    "reviewRoundCount": 17,
+    "reviewRoundFiling": 103,
+    "rowScanOpener": 21,
+    "sameOriginServerAction": 14,
+    "sendAuthScan": 292,
+    "serializeErrorStructure": 66,
+    "shardBudget": 32,
+    "sourceShardPartition": 8,
+    "spawnBounded": 13,
+    "specLintNumerics": 521,
+    "specLintUniversals": 129,
+    "tapTargetScan": 2,
+    "taskContract": 162
+  },
+  "excluded": ["controlOutlineResidue"],
+  "observed": {
+    "secondsLegs": [5174, 3394, 3979, 5136],
+    "bootsLegs": [2247, 6138, 3827, 5471],
+    "secondsBinding": 5174,
+    "bootsBinding": 6138,
+    "marginSeconds": 965
+  }
+}
