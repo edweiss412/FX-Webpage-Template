@@ -158,6 +158,7 @@ const surface = (suitePaths: string[]) => ({
   suitePaths,
   operators: [...OPERATOR_NAMES],
   scoreFloor: 0.95,
+  millisPerBoot: 1000,
   // Unused by these cases; runSurface never reads it. Present because the
   // registry requires every surface to declare a liveness control.
   control: { from: 'if (kind !== "plan") return [];', to: 'if (kind === "plan") return [];' },

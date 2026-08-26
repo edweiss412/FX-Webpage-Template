@@ -56,6 +56,7 @@ describe("scratch-root cleanup (BL-MUTATION-SCRATCH-FS-EVENT-STORM)", () => {
       "tests/mutation/browser/mutate.test.ts",
       "tests/mutation/browser/registry.test.ts",
       "tests/mutation/source/premiseScan.test.ts",
+      "tests/mutationWeight/instrument.test.ts",
       "tests/scripts/ledgerClaimsCheck.test.ts",
       "tests/styles/_metaControlOutlineFill.test.ts",
       "tests/styles/_metaControlOutlineResidue.test.ts",

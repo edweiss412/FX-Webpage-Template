@@ -136,6 +136,12 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
 
   /** Declared per spec §3.3.2.3. Rows land as their tasks land. */
   const OWNERS: Record<string, string> = {
+    // The three held-out nightly pairs: rates seeded from one run, seconds from a
+    // LATER one. Owned by the suite that pins AC-3's binding-leg margin, which is the
+    // only reader and names each path directly.
+    "heldout/pair-1.json": "tests/mutation/source/shardBalance.test.ts",
+    "heldout/pair-2.json": "tests/mutation/source/shardBalance.test.ts",
+    "heldout/pair-3.json": "tests/mutation/source/shardBalance.test.ts",
     "aliasImport.fixture.ts": "tests/mutation/_metaOverlayConfigParity.test.ts",
     "bailStopsAfterFailure.fixture.ts": "tests/mutation/_metaOverlayConfigParity.test.ts",
     "bailNeverFiresWhenGreen.fixture.ts": "tests/mutation/_metaOverlayConfigParity.test.ts",
