@@ -39,14 +39,14 @@ surface into a PR whose brief scopes it to workflow, scripts and docs.
 
 ## BL-SERVER-TIME-GUARD-EXCLUDES-LIB — the server-time guard's population never walks `lib/`
 
-**Status:** OPEN · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** LOW · **Class:** guard fidelity · **Effort:** M · **Incident:** `lib/admin/loadAppEvents.ts:45` calls `new Date(Date.now() - sinceH * 3_600_000)` and is a LIVE UNWAIVED SURVIVOR of `tests/help/_metaServerTimeGuard.test.ts` — `discoverScanRoots()` (`:11`) seeds with `"components"` plus manifest-derived `app/<segment>` roots, so `lib/**` is never walked. The guard reports clean over a population that excludes the survivor. · **Reachability:** PROBED — the survivor is named above and the seeding is read at `:11`.
+**Status:** IN PROGRESS · **Branch:** fix/screenshots-drift-residue · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** LOW · **Class:** guard fidelity · **Effort:** M · **Incident:** `lib/admin/loadAppEvents.ts:45` calls `new Date(Date.now() - sinceH * 3_600_000)` and is a LIVE UNWAIVED SURVIVOR of `tests/help/_metaServerTimeGuard.test.ts` — `discoverScanRoots()` (`:11`) seeds with `"components"` plus manifest-derived `app/<segment>` roots, so `lib/**` is never walked. The guard reports clean over a population that excludes the survivor. · **Reachability:** PROBED — the survivor is named above and the seeding is read at `:11`.
 
 **Class-sweep exception (c).** Widening to `lib/**` is a redesign of a guard this PR does not otherwise
 touch, and it pulls an unbounded waiver population into a CI-fidelity diff.
 
 ## BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY — the marking scanner's ternary arm drops what its if-arm reports
 
-**Status:** OPEN · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** MEDIUM · **Class:** guard fidelity · **Effort:** M · **Incident:** the defect shipped INTO this arc's own registry and was caught pre-merge by its self-review. `tests/help/_metaRenderFaultMarking.test.ts` declared `Dashboard.tsx:ignoredDegraded` and `Dashboard.tsx:dataGapsDegraded` as flag-shaped residue on the stated ground that "the guard site returns no JSX". Both are ternaries whose `whenTrue` IS the JSX (`components/admin/Dashboard.tsx:674`, `:858`), so the recorded justification was false and the two entries were filed under the wrong cause. A registry whose reasons are wrong is worse than one with gaps, because it is read as settled. · **Reachability:** PROBED — see the probe below.
+**Status:** IN PROGRESS · **Branch:** fix/screenshots-drift-residue · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** MEDIUM · **Class:** guard fidelity · **Effort:** M · **Incident:** the defect shipped INTO this arc's own registry and was caught pre-merge by its self-review. `tests/help/_metaRenderFaultMarking.test.ts` declared `Dashboard.tsx:ignoredDegraded` and `Dashboard.tsx:dataGapsDegraded` as flag-shaped residue on the stated ground that "the guard site returns no JSX". Both are ternaries whose `whenTrue` IS the JSX (`components/admin/Dashboard.tsx:674`, `:858`), so the recorded justification was false and the two entries were filed under the wrong cause. A registry whose reasons are wrong is worse than one with gaps, because it is read as settled. · **Reachability:** PROBED — see the probe below.
 
 **The asymmetry.** `scanCandidates` (`tests/help/_renderFaultScan.ts`) gives its `IfStatement` arm a
 vocabulary fallback: an unclassifiable guard matching `/error|fail|infra|degrad|unavailable|corrupt/i`
@@ -512,7 +512,7 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 ## BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED — one `dashboard-overview-light.webp` byte drift, now measured as rasterization variance with the population question still open
 
-**Status:** OPEN · **Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** M (the instrument shipped; the open step is a population comparison) · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, as the surviving half of `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`) · **Facing:** process · **Reachability:** PROBED for the mechanism; the runner-population reading remains unprobed and is what this row now schedules.
+**Status:** IN PROGRESS · **Branch:** fix/screenshots-drift-residue · **Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** M (the instrument shipped; the open step is a population comparison) · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, as the surviving half of `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`) · **Facing:** process · **Reachability:** PROBED for the mechanism; the runner-population reading remains unprobed and is what this row now schedules.
 
 **MECHANISM NAMED, and it is NOT the sibling's.** The artifact was replayed inside its retention window
 (`fix/screenshots-drift-instrument`, 2026-08-24). Geometry identical at 1216x1463 both; 45293 of 1779008
