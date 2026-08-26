@@ -77,12 +77,26 @@ function parseFormData(formData: FormData): ClearIdentityInput | null {
 }
 
 export async function clearIdentity(formData: FormData): Promise<ClearIdentityResult> {
-  // no-telemetry: FormData-parse wrapper; PICKER_IDENTITY_CLEARED emit fires in clearIdentityCoreImpl
+  // no-telemetry: FormData-parse wrapper; PICKER_IDENTITY_CLEARED emit fires in
+  // clearIdentityCoreImpl, and the AUTH_SIGNOUT_FAILED emit in signOutThisDevice covers
+  // this function's own sign-out failure branch.
   // Refuse BEFORE any validation or mutation, mirroring the sign-out route's
   // "refuse before any teardown" ordering.
   if (!(await isSameOriginServerAction())) return rejectCrossOriginPicker("clearIdentity");
   const input = parseFormData(formData);
   if (!input) return { ok: false, code: "PICKER_INVALID_INPUT" };
+  // Validate before anything destructive, as the guest action does.
+  if (!isValidClearIdentityInput(input)) return { ok: false, code: "PICKER_INVALID_INPUT" };
+  // Sign out FIRST on this path, the reverse of clearIdentityAndSkip. The core
+  // schedules revalidatePath; a re-render with the session still live and the
+  // entry gone is needs_picker_bootstrap, which re-mints the same identity and
+  // hides the failure (BL-SWITCH-PERSON-GOOGLE-LOOPBACK). Failing here
+  // re-renders nothing: the menu shows the failure copy and the person is still
+  // who they were. Safe because a rendered avatar menu belongs to the session's
+  // own person or to a cookie-only viewer with no session; the foreign-session
+  // case Mode B orders around cannot reach this menu.
+  const signedOut = await signOutThisDevice(input.showId, "clearIdentity");
+  if (!signedOut.ok) return signedOut;
   return clearIdentityCore(input);
 }
 
@@ -116,11 +130,13 @@ export async function clearIdentityAndSkip(formData: FormData): Promise<ClearIde
   const result = await clearIdentityCore(input);
   if (!result.ok) return result;
 
-  const signedOut = await signOutThisDevice(input.showId);
+  const signedOut = await signOutThisDevice(input.showId, "clearIdentityAndSkip");
   if (!signedOut.ok) return signedOut;
 
   redirect(buildShowReturnUrl(input.slug, input.shareToken, { s: input.s, gate: "skip" }));
 }
+
+type ClearAction = "clearIdentity" | "clearIdentityAndSkip";
 
 /**
  * Ends the Supabase session on THIS browser only.
@@ -129,8 +145,15 @@ export async function clearIdentityAndSkip(formData: FormData): Promise<ClearIde
  * which revokes the user's refresh tokens on every device they own. A guest
  * tapping a button on a shared iPad must not sign a colleague out of their phone.
  * The app-wide /auth/sign-out route keeps the global default deliberately.
+ *
+ * Both exported clear actions call this, in opposite orders for stated reasons:
+ * clearIdentityAndSkip clears the entry first (its docblock), clearIdentity signs
+ * out first (its body comment). `action` names the caller in the forensic emit.
  */
-async function signOutThisDevice(showId: string): Promise<ClearIdentityResult> {
+async function signOutThisDevice(
+  showId: string,
+  action: ClearAction,
+): Promise<ClearIdentityResult> {
   // Each boundary is caught SEPARATELY and reported with its own `stage`.
   // Invariant 9 wants faults discriminable, and these three are not the same
   // event: a constructor throw means nothing was revoked, a signOut fault means
@@ -143,8 +166,8 @@ async function signOutThisDevice(showId: string): Promise<ClearIdentityResult> {
     // onward with state half-applied. Returning re-renders a gate, which is
     // itself the retry affordance — Mode B while the session survives, or the
     // first-contact welcome once revocation landed (see the `sweep` stage).
-    log.error("guest sign-out failed", {
-      source: "auth.picker.clearIdentityAndSkip",
+    log.error("picker sign-out failed", {
+      source: `auth.picker.${action}`,
       code: "AUTH_SIGNOUT_FAILED",
       stage,
       showId,
