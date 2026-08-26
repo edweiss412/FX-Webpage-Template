@@ -25,15 +25,55 @@ import { GUARD_SURFACES, type GuardSurface } from "./registry";
 /** Four: max load is pinned by the heaviest surface from n=4 on (spec §2.4). */
 export const SOURCE_SHARD_COUNT = 4;
 
-/** SECONDS, not minutes -- an integer-minute record cannot express 60m59s. */
-export const SHARD_BUDGET_SECONDS = 60 * 60;
+// Re-exported from its leaf module so every existing importer is untouched. It moved
+// because the registry now needs it to bound `millisPerBoot`, and this file imports the
+// registry -- see the note in `budget.ts` for why that cycle would have failed silently.
+export { SHARD_BUDGET_SECONDS } from "./budget";
 
-export function weightOf(surface: GuardSurface): number {
+/**
+ * MODELLED child boots for one surface.
+ *
+ * Extracted from `weightOf` VERBATIM. The expression is also
+ * `sourceShardPartition`'s own control anchor in the guard-surface registry, and
+ * `validateSurface` rejects a row whose anchor does not occur exactly once, so
+ * reformatting this line breaks enrolment and the failure reads as an unrelated
+ * registry error.
+ *
+ * Separate from `weightOf` because the count and the cost are different questions:
+ * the drift report and the seeding emitter both need boots WITHOUT a rate applied,
+ * and a caller that wanted the count and got a cost would be wrong by whatever the
+ * rate happens to be.
+ */
+export function bootsOf(surface: GuardSurface): number {
   const text = readFileSync(surface.sourcePath, "utf8");
   const sites = enumerateSites(surface.sourcePath, text, surface.operators);
   const { mutants } = generateMutants(surface.sourcePath, text, surface.operators, sites);
   const suites = surface.suitePaths.length;
   return mutants.length + surface.accepted.length * (suites - 1) + suites;
+}
+
+export function weightOf(surface: GuardSurface): number {
+  // Milliseconds, not boots. A boot count prices every surface's boot identically
+  // and the measured rates do not agree: at 52 enrolled surfaces they span 762 to
+  // 18212 ms per modelled boot, a factor of 23.9, none of which the count can see.
+  // So the heaviest leg was being chosen by a number uncorrelated with what the leg
+  // actually costs.
+  //
+  // THOSE TWO NUMBERS ROT, and this comment has already rotted once: it read "935 to
+  // 4963 ms per modelled boot -- a 5.3x spread", which was the min and max of the
+  // surfaces enrolled the day it was written. Four later enrolments moved the max by
+  // 3.7x and nobody moved the sentence, so it understated the very problem it exists
+  // to justify. Treat the figures above as dated rather than current, and re-derive:
+  //
+  //   pnpm tsx -e 'import {GUARD_SURFACES} from "./tests/mutation/source/registry.ts";
+  //     const r = GUARD_SURFACES.map((s) => s.millisPerBoot).sort((a, b) => a - b);
+  //     console.log(r[0], r.at(-1), (r.at(-1) / r[0]).toFixed(2) + "x");'
+  //
+  // Integral by construction rather than by rounding: `bootsOf` is a count, and
+  // `validateSurface` rejects a non-integer rate, so the product is an integer and
+  // `lptAssign`'s documented integer arithmetic stays true. A rounding step here
+  // would be dead code, and the gate would eventually say so.
+  return bootsOf(surface) * surface.millisPerBoot;
 }
 
 export function sourceShardAssignment(

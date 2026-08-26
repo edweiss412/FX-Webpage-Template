@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { premise } from "../../_shared/premise";
+import { premise, premiseHolds } from "../../_shared/premise";
 import { GUARD_SURFACES, type GuardSurface } from "./registry";
 import {
   SHARD_BUDGET_SECONDS,
   SOURCE_SHARD_COUNT,
+  bootsOf,
   shardOfSurface,
   sourceShardAssignment,
   surfacesForShard,
@@ -28,12 +29,12 @@ const fakeSurface = (over: Partial<GuardSurface>): GuardSurface => {
 describe("source-mutation shard partition", () => {
   const assignment = sourceShardAssignment();
 
-  it("weighs a surface by modelled child boots: mutants + accepted*(suites-1) + suites", () => {
+  it("counts modelled child boots: mutants + accepted*(suites-1) + suites", () => {
     // Same source file, so the mutant count is identical in both calls; only the
-    // declared suites and ledger size differ. A weight ignoring `suites` gives
+    // declared suites and ledger size differ. A count ignoring `suites` gives
     // delta 0; one ignoring `accepted` gives delta 2; the true formula gives 4.
-    const oneSuite = weightOf(fakeSurface({ suitePaths: ["a"], accepted: [] }));
-    const threeSuites = weightOf(
+    const oneSuite = bootsOf(fakeSurface({ suitePaths: ["a"], accepted: [] }));
+    const threeSuites = bootsOf(
       fakeSurface({
         suitePaths: ["a", "b", "c"],
         accepted: [{ siteId: "x", kind: "equivalent", reason: "fixture" }],
@@ -43,6 +44,41 @@ describe("source-mutation shard partition", () => {
     expect(threeSuites - oneSuite).toBe(4);
     // And the absolute value for the single-suite, empty-ledger case is m + 1.
     expect(oneSuite).toBeGreaterThan(1);
+  });
+
+  it("PRICES the weight: the same boot delta costs 4 x the surface's rate", () => {
+    // The rate is set EXPLICITLY and is deliberately not 1. Under a `*`-to-`+`
+    // mutant the delta is 4 rather than 4 x rate, so the two are distinguishable
+    // only when the rate differs from 1 -- and `fakeSurface` spreads a real
+    // registry row, whose rate could become 1 by an ordinary edit somewhere else
+    // and silently destroy this discriminator while the test kept passing.
+    // Constructing the value beats writing a premise that reds.
+    // Annotated `number` rather than left to literal narrowing: as a literal type the
+    // premise below is statically true and the compiler calls the comparison
+    // unintentional, which would force deleting the very guard that catches a later
+    // edit of this constant to 1.
+    const RATE: number = 7;
+    premiseHolds("the fixture rate is not 1, or a + mutant is indistinguishable", RATE !== 1);
+    const priced = (over: Partial<GuardSurface>) =>
+      weightOf(fakeSurface({ ...over, millisPerBoot: RATE }));
+    const oneSuite = priced({ suitePaths: ["a"], accepted: [] });
+    const threeSuites = priced({
+      suitePaths: ["a", "b", "c"],
+      accepted: [{ siteId: "x", kind: "equivalent", reason: "fixture" }],
+    });
+    // Derived from the boot delta and the rate, never from `weightOf` itself: an
+    // expectation computed from the thing under test cannot notice a rate mutant.
+    expect(threeSuites - oneSuite).toBe(4 * RATE);
+  });
+
+  it("hands lptAssign integers only, which is what its determinism claim rests on", () => {
+    // `lptAssign` documents integer arithmetic and lexicographic ties as the whole
+    // basis of its platform independence. It holds by construction here -- boots is
+    // a count and the rate is validated as an integer -- so this guards the
+    // validator's integrality arm being weakened later rather than the arithmetic.
+    for (const s of GUARD_SURFACES) {
+      expect(Number.isInteger(weightOf(s)), `${s.id} weight must be an integer`).toBe(true);
+    }
   });
 
   it("is total: the union of the four shard slices is exactly the registry (AC-1)", () => {
@@ -76,8 +112,10 @@ describe("source-mutation shard partition", () => {
     );
   });
 
-  // Weighing 21 surfaces means parsing and mutating 21 real sources, so the
-  // makespan cases below share one computation rather than each paying for it.
+  // Weighing the registry means parsing and mutating every enrolled source, so the
+  // makespan cases below share one computation rather than each paying for it. The
+  // count is deliberately NOT written here: it said 21 long after the registry passed
+  // forty, and a number in a comment is a claim nobody re-checks.
   const weights = new Map(GUARD_SURFACES.map((s) => [s.id, weightOf(s)] as const));
   const weightList = [...weights.values()];
   const heaviest = Math.max(...weightList);
@@ -191,5 +229,28 @@ describe("source-mutation shard partition", () => {
   it("declares a budget below the per-job timeout, in seconds", () => {
     expect(SHARD_BUDGET_SECONDS).toBeGreaterThan(0);
     expect(SHARD_BUDGET_SECONDS).toBeLessThan(90 * 60);
+  });
+
+  it("RECORDS that the live partition does not fit the budget, and by how much", () => {
+    // A DOCUMENTED LIMIT, recorded so the improvement above cannot be read as
+    // sufficiency. The spec chose the binding leg RELATIVE to the shipped model as
+    // AC-3's criterion, deliberately rather than an absolute budget, "because an
+    // absolute would be met or missed by how heavy the corpus happened to be that
+    // week." This is that week.
+    //
+    // Measured on the live registry: the priced model's binding leg is about 4509s
+    // against the boot-count model's 5228s, so pricing takes roughly 719s off it -- and
+    // the budget is 3600s, so BOTH breach it. The shortfall is not a packing that could
+    // be improved: total modelled child wall clock is about 18,025s, so the lower bound
+    // at four shards is about 4506s and NO assignment of four can fit. Six would.
+    //
+    // Asserted as a RECORD of today's state, not as a target. If the binding leg ever
+    // drops under the budget this case fails, and that is exactly the moment to delete
+    // it and assert the budget instead.
+    expect(lowerBound / 1000).toBeGreaterThan(SHARD_BUDGET_SECONDS);
+    expect(makespan / 1000).toBeGreaterThan(SHARD_BUDGET_SECONDS);
+    // Derived rather than remembered, so the number cannot rot the way "21 surfaces"
+    // did in a comment a few lines up.
+    expect(Math.ceil(total / 1000 / SHARD_BUDGET_SECONDS)).toBeGreaterThan(SOURCE_SHARD_COUNT);
   });
 });

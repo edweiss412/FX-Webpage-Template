@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { OPERATOR_NAMES } from "./source/operators";
+import { SHARD_BUDGET_SECONDS } from "./source/shardPartition";
 import { GUARD_SURFACES, type GuardSurface, validateSurface } from "./source/registry";
 
 /**
@@ -19,6 +20,7 @@ const VALID: GuardSurface = {
   suitePaths: ["tests/specLint/taskContract.test.ts"],
   operators: [...OPERATOR_NAMES],
   scoreFloor: 0.95,
+  millisPerBoot: 1000,
   control: { from: 'if (kind !== "plan") return [];', to: 'if (kind === "plan") return [];' },
   accepted: [
     { siteId: "relational-boundary:1:1:<><=", kind: "equivalent", reason: "unreachable; §2.4" },
@@ -80,6 +82,61 @@ describe("guard-surface registry — validation rejects each malformed row (AC-1
 
   it("rejects a control that changes nothing", () => {
     expect(reject({ control: { from: "plan", to: "plan" } }).join(" ")).toMatch(/identical/i);
+  });
+
+  it("keeps millisPerBoot REQUIRED, which only the type checker can enforce", () => {
+    // This case is carried by `pnpm typecheck`, NOT by this vitest run, and the
+    // distinction is the whole point: vitest strips types, so an unused suppression
+    // directive is invisible to it. Flipping the field to optional would leave every
+    // runtime arm above green and every named vitest command green, and the
+    // requiredness half of AC-4 would be proved by nothing.
+    //
+    // If the directive below ever reports "unused", the field has become optional.
+    //
+    // The prose here deliberately does NOT spell that directive out. The compiler reads
+    // it from ANY comment, so an earlier draft that named it while explaining it planted
+    // a second, live directive on the following comment line, where nothing errors --
+    // reported as unused, and masking the real one. Mentioning is using.
+    // @ts-expect-error millisPerBoot is required on GuardSurface
+    const withoutRate: GuardSurface = {
+      id: "no-rate",
+      sourcePath: VALID.sourcePath,
+      suitePaths: VALID.suitePaths,
+      operators: VALID.operators,
+      scoreFloor: VALID.scoreFloor,
+      control: VALID.control,
+      accepted: [],
+    };
+    expect(withoutRate.id).toBe("no-rate");
+  });
+
+  it("rejects a millisPerBoot that is not a usable rate", () => {
+    // Absent is a COMPILE error, not one of these: the field is required on
+    // GuardSurface, so a row without it never reaches validation.
+    for (const bad of [0, -1, Number.NaN, 1.5]) {
+      expect(reject({ millisPerBoot: bad }).join(" "), `millisPerBoot ${bad}`).toMatch(
+        /millisPerBoot/i,
+      );
+    }
+  });
+
+  it("rejects a millisPerBoot above the shard budget", () => {
+    // No single modelled boot can legitimately cost the entire budget of the leg it
+    // runs on, so this is the one true upper bound.
+    expect(reject({ millisPerBoot: SHARD_BUDGET_SECONDS * 1000 + 1 }).join(" ")).toMatch(
+      /millisPerBoot/i,
+    );
+  });
+
+  it("ACCEPTS a rate above the mutant timeout but below the budget", () => {
+    // THE ARM THAT DISCRIMINATES THE BOUND, and the reason the five rejects above are
+    // not sufficient on their own: every one of them is ALSO rejected by a validator
+    // wrongly capped at MUTANT_TIMEOUT_MS (180_000), and every live rate sits far below
+    // that cap, so a five-arm table stays green under the exact defect it claims to
+    // fence. This value is the spec's own refutation example made executable -- two
+    // honest 100-second children charged to ONE modelled boot give 200_000 ms per
+    // modelled boot, which is legitimate and which the wrong bound rejects.
+    expect(reject({ millisPerBoot: 200_000 })).toEqual([]);
   });
 
   it("rejects a missing sourcePath", () => {
