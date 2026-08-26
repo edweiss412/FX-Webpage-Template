@@ -65,6 +65,15 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // guessed: each is what the classifier reports today, declared independently
   // so a recognizer that silently stops matching drops them to zero and reds
   // instead of reporting a clean corpus it no longer understands.
+  // The shard-weight instrument's suite, enrolled 2026-08-25. ZERO, and derived
+  // from the DEFINITION rather than read off the scanner: environment-touching
+  // means spawning a child (`spawnSync`, `execFileSync`) or reading `process.env`
+  // (tests/mutation/source/premiseScan.test.ts:70-113), and this suite does
+  // neither. Its only environment contact is `mkdtempSync`/`writeFileSync`/
+  // `rmSync` inside a tmpdir, which is not in that set. The "every enrolled suite
+  // must classify at least one test" case below is what keeps this zero from being
+  // satisfied vacuously by a file the scanner cannot parse.
+  "tests/mutationWeight/instrument.test.ts": 0,
   // The AC coverage suites, enrolled 2026-08-25. Counts are MEASURED against this
   // tree rather than reasoned about: the CLI suite's two are what the classifier
   // reports, and the other three declare 0. The corpus suite reads the plan tree

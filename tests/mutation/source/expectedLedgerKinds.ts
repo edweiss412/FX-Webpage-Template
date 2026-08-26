@@ -454,6 +454,33 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // tests/mutation/source/shardPartition.test.ts, so a row appearing here later
   // is a coverage regression to repair, not a number to bump.
   sourceShardPartition: {},
+  // mutationWeightRecords / mutationWeightWeights: the shard-weight instrument,
+  // enrolled 2026-08-25 with the arc that wrote it. One suite decides both modules,
+  // and it is paired with scripts/mutation-weight-plant.mjs, which plants named
+  // defects into a copy and requires that suite to go red on each -- so an unkilled
+  // mutant here is a coverage gap to repay with a case, not a number to bump. The
+  // plant harness reports ANCHOR-FAIL when nothing was planted and BROKEN-PLANT when
+  // the mutant did not compile, because either would otherwise read as a pass.
+  //
+  // The rows below are what SURVIVED that treatment. The first score returned 31
+  // survivors and sixteen were repaid with cases, including every boundary and every
+  // counter; what remains is coalesces the compiler REQUIRES and no input evaluates.
+  // Each carries its own reachability argument rather than a shared one: the blanket
+  // "noUncheckedIndexedAccess forces it, so it cannot matter" claim was tried on this
+  // arc and was FALSE at three sites in legSeconds, one of which returned NaN for the
+  // binding leg. Two coalesces four lines apart in heldOutMargin land on opposite
+  // sides of that line, which is why they are argued separately.
+  // 2 since 2026-08-25: the post-absorb re-score put this surface BELOW FLOOR at
+  // 0.6842 with six unaccepted survivors, all of them in code the round-3 repair
+  // added. FIVE were repaid with cases exactly as the note above requires -- the
+  // zero-duration boundary and the three startedAt comparisons, each verified by
+  // planting the mutant and confirming the suite goes red. Only the SIXTH is a row:
+  // `typeof d !== "number" || !Number.isFinite(d)` is equivalent over this
+  // function's reachable inputs, because every value arrives through JSON.parse and
+  // the witness that would separate the two (a number that is not finite) cannot
+  // survive a JSON round trip. That is a reachability argument, not a bump.
+  mutationWeightRecords: { equivalent: 2 },
+  mutationWeightWeights: { equivalent: 8 },
   // shardBudget: the module is pure decision logic with the CLI deliberately in
   // a separate file, so every branch is reachable through the referring suite
   // and a row appearing here is a gap to repay. The separation is not a style

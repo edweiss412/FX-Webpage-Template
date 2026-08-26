@@ -98,6 +98,7 @@ const surface = (over: Partial<GuardSurface> = {}): GuardSurface => ({
   suitePaths: ["subject.test.ts"],
   operators: ["relational-boundary"],
   scoreFloor: 1,
+  millisPerBoot: 1000,
   control: { from: "n < 3", to: "n > 3" },
   accepted: [],
   ...over,

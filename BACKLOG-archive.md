@@ -12412,3 +12412,68 @@ Each candidate resolves to the line it names, so a human can separate a live cla
 **First scheduled step:** decide whether the prohibition lives in `probe/citations.mts` as a second assertion or in the pre-dispatch gate alongside `BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE`, which shares an owner and a trigger point.
 
 **Disposition:** DEMOTED to documented limits 2026-08-25 under AGENTS.md "Process mint freeze (2026-08-25)" (Eric's directive; enforced by `tests/docs/_metaLedgerMintBar.test.ts`). **Re-file trigger:** `**Mint-exception:** product-blocked` naming the product branch the gap stopped.
+
+## BL-MUTATION-WEIGHT-MODEL-BOOT-COUNT-ONLY — the shard partition balances modelled child boots, and the real cost per boot varies ~20x across surfaces
+
+**Status:** SHIPPED via PR #896 (`fix/mutation-shard-weight-seconds`) · **Filed:** 2026-08-21 (`fix/mutation-shard-ceiling-pin`, from the Defect C diagnosis while clearing main's nightly red) · **Severity:** MEDIUM (it produces no wrong verdict; it produces UNBALANCED legs, which breach the budget and then cancel, and a cancelled leg carries no verdict at all) · **Class:** mutation harness fidelity · **Effort:** M-L · **Facing:** process · **Reachability:** PROBED — the load figures below were computed by running `sourceShardAssignment` and `weightOf` over the live registry at `0820436cf`; the elapsed figures are read off main's own legs. · **Incident:** main's nightly `source-shards` has been red for days with legs CANCELLED at the job ceiling rather than failing, and that silence has already cost two misattributions: `rowScanOpener`'s AC-13 mismatch went unattributed for five days inside a leg red for a sibling surface, and its failure was then misdated by three commits onto an unrelated arc, because the only available history was leg-level and two of the four legs had cancelled. The censored-leg mechanism is documented independently at `BL-MUTATION-HARNESS-MAIN-RED` (the `timeout-minutes` trap), which recorded a leg cancelled at 90m17s reporting nothing for any surface it held.
+
+**The model, and what it prices.** `weightOf` (`tests/mutation/source/shardPartition.ts:31-38`) is `mutants.length + accepted.length * (suites - 1) + suites` — a count of modelled CHILD BOOTS, justified in its own comment by `runAllSuites` short-circuiting on the first rejecting suite, so a killed mutant costs one boot and a survivor pays every suite. That reasoning is sound. The unstated assumption is that every boot costs the SAME, quoted in `runner.ts:19-25` as ~0.75 s.
+
+**The assumption is wrong by up to ~30x, and two independent measurements agree.** Per-mutant rates measured on this harness span roughly **1.19 s/mutant** (`spawnBounded`) to **23.45 s/mutant** (`ledgerGit`) — a 19.7x spread, measured by a different arc for an unrelated purpose (its own correction of a 7.6x figure derived from a convenient subset), so the two halves corroborate without sharing a method. `weightOf` prices both at 1.
+
+**What that does to the partition, measured at `0820436cf`:** modelled loads are 1084 / 1080 / 1080 / 1078 — a **1.006x** spread, essentially perfect balance. Observed elapsed times on the same partition are 3310 / 3812 / 4180 / 5172 s — a **1.56x** spread. The optimiser is solving the wrong problem well.
+
+**Why it is not repaired here, and this is a scope decision rather than a deferral of convenience.** Changing the weight function changes the LPT input, which repartitions EVERY surface at once. That invalidates every in-flight arc's shard assignment simultaneously — and this arc has already measured what a single enrolment does to the partition: adding one surface moved three others between legs. With four live arcs on the registry seam, a weight change is a fleet-wide disruption, and the imbalance is weeks old rather than urgent.
+
+**Class-sweep exception:** (c) — the repair is a redesign of the cost model in a surface this PR does not otherwise touch, and its blast radius is every enrolled surface rather than the ones this PR names.
+
+**What shipped instead, deliberately narrower.** `fix/mutation-shard-ceiling-pin` pins the job ceiling at `ceiling >= 2 x SHARD_BUDGET_SECONDS + a 300 s reporting reserve` (7500 s = 125 min today) in `_metaSourceShardIntegrity`, stated as a factor over the shared constant rather than as minutes. The reserve is not padding: the ceiling bounds the WHOLE job while the budget measures the leg's own stamp, so at exactly 2x a leg that fills its overrun allowance has zero seconds left to write and upload `elapsed.txt` and is cancelled with no record -- the same silence one step further along. That does NOT remove the imbalance; it guarantees the imbalance stays DIAGNOSABLE, by keeping the ceiling far enough above the budget that a breaching leg still finishes and reports instead of being cancelled into silence. Before it, 5400 s sat 228 s above the worst observed leg. Restoring the instrument was worth more than fixing one imbalance, because every other defect on this harness is diagnosed through it.
+
+**First scheduled step:** measure per-surface seconds-per-boot directly from the elapsed artifacts the budget job already uploads, and decide whether the weight becomes a measured per-surface rate (accurate, but a committed table that goes stale — the failure mode this harness keeps hitting) or a derived proxy such as suite runtime (self-maintaining, less accurate). Do NOT land it while more than one arc holds the registry seam.
+
+**Shipped.** `weightOf` now prices a shard leg in modelled SECONDS rather than modelled child
+boots: each registry row carries a measured `millisPerBoot`, and the weight is the boot count
+multiplied by that surface's own rate. The count model was not wrong about the boots, it was
+wrong that they cost the same. The measured spread across the 52 enrolled surfaces is 762 ms
+per boot (`supabaseRetryEligibility`) to 18212 (`psqlStartupScan`), a factor of 23.9.
+
+**Measured at the shipping head, 52 surfaces.** 36 of 52 surfaces change leg, 69 percent. The
+binding leg goes from 6467 s under boots to 4666 s under pricing, an improvement of 1801 s.
+The four legs move from 4600 / 4842 / 2743 / 6467 to 4661 / 4664 / 4661 / 4666, which is the
+balance the count model was already achieving against the wrong quantity.
+
+**What this does NOT close.** Four shards fit under neither weight at a 3600 s budget: 4666 s
+still breaches it, and six legs are needed to meet it. That breach predates this arc and is
+`BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH`, not this row. This arc moves the binding leg 1801 s
+TOWARD the budget and deliberately files nothing new about the remainder, which is a shard-count
+decision belonging to whoever owns fleet capacity.
+
+**The staleness risk this row named is answered, not ignored.** The row's own first scheduled
+step framed the choice as a measured per-surface rate (accurate, but a committed table that goes
+stale) against a derived proxy (self-maintaining, less accurate). This ships the committed table,
+and the staleness failure mode it warned about is covered by the rate-drift reporter the budget
+job already runs (`scripts/check-rate-drift.ts`, wired at the `Report per-surface rate drift`
+step of `mutation-harness.yml`), which reads the per-surface records rather than the leg stamps
+and so can see a rate that has moved away from its committed value.
+
+**The scope decision this row recorded is superseded, and how its risk was handled.** The row
+declined the repair under class-sweep exception (c) because changing the weight repartitions
+every surface at once and would invalidate every in-flight arc's assignment. That is exactly what
+this arc does, so the risk was met head-on rather than argued away: AC-1 measures verdict
+neutrality across the repartition by dispatching the harness on both refs at one merge base and
+comparing per-mutant verdicts across three disjoint populations (untouched, this branch's added
+surface, this branch's two changed surfaces). The row's closing constraint — do not land it while
+more than one arc holds the registry seam — is a fleet-capacity call and was routed to the
+orchestrator rather than decided inside the arc.
+
+**One honest limit on the AC-1 evidence, stated precisely rather than loosely.** A timed-out
+child scores KILLED, so in principle a mutant that would have survived can be recorded as
+killed and the score biased upward. That is the general risk. The one timeout actually
+observed across three runs is NOT an instance of it: `statement-removal:413:5` deletes
+`current = current.parent` from a `while (current !== undefined)` loop, so the mutant cannot
+terminate at any load, on any machine. Scoring it KILLED is correct, and re-running it alone
+would time out forever and prove nothing. The rule that follows is to read the MUTANT and not
+just the clock: a deleted loop advance, a removed `break`, or a flipped termination condition
+is non-termination and is honestly killed. Anything else is a genuine candidate for a re-run
+with its surface alone on a leg, which is how any mover in the untouched population is treated
+before it is attributed to the repricing.

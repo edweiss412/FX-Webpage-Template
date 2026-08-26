@@ -690,6 +690,25 @@ export type EnvKeyAllowlist = Record<
  *  because it cannot occur in YAML scalar text. */
 export const govKey = (key: string, valueText: string) => `${key}\u0000${valueText}`;
 export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
+  RECORDS_DIR: {
+    values: [{ text: "records", governs: [] }],
+    reason:
+      "Names the directory the rate-drift step downloads per-surface mutation records " +
+      "into, read by scripts/check-rate-drift.ts. Governs no spec: it selects nothing and " +
+      "skips nothing. The script has NO default for it and exits 2 when it is unset or " +
+      "empty, so a mis-wired path is a loud usage error rather than a report that " +
+      "silently finds every surface unmeasured — which would read as a clean run with " +
+      "nothing to say.",
+  },
+  DRIFT_ACTIONABLE_AT: {
+    values: [{ text: "2", governs: [] }],
+    reason:
+      "The ratio at or above which a per-surface rate change is marked actionable in the " +
+      "drift report. Governs no spec: it changes only how a line is LABELLED, never " +
+      "whether a surface is reported, because every measured surface is named whatever " +
+      "its ratio. The step is non-blocking and exits 0 with or without drift, so this " +
+      "value cannot decide a run — the budget check decides pass or fail.",
+  },
   FONT_ARTIFACT_DIR: {
     values: [{ text: ".next-prod", governs: [] }],
     reason:
