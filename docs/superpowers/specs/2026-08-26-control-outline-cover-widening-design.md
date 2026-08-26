@@ -64,7 +64,7 @@ So the order is fixed:
 **A site repaired without appearing in the red transcript of §6 is a P0 in this arc regardless of
 test status.** That count is an acceptance criterion (AC-9) and it is zero.
 
-The row's own list held eight sites. §6 measures **twenty-seven**, plus one more that only the
+The row's own list held eight sites. §6 measures **thirty-five**, plus one more that only the
 tinted-plate guard names. Eight was what the row could see, not the population.
 
 ## 3. Line anchors, reconciled once
@@ -343,7 +343,7 @@ component, and the comment there records that the rich card IS the collapsed bod
 `components/admin/telemetry/CronRunSummaryCard.tsx:26` is therefore the control's boundary, not a card
 edge beside one.
 
-The seven `bg-warning-bg` banners of `ArchiveShowButton` and `UnarchiveShowButton` are the sharpest
+The four `bg-warning-bg` banners of `ArchiveShowButton` and `UnarchiveShowButton` are the sharpest
 instance of the chrome half. They are `role="alert"` status surfaces that happen to render inside the
 `<div onClick>` at `components/admin/showpage/ShareHub.tsx:1081`, which is in scope by the `onClick`
 rule. Being inside a click target does not make an alert a control boundary, and §1.2a preserves
@@ -456,7 +456,7 @@ does its fixture helper at `tests/styles/_metaControlOutlineFill.test.ts:102`. I
 
 ## 8. The `inner-chrome` category
 
-Four of the reddened elements are non-interactive chrome painted inside a control. No existing
+Ten of the reddened elements are non-interactive chrome painted inside a control. No existing
 `RESIDUE_CATEGORIES` member fits: they are not tracks, not side dividers, not focus chrome, not
 responsive skins, and there is no defect to file. A quiet exclusion is not available; the guard's whole
 contract is that everything admitted is either swapped or registered with a reason whose form a test
@@ -576,16 +576,42 @@ under the class lock arbitrated by bl-orch. A surface's shard is derived by LPT 
 
 **The `accepted` rows are LINE-KEYED, and this diff shifts them.** A `siteId` is
 `<operator>:<line>:<column>:<mutation>`, so an insertion above an accepted site invalidates the row and
-the score reds on a survivor nobody introduced. Both affected surfaces are enumerable at spec time
-rather than discovered at score time. `interactiveScanCore` holds 11 accepted rows at source lines 141,
-153, 180, 236, 285, 312, 380, 383 and 394 (`tests/mutation/source/registry.ts:2588-2657`); adding
-`admittedAs` to `ScanElement`, whose declaration ends at `tests/styles/interactiveScanCore.ts:65`,
-inserts N lines above all eleven, so every one shifts by exactly +N and no column changes.
-`controlOutlineResidue` holds 9 accepted rows at 45, 51, 62, 80, 307, 321, 324, 373 and 659; only 659
-sits below the `ResidueCategory` and `RESIDUE_CATEGORIES` additions, so only that one shifts. Every
-other edit lands below the highest accepted line on its surface or changes a line in place (the residue
-import, the `residueOf` signature). The repair is therefore deterministic: apply the shift by
-construction, then let the score run confirm zero unaccepted survivors rather than discover the shift.
+the score reds on a survivor nobody introduced.
+
+The inventory is DERIVED rather than typed, because two independent hand counts of it disagreed with
+each other and with the registry. The command and its output, run against `b30413cf5`:
+
+```
+$ python3 - <<'PY'   # per surface: accepted row count and the distinct SOURCE lines they key on
+import re
+s = open("tests/mutation/source/registry.ts").read()
+for sid in ["interactiveScanCore", "controlOutlineScan", "controlOutlineResidue"]:
+    i = s.index(f'id: "{sid}"'); j = s.find('    id: "', i + 10)
+    ids = re.findall(r'siteId: "([^"]+)"', s[i : j if j > 0 else len(s)])
+    print(sid, len(ids), sorted({int(x.split(":")[1]) for x in ids}))
+PY
+interactiveScanCore    11 [141, 153, 180, 236, 285, 312, 380, 383, 394]
+controlOutlineScan      0 []
+controlOutlineResidue  14 [45, 51, 62, 80, 307, 321, 324, 373, 415, 504, 591, 659]
+```
+
+`interactiveScanCore`: `ScanElement`'s declaration ends at `tests/styles/interactiveScanCore.ts:65`, so
+adding `admittedAs` there inserts N lines above ALL ELEVEN rows and every one shifts by exactly +N;
+columns are unaffected. Everything else the change adds lands below 394.
+
+`controlOutlineResidue`: the import change and the `residueOf` signature change are in place and add no
+line. The `ResidueCategory` and `RESIDUE_CATEGORIES` additions sit at roughly 463-476, so the **four
+rows on lines 504, 591 and 659** shift by that delta (591 carries two rows) and the **ten rows on lines
+45 through 415** do not (415 also carries two). Four plus ten is the fourteen the extractor counted,
+which is the check that the split is over rows and not over lines. The `validateRow` branch and the
+`CATEGORY_BARS` line both land below 659 and shift nothing.
+
+`controlOutlineScan` has an empty `accepted`, so it has nothing to shift; its `scoreFloor` is 1 and this
+diff leaves its behaviour byte-identical.
+
+The repair is therefore deterministic: apply the shift by construction, then let the score run confirm
+zero unaccepted survivors rather than discover the shift. AC-17 re-verifies each reason by READING its
+new site, because a resolving siteId establishes nothing about what is there.
 
 **`millisPerBoot` is an input to the shard partition, so it moves too.**
 `tests/mutation/source/shardPartition.ts:90` derives a surface's shard by LPT over `millisPerBoot`. The
@@ -668,11 +694,13 @@ after across the whole swap.
 
 ## 15. Transition Inventory
 
-Four swap targets animate their outline colour, so the swap changes what is tweened. Every other target
-has no colour transition, which is stated rather than left blank.
+THREE swap targets animate their outline colour, and two REGISTERED tracks do. The swap changes what is
+tweened on the three; the two tracks keep their recipe and are here so the inventory is complete over
+what the widened cover admits, not only over what moves. Every other target has no colour transition,
+which is stated rather than left blank.
 
 `components/admin/ShowRowActions.tsx:647` and `components/admin/wizard/CrewRowActions.tsx:270` are
-two-state (closed, open), so one pair each.
+two-state (closed, open), so one unordered pair each, listed below in both directions.
 
 | Element | Pair | Transition |
 | --- | --- | --- |
