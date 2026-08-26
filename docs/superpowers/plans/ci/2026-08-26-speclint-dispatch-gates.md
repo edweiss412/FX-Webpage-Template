@@ -363,4 +363,38 @@ both ledgers via `ledgerFiles()` (`tests/docs/_metaLedgerReferentialIntegrity.te
 
 ## 12. Closeout
 
+### Recorded deviation: invariants 1 and 6, Tasks 3, 4 and 5
+
+**What happened, verified against the commits rather than recalled.** `3d0595796`
+carries the production code for all four gate arms — that commit's `gate.ts`
+already contains the coverage check, the null-count check and the `hard > 0`
+check. The tests for three of them landed afterwards in `a97244a3e`, whose own
+subject line reads "coverage arm, multi-document enforcement, and the
+summary-grammar refusal": three tasks in one commit.
+
+So invariant 1 (failing test first) was violated for Tasks 3, 4 and 5, and
+invariant 6 (commit per task, no batching) by that single commit. Diff review R1
+raised it as a P0 and it is accurate.
+
+**What is true in mitigation, offered as fact and not as a defence.** Task 1's own
+RED was observed before its implementation — the planted hard document dispatched
+at exit 0 and the assertion failed on it. Every arm was subsequently proved by
+PLANTING its defect and observing the suite go red: null-to-zero in the bridge,
+a reworded refusal message, the coverage arm deleted from both implementations,
+and the suppression R1 itself found. That is real evidence about the code. It is
+not failing-test-first, and AGENTS.md makes this P0 regardless of test status.
+
+**How it happened, because the mechanism is the transferable part.** Plan review
+R1 required Task 1 to be restructured: a task that creates only the leaf cannot
+observe a RED any production line causes, since its suite fails at collection,
+which `docs/agents/writing-plans.md:15` rejects by construction. That restructure
+was correct. What was not correct is that implementing it, I wrote the whole
+`decide()` function in one pass instead of only the enforcement branch, and three
+unplanned arms rode along ahead of their tests. The lesson is narrow and worth
+stating: merging a leaf into its first consumer is not licence to merge every
+consumer into it.
+
+**Disposition.** Ruled by the orchestrator 2026-08-26: accept the deviation,
+record it here, file no ledger row. This section is that record.
+
 impeccable-gate: N/A — no UI surface
