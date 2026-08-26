@@ -9,7 +9,7 @@
 // through `runSurface`, which runs at MODULE scope inside `describe.each`
 // (tests/mutation/source/surfaceCases.ts:20-27) and spawns one vitest child per
 // mutant. So the assertion lives exclusively inside `guardSurfaces.shard*` --
-// nightly, four-way sharded, and excluded from every merge-gating project by
+// nightly, LPT-sharded, and excluded from every merge-gating project by
 // NIGHTLY_ONLY_EXCLUDES (vitest.projects.ts:97-102). Three properties of that
 // job, each independently sufficient, hid a real mismatch for five days:
 //

@@ -386,6 +386,23 @@ const DISPOSITIONS: readonly Disposition[] = [
     digest: "3bc7216c4b80",
   },
   {
+    // The shard-range guard's two git calls. A MEMBER: these really are executed
+    // children, and the row's ceiling claim is satisfied per hit by the literal
+    // `timeout: 10_000` at each call site, so deleting either ceiling re-reds
+    // this row rather than passing quietly. Two rather than one because
+    // `check-ignore` refuses to run outside a repository, so the scratch tree
+    // has to be `git init`ed before it can be asked anything.
+    kind: "file",
+    file: "tests/mutation/_metaShardRangeTracked.test.ts",
+    member: true,
+    reason:
+      "MEMBER — the shard-range guard asks git which shard paths the COMMITTED ignore rules " +
+      "match, in a scratch repository seeded with that file alone so a contributor's " +
+      "core.excludesFile or .git/info/exclude cannot answer for it. One `git init` and one " +
+      "`check-ignore --no-index`, each bounded by an explicit 10 s timeout, both short-lived " +
+      "and neither a mutation-harness child.",
+  },
+  {
     kind: "file",
     file: "tests/mutation/_metaSourceShardIntegrity.test.ts",
     member: false,

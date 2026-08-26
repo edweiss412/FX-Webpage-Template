@@ -70,4 +70,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-24-admin-rpc-transient-502-retry-design.md`](./2026-08-24-admin-rpc-transient-502-retry-design.md) | 2026-08-24 |
 | [`2026-08-25-planlint-ac-command-observability-design.md`](./2026-08-25-planlint-ac-command-observability-design.md) | 2026-08-25 |
 | [`2026-08-25-drift-residue-design.md`](./2026-08-25-drift-residue-design.md) | 2026-08-25 |
+| [`2026-08-26-mutation-shard-budget-fit.md`](./2026-08-26-mutation-shard-budget-fit.md) | 2026-08-26 |
 | [`probes`](./probes) | 2026-08-04 |
