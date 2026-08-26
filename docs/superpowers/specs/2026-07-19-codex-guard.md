@@ -315,10 +315,14 @@ restatement here — two copies drift). Tests: `tests/codexGuard/lintGate.test.t
 
 **Documented limit — this file would fail the gate it now describes.** `pnpm
 spec:lint` reports 26 hard on it, unchanged by the 2026-08-26 amendment (26 at
-`HEAD` before it, 26 after). Ten are the string `result.json` and the rest are
-per-machine or runtime artifact names (`models_cache.json`,
-`~/.claude/hooks/…`, `<tempHOME>/.codex`) written in backticks and therefore read
-as repository citations. They are correct as prose and wrong as citations.
+`HEAD` before it, 26 after). Ten are the result-artifact filename and the rest are
+per-machine or runtime artifact names (the models cache, hook scripts under the
+per-account Claude config dir, a temp-HOME codex dir) written in backticks and
+therefore read as repository citations. They are correct as prose and wrong as
+citations.
+
+This paragraph does not name them in backticks, deliberately: the first draft did
+and added three more hard findings to the very count it was reporting.
 
 Not repaired here, and the reason is that the friction is hypothetical rather than
 actual: the gate refuses a dispatch that names a document with `--lint-doc`, and
