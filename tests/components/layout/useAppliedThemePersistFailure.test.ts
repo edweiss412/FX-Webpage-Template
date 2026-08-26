@@ -1,22 +1,18 @@
 // @vitest-environment jsdom
 /**
- * useAppliedTheme — persist-failure state (theme-persistence-note Task N1,
- * spec §2.1; AC-1 / AC-3 / AC-9).
+ * useAppliedTheme — a blocked write is absorbed SILENTLY.
  *
- * The hook deliberately ABSORBS a throwing `localStorage.setItem` (the theme
- * still applies in-tab), so nothing today distinguishes "your choice is saved"
- * from "this device will forget it". These cases pin the new `persistFailed`
- * flag AND the absorb it must not break.
+ * Product ruling 2026-08-26 (spec 2026-08-15-theme-persistence-note §2.2,
+ * "Amendment, 2026-08-26"): persisting the theme choice is a convenience, not a
+ * failure mode the user is asked to acknowledge. The hook keeps the absorb it
+ * always had and drops the `persistFailed` flag that reported it.
  *
- * The AC-9 case is the reason the mount effect becomes a functional update: the
- * standalone toggle documents a reachable pre-mount click window
- * (`components/layout/ThemeToggle.tsx:68`), and a wholesale
- * `setState({ mounted, theme })` in the mount effect would silently clear a
- * flag set inside that window. It renders through `createRoot` + `flushSync`
- * rather than `renderHook` because RTL's render flushes passive effects, which
- * is precisely the window this has to open. `expect(mounted).toBe(false)` right
- * after the render is the PREMISE check: if effects ever start flushing there,
- * the case fails loudly instead of passing vacuously.
+ * Two things are pinned here, and the second is the one that matters over time.
+ * The BEHAVIOUR: a throwing `localStorage.setItem` never stops the theme from
+ * applying in-tab. The SHAPE: `persistFailed` is absent from the hook's return
+ * value, asserted with an `in` check rather than `toBeUndefined()`, because an
+ * absent key and a key set to `undefined` are the same to `toBeUndefined()` and
+ * only one of them is the removal this file exists to hold.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
@@ -76,8 +72,8 @@ afterEach(() => {
   delete document.documentElement.dataset.theme;
 });
 
-describe("useAppliedTheme persist failure", () => {
-  it("reports a blocked write AND still applies the theme in-tab (AC-1)", () => {
+describe("useAppliedTheme absorbs a blocked write silently", () => {
+  it("applies the theme in-tab through a throwing write, and reports nothing", () => {
     blockWrites();
     const { result } = renderHook(() => useAppliedTheme());
 
@@ -85,45 +81,40 @@ describe("useAppliedTheme persist failure", () => {
       result.current.setTheme("dark");
     });
 
-    expect(result.current.persistFailed).toBe(true);
-    // The absorb is load-bearing: the guard reports the miss, it does not
-    // undo the in-tab apply.
+    // The absorb is the whole feature: the write is lost, the visit is not.
     expect(document.documentElement.dataset.theme).toBe("dark");
+    expect("persistFailed" in result.current).toBe(false);
   });
 
-  it("clears the flag when a later write succeeds (AC-3)", () => {
-    blockWrites();
-    const { result } = renderHook(() => useAppliedTheme());
-
-    act(() => {
-      result.current.setTheme("dark");
-    });
-    expect(result.current.persistFailed).toBe(true);
-
+  it("exposes no failure flag on a working device either", () => {
     allowWrites();
+    const { result } = renderHook(() => useAppliedTheme());
+
     act(() => {
-      result.current.setTheme("light");
+      result.current.setTheme("dark");
     });
 
-    expect(result.current.persistFailed).toBe(false);
-    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect("persistFailed" in result.current).toBe(false);
   });
 
-  it("keeps the flag set across repeated blocked writes (AC-1 repeated failure)", () => {
+  it("keeps applying the theme across repeated blocked writes", () => {
     blockWrites();
     const { result } = renderHook(() => useAppliedTheme());
 
     act(() => {
       result.current.setTheme("dark");
     });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
     act(() => {
       result.current.setTheme("light");
     });
-
-    expect(result.current.persistFailed).toBe(true);
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect("persistFailed" in result.current).toBe(false);
   });
 
-  it("preserves a pre-mount failure through the mount sync (AC-9)", () => {
+  it("carries a pre-mount blocked write through the mount sync", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
@@ -143,14 +134,15 @@ describe("useAppliedTheme persist failure", () => {
 
       // PREMISE: the commit landed and the mount effect has NOT run yet. If
       // this ever reports `true`, the pre-effect window this case exists to
-      // exercise did not open and the rest proves nothing.
+      // exercise did not open and the rest proves nothing. The window is real:
+      // ThemeToggle documents a reachable pre-mount click.
       expect(captured.current?.mounted).toBe(false);
 
       blockWrites();
       flushSync(() => {
         captured.current?.setTheme("dark");
       });
-      expect(captured.current?.persistFailed).toBe(true);
+      expect(document.documentElement.dataset.theme).toBe("dark");
     } finally {
       if (priorActEnv === undefined) {
         delete (globalThis as ActFlag).IS_REACT_ACT_ENVIRONMENT;
@@ -159,11 +151,16 @@ describe("useAppliedTheme persist failure", () => {
       }
     }
 
-    // Flush the mount effect. A wholesale replace here wipes the flag.
+    // Flush the mount effect. The theme the pre-mount click applied has to
+    // survive it — the effect re-reads the DOM, so a wholesale replace is
+    // harmless here, but a replace that re-derived from stored state would
+    // silently roll the choice back on exactly the device that cannot store.
     act(() => {});
 
     expect(captured.current?.mounted).toBe(true);
-    expect(captured.current?.persistFailed).toBe(true);
+    expect(captured.current?.theme).toBe("dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(captured.current !== null && "persistFailed" in captured.current).toBe(false);
 
     act(() => {
       root.unmount();
@@ -171,7 +168,7 @@ describe("useAppliedTheme persist failure", () => {
     container.remove();
   });
 
-  it("leaves the flag untouched when the OS theme changes", () => {
+  it("leaves the applied theme alone when the OS theme changes after a blocked write", () => {
     const media = installMatchMedia(false);
     blockWrites();
     const { result } = renderHook(() => useAppliedTheme());
@@ -179,7 +176,7 @@ describe("useAppliedTheme persist failure", () => {
     act(() => {
       result.current.setTheme("dark");
     });
-    expect(result.current.persistFailed).toBe(true);
+    expect(document.documentElement.dataset.theme).toBe("dark");
 
     // No stored choice (the write was blocked), so the OS-change listener acts.
     act(() => {
@@ -187,6 +184,6 @@ describe("useAppliedTheme persist failure", () => {
     });
 
     expect(document.documentElement.dataset.theme).toBe("dark");
-    expect(result.current.persistFailed).toBe(true);
+    expect("persistFailed" in result.current).toBe(false);
   });
 });

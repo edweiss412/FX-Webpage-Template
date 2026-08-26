@@ -322,20 +322,19 @@ describe("the transition inventory (spec §2.3)", () => {
   });
 });
 
-describe("the persist-failure note", () => {
-  // theme-persistence-note Task N3 (spec §2.2; AC-1 / AC-4 / AC-6). The menu's
-  // theme row writes through the same hook the standalone toggle uses, so a
-  // device that cannot remember the choice has to say so HERE too — a note on
-  // one control only would leave the other silent for the identical failure.
+describe("no persist-failure note (removed 2026-08-26)", () => {
+  // Product ruling 2026-08-26, ratified in spec 2026-08-15-theme-persistence-note
+  // §2.2 "Amendment, 2026-08-26": persisting the theme choice is a convenience,
+  // not a failure mode the user acknowledges. Both of this menu's note nodes are
+  // gone — the aria-hidden visible paragraph AND the root-level sr-only
+  // announcer whose only content was that same sentence.
+  //
+  // The menu keeps a SECOND, unrelated `role="status"` announcer for the
+  // switch-person flow, so every case below names the region it means. A blanket
+  // "no status region" assertion would pass by deleting the wrong one.
   function blockWrites(): void {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("blocked");
-    });
-  }
-
-  function allowWrites(): void {
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      /* a working device */
     });
   }
 
@@ -345,95 +344,60 @@ describe("the persist-failure note", () => {
     });
   }
 
-  /** The VISIBLE note inside the popover; absent until a write fails. */
-  const note = () => screen.queryByTestId("theme-persist-note");
-  /** The always-mounted live region that owns the announcement. */
-  const announcer = () => screen.getByTestId("theme-persist-announcer");
-
-  it("mounts the live region before any failure, and OUTSIDE the popover (AC-4)", () => {
-    blockWrites();
-    renderMenu();
-
-    // Present before the menu is even opened, let alone before the failing
-    // activation: a region that arrives WITH its message is never announced
-    // (the ReSyncButton trap, and the repo-wide guard at
-    // tests/components/_metaLiveRegionMounting.test.ts).
-    expect(announcer()).toBeInTheDocument();
-    expect(announcer()).toHaveAttribute("role", "status");
-    expect(announcer().textContent).toBe("");
-    expect(note()).toBeNull();
-
-    openMenu();
-    expect(announcer().textContent).toBe("");
-  });
-
-  it("renders the note on a blocked write and leaves the menu open (AC-1)", () => {
+  it("renders neither note node on a blocked write, and still applies the theme", () => {
+    document.documentElement.dataset.theme = "light";
     blockWrites();
     renderMenu();
     openMenu();
 
     flipTheme();
 
-    expect(note()?.textContent).toBe("This device won't remember this choice.");
-    expect(announcer().textContent).toBe("This device won't remember this choice.");
-    // The absorb holds: the theme still applied, and the row did not close the menu.
+    // PREMISE: the flip did real work through the throwing write. Without it,
+    // both absence assertions would also pass on a menu that never rendered.
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(screen.getByRole("menu")).toBeInTheDocument();
-  });
 
-  it("keeps the note OUT of the role=menu element and its owned children (AC-6)", () => {
-    blockWrites();
-    renderMenu();
-    openMenu();
-    flipTheme();
-
-    const menu = screen.getByRole("menu");
-    expect(menu.contains(note())).toBe(false);
-    expect(menu.contains(announcer())).toBe(false);
-    // `role="menu"` constrains what it owns; the note is a popover sibling.
-    expect(within(menu).queryByRole("status")).toBeNull();
-    expect(
-      [
-        ...within(menu).getAllByRole("menuitemcheckbox"),
-        ...within(menu).getAllByRole("menuitem"),
-      ].map((el) => el.getAttribute("data-testid")),
-    ).toEqual(["avatar-menu-theme", "avatar-menu-switch-person"]);
-  });
-
-  it("re-renders the note when the popover is closed and re-opened", () => {
-    blockWrites();
-    renderMenu();
-    openMenu();
-    flipTheme();
-    expect(note()?.textContent).toBe("This device won't remember this choice.");
-
-    act(() => fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" }));
     expect(screen.queryByTestId("theme-persist-note")).toBeNull();
-    // The ANNOUNCER survives the close, so the report is not withdrawn from
-    // assistive tech when the popover goes away.
-    expect(announcer().textContent).toBe("This device won't remember this choice.");
-
-    openMenu();
-    // Hook state lives on the component, not the popover: the device has not
-    // started remembering just because the menu closed.
-    expect(note()?.textContent).toBe("This device won't remember this choice.");
+    expect(screen.queryByTestId("theme-persist-announcer")).toBeNull();
   });
 
-  it("keeps the note through a repeated failure and clears it on recovery (AC-1, AC-3)", () => {
+  it("mounts no theme announcer at all, before the menu is even opened", () => {
+    blockWrites();
+    renderMenu();
+
+    // The old shape mounted this region empty at the component root so a later
+    // message would announce. There is no later message, so an empty region
+    // left behind would be dead a11y surface rather than a harmless leftover.
+    expect(screen.queryByTestId("theme-persist-announcer")).toBeNull();
+
+    openMenu();
+    expect(screen.queryByTestId("theme-persist-announcer")).toBeNull();
+  });
+
+  it("keeps the UNRELATED switch-person announcer, which is a different region", () => {
+    blockWrites();
+    renderMenu();
+
+    // Names the survivor explicitly. This is what stops the removal from being
+    // satisfied by deleting the wrong `role="status"` node.
+    const survivor = screen.getByTestId("avatar-menu-switch-announcer");
+    expect(survivor).toHaveAttribute("role", "status");
+    expect(screen.queryByTestId("theme-persist-announcer")).toBeNull();
+  });
+
+  it("stays silent across repeated blocked writes and on recovery", () => {
+    document.documentElement.dataset.theme = "light";
     blockWrites();
     renderMenu();
     openMenu();
 
     flipTheme();
+    expect(document.documentElement.dataset.theme).toBe("dark");
     flipTheme();
-    expect(note()?.textContent).toBe("This device won't remember this choice.");
+    expect(document.documentElement.dataset.theme).toBe("light");
 
-    allowWrites();
-    flipTheme();
-    // Recovery removes the visible note and EMPTIES the live region rather than
-    // unmounting it, so the next failure is a content change it can announce.
-    expect(note()).toBeNull();
-    expect(announcer().textContent).toBe("");
+    expect(screen.queryByTestId("theme-persist-note")).toBeNull();
+    expect(screen.queryByTestId("theme-persist-announcer")).toBeNull();
   });
 });
 
