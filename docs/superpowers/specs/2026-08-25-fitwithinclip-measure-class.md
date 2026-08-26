@@ -545,7 +545,7 @@ comment.
 
 Both the overlay rect and the clip rect are read in **one** `page.evaluate` per measurement. `boundingBox()` is viewport-relative and Playwright actionability scrolls before it measures, so two separate reads can be taken against two different scroll positions and manufacture a phantom overlap. Tolerance is 0.5px, matching the existing containment cases.
 
-Existing containment cases (`tests/e2e/popover-clip-fit.spec.ts:310`, `tests/e2e/popover-clip-fit.spec.ts:565`) and the anchor-room census (`tests/e2e/popover-clip-fit.spec.ts:720-754`) stay green, untouched.
+Existing containment cases (`tests/e2e/popover-clip-fit.spec.ts:310`, `tests/e2e/popover-clip-fit.spec.ts:565`) and the anchor-room census (`tests/e2e/popover-clip-fit.spec.ts:838-910`) stay green, untouched. The census citation read `720-754` until execution: adding the painted-frame case above it moved the block, and repairing the sampler's ambiguous read moved it again. The two containment citations sit ABOVE the insertion point and are therefore unchanged, which is exactly the asymmetry plan §5b warns about.
 
 ### §5.3 — Gates
 

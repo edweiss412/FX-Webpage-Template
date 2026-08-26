@@ -659,20 +659,38 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
 
     await openToggleBanner(page);
 
-    const frames = await page.evaluate(
-      () =>
-        (
-          window as unknown as {
-            __clipFrames?: {
-              present: boolean;
-              overlayBottom?: number;
-              clipBottom?: number;
-              scrollH?: number;
-              clientH?: number;
-            }[];
-          }
-        ).__clipFrames ?? [],
+    // An empty sample is AMBIGUOUS on its own: `?? []` reads identically whether
+    // the init script never ran and `__clipFrames` is absent, or it ran and no
+    // frame elapsed. Running the whole standalone config surfaced exactly that
+    // (`no frame was sampled at all`, firstPresent -1) where the spec passes
+    // alone, and the message could not say which. So wait for the first row
+    // explicitly, and report installed-ness separately from the rows.
+    await page.waitForFunction(
+      () => {
+        const w = window as unknown as { __clipFrames?: unknown[] };
+        return Array.isArray(w.__clipFrames) && w.__clipFrames.length > 0;
+      },
+      undefined,
+      { timeout: 15_000 },
     );
+
+    const sampler = await page.evaluate(() => {
+      const w = window as unknown as {
+        __clipFrames?: {
+          present: boolean;
+          overlayBottom?: number;
+          clipBottom?: number;
+          scrollH?: number;
+          clientH?: number;
+        }[];
+      };
+      return { installed: Array.isArray(w.__clipFrames), frames: w.__clipFrames ?? [] };
+    });
+    expect(
+      sampler.installed,
+      "the init script never ran: window.__clipFrames is absent, so no sampling happened at all",
+    ).toBe(true);
+    const frames = sampler.frames;
 
     const firstPresent = frames.findIndex((f) => f.present);
     // (1) ARMING: an absent row must precede the first present one, or sampling
