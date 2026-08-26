@@ -265,6 +265,12 @@ export default defineConfig({
           E2E_PORT
         : "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm dev -H 127.0.0.1 -p " +
           E2E_PORT,
+      // Playwright forwards a web server's stderr by default but its stdout ONLY on an explicit
+      // "pipe" (its web-server plugin gates the two streams differently). `log.debug` reaches
+      // stdout, so without this every SUPABASE_UPSTREAM_FAULT record is discarded inside
+      // Playwright before app-e2e.yml's redirect could capture it. No other log level is
+      // available: warn and error persist, and info persists whenever it carries a code.
+      stdout: "pipe" as const,
       url: `http://127.0.0.1:${E2E_PORT}`,
       reuseExistingServer: !process.env.CI,
       // 300s in CI: the crew-e2e job (CREW_E2E_ONLY) boots ONLY this server and it

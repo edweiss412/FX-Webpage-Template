@@ -69,7 +69,19 @@ describe("ledger sizing guard", () => {
     // Without this, deleting both open ledgers would make every assertion pass.
     const files = openLedgers();
     expect(files).toEqual(["BACKLOG.md", "DEFERRED.md"]);
-    expect(openEntries().length).toBeGreaterThan(50);
+    // PER-FILE non-emptiness, not a corpus count floor. The floor was
+    // `> 50`, which made the premise a function of how much work happens to be
+    // OPEN: main sat at 52 and an ordinary arc archiving three rows dropped it
+    // to 49, reding a guard that had nothing to say about that arc. A count
+    // floor cannot distinguish "the walk broke" — the thing this premise
+    // exists to catch — from "the queue got shorter", which is the outcome the
+    // repo wants. Per-file non-emptiness catches the first and is indifferent
+    // to the second. Ruled fleet-wide 2026-08-26 after the archive in #904 hit
+    // it; no grandfather list, because nothing is being excused.
+    for (const file of files) {
+      const count = openEntries().filter((row) => row.file === file).length;
+      expect(count, `${file} parsed zero entries — the walk is broken`).toBeGreaterThan(0);
+    }
   });
 
   it("every open entry is sized, or grandfathered by id", () => {

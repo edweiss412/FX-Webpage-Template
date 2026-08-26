@@ -49,6 +49,16 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/supabase/retryingFetch.test.ts": 49,
   "tests/supabase/retryingFetch.failureMode.test.ts": 3,
   "tests/supabase/retryEligibility.test.ts": 0,
+  // The transport observer's two harnesses. MEASURED with classifyTests against this tree, and
+  // worth saying that the first attempt at these numbers was wrong for an instructive reason:
+  // 10 and 4 were measured before spec rounds 3 and 4 added three plants and a transparency
+  // case, so the measured thing was changed by the very rounds that hardened it. Re-run the
+  // classifier rather than trusting a paste. Every case carries a `no-premise:` exemption, for
+  // the same reason the wrapper suites above do: both drive an injected stub transport, and the
+  // fence suite also replaces the log sink, so the classifier reports them touching for what the
+  // wrapper CAN reach rather than for what the test does.
+  "tests/supabase/observeTransport.plantFour.test.ts": 14,
+  "tests/supabase/observeTransport.recursionFence.test.ts": 4,
   "tests/supabase/_metaRetryableRpcVolatility.test.ts": 22,
   "tests/supabase/_metaRetryableRpcVolatilityWalk.test.ts": 0,
   // The claim-sweep suites, enrolled 2026-08-20. Counts are MEASURED, not
@@ -307,6 +317,9 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // Enrolled by reviewRoundFiling (enforcement-pair arc): parses literal
   // markdown strings through remark and reaches no member of
   // ENVIRONMENT_SOURCES.
+  // Pure in-memory decision function driven over a shared case table: no
+  // filesystem, no spawn, no env. Measured 0, not estimated.
+  "tests/specLintGate/bridgeParity.test.ts": 0,
   "tests/reviewRounds/filing.test.ts": 0,
   // M-wave 2 W-GUARDS (2026-08-10): both guard-extractor suites are pure by
   // the same rule as the corpus suite — they read the live tree via node:fs

@@ -38,6 +38,10 @@ const REQUIRED_ENROLMENTS: ReadonlyMap<string, string> = new Map([
   ["supabaseRetryingFetch", "lib/supabase/retryingFetch.ts"],
   ["supabaseRetryEligibility", "lib/supabase/retryEligibility.ts"],
   ["retryableRpcVolatilityScan", "tests/supabase/retryableRpcVolatilityScan.ts"],
+  // The transport observer. Enrolled for the same reason as its three siblings: it is a
+  // guard-shaped module whose defect class is "reports OK while the output moved", and nothing
+  // else measures whether its two suites actually pin it.
+  ["observeTransport", "lib/supabase/observeTransport.ts"],
 ]);
 
 describe("the transient-502 surfaces stay enrolled", () => {

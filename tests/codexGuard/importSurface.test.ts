@@ -6,11 +6,16 @@
  * install step and no bundler. That contract is invisible in the source, so a
  * new import would break it silently on someone else's machine.
  *
- * The list is EXACT rather than a no-node_modules check, because the ratified
- * decision was to vendor the block parse INLINE (spec §1.1 item 4). A second
- * relative sibling would satisfy "no dependencies" while violating exactly the
- * thing that was decided — so a new relative import fails here too. Growing this
- * list is a deliberate, reviewed edit.
+ * The list is EXACT rather than a no-node_modules check. A new relative sibling
+ * fails here too, so growing this list is a deliberate, reviewed edit — which is
+ * what `./specLintGate.mjs` is: `scripts/codex-guard.mjs` cannot import a `.ts`,
+ * and the ratified remedy for that is a lib half plus a bare-node bridge plus a
+ * parity suite (`docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md`
+ * §1.1 item 8, the same ratification `./reviewRoundEmit.mjs` shipped under).
+ *
+ * The previous header cited "spec §1.1 item 4" for a vendor-the-parse-inline
+ * decision. That citation did not resolve: item 4 of that section is "Filings are
+ * immutable evidence", and the codex-guard spec has no §1.1 at all.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -24,6 +29,7 @@ const ALLOWED = [
   "node:os",
   "node:path",
   "./reviewRoundEmit.mjs",
+  "./specLintGate.mjs",
 ].sort();
 
 describe("codex-guard import surface", () => {
