@@ -20,6 +20,14 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { readFileSync, readdirSync } from "node:fs";
+// The SHARED stripper, not a local regex: a structural guard
+// (tests/cross-cutting/_metaStripCommentsSingleSource.test.ts) requires one
+// implementation of comment handling across the walked test tree, and it caught
+// the hand-rolled pair I wrote for this census. One stripper means one set of
+// edge cases — string literals containing `//`, nested `/*`, URLs — rather than
+// each caller rediscovering them.
+import ts from "typescript";
+import { stripCommentsSafely } from "@/tests/_shared/stripComments";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StrictMode } from "react";
@@ -1433,11 +1441,12 @@ describe("AC-18 — the header cap has exactly one definition", () => {
     // one to two while the single real definition was untouched. A census that
     // a comment can move is measuring prose, not code — and this is my own
     // guard, written to close exactly this kind of escape.
-    const stripComments = (src: string) =>
-      src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
     const hits: string[] = [];
     for (const f of files) {
-      const src = stripComments(readFileSync(f, "utf8"));
+      const src = stripCommentsSafely(
+        readFileSync(f, "utf8"),
+        f.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+      );
       let idx = src.indexOf(CAP);
       while (idx !== -1) {
         hits.push(`${f}:${src.slice(0, idx).split("\n").length}`);

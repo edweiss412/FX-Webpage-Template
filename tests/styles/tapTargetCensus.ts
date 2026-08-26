@@ -370,7 +370,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/PublishedToggle.tsx",
-    // Re-keyed 292 -> 459 -> 486 -> 507 by review-modal-strip-dock, which added the
+    // Re-keyed 292 -> 459 -> 486 -> 507 -> 517 by review-modal-strip-dock — SEVEN
+    // times across one arc, every shift caused by lines added ABOVE this element
+    // and none by the element itself, which is the whole content of
+    // BL-MUTATION-SITEID-LINE-KEYED-CHURN in its own domain. It added the
     // placement effect above this component. The element, its recipe and this
     // row's reason are all unchanged — only the address moved, which is the
     // line-keyed churn the mutation registry records as
@@ -381,7 +384,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // the diff-review round-1 degenerate-guard repair, which added lines above
     // this element without touching it — the fifth position-or-count-keyed
     // record this one arc has had to move.
-    line: 507,
+    line: 517,
     tag: "button",
     category: "padding-arithmetic",
     reason:
