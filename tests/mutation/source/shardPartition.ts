@@ -22,8 +22,24 @@ import { generateMutants } from "./generate";
 import { enumerateSites } from "./operators";
 import { GUARD_SURFACES, type GuardSurface } from "./registry";
 
-/** Four: max load is pinned by the heaviest surface from n=4 on (spec §2.4). */
-export const SOURCE_SHARD_COUNT = 4;
+/**
+ * Eight, and it is the point past which the shard count stops being the variable.
+ *
+ * The premise that chose FOUR was that max load is pinned by the heaviest surface from
+ * n=4 on. Enrolment falsified it: the heaviest surface no longer dominates an even split
+ * at four, so four legs were each carrying a genuine share and the partition ran roughly
+ * 30% over the per-leg budget. From EIGHT on the old premise is true again -- the
+ * makespan equals the heaviest single surface and no larger count moves it.
+ *
+ * The number is not derived here and could not be: it comes from measured seconds rather
+ * than from modelled weight, because the declared rates under-price by about 1.19x in
+ * aggregate and the budget is checked against a leg's whole elapsed time rather than its
+ * child seconds. The arithmetic is in
+ * docs/superpowers/specs/ci/2026-08-26-mutation-shard-budget-fit.md §1.3, which is a
+ * dated record; the live figures come from re-running the command that spec's header
+ * carries, never from a number copied into this comment.
+ */
+export const SOURCE_SHARD_COUNT = 8;
 
 // Re-exported from its leaf module so every existing importer is untouched. It moved
 // because the registry now needs it to bound `millisPerBoot`, and this file imports the
