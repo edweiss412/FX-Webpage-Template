@@ -200,13 +200,18 @@ jobs:
       - name: Replay the app-e2e log into the job output
         if: always()
         run: cat app-e2e.log
-      # `|| true` is load-bearing under the default shell's -e: `grep -c` exits 1 on zero matches,
-      # which is the ordinary healthy case, and without it this step fails every green run.
+      # `|| true` is load-bearing under the default shell's -e: a counting grep exits 1 on zero
+      # matches, which is the ordinary healthy case, and without it this step fails every green run.
+      # The LONG flag is load-bearing too, and not a style choice. `tests/ci/_metaSpecRegistration`
+      # reads every workflow line looking for a playwright config flag, and its matcher accepts
+      # `-c <value>` as one; a short-flag grep alongside `$(` and `||` therefore classifies as a
+      # playwright invocation composed at runtime and fails the census closed. `--count` does not
+      # match, because that matcher requires whitespace or line start before the `-c`.
       - name: Extract upstream-fault records
         id: upstream-faults
         if: always()
         run: |
-          count=$(grep -c 'SUPABASE_UPSTREAM_FAULT' app-e2e.log || true)
+          count=$(grep --count 'SUPABASE_UPSTREAM_FAULT' app-e2e.log || true)
           echo "count=${count:-0}" >> "$GITHUB_OUTPUT"
       - name: Dump upstream-fault records
         if: always() && steps.upstream-faults.outputs.count != '0'

@@ -2526,7 +2526,7 @@ describe("the upstream-fault capture chain", () => {
     expect(step.if).toBe("always()");
     expect((step.run ?? "").trim()).toBe(
       [
-        `count=$(grep -c '${CODE}' ${LOG} || true)`,
+        `count=$(grep --count '${CODE}' ${LOG} || true)`,
         'echo "count=${count:-0}" >> "$GITHUB_OUTPUT"',
       ].join("\n"),
     );
