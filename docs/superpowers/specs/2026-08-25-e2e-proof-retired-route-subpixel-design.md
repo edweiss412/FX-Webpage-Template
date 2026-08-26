@@ -119,7 +119,7 @@ The row's font-rasterisation hypothesis predicts a value that varies continuousl
 
 **Placement is the point.** The barrier goes in the helper that opens the animated panel, not at the call sites, so it is a derived cover in the sense AGENTS.md requires: every present and future caller of `openStep3Modal` inherits it, and a new measurement added to any of those specs cannot forget it. This mirrors `rectOf` in `tests/e2e/crew-page.spec.ts:225-244`, whose header states the same reasoning ("placed on `rectOf` itself rather than on the call sites so the gate is a DERIVED cover").
 
-`openStep3Modal`'s other callers are `tests/e2e/step3-review-modal.*.spec.ts`. They gain the same barrier. The change can only make them later by at most one animation duration and cannot make them fail: a settled read is the read they already expect on 98% of runs.
+`openStep3Modal`'s other caller is `tests/e2e/dev-capture.spec.ts` (probed: `rg -n 'openStep3Modal\(' tests/e2e` returns that file and this one, and nothing else). It gains the same barrier. The change can only make them later by at most one animation duration and cannot make them fail: a settled read is the read they already expect on 98% of runs.
 
 ### 4.2 Guarding the barrier so it cannot be silently removed
 
@@ -143,7 +143,7 @@ const animationName = await panel.evaluate((el) => getComputedStyle(el).animatio
 expect(animationName, "premise: the panel must declare an entrance animation, ...").not.toBe("none");
 ```
 
-Reading the declaration from CSS rather than sampling a `getAnimations()` count mid-open is deliberate: the computed style still reports the declaration after the animation has finished, so the premise is observable at the same moment as the barrier and needs no racing sample. A future CSS change that drops the entrance, or a runner forcing `prefers-reduced-motion` where `app/globals.css:993-997` sets `animation: none`, turns this red and says the barrier guards nothing, instead of leaving a green test that proves nothing.
+The order in the test is: call the settled `openStep3Modal`, then read `animationName` from computed style, then read the running set from `getAnimations()`. Reading the DECLARATION rather than sampling a count mid-open is what makes that order possible: computed style still reports the declaration after the animation has finished, so the premise is observable at the same moment as the barrier and needs no racing sample taken before the helper returns. A future CSS change that drops the entrance, or a runner forcing `prefers-reduced-motion` where `app/globals.css:993-997` sets `animation: none`, turns this red and says the barrier guards nothing, instead of leaving a green test that proves nothing.
 
 ### 4.3 What is deliberately not changed
 
@@ -204,7 +204,7 @@ None of the four §8.3 contracts is viewer-scoped. Dates, the venue power row, t
 
 ### 6.3 Case-by-case re-expression against live identities
 
-Each case navigates to the section that renders its field, asserts the section root, and then asserts the §8.3 contract on an identity the product actually emits.
+Each case navigates to the section that renders its field, asserts the section root, and then asserts the §8.3 contract on an identity the product actually emits. `beforeAll` reads the template and `beforeEach` signs in; neither writes the seed, because every mutation lands on a copy made under a fresh id (§6.1).
 
 **Category 1, required-field-missing.** `shows.dates` emptied. Section `schedule`. `components/crew/sections/ScheduleSection.tsx:315-317` renders `<EmptyState label="Show dates haven't been confirmed yet." />` when `visibleDays.length === 0`, inside the still-rendered section, which is exactly the §8.3 category-1 idiom: a required field missing inside a rendered surface.
 
@@ -240,7 +240,7 @@ The four `*-mobile-safari-darwin.png` baselines under `tests/e2e/empty-state-rea
 
 `playwright.config.ts:83` (mobile-safari) and `playwright.config.ts:97` (desktop-chromium) both name this spec. The desktop-chromium alternative is **removed**.
 
-Reason: §8.4 makes the crew page mobile-primary, and section 6.2's admin arm is what renders there. Running one behaviour suite twice buys no coverage while doubling the fixture shows it creates. (An earlier draft also argued shared-seed contention; section 6.1's per-test copies removed that argument entirely, since the suite no longer writes the shared seed at all. It is recorded here so the review does not credit a reason that no longer applies.) `playwright.config.ts:35-49` records that suites sharing the Waldorf seed are the reason `workers: 1` exists, and `tests/e2e/crew-page.spec.ts:161-165` gates itself to mobile-safari for the same "keeps the seed reads single-writer" reason. Running one behaviour spec twice against one mutable seed buys no coverage and doubles the mutation traffic. §8.4 makes the crew page mobile-primary, so mobile-safari is the arm that matters.
+Reason: §8.4 makes the crew page mobile-primary, and section 6.2's admin arm is what renders there. Running one behaviour suite twice buys no coverage while doubling the fixture shows it creates. (An earlier draft argued shared-seed contention as a second reason. Section 6.1's per-test copies removed it: the suite writes no shared seed row at all. It is recorded here so the review does not credit a reason that no longer applies.)
 
 This is a narrowing, and it is stated here so the review does not read it as scope creep.
 
