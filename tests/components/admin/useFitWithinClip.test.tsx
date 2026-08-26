@@ -12,7 +12,9 @@
  * the extension existing.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+
+import { StrictMode, useEffect, useState } from "react";
 
 import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
 import { premiseHolds } from "../../_shared/premise";
@@ -273,12 +275,12 @@ describe("useFitWithinClip", () => {
 
   test("(g) a burst of window resizes coalesces to ONE apply per frame", () => {
     const { fitted } = mount();
-    // Mount costs TWO applies today: the layout effect runs, then the ref
-    // callback's `attachCount` bump re-runs it. Known debt, tracked as
-    // BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — pinned here so a change to the
-    // mount path is visible rather than silently absorbed into the delta below.
+    // ONE attach is ONE measure. The ref callback owns the wiring and returns
+    // its teardown, so nothing re-runs the measure behind it. Pinned here so a
+    // regression to two is visible rather than silently absorbed into the
+    // coalescing delta below.
     const afterMount = applyCount;
-    expect(afterMount, "mount measure count changed").toBe(2);
+    expect(afterMount, "mount measure count changed").toBe(1);
 
     geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
     for (let i = 0; i < 12; i += 1) fireEvent(window, new Event("resize"));
@@ -337,6 +339,496 @@ describe("useFitWithinClip", () => {
     fireEvent(window, new Event("resize"));
     flushFrames();
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  test("(h) one attach walks the ancestor chain exactly once", () => {
+    // Counts `getComputedStyle` on ANCESTORS only; the fitted node's own
+    // declared-cap read is excluded, so the number is the walk and nothing else.
+    const seen: string[] = [];
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
+      const data = (el as HTMLElement).dataset;
+      const id = data?.["testid"] ?? "";
+      if (id !== "fitted") seen.push(id);
+      const clips = data?.["clips"] === "true";
+      return {
+        overflowX: clips ? "clip" : "visible",
+        overflowY: clips ? "clip" : "visible",
+        maxHeight: id === "fitted" ? `${DECLARED_CAP}px` : "none",
+      } as unknown as CSSStyleDeclaration;
+    });
+
+    const { fitted } = mount();
+
+    // DERIVED from the rendered fixture, never typed: walk the real ancestor
+    // chain the way the hook does, up to and INCLUDING the first non-visible
+    // overflow, and take that as the expectation. A hardcoded ["inner","outer"]
+    // would drift silently the moment the fixture's nesting changed.
+    const expected: string[] = [];
+    for (let el = fitted.parentElement; el !== null; el = el.parentElement) {
+      const id = el.dataset["testid"];
+      if (id === undefined) break;
+      expected.push(id);
+      if (el.dataset["clips"] === "true") break;
+    }
+
+    // PREMISE (this case's own inputs): the chain must be at least two deep and
+    // must actually clip, or one walk and two walks are the same number and the
+    // assertion below cannot discriminate.
+    premiseHolds(
+      `the fixture walks ${expected.length} ancestors and clips at the last of them`,
+      expected.length >= 2 && fitted.closest('[data-clips="true"]') !== null,
+    );
+    expect(seen, "one attach must walk the ancestor chain once").toEqual(expected);
+  });
+
+  test("(h2) the ref callback with a null node: no measure, no throw", () => {
+    // Unreachable under React 19 cleanup refs — React calls the returned
+    // teardown instead of re-invoking with null — but `RefCallback` admits it,
+    // and returning `undefined` there is what React expects.
+    //
+    // `renderHook` hands back the callback directly. Two earlier drafts were
+    // worse: the first read a property the harness never sets, so the call was
+    // a no-op and the case asserted nothing; the second captured into an outer
+    // variable during render, which `react-hooks/globals` rejects as a render
+    // side effect, and rightly.
+    const { result } = renderHook(() => useFitWithinClip("k"));
+    const before = applyCount;
+
+    // PREMISE (own inputs): a callback must actually have been returned, or
+    // every assertion below is about nothing.
+    premiseHolds("the hook returned a ref callback", typeof result.current === "function");
+
+    expect(() => result.current(null)).not.toThrow();
+    expect(applyCount - before, "a null node must not measure").toBe(0);
+  });
+
+  test("(h3) after unmount, a resize does not measure a detached node", () => {
+    const { view } = mount();
+    const afterMount = applyCount;
+    view.unmount();
+    fireEvent(window, new Event("resize"));
+    flushFrames();
+    // NO mutant turns this case red, measured rather than predicted. An earlier
+    // version of this comment claimed M13 (the whole teardown removed) reds it.
+    // The run says otherwise: M13 reds (g) and (g3) and leaves THIS case
+    // passing, because a leaked listener still schedules, `apply()` then returns
+    // at the null-node guard, and an applyCount delta never moves. M3 (dropping
+    // only `nodeRef.current = null`) does not reach here either. That gap is
+    // what (h23) exists to close: it asserts on the SCHEDULER, which is the only
+    // place a leaked listener is observable. The authoritative mutant-to-case
+    // mapping is plan §5, and diff review round 3 caught this comment
+    // contradicting it.
+    expect(applyCount - afterMount, "a resize after unmount measured a dead node").toBe(0);
+  });
+
+  /*
+   * (h23) and (h24) pin LISTENER REMOVAL, which (h3) above cannot see.
+   *
+   * Diff review round 1 finding 3: (h3) asserts an `applyCount` delta, and a
+   * leaked listener does not move that count. The leaked handler still fires,
+   * `coalescer.schedule` still books a frame, and `apply()` then returns at its
+   * null-node guard because teardown cleared `nodeRef` — so the measure never
+   * happens and the count sits still while the listener is attached. The
+   * SCHEDULER is the only place the leak is observable, so these assert on
+   * `frames` rather than on `applyCount`.
+   *
+   * Each carries a POSITIVE CONTROL firing the same event while still mounted.
+   * Without it both cases would pass if the event scheduled nothing at all,
+   * which is the vacuous pass this pair exists to rule out.
+   */
+  test("(h23) after unmount, a resize schedules NO frame: the window listener is really gone", () => {
+    const { view } = mount();
+
+    fireEvent(window, new Event("resize"));
+    expect(frames.size, "control: a resize while MOUNTED must schedule a frame").toBe(1);
+    flushFrames();
+
+    view.unmount();
+    fireEvent(window, new Event("resize"));
+
+    expect(
+      frames.size,
+      "a resize after unmount scheduled a frame: the window listener leaked",
+    ).toBe(0);
+  });
+
+  test("(h24) after unmount, transitionend on the former positioned ancestor schedules NO frame", () => {
+    // The hook captures `positioned` at attach, so the listener sits on `inner`
+    // and stays there after withOffsetParent restores the descriptor. Teardown
+    // must remove it from that same captured node.
+    const { view, inner } = withOffsetParent(() => mount());
+
+    fireEvent(inner, transitionEnd("transform"));
+    expect(frames.size, "control: transitionend while MOUNTED must schedule a frame").toBe(1);
+    flushFrames();
+
+    view.unmount();
+    fireEvent(inner, transitionEnd("transform"));
+
+    expect(
+      frames.size,
+      "transitionend after unmount scheduled a frame: the ancestor listener leaked",
+    ).toBe(0);
+  });
+
+  test("(h12) the ResizeObserver callback re-measures against the new geometry", () => {
+    const observed: Element[] = [];
+    const constructed: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(cb: ResizeObserverCallback) {
+          constructed.push(cb);
+        }
+        observe(target: Element) {
+          observed.push(target);
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+
+    const { outer, inner, fitted } = withOffsetParent(() => mount());
+    expect(fitted.style.maxHeight).toBe(expectedPx());
+
+    // PREMISE (this case's own inputs): the hook must have handed the
+    // constructor a callback AND observed both ancestors. The COUNT is not
+    // asserted — it differs by tree, and a `=== 1` premise would abort before
+    // the assertion on the very tree this case exists to pin.
+    premiseHolds(
+      "the hook constructed an observer and observed both ancestors",
+      constructed.length >= 1 && observed.includes(outer) && observed.includes(inner),
+    );
+    // The LAST is the live one: a torn-down earlier instance must not be fired.
+    const fire = constructed[constructed.length - 1];
+    if (fire === undefined) throw new Error("unreachable: premise asserted length >= 1");
+
+    for (const target of [outer, inner]) {
+      geometry = { ...geometry, clipBottom: geometry.clipBottom - 40 };
+      fire([{ target } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+      flushFrames();
+      expect(
+        fitted.style.maxHeight,
+        `a resize reported for ${String(target.getAttribute("data-testid"))} did not re-measure`,
+      ).toBe(expectedPx());
+    }
+  });
+
+  test("(h21) N to D: an observer exists with nothing clipping, and teardown disconnects it", () => {
+    // Four rounds of the inventory claimed state N holds no observer. It does:
+    // with no clip to watch, the POSITIONED ancestor is watched regardless.
+    const observedPer: string[][] = [];
+    let disconnected = 0;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        private mine: string[] = [];
+        constructor(_cb: ResizeObserverCallback) {
+          observedPer.push(this.mine);
+        }
+        observe(t: Element) {
+          this.mine.push((t as HTMLElement).dataset["testid"] ?? "?");
+        }
+        unobserve() {}
+        disconnect() {
+          disconnected += 1;
+        }
+      },
+    );
+
+    const { view } = withOffsetParent(() => mount({ clips: false }));
+
+    // PREMISE (own inputs): nothing may be clipping, or this is the F case.
+    premiseHolds(
+      "the fixture does not clip",
+      screen.getByTestId("outer").dataset["clips"] === undefined,
+    );
+    expect(observedPer, "one observer is constructed even with no clip").toHaveLength(1);
+    expect(
+      observedPer[0],
+      "the positioned ancestor is observed; there is no clip to observe",
+    ).toEqual(["inner"]);
+
+    view.unmount();
+    expect(disconnected, "the teardown must disconnect the unclipped observer").toBe(1);
+  });
+
+  test("(h9) a re-render that changes nothing costs nothing", () => {
+    const { view } = mount({ reapplyKey: "k" });
+    const after = applyCount;
+    for (let i = 0; i < 3; i += 1) view.rerender(<Harness reapplyKey="k" clips />);
+    // The ONLY case that can see an identity-churning ref callback: every other
+    // assertion in this suite is about a single attach.
+    expect(applyCount - after, "an unchanged re-render measured").toBe(0);
+  });
+
+  test("(h18) the hook is called and its ref is never attached", () => {
+    // PublishedToggle's DEFAULT `card` variant: the hook runs for rules-of-hooks
+    // reasons and the returned callback is never used.
+    function NeverAttached({ n }: { n: number }) {
+      useFitWithinClip(n);
+      return <div data-testid="outer" data-clips="true" />;
+    }
+    const view = render(<NeverAttached n={1} />);
+    const after = applyCount;
+    view.rerender(<NeverAttached n={2} />);
+    view.rerender(<NeverAttached n={3} />);
+    expect(applyCount - after, "a hook whose ref never attaches must not measure").toBe(0);
+  });
+
+  test("(h19) N to F: a SIGNAL writes a cap where none existed", () => {
+    // Neither F<->N edge is reachable by a re-render. With a stable ref and an
+    // unchanged reapplyKey a re-render does nothing at all, even when the DOM's
+    // clip status changed in that same commit — so this case is driven by a
+    // signal, and asserts that negative FIRST.
+    const { view, fitted } = mount({ clips: false, reapplyKey: "k" });
+    expect(fitted.style.maxHeight, "nothing clips, so nothing is capped").toBe("");
+
+    view.rerender(<Harness reapplyKey="k" clips />);
+    expect(
+      fitted.style.maxHeight,
+      "a stable-ref re-render must not re-measure, even as the clip status changes",
+    ).toBe("");
+
+    fireEvent(window, new Event("resize"));
+    flushFrames();
+    // Derived from the fixture geometry via the real arithmetic, never typed.
+    expect(fitted.style.maxHeight, "the signal must WRITE a cap where none existed").toBe(
+      expectedPx(),
+    );
+  });
+
+  test("(h20) F to N: a SIGNAL removes the stale cap", () => {
+    const { view, fitted } = mount({ clips: true, reapplyKey: "k" });
+    // PREMISE (own inputs): a cap must exist first, or its removal is vacuous.
+    premiseHolds("a fitted cap exists before the transition", fitted.style.maxHeight !== "");
+    const capped = fitted.style.maxHeight;
+
+    view.rerender(<Harness reapplyKey="k" clips={false} />);
+    expect(fitted.style.maxHeight, "a stable-ref re-render must not re-measure").toBe(capped);
+
+    fireEvent(window, new Event("resize"));
+    flushFrames();
+    expect(fitted.style.maxHeight, "the signal must REMOVE the stale cap").toBe("");
+  });
+
+  test("(h15) the ReSyncButton lifecycle: one render, one apply, one walk per appearance", () => {
+    // No reapplyKey; the node sits behind a flag on the SAME owner. Spec §0.1's
+    // first row. Counts RENDERS as well as applies, because the render halving
+    // is this arc's actual win — the counter fired setAttachCount on every
+    // attach AND detach, each a state update re-rendering the owner subtree.
+    const renderLog: number[] = [];
+    const seen: string[] = [];
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
+      const data = (el as HTMLElement).dataset;
+      const id = data?.["testid"] ?? "";
+      if (id !== "fitted") seen.push(id);
+      const clips = data?.["clips"] === "true";
+      return {
+        overflowX: clips ? "clip" : "visible",
+        overflowY: clips ? "clip" : "visible",
+        maxHeight: id === "fitted" ? `${DECLARED_CAP}px` : "none",
+      } as unknown as CSSStyleDeclaration;
+    });
+    function Resync({ show }: { show: boolean }) {
+      renderLog.push(1);
+      const fit = useFitWithinClip();
+      return (
+        <div data-testid="outer" data-clips="true">
+          <div data-testid="inner">{show ? <div data-testid="fitted" ref={fit} /> : null}</div>
+        </div>
+      );
+    }
+    const view = render(<Resync show={false} />);
+    const base = { r: renderLog.length, a: applyCount, w: seen.length };
+
+    view.rerender(<Resync show />);
+
+    expect(renderLog.length - base.r, "one owner render per appearance").toBe(1);
+    expect(applyCount - base.a, "one apply per appearance").toBe(1);
+    expect(seen.length - base.w, "one ancestor walk per appearance").toBe(2);
+  });
+
+  test("(h16) the PublishedToggle lifecycle: the key IS the mounting condition, both directions", () => {
+    // One boolean gates both the reapplyKey and the node, so the first error is
+    // a key change AND an attach in one commit (one attach, NO detach — nothing
+    // was attached), and the close is a key change AND a detach.
+    const renderLog: number[] = [];
+    function Toggle({ err }: { err: boolean }) {
+      renderLog.push(1);
+      const fit = useFitWithinClip(err);
+      return (
+        <div data-testid="outer" data-clips="true">
+          <div data-testid="inner">{err ? <div data-testid="fitted" ref={fit} /> : null}</div>
+        </div>
+      );
+    }
+    const view = render(<Toggle err={false} />);
+    let base = { r: renderLog.length, a: applyCount };
+
+    view.rerender(<Toggle err />);
+    expect(renderLog.length - base.r, "first error: one owner render").toBe(1);
+    expect(applyCount - base.a, "first error: one apply, not a detach-then-attach").toBe(1);
+
+    base = { r: renderLog.length, a: applyCount };
+    view.rerender(<Toggle err={false} />);
+    expect(renderLog.length - base.r, "close: one owner render").toBe(1);
+    expect(applyCount - base.a, "close: teardown only, no measure").toBe(0);
+  });
+
+  test("(h17) the AttentionMenuPanel lifecycle: node present at ITS first render, then the entrance flip", () => {
+    // The panel mounts only while open and renders the node unconditionally, so
+    // from the hook's owner the node is present at first render — the shape two
+    // drafts of the spec dismissed as used by no route. `entered` then flips
+    // from a mount-scoped rAF, which re-attaches. Both snapshots are asserted
+    // separately: a single cumulative number is unsatisfiable without
+    // suppressing that re-attach, and the re-attach is load-bearing (the
+    // scale-95 entrance distorts the measured rect).
+    const renderLog: number[] = [];
+    function Panel() {
+      renderLog.push(1);
+      const [entered, setEntered] = useState(false);
+      const fit = useFitWithinClip(entered);
+      useEffect(() => {
+        const raf = requestAnimationFrame(() => setEntered(true));
+        return () => cancelAnimationFrame(raf);
+      }, []);
+      return (
+        <div data-testid="outer" data-clips="true">
+          <div data-testid="inner">
+            <div data-testid="fitted" ref={fit} />
+          </div>
+        </div>
+      );
+    }
+    function Host({ open }: { open: boolean }) {
+      return open ? <Panel /> : <div data-testid="outer" data-clips="true" />;
+    }
+
+    const view = render(<Host open={false} />);
+    const base = { r: renderLog.length, a: applyCount };
+
+    view.rerender(<Host open />);
+    expect(renderLog.length - base.r, "attach: one owner render").toBe(1);
+    expect(applyCount - base.a, "attach: one apply").toBe(1);
+
+    act(() => {
+      flushFrames();
+    });
+    expect(renderLog.length - base.r, "settled: two owner renders").toBe(2);
+    expect(applyCount - base.a, "settled: two applies, the entrance re-attach included").toBe(2);
+  });
+
+  test("(h13) Strict Mode replays the cleanup-returning ref, and the counts are pinned AS they are", () => {
+    // React 19 replays a callback ref that returns a cleanup. This is
+    // DEVELOPMENT-only — the symbols are absent from the production react-dom
+    // bundle — so no admin pays it. Pinned at what it actually is rather than
+    // wished down: the ReSyncButton shape's dev apply count goes 1 -> 2, which
+    // is the arc's one regression, and its render count still halves 4 -> 2.
+    const renderLog: number[] = [];
+    function Resync({ show }: { show: boolean }) {
+      renderLog.push(1);
+      const fit = useFitWithinClip();
+      return (
+        <div data-testid="outer" data-clips="true">
+          <div data-testid="inner">{show ? <div data-testid="fitted" ref={fit} /> : null}</div>
+        </div>
+      );
+    }
+    const view = render(
+      <StrictMode>
+        <Resync show={false} />
+      </StrictMode>,
+    );
+    const base = { r: renderLog.length, a: applyCount };
+
+    view.rerender(
+      <StrictMode>
+        <Resync show />
+      </StrictMode>,
+    );
+
+    expect(renderLog.length - base.r, "Strict Mode: two owner renders per appearance").toBe(2);
+    expect(
+      applyCount - base.a,
+      "Strict Mode: the replay costs a second apply, and that is EXPECTED",
+    ).toBe(2);
+  });
+
+  test("(h22) D to N: a re-attach onto a chain that stopped clipping", () => {
+    const observedPer: string[][] = [];
+    let disconnected = 0;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        private mine: string[] = [];
+        constructor(_cb: ResizeObserverCallback) {
+          observedPer.push(this.mine);
+        }
+        observe(t: Element) {
+          this.mine.push((t as HTMLElement).dataset["testid"] ?? "?");
+        }
+        unobserve() {}
+        disconnect() {
+          disconnected += 1;
+        }
+      },
+    );
+
+    const { view, fitted } = withOffsetParent(() => mount({ clips: true, reapplyKey: 1 }));
+    // PREMISE (own inputs): a cap must exist first, or "removed" is vacuous.
+    premiseHolds("a fitted cap exists before the re-attach", fitted.style.maxHeight !== "");
+
+    withOffsetParent(() => view.rerender(<Harness reapplyKey={2} clips={false} />));
+
+    expect(observedPer.length, "the re-attach builds a FRESH observer").toBe(2);
+    expect(
+      observedPer[1],
+      "nothing clips now, so only the positioned ancestor is observed",
+    ).toEqual(["inner"]);
+    expect(disconnected, "the previous observer is disconnected").toBeGreaterThanOrEqual(1);
+    expect(fitted.style.maxHeight, "the stale cap must be removed").toBe("");
+  });
+
+  test("(h8) a reapplyKey change costs one apply and one walk", () => {
+    const seen: string[] = [];
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
+      const data = (el as HTMLElement).dataset;
+      const id = data?.["testid"] ?? "";
+      if (id !== "fitted") seen.push(id);
+      const clips = data?.["clips"] === "true";
+      return {
+        overflowX: clips ? "clip" : "visible",
+        overflowY: clips ? "clip" : "visible",
+        maxHeight: id === "fitted" ? `${DECLARED_CAP}px` : "none",
+      } as unknown as CSSStyleDeclaration;
+    });
+    const { view } = mount({ clips: true, reapplyKey: "closed" });
+    const base = { a: applyCount, w: seen.length };
+
+    view.rerender(<Harness reapplyKey="entered" clips />);
+
+    expect(applyCount - base.a, "a key change costs exactly one apply").toBe(1);
+    expect(seen.length - base.w, "a key change costs exactly one ancestor walk").toBe(2);
+  });
+
+  test("(h14) the live conditional-host shape: ONE owner render per appearance", () => {
+    // The arc's headline in its minimal form. The counter took two.
+    const renderLog: number[] = [];
+    function Owner({ show }: { show: boolean }) {
+      renderLog.push(1);
+      const fit = useFitWithinClip("k");
+      return (
+        <div data-testid="outer" data-clips="true">
+          <div data-testid="inner">{show ? <div data-testid="fitted" ref={fit} /> : null}</div>
+        </div>
+      );
+    }
+    const view = render(<Owner show={false} />);
+    const base = { r: renderLog.length, a: applyCount };
+    view.rerender(<Owner show />);
+    expect(renderLog.length - base.r, "one owner render per appearance").toBe(1);
+    expect(applyCount - base.a, "one apply per appearance").toBe(1);
   });
 
   test("(g4) a non-transform transitionend does not re-measure", () => {

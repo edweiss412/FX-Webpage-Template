@@ -26,7 +26,7 @@
  * DOM cannot announce (an entrance flag flipping pre-frame to entered).
  */
 
-import { useCallback, useLayoutEffect, useRef, useState, type RefCallback } from "react";
+import { useCallback, useRef, type RefCallback } from "react";
 
 import {
   computeFittedMaxHeight,
@@ -67,18 +67,20 @@ const warned = new WeakSet<HTMLElement>();
  *   A HOOK ARGUMENT, never a DOM prop.
  */
 export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement> {
-  // The node lives in a REF (the effect writes to its style, and the React
-  // compiler refuses mutation of anything reached through state), while a
-  // counter in STATE is what actually re-runs the effect: each overlay mounts
-  // long after its owner does — it appears when some state resolves — so an
-  // effect that keyed on the ref alone would run once with `null` and never
-  // wire the observers up.
+  // The node lives in a REF because `apply()` writes to its style. Nothing
+  // lives in STATE: the ref callback below owns the wiring and returns its own
+  // teardown (React 19), which is what a counter in state used to stand in for.
+  // That counter cost a re-render of the owner on every attach AND every
+  // detach, which was its real price — not the doubled measure the ledger row
+  // named.
   const nodeRef = useRef<HTMLElement | null>(null);
-  const [attachCount, setAttachCount] = useState(0);
 
-  const apply = useCallback(() => {
+  /** Measures and caps, and RETURNS the clip ancestor it resolved so the caller
+   *  that triggered this walk does not have to repeat it. Still walks on EVERY
+   *  invocation: the ancestor chain can change between measures. */
+  const apply = useCallback((): HTMLElement | null => {
     const el = nodeRef.current;
-    if (el === null) return;
+    if (el === null) return null;
 
     // withNaturalSize owns the clear and restore (spec §4.2) so the CSS cap is
     // what we measure, not last pass's result — and it restores the element's
@@ -89,7 +91,9 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     // it after the caps are restored would read a different element.
     const measured = withNaturalSize(el, () => {
       const clip = findClippingAncestor(el);
-      if (clip === null) return null; // nothing clips: the CSS cap already governs
+      // nothing clips: the CSS cap already governs. The clip still rides out,
+      // so the caller learns there is nothing to observe.
+      if (clip === null) return { clip: null, fit: null };
 
       const declaredCap = parseFloat(getComputedStyle(el).maxHeight);
       const geometry = {
@@ -98,17 +102,17 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
         // `max-height: none` parses as NaN; Infinity means "only the clip binds".
         cap: Number.isFinite(declaredCap) ? declaredCap : Number.POSITIVE_INFINITY,
       };
-      return { geometry, fitted: computeFittedMaxHeight(geometry) };
+      return { clip, fit: { geometry, fitted: computeFittedMaxHeight(geometry) } };
     });
     // Both branches are written (spec §4.3, R1 F1). The helper restored the PRIOR
     // inline fit; on the nothing-clips path this site must end UNCAPPED, so the
     // stale fit is removed rather than left to survive the early return.
-    if (measured === null) {
+    if (measured.fit === null) {
       el.style.removeProperty("max-height");
-      return;
+      return null;
     }
-    const { geometry } = measured;
-    el.style.maxHeight = `${measured.fitted}px`;
+    const { geometry, fitted } = measured.fit;
+    el.style.maxHeight = `${fitted}px`;
 
     // The floor beating the room means this overlay now OVERHANGS its clip
     // edge — the failure the hook exists to prevent, and the one outcome its
@@ -129,81 +133,94 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
         el,
       );
     }
+    return measured.clip;
   }, []);
 
-  // A LAYOUT effect, not a passive one: the first cap has to be written before
-  // the browser paints, or the overlay gets one painted frame at its uncapped
-  // height and visibly snaps. `ShareHub` already does this for the same reason.
-  useLayoutEffect(() => {
-    const node = nodeRef.current;
-    if (node === null) return;
-    // The MOUNT measure runs synchronously and deliberately bypasses the
-    // coalescer: deferring it to a frame reintroduces the uncapped paint this
-    // layout effect exists to prevent. Only the EVENT-driven re-measures below
-    // are coalesced, because only those arrive in bursts.
-    apply();
+  // The ref callback owns the wiring and RETURNS the teardown (React 19). It is
+  // not a layout effect any more and does not need to be: React attaches refs
+  // during the commit's layout phase, before the owning component's own layout
+  // effects and before paint, so the first cap is still written before the
+  // browser can paint the overlay uncapped.
+  //
+  // `reapplyKey` is in the dependency list and the body never reads it. That is
+  // deliberate and load-bearing: React re-invokes a callback ref whose identity
+  // changed, so listing it reproduces exactly what the old effect dependency
+  // did — teardown, re-measure, re-wire. Dropping it stops a `reapplyKey`
+  // change re-measuring at all.
+  return useCallback(
+    (node: HTMLElement | null) => {
+      nodeRef.current = node;
+      // React 19 calls the returned teardown instead of re-invoking with null,
+      // so this arm is unreachable in practice — but `RefCallback` admits it.
+      if (node === null) return;
 
-    // `apply()` forces a synchronous reflow (write, read, read, read, write),
-    // and every signal below can arrive many times per frame — a drag-resize
-    // fires continuously, and a ResizeObserver can fire for both observed
-    // nodes at once. Leading-edge throttle to one apply per frame.
-    const coalescer = createRafCoalescer(apply);
+      // The MOUNT measure runs synchronously and deliberately bypasses the
+      // coalescer: deferring it to a frame reintroduces the uncapped paint this
+      // callback exists to prevent. Only the EVENT-driven re-measures below are
+      // coalesced, because only those arrive in bursts.
+      //
+      // `apply()` already walked to the clip ancestor, so its return value is
+      // used here rather than walking again. `null` means "nothing clips" — the
+      // node is non-null by the guard above.
+      const clip = apply();
 
-    // The band can grow (a wrapping header or strip pushes the anchor down)
-    // and the panel's height is viewport-derived, so both need watching: a
-    // ResizeObserver on the clip ancestor covers the panel, window resize
-    // covers the viewport-unit cap.
-    // Feature-detected, not assumed: a missing ResizeObserver must degrade to
-    // "measured once on mount, re-measured on viewport resize", never throw
-    // during render of the overlay it is trying to size (jsdom has no
-    // ResizeObserver, and an unguarded `new ResizeObserver` there takes the
-    // whole component down).
-    const clip = findClippingAncestor(node);
-    // The positioned ancestor is a SEPARATE node from the clip ancestor, and it
-    // is the one whose content changes move this overlay's top edge.
-    const positioned = node.offsetParent;
-    const observer =
-      typeof ResizeObserver === "function" ? new ResizeObserver(coalescer.schedule) : null;
-    if (observer !== null) {
-      if (clip !== null) observer.observe(clip);
-      if (positioned instanceof Element) observer.observe(positioned);
-    }
-    // A resize observation fires while a transition is still running, when the
-    // geometry is mid-flight; the settle is when the final numbers exist.
-    //
-    // Scoped to the positioned ancestor's OWN transition: transitionend bubbles,
-    // and this ancestor's descendants are ordinary UI (the AttentionMenu panel
-    // holds ~20 rows carrying `transition-colors`), so an unscoped listener
-    // re-measures — forcing a synchronous reflow — on every hover fade.
-    //
-    // Scoped to `transform` as well: the panel animates
-    // `transition-[opacity,transform]`, so EVERY entrance fires two
-    // transitionend events on this same node. Only the transform carries the
-    // geometry this hook measures, so listening to both doubles the work for
-    // an identical answer.
-    const onTransitionEnd = (event: Event) => {
-      if (event.target !== positioned) return;
-      if ((event as TransitionEvent).propertyName !== "transform") return;
-      coalescer.schedule();
-    };
-    if (positioned instanceof Element)
-      positioned.addEventListener("transitionend", onTransitionEnd);
-    window.addEventListener("resize", coalescer.schedule);
-    return () => {
-      observer?.disconnect();
+      // `apply()` forces a synchronous reflow (write, read, read, read, write),
+      // and every signal below can arrive many times per frame — a drag-resize
+      // fires continuously, and a ResizeObserver can fire for both observed
+      // nodes at once. Leading-edge throttle to one apply per frame.
+      const coalescer = createRafCoalescer(apply);
+
+      // The positioned ancestor is a SEPARATE node from the clip ancestor, and
+      // it is the one whose content changes move this overlay's top edge.
+      const positioned = node.offsetParent;
+      // Feature-detected, not assumed: a missing ResizeObserver must degrade to
+      // "measured once on attach, re-measured on viewport resize", never throw
+      // during render of the overlay it is trying to size (jsdom has none).
+      const observer =
+        typeof ResizeObserver === "function" ? new ResizeObserver(coalescer.schedule) : null;
+      if (observer !== null) {
+        if (clip !== null) observer.observe(clip);
+        if (positioned instanceof Element) observer.observe(positioned);
+      }
+
+      // A resize observation fires while a transition is still running, when the
+      // geometry is mid-flight; the settle is when the final numbers exist.
+      //
+      // Scoped to the positioned ancestor's OWN transition: transitionend
+      // bubbles, and this ancestor's descendants are ordinary UI (the
+      // AttentionMenu panel holds ~20 rows carrying `transition-colors`), so an
+      // unscoped listener re-measures — forcing a synchronous reflow — on every
+      // hover fade.
+      //
+      // Scoped to `transform` as well: the panel animates
+      // `transition-[opacity,transform]`, so EVERY entrance fires two
+      // transitionend events on this same node. Only the transform carries the
+      // geometry this hook measures.
+      const onTransitionEnd = (event: Event) => {
+        if (event.target !== positioned) return;
+        if ((event as TransitionEvent).propertyName !== "transform") return;
+        coalescer.schedule();
+      };
       if (positioned instanceof Element)
-        positioned.removeEventListener("transitionend", onTransitionEnd);
-      window.removeEventListener("resize", coalescer.schedule);
-      // A frame scheduled just before unmount would otherwise run `apply()`
-      // against a detached node.
-      coalescer.cancel();
-    };
-  }, [attachCount, apply, reapplyKey]);
+        positioned.addEventListener("transitionend", onTransitionEnd);
+      window.addEventListener("resize", coalescer.schedule);
 
-  return useCallback((node: HTMLElement | null) => {
-    nodeRef.current = node;
-    // Bumped on detach too: the count is only an effect trigger, and a stale
-    // observer on an unmounted overlay is exactly what the cleanup exists for.
-    setAttachCount((n) => n + 1);
-  }, []);
+      return () => {
+        observer?.disconnect();
+        // Removed BEFORE the cancel, so a late event cannot schedule a frame
+        // after the frame has been cancelled.
+        if (positioned instanceof Element)
+          positioned.removeEventListener("transitionend", onTransitionEnd);
+        window.removeEventListener("resize", coalescer.schedule);
+        // A frame scheduled just before detach would otherwise run `apply()`
+        // against a node that is gone.
+        coalescer.cancel();
+        // React no longer calls this callback with `null`, so the node ref has
+        // to be cleared here or it retains a detached element.
+        nodeRef.current = null;
+      };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reapplyKey is a RE-ATTACH TRIGGER, not a value this body reads; see the paragraph above the callback.
+    [apply, reapplyKey],
+  );
 }
