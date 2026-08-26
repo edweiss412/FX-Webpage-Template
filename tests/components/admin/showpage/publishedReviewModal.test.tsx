@@ -899,17 +899,18 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
     expect(within(band).queryByTestId("strip-live-badge")).toBeNull();
   });
 
-  it("the strip carries no container chrome — no second seam, shadow, sticky pin or padding inside the band", () => {
-    // The subHeader band already owns the surface, the bottom border and
-    // px-tile-pad (ReviewModalShell.tsx); a strip-level border-b + shadow-tile
-    // would stack a doubled seam right above it, and px-4/sm:px-6 a doubled
-    // inset. Failure mode: page chrome is re-added to the strip's single
-    // layout literal (modal-header-reconciliation §6.5).
+  it("the strip carries no container chrome — no second seam, shadow, sticky pin or padding of its own", () => {
+    // The SLOT owns the surface, the seam and px-tile-pad (ReviewModalShell.tsx);
+    // a strip-level border-b + shadow-tile would stack a doubled seam against
+    // it, and px-4/sm:px-6 a doubled inset. That reason is unchanged by the
+    // dock — only the slot's name is, from the subheader band to the footer.
+    // Failure mode: page chrome is re-added to the strip's single layout
+    // literal (modal-header-reconciliation §6.5).
     renderModal();
     const panel = document.querySelector("[data-review-modal-panel]")! as HTMLElement;
     const classes = within(panel).getByTestId("show-status-strip").className.split(/\s+/);
     for (const token of ["sticky", "top-0", "z-30", "border-b", "shadow-tile", "px-4", "sm:px-6"]) {
-      expect(classes, `strip in the band must not carry \`${token}\``).not.toContain(token);
+      expect(classes, `the strip must not carry \`${token}\` of its own`).not.toContain(token);
     }
   });
 

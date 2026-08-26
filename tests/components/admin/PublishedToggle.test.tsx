@@ -493,10 +493,14 @@ describe("settings variant (spec 2026-07-24-strip-mobile-stacked-band §3 R1)", 
  * Clip-fit + scrollable-region contract for the anchored refusal banner
  * (spec 2026-08-01-admin-popover-overlay-cluster §4.3, §8, §9 obligation 3).
  *
- * The banner is absolutely anchored inside the sticky strip, which sits inside
- * the review modal's overflow-clip panel. Real geometry lives in
+ * The banner is PLACED against the strip and portaled into the review modal's
+ * overflow-clip panel (spec 2026-08-25-review-modal-strip-dock §3.2). It was
+ * absolutely anchored inside the strip, which was described as sticky — the
+ * strip has never carried a sticky pin of its own (statusStrip.test.tsx's
+ * PAGE_ONLY_CHROME asserts its absence), and that phrasing outlived the
+ * retired standalone show page. Real geometry lives in
  * tests/e2e/popover-clip-fit.spec.ts; what is provable here is that the banner
- * declares itself a named, tabbable, scrollable region and takes the fit.
+ * declares itself a named, tabbable, scrollable region and is portaled.
  */
 describe("PublishedToggle — refusal banner clip fit (§4.3)", () => {
   const CAP_PX = 384;

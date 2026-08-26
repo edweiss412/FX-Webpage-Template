@@ -15,7 +15,7 @@
  * Invariants (spec §8.10):
  *   (a) in-flow containment (CASP2-4 item 1): the finalize CHIP's box is fully within
  *       the strip's box at 390px (chip.top ≥ strip.top, chip.bottom ≤ strip.bottom) — it
- *       never overhangs, so it can never overlay the rail content below the sticky strip.
+ *       never overhangs, so it can never overlay the content beyond the strip.
  *       AND at ≥sm the chip fits the switch row, so strip height(finalize) === height(idle)
  *       ±0.5px (bounds finalize-state growth; baseline from the idle render, not hardcoded).
  *   (b) compaction: inline idle strip height < card-variant strip height by
@@ -157,7 +157,7 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     // below sm the settings variant renders the finalize SUBLABEL instead of
     // the chip (`max-sm:hidden`), so chip geometry is a >=sm-only subject.
     // The chip's box is fully WITHIN the strip's box — proves in-flow, no
-    // overhang over the rail content below the sticky strip.
+    // overhang over the content beyond the strip.
     await page.setViewportSize({ width: 800, height: 900 });
     await page.goto(`${baseUrl}finalizeShort.html`);
     await page.evaluate(() => document.fonts.ready);

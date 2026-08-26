@@ -82,8 +82,8 @@ const POPOVER_POSITION = cn(
 
 // Inline FINALIZE hint — an IN-FLOW compact chip (a flex sibling of the switch inside the
 // `inline-flex items-center gap-2` container), NOT an absolute overlay. `finalizeOwned` is a
-// longer-lived server state, so an absolute banner would float over the rail content below the
-// sticky strip for the whole window; an in-flow chip stays inside the strip's own flow (CASP2-4
+// longer-lived server state, so a placed overlay would float over the panel's content for the
+// whole window; an in-flow chip stays inside the strip's own flow (CASP2-4
 // item 1). Calm sunken plate reads as a strip-chrome-adjacent signal, distinct from the strip's
 // own bg-surface via the fill step; `border-border` matches the sibling strip badges (archived /
 // alert), not the heavier `border-strong` the old full-width banner needed. whitespace-nowrap +

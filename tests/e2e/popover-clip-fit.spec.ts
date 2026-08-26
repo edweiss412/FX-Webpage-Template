@@ -134,7 +134,10 @@ const GUTTER = 8;
 const CSS_CAP = 384;
 /** Mirrors MIN_FITTED_HEIGHT (lib/layout/fitWithinClip.ts) — the collapse floor. */
 const FLOOR = 48;
-/** The strip is the banner's positioned ancestor (`sticky` ⇒ positioned). */
+/** The strip is the banner's placement ANCHOR — the rect the module measures
+ *  against, handed down by StatusStrip. It is no longer a positioned ancestor:
+ *  the banner is portaled into the panel, so the strip is not in its containing
+ *  chain at all. */
 const STRIP = '[data-testid="show-status-strip"]';
 
 type SetItems = (a: number, n: number, s: number, degraded: boolean) => void;
