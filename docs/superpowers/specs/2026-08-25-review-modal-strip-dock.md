@@ -846,7 +846,7 @@ Compound transitions:
 | banner present while the freshness flash animates | Independent: the flash is a background/colour animation and moves no geometry the placement reads. No re-place is triggered and none is needed. |
 | banner present while the AttentionMenu opens | Existing mutual exclusion (T7, `tests/e2e/popover-clip-fit.spec.ts`), unchanged. |
 | banner present while a Re-sync overlay is open | Both are now placed by the same module against the same host. They do not interact geometrically; the `z-overlay` vs `z-banner` rule (`components/admin/ReSyncButton.tsx:56-62`) governs which paints above, and the module writes no z-index. Asserted with both open. |
-| banner mounts on the first frame after the modal opens | `applyPlacement` runs in a layout effect before paint; the entrance `transitionend` re-places once the panel's final geometry exists. Until then the banner is `visibility: hidden` if the measurement is degenerate (AC-11), never mispositioned and visible. |
+| banner mounts on the first frame after the modal opens | `applyPlacement` runs in a layout effect before paint; the entrance `transitionend` re-places once the panel's final geometry exists. **A DEGENERATE measurement is intercepted before the core sees it and the banner is left unpositioned and VISIBLE** (AC-11) — `visibility: hidden` is reserved for a real `kind: "hidden"` from a real measurement. Plan round-2 finding 7: this row said the opposite, inverting AC-11 in the one place an implementer would read it as a test obligation. |
 
 ---
 
@@ -963,7 +963,10 @@ This command is for FINDING sites while implementing. Its output is not transcri
 ### 2. The changed set — an exact filename list, because the diff is compared to it
 
 Round-4 finding 6: the previous version grouped paths, shortened some, and carried a `NEW — …`
-placeholder, so "compare it to the diff" was not mechanically defined. One path per line, verbatim,
+placeholder, so "compare it to the diff" was not mechanically defined. Plan round-2 finding 6 then
+found the set and the plan's tasks disagreeing in BOTH directions — a task editing a path the set
+omitted, and the set requiring a path no task claimed — which is exactly the bidirectional failure
+this block exists to make impossible to miss. One path per line, verbatim,
 sorted. **The close-out gate is `git diff --name-only origin/main...HEAD | sort` compared to this
 block; any line in one and not the other is a defect in one of them.**
 
@@ -995,6 +998,7 @@ tests/e2e/published-review-modal.interactions.spec.ts
 tests/e2e/published-review-modal.layout.spec.ts
 tests/e2e/skeletonBandParity.spec.ts
 tests/e2e/stackedBandLayout.spec.ts
+tests/e2e/statusStripToggleLayout.spec.ts
 tests/e2e/step3-review-modal.layout.spec.ts
 tests/lib/popover/placeWarning.test.ts
 ```
