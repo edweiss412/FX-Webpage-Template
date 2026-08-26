@@ -2,7 +2,12 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-25-fitwithinclip-measure-class.md` · **Rows:** `BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE`, `BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK` · **Branch:** `feat/fitwithinclip-measure-class`
 
-impeccable-gate: PENDING — `components/admin/useFitWithinClip.ts` is a UI surface; both halves run at close-out and their findings and dispositions land in §12.
+**Invariant 8 applies** — `components/admin/useFitWithinClip.ts` is a UI surface. Both gate halves run
+at close-out (§6c) and the machine-checkable marker line is written into §12 **at that moment and not
+before**, because the marker's grammar asserts the gate RAN: there is no pending form
+(`tests/docs/_invariant8Closeout.ts`, `RAN_FORM` and `NA_FORM`). An earlier draft carried
+`impeccable-gate: PENDING — …`, which is malformed, and plan review R1 was right to call the whole
+close-out a P0.
 
 ## 1. Meta-test inventory
 
@@ -138,31 +143,38 @@ pipeline's all-checks-green gate. Task 5 re-runs that meta-test rather than asse
 
 ## 5. Mutants, declared up front
 
-The convergence set for the diff review. Each is a one-line edit to the shipped hook; each names the case that must go red, and each is RUN in the task that owns it, with the output pasted into the commit.
+The convergence set for the diff review. Each names the case that must go red, **the task that RUNS
+it**, and — where plan review R1 disproved a pairing — the fact that no case kills it.
 
-| # | Mutant | Must turn red |
-| --- | --- | --- |
-| M1 | Restore `useLayoutEffect` + `attachCount` as the effect trigger | (g) mount apply count |
-| M2 | Restore the effect body's second `findClippingAncestor(node)` | (h) mount walk count |
-| M3 | Drop `nodeRef.current = null` from the ref cleanup | (h3) stale-node arm |
-| M4 | Drop the `if (node === null) return` guard | (h2) null-node arm |
-| M5 | Drop `reapplyKey` from the ref callback's dependency list | (c) reapplyKey re-measure |
-| M6 | Defer the mount measure into `coalescer.schedule()` instead of calling `apply()` | (g2) no-frame pin AND the Task 4 first-paint sampler |
-| M7 | Observe `findClippingAncestor(node)`'s result but pass `null` to `observer.observe` | (d) clip ancestor observed |
-| M8 | Drop `coalescer.cancel()` from the teardown | (g3) unmount-with-frame-pending, (h5) reapplyKey-change-with-frame-pending, AND `_metaSharedHelperAdoption` (`requiresCancelAdoption: true` on this file's own registry row) |
-| M9 | Move `positioned.removeEventListener` AFTER `coalescer.cancel()` in the teardown | (h7) transitionend mid-teardown |
-| M10 | Make the ref callback's dependency list unstable — add an inline `{}` dep | (h9) unchanged-re-render costs nothing |
-| M11 | `new ResizeObserver(() => {})` — observer constructed, callback dead | (h12) the observer callback re-measures, on both observed targets |
-| M12 | Reintroduce ANY state update on the attach path — `const [n, setN] = useState(0)` bumped in the ref callback | (h14) one owner render per appearance |
-| M13 | Return `undefined` from the ref callback instead of the teardown | (h3) stale-node arm, (h13) the Strict Mode replay counts, and `_metaSharedHelperAdoption` |
-| M14 | Improve ONE lifecycle at another's expense — e.g. skip the mount `apply()` when `reapplyKey` is truthy, which flatters `PublishedToggle` and breaks `AttentionMenu` | (h16) and (h17), which must disagree |
-| M15 | Arm the e2e sampler AFTER the overlay appears instead of via `addInitScript` | Task 4's absent-row-before-first-present-row premise |
-| M16 | Make the ref callback throw or measure when it is never attached — e.g. call `apply()` at hook body level | (h18) the never-attached path |
-| M17 | Suppress the re-attach on a `reapplyKey` change when the node is unchanged — the "optimisation" that would make a single cumulative (h17) assertion pass | (h17)'s settled snapshot, and (c) |
-| M18 | Write the cap only when one already exists — `if (el.style.maxHeight) el.style.maxHeight = …` | (h19) `N to F`. Kills NOTHING in today's suite |
-| M19 | Skip `removeProperty("max-height")` on the nothing-clips branch, leaving the stale cap | (h20) `F to N`, and family A. Kills NOTHING on the DIRECT edge today |
-| M20 | Skip `observer?.disconnect()` when no clip was found — `if (clip) observer?.disconnect()` | (h21) `N to D`. Leaves a live observer on a live ancestor after the node is gone; kills NOTHING today |
-| M21 | Detach-and-reattach even when nothing was attached — treat a `reapplyKey` change as unconditionally `X to D to Y` | (h16), whose shipped shape is a key change WITH the first attach: one attach, no detach |
+Plan review R1 corrected two claims about this table. It is **not** true that every row is a one-line
+edit: M1 restores a `useState` plus an effect, M12 adds a hook and a bump, M15 edits the e2e sampler
+rather than the hook, and M21 is a conditional change with no single-line spelling. And six rows had
+no owning task, so "each is RUN in the task that owns it" was aspiration. The **Run in** column below
+is the fix: every row names its task, and a row without one is a plan defect.
+
+| # | Mutant | Must turn red | Run in |
+| --- | --- | --- | --- |
+| M1 | Restore `useLayoutEffect` + `attachCount` as the effect trigger | (g) mount apply count | Task 1 |
+| M2 | Restore the effect body's second `findClippingAncestor(node)` | (h) mount walk count | Task 2 |
+| M3 | Drop `nodeRef.current = null` from the ref cleanup | **ACCEPTED GAP — no case kills it, and plan review R1 proved it.** (h3) fires a resize AFTER the teardown has removed that listener and cancelled pending frames, so nothing calls `apply()` either way. The consequence is RETENTION, not a wrong measure: `nodeRef` holds a detached node until the next attach overwrites it. Nothing observable to a test distinguishes the two, so this is recorded as a gap with its reason rather than paired with a case that does not kill it | Task 1 |
+| M4 | Drop the `if (node === null) return` guard | (h2) null-node arm | Task 1 |
+| M5 | Drop `reapplyKey` from the ref callback's dependency list | (c) reapplyKey re-measure | Task 1 |
+| M6 | Defer the mount measure into `coalescer.schedule()` instead of calling `apply()` | (g2) no-frame pin AND the Task 4 first-paint sampler | Task 4 |
+| M7 | Observe `findClippingAncestor(node)`'s result but pass `null` to `observer.observe` | (d) clip ancestor observed | Task 2 |
+| M8 | Drop `coalescer.cancel()` from the teardown | (g3) unmount-with-frame-pending, (h5) reapplyKey-change-with-frame-pending, AND `_metaSharedHelperAdoption` (`requiresCancelAdoption: true` on this file's own registry row) | Task 3 |
+| M9 | Move `positioned.removeEventListener` AFTER `coalescer.cancel()` in the teardown | (h7) transitionend mid-teardown | Task 3 |
+| M10 | Make the ref callback's dependency list unstable — add an inline `{}` dep | (h9) unchanged-re-render costs nothing | Task 3 |
+| M11 | `new ResizeObserver(() => {})` — observer constructed, callback dead | (h12) the observer callback re-measures, on both observed targets | Task 1 |
+| M12 | Reintroduce ANY state update on the attach path — `const [n, setN] = useState(0)` bumped in the ref callback | (h14) one owner render per appearance | Task 3 |
+| M13 | Return `undefined` from the ref callback instead of the teardown | **(h21)**, which asserts `disconnected=1` after unmount — with no cleanup returned, React has nothing to call and `observer.disconnect()` never runs. Plan review R1 disproved the earlier claim against (h13): Strict Mode yields two renders and two applies with or without a returned cleanup, so only a CLEANUP-counting case can see this. `_metaSharedHelperAdoption` also does not catch it — it checks `.cancel()` EXISTS, not that the closure is returned | Task 3 |
+| M14 | Improve ONE lifecycle at another's expense — e.g. skip the mount `apply()` when `reapplyKey` is truthy, which flatters `PublishedToggle` and breaks `AttentionMenu` | (h16) and (h17), which must disagree | Task 3 |
+| M15 | Arm the e2e sampler AFTER the overlay appears instead of via `addInitScript` | Task 4's absent-row-before-first-present-row premise | Task 4 |
+| M16 | Call `apply()` at hook body level, so it runs on every render | **(h9)**, whose no-op re-render must cost zero applies: with a node attached, a body-level `apply()` measures on that re-render. Plan review R1 disproved the earlier claim against (h18) — on the never-attached path `apply()` returns on the null node, so zero applies, zero walks and no throw all still pass | Task 3 |
+| M17 | Suppress the re-attach on a `reapplyKey` change when the node is unchanged — the "optimisation" that would make a single cumulative (h17) assertion pass | (h17)'s settled snapshot, and (c) | Task 3 |
+| M18 | Write the cap only when one already exists — `if (el.style.maxHeight) el.style.maxHeight = …` | (h19) `N to F`. Kills NOTHING in today's suite | Task 3 |
+| M19 | Skip `removeProperty("max-height")` on the nothing-clips branch, leaving the stale cap | (h20) `F to N`, and family A. Kills NOTHING on the DIRECT edge today | Task 3 |
+| M20 | Skip `observer?.disconnect()` when no clip was found — `if (clip) observer?.disconnect()` | (h21) `N to D`. Leaves a live observer on a live ancestor after the node is gone; kills NOTHING today | Task 3 |
+| M21 | Detach-and-reattach even when nothing was attached — treat a `reapplyKey` change as unconditionally `X to D to Y` | (h16), whose shipped shape is a key change WITH the first attach: one attach, no detach | Task 3 |
 
 M6 is the one that matters most and the one the unit suite alone under-covers: (g2) proves no frame was SCHEDULED in jsdom, which is a proxy. Task 4's sampler proves the overlay was never PAINTED uncapped in a real engine, which is the property.
 
@@ -172,30 +184,36 @@ M11 is the one spec review R2 finding 1 forced into existence, and it is the mos
 
 M10 is the one spec review R1 finding 1 forced into existence, and it is worth its own sentence. Every other mutant here is caught by an assertion about a single mount. M10 is not: an identity-churning ref callback re-attaches and re-measures on EVERY render, and it satisfies (g), (h), (g2), (g3), (c) and both family pins, because none of them re-renders without changing something. Only (h9) — a re-render that changes nothing, asserting zero applies and zero walks — can see it. That is the cell of §0.1's acceptance table that had no pin before the round.
 
-## 5b. Citation lifetime — this plan's own execution moves one of its red-targets
+## 5b. Citation lifetime — this plan's own execution invalidates several of its citations
 
-Stated up front, because it is a temporal dependency that costs an arc a hard failure with no edit
-to the plan at all, and because `RED_TARGET_INVALID` cannot catch it: that check proves a tracked
-path has an IN-RANGE line, never what is AT the line.
+Stated up front because it is a temporal dependency that costs an arc a hard failure with no edit to
+the plan at all, and because `RED_TARGET_INVALID` cannot catch it: that check proves a tracked path
+has an IN-RANGE line, never what is AT the line.
 
-Task 2's `red-target` is `components/admin/useFitWithinClip.ts:161`, the effect body's second
-`findClippingAncestor(node)` on the LIVE tree. **Task 1 deletes the effect that line lives in**, and
-the second walk relocates into the ref callback at a lower line number. So by the time Task 2 runs,
-its cited line is no longer the defect it names — the defect is still there, in a different place.
+**Plan review R1 found the earlier version of this section both wrong and incomplete.** Wrong,
+because it told Task 2 to "re-point its `red-target` in its own commit" — but Task 2's GREEN step
+DELETES the second `findClippingAncestor` call its `red-target` names, so **no line in the final tree
+can name that defect at all.** Incomplete, because four later-task citations are moved or deleted by
+Tasks 1 and 2 and it named none of them.
 
-Two consequences, both obligations rather than observations:
+The citations this plan's own execution invalidates:
 
-1. Task 2's RED is observed against the tree AS IT IS WHEN TASK 2 RUNS (post-Task-1, two walks per
-   mount), not against the pre-Task-1 tree the citation was written from. The assertion is red in
-   both states, so the cycle completes either way; only the citation moves.
-2. **Close-out re-verifies this citation by READING the line and matching it to the symbol the
-   `why=` names.** Confirming the citation RESOLVES establishes nothing. If Task 1 has moved it, the
-   citation is re-pointed in Task 2's own commit, not left to rot.
+| Citation | Named in | Invalidated by |
+| --- | --- | --- |
+| `components/admin/useFitWithinClip.ts:161`, Task 2's `red-target` | Task 2's marker | Task 1 deletes the effect it lives in; Task 2 then deletes the call itself |
+| the family-pin precedent, `tests/components/admin/useFitWithinClip.test.tsx:362-366` | Tasks 3 and 4 | Task 1 and Task 3 both add cases above it |
+| observer wiring, `components/admin/useFitWithinClip.ts:167-170` | Task 3 | Task 1 moves it into the ref callback |
+| the no-clip branch, `components/admin/useFitWithinClip.ts:91-96` | Task 3 | Task 2 changes `apply()`'s return shape |
+| the synchronous measure, `components/admin/useFitWithinClip.ts:144` | Task 4 | Task 1 deletes the effect around it |
 
-Task 1's `red-target` (`components/admin/useFitWithinClip.ts:77`, the `attachCount` declaration) is
-not exposed this way: nothing before it moves, and Task 1 is the task that deletes it.
+**So the rule is not "re-point at the end" — it is that a citation naming a line the plan DELETES
+must not be a `red-target` at all.** Task 2's marker therefore names the surviving surface (the ref
+callback's wiring, where the second walk lives after Task 1) with a `why=` describing the defect
+rather than the deleted line. The five rows above are re-verified at close-out **by READING each
+cited line and matching it to the symbol its sentence names** — confirming a citation RESOLVES
+establishes nothing, which is the documented trap.
 
-## 6. Task list
+## 6. Task list## 6. Task list
 
 <!-- tasks: depth=2 red-contract -->
 
@@ -244,14 +262,22 @@ test("(h12) the ResizeObserver callback re-measures against the new geometry", (
   // a callback AND observed both ancestors. Without the first, every assertion
   // below is unreachable; without the second, "on both observed targets" is a
   // claim about a subscription that was never made.
+  // The COUNT differs by tree and must not be asserted here. Plan review R1
+  // proved it: this case is authored in Task 1 against the PRE-refactor hook,
+  // where the attach counter runs the effect twice and constructs TWO observers
+  // ({"constructed":2,"observed":["outer","inner","outer","inner"]}); after Task 1
+  // it is one. A `=== 1` premise aborts before the assertion on the very tree the
+  // case exists to pin, which is the premise-never-reached trap.
   premiseHolds(
-    "the hook constructed an observer and observed both ancestors",
-    constructed.length === 1 && observed.includes(outer) && observed.includes(inner),
+    "the hook constructed at least one observer and observed both ancestors",
+    constructed.length >= 1 && observed.includes(outer) && observed.includes(inner),
   );
-  const fire = constructed[0];
+  // The LAST one is the live one: on the pre-refactor tree the first is torn down
+  // by the effect re-run, so firing the first would exercise a dead observer.
+  const fire = constructed[constructed.length - 1];
   // Narrowing, not decoration: noUncheckedIndexedAccess types this as possibly
   // undefined and premiseHolds is a call, so it cannot narrow on its own.
-  if (fire === undefined) throw new Error("unreachable: premise asserted length 1");
+  if (fire === undefined) throw new Error("unreachable: premise asserted length >= 1");
 
   for (const target of [outer, inner]) {
     geometry = { ...geometry, clipBottom: geometry.clipBottom - 40 };
@@ -298,8 +324,22 @@ RED — add case (h) to `tests/components/admin/useFitWithinClip.test.tsx`:
 test("(h) one attach walks the ancestor chain exactly once", () => {
   // The walk visits every ancestor up to and INCLUDING the first non-visible
   // overflow. In this harness that is `inner` then `outer`, so one walk is
-  // ANCESTORS_TO_CLIP.length calls, derived from the fixture and never typed.
-  const ANCESTORS_TO_CLIP = ["inner", "outer"] as const;
+  // one walk == expectedWalk(fitted).length calls, derived at runtime.
+  // DERIVED from the rendered fixture, not typed: walk the real ancestor chain
+  // the way the hook does, up to and INCLUDING the first non-visible overflow,
+  // and take that as the expectation. Plan review R1 caught the earlier version
+  // hardcoding ["inner","outer"] and comparing against its own literal, which
+  // drifts silently the moment the fixture's nesting changes.
+  const expectedWalk = (fitted: HTMLElement): string[] => {
+    const out: string[] = [];
+    for (let el = fitted.parentElement; el !== null; el = el.parentElement) {
+      const id = el.dataset["testid"];
+      if (id === undefined) break;
+      out.push(id);
+      if (el.dataset["clips"] === "true") break;
+    }
+    return out;
+  };
   const seen: string[] = [];
   vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
     const data = (el as HTMLElement).dataset;
@@ -313,16 +353,17 @@ test("(h) one attach walks the ancestor chain exactly once", () => {
     } as unknown as CSSStyleDeclaration;
   });
 
-  mount();
+  const { fitted } = mount();
+  const expected = expectedWalk(fitted);
 
-  // PREMISE (this case's own inputs): the fixture must actually be two deep and
-  // clip at the OUTER node, or one walk and two walks are the same number.
+  // PREMISE (this case's own inputs): the chain must be at least two deep and
+  // must clip, or one walk and two walks are the same number and the assertion
+  // below cannot discriminate.
   premiseHolds(
-    "the harness walks two ancestors and clips at the outer one",
-    seen.length >= ANCESTORS_TO_CLIP.length &&
-      seen.slice(0, ANCESTORS_TO_CLIP.length).join(",") === ANCESTORS_TO_CLIP.join(","),
+    `the fixture walks ${expected.length} ancestors and clips at the last of them`,
+    expected.length >= 2 && fitted.closest('[data-clips="true"]') !== null,
   );
-  expect(seen, "one attach must walk the ancestor chain once").toEqual([...ANCESTORS_TO_CLIP]);
+  expect(seen, "one attach must walk the ancestor chain once").toEqual(expected);
 });
 ```
 
@@ -380,6 +421,8 @@ Eight of twelve ordered pairs are reachable — spec review R1 finding 3 correct
 | Compound: `reapplyKey` changes in the same commit that attaches | One attach, one measure | (h6), new here |
 | Compound: `transitionend` mid-teardown | Listener removed before `cancel()`, so a late event cannot schedule | (h7), new here |
 | Compound: conditional host hides and reappears, owner mounted throughout | F → D → F; the teardown's `nodeRef.current = null` sits in between | (h11), new here |
+| Compound: the key and the node drop together | Teardown only, no re-attach. `PublishedToggle`'s close path — one boolean gates both | (h16), close half |
+| Compound: a stable-ref re-render while the DOM's clip status changes | **Nothing happens**, deliberately. The cap corrects on the next signal; the SUBSCRIPTION does not correct at all (spec §7, and `BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION`) | (h19), (h20), whose first assertion is exactly this negative |
 
 Nothing animates: every pair is deliberately instant, because the hook exists to write a cap BEFORE paint. There is no `AnimatePresence`, no `exit`/`initial`/`animate` prop, and no ternary render in `components/admin/useFitWithinClip.ts` — `rg -n 'AnimatePresence|initial=|animate=|exit=' components/admin/useFitWithinClip.ts` returns nothing. The audit's finding is therefore "all instant, deliberately", and the four new compound cases are what makes that executable rather than asserted.
 
@@ -393,7 +436,7 @@ Nothing animates: every pair is deliberately instant, because the hook exists to
 
 The superseded reading, recorded so it is not re-attempted: an earlier draft of (h19) flipped `clips` on a re-render and expected the cap to appear. That would FAIL a correct implementation. `clips` and `reapplyKey` are independent fixture inputs (`tests/components/admin/useFitWithinClip.test.tsx:84`), and changing `reapplyKey` would not fix it either — that routes through a detach, giving `N to D to F` rather than the direct edge.
 
-**(h19)** covers the transition spec review R6 found had NO pin at all: unclipped to clipped. §3.1 had cited family B, which is clipped to clipped. Mount with `clips: false`, assert `style.maxHeight === ""`, re-render with `clips` true, assert the derived value — computed from `computeFittedMaxHeight` against the fixture geometry, never typed. Its red is mutant M18, which is the second mutant in this table that kills nothing today. Both of those (M11 and M18) are the ones to run first: a mutant that already kills something proves the suite has a pin, while a mutant that kills nothing proves it does not.
+**M11 and M18 are the two mutants to run FIRST**, because both kill nothing in today's suite: a mutant that already kills something proves the suite has a pin, while a mutant that kills nothing proves it does not.
 
 **(h18)** covers the FOURTH runtime path, which no round raised and which the source sweep found: the hook called with its ref NEVER attached. `PublishedToggle`'s `variant` defaults to `"card"` (`components/admin/PublishedToggle.tsx:98`), and the arm carrying `ref={fitRef}` is behind `if (variant === "inline" || variant === "settings")` (`components/admin/PublishedToggle.tsx:134`) — the file has exactly one `ref={fitRef}`, so the default variant calls the hook and never attaches. (h18) renders that arrangement and asserts zero applies, zero walks, and no throw. Its red is mutant M16. It is the only path where this refactor removes work with no number to show for it: today the layout effect still runs and returns early on the null node; after, nothing runs at all.
 
@@ -439,6 +482,45 @@ branch directory, counting distinct `(baseSha, round)` pairs. So: count across B
 the LATEST base holding rows for the stage, have its heading declare THAT file's count, and have its
 `**Examined:**` line name the cross-base total.
 
+## 6c. Close-out — invariant 8's dual gate
+
+Plan review R1 finding 1 was a P0 and it was right: the header promised critique, audit and
+dispositions in §12, Task 5 ran neither gate, and there was no §12. Executed as written the UI diff
+would have ended at `impeccable-gate: PENDING`, which is the invariant-8 violation the marker exists
+to make machine-checkable.
+
+`components/admin/useFitWithinClip.ts` is a UI surface under the invariant's own definition (any file
+under `components/`), so BOTH halves run on the affected diff, with the canonical v3 setup gates:
+the impeccable v3 context load of PRODUCT.md and DESIGN.md (the skill's own setup step, not a repo file), then the register reference read.
+
+**Task 6 — impeccable dual gate.** After Task 5's gates are green and before the whole-diff review:
+
+1. `/impeccable critique` on the diff. Record every finding with its tier.
+2. `/impeccable audit` on the same diff. Record every finding with its tier.
+3. Both halves EXTERNALLY attested — never self-attested by the session that wrote the code.
+4. Every P0 and P1 either fixed in this branch or explicitly deferred with a `DEFERRED.md` entry.
+5. Findings and dispositions land in §12 below.
+6. Flip the header marker from `impeccable-gate: PENDING` to the closeout form.
+
+Expect the surface to be quiet: the diff removes a `useState` and a `useLayoutEffect` from one hook
+and adds test cases. It renders nothing, changes no class string, no token, no copy and no DOM shape.
+The pre-code mechanical checklist (em-dash ban, apostrophes, 44px tap targets, canonical type and
+token classes) has no applicable site in this diff — which is a prediction the gate falsifies, not a
+reason to skip it.
+
+## 12. Impeccable findings and dispositions
+
+Filled at close-out by Task 6. Until then this section reads exactly one line, and that line is the
+gate:
+
+> **NOT RUN.** No marker line appears above, deliberately: the grammar has only a RAN form and an
+> N/A form, so any line written here before the gate runs would be either malformed or a lie.
+>
+> **`tests/docs/_metaInvariant8Closeout.test.ts` is therefore RED on this branch until Task 6 runs**,
+> reporting that this unit declares the dual gate and carries no valid marker. That is the guard
+> working, not an accident, and it is recorded here so nobody reads the red as flake and silences it.
+> It goes green when Task 6 writes the real line with real counts.
+
 ## 7. Acceptance criteria
 
 | AC | Criterion |
@@ -449,6 +531,7 @@ the LATEST base holding rows for the stage, have its heading declare THAT file's
 | AC-1 | One ATTACH is one `apply()`, on both harnesses. On the always-present harness that is one per mount, pinned by (g); on the live conditional-host harness it is one per appearance in production and two under Strict Mode's replay, pinned by (h14) and (h13). Mutants M1/M3/M4/M5 each turn a named case red. |
 | AC-1b | EVERY cell of spec §0.1's table is pinned — both modes, all three metrics. Renders by (h14) and (h13); applies by (g), (h14) and (h13); walks by (h) and (h14). The `reapplyKey` change is pinned by (h8) and the unchanged re-render by (h9). No cell of the acceptance condition is unfalsifiable, which is the defect round 1 charged. |
 | AC-2 | One attach is one ancestor walk, pinned by (h) with a derived expectation, and mutants M2/M7 turn a named case red. |
-| AC-3 | All eight reachable pairs and all five compound rows have an executable case that ACTUALLY PERFORMS that transition — not one that merely cites a nearby test. Spec review R6 found `N to F` citing a clipped-to-clipped case for six rounds; (h19) closes it and every other row was re-verified against what its cited case does. Mutants M8, M9, M10 and M18 each turn a named one red. |
+| AC-3 | All eight reachable pairs and all SEVEN compound rows (the count is the spec's; plan review R1 caught this table carrying five and this criterion claiming five) have an executable case that ACTUALLY PERFORMS that transition — not one that merely cites a nearby test. Spec review R6 found `N to F` citing a clipped-to-clipped case for six rounds; (h19) closes it and every other row was re-verified against what its cited case does. Mutants M8, M9, M10 and M18 each turn a named one red. |
 | AC-4 | In a real engine, neither overlay is ever painted crossing its clip edge, on any frame from first appearance, and mutant M6 breaks that. |
+| AC-6 | Invariant 8's dual gate has RUN — both halves, externally attested, with findings and dispositions in §12 and the header marker flipped off PENDING. |
 | AC-5 | Every gate green as its own command; no new CI wiring needed and the e2e coverage meta-test confirms it. |
