@@ -38,64 +38,55 @@ Each of these is settled, with its ratification. Verify the citation; do not re-
 
 The row's first scheduled step (`BACKLOG.md:644`) poses a two-way choice: extend the ratified open-time recovery to a page-segment boundary, or harden the runner's Supabase bootstrap. Nobody had read the cited CI runs for what each failure was ATTRIBUTABLE TO, and that is what the choice turns on.
 
-### 2.0 Population, counting unit, and what this measurement is not
+### 2.0 Population and counting unit
 
-Stated first, because round 1 established that the numbers are worthless without it.
+**The population is COMPLETE: all ten run IDs the row cites, across all twelve job attempts.** There is no exclusion rule, because round 2 showed that any exclusion rule I could state was doing work the evidence should do. The first draft excluded four IDs as "unattributed" and one of them, `32557812890`, turned out to be a third occurrence of the very case the conclusion rested on.
 
-**Population.** `BL-ADMIN-LOADER-CI-TRANSIENT` cites ten run IDs across twelve job attempts. This measurement covers **eight attempts of six IDs**: `32571008405`, `32572200250`, `32573475808`, `32587470121`, `32763990640` (attempts 1 and 2) and `32786399563` (attempts 1 and 2).
+**Counting unit.** One Node error object prints across several lines (`message`, `stack`, a nested `error`, plus the reporter's `⨯` line), so counting `upstream server` LINES overcounts. Faults are deduplicated by timestamp second, which reconciles with the committed probe from `fix/admin-loader-ci-transient` where a raw line count did not: 2 events for `32786399563` attempt 1, against 3 raw lines.
 
-**Exclusion rule, stated rather than left implicit.** The four IDs not measured — `32557812890`, `32561531983`, `32563705156`, `32564772189` — are the occurrences the row itself records as UNATTRIBUTED: three were reproduced locally green under the CI posture and one carries no trace at all (`--retries=0`, `BACKLOG.md:590`). They contribute a failure with no named mechanism, which is exactly what this measurement cannot use. Excluding them WEAKENS the sample rather than flattering it, and any conclusion below is drawn only from the eight.
+**What this measurement is NOT.** It observes faults that some consumer chose to LOG. It cannot see a fault a consumer swallowed, so it establishes a floor and nothing about the true distribution. That is not incidental to this arc: it is `BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY` restated as a number, and §5 is what removes it. §2.2 is careful about exactly this.
 
-**Counting unit.** One Node error object prints across several lines (`message`, `stack`, a nested `error`, plus the reporter's own `⨯` line), so counting `upstream server` LINES overcounts faults. Deduplicating by timestamp second gives:
+### 2.1 The complete attribution table
 
-```
-run                 raw lines   distinct seconds
-32571008405              4            3
-32572200250              3            3
-32573475808              5            4
-32587470121              4            3
-32763990640 a1           2            2
-32763990640 a2           6            6
-32786399563 a1           3            2
-32786399563 a2           2            2
-TOTAL                   29           25
-```
+Extracted uniformly across all twelve attempts: the failing member, and every mechanism the job log NAMES.
 
-The right-hand column is the one to use, and it reconciles with the committed probe from `fix/admin-loader-ci-transient`, which reports 2 events for `32786399563` attempt 1 where a raw line count says 3.
+| Run | Failing member | Mechanism named in the log |
+|---|---|---|
+| 32557812890 | `notify-toggles:168` | `is_session_live` |
+| 32561531983 | `admin-parse-panel:245` | `is_session_live` |
+| 32563705156 | `warning-panel-polish:275` | `is_admin`, `admin_read_share_token` |
+| 32564772189 | `needs-attention-page:181` | `is_session_live` |
+| 32571008405 | `published-show-attention:138`, `telemetry-layout:170` | `admin_read_share_token` |
+| 32572200250 | `notify-toggles:168` | `is_admin` |
+| 32573475808 | `telemetry-layout:170` | `admin_read_share_token` |
+| 32587470121 | `notify-toggles:168` | `is_admin`, `admin_read_share_token` |
+| 32763990640 a1 | `admin-settings-admins-refresh:91`, `needs-attention-page:223` | `is_admin`, `is_session_live` |
+| 32763990640 a2 | `admin-changes-feed-layout:118` | `is_session_live` |
+| 32786399563 a1 | `admin-settings-admins-refresh:91` | `is_admin`, `admin_read_share_token` |
+| 32786399563 a2 | none (this attempt went green) | none |
 
-**What this measurement is NOT.** It observes faults that some consumer chose to LOG. It cannot see a fault a consumer swallowed, so it establishes a floor on the fault rate and nothing about the true distribution. That limitation is not incidental to this arc; it is `BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY` restated as a number, and §5 is what removes it.
+**Eleven attempts fail. All eleven name at least one of exactly three functions, and none names anything else.** The three are `is_admin`, `is_session_live` and `admin_read_share_token`, and all three are members of `RETRYABLE_RPCS` (`lib/supabase/retryEligibility.ts:29`, `lib/supabase/retryEligibility.ts:33`, `lib/supabase/retryEligibility.ts:27`), so all three are inside the eligibility bound `lib/supabase/retryingFetch.ts` absorbs.
 
-### 2.1 Where the failures land, and what each is attributable to
+Two corrections to the row's own text follow from this table, and both matter:
 
-| Run | Failing member | Position | Mechanism NAMED in the job log |
-|---|---|---|---|
-| 32763990640 a1 | `admin-settings-admins-refresh:91` | test 88 / 158 | `requireAdmin: is_admin RPC failed` |
-| 32763990640 a1 | `needs-attention-page:223` | test 109 / 158 | same run, same mechanism |
-| 32786399563 a1 | `admin-settings-admins-refresh:91` | test 88 / 158 | `requireAdmin: is_admin RPC failed` |
-| 32763990640 a2 | `admin-changes-feed-layout:118` | test 2 / 158 | sibling row, not held here |
-| 32571008405 | `published-show-attention:138` | test 121 / 167 | open-time recovery fired and still failed |
-| 32571008405 | `telemetry-layout:170` | test 167 / 167 | none named |
-| 32573475808 | `telemetry-layout:170` | test 167 / 167 | none named |
-| 32572200250 | `notify-toggles:168` | test 119 / 167 | `requireAdmin: is_admin RPC failed` |
-| 32587470121 | `notify-toggles:168` | test 119 / 158 | `requireAdmin: is_admin RPC failed`, plus `admin_read_share_token returned error` |
+- **The row calls three of these occurrences unattributed.** They are not. `32561531983`, `32563705156` and `32564772189` each name a `requireAdmin` RPC 502 in the job log. What was true is that nobody had read the logs.
+- **`telemetry-layout` is not undiagnosable.** Both its runs name `admin_read_share_token`. The first draft of this spec said it named no mechanism, which was an artefact of a narrower grep, not a property of the runs.
 
-### 2.2 The attribution that decides this arc
+### 2.2 What the table does and does not license
 
-**Both `notify-toggles` failures name only RPCs that PR #882 now retries.** `is_admin` and `admin_read_share_token` are both members of `RETRYABLE_RPCS` (`lib/supabase/retryEligibility.ts:25-40`), so both are inside the eligibility bound `lib/supabase/retryingFetch.ts` absorbs. Every `upstream server` line in either run is one of those two:
+**It does not establish causation, and this spec does not claim it.** Round 2 was right on the point and the reason is in this arc's own §9.2: the `app_settings` UPDATE returns `{ ok: false }` without logging, and `components/admin/settings/NotifyToggle.tsx:99-102` ignores that result. A failed write is therefore invisible, so "the log names only these three RPCs" cannot exclude an unlogged write fault or another dark round-trip. No request identifier ties a logged RPC line to a failed action.
 
-```
-32587470121:  requireAdmin: is_admin RPC failed: An invalid response was received from the upstream server
-              admin_read_share_token returned error: An invalid response was received from the upstream server
-32572200250:  requireAdmin: is_admin RPC failed: An invalid response was received from the upstream server
-```
-
-Both runs predate #882 (2026-08-22; #882 merged 2026-08-25 as `15e0b2d95`). **There is no post-#882 evidence that `notify-toggles` fails through any other request.** §3 is built on that sentence.
+**What it does license** is the strongest statement the evidence supports: across two PRs, several branches and twelve attempts, **every mechanism anyone can name for this class is a now-retryable RPC, and no attempt names any other mechanism at all.** That is a complete absence of evidence for a second mechanism, which is not the same as evidence of its absence, and §3 is built on the weaker of those two readings.
 
 ### 2.3 What the positions do and do not show
 
-Faults surface at tests 1, 32, 76 through 91, 108 through 124 across the eight attempts, and 2 to 6 fault-seconds appear in every attempt measured, including ones where the spec in question passed. So the fault is present throughout rather than confined to a startup window.
+Faults surface throughout the runs rather than in a startup window, and 2 to 6 fault-seconds appear in every attempt measured, including attempts where the spec in question passed. So the fault is ambient.
 
-The positions cannot be read as the fault DISTRIBUTION, and this spec does not read them that way. A fault enters this sample only when its consumer logged it, and the consumers that log are the admin loaders, which are the specs running in the 76-to-124 band. The clustering is a property of which consumers speak, not of when faults occur.
+The positions cannot be read as the fault DISTRIBUTION, and this spec does not read them that way. A fault enters this sample only when its consumer logged it, and the consumers that log are the admin loaders. The clustering is a property of which consumers speak.
+
+### 2.4 What is not happening
+
+Grepped across every attempt for `too many clients`, `remaining connection slots`, `connection pool`, `ECONNRESET`, `ECONNREFUSED`, `EAI_AGAIN`, `socket hang up`, `JavaScript heap out of memory` and `FATAL`: zero hits. The only recurring lines are `destination stream closed early` (an aborted RSC stream, a symptom) and `upstream server`.
 
 ## 3. The decision
 
@@ -109,24 +100,28 @@ The first draft refuted bootstrap hardening on three grounds and all three were 
 
 **So this spec does not claim bootstrap hardening is refuted.** It claims something narrower and better supported, below.
 
-### 3.2 The row's remainder has no live member, and that is what settles it
+### 3.2 Why the row closes on its disposition rather than on a repair
 
-Taking the three remaining members in turn:
+Two facts, and the second is the one that decides it.
 
-- **`notify-toggles`** names only RPCs #882 now retries (§2.2), with no post-#882 counter-evidence. It is the member the row called "wired on `main` and owned by no batch", and on the evidence it is the member #882 closed.
+**Every mechanism the class's complete evidence names is already absorbed.** All eleven failing attempts name one of three RPCs, all now retryable (§2.1). Whatever else is true, the row's own evidence contains no request that #882's wrapper does not already cover.
+
+**And no remaining member's failure can be ATTRIBUTED well enough to choose a repair.** §2.2 is explicit that the association is not causation, and §9.2 names the dark path that keeps it from being one. Taking the three remaining members in turn:
+
+- **`notify-toggles`** has three occurrences across three branches, each naming only a now-retryable RPC and nothing else. Whether those RPCs CAUSED the failures is exactly what nobody can currently establish.
 - **`telemetry-layout`** and **`published-show-attention`** are dropped batch-2 members. Neither appears in any workflow, both are `UNSEEN` in `tests/ci/_metaE2eWorkflowCoverage.test.ts:186` and `tests/ci/_metaE2eWorkflowCoverage.test.ts:218`, and their restoration is batch 3's first question (`BACKLOG.md:623`), out of this arc's scope.
 
-**Neither of the row's two candidate repairs has a live member to fix.** Extending the recovery would ship a mechanism for two specs that run in no workflow; hardening the bootstrap would change a step whose contribution to these failures is unmeasured and, per §2.2, whose implicated requests are already absorbed at a different layer.
+**A repair cannot be chosen for a failure whose mechanism nobody can name.** Extending the recovery and hardening the bootstrap are both answers to a question the evidence does not yet ask precisely enough: one presumes a page-segment boundary is where the failure lands, the other presumes the runner's setup is. Nothing in §2 distinguishes them, and §3.1 records why the first draft's attempt to distinguish them was wrong.
 
-The row therefore closes on its DISPOSITION rather than on a repair, and the disposition is the measurement: its remainder is absorbed by #882 or held by batch 3. That is not a deferral and not a product call. It is the answer §2 produced, and it differs from the answer the row anticipated because the row was written before #882 landed.
+So the row closes on its DISPOSITION, and the disposition is that its remainder is unattributable on current evidence, with every named mechanism already absorbed. That is not a deferral: it is the answer §2 produced, and it differs from the answer the row anticipated because the row was written before #882 landed and before anyone had read the three logs it called unattributed.
 
-**RATIFIED by the orchestrator, 2026-08-25.** The ruling has three parts, recorded so none is re-derived:
+**RATIFIED by the orchestrator, 2026-08-25**, in three parts:
 
 1. `BL-ADMIN-LOADER-CI-TRANSIENT` closes by recorded disposition, not by a speculative recovery.
-2. `telemetry-layout` and `published-show-attention` are recorded as a documented limit on the batch-2 spec's own limits section, with their run ids, and NOT as a new ledger row (Eric's directive). That entry is at `docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md` §9.
-3. **The two-way recovery choice is RETIRED as undecidable on current evidence**, with §3.1's correction written into the disposition so nobody re-refutes bootstrap hardening on the boot-and-seed argument.
+2. `telemetry-layout` and `published-show-attention` are recorded as a documented limit on the batch-2 spec's limits section, with their run ids, and NOT as a new ledger row (Eric's directive). That entry is at `docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md` §9.
+3. The two-way recovery choice is RETIRED as undecidable on current evidence, with §3.1's correction written in so nobody re-refutes bootstrap hardening on the boot-and-seed argument.
 
-The observability row's deliverable (§5, §6, §7) is unaffected and is what this arc ships.
+The ratification was given on the earlier and weaker justification that #882 had absorbed the remainder; the orchestrator was told when §2.2 replaced it with this one. The observability deliverable (§5, §6, §7) is unaffected and is what this arc ships.
 
 ### 3.3 What the next occurrence needs, which is what this arc builds
 
@@ -209,20 +204,63 @@ The row's second first-scheduled step (`BACKLOG.md:695`) requires the harness be
 
 ## 7. The workflow capture step
 
-Today `.github/workflows/app-e2e.yml:173-188` runs playwright as a single-line `run:` with no `shell:`, no pipe, no `tee` and no `id:`. The only capture in the file is the failure-conditional artifact upload at `.github/workflows/app-e2e.yml:196-205`. So the observer's records would reach the job log and nothing would extract them.
+Two independent obstacles sit between an observation and a CI log, and round 2 found the second. Both are probed, not argued.
 
-The capture step carries four mechanics, each with a failure mode worse than the one it prevents:
+### 7.1 Playwright discards the web server's stdout
 
-- `set -o pipefail` under `shell: bash`. Without it the step's status is `tee`'s, and **a failing app-e2e reports success**. A required check that cannot go red is worse than the flake it instruments.
-- `2>&1` before the pipe, so both streams are captured.
-- `if: always()` on the grep step, else it is skipped exactly when the run failed.
-- an `id:`, because the dump's condition references `steps.<id>.outputs.<name>`.
+`playwright.config.ts` sets neither `stdout` nor `stderr` on any of its five `webServer` entries, and the installed plugin forwards each stream on different terms (playwright 1.59.1, its bundled web-server plugin, the two `launchedProcess` stream handlers):
 
-`.github/workflows/x-audits.yml` is the template for the first three, at every site `rg -c "set -o pipefail"` reports in it, the first being `.github/workflows/x-audits.yml:64`. It is **not** a template for the fourth: no step in that workflow carries an `id:` (§9.3).
+```
+stdout:  if (debugWebServer.enabled || this._options.stdout === "pipe")
+stderr:  if (debugWebServer.enabled || (this._options.stderr === "pipe" || !this._options.stderr))
+```
 
-The grep target is `SUPABASE_UPSTREAM_FAULT`, which reaches the log through the console chokepoint at `lib/log/logger.ts:71` as `code: 'SUPABASE_UPSTREAM_FAULT'` inside the compact object.
+Stderr is forwarded when `stderr` is UNSET, because `!undefined` is true. Stdout is forwarded only on an explicit `"pipe"`. And `log.debug` reaches stdout (§9a), so **the observer's records are discarded inside Playwright before any outer capture could see them.** This also explains the runs in §2.1: every `[WebServer]` line there is `warn` or `error`, which is to say stderr.
 
----
+The repair is `stdout: "pipe"` on the app-e2e `webServer` entry. It cannot be avoided by choosing a different log level: `warn` and `error` reach stderr but PERSIST, which is the recursion the §5.2 fence exists to prevent, and `info` persists whenever it carries a code, which this emit does. Debug is the only level that cannot persist, and debug is on stdout.
+
+The cost, stated: piping stdout brings the rest of the server's stdout into the job output too. That is the price of capturing anything from it.
+
+### 7.2 The capture cannot use a pipe, or a `shell:` key
+
+`.github/workflows/app-e2e.yml:173-188` runs playwright as a single-line `run:` with no `shell:`, no pipe and no `id:`. The obvious capture — `2>&1 | tee` under `shell: bash`, which is what `BACKLOG.md:683-688` prescribes and what `.github/workflows/x-audits.yml` does at every one of its sites — **would make all twenty app-e2e specs read as covered by no workflow.**
+
+`tests/ci/_workflowCoverageScan.ts` claims a spec only from a run step it can read as a command-position invocation. Probed directly against it, with the real spec path:
+
+```
+COVERED   inline, no pipe (today)
+MISSED    inline + `set -o pipefail;` + pipe
+MISSED    inline + pipe only
+MISSED    block scalar, either line order
+COVERED   inline + redirect to a file
+MISSED    inline + redirect, WITH shell: bash
+MISSED    + shell: bash on any LATER step in the job
+```
+
+Two independent breakers: **any pipe**, and **a `shell:` key on any step in the job**. The live workflow has zero `shell:` keys, which is why this has never been hit.
+
+So the capture takes a REDIRECT, and that is strictly better than the design it replaces: with no pipeline, the step's exit status IS playwright's, so the hazard the pipefail mechanic defends against — a failing app-e2e reporting success — cannot arise at all. The mechanic is removed rather than mitigated.
+
+Verified shape, `covered = true`:
+
+```yaml
+      - name: Run app-e2e (both projects; each project's testMatch claims its own subset)
+        run: pnpm exec playwright test <unchanged file list and flags> > app-e2e.log 2>&1
+      - name: Replay the app-e2e log into the job output
+        if: always()
+        run: cat app-e2e.log
+      - name: Extract upstream-fault records
+        id: upstream-faults
+        if: always()
+        run: |
+          count=$(grep -c 'SUPABASE_UPSTREAM_FAULT' app-e2e.log || true)
+          echo "count=${count:-0}" >> "$GITHUB_OUTPUT"
+      - name: Dump upstream-fault records
+        if: always() && steps.upstream-faults.outputs.count != '0'
+        run: grep 'SUPABASE_UPSTREAM_FAULT' app-e2e.log
+```
+
+`|| true` on the `grep -c` is load-bearing under the default shell's `-e`: `grep -c` exits 1 on zero matches, the ordinary healthy case, and without it the extract step fails every green run.
 
 ## 8. Invariants
 
@@ -268,7 +306,7 @@ The consequence bound, restated as the criterion: every upstream fault is either
 - **AC-1.** `makeObservingFetch` is installed on both `createSupabaseServerClient` and `createSupabaseServiceRoleClient`. The REQUIRED composition is stated, not merely pinned: on the cookie-bound client the stack is `retry → observer → injector → real fetch`, so the observer sees every attempt the retry makes AND sees the test injector's forced faults. The observer is therefore innermost of the PRODUCTION wrappers, with the injector deliberately inside it; §5.1 says that rather than "innermost". The service-role client's fetch stays late-bound, because supabase-js resolves `fetch` per request when none is supplied, and an eager capture would silently pin the transport at factory-call time. Verified in the vendored client: `resolveFetch` returns `(...args) => fetch(...args)` when no `customFetch` is given (supabase-js 2.105.1, its bundled CommonJS entry, lines 96 to 99).
 - **AC-2.** The plant-four harness and the recursion fence are green.
 - **AC-3.** A walked meta-test fails when a fourth directly-constructed server-side client is added, proven by a synthetic fixture rather than an enumerated list, and stays silent on the two live comment mentions in `lib/observe/query/events.ts:64` and `lib/validation/reseedFixtures.ts:19`.
-- **AC-4.** `app-e2e.yml` captures the run's output with all four mechanics, and the step's status still reflects playwright's, proven by a structural assertion on the parsed workflow. That a record reaches the captured stream is proved LOCALLY against an injected fault; no CI assertion claims a given ambient record was the injected one, because §2.0 shows ambient faults appear in every run.
+- **AC-4.** The capture chain works END TO END, which means both halves: `stdout: "pipe"` on the app-e2e `webServer` entry so Playwright forwards the records at all, and the redirect-based workflow shape so the coverage scanner still claims all twenty specs. Both are asserted structurally, and the scanner assertion includes **no step in the app-e2e job carries a `shell:` key** — the breaker that is invisible from reading either file alone. That a record reaches the captured stream is proved LOCALLY against an injected fault; no CI assertion claims a given ambient record was the injected one, because §2.3 shows ambient faults appear in every attempt.
 - **AC-5.** `describeTransportTarget` is the single describer for both emits, and no record carries a path identifier. Probed against the Storage shape, not asserted.
 - **AC-6.** `observeTransport.ts` is enrolled in the mutation registry, scored before the round-1 diff dispatch, with zero unaccepted survivors.
 - **AC-7.** Both rows graduate to `BACKLOG-archive.md` carrying §9 and §9a. No new `BL-`/`DEF-` row exists anywhere in the diff.
