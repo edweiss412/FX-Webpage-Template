@@ -739,8 +739,10 @@ here, so nothing about that record moves. A vacuous row would be worse than an h
   closed, the step-3 report textarea, the wizard step indicator's done pill, and the venue tile's
   Directions visual. Before and after captures in the PR body. This is a CONTRAST claim and source
   pins do not satisfy it (ruled 2026-08-26); AC-15's width multiset is width evidence and cannot stand
-  in either. `tests/e2e/control-outline-contrast.live.spec.ts` carries all five, four on the bundle
-  route and the wizard pill on its real route, for the reason in limit L9.
+  in either. `tests/e2e/control-outline-contrast.live.spec.ts` carries four on the bundle route and
+  `tests/e2e/control-outline-pill.route.spec.ts` the wizard pill on its real route, for the reason in
+  limit L9. Two files rather than two pages: a real Next document loads font faces the shared
+  font-fidelity oracle rightly refuses in a harness spec.
 - **AC-14** The invariant-8 dual gate green, with dispositions recorded in the closeout.
 - **AC-15** The multiset of border-WIDTH utilities across every swap target is identical before and
   after. A colour swap that moved a width would change layout, and §14 claims it does not.
