@@ -185,12 +185,32 @@ jobs:
           # until now (spec §5.2; the same split-brain contaminated the local
           # membership probe, probe record §4.3).
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
-        run: pnpm exec playwright test tests/e2e/sample.spec.ts tests/e2e/root-landing.spec.ts tests/e2e/admin-layout.spec.ts tests/e2e/admin-phase2-surfaces.spec.ts tests/e2e/notify-toggles.spec.ts tests/e2e/me-page.spec.ts tests/e2e/report-modal.spec.ts tests/e2e/help-pages.spec.ts tests/e2e/admin-changes-feed-layout.spec.ts tests/e2e/developer-tier.spec.ts tests/e2e/source-link-dimensional.spec.ts tests/e2e/staged-preview.spec.ts tests/e2e/dev-capture.spec.ts tests/e2e/no-raw-codes.spec.ts tests/e2e/sign-in-page.spec.ts tests/e2e/admin-route-boundaries.spec.ts tests/e2e/needs-attention-page.spec.ts tests/e2e/roles-settings-layout.spec.ts tests/e2e/admin-settings-admins-refresh.spec.ts tests/e2e/admin-upstream-retry.spec.ts --project=mobile-safari --project=desktop-chromium --retries=0 --reporter=list,json
+        run: pnpm exec playwright test tests/e2e/sample.spec.ts tests/e2e/root-landing.spec.ts tests/e2e/admin-layout.spec.ts tests/e2e/admin-phase2-surfaces.spec.ts tests/e2e/notify-toggles.spec.ts tests/e2e/me-page.spec.ts tests/e2e/report-modal.spec.ts tests/e2e/help-pages.spec.ts tests/e2e/admin-changes-feed-layout.spec.ts tests/e2e/developer-tier.spec.ts tests/e2e/source-link-dimensional.spec.ts tests/e2e/staged-preview.spec.ts tests/e2e/dev-capture.spec.ts tests/e2e/no-raw-codes.spec.ts tests/e2e/sign-in-page.spec.ts tests/e2e/admin-route-boundaries.spec.ts tests/e2e/needs-attention-page.spec.ts tests/e2e/roles-settings-layout.spec.ts tests/e2e/admin-settings-admins-refresh.spec.ts tests/e2e/admin-upstream-retry.spec.ts --project=mobile-safari --project=desktop-chromium --retries=0 --reporter=list,json > app-e2e.log 2>&1
       # No `if:` — this must run on the success path, which is the only path
       # where a vacuously-green run is dangerous. A runtime `test.skip()` skips
       # every case while --list still reports them, so the run exits 0 having
       # proved nothing; this reads the run's OWN report and enforces a per-spec
       # executed floor measured from a real run.
+      # The observer's records reach the runner on the web server's stdout, which Playwright
+      # forwards only because playwright.config.ts sets `stdout: "pipe"` on the baseline entry.
+      # The invocation redirects rather than pipes: `scanWorkflowCoverage` refuses a claim from a
+      # piped run step, and all twenty specs would then read as covered by no workflow. A redirect
+      # also removes the pipefail hazard outright -- with no pipeline the step's status IS
+      # playwright's, so a failing run cannot report success.
+      - name: Replay the app-e2e log into the job output
+        if: always()
+        run: cat app-e2e.log
+      # `|| true` is load-bearing under the default shell's -e: `grep -c` exits 1 on zero matches,
+      # which is the ordinary healthy case, and without it this step fails every green run.
+      - name: Extract upstream-fault records
+        id: upstream-faults
+        if: always()
+        run: |
+          count=$(grep -c 'SUPABASE_UPSTREAM_FAULT' app-e2e.log || true)
+          echo "count=${count:-0}" >> "$GITHUB_OUTPUT"
+      - name: Dump upstream-fault records
+        if: always() && steps.upstream-faults.outputs.count != '0'
+        run: grep 'SUPABASE_UPSTREAM_FAULT' app-e2e.log
       - name: Executed-count oracle (runtime skips cannot fake green)
         run: node scripts/check-app-e2e-executed.mjs
       - name: Upload Playwright traces/report (diagnosis artifact)
