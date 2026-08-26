@@ -65,7 +65,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   /**
    * file basename -> set of UNIQUE (case x project) identities that passed ON THEIR FIRST ATTEMPT.
    *
-   * The identity is `file:line:title|projectId`, NOT `spec.id`: the app-e2e sibling probed the
+   * The identity is `<describe path>::file:line:title|projectId`, NOT `spec.id`: the app-e2e sibling probed the
    * id-based form and it does not hold — `--repeat-each=2` over N cases produces 2N distinct ids
    * while only N logical cases ran, so `--grep` selecting half the cases plus a repeat keeps the
    * count at its floor with half the coverage dark. Deduplicating on the logical identity makes a

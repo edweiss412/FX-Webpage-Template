@@ -56,14 +56,25 @@
 //
 // Repairing (2) means enrolling ten specs, each needing a real e2e run to
 // confirm the added await did not move its timing. Repairing (1) means import
-// resolution plus a per-helper judgement about whether its navigation is the one
-// being measured — `signInAs` navigates to an auth endpoint that is never the
-// measured document, so a naive rule fires on nearly every spec in the corpus.
+// resolution plus a per-helper judgement about whether a call really navigates
+// the measured document — `signInAs` merely LOOKS like one, and a rule that
+// took the resemblance would fire on nearly every spec in the corpus.
 //
 // RE-FILE TRIGGER: a flake traced to a fallback-frame measurement in any of the
-// ten files above, or a new navigate-then-measure helper. Reproduce both numbers
-// by running `analyzeSource` over `tests/e2e/*.spec.ts` and differencing against
-// CALLERS.
+// ten files above, or a new navigate-then-measure helper.
+//
+// The two censuses reproduce DIFFERENTLY, and conflating them was an error in an
+// earlier draft of this note: `analyzeSource` is single-file by construction and
+// cannot derive a helper-caller census at all.
+//   • analyzer census (10 files): run `analyzeSource` over every
+//     `tests/e2e/*.spec.ts` and difference the reporting files against CALLERS.
+//   • helper census (12 call-and-measure, 11 without a wait): walk
+//     `tests/e2e/helpers/**` WITH COMMENTS STRIPPED for exported functions whose
+//     body calls `page.goto`, close that set transitively, then intersect the
+//     specs calling one against the specs reading geometry. Stripping comments is
+//     load-bearing: `signInAs`'s comment mentions `page.goto`, its body does not
+//     (it posts through `page.request.post`), and counting it inflates the set to
+//     nearly the whole corpus.
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
