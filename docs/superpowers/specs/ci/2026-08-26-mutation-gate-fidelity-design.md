@@ -2,7 +2,7 @@
 
 **Arc:** arc-gatefidelity · **Branch:** `fix/mutation-gate-fidelity` · **Date:** 2026-08-26
 **Archives:** `BL-MUTATION-HARNESS-MAIN-RED`, `BL-MUTATION-HARNESS-PR-TRIGGER-FANOUT`, `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH` — the first with its outstanding nightly verification named in the entry and owned by the orchestrator (§6.1)
-**Files:** `.github/workflows/mutation-harness.yml`, `tests/mutation/source/surfaceCases.ts`, `tests/mutation/source/oracle.ts`, `tests/db/connectionCensus.test.ts`, `tests/mutation/source/spawnBounded.ts`, `BACKLOG.md`, `BACKLOG-archive.md`
+**Files:** `.github/workflows/mutation-harness.yml`, `tests/mutation/source/surfaceCases.ts`, `tests/mutation/source/surfaceCases.test.ts`, `tests/mutation/source/oracle.ts`, `tests/mutation/source/oracle.test.ts`, `tests/mutation/source/records.ts`, `tests/mutation/source/records.test.ts`, `tests/db/connectionCensus.test.ts`, `tests/mutation/source/spawnBounded.ts`, `BACKLOG.md`, `BACKLOG-archive.md`
 
 **This arc files no new `BL-` or `DEF-` row of any facing** (Eric's directive, 2026-08-25, which overrides the mint freeze's exception clauses). Every finding below is repaired here or recorded as a documented limit on the surface that owns it.
 
@@ -160,26 +160,29 @@ The same sweep cleared the other registries this diff touches. `tests/mutation/_
 
 **Why the leg still fails.** A faulted surface registers failing cases, so the leg is red and the gate's verdict is unchanged. What changes is that the red is attributable and its co-tenants are visible.
 
-**Registration is UNCONDITIONAL, and that is what closes the escape a reviewer found in an earlier draft.** The seven `it(` calls are made for every surface, always; only their BODIES consult the outcome. There is deliberately no branch between entering the `describe.each` callback and registering all seven, so there is no code path that registers fewer cases for a faulted surface than for an evaluated one. The escape that draft left open — catch the fault, return early, register nothing, and let the healthy surface satisfy the assertion — is unreachable by construction rather than merely untaken, because an early return is the one shape the structure forbids.
+**Registration is made OBSERVABLE, because arguing that it is unconditional did not work twice.**
 
-That is worth stating because the seven-literal guard cannot catch it: `guardSurfaces.gates.test.ts` case (c) counts `it(` literals in the SOURCE and stays green whether or not they execute. A static literal count is not an execution guarantee, and this design does not ask it to be one.
+This is the third consecutive round on one vector: rounds 1, 2 and 3 each found that the proposed cover could not see what it claimed to prove. Round 1's cover registered an eighth case; round 2's watched only the healthy surface; round 3's watched notices and records, which an implementation can emit and then return before registering anything. Each repair was prose about why the escape was unreachable, and each time the next round found the escape that the prose did not close. Per the structural-defense rule, the repair in THIS round is structural rather than another argument.
 
-**A faulted surface reports on three independent channels**, so no single one has to carry the proof:
+**`registerSurfaceCases` takes its registrar as an injectable option.** Signature gains `options.register?: { describe: typeof describe; it: typeof it }`, defaulting to the module's own vitest imports, so the production path is byte-identical to today's. The cover injects recorders and then observes registration DIRECTLY:
 
-1. **Seven failing cases** — the leg's verdict, unconditionally registered as above.
-2. **A fault NOTICE through the `write` sink**, the same channel the `TIMEOUT-KILL` notices use, emitted at module scope so it appears in the leg's output whether or not any case runs.
-3. **A run record** with `passed: false` (see above).
+- the faulted surface registered **exactly seven** cases, with the **same seven titles in the same order** as an evaluated surface, so a shortened list is a diff rather than a judgement call;
+- invoking each recorded body **throws**, and the first one's message names the surface id and the fault;
+- the healthy surface registered its seven, and invoking its bodies does not throw.
 
-**The derived cover, executable, in machinery that already exists.** `tests/mutation/source/surfaceCases.test.ts` already drives the REAL `registerSurfaceCases` against a mocked `node:child_process.spawnSync` and a synthetic `fixture(id)` surface, and its mock already branches on whether the child is running the BASELINE. One added lever — a chosen suite whose BASELINE returns non-zero — reproduces `BaselineNotGreenError` in-process with no child vitest at all.
+An implementation that catches the fault and returns early now fails the first assertion by construction, because the assertion counts what was registered instead of trusting that something was. Emitting a notice and a record no longer substitutes for registering cases, because all three are asserted separately.
 
-The case registers `[faulting, healthy]` in that order and asserts **both** directions, which is the point:
+**Injection does not weaken the wiring proof, and here is why that is not a hand-wave.** The default path stays vitest's real `describe`/`it`, and `tests/mutation/source/surfaceCases.test.ts` already carries an un-skipped case proving the REAL registrar drives real shard output through the notice sink. So the file holds both halves: the existing case proves the production registrar is wired, and the new case proves what that registrar registers. Neither alone is sufficient and the pair is, which is exactly the split the file's own `describe.skip` comment already reasons about for the same reason.
 
-- the **faulted** surface produced its fault notice, naming that surface id, and its record carries `passed: false`;
-- the **healthy** surface's notices still reached the sink.
+**A faulted surface reports on three independent channels**, none of which is asked to carry the proof alone:
 
-Asserting only the second is what the earlier draft did, and it is satisfiable by an implementation that silently drops the faulted surface entirely — the exact outcome R1 exists to prevent. The faulted-side assertion is the discriminating one; the healthy-side assertion is what proves isolation rather than mere error handling. Both are required.
+1. **Seven failing cases** — the leg's verdict, now observable per the above.
+2. **A fault NOTICE through the `write` sink**, the channel the `TIMEOUT-KILL` notices use, emitted at module scope so it appears whether or not a case runs.
+3. **A run record carrying the fault** — see below, because the record as it stands today cannot express one.
 
-RED validity: on today's tree that registrar call throws during collection and the whole file errors with `BaselineNotGreenError`, which is a production-behavior failure, not a test-local one. It cannot be made green by editing the test. The failure modes it catches: moving the evaluation back outside the wrapper (the healthy assertion reds), and catching the fault without reporting it (the faulted assertion reds).
+**`RunRecord` gains a `fault` field, because "plus the fault" was not representable.** Today `RunRecord` is `{surfaceId, runId, startedAt, passed, score, outcomes}` (`tests/mutation/source/records.ts`), with no place to put a cause, and `emitRunRecord`'s input mirrors it. A record written as `passed: false, score: 0, outcomes: []` is therefore indistinguishable from a surface that legitimately scored zero, and cannot tell a red baseline from a source-read failure or an infrastructure fault — so it would not be the actionable channel this section claims. The repair is an optional `fault?: string` on both `RunRecord` and `emitRunRecord`'s input, carrying the error name and message. Optional, so every existing record and every existing caller is unaffected; `readRunRecord` is a bare `JSON.parse` with no key validation, so no reader rejects it.
+
+RED validity: on today's tree the registrar call throws during collection and the whole file errors with `BaselineNotGreenError`, which is a production-behavior failure that no edit to the test can turn green. The failure modes the cover catches, each with the assertion that catches it: evaluation moved back outside the wrapper (healthy-side registration and notices red); a fault caught and swallowed (faulted-side bodies do not throw); a fault reported but its cases skipped (faulted-side count is not seven); a record written with no cause (the `fault` assertion reds).
 
 **R1 also names the surface in the error.** `BaselineNotGreenError` (`tests/mutation/source/oracle.ts:21-30`) carries only the suite list, so the annotation on run 32958581720 named two test files and no surface — a triager has to re-derive the partition to learn which surface owns them. `assertCleanBaseline` gains the surface id and the message leads with it.
 
@@ -372,7 +375,7 @@ Total seconds rose ~12.5% because each additional leg pays its own setup and boo
 
 | id | criterion | how it is proved |
 | --- | --- | --- |
-| **AC-1** | A surface that faults during evaluation (a) registers its full seven cases, every one failing and naming the surface, (b) emits a fault NOTICE through the same sink the timeout notices use, and (c) writes a run record with `passed: false`; and every other surface on the leg still evaluates, emits its notices and registers its seven. | In-process, in `tests/mutation/source/surfaceCases.test.ts`, against the sink and the record — never the child-vitest route, which an earlier draft named alongside this one and which is now dropped. Red on today's tree because collection dies before any of the three channels produces anything. |
+| **AC-1** | A faulted surface (a) **registers exactly seven cases, with the same seven titles in the same order as an evaluated surface**, (b) **each of those bodies throws when invoked**, the first naming the surface id and the fault, (c) emits a fault notice through the `write` sink, and (d) writes a run record whose **`fault` field names the error class and message**; and the healthy surface on the same leg registers its seven, whose bodies do not throw, and emits its notices. | In-process, in `tests/mutation/source/surfaceCases.test.ts`, through an INJECTED registrar so registration itself is observed rather than inferred — the sink and the record are asserted too, but they are no longer the only observers. The child-vitest route named by an earlier draft is dropped. Red on today's tree because collection dies before anything is registered. |
 | **AC-2** | `BaselineNotGreenError` names the surface id, not only the suite paths. | Unit case on `assertCleanBaseline`. |
 | **AC-3** | `retryableRpcVolatilityScan` scores on a `source-shards` leg, with no `BaselineNotGreenError` in any annotation. | `workflow_dispatch` run on this branch; per-annotation read. |
 | **AC-4** | `reconcileValidationEnv` reports `stale: []` for an allow row whose file still holds a `validation-env` site; `connectionCensus` has zero unaccepted survivors. | The killing case (§3.3) plus a scored `pnpm heavy:mutation` run. |
@@ -400,6 +403,14 @@ The alternative this spec carried until the ruling was to leave the row open. It
 - **2, 3, 4, 5, 9, 10:** no advisory-lock, email, cursor, user-visible-code, Supabase-call-boundary or mutation-surface change here. N/A, declared.
 - **8:** `impeccable-gate: N/A - no UI surface`.
 - **Class-sweep at round 1, docs included:** §2 sweeps to a derivation over the mechanism, not to a list of surfaces; §3.4 resolves the ten-glob class without editing a glob.
+
+## 7.1 Same-vector recurrence, recorded so the next reader does not re-derive it
+
+Rounds 1, 2 and 3 all landed on one vector: **the proposed cover for R1 could not observe the thing it claimed to prove.** The instances differed (an eighth registered case; an assertion watching only the healthy surface; an assertion watching only notices and records) but the shape did not, and each repair was an argument rather than a mechanism.
+
+The project rule for this is explicit: when the round after a comprehensive re-analysis still surfaces same-vector findings, ship the structural defense in that round's repair commit rather than waiting for another round to confirm. §3.1 now does that — the registrar is injectable and the cover COUNTS what was registered instead of reasoning about what must have been. The remaining question on this vector is answerable mechanically, by reading an assertion, rather than by weighing prose.
+
+`RunRecord.fault` is the same move on the second channel: "plus the fault" was unrepresentable in the record type for three rounds, and no amount of specifying it would have made it so.
 
 ## 8. Meta-test inventory
 
