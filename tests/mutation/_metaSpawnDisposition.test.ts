@@ -264,12 +264,16 @@ const DISPOSITIONS: readonly Disposition[] = [
     file: "tests/mutation/_metaPreexistingSurfaceImmutability.test.ts",
     member: false,
     reason:
-      "NOT A MEMBER — one `git merge-base` invocation asserting the committed snapshot " +
-      "was taken at the declared merge base. Reads refs and exits; spawns no test " +
+      "NOT A MEMBER — two git invocations: `merge-base`, asserting the committed " +
+      "snapshot was taken at the declared merge base, and a `diff` of the registry that " +
+      "derives which surfaces this branch enrols. Both read refs and exit; they spawn no test " +
       "process and creates nothing. Bounded by git's own exit rather than by a timeout, " +
       "and it fails loudly rather than skipping when the ref is unreachable.",
-    hits: 1,
-    digest: "bb17367ffc65",
+    // TWO now: the merge-base lookup above, and the diff that DERIVES which surfaces
+    // this branch enrols. The second replaced a hardcoded pair that had turned a
+    // one-arc proof into a permanent registry freeze. Both read refs and exit.
+    hits: 2,
+    digest: "af7455d43678",
   },
   {
     // The cleanup guard's subject child. A member: this really is an executed

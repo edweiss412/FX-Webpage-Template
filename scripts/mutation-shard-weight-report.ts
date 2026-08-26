@@ -313,9 +313,17 @@ function main(): void {
   for (let i = 1; i < dated.length; i += 1) {
     const newer = dated[i - 1] as { dir: string; at: number };
     const older = dated[i] as { dir: string; at: number };
-    if (older.at > newer.at) {
+    // `>=`, not `>`. Equality is the case that matters most: passing the same
+    // `<dir>:<dump>` twice reconciles perfectly and then scores a run against ITSELF as
+    // its own later held-out target, reporting an artificially strong improvement and
+    // zero verdict movement. Two genuinely distinct runs that started in the same
+    // millisecond are equally unorderable, and there is no basis to guess which the
+    // caller meant.
+    if (older.at >= newer.at) {
       throw new Error(
-        `runs are not newest-first: ${older.dir} started after ${newer.dir}. ` +
+        `runs are not strictly newest-first: ${older.dir} started at or after ${newer.dir}. ` +
+          `Equal stamps usually mean the same run was passed twice, which scores it against ` +
+          `itself. ` +
           `Every cross-run block reads them in that order, so this would invert the ` +
           `held-out seed, the verdict direction and the drift comparison silently. ` +
           `Reorder the --run arguments.`,

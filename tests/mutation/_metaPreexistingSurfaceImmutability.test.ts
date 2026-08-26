@@ -11,6 +11,16 @@
  * scripts/snapshot-preexisting-surfaces.ts, never from HEAD: a snapshot of the working
  * tree records whatever this diff already did and then asserts the diff against itself.
  *
+ * THIS IS A PER-ARC PROOF AND IT RETIRES AT MERGE. It compares against
+ * `merge-base origin/main HEAD`, which is a property of an UNMERGED branch: once this
+ * merges, that merge base becomes the new main commit and the committed baseSha no
+ * longer matches. Shipping it permanently would also be wrong in kind, not just in
+ * bookkeeping -- it would assert a claim about one arc's diff on every future commit.
+ * The expected additions are DERIVED from the diff rather than hardcoded, which removes
+ * the registry freeze while the branch lives; the file and its fixture are DELETED in
+ * the PR's final commit, alongside the in-progress ledger marker, and the closeout
+ * records the sha and CI run where the proof actually held.
+ *
  * A STALE snapshot cannot silently weaken this. It would be missing whatever main has
  * enrolled since, so the additions check below stops equalling this branch's own ids
  * and fails loudly, naming them. That is why nothing here shells out to git, and why it
@@ -23,8 +33,26 @@ import { describe, expect, it } from "vitest";
 import { premise } from "../_shared/premise";
 import { GUARD_SURFACES } from "./source/registry";
 
-/** The ids this BRANCH enrols. Anything else appearing is a change nobody reviewed. */
-const ENROLLED_BY_THIS_DIFF = ["mutationWeightRecords", "mutationWeightWeights"] as const;
+/**
+ * The ids THIS BRANCH adds, DERIVED from the diff rather than written down.
+ *
+ * A hardcoded pair turned a one-arc proof into a permanent registry freeze: it allowed
+ * exactly those two additions forever and rejected every later enrolment, including
+ * legitimate ones arriving from main. Deriving it means the guard states the property
+ * AC-7 actually names -- no PRE-EXISTING surface moved -- on whatever branch it runs,
+ * instead of pinning one arc's answer.
+ *
+ * Read from the merge-base diff of the registry alone, so a surface enrolled by ANOTHER
+ * branch and absorbed here is correctly not attributed to this one.
+ */
+function addedByThisBranch(base: string): string[] {
+  const diff = execFileSync(
+    "git",
+    ["diff", `${base}...HEAD`, "--", "tests/mutation/source/registry.ts"],
+    { encoding: "utf8" },
+  );
+  return [...diff.matchAll(/^\+\s+id: "([^"]+)",$/gm)].map((m) => m[1] as string).sort();
+}
 
 type Row = {
   id: string;
@@ -94,6 +122,7 @@ describe("pre-existing surfaces are unmoved by this diff (AC-7)", () => {
   });
 
   it("adds exactly the surfaces this branch enrols, and nothing else", () => {
+    const addedIds = addedByThisBranch(snapshot.baseSha);
     // TWO-SIDED, because a subset walk passes when a surface is DELETED: every
     // snapshot row would still be checked, and the deletion would simply not be
     // looked for. Comparing the id SETS is what catches removal, renaming, and an
@@ -103,8 +132,6 @@ describe("pre-existing surfaces are unmoved by this diff (AC-7)", () => {
     const added = [...liveIds].filter((id) => !baseIds.has(id)).sort();
     const removed = [...baseIds].filter((id) => !liveIds.has(id)).sort();
     expect(removed, "a surface the merge base declared is no longer enrolled").toEqual([]);
-    expect(added, "an enrolment this branch does not own, or a stale snapshot").toEqual(
-      [...ENROLLED_BY_THIS_DIFF].sort(),
-    );
+    expect(added, "an enrolment this branch does not own, or a stale snapshot").toEqual(addedIds);
   });
 });
