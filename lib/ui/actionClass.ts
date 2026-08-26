@@ -41,5 +41,38 @@
  * Placement is the caller's (`self-start`, `w-full`, `shrink-0`) — compose with
  * `cn()`. The treatment is not.
  */
-export const SECONDARY_ACTION_CLASS =
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-text-faint bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+/**
+ * Everything except the outline COLOR, which is the one thing that depends on
+ * what the button is standing on.
+ *
+ * Split out 2026-08-25 (design doc 2026-08-25-ui-polish-class-sweep-design.md,
+ * D2). `cn` deliberately does not merge Tailwind conflicts (lib/ui/cn.ts,
+ * ratified: tailwind-merge was rejected because its semantics would rewrite ~36
+ * existing class strings), so a caller cannot append a second `border-*` and
+ * expect a defined winner. The colour therefore has to be absent from the base
+ * and present exactly once in each exported treatment.
+ */
+const SECONDARY_ACTION_BASE =
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border";
+
+const SECONDARY_ACTION_REST =
+  "bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+
+export const SECONDARY_ACTION_CLASS = `${SECONDARY_ACTION_BASE} border-text-faint ${SECONDARY_ACTION_REST}`;
+
+/**
+ * The same treatment for a button standing on a TINTED plate.
+ *
+ * `--color-text-faint` clears 3:1 on all four neutral grounds and does NOT on
+ * `warning-bg` / `info-bg` / `danger-bg` — 2.79-3.04 depending on plate and
+ * theme, under the floor in one theme per plate. This constant differs from
+ * `SECONDARY_ACTION_CLASS` in exactly one token, which is the point: a caller
+ * on a tinted plate picks a treatment, it does not hand-edit an outline.
+ *
+ * ONE call site today, `components/admin/RescanSheetButton.tsx` under
+ * `onTintedPlate`, reached from the archived-tab rescan notice in
+ * `components/admin/wizard/step3ReviewSections.tsx`. Exported rather than
+ * inlined there so the next tinted-plate caller finds a treatment instead of
+ * inventing a sixth one, which is the failure this file exists to prevent.
+ */
+export const SECONDARY_ACTION_ON_TINTED_CLASS = `${SECONDARY_ACTION_BASE} border-control-outline-tinted ${SECONDARY_ACTION_REST}`;

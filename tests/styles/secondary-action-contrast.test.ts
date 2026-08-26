@@ -62,15 +62,21 @@ describe("secondary action outline (spec §3, DESIGN §1.2a control-outline rule
   });
 
   /**
-   * The TINTED plates, recorded rather than claimed.
+   * The TINTED plates, and why `--color-text-faint` is no longer painted on one.
    *
-   * Ten shipped controls stand on a `warning-bg` / `info-bg` / `danger-bg`
-   * card, and against those the outline's OUTER edge measures 2.79-2.88:1 in
-   * one theme each — under 3:1. DESIGN §1.2a states that position and files the
-   * design question as `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`; this case exists
-   * so the numbers cannot drift silently in either direction. A token change
-   * that lifts a plate over 3:1 fails here too, which is the point: the
-   * document and the stylesheet move together.
+   * These six figures are the EVIDENCE, kept exactly as measured: against a
+   * `warning-bg` / `info-bg` / `danger-bg` card, the shared outline token's
+   * outer edge lands at 2.79-2.88:1 in one theme each, under the 3:1 non-text
+   * floor. `BL-CONTROL-OUTLINE-ON-TINTED-PLATES` filed the design question and
+   * the 2026-08-25 sweep answered it (design doc
+   * 2026-08-25-ui-polish-class-sweep-design.md, D2): a plate-only second token,
+   * pinned in the block below, rather than retuning this one.
+   *
+   * So these rows now record WHY the second token exists rather than a shipped
+   * boundary — no control paints `border-text-faint` on a tinted plate any more
+   * (`tests/styles/tintedPlateOutline.test.ts` is what holds that). They still
+   * fail loudly if the shared token or a plate is retuned, which is what keeps
+   * the design doc's arithmetic and the stylesheet moving together.
    */
   it.each([
     ["light", "--color-warning-bg", 3.04],
@@ -86,6 +92,59 @@ describe("secondary action outline (spec §3, DESIGN §1.2a control-outline rule
       tokenIn(block, ground as string),
     );
     expect(measured).toBeCloseTo(expected as number, 2);
+  });
+
+  /**
+   * The plate-only outline token (design doc 2026-08-25, D2).
+   *
+   * THREE RELATIONS, not six constants. A constant goes stale the moment any of
+   * the four tokens involved is retuned, and a reader then has to re-derive
+   * whether the pair still reads correctly; a relation fails at exactly the
+   * moment a retune breaks it and stays quiet when it is harmless. This is the
+   * same posture the sixteen hover comparisons below take, for the same reason.
+   *
+   * The third relation is the one that is easy to forget. §1.2a requires hover
+   * to stay HEAVIER than rest, and raising a resting outline is precisely how
+   * that pair gets inverted: `--color-text-subtle` is the hover outline where
+   * the border is the only cue, so a tinted resting token that crept past it
+   * would make a control read FAINTER on hover than at rest, on the plates
+   * where it is hardest to notice.
+   */
+  const TINTED_PLATES = ["--color-warning-bg", "--color-info-bg", "--color-danger-bg"] as const;
+
+  it.each([
+    ["light", lightBlock],
+    ["dark", darkBlock],
+  ])("%s: the tinted-plate outline clears 3:1 on every tinted plate", (_mode, block) => {
+    const tinted = tokenIn(block, "--color-control-outline-tinted");
+    for (const plate of TINTED_PLATES) {
+      expect(contrast(tinted, tokenIn(block, plate))).toBeGreaterThanOrEqual(3.0);
+    }
+  });
+
+  it.each([
+    ["light", lightBlock],
+    ["dark", darkBlock],
+  ])("%s: it is HEAVIER than the shared outline on every tinted plate", (_mode, block) => {
+    const tinted = tokenIn(block, "--color-control-outline-tinted");
+    const faint = tokenIn(block, "--color-text-faint");
+    for (const plate of TINTED_PLATES) {
+      const ground = tokenIn(block, plate);
+      // Strictly heavier: equal would mean the second token bought nothing.
+      expect(contrast(tinted, ground)).toBeGreaterThan(contrast(faint, ground));
+    }
+  });
+
+  it.each([
+    ["light", lightBlock],
+    ["dark", darkBlock],
+  ])("%s: it stays LIGHTER than the hover outline, so hover still strengthens", (_mode, block) => {
+    const tinted = tokenIn(block, "--color-control-outline-tinted");
+    const subtle = tokenIn(block, "--color-text-subtle");
+    for (const plate of TINTED_PLATES) {
+      const ground = tokenIn(block, plate);
+      expect(contrast(tinted, ground)).toBeLessThan(contrast(subtle, ground));
+    }
   });
 
   /**

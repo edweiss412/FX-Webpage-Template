@@ -17,14 +17,27 @@ type Props = {
 };
 type State = { kind: "idle" } | { kind: "running" } | { kind: "error"; copy: string };
 
+// No border COLOR here: it is per-plate, and lives in PLATE below beside the
+// ring offset it has to agree with. `cn` deliberately does not merge Tailwind
+// conflicts (lib/ui/cn.ts, ratified), so a second border-color appended at the
+// call site would have no defined winner — the colour has to be absent here for
+// the per-plate one to be the only one.
 const NEUTRAL_BTN = cn(
-  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-text-faint bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
+  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
 );
+// Both halves of "what card is this button standing on", in one place because
+// they answer the same question and drift apart when they do not.
+//
 // Ring-offset color must match the CARD background the button sits on: warning-bg for
 // active cards, surface-sunken for the muted Ignored (N) cards (impeccable audit P2).
-const RING_OFFSET: Record<"active" | "ignored", string> = {
-  active: cn("focus-visible:ring-offset-warning-bg"),
-  ignored: cn("focus-visible:ring-offset-surface-sunken"),
+// The outline follows the same split: an active card is a TINTED plate, where
+// --color-text-faint measures 3.04 light / 2.79 dark and misses the 3:1
+// non-text floor in dark; the Ignored card is surface-sunken, a neutral ground
+// where text-faint already clears (3.02 / 4.11). DESIGN §1.2a, design doc
+// 2026-08-25-ui-polish-class-sweep-design.md D2.
+const PLATE: Record<"active" | "ignored", string> = {
+  active: cn("focus-visible:ring-offset-warning-bg border-control-outline-tinted"),
+  ignored: cn("focus-visible:ring-offset-surface-sunken border-text-faint"),
 };
 
 export function DataQualityWarningControls({
@@ -100,7 +113,7 @@ export function DataQualityWarningControls({
             onClick={run}
             disabled={state.kind === "running"}
             aria-busy={state.kind === "running"}
-            className={`${NEUTRAL_BTN} ${RING_OFFSET[mode]}`}
+            className={`${NEUTRAL_BTN} ${PLATE[mode]}`}
           >
             {mode === "active"
               ? state.kind === "running"

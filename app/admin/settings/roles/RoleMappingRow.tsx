@@ -44,8 +44,15 @@ const CHECKBOX_LABEL: Record<GrantableFlag, string> = {
   FINANCIALS: COPY.CHECKBOX_FINANCIAL,
 };
 
+// No border COLOR: this constant paints on TWO different grounds. The edit
+// button stands on the neutral row card; the remove-confirm button stands
+// inside the bg-warning-bg card opened below, where --color-text-faint measures
+// 3.04 light / 2.79 dark and misses the 3:1 non-text floor in dark. `cn` does
+// not merge Tailwind conflicts (lib/ui/cn.ts, ratified), so appending a second
+// border-color would have no defined winner — each call site supplies the only
+// one. DESIGN §1.2a; design doc 2026-08-25-ui-polish-class-sweep-design.md D2.
 const outlineBtn = cn(
-  "inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border border-text-faint bg-surface px-3 text-sm font-medium text-text-strong",
+  "inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border bg-surface px-3 text-sm font-medium text-text-strong",
   "transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
   "disabled:cursor-not-allowed disabled:opacity-60",
 );
@@ -212,7 +219,7 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
               type="button"
               onClick={startEdit}
               aria-label={COPY.EDIT_LABEL}
-              className={outlineBtn}
+              className={cn(outlineBtn, "border-text-faint")}
             >
               <span
                 aria-hidden="true"
@@ -262,24 +269,35 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
                 <span className="text-sm text-text">{CHECKBOX_LABEL[flag]}</span>
               </label>
             ))}
-            <div className="flex min-h-tap-min items-start gap-2.5 py-1">
-              <input
-                type="checkbox"
-                id={`${uid}-fin`}
-                data-testid="role-mapping-check-FINANCIALS"
-                aria-describedby={`${uid}-fin-cap`}
-                checked={checks.FINANCIALS}
-                disabled={busy}
-                onChange={() => toggle("FINANCIALS")}
-                className="mt-0.5 size-5 accent-accent"
-              />
-              <span className="flex flex-col gap-0.5">
-                <label htmlFor={`${uid}-fin`} className="cursor-pointer text-sm text-text">
-                  {COPY.CHECKBOX_FINANCIAL}
-                </label>
-                <span id={`${uid}-fin-cap`} className="text-xs text-warning-text">
-                  {COPY.FINANCIAL_CAUTION}
-                </span>
+            {/* Financial: the caution is bound with `aria-describedby` so it never
+                folds into the checkbox's accessible name, and it sits OUTSIDE the
+                label for the same reason (design doc
+                2026-08-25-ui-polish-class-sweep-design.md, D6). What changed:
+                `min-h-tap-min` used to sit on this row `div` while the
+                `<label htmlFor>` was a SIBLING of the input, so the floor was on an
+                element that toggles nothing and the real target was one text line
+                (BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR). Identical shape to
+                RoleRecognizeControl, deliberately: the two rows are the same control
+                and drifted apart once already. */}
+            <div className="flex flex-col gap-0.5">
+              <label
+                htmlFor={`${uid}-fin`}
+                className="flex min-h-tap-min cursor-pointer items-center gap-2.5 py-1"
+              >
+                <input
+                  type="checkbox"
+                  id={`${uid}-fin`}
+                  data-testid="role-mapping-check-FINANCIALS"
+                  aria-describedby={`${uid}-fin-cap`}
+                  checked={checks.FINANCIALS}
+                  disabled={busy}
+                  onChange={() => toggle("FINANCIALS")}
+                  className="size-5 shrink-0 accent-accent"
+                />
+                <span className="text-sm text-text">{COPY.CHECKBOX_FINANCIAL}</span>
+              </label>
+              <span id={`${uid}-fin-cap`} className="pl-7 text-xs text-warning-text">
+                {COPY.FINANCIAL_CAUTION}
               </span>
             </div>
           </div>
@@ -345,7 +363,7 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
               data-testid="role-mapping-remove"
               disabled={busy}
               onClick={confirmRemove}
-              className={outlineBtn}
+              className={cn(outlineBtn, "border-control-outline-tinted")}
             >
               {busy ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> : null}
               {busy ? COPY.REMOVING_LABEL : COPY.REMOVE_CONFIRM_YES}
