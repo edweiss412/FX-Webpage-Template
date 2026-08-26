@@ -228,7 +228,7 @@ The hook has one parameter and one runtime input.
 | `reapplyKey` | omitted (`undefined`) | Stable across renders, so the ref never re-attaches on a re-render. One measure per ATTACH — which is one per appearance in production and two under Strict Mode's replay, §0.1. | `ReSyncButton.tsx:111-113` uses this arm; case (g), and (h13) for the replay |
 | `reapplyKey` | changes between renders | Detach, re-measure, re-wire. Unchanged from today. | case (c), `tests/components/admin/useFitWithinClip.test.tsx:193` |
 | `reapplyKey` | unchanged between renders (any type) | Nothing happens. `Object.is` identity is React's own dependency comparison, not ours. | §0.1's no-op row; case (h9) |
-| `reapplyKey` | an unstable object or array literal | Re-attach on every render — one measure and one walk per render. Same exposure as today, where it was an effect dependency with the same comparison. No consumer does this. The hook is exported from one module, so its call sites are enumerable by import: `rg -n 'useFitWithinClip\(' components app lib` returns five, three passing nothing and two passing a boolean. | the five call sites, enumerated below |
+| `reapplyKey` | an unstable object or array literal | Re-attach on every render — one measure and one walk per render. Same exposure as today, where it was an effect dependency with the same comparison. No consumer does this. The hook is exported from one module, so its call sites are enumerable: `rg -n 'useFitWithinClip\(' components app lib` returns SIX lines — five call sites (three passing nothing, two passing a boolean) plus the declaration itself at `components/admin/useFitWithinClip.ts:69`. Round-9 finding 2 caught this printed as five. | the five call sites, enumerated below |
 | ref `node` | an `HTMLElement` | Measure, wire, return teardown. | every case |
 | the hook is called, ref NEVER attached | — | Nothing happens at all: no measure, no wiring, no teardown, and after this arc no effect invocation either. The DEFAULT `card` variant of `PublishedToggle` (`components/admin/PublishedToggle.tsx:98`, `components/admin/PublishedToggle.tsx:134`). | §5.1 case (h18) |
 | ref `node` | `null` | Return without measuring or wiring. Unreachable under React 19 cleanup refs (fact 1) but retained: the `RefCallback` type admits it, and returning `undefined` there is what React expects. | §5.1 case (h2) |
@@ -337,9 +337,17 @@ Shapes swept, stated as the ledger rows state them:
 
 ### §4.1 — Result: the class is one file, on a cover the type checker derives
 
-**Shape 2 derives by SCOPE.** `findClippingAncestor` is declared `function` at
-`components/admin/useFitWithinClip.ts:48` and exported nowhere — `rg -n 'export.*findClippingAncestor' .`
-returns nothing. A module-private binding cannot be called from outside its module, so enumerating
+**Shape 2 derives by SCOPE.** `findClippingAncestor` is declared `function` at `components/admin/useFitWithinClip.ts:48` and
+exported nowhere in the source tree:
+
+```
+$ rg -n --glob '*.ts' --glob '*.tsx' 'export.*findClippingAncestor' components app lib
+(no match, exit 1)
+```
+
+The globs and roots are load-bearing, not decoration: unscoped, that pattern matches this spec, its
+plan, and a ledger fixture that quotes them, so the unscoped form establishes nothing. Round-9
+finding 2 caught the unscoped version being printed here as if it returned nothing. A module-private binding cannot be called from outside its module, so enumerating
 its call sites within that one file is exhaustive by construction rather than by pattern. There are
 two: `components/admin/useFitWithinClip.ts:91` inside `apply()`, and
 `components/admin/useFitWithinClip.ts:161` in the effect body, which is the instance this arc
@@ -421,25 +429,25 @@ That is the same consequence as this arc's rows and a **different mechanism**. R
 all 15 against the §2 shape: 14 pass unchanged, and the one failure is case (g)'s `toBe(2)`, the
 assertion this arc exists to move.
 
-**Two harnesses, and every case names which it uses.** The existing `Harness` attaches its ref at its
+**Two harnesses, and the table's second column names which each case uses** — round-9 finding 1 caught this sentence promising a mapping the table did not carry. The existing `Harness` attaches its ref at its
 owner's first render — which is `AttentionMenuPanel`'s shape, not `ReSyncButton`'s or
 `PublishedToggle`'s. A second harness puts the overlay behind a flag, for the cases that must speak
 about those. Reading a count without knowing its harness is how §0.1 went wrong twice.
 
-| Case | Pins | Its mutant |
-| --- | --- | --- |
-| (g), amended | Mount apply count is 1, not 2. The assertion the ledger row made executable; its comment stops citing a row this branch closes | M1 |
-| (h) | One attach is ONE ancestor walk. Ancestor `getComputedStyle` calls only, expected value derived from the harness's own chain, never typed | M2, M7 |
-| (h2) | The ref callback with `null`: no measure, no throw. Unreachable under React 19 cleanup refs but the type admits it | M4 |
-| (h3) | The teardown nulls the node, so a stale `apply()` after unmount cannot measure. React no longer calls `ref(null)`, so this is not free any more | M3, M13 |
-| (h8), (h9) | The `reapplyKey`-change and unchanged-re-render rows of §0.1. (h9) is the ONLY case that can see an identity-churning callback, because every other assertion is about a single attach | M10 |
-| (h12) | The `ResizeObserver` callback actually re-measures. That arm had NO behavioural case at all; case (d) discards the constructor callback | M11 |
-| (h13) | Strict Mode's replay counts, asserted EXACTLY — including `ReSyncButton`'s dev apply going to 2, pinned as 2 rather than wished down to 1 | M13 |
-| (h14) | One owner render per appearance on the plainest live shape. The arc's headline in its minimal form | M12 |
-| (h15), (h16), (h17) | One case per shipped lifecycle (§0.1), both modes. (h17) asserts TWO snapshots — the attach, then the totals after the entrance frame (§0.1a) | M14, M17 |
-| (h18) | The hook called with its ref NEVER attached — `PublishedToggle`'s default `card` variant. Zero applies, zero walks, no throw | M16 |
-| (h19), (h20) | The two SIGNAL-driven edges. Each asserts the re-render changed nothing FIRST, then signals and asserts the cap appears (h19) or is removed (h20) | M18, M19 |
-| (h21), (h22) | State N still holds an observer on the positioned ancestor, and the teardown disconnects it. Four rounds of this inventory claimed otherwise | M20 |
+| Case | Harness | Pins | Its mutant |
+| --- | --- | --- | --- |
+| (g), amended | always-present | Mount apply count is 1, not 2. The assertion the ledger row made executable; its comment stops citing a row this branch closes | M1 |
+| (h) | always-present | One attach is ONE ancestor walk. Ancestor `getComputedStyle` calls only, expected value derived from the harness's own chain, never typed | M2, M7 |
+| (h2) | always-present | The ref callback with `null`: no measure, no throw. Unreachable under React 19 cleanup refs but the type admits it | M4 |
+| (h3) | always-present | The teardown nulls the node, so a stale `apply()` after unmount cannot measure. React no longer calls `ref(null)`, so this is not free any more | M3, M13 |
+| (h8), (h9) | always-present | The `reapplyKey`-change and unchanged-re-render rows of §0.1. (h9) is the ONLY case that can see an identity-churning callback, because every other assertion is about a single attach | M10 |
+| (h12) | always-present | The `ResizeObserver` callback actually re-measures. That arm had NO behavioural case at all; case (d) discards the constructor callback | M11 |
+| (h13) | conditional, in `<StrictMode>` | Strict Mode's replay counts, asserted EXACTLY — including `ReSyncButton`'s dev apply going to 2, pinned as 2 rather than wished down to 1 | M13 |
+| (h14) | conditional | One owner render per appearance on the plainest live shape. The arc's headline in its minimal form | M12 |
+| (h15), (h16), (h17) | one per lifecycle: `ReSyncButton` conditional, `PublishedToggle` key-is-the-condition, `AttentionMenuPanel` always-present | One case per shipped lifecycle (§0.1), both modes. (h17) asserts TWO snapshots — the attach, then the totals after the entrance frame (§0.1a) | M14, M17 |
+| (h18) | hook called, ref never attached | The hook called with its ref NEVER attached — `PublishedToggle`'s default `card` variant. Zero applies, zero walks, no throw | M16 |
+| (h19), (h20) | always-present, driven by a signal | The two SIGNAL-driven edges. Each asserts the re-render changed nothing FIRST, then signals and asserts the cap appears (h19) or is removed (h20) | M18, M19 |
+| (h21), (h22) | always-present, unclipped | State N still holds an observer on the positioned ancestor, and the teardown disconnects it. Four rounds of this inventory claimed otherwise | M20 |
 
 **Every numbered id USED in §3.1's tables is DEFINED above, and a committed checker settles it:**
 
