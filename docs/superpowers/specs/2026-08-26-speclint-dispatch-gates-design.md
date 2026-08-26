@@ -186,7 +186,7 @@ zero hard findings dispatches, so both halves are asserted in the same file.
 
 ### 4.1 The corpus decided this, not taste
 
-100 plans under `docs/superpowers/plans/**` carry `<!-- tasks: depth=`. All 100
+101 plans under `docs/superpowers/plans/**` carry `<!-- tasks: depth=`. All 101
 cite at least one `AC-` id from a task marker. A candidate body grammar —
 a list item or ATX heading whose content begins with the id, the shape the row
 names and the shape `docs/superpowers/plans/2026-08-15-theme-persistence-note/plan.md:51`
@@ -194,27 +194,38 @@ uses — was run against all 100:
 
 | measure | count |
 | --- | --- |
-| plans declaring at least one id under the body grammar | 56 of 100 |
-| plans flagged UNCLAIMED (declared, cited by no marker) | 25 of 100 |
-| plans flagged UNDECLARED (marker cites an id the grammar does not declare) | 60 of 100 |
-| ... restricted to plans that declare at least one id | 16 of 100 |
+| enrolled plans walked | 101 |
+| plans declaring at least one id under the body grammar | 59 |
+| plans flagged UNCLAIMED (declared, cited by no marker) | 19, 33 ids |
+| plans flagged UNDECLARED (marker cites an id the grammar does not declare) | 62 |
+| ... restricted to plans that declare at least one id | 20 |
 
-**These are the v2 numbers.** Spec review R1 refuted v1's with three
-corpus-demonstrated grammar defects, all repaired in the committed probe: the id
-regex accepted only dot-separated segments and so split the live hyphenated
-`AC-2b-pattern`
-(`docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md:24`),
-against `lib/specLint/taskContract.ts:38` which accepts `[.-]`; secondary ids
-were collected from a 200-CHARACTER window, which counted a cross-reference to
-another document's id as a declaration here (`AC-11.11` at
-`docs/superpowers/plans/2026-08-09-help-report-surface.md:61`, on a line that
-declares AC-6); and the same window truncated CITED ids on long marker lines.
-The corrected grammar moves 58 to 56 and 18 to 16 and leaves 25 and 60 where they
-were, so the structural reading below survives its own repair — but the v1
-claim that all 25 are real drift does not, and is withdrawn in §4.4.
+**These are v3, measured 2026-08-26**, and the corpus count is 101 because this
+arc's own plan is in it. Two earlier grammars were refuted by review, both on live
+corpus inputs, and the repairs went one direction only — narrower:
 
-The 60 is the decisive number, and it is not measuring drift. It is measuring the
-grammar. In 42 of the 100 plans the acceptance criteria are **not declared in the
+- v1 accepted only dot-separated id segments, so the live hyphenated
+  `AC-2b-pattern` split
+  (`docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md:24`),
+  against `lib/specLint/taskContract.ts:38` which accepts `[.-]`.
+- v2 collected secondary ids up to the first sentence end. That does not help when
+  the line IS one sentence, so `AC-11.11` — a criterion belonging to another
+  document — was still counted as declared by
+  `docs/superpowers/plans/2026-08-09-help-report-surface.md:61`. **v3 drops
+  secondary collection entirely**: a bullet declares its LEADING id and nothing
+  else. All four foreign ids disappear, because every one was secondary.
+- v2's declaration regex had no token-end boundary, so `AC-1` matched inside
+  `AC-1..AC-7` at
+  `docs/superpowers/plans/2026-08-17-speclint-prose-consistency-arms.md:175`.
+  Copying the id text from the production grammar did not copy the delimiter the
+  marker grammar supplies around it. v3 anchors the end.
+
+25 plans / 40 ids became 19 / 33, and one whole false-positive class went with it.
+Each repair removed inputs rather than adding them, which is the direction a
+recognizer under review pressure has to move.
+
+The 62 is the decisive number, and it is not measuring drift. It is measuring the
+grammar. In 42 of the 101 plans the acceptance criteria are **not declared in the
 plan at all** — they live in the sibling spec, and the plan carries only a
 coverage map. Four live shapes, all sampled:
 
@@ -227,7 +238,12 @@ coverage map. Four live shapes, all sampled:
 - a task heading: `### Task 1: Un-gate the fetch, gate the return (AC-1..AC-7)`
   (`docs/superpowers/plans/2026-08-07-projection-financials-viewer-independent.md:31`)
 
-A definition that reds 60 of 100 plans is a definition, not a finding. No body
+**The 42 held across all three grammars**, which is worth stating because an
+unchanged number under a changed instrument is usually a dead measurement. Here it
+is not: v1 to v3 changed which ids a DECLARING line yields, and these 42 plans
+carry no declaring line at all, so no repair to that rule can move them.
+
+A definition that reds 62 of 101 plans is a definition, not a finding. No body
 grammar can be right here, because the corpus genuinely holds four conventions
 and one of them puts the declaration in another file.
 
@@ -256,8 +272,10 @@ reasoning are kept because the decision is the load-bearing part of this section
 
 - **(A) MIGRATE — RULED.** The body grammar IS the declaration; an id that no
   marker cites must carry an explicit disposition on its own declaring line.
-  Closes the row live and permanently. Costs a one-line edit to each of the 25
-  flagged plans, in this PR.
+  Closes the row live and permanently. The unit is a DECLARING LINE, not a plan:
+  19 plans, 33 ids, and eight of those plans need more than one line
+  (`app-e2e-batch2` needs five). R2 finding 5 measured the v2 set at 39 lines for
+  40 ids; the v3 set is smaller and is enumerated in the migration probe record.
 - **(B) Opt-in region.** Rejected: a silent false negative, which fails the
   consequence bound in §10. The row's own incident would not have been caught.
 - **(C) Ship the lint gate alone and re-file the AC premise defect.** Rejected:
@@ -273,9 +291,28 @@ reasoning are kept because the decision is the load-bearing part of this section
    in the PR body under "Unfixed peers" and stays flagged.
 3. The convention gets ONE paragraph in `docs/agents/writing-plans.md`, not in
    `AGENTS.md`.
-4. The gate's probe domain is the live plans corpus, and its done condition is
-   **zero unclaimed ids on that corpus** — a number, checkable, external to the
-   guard.
+4. The gate's probe domain is the live plans corpus, and its done condition is a
+   number on that corpus — checkable, external to the guard.
+
+**Constraint 4, restated after R2 finding 4.** As ruled, constraints 2 and 4 could
+not both hold: constraint 2 leaves an unsettled id flagged, and a flat "zero
+unclaimed" then makes the migration unfinishable by construction. The measurement
+in §4.4 is what resolves it, because it found no "real drift" at all — every
+flagged id is DISCHARGED, UNSETTLED, FOREIGN-ID or RETIRED, and the FOREIGN-ID
+class is repaired in the grammar rather than migrated.
+
+So the done condition is: **the corpus's unclaimed set equals a committed residue
+list, exactly.** The residue holds only the UNSETTLED pairs, each row carrying the
+plan, the id, and what was searched. Every other flagged pair is migrated to zero.
+
+This is fail-closed, which is the property that matters: a NEW unclaimed id is not
+on the list, so the corpus test goes red. It cannot be satisfied by adding rows
+under review pressure either — a row is admissible only with the negative evidence
+that the plan's prose settles nothing, and the residue is a number that may go
+DOWN as owning arcs resolve their own plans, never up. An `UNSETTLED` disposition
+written INTO the plans was considered and rejected: it would let any author
+silence the arm with one word, and it puts the ignorance where the gate stops
+looking rather than where a reader counts it.
 
 Constraint 2 is what keeps this from being the reinterpretation the corpus would
 punish: §4.4 found three categories under one flag, and only the plan's own text
@@ -320,11 +357,31 @@ all. The three never fire on one id — `UNRESOLVED` needs no occurrence,
 `UNDECLARED` needs an occurrence that is not a declaration, and `UNCLAIMED` needs
 a declaration.
 
-**The disposition grammar**, closed and drawn from what the corpus already
-writes (§4.4):
+**The disposition grammar, stated as text rather than as an idea.** R2 finding 2
+was right that naming two semantic categories does not close a set: the live line
+`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28` already ends with
+"Task 10.", and a loose matcher would exempt it silently while a strict one keeps
+it flagged. Two forms, anchored, matched against the declaring line AFTER the id:
 
-- `RETIRED` on the declaring line, and
-- a discharged-by reference naming the owning task.
+```
+ac-disposition := "(" WS* body WS* ")" WS* EOL
+body           := "RETIRED" (":" WS+ reason)?
+                | "discharged by " owner
+owner          := ("Task" | "task") WS+ ident (WS* ("," | "+" | "and") WS* ("Task"|"task")? WS* ident)*
+ident          := [A-Za-z0-9][A-Za-z0-9.-]*
+reason         := any text to the closing paren
+```
+
+Concretely: `(RETIRED)`, `(RETIRED: superseded by AC-4)`,
+`(discharged by Task 10)`, `(discharged by Task 3 and Task 6)`,
+`(discharged by Task N2b)`.
+
+Three properties are deliberate. **It is parenthesised and end-anchored**, so a
+sentence that merely happens to end in "Task 10." does not dispose anything — the
+`app-e2e-batch2` line stays flagged until someone writes the disposition on
+purpose. **`RETIRED` is case-sensitive**, matching how the corpus writes it. **The
+owner list is a token list, never free prose**, because a matcher that accepts
+prose accepts the sentence that was already there, which is the failure above.
 
 A disposition exempts the id from `TASK_AC_UNCLAIMED` and from nothing else.
 The gate does not read the reason, judge it, or check that the named task exists
@@ -333,48 +390,51 @@ The gate does not read the reason, judge it, or check that the named task exists
 author may only write what the plan already says.
 
 **`TASK_AC_UNDECLARED` remains opt-in and does not ship corpus-wide**, under this
-branch as under any other: 42 of the 100 plans declare their criteria in the
+branch as under any other: 42 of the 101 plans declare their criteria in the
 sibling spec, so requiring a plan-body declaration for every cited id reds 60 of
 100 (§4.1). It fires only in a plan that already declares at least one id.
 
-### 4.4 What the 25 unclaimed plans actually are
+### 4.4 What the flagged plans actually are, measured per id
 
-The first draft claimed all 25 were real drift. **That claim is withdrawn.** R1
-refuted it, and reading the 25 splits them three ways:
+The first draft claimed all of them were real drift. **That claim is withdrawn**,
+and so is the three-way split that replaced it: R2 finding 3 showed the
+categories did not cover the live set. Every flagged (plan, id) pair was then
+classified against the plan's own prose, quoting the sentence that settles it.
 
-1. **Real drift** — a criterion nobody scheduled.
-2. **Discharged outside the marker region, said in prose.** This is an
-   ESTABLISHED convention with its own wording, not an oversight. The clearest
-   statement of it is
-   `docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md:24`:
-   "**AC-6 is discharged by Task 12**, which sits outside the red-contract region
-   (bookkeeping-and-merge tail, not a TDD unit) and so states its discharge in
-   prose along with the red-then-green it must still observe." A grep for that
-   family of phrasing across the plans corpus returns 19 occurrences.
-   `docs/superpowers/plans/2026-08-21-app-e2e-batch2.md` is the same shape: AC-3,
-   AC-4 and AC-7 are named in the `## Task 10` heading at `docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:207`, and Task 10 is
-   a CI-evidence procedure with no executable red, so it carries no marker.
-3. **Deliberately RETIRED, argued at length.**
-   `docs/superpowers/plans/ci/2026-08-24-mutation-scratch-fs-event-storm.md:93`
-   declares AC-6 RETIRED with the deferred tier, and
-   `docs/superpowers/plans/ci/2026-08-24-mutation-scratch-fs-event-storm.md:165`
-   gives the arithmetic for it.
+Under the v2 grammar, 40 pairs across 25 plans:
 
-**So the row's premise does not hold on this corpus.** The row reasons that an
-unclaimed criterion means "no task is scheduled to write that assertion". For
-categories 2 and 3 that inference is false, and those categories are not a
-handful of stragglers: they are a documented convention with 19 instances.
+| category | count | what it is |
+| --- | --- | --- |
+| DISCHARGED | 28 | the plan names a task, step or procedure that owns the id, in its own words |
+| UNSETTLED | 7 | a task does the criterion's work, but no sentence writes the id beside that task |
+| FOREIGN-ID | 4 | not this plan's criterion at all — another document's id, mentioned inside a declaring line's body |
+| RETIRED | 1 | the plan explicitly retires it and argues the retirement |
 
-Scoping does not rescue it. The obvious narrowing is the `red-contract` region,
-an EXISTING opt-in whose semantics are exactly "this region's tasks carry
-executable red" — 47 of the 100 plans use it. Measured: 15 of those 47 still
-flag, the same ~32% rate as the whole corpus. There is no subset of the corpus
-where "declared and unclaimed" means what the row says it means.
+**The FOREIGN-ID group is a grammar defect, not a disposition problem**, and it is
+repaired rather than migrated (§4.1): all four were SECONDARY ids, so dropping
+secondary collection removes the class outright. `AC-12b`, `AC-11.11`, `AC-6.18`
+and `AC-10b` are owned by
+`docs/superpowers/specs/ci/2026-08-16-premisescan-import-edge-fidelity-design.md:676`,
+`docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-12-user-facing-docs-design.md:709`,
+`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3863` and
+`docs/superpowers/specs/2026-08-04-guard-premise-reachability-design.md:508`
+respectively. A gate reading another document's criteria as this plan's is wrong
+in a way no disposition line should paper over.
 
-This is why the ruled design (§4.2) makes the plan state the disposition rather
-than having the gate infer it. Three categories sit under one flag, and only the
-plan's own text can say which one an id is in — which is also why constraint 1
-forbids the author from writing anything the plan does not already say.
+**There is no "real drift" category, and that is the measurement, not an
+assumption.** Zero pairs were "a criterion nobody scheduled". The 7 UNSETTLED are
+a weaker thing: the work is scheduled and the plan's prose simply never writes the
+id next to the task that does it.
+
+Two classification results carry into the migration verbatim, because both are
+cases where the obvious disposition would be a lie:
+
+- `docs/superpowers/plans/2026-08-16-server-action-origin-sweep.md` AC-8 — the
+  plan says AC-8 has no task, being a spec-time derivation re-exercised by Task 5.
+  The disposition quotes that clause; it is not a bare discharge.
+- `docs/superpowers/plans/2026-08-22-mutation-score-jurisdiction-gap.md` AC-8 —
+  discharged by a task the plan marks retired. **The task is retired, not the
+  criterion**, so `RETIRED` here would be false.
 
 ### 4.5 Wiring
 
@@ -489,9 +549,9 @@ the first `###` sub-row.
    the named task exists. Presence, not prose quality — the same posture as the
    guard-surface arm. The honesty of a disposition rests on §4.2's constraint 1
    and on review, not on the gate.
-5. **`TASK_AC_UNDECLARED` does not ship corpus-wide.** In 42 of the 100 plans
+5. **`TASK_AC_UNDECLARED` does not ship corpus-wide.** In 42 of the 101 plans
    the criteria live in the sibling spec and the plan carries only a coverage
-   map, so requiring a plan-body declaration for every cited id reds 60 of 100
+   map, so requiring a plan-body declaration for every cited id reds 62 of 101
    (§4.1). It fires only in a plan that already declares at least one id.
 6. **The whole arm is inert in a plan with no task region.** `checkTaskContract`
    returns early unless the kind is `plan` and a `tasks:` line is present
@@ -527,7 +587,7 @@ or proceed, and neither is a visual state.
 - AC-3: advisory findings never refuse — a document with advisory findings and 0 hard dispatches.
 - AC-4: `TASK_AC_UNCLAIMED` fires on an id the plan declares that no marker cites and whose declaring line carries no disposition; hard, exit 1, rendered `FAIL`. A disposition on that line exempts it and nothing else, and an unrecognised disposition still reports.
 - AC-5: `TASK_AC_UNDECLARED` fires on a marker citing an id the plan does not declare, in a plan that declares at least one; hard, exit 1, rendered `FAIL`. A cited id appearing nowhere stays `TASK_AC_UNRESOLVED`, and no id ever draws two of the three.
-- AC-6: the live plans corpus reports ZERO unclaimed ids — asserted over every enrolled plan walked from disk, after the migration in §4.2. This is the done condition: a number outside the guard, checkable by anyone, that a later plan can move.
+- AC-6: the live plans corpus's unclaimed set equals the committed residue list EXACTLY — asserted over every enrolled plan walked from disk, after the migration in §4.2. The residue holds only UNSETTLED pairs, each with the plan, the id and what was searched; every other flagged pair migrates to zero. Fail-closed by construction: a new unclaimed id is not on the list and reds the assertion. This is the done condition, and it is a number outside the guard that a later arc can drive down.
 - AC-7: the guard-surface refusal prints one conforming `GUARD SURFACE:` line verbatim, and the AGENTS.md bullet shows the same line; the separator grammar is unchanged and a "plus" line is still refused with exit 2 and no result artifact.
 - AC-8: both ledger rows are archived with `provenance: "feat/speclint-dispatch-gates"`, and the heading arithmetic proves the two `##` headings moved while all seven `###` sub-rows stayed in `BACKLOG.md`, each named in the assertion.
 - AC-9: `taskContract` scores at or above its `scoreFloor` of 0.95 with zero unaccepted survivors at the shipping head.
