@@ -130,7 +130,7 @@ into one timing envelope is exactly where a wrong provenance would matter.
 Verbatim output of the header's command (4) over both run directories:
 
 ```
-overhead_max=216.8s  modelled-only=mutationWeightRecords,mutationWeightWeights,supabaseRetryingFetch,retryableRpcVolatilityScan
+overhead_max=216.8s modelled-only=mutationWeightRecords,mutationWeightWeights,supabaseRetryingFetch,retryableRpcVolatilityScan
 N=6 leg_elapsed=4404.4s margin=-804.4s -22.3% OVER
 N=7 leg_elapsed=3838.9s margin=-238.9s -6.6% OVER
 N=8 leg_elapsed=3298.6s margin=301.4s 8.4% FITS
@@ -186,13 +186,13 @@ four above ever fall back.
 
 ## §2 Design
 
-### §2.1 The constant, and the two classes that derive from it
+### §2.1 The constant, and the three classes that derive from it
 
 `SOURCE_SHARD_COUNT` goes from 4 to 8 in `tests/mutation/source/shardPartition.ts:26`. Its
 comment justifies four on a premise that is now false, that max load is pinned by the heaviest
 surface from n=4 onward, so it is rewritten rather than left to mislead.
 
-The sites that derive from the constant fall into two classes with genuinely different failure
+The sites that derive from the constant fall into three classes with genuinely different failure
 behaviour, and conflating them is what made the first draft of this section wrong.
 
 **Class A, sites that fail loudly.** Anything importing the constant follows automatically
@@ -335,11 +335,24 @@ describes the four-shard regime and is rewritten to describe the one the count n
   design, and that report never fails a job because drift is information for whoever re-measures.
   The consequence for this spec is bounded and handled: it is why §1.2's table cannot be the
   basis for N, and why §1.3 scores against measured seconds instead.
-- **L-3. Run-to-run variance reaches 1.29x on identical work.** On the 42 surfaces measured in
-  all three downloaded runs, run `32703467609` took 22,949.0 s where the other two took
-  17,683.2 s and 17,849.0 s. That is a real slow-runner event, one occurrence in three observed.
-  A run that slow breaches the budget at EVERY N, because L-1's floor scales with it. The 8.4%
-  margin at N = 8 does not cover a 1.29x run and is not claimed to.
+- **L-3. Run-to-run variance reaches 1.29x on identical work, and its effect on the floor is an
+  EXTRAPOLATION.** On the 42 surfaces measured in all three downloaded runs, run `32703467609`
+  took 22,949.0 s where the other two took 17,683.2 s and 17,849.0 s. That is a real slow-runner
+  event, one occurrence in three observed, and the 8.4% margin at N = 8 does not cover it.
+  What is NOT measured, and an earlier draft asserted anyway: that run does not contain
+  `controlOutlineResidue` at all, which was enrolled after it, so no observation says the atomic
+  floor scales by 1.29x. It says 42 OTHER surfaces did. If the floor scales similarly, a run that
+  slow breaches at every N; that conditional is the honest form, and the run that settles it has
+  not happened yet.
+- **L-5. AC-5's divisible/indivisible test is approximate near the boundary.** It compares a
+  surface's own mutant-child seconds against the budget, and those are the only per-surface
+  figures a record carries: the fields are `outcomes`, `passed`, `runId`, `score`, `startedAt`
+  and `surfaceId`, `runSurface` discards the baseline child's timing, and generation and
+  orchestration time are attributed to no surface. `elapsed.txt` gives only the whole-leg total.
+  So a surface whose own children come in just under the budget while its unattributed share
+  pushes it over is classified divisible when it is not. The consequence is bounded and
+  conservative in the right direction: the run is re-run at a higher N, which fails again and
+  reaches the same answer one iteration later. It is not silent.
 - **L-4. Measured seconds carry two kinds of staleness, and only one was checkable.** The runs
   scored are at shas before the predecessor arc merged. Per-surface seconds are
   partition-independent, which is the only property §1.3 uses, and OUTCOME-count staleness was
@@ -371,17 +384,26 @@ describes the four-shard regime and is rewritten to describe the one the count n
   the measured max leg breaches while the model says it fits, the response depends on WHERE the
   breach sits, because "raise N" is not always available and §1.4 and L-1 are why:
 
-  - **Above the atomic floor.** Some leg holding more than one surface exceeds the budget while
-    the floor does not. Raising N redistributes it. Raise N in this same PR and re-run.
-  - **At or below the atomic floor.** The binding leg is the one holding
-    `controlOutlineResidue` alone, or the floor itself exceeds the budget. No N helps, by §1.4.
+  The branch is decided by ONE number the breaching run already reports: the largest single
+  surface total on the breaching leg, summed from that surface's own record. Only leg 0 holds one
+  surface at N = 8 (the populations are 1, 5, 5, 8, 8, 8, 9, 8), so "is the binding leg the
+  atomic one" is not by itself answerable, and this test replaces it:
+
+  - **Divisible.** No single surface on the breaching leg, plus the per-leg overhead, exceeds the
+    budget on its own. The leg is over because of what it holds TOGETHER, so a finer partition
+    redistributes it. Raise N in this same PR and re-run.
+  - **Indivisible.** Some single surface on that leg, plus the overhead, exceeds the budget by
+    itself. No N helps, by §1.4, because no shard count places less than one surface on a leg.
     The response is L-1's: split that surface into separately-enrolled parts, or move the budget
     with the ceiling relation moved in lockstep, plus a message to bl-orch, because that is a
     scope decision this arc does not take alone. It is never a filed ledger row (§6).
 
-  L-3's 1.29x run is the second case by construction, and AC-5 is not satisfiable by raising N
-  when it happens. Saying so is the criterion; pretending otherwise would make AC-5 unfalsifiable
-  in exactly the situation the spec predicts.
+  L-3's slow run is the indivisible case if the floor scales with it, which L-3 now says is an
+  extrapolation rather than a measurement. AC-5 is not satisfiable by raising N when the
+  indivisible branch is taken. Saying so is the criterion; pretending otherwise would make AC-5
+  unfalsifiable in exactly the situation the spec predicts.
+
+  **The test is approximate near the boundary, and L-5 says by how much.**
 - **AC-6.** The twelve required checks green: `quality`, `unit-suite`, `x1-catalog-parity`,
   `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`,
   `x6-pg-cron-pivot`, `validation-schema-parity`, `affordance-matrix-parity`,
@@ -391,10 +413,14 @@ describes the four-shard regime and is rewritten to describe the one the count n
   first index at or above it is. Both halves are required; half one alone passes against a
   `.gitignore` that ignores nothing, which is the failure the scratch rule was written for.
 
-  **The guard invokes `git check-ignore --no-index`, and the flag is the whole point.** Without
-  it, git suppresses the answer for a TRACKED path, so half one would report "not ignored" for
-  shard0 through shard7 whatever `.gitignore` says. It would be a guard that cannot fail for
-  exactly the files it protects. Probed with a pattern that DOES match a tracked file:
+  **The guard invokes `git check-ignore --no-index` and decides on the EXIT STATUS of that
+  command with no `-v`.** Both halves of that sentence are load-bearing, and each closes a
+  different fail-open that review found in a previous draft of this criterion.
+
+  `--no-index`, because git suppresses the answer for a TRACKED path. Without the flag, half one
+  would report "not ignored" for shard0 through shard7 whatever the ignore rules say, which is a
+  guard that cannot fail for exactly the files it protects. Probed with an excludes file that
+  DOES match a tracked shard:
 
   ```
   $ git -c core.excludesFile=<file naming shard0> check-ignore -v tests/mutation/guardSurfaces.shard0.test.ts
@@ -403,6 +429,22 @@ describes the four-shard regime and is rewritten to describe the one the count n
   <file>:1:tests/mutation/guardSurfaces.shard0.test.ts	tests/mutation/guardSurfaces.shard0.test.ts
   exit=0
   ```
+
+  No `-v` when deciding, because `-v` exits 0 whenever it has a rule to REPORT, and a negating
+  rule is a rule. A path un-ignored by a later `!` line is therefore reported with exit 0 while
+  not being ignored at all, so an exit-code-only implementation that passes `-v` reads "ignored"
+  for a path that is not. Probed in a clean repository so no other ignore source competes:
+
+  ```
+  $ printf 'foo/bar.ts\n!foo/bar.ts\n' > .gitignore
+  $ git check-ignore --no-index foo/bar.ts        ; echo exit=$?
+  exit=1                                          # correct: the ! line un-ignores it
+  $ git check-ignore -v --no-index foo/bar.ts     ; echo exit=$?
+  .gitignore:2:!foo/bar.ts	foo/bar.ts
+  exit=0                                          # the NEGATING rule, reported, exit 0
+  ```
+
+  `-v` may be used to build the failure message. It may not be used to decide.
 
 ## §6 Resolved scope — do not relitigate, out of scope, and N/A declarations
 
