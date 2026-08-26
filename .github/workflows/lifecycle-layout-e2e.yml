@@ -11,6 +11,33 @@ name: Lifecycle layout e2e (mobile-safari)
 # Shape mirrors crew-e2e.yml (native runner; behavior + rect assertions, not
 # pixel bytes, so no amd64 Docker raster pin). BASELINE_SERVER_ONLY boots ONLY
 # the :3000 webServer (playwright.config.ts filter; the CREW_E2E_ONLY alias).
+#
+# DARK ON `main`, DELIBERATELY (BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE, closed
+# 2026-08-25; spec docs/superpowers/specs/2026-08-25-e2e-proof-retired-route-subpixel-design.md
+# section 5). That row said this job "is path-filtered". It is not, and the
+# correct mechanism matters: there is no `push:` trigger at all below, so the
+# job never runs on `main` under any circumstance. Only quality.yml,
+# unit-suite.yml and x-audits.yml carry `push: branches: [main]`.
+#
+# No `push:` trigger is added, and the reasoning is the unfiltered trigger
+# itself. Every change reaching `main` ran this spec on its own PR head, so the
+# row's stated fear — a tightened assertion sitting latent and first surfacing
+# on whichever unrelated PR next touches a matching path — presumes a filter
+# that does not exist. What the row actually observed was an ATTRIBUTION
+# problem: an arc with no rendering code in its diff ate a red produced by a
+# flake. That flake is fixed at its source (the entrance-animation barrier in
+# tests/e2e/helpers/devCaptureStaged.ts).
+#
+# The residual gap is real and narrow: `main` after a merge is not byte-
+# identical to the PR head that was measured, so an interaction between two
+# independently-green PRs goes unobserved until the next PR. Closing it costs a
+# full `pnpm build` plus four e2e steps on every merge to `main`, on an advisory
+# job in no required context set, producing a signal with no owner. Zero
+# post-merge-only reds have been observed here.
+#
+# RE-FILE TRIGGER: if a red on this job is ever traced to an interaction present
+# on `main` but absent from both contributing PR heads, add
+# `push: branches: [main]` and name that run here.
 on:
   pull_request:
   workflow_dispatch:

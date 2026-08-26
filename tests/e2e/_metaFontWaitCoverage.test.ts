@@ -19,6 +19,45 @@
 // the code that implements them. `_metaFontWaitCoverageMutants.test.ts` is what
 // keeps this row falsifiable: this file's only input is a corpus that passes, so
 // on its own it cannot tell a working guard from one that returns nothing.
+//
+// DOCUMENTED LIMITS, measured 2026-08-25 (spec
+// docs/superpowers/specs/2026-08-25-e2e-proof-retired-route-subpixel-design.md
+// section 7.3). Two properties bound what this guard can see. Both are recorded
+// rather than fixed, because fixing either is a redesign of this surface rather
+// than a repair to it, and the arc that measured them was closing two unrelated
+// rows.
+//
+//   1. `analyzeSource` is SINGLE-FILE. It builds a `noResolve` program over one
+//      source (_fontWaitCoverage.ts:573-582), so a spec that navigates through a
+//      HELPER has no `page.goto` of its own, no navigation site is found, and
+//      the file reports zero problems however it measures. Probe over
+//      tests/e2e/helpers/**: five exported helpers navigate (driveToState,
+//      openShowReviewFrameAt, openShowReviewModalAt, openStep3Modal, signInAs),
+//      and 30 specs call one AND read geometry.
+//      `tap-target-inline-controls.layout.spec.ts` is exactly that shape; it is
+//      deliberately NOT added to CALLERS below, because a row for a file whose
+//      navigation this analyzer cannot see would pass unconditionally forever,
+//      which is the tautological-guard failure the AGENTS.md guard-premise rule
+//      names. Its barrier is enforced by a real-browser premise test in the spec
+//      itself instead.
+//   2. CALLERS is HAND-ENUMERATED, so a spec absent from it is unchecked
+//      whatever the analyzer would say. Probe: running `analyzeSource` over all
+//      104 e2e specs reports live problems in 10 files, none of them in CALLERS
+//      (admin-layout-dimensions, admin-lifecycle-layout,
+//      admin-nav-layout-dimensions, deep-link-walker, help-mobile,
+//      help-typography, notify-toggles, sign-in-page,
+//      stage-restricted-crew-schedule, telemetry-layout).
+//
+// Repairing (2) means enrolling ten specs, each needing a real e2e run to
+// confirm the added await did not move its timing. Repairing (1) means import
+// resolution plus a per-helper judgement about whether its navigation is the one
+// being measured — `signInAs` navigates to an auth endpoint that is never the
+// measured document, so a naive rule fires on nearly every spec in the corpus.
+//
+// RE-FILE TRIGGER: a flake traced to a fallback-frame measurement in any of the
+// ten files above, or a new navigate-then-measure helper. Reproduce both numbers
+// by running `analyzeSource` over `tests/e2e/*.spec.ts` and differencing against
+// CALLERS.
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
