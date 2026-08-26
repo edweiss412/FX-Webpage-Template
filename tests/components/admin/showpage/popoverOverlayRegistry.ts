@@ -84,23 +84,23 @@ export const POPOVER_OVERLAY_REGISTRY: readonly OverlayRow[] = [
   {
     file: "components/admin/ReSyncButton.tsx",
     overlay: "admin-resync-error",
-    disposition: "fit-within-clip",
+    disposition: "placement-module",
     reason:
-      "Clip-safe by the other route: useFitWithinClip caps the overlay against the clip edge. Full-width inset-x-0, where flipping sides buys nothing, so the placement module is not worth the churn.",
+      'Migrated 2026-08-25 (feat/review-modal-strip-dock, §3.2a). This row previously read "Full-width inset-x-0, where flipping sides buys nothing, so the placement module is not worth the churn" — the same premise the published-toggle row carried, and wrong for the same reason: it held only while the strip sat at the TOP of the panel. Docking the strip to the floor removes the room below, and CSS anchoring cannot flip. The churn was not optional either, since these three anchored to the BAND and the band goes away.',
   },
   {
     file: "components/admin/ReSyncButton.tsx",
     overlay: "admin-resync-shrink-confirm",
-    disposition: "fit-within-clip",
+    disposition: "placement-module",
     reason:
-      "Same OVERLAY_PANEL skin and cap as admin-resync-error — one shared const carries the fit-within-clip geometry for all three ReSync overlays.",
+      "Same OVERLAY_PANEL skin as admin-resync-error, and migrated with it — one shared const carries the geometry for all three ReSync overlays, so they cannot be dispositioned separately. Each gets its OWN placement effect: the three are independent nodes with independent mount lifetimes, and a single shared effect would place whichever mounted last.",
   },
   {
     file: "components/admin/ReSyncButton.tsx",
     overlay: "admin-resync-success",
-    disposition: "fit-within-clip",
+    disposition: "placement-module",
     reason:
-      "Same OVERLAY_PANEL skin and cap as admin-resync-error; the success summary can exceed the panel height on phones, so the cap is load-bearing, not decorative.",
+      "Same OVERLAY_PANEL skin as admin-resync-error, migrated with it; the success summary can exceed the panel height on phones, so the fitted cap the module writes is load-bearing, not decorative.",
   },
   {
     file: "components/admin/PublishedToggle.tsx",

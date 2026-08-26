@@ -41,9 +41,12 @@ import { describe, expect, it } from "vitest";
  *   - HoverHelp coalescer     -> hoverHelpVisualViewport.test.tsx (open/closed
  *                                scheduling) and hoverHelpLifecycle.test.tsx
  *                                (close/unmount cancels the pending frame).
- *   - ReSyncButton fit        -> tests/components/ReSyncButton.test.tsx,
- *                                "overlay is capped to the room left inside a
- *                                clipping ancestor".
+ *   - ReSyncButton
+ *     coalescer               -> tests/e2e/published-review-modal.interactions.spec.ts,
+ *                                T-OVERLAY and the three T-OVERLAY-BOUNDS
+ *                                branches, which measure the placed geometry
+ *                                against the real modal panel. The fit backstop
+ *                                this line used to name went with the migration.
  *   - PublishedToggle
  *     coalescer               -> tests/e2e/popover-clip-fit.spec.ts, the four
  *                                "§3.6 — the module selects the side" cases,
@@ -122,11 +125,14 @@ const ROWS: readonly AdoptionRow[] = [
     module: "@/components/admin/useFitWithinClip",
     requiresCancelAdoption: false,
   },
+  // Migrated 2026-08-25 with PublishedToggle: three overlays, three placement
+  // effects, all sharing the frame throttle. Moves rather than being deleted,
+  // for the same reason the PublishedToggle row moved.
   {
     consumer: "components/admin/ReSyncButton.tsx",
-    helper: "useFitWithinClip",
-    module: "@/components/admin/useFitWithinClip",
-    requiresCancelAdoption: false,
+    helper: "createRafCoalescer",
+    module: "@/lib/popover/rafCoalescer",
+    requiresCancelAdoption: true,
   },
   // The hook coalesces its own event-driven re-measures, so it consumes the
   // shared throttle exactly as ShareHub and HoverHelp do. Registered so a future

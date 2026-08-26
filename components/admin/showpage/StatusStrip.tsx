@@ -405,7 +405,7 @@ export function StatusStrip({
       {!archived ? (
         // Gated on `archived` ALONE: an unpublished (held) show is still
         // syncable — only archived is read-only.
-        <ReSyncButton slug={slug} />
+        <ReSyncButton slug={slug} anchorRef={stripRef} />
       ) : null}
 
       {/* D2 (spec §3): mobile divider before the actions row; renders iff R2

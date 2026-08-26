@@ -39,6 +39,10 @@ import { test, expect, type Page } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
+// Imported, never mirrored: the placement assertions below compute the same
+// quantities the module computes, and a second copy can drift from the one
+// under test.
+import { GAP, VIEWPORT_INSET } from "@/lib/popover/position";
 import { admin } from "./helpers/supabaseAdmin";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import {
@@ -64,6 +68,8 @@ const MODAL_ANY = `[data-testid="${BASE}-modal"]`;
  *  never trip Playwright strict mode. */
 const MODAL = `${MODAL_ANY}:has([data-testid="${BASE}-title"])`;
 const PANEL = "[data-review-modal-panel]";
+/** The strip root — the anchor both overlay owners are placed against. */
+const STRIP = '[data-testid="show-status-strip"]';
 const SCRIM = "[data-review-modal-scrim]";
 const GRAB = `[data-testid="${BASE}-grab"]`;
 const CLOSE = `[data-testid="${BASE}-close"]`;
@@ -682,25 +688,65 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     // Geometry, NOT offsetParent (§6.7): offsetParent is sensitive to
     // transforms and hidden states, so it false-reds on correct placement and
     // couples the assertion to layout internals. Edges are what the user sees.
-    const geom = await page.evaluate((subSel) => {
-      const band = document.querySelector(subSel)!.getBoundingClientRect();
-      const panel = document
-        .querySelector('[data-testid="admin-resync-shrink-confirm"]')!
-        .getBoundingClientRect();
-      return { band, panel: { left: panel.left, right: panel.right, top: panel.top } };
-    }, SUBHEADER);
+    // That reasoning is unchanged by the migration; the REFERENCE it measures
+    // against is what changed. The overlay used to be a CSS-anchored child of
+    // the band, so "band edges" was the right frame. It is now portaled into
+    // the modal panel and placed by the module against the STRIP, so the frame
+    // is the placement BOUNDS (the panel inset by VIEWPORT_INSET) and the
+    // vertical relation is the module's GAP rather than an abut.
+    const geom = await page.evaluate(
+      ([panelSel, stripSel, gap, inset]) => {
+        const host = document.querySelector(panelSel as string)!.getBoundingClientRect();
+        const trigger = document.querySelector(stripSel as string)!.getBoundingClientRect();
+        const el = document.querySelector(
+          '[data-testid="admin-resync-shrink-confirm"]',
+        ) as HTMLElement;
+        const overlay = el.getBoundingClientRect();
+        return {
+          bounds: {
+            left: host.left + (inset as number),
+            right: host.right - (inset as number),
+          },
+          trigger: { top: trigger.top, bottom: trigger.bottom },
+          overlay: {
+            left: overlay.left,
+            right: overlay.right,
+            top: overlay.top,
+            bottom: overlay.bottom,
+          },
+          side: el.dataset["popoverSide"] ?? null,
+          portaledOutOfStrip: !document.querySelector(stripSel as string)!.contains(el),
+        };
+      },
+      [PANEL, STRIP, GAP, VIEWPORT_INSET] as const,
+    );
+
+    // The module ran and chose. Without this the edge assertions below could
+    // pass against a component that never placed at all.
+    expect(geom.side, "the overlay carries the module's chosen side").not.toBeNull();
     expect(
-      Math.abs(geom.panel.left - geom.band.left),
-      "panel left edge == band left",
-    ).toBeLessThanOrEqual(1);
+      geom.portaledOutOfStrip,
+      "the overlay portals into the panel, not into the strip whose clip would bound it",
+    ).toBe(true);
+    expect(geom.overlay.left, "overlay left is inside the placement bounds").toBeGreaterThanOrEqual(
+      geom.bounds.left - 1,
+    );
+    expect(geom.overlay.right, "overlay right is inside the placement bounds").toBeLessThanOrEqual(
+      geom.bounds.right + 1,
+    );
+    // GAP from the trigger on whichever side the module picked — the abut this
+    // used to assert was a property of `top-full`, which is gone.
+    const edgeGap =
+      geom.side === "top"
+        ? geom.trigger.top - geom.overlay.bottom
+        : geom.overlay.top - geom.trigger.bottom;
     expect(
-      Math.abs(geom.panel.right - geom.band.right),
-      "panel right edge == band right",
-    ).toBeLessThanOrEqual(1);
-    expect(
-      Math.abs(geom.panel.top - geom.band.bottom),
-      "panel top sits at the band's bottom (top-full)",
-    ).toBeLessThanOrEqual(1);
+      edgeGap,
+      `overlay sits GAP from the strip on the ${geom.side} side`,
+    ).toBeGreaterThanOrEqual(GAP - 1);
+    expect(edgeGap, `overlay sits GAP from the strip on the ${geom.side} side`).toBeLessThanOrEqual(
+      GAP + 1,
+    );
 
     // TOPMOST, not merely focused. A test asserting only toHaveFocus() passes
     // while the control is completely covered — which is exactly the WCAG 2.4.3

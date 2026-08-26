@@ -17,19 +17,41 @@
  * successful sync ends with router.refresh() so the parse panel reads
  * fresh `pending_syncs` rows on the next render.
  */
-import { useContext, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import type { RefObject } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { RefreshCw } from "lucide-react";
 
 import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
-import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
+import { PopoverHostContext } from "@/components/admin/HoverHelp";
+import { type Rect } from "@/lib/popover/position";
+import { placeWithinVisibleViewport } from "@/lib/popover/place";
+import { withNaturalSize } from "@/lib/popover/naturalSize";
+import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
+import { isVisualViewportEngine } from "@/lib/popover/viewport";
 import { requestShowSync } from "@/lib/admin/syncRequest";
 import { cn } from "@/lib/ui/cn";
 
 export type ReSyncButtonProps = {
   slug: string;
+  /** The element all three overlays are placed against, supplied by
+   *  `StatusStrip` from its own root. This component's root is a FRAGMENT, so
+   *  it generates no box and can reach nothing above itself — which is exactly
+   *  why the anchor has to be handed down rather than discovered. Optional, so
+   *  a consumer that supplies none leaves the overlays unpositioned and
+   *  visible rather than placed against something meaningless. */
+  anchorRef?: RefObject<HTMLElement | null>;
 };
 
 // ── modal-header-reconciliation §6.7: the strip is this component's ONLY
@@ -48,11 +70,13 @@ const IDLE_LABEL = "Re-sync";
 const PENDING_LABEL = "Syncing…";
 
 /**
- * All THREE result surfaces anchor to the BAND, not the strip: the component's
- * root is a fragment, so it generates no box and these resolve their containing
- * block to the nearest positioned ancestor — the subheader band (`relative`,
- * ReviewModalShell.tsx), which is what gives them full-band width. The strip
- * root deliberately has no `relative` for exactly this reason.
+ * All THREE result surfaces are PLACED against the strip root and portaled into
+ * the popover host (spec 2026-08-25-review-modal-strip-dock §3.2a). They used to
+ * anchor to the BAND: the component's root is a fragment, so it generates no box,
+ * and CSS resolved their containing block to the nearest positioned ancestor —
+ * the subheader band. The fragment is still the reason they cannot find the
+ * strip themselves, but it is now the reason `anchorRef` has to be HANDED DOWN
+ * rather than the reason the band is used.
  *
  * `z-overlay` vs the publish popover's `z-banner` (PublishedToggle.tsx) is a RULE, not a
  * default: both anchor to the same band and are independently triggerable, and
@@ -65,12 +89,13 @@ const PENDING_LABEL = "Syncing…";
  * scroll are what keep that from becoming an obscured-content bug.
  *
  * NO `mt-*`: the panel ABUTS the band's bottom edge, so it reads as attached to
- * the strip rather than floating free over the rail. (PublishedToggle's popover
- * carries `mt-1`; that gap is wrong here, and T-OVERLAY pins the abut to within
- * 1px.)
+ * the strip rather than floating free over the rail. (Both overlays now take the
+ * placement module's `GAP`, so what used to be a DIFFERENCE between them —
+ * PublishedToggle carried `mt-1` and these abutted — is a thing they share.
+ * T-OVERLAY pins the gap to within 1px on whichever side the module picks.)
  */
 const OVERLAY_PANEL = cn(
-  "absolute inset-x-0 top-full z-overlay max-h-[min(50vh,20rem)] overflow-y-auto rounded-sm border p-3 shadow-tile",
+  "absolute z-overlay w-full max-h-[min(50vh,20rem)] overflow-y-auto rounded-sm border p-3 shadow-tile",
 );
 
 /** A real interactive control, not a glyph: 44px floor + a visible focus ring.
@@ -81,7 +106,111 @@ const DISMISS_BUTTON = cn(
   "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm text-lg leading-none transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
 );
 
-export function ReSyncButton({ slug }: ReSyncButtonProps) {
+/**
+ * Places ONE overlay against the strip, portaled into the popover host (spec
+ * 2026-08-25-review-modal-strip-dock §3.2a).
+ *
+ * Called once PER OVERLAY, never once with a switch. `fitErrorRef`,
+ * `fitShrinkRef` and `fitSuccessRef` are independent nodes with independent
+ * mount lifetimes, and a single shared effect would place whichever mounted
+ * last while the other two kept stale coordinates.
+ *
+ * Local to this file on purpose. The four existing consumers of the placement
+ * core (HoverHelp, ShareHub, AnchoredPortal, PublishedToggle) each own their
+ * effect too — what is SHARED is the core itself, `withNaturalSize` and the
+ * frame coalescer, which is what `_metaSharedHelperAdoption` pins. Extracting a
+ * second cross-component placement hook is the fork
+ * `_metaPopoverPlacementContract` exists to prevent.
+ */
+function usePlacedOverlay(active: boolean, anchorRef?: RefObject<HTMLElement | null>) {
+  const hostRef = useContext(PopoverHostContext);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  const applyPlacement = useCallback(() => {
+    const body = bodyRef.current;
+    // No parentElement fallback: the overlay is portaled, so its parent IS the
+    // host, and anchoring to the host makes the trigger span the bounds — which
+    // the core correctly calls unplaceable and would hide. Without an anchor
+    // there is nothing honest to measure, so it stays unpositioned and VISIBLE.
+    const trigger = anchorRef?.current ?? null;
+    if (!body || !trigger) return;
+    const host = hostRef?.current ?? document.body;
+    const toRect = (r: DOMRect): Rect => ({
+      left: r.left,
+      top: r.top,
+      width: r.width,
+      height: r.height,
+      right: r.right,
+      bottom: r.bottom,
+    });
+    const hostRectOrNull = host === document.body ? null : toRect(host.getBoundingClientRect());
+    const triggerRect = trigger.getBoundingClientRect();
+    const placement = withNaturalSize(body, (probe) => {
+      const naturalRect = body.getBoundingClientRect();
+      // Degenerate (SSR, jsdom): nothing was measured, so leave it alone and
+      // visible rather than hiding a pending decision about the show's data.
+      if (triggerRect.width === 0 || naturalRect.width === 0) return null;
+      return placeWithinVisibleViewport(window, {
+        hostRect: hostRectOrNull,
+        trigger: toRect(triggerRect),
+        naturalSize: { width: naturalRect.width, height: naturalRect.height },
+        wrappedHeightAt: probe.heightAtWidth,
+        preferredSide: "bottom",
+        align: "left",
+        warnKey: body,
+      });
+    });
+    if (placement === null) return;
+    if (placement.kind === "hidden") {
+      body.style.visibility = "hidden";
+      delete body.dataset["popoverSide"];
+      return;
+    }
+    body.style.visibility = "";
+    body.dataset["popoverSide"] = placement.side;
+    const isBodyHost = host === document.body;
+    const hostRect = hostRectOrNull ?? { left: 0, top: 0 };
+    const left = isBodyHost
+      ? placement.viewport.x + window.scrollX
+      : placement.viewport.x - hostRect.left - host.clientLeft + host.scrollLeft;
+    const top = isBodyHost
+      ? placement.viewport.y + window.scrollY
+      : placement.viewport.y - hostRect.top - host.clientTop + host.scrollTop;
+    body.style.left = `${left}px`;
+    body.style.top = `${top}px`;
+    // Both branches: withNaturalSize restores the PRIOR caps, so an uncapped
+    // placement has to actively remove the one it put back.
+    if (placement.maxHeight !== null) body.style.maxHeight = `${placement.maxHeight}px`;
+    else body.style.removeProperty("max-height");
+    if (placement.maxWidth !== null) body.style.maxWidth = `${placement.maxWidth}px`;
+    else body.style.removeProperty("max-width");
+  }, [anchorRef, hostRef]);
+
+  useLayoutEffect(() => {
+    if (!active) return;
+    const coalescer = createRafCoalescer(applyPlacement);
+    const schedule = () => coalescer.schedule();
+    applyPlacement();
+    window.addEventListener("resize", schedule);
+    const vv = isVisualViewportEngine(window) ? window.visualViewport : null;
+    vv?.addEventListener("scroll", schedule);
+    vv?.addEventListener("resize", schedule);
+    const host = hostRef?.current ?? null;
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
+    if (observer && host) observer.observe(host);
+    return () => {
+      observer?.disconnect();
+      coalescer.cancel();
+      window.removeEventListener("resize", schedule);
+      vv?.removeEventListener("scroll", schedule);
+      vv?.removeEventListener("resize", schedule);
+    };
+  }, [active, applyPlacement, hostRef]);
+
+  return bodyRef;
+}
+
+export function ReSyncButton({ slug, anchorRef }: ReSyncButtonProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -108,9 +237,21 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
 
   // One per overlay: each is an independent node with its own mount lifetime,
   // so they cannot share a single measured cap.
-  const fitErrorRef = useFitWithinClip();
-  const fitShrinkRef = useFitWithinClip();
-  const fitSuccessRef = useFitWithinClip();
+  // One placement per overlay, gated on the SAME condition that renders it —
+  // matched term for term against the three ternaries below, not approximated.
+  // A broader gate is harmless (the ref is null, so the effect returns early)
+  // but a narrower one renders an overlay that is never placed, and a reader
+  // who finds the two out of step cannot tell which way the mismatch runs.
+  const fitErrorRef = usePlacedOverlay(errorCode != null, anchorRef);
+  const fitShrinkRef = usePlacedOverlay(heldShrink != null && errorCode == null, anchorRef);
+  const fitSuccessRef = usePlacedOverlay(successMessage != null && errorCode == null, anchorRef);
+  const overlayHostRef = useContext(PopoverHostContext);
+  // `createPortal` needs a DOM node, and a provider's ref is still null on the
+  // first client commit — the same load-bearing second render HoverHelp.tsx:146-154
+  // documents and ShareHub.tsx:252-258 takes.
+  const [overlayMounted, setOverlayMounted] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing second render; see above
+  useEffect(() => setOverlayMounted(true), []);
   // Names for the two dismissable panels' role="group" wrappers, pointing at
   // the message node that also carries the live-region role.
   const errorMsgId = useId();
@@ -222,122 +363,143 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
           Sync
         </span>
       </button>
-      {errorCode ? (
-        // role="alert" MOVED from this container to the message node below.
-        // Adding the dismiss button puts a focusable control inside what used
-        // to be the live region, which would announce the control as part of
-        // the alert. role="group" is REQUIRED, not optional: aria-labelledby on
-        // a bare <div> names it but gives assistive tech no role to attach the
-        // name to, so it is not obliged to announce a named region.
-        <div
-          role="group"
-          aria-labelledby={errorMsgId}
-          ref={fitErrorRef}
-          data-testid="admin-resync-error"
-          className={`${OVERLAY_PANEL} flex items-start gap-2 border-border-strong bg-warning-bg text-warning-text`}
-        >
-          <div id={errorMsgId} role="alert" className="min-w-0 grow">
-            <ErrorExplainer code={errorCode} surface="admin" />
-            <HelpAffordance code={errorCode} />
-          </div>
-          <button
-            type="button"
-            aria-label="Dismiss sync error"
-            data-testid="admin-resync-error-dismiss"
-            onClick={() => {
-              // Focus the still-mounted trigger BEFORE unmounting the panel
-              // that holds the focused control (the C5 idiom, as on cancel).
-              triggerRef.current?.focus();
-              setErrorCode(null);
-            }}
-            className={`${DISMISS_BUTTON} focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg`}
-          >
-            <span aria-hidden="true">×</span>
-          </button>
-        </div>
-      ) : null}
-      {heldShrink && !errorCode ? (
-        <div
-          ref={fitShrinkRef}
-          data-testid="admin-resync-shrink-confirm"
-          // Watchpoint 9: NO neutral dismiss and NO outside-click-to-close.
-          // This is not a notification, it is a pending decision about the
-          // show's data; a neutral X would create a third, ambiguous outcome
-          // ("I closed it — did it apply?"). "Keep current version" IS the safe
-          // exit, which is why focus lands there on open.
-          className={`${OVERLAY_PANEL} flex flex-col gap-2 border-border-strong bg-warning-bg text-warning-text`}
-        >
-          <p className="text-sm">
-            This re-sync would reduce the show: {heldShrink.detail}. The last confirmed version is
-            still live. Apply the reduced version anyway?
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <button
-              ref={keepCurrentRef}
-              type="button"
-              onClick={() => {
-                // C5: focus the trigger BEFORE unmounting the panel that holds
-                // the currently-focused safe control.
-                triggerRef.current?.focus();
-                setHeldShrink(null);
-              }}
-              disabled={pending}
-              data-testid="admin-resync-keep-current"
-              className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-control-outline-tinted bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+      {errorCode && overlayMounted
+        ? createPortal(
+            // role="alert" MOVED from this container to the message node below.
+            // Adding the dismiss button puts a focusable control inside what used
+            // to be the live region, which would announce the control as part of
+            // the alert. role="group" is REQUIRED, not optional: aria-labelledby on
+            // a bare <div> names it but gives assistive tech no role to attach the
+            // name to, so it is not obliged to announce a named region.
+            <div
+              role="group"
+              aria-labelledby={errorMsgId}
+              ref={fitErrorRef}
+              data-testid="admin-resync-error"
+              className={`${OVERLAY_PANEL} flex items-start gap-2 border-border-strong bg-warning-bg text-warning-text`}
             >
-              Keep current version
-            </button>
-            {/* Destructive-confirm recipe (spec R8): accepting a show-shrinking
+              <div id={errorMsgId} role="alert" className="min-w-0 grow">
+                <ErrorExplainer code={errorCode} surface="admin" />
+                <HelpAffordance code={errorCode} />
+              </div>
+              <button
+                type="button"
+                aria-label="Dismiss sync error"
+                data-testid="admin-resync-error-dismiss"
+                onClick={() => {
+                  // Focus the still-mounted trigger BEFORE unmounting the panel
+                  // that holds the focused control (the C5 idiom, as on cancel).
+                  triggerRef.current?.focus();
+                  setErrorCode(null);
+                }}
+                className={`${DISMISS_BUTTON} focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg`}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>,
+            // Portal CONTAINER choice, not render data: only read once
+            // `overlayMounted` is true, so a provider's ref is populated. Same
+            // escape HoverHelp.tsx:634 and ShareHub.tsx:1166 take.
+            // eslint-disable-next-line react-hooks/refs -- portal target, see above
+            overlayHostRef?.current ?? document.body,
+          )
+        : null}
+      {heldShrink && !errorCode && overlayMounted
+        ? createPortal(
+            <div
+              ref={fitShrinkRef}
+              data-testid="admin-resync-shrink-confirm"
+              // Watchpoint 9: NO neutral dismiss and NO outside-click-to-close.
+              // This is not a notification, it is a pending decision about the
+              // show's data; a neutral X would create a third, ambiguous outcome
+              // ("I closed it — did it apply?"). "Keep current version" IS the safe
+              // exit, which is why focus lands there on open.
+              className={`${OVERLAY_PANEL} flex flex-col gap-2 border-border-strong bg-warning-bg text-warning-text`}
+            >
+              <p className="text-sm">
+                This re-sync would reduce the show: {heldShrink.detail}. The last confirmed version
+                is still live. Apply the reduced version anyway?
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  ref={keepCurrentRef}
+                  type="button"
+                  onClick={() => {
+                    // C5: focus the trigger BEFORE unmounting the panel that holds
+                    // the currently-focused safe control.
+                    triggerRef.current?.focus();
+                    setHeldShrink(null);
+                  }}
+                  disabled={pending}
+                  data-testid="admin-resync-keep-current"
+                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-control-outline-tinted bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Keep current version
+                </button>
+                {/* Destructive-confirm recipe (spec R8): accepting a show-shrinking
                 sync over last-good is a destructive confirm-go — inverted-amber
                 C1 fill, plain button (not AccentButton). */}
-            <button
-              type="button"
-              onClick={() => post({ expectedModifiedTime: heldShrink.heldModifiedTime })}
-              disabled={pending}
-              data-testid="admin-resync-accept"
-              aria-busy={pending}
-              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+                <button
+                  type="button"
+                  onClick={() => post({ expectedModifiedTime: heldShrink.heldModifiedTime })}
+                  disabled={pending}
+                  data-testid="admin-resync-accept"
+                  aria-busy={pending}
+                  className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {pending ? "Applying…" : "Apply reduced version"}
+                </button>
+              </div>
+            </div>,
+            // Portal CONTAINER choice, not render data: only read once
+            // `overlayMounted` is true, so a provider's ref is populated. Same
+            // escape HoverHelp.tsx:634 and ShareHub.tsx:1166 take.
+            // eslint-disable-next-line react-hooks/refs -- portal target, see above
+            overlayHostRef?.current ?? document.body,
+          )
+        : null}
+      {successMessage && !errorCode && overlayMounted
+        ? createPortal(
+            // Success does NOT self-clear — `successMessage` is set above and
+            // cleared only at the start of the NEXT post(); there is no timer, and
+            // router.refresh() refreshes server data without touching local state.
+            // In flow inside Overview that was tolerable; floating over the rail it
+            // is not, so this branch gains an explicit dismiss. Same role split as
+            // the error branch: the live region is the message node, never the
+            // container that also holds the focusable control.
+            <div
+              role="group"
+              aria-labelledby={successMsgId}
+              ref={fitSuccessRef}
+              data-testid="admin-resync-success"
+              className={`${OVERLAY_PANEL} flex items-start gap-2 border-border bg-info-bg text-text-strong`}
             >
-              {pending ? "Applying…" : "Apply reduced version"}
-            </button>
-          </div>
-        </div>
-      ) : null}
-      {successMessage && !errorCode ? (
-        // Success does NOT self-clear — `successMessage` is set above and
-        // cleared only at the start of the NEXT post(); there is no timer, and
-        // router.refresh() refreshes server data without touching local state.
-        // In flow inside Overview that was tolerable; floating over the rail it
-        // is not, so this branch gains an explicit dismiss. Same role split as
-        // the error branch: the live region is the message node, never the
-        // container that also holds the focusable control.
-        <div
-          role="group"
-          aria-labelledby={successMsgId}
-          ref={fitSuccessRef}
-          data-testid="admin-resync-success"
-          className={`${OVERLAY_PANEL} flex items-start gap-2 border-border bg-info-bg text-text-strong`}
-        >
-          {/* No `role="status"`: this node is inserted with its summary, so the
+              {/* No `role="status"`: this node is inserted with its summary, so the
               attribute announced nothing. `run()` announces the same string
               through the channel. The id still names the group. */}
-          <p id={successMsgId} className="min-w-0 grow text-sm">
-            {successMessage}
-          </p>
-          <button
-            type="button"
-            aria-label="Dismiss sync result"
-            data-testid="admin-resync-success-dismiss"
-            onClick={() => {
-              triggerRef.current?.focus();
-              setSuccessMessage(null);
-            }}
-            className={`${DISMISS_BUTTON} focus-visible:ring-offset-2 focus-visible:ring-offset-info-bg`}
-          >
-            <span aria-hidden="true">×</span>
-          </button>
-        </div>
-      ) : null}
+              <p id={successMsgId} className="min-w-0 grow text-sm">
+                {successMessage}
+              </p>
+              <button
+                type="button"
+                aria-label="Dismiss sync result"
+                data-testid="admin-resync-success-dismiss"
+                onClick={() => {
+                  triggerRef.current?.focus();
+                  setSuccessMessage(null);
+                }}
+                className={`${DISMISS_BUTTON} focus-visible:ring-offset-2 focus-visible:ring-offset-info-bg`}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>,
+            // Portal CONTAINER choice, not render data: only read once
+            // `overlayMounted` is true, so a provider's ref is populated. Same
+            // escape HoverHelp.tsx:634 and ShareHub.tsx:1166 take.
+            // eslint-disable-next-line react-hooks/refs -- portal target, see above
+            overlayHostRef?.current ?? document.body,
+          )
+        : null}
     </>
   );
 }

@@ -168,7 +168,7 @@ describe("popover placement consumers read the visible viewport, not the layout 
     expect(MAY_MATCH.test("const w = window/* gap */.innerWidth;")).toBe(true);
   });
 
-  it("discovers EXACTLY the four known consumers", { timeout: 60_000 }, () => {
+  it("discovers EXACTLY the five known consumers", { timeout: 60_000 }, () => {
     const rels = consumers.map((f) => relative(REPO_ROOT, f)).sort();
     expect(rels).toEqual(
       [
@@ -186,6 +186,9 @@ describe("popover placement consumers read the visible viewport, not the layout 
         // list is derived from the source, so a new consumer fails here by
         // default rather than arriving unnoticed.
         "components/admin/PublishedToggle.tsx",
+        // Same migration, same commit series: Re-sync's three overlays compose
+        // the core too (2026-08-25). Three overlays, ONE consumer file.
+        "components/admin/ReSyncButton.tsx",
       ].sort(),
     );
   });
