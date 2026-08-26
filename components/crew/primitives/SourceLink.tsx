@@ -1,19 +1,22 @@
 /**
  * components/crew/primitives/SourceLink.tsx — tile → source-sheet deep link.
  *
- * A SUBTLE "In sheet" affordance for a SectionCard's header `action` slot. It is
- * deliberately RECESSIVE: a small spreadsheet glyph + the short label "In sheet"
- * in the faintest text token (`text-text-faint`), so it never competes with the
- * section title or its content. Hover lifts it to `text-text-subtle` for
- * affordance feedback.
+ * A RECESSIVE "In sheet" affordance for a SectionCard's header `action` slot: a
+ * small spreadsheet glyph + the short label "In sheet", kept secondary to the
+ * section title by SIZE and by the icon rather than by colour.
  *
- * NOTE (2026-08-14): DESIGN §1.1a retired `text-text-subtle` as a resting colour
- * for action targets, and this control rests one rung BELOW that, at
- * `text-text-faint` (3.02:1). It was outside that policy's census, which polices
- * the subtle token only, and it is filed as
- * `BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR` with its three peers — the
- * question of whether a crew-facing control may rest at the faint rung is a
- * design decision, not an implementation detail.
+ * RESOLVED 2026-08-25 (`BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR`, design doc
+ * 2026-08-25-ui-polish-class-sweep-design.md D4). This used to rest at
+ * `text-text-faint` with hover at `text-text-subtle`, and the open question was
+ * whether a crew-facing control may rest at the faint rung. The answer is the
+ * condition now in DESIGN §1.1a: only where the control renders NO TEXT OF ITS
+ * OWN. This one renders a label, and the faint rung is 3.35:1 — under the 4.5:1
+ * floor for text. So it rests at `text-text`, hover and focus step to
+ * `text-text-strong`, and focus also carries a RING, because a colour-only
+ * indicator between 17.2:1 and 19:1 is no indicator at all.
+ *
+ * The quietness here was a deliberate crew-surface choice and was overridden
+ * knowingly; it is stated in the PR body as a decision the owner can reverse.
  *
  * It renders NOTHING (returns null) when `buildSheetDeepLink(driveFileId, anchor)`
  * yields null — i.e. when there is no source sheet to link to (null/empty
@@ -70,6 +73,24 @@ export function SourceLink({
       ? "relative before:absolute before:content-[''] before:inset-x-0 before:top-0 before:h-tap-min"
       : "relative before:absolute before:content-[''] before:inset-x-0 before:bottom-0 before:h-tap-min";
 
+  // Rests at text-text, not text-text-faint (DESIGN §1.1a, design doc
+  // 2026-08-25-ui-polish-class-sweep-design.md D4). This link renders the label
+  // "In sheet", and the faint rung measures 3.35:1 on the card fill — over the
+  // 3:1 non-text floor a glyph would be held to, under the 4.5:1 floor for
+  // TEXT. The quietness here was a deliberate crew-surface choice and it is
+  // being overridden knowingly: the icon plus `text-xs` still keep this
+  // secondary to the section copy without putting the label under the floor.
+  // Hover and focus step to text-text-strong because their old target
+  // (text-subtle) is now LIGHTER than the resting colour, which would make the
+  // link read fainter on hover than at rest.
+  //
+  // And focus gains a RING, which it did not have before. Raising the resting
+  // colour broke the focus indicator: this link's only focus cue was a colour
+  // step, which used to be a visible 3.35:1 -> 6.8:1 jump and would now be
+  // 17.2:1 -> 19:1, effectively invisible. A colour-only indicator that close
+  // fails WCAG 2.4.11, and a keyboard user on a crew page would have had no
+  // idea where they were. The ring matches CardReportTrigger, this link's peer
+  // on the same cards. Found by the invariant-8 audit half on this branch.
   return (
     <a
       data-slot="source-link"
@@ -77,7 +98,7 @@ export function SourceLink({
       target="_blank"
       rel="noopener noreferrer"
       aria-label="In sheet, view this section in Google Sheets (opens in a new tab)"
-      className={`inline-flex h-fit shrink-0 items-center gap-1 text-xs font-medium text-text-faint transition-colors hover:text-text-subtle focus-visible:text-text-subtle [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
+      className={`inline-flex h-fit shrink-0 items-center gap-1 rounded-sm text-xs font-medium text-text transition-colors hover:text-text-strong focus-visible:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
     >
       <SheetIcon />
       <span>In sheet</span>

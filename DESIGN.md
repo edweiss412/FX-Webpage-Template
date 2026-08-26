@@ -64,6 +64,19 @@ caption, half control: its text names the CONTENT it folds, and the fold
 affordance is carried by the marker/chevron and the interaction, not by label
 weight. Resting subtle is sanctioned. (7 sites.)
 
+**What carries Family S when a site suppresses the native marker (2026-08-25).**
+The family's whole argument is that something OTHER than label weight carries
+the fold, so a site that hides the UA triangle owes a replacement: a rendered
+chevron, or an underline where the summary reads as a link. A trailing ellipsis
+is not one — it is a truncation mark, and it was the only cue on the run-of-show
+title (`BL-RUNOFSHOW-SUMMARY-NO-MARKER`). That site keeps Family S and its dim
+tone and now renders a chevron. Sweeping the shape found three more summaries
+outside Family S in the same position, two of them crew surfaces, and all four
+were repaired together. `tests/styles/summaryFoldCue.test.ts` walks every
+marker-suppressing `<summary>` under `app/` and `components/` and requires a cue
+or a registered affordance. Reasoning:
+`docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md` D10.
+
 **Family C — dismissable filter chips.** A chip's text names an APPLIED FILTER,
 which is a caption; the dismiss glyph is the control. Resting subtle is
 sanctioned. (1 site. The second was the "Clear filters" action standing beside
@@ -99,6 +112,35 @@ inversion already separates the two members at full strength, so the inactive
 member has no reason to rest dim, and it rests at `text-text` like any other
 control. Family D is for pairs whose dim member would otherwise be
 distinguished by the text-color delta ALONE.
+
+**The faint rung, ruled 2026-08-25.** `--color-text-faint` sits one step
+QUIETER than `--color-text-subtle`, and §1.1 already says it is never used for
+crew-actionable copy. Four controls were resting there anyway
+(`BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR`). The condition, which is
+narrower than the subtle rule rather than a second copy of it: **an action
+target may rest at `--color-text-faint` only when it renders no text of its own
+and its glyph is the affordance, or when a non-colour affordance at 3:1 or
+better carries it.**
+
+The line falls there because the faint rung has two problems and only one of
+them is the hierarchy problem this section is about. On `--color-surface` it
+measures 3.35:1 — over the 3:1 floor a glyph or a boundary is held to, and under
+the 4.5:1 floor for TEXT. So a control that renders a label cannot rest here
+whatever one concludes about hierarchy, and a glyph-only control is not making
+the claim that fails.
+
+Two of the four met it and stayed: the card report trigger (a `FlagGlyph` and
+nothing else, named by an `aria-label`) and the hover-help badge (a 3.35:1
+circular border plus `cursor-help`, its `?` `aria-hidden` and acting as a glyph
+inside that boundary). Two did not: the crew source link, which renders "In
+sheet", and the bell panel's ghost resolve control, whose whole content is a
+text label. **Both were overridden knowingly** — the source link's quietness was
+a deliberate crew-surface choice, and it is still secondary by size and icon
+rather than by putting its label under the floor. Registry and reasons:
+`tests/styles/faintRestingControls.test.ts`. This is a CONDITION named here, not
+a second policed token: the ratified `--color-text-subtle` census and its 14
+exemption rows are untouched. Reasoning:
+`docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md` D4.
 
 **Hover is unchanged by this policy.** Where a swapped site's existing hover
 target became its new resting color, that site's hover steps to
@@ -143,6 +185,8 @@ affordance is a fill or a border keep it as-is.
 | `--color-text-faint` as OUTLINE vs `--color-bg`       | 3.21:1 | 4.00:1 | ≥3:1 non-text — same button on the page ground |
 | `--color-text-subtle` on `--color-surface-raised`  | 6.76:1 | 5.97:1 | AA body (≥4.5:1) — the theme persist-failure note bubble (spec 2026-08-15-theme-persistence-note §2.2) and any other raised-surface caption; pinned in `tests/styles/status-token-contrast.test.ts` |
 | `--color-text-faint` as OUTLINE vs `--color-surface-raised` | 3.35:1 | 3.53:1 | ≥3:1 non-text — popover and modal surfaces, pinned so a raised-surface control is not an unmeasured fourth ground |
+| `--color-control-outline-tinted` as OUTLINE vs the three TINTED plates | 3.42-3.62:1 | 3.65-4.55:1 | ≥3:1 non-text — the control outline on a `warning-bg` / `info-bg` / `danger-bg` card, and ONLY there. `--color-text-faint` measures 2.87-3.04 light / 2.79-3.48 dark on the same plates, under the floor in one theme per plate; this token exists so the plates clear without retuning the shared one, which would push the four neutral grounds the other way (2026-08-25, `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`) |
+| `--color-control-outline-tinted` vs `--color-surface` (inner edge) | 3.99:1 | 4.91:1 | ≥3:1 non-text — the inner edge of a plate control carrying its own `bg-surface` fill; the outer edge is the plate row above |
 | `--color-border` as OUTLINE vs the four neutral grounds | 1.22-1.27:1 | 1.19-1.38:1 | **BELOW the 3:1 non-text floor, and recorded rather than required** — this is the before-state the 2026-08-18 ruling moved 37 controls away from. Pinned so a future retune of `--color-border` cannot quietly reintroduce the weight that was removed; `tests/styles/secondary-action-contrast.test.ts` asserts it stays under the floor |
 | `--color-text-subtle` as OUTLINE vs the four neutral grounds | 6.09-6.76:1 | 5.97-6.94:1 | ≥3:1 non-text — the hover outline for a control whose border is its ONLY hover cue (§1.2a). A body-text token in a new role, so it takes a pin like any new one |
 | `--color-accent-on-bg` as OUTLINE vs the four neutral grounds | 5.02-5.57:1 | 8.30-9.65:1 | ≥3:1 non-text — the hover outline where the cue is an accent HUE. `--color-accent` itself measures 2.10-2.33:1 here and is decorative-only in light, which is why the load-bearing accent token carries this role |
@@ -223,11 +267,29 @@ put, so each is now the quieter half of a visible pair: the lightbox's
 `rounded-pill bg-surface-raised` as the Reset chip it can share a frame with) and
 the staged-preview banner's `aria-current` chip
 (`components/admin/StagedPreviewBanner.tsx:65`, standing in a row of picker links
-that moved). Both are non-interactive chrome and both are therefore CORRECT under
-the scope paragraph below — recorded here rather than implied away, because the
-2026-08-14 rationale for moving six controls was that a control they render WITH
-had already moved, and that reason now points the other way. Whether chrome that visually
-pairs with a control should follow it is `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
+that moved). Both are non-interactive chrome, so the scope paragraph below made them
+correct in isolation — and the 2026-08-14 rationale for moving six controls was
+that a control they render WITH had already moved, which points the other way.
+That contradiction was filed as `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
+
+**The pairing clause, ruled 2026-08-25.** Chrome rendered in-frame with a
+control of the same recipe takes that control's outline weight. A rule rather
+than two judgments: a per-site call closes neither site and says nothing about
+the third one. Both chips moved — the lightbox demote chip to
+`--color-text-faint` (its twin the Reset chip's token) and the staged-preview
+`aria-current` chip to `--color-control-outline-tinted` (its twin the picker
+link's, because that row stands on the banner's `warning-bg` plate). Note what
+the clause does: it points at the TWIN, not at a named colour, so a pair cannot
+drift apart later by the control moving again.
+
+This is HIERARCHY, not accessibility. Neither element is interactive, so SC
+1.4.11 does not reach either one and there was never a contrast failure here to
+argue. What was wrong is that the chip a reader is meant to read as the current
+state read lighter than the control beside it, inverting the hierarchy the swap
+was making. Both pairs are pinned in
+`tests/styles/pairedChromeOutline.test.ts`, which reads the CONTROL side out of
+the live tree so the guard fails on the pair rather than on a colour. Reasoning:
+`docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md` D3.
 
 **`border-border` on a control's resting outline takes the text ramp too
 (ruled 2026-08-18).** The 2026-08-16 swap moved only `border-border-strong`, and
@@ -273,12 +335,21 @@ Nobody should sweep one because a token census found it, and nobody should widen
 the carve-out into a claim about which elements are "really" controls — it is a
 statement about which SIDE the token paints, nothing more.
 
-One population is knowingly left behind, with its numbers recorded rather than
-implied: `components/admin/showpage/ShareHub.tsx`'s two `max-sm:border-border`
-elements, which paint **1.27:1** below 640px on a control measuring 3.35:1 above
-it. A prior ratified decision and a shipped executable pin both fence them, so
-they are filed as `BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT` rather than
-moved here.
+**One population was knowingly left behind, and on 2026-08-25 it came in.**
+`components/admin/showpage/ShareHub.tsx` carried a `max-sm:border-border` skin
+on its two ternary arms and its kebab, painting **1.27:1** below 640px on a
+control measuring 3.35:1 above it. A prior ratified decision (spec
+`2026-07-24-strip-mobile-stacked-band` §3 R3) and a shipped executable pin both
+fenced it, so it was filed as
+`BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT` rather than swept. That row is
+now closed: this rule supersedes R3's border clause, all three elements carry
+`max-sm:border-text-faint`, and the executable pin was INVERTED rather than
+deleted — same case, asserting the new token, with the ratification and its date
+in the docstring (`tests/styles/_metaControlOutlineFill.test.ts`, the `adjacent
+tokens survive the swap` block). R3's split row LAYOUT is untouched and the
+border width is still 1px; what moved was one line of colour skin riding inside
+a layout decision. The reasoning is
+`docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md` D1.
 
 Worked example — the one secondary action treatment (`lib/ui/actionClass.ts`,
 `SECONDARY_ACTION_CLASS`, 8 call sites):
@@ -306,15 +377,48 @@ implied away — `warning-bg` 3.04 light / **2.79** dark, `info-bg` **2.87** lig
 in `BL-CONTROL-OUTLINE-ON-TINTED-PLATES` and is not duplicated here, because a summary that
 drifts from the list it summarises is worse than a pointer.
 
-Two things follow, and the second is why this is a recorded position and not a
-defect. First, the outer edge dips to 2.79–2.88:1 in exactly one theme per
-plate, never both. Second, R5 above is the standing frame: the outline is an
-upgrade over a label that already carried the affordance, so a boundary that is
-strong against its own fill and slightly under 3:1 against a tinted plate is a
-weaker version of the upgrade, not a regression against the prior state (which
-was 1.59:1 on `surface` — and 1.52/1.70 on `bg`, 1.44/1.19 on `warning-bg`; recomputed 2026-08-16 after whole-diff R7 caught "against everything" as a false universal). Whether tinted plates should get their own
-treatment — a darker token, or a plate-matched outline — is a design decision
-this policy did not make, filed as `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`.
+**Ruled 2026-08-25: a tinted plate gets its own outline token.** The figures
+above were a recorded position for ten days, on the frame R5 supplies: the
+outline is an upgrade over a label that already carried the affordance, so a
+boundary strong against its own fill and slightly under 3:1 against a tinted
+plate is a weaker version of the upgrade, not a regression against the prior
+state (1.59:1 on `surface`, 1.52/1.70 on `bg`, 1.44/1.19 on `warning-bg`;
+recomputed 2026-08-16 after whole-diff R7 caught "against everything" as a false
+universal). `BL-CONTROL-OUTLINE-ON-TINTED-PLATES` filed the design question and
+it is now answered.
+
+`--color-control-outline-tinted` is the outline for a control standing on
+`warning-bg`, `info-bg` or `danger-bg`, and nowhere else. **The shared token did
+not move**, deliberately: the four neutral grounds already clear at
+`--color-text-faint`, and retuning it to rescue the plates pushes them the other
+way. The shape is a per-plate `border-*` inside the same recipe rather than a
+new global default, which is what the ledger row's own first-scheduled-step
+prescribed. Where a treatment is shared across grounds the outline COLOUR was
+lifted OUT of the shared constant and supplied per call site or per plate branch
+(`lib/ui/actionClass.ts`, `components/admin/DataQualityWarningControls.tsx`,
+`app/admin/settings/roles/RoleMappingRow.tsx`): `cn` does not merge Tailwind
+conflicts, a ratified decision, so two `border-*` classes on one element have no
+defined winner and the colour has to appear exactly once.
+
+Hover still strengthens. The new token is deliberately LIGHTER than
+`--color-text-subtle` on every plate in both themes, so the
+hover-heavier-than-rest rule below survives the raised resting weight. That
+relation, the 3:1 clearance, and "heavier than the shared token" are asserted as
+RELATIONS in `tests/styles/secondary-action-contrast.test.ts` rather than pinned
+as constants, so a retune fails at the moment it inverts a pair and stays quiet
+when it is harmless. Which controls wear the token is covered by
+`tests/styles/tintedPlateOutline.test.ts`, whose derived arm reads the plate off
+each element's own `focus-visible:ring-offset-*`.
+
+One control on a tinted plate did NOT move, and its absence is a decision: the
+`<input type="text">` reset confirm field in
+`components/admin/MaintenanceResetButtons.tsx`. Whether a text field's border is
+a control outline at all is the open question in
+`BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` family A, and answering it in passing
+is what the ledger exists to prevent. It is pinned as an untouched site so the
+next sweep reads it as a fence rather than an oversight. The reasoning for all
+of this is
+`docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md` D2.
 
 **This was a design upgrade, not a compliance repair.** The prior boundary —
 1.59:1 on `surface`, the figure this section quotes throughout — was not a WCAG

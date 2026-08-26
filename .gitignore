@@ -98,6 +98,9 @@ sdd/
 
 # Codex adversarial-review scratch briefs/results (never source)
 .codex-reviews/
+# codex-guard --out dirs when an arc keeps them inside its worktree; untracked review
+# transcripts are otherwise Tailwind v4 auto-detected sources (tests/styles/_metaZIndexBands).
+.codex-out/
 
 # Cross-model review artifacts (transcripts, briefs, verdicts) - never committed
 .review/

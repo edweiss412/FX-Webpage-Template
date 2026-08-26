@@ -62,7 +62,14 @@ function PickerEntry({
       <span
         data-testid="staged-preview-picker-current"
         aria-current="true"
-        className={`${TARGET_BASE} border border-border-strong bg-surface text-text-strong`}
+        /* Takes the picker LINK's outline weight, per §1.2a's pairing clause
+           (D3): the two render side by side in one row off the same
+           TARGET_BASE, and the current entry reading lighter than the entries
+           you can switch to inverts the hierarchy. The token is the tinted-plate
+           one because that is what its twin wears — the row stands on the
+           banner's bg-warning-bg plate. Still non-interactive chrome: this is
+           hierarchy, not SC 1.4.11. */
+        className={`${TARGET_BASE} border border-control-outline-tinted bg-surface text-text-strong`}
       >
         {entry.name}
       </span>
@@ -72,7 +79,7 @@ function PickerEntry({
     <Link
       data-testid="staged-preview-picker-link"
       href={`/admin/wizard/preview/${stagedId}?as=${encodeURIComponent(entry.id)}`}
-      className={`${TARGET_BASE} border border-text-faint text-warning-text hover:bg-surface`}
+      className={`${TARGET_BASE} border border-control-outline-tinted text-warning-text hover:bg-surface`}
     >
       {entry.name}
     </Link>

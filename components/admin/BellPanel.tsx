@@ -232,8 +232,16 @@ const LINK_CTA = cn(
 // Ghost styling for the row's resolve control. Named for the ROLE, not a verb:
 // the label itself is intent-driven (lib/adminAlerts/resolveActionLabel.ts) and
 // reads "Confirm" or "Mark resolved" depending on the code.
+// Rests at text-text, not text-text-faint (DESIGN §1.1a, design doc
+// 2026-08-25-ui-polish-class-sweep-design.md D4). This control's whole content
+// is a text label, with no glyph and no resting boundary, so colour was the
+// only thing carrying it — and the faint rung measures 3.35:1, under the 4.5:1
+// floor for text. It stays the QUIET member of the row by having no fill and no
+// border, which is what "ghost" was buying; the hover fill still lifts it, and
+// the hover text steps to text-text-strong so hover reads heavier than the new
+// rest rather than matching it.
 const GHOST_RESOLVE = cn(
-  "inline-flex min-h-tap-min items-center rounded-sm px-2 text-[13px] text-text-faint transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60",
+  "inline-flex min-h-tap-min items-center rounded-sm px-2 text-[13px] text-text transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60",
 );
 // Show-page nav chevron (spec §4.1): reuses LINK_CTA's accent color + focus-ring
 // vocabulary, but sized as an icon-only affordance (`size-tap-min`, the same

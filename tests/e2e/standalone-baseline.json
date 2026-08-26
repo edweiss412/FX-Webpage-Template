@@ -623,6 +623,22 @@
     "tests/e2e/toggle-edge-layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"435958e6bf16d314628f-280e120bb4cfca31201b\",[\"toggle-edge-layout.spec.ts\",\"accent-edge boundary — computed style + §9.1 geometry\",\"ON toggle border is the accent-edge token and geometry invariants hold\"]]"
     ],
+    "tests/e2e/ui-polish-class-sweep.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-0a5f10cdff4227e5499c\",[\"ui-polish-class-sweep.spec.ts\",\"tap floors, measured rather than asserted from a class list\",\"the staged-review radio label clears 44px at phone\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-5f1433b44ef5884fa768\",[\"ui-polish-class-sweep.spec.ts\",\"the ShareHub outline, which only ever misbehaved below 640px\",\"paints the control-outline token at phone (max-sm, where the defect lived)\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-63ac9acc39d909573900\",[\"ui-polish-class-sweep.spec.ts\",\"tap floors, measured rather than asserted from a class list\",\"the OTHER FINANCIALS label clears 44px at phone\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-6f6f12accd5de75df63b\",[\"ui-polish-class-sweep.spec.ts\",\"tap floors, measured rather than asserted from a class list\",\"the run-of-show summary clears 44px at desktop\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-88da8b3cd0f858d41072\",[\"ui-polish-class-sweep.spec.ts\",\"the ShareHub outline, which only ever misbehaved below 640px\",\"paints the control-outline token at desktop\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-9a07275009237da2e525\",[\"ui-polish-class-sweep.spec.ts\",\"tap floors, measured rather than asserted from a class list\",\"the FINANCIALS label clears 44px at phone\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-a15fe6f4f362d5a18070\",[\"ui-polish-class-sweep.spec.ts\",\"the ShareHub outline, which only ever misbehaved below 640px\",\"paints the SAME outline at both widths\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-bd6e664398aff99f3afd\",[\"ui-polish-class-sweep.spec.ts\",\"tap floors, measured rather than asserted from a class list\",\"the FINANCIALS label clears 44px at desktop\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-c5f282576dc49e88e592\",[\"ui-polish-class-sweep.spec.ts\",\"tap floors, measured rather than asserted from a class list\",\"the staged-review radio label clears 44px at desktop\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-d336b35e5111e5c2711b\",[\"ui-polish-class-sweep.spec.ts\",\"tap floors, measured rather than asserted from a class list\",\"the run-of-show summary clears 44px at phone\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-d8e0653d3340ef16dad1\",[\"ui-polish-class-sweep.spec.ts\",\"tap floors, measured rather than asserted from a class list\",\"the OTHER FINANCIALS label clears 44px at desktop\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-de11a0c8b7d82d30b0c8\",[\"ui-polish-class-sweep.spec.ts\",\"the tinted-plate outline, measured against the plate it stands on\",\"clears 3:1 on bg-info-bg\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-ea626d3c5e3488a1e9c2\",[\"ui-polish-class-sweep.spec.ts\",\"the tinted-plate outline, measured against the plate it stands on\",\"clears 3:1 on bg-warning-bg\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-f6ca30fe834404d4a69f\",[\"ui-polish-class-sweep.spec.ts\",\"the tinted-plate outline, measured against the plate it stands on\",\"clears 3:1 on bg-danger-bg\"]]"
+    ],
     "tests/e2e/wifi-password-row.layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-38e3232ceb40ee580d14\",[\"wifi-password-row.layout.spec.ts\",\"DI-3 (mid-list): the target sits inside the SectionCard border box\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-4bce7b176f1332585776\",[\"wifi-password-row.layout.spec.ts\",\"DI-4 (mid-list): the target is disjoint from every other row's box\"]]",
@@ -642,5 +658,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 561
+  "totalTests": 575
 }
