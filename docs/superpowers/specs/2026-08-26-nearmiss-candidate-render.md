@@ -370,9 +370,19 @@ One existing assertion must keep passing unchanged: `tests/components/perShowAct
 
 ### 7.3 Fixture derivation, not a hardcoded string
 
-Both component suites read one new shared helper, tests/_shared/nearMissWarning.ts, which runs a committed fixture from `tests/parser/mutation/fixtures.ts` through `parseSheet`, takes the first `UNKNOWN_FIELD` warning, and returns that warning plus a copy with the `candidate` key deleted. Assertions compare the rendered text against **that warning's own `candidate`**, never a literal.
+Both component suites read one new shared helper, tests/_shared/nearMissWarning.ts. It runs a committed fixture from `tests/parser/mutation/fixtures.ts` through `parseSheet`, takes the first `UNKNOWN_FIELD` warning, and returns a PAIR. Assertions compare the rendered text against **that warning's own `candidate`**, never a literal: a hardcoded `"VENUE ADDRESS"` would keep passing if the §3.1 tie-break changed, so it would assert the test author's memory rather than the detector's behavior.
 
-Two reasons this is not ceremony. A hardcoded `"VENUE ADDRESS"` would keep passing if the §3.1 tie-break changed, so it would assert the test author's memory rather than the detector's behavior. And the present and absent cases then come from ONE source differing in exactly the field under test, which is what makes the pair a controlled comparison instead of two unrelated fixtures.
+**Both halves of the pair come from the producer, and this was probed rather than reasoned.** The obvious construction is to copy the real warning and `delete` its `candidate` key. That copy is not what a legacy row looks like:
+
+```
+real     message: "Unrecognized client row label: 'Address:'; looks like 'VENUE ADDRESS'"
+deleted  message: "Unrecognized client row label: 'Address:'; looks like 'VENUE ADDRESS'"
+emitted  message: "Unrecognized client row label: 'Address:'"
+```
+
+`emitUnknownField` builds the message from a two-arm ternary on the candidate (`lib/parser/warnings.ts:421-423`), so a real candidate-less emission carries no "looks like" clause while the key-deleted copy keeps one. The helper therefore takes the real warning's key and value and calls `emitUnknownField` TWICE, once passing `candidate` and once omitting it. Probed equivalent on everything else: same `rawSnippet`, same `blockRef`, and the absent one has no `candidate` key at all.
+
+That stale clause does not render today, which was checked rather than assumed: both surfaces prefer the catalog title over `.message` (`components/admin/PerShowActionableWarnings.tsx:139` and `lib/admin/reviewWarningTitle.ts`), and `UNKNOWN_FIELD` has one. So this is fixture fidelity, not a live defect. It still matters, because AC-3 is the claim that no string on a candidate-less card asserts a near-miss, and a fixture carrying that exact claim in one of its fields is the wrong instrument for proving it.
 
 Precedent: `tests/components/admin/showpage/unreadCalloutRemoved.test.tsx:23` and `tests/components/admin/showpage/unreadCalloutRemoved.test.tsx:139-160` are the one existing component test pinning its harness against the real producer (`emitUnknownField`, `newAggregator`). Every other warning fixture in `tests/` is a hand-authored literal, which is why the helper is worth having rather than inlining the derivation twice.
 
