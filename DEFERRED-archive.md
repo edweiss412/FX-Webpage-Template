@@ -1,3 +1,19 @@
+### THEMENOTE-BUBBLE-DISMISS-1 — impeccable P1: the persist-failure bubble has no dismiss — CLOSED 2026-08-26 (`fix/theme-note-polish`, SHIPPED BY REMOVAL)
+
+**Resolution: the un-defer trigger fired, and the product decision went the other way.** The stated
+trigger was "a product decision on whether the note is dismissible, or the first report of the bubble
+obscuring a control on a real device". Eric decided on 2026-08-26, and decided against the note
+itself: saving a theme choice is a UX convenience, not a failure mode that needs acknowledging. There
+is no bubble to dismiss.
+
+Every open question this entry listed — the copy, a 44px tap target inside a 144px bubble, the a11y
+contract for a button inside a `role="status"` region, whether a dismissal survives a later failure —
+is moot rather than answered. Queue row `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE` archived with it
+(`BACKLOG-archive.md`), and the spec ratifies the removal at
+`docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` §2.2 "Amendment, 2026-08-26".
+
+---
+
 ### SHEETLINK-SUBTLE-ACTION-CLASS-1 — `text-text-subtle` on icon-only action targets — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
 
 **Resolution: SHIPPED.** Task U4 of the M-wave-2 plan

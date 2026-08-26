@@ -26,6 +26,7 @@ import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import type { AdminEmailRow } from "@/lib/data/adminEmails";
 import type { EmbeddedAdminEmailsResult } from "@/lib/admin/embeddedAdminEmails";
 import type { SetDeveloperActionResult } from "@/app/admin/settings/admins/developerActions";
+import { isTextAlignToken, tailwindTextAlignUtilities } from "@/tests/_shared/textAlignUtilities";
 
 // Per-email deferred action controller: each submit registers a resolver keyed
 // by its FormData `email`, so a test can hold row A pending while resolving row B
@@ -210,6 +211,43 @@ describe("DeveloperToggle transition audit (Task 18c)", () => {
       );
     });
     expect(within(bobRow).getByTestId("developer-toggle")).not.toBeDisabled();
+  });
+
+  it("the error copy carries no alignment class (class sweep, 2026-08-26)", async () => {
+    // Same shape as the self-last revoke hint and the removed theme-persist
+    // note: right-aligned sentence copy in a width-capped box inside an
+    // `items-end` column. The box is positioned by `items-end`; `text-right`
+    // only ever changes where WRAPPED lines start, and `renderEmphasis` copy
+    // here is long enough to wrap on a phone.
+    renderDevView([row({ email: "bob@example.com", is_developer: false })]);
+    await act(async () => {
+      fireEvent.click(toggleIn("bob@example.com"));
+    });
+    await act(async () => {
+      ctl.resolvers.get("bob@example.com")!({ kind: "infra_error" });
+    });
+
+    const bobRow = rowByEmail("bob@example.com");
+    await waitFor(() => {
+      expect(within(bobRow).getByTestId("developer-toggle-error")).toBeTruthy();
+    });
+    const err = within(bobRow).getByTestId("developer-toggle-error");
+    const tokens = err.className.split(/\s+/).filter(Boolean);
+
+    // PREMISE: the real alert with its real chrome and real copy.
+    expect((err.textContent ?? "").length).toBeGreaterThan(0);
+    expect(tokens).toContain("max-w-prose");
+    expect(tokens).toContain("bg-warning-bg");
+
+    // Derived from the installed Tailwind, same as the self-last hint's guard
+    // and for the same reason (diff review r2 finding 2): a hand-written
+    // deny-list fails open on the member nobody thought of, and `text-end` was
+    // that member.
+    // Variant-aware (diff review r3 finding 2): comparing whole tokens let
+    // `max-sm:text-right` through, which right-aligns at both measured widths.
+    const utilities = tailwindTextAlignUtilities();
+    const aligning = tokens.filter((t) => isTextAlignToken(t, utilities));
+    expect(aligning, "no alignment utility, under any variant prefix").toEqual([]);
   });
 
   it("compound: toggling row A while row B is mid-pending leaves B's pending state intact (independent useActionState)", async () => {

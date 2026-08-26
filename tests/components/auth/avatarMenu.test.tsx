@@ -322,20 +322,32 @@ describe("the transition inventory (spec §2.3)", () => {
   });
 });
 
-describe("the persist-failure note", () => {
-  // theme-persistence-note Task N3 (spec §2.2; AC-1 / AC-4 / AC-6). The menu's
-  // theme row writes through the same hook the standalone toggle uses, so a
-  // device that cannot remember the choice has to say so HERE too — a note on
-  // one control only would leave the other silent for the identical failure.
+describe("no persist-failure note (removed 2026-08-26)", () => {
+  // Product ruling 2026-08-26, ratified in spec 2026-08-15-theme-persistence-note
+  // §2.2 "Amendment, 2026-08-26": persisting the theme choice is a convenience,
+  // not a failure mode the user acknowledges. Both of this menu's note nodes are
+  // gone — the aria-hidden visible paragraph AND the root-level sr-only
+  // announcer whose only content was that same sentence.
+  //
+  // REWRITTEN after diff review r2 finding 1. The first version asserted the
+  // absence of two `data-testid` values, which is the SAME defect round 1 caught
+  // in the hook suite wearing different clothes: it pinned the identifier the
+  // deletion happened to remove rather than the PROPERTY the ruling requires.
+  // Two ordinary regressions walked straight through it — restore the visible
+  // copy under a different testid, or add a second announcer without the old
+  // one — and every assertion still passed.
+  //
+  // So the assertions below are structural and copy-independent. The menu keeps
+  // one legitimate `role="status"` (the switch-person announcer), so the pin is
+  // that the status regions are EXACTLY that one, and that the popover's own
+  // children are exactly the identity block and the menu. A reworded note under
+  // a fresh testid fails both.
+  const EXPECTED_STATUS_TESTIDS = ["avatar-menu-switch-announcer"];
+  const EXPECTED_POPOVER_CHILD_TESTIDS = ["avatar-menu-identity", "avatar-menu-items"];
+
   function blockWrites(): void {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("blocked");
-    });
-  }
-
-  function allowWrites(): void {
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      /* a working device */
     });
   }
 
@@ -345,95 +357,131 @@ describe("the persist-failure note", () => {
     });
   }
 
-  /** The VISIBLE note inside the popover; absent until a write fails. */
-  const note = () => screen.queryByTestId("theme-persist-note");
-  /** The always-mounted live region that owns the announcement. */
-  const announcer = () => screen.getByTestId("theme-persist-announcer");
+  /** Every live region in the tree, by testid, so an EXTRA one cannot hide. */
+  function statusRegionIds(): (string | null)[] {
+    return screen
+      .queryAllByRole("status", { hidden: true })
+      .map((el) => el.getAttribute("data-testid"));
+  }
 
-  it("mounts the live region before any failure, and OUTSIDE the popover (AC-4)", () => {
+  /** The popover's own element children, so a restored note cannot hide either. */
+  function popoverChildIds(): (string | null)[] {
+    const popover = screen.getByTestId("avatar-menu-popover");
+    return [...popover.children].map((el) => el.getAttribute("data-testid"));
+  }
+
+  /**
+   * Every character the popover renders.
+   *
+   * The structural pins above (live-region set, direct-child set) are necessary
+   * and NOT sufficient: diff review r3 finding 1 planted visible note copy
+   * INSIDE the existing `avatar-menu-items` element, and both arrays stayed
+   * identical while the forbidden sentence rendered. That was the third
+   * appearance of one shape — an assertion covering a specific LOCATION rather
+   * than the PROPERTY "no note copy renders anywhere" — so this one is the
+   * property. Any added copy, at any depth, under any testid, changes this
+   * string.
+   *
+   * A legitimate label change fails here too, and that is correct: a census is
+   * supposed to make anyone editing this menu's copy look at this test.
+   */
+  function popoverText(): string {
+    return screen.getByTestId("avatar-menu-popover").textContent ?? "";
+  }
+
+  /**
+   * Every character the WHOLE COMPONENT renders, not just the popover.
+   *
+   * Diff review r4 finding 1: the popover census was still scoped to a
+   * location. A note added as a root SIBLING of the popover left all three
+   * previous assertions byte-identical while rendering the forbidden sentence.
+   * That is the fourth consecutive round in which my repair was one level
+   * narrower than the property, so this one is scoped to the render root —
+   * there is no enclosing element left for a note to hide outside of.
+   */
+  function rootText(container: HTMLElement): string {
+    return container.textContent ?? "";
+  }
+
+  /** Captured from the live render, fixture name "Doug L." and role "Lead". */
+  const EXPECTED_POPOVER_TEXT = "Doug L.,  · LeadDark modeNot you? Switch person";
+  /** "DL" is the trigger's initials, which render whether the menu is open or not. */
+  const EXPECTED_ROOT_TEXT_CLOSED = "DL";
+  const EXPECTED_ROOT_TEXT_OPEN = "DL" + EXPECTED_POPOVER_TEXT;
+
+  it("renders no extra live region and no extra popover child on a blocked write", () => {
+    document.documentElement.dataset.theme = "light";
     blockWrites();
-    renderMenu();
-
-    // Present before the menu is even opened, let alone before the failing
-    // activation: a region that arrives WITH its message is never announced
-    // (the ReSyncButton trap, and the repo-wide guard at
-    // tests/components/_metaLiveRegionMounting.test.ts).
-    expect(announcer()).toBeInTheDocument();
-    expect(announcer()).toHaveAttribute("role", "status");
-    expect(announcer().textContent).toBe("");
-    expect(note()).toBeNull();
-
-    openMenu();
-    expect(announcer().textContent).toBe("");
-  });
-
-  it("renders the note on a blocked write and leaves the menu open (AC-1)", () => {
-    blockWrites();
-    renderMenu();
+    const { container } = renderMenu();
     openMenu();
 
     flipTheme();
 
-    expect(note()?.textContent).toBe("This device won't remember this choice.");
-    expect(announcer().textContent).toBe("This device won't remember this choice.");
-    // The absorb holds: the theme still applied, and the row did not close the menu.
+    // PREMISE: the flip did real work through the throwing write. Without it,
+    // every absence assertion below would also pass on a menu that never rendered.
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    // The property, not the identifier: a restored announcer fails this whatever
+    // testid it carries, or none.
+    expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
+    // Same for the visible note, which used to sit between the identity block
+    // and the menu as a popover child of its own.
+    expect(popoverChildIds()).toEqual(EXPECTED_POPOVER_CHILD_TESTIDS);
+    // And the property the two structural pins do not cover: no copy anywhere.
+    expect(popoverText()).toBe(EXPECTED_POPOVER_TEXT);
+    // And outside the popover, which is where r4 found the escape.
+    expect(rootText(container)).toBe(EXPECTED_ROOT_TEXT_OPEN);
   });
 
-  it("keeps the note OUT of the role=menu element and its owned children (AC-6)", () => {
+  it("mounts no extra live region before the menu is even opened", () => {
     blockWrites();
-    renderMenu();
-    openMenu();
-    flipTheme();
+    const { container } = renderMenu();
 
-    const menu = screen.getByRole("menu");
-    expect(menu.contains(note())).toBe(false);
-    expect(menu.contains(announcer())).toBe(false);
-    // `role="menu"` constrains what it owns; the note is a popover sibling.
-    expect(within(menu).queryByRole("status")).toBeNull();
-    expect(
-      [
-        ...within(menu).getAllByRole("menuitemcheckbox"),
-        ...within(menu).getAllByRole("menuitem"),
-      ].map((el) => el.getAttribute("data-testid")),
-    ).toEqual(["avatar-menu-theme", "avatar-menu-switch-person"]);
+    // The old shape mounted the theme announcer at the component ROOT, outside
+    // the popover, so it existed before any interaction. An empty region left
+    // behind would be dead a11y surface rather than a harmless leftover.
+    expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
+
+    // Closed, the whole component renders only the trigger's initials. A note
+    // mounted at the root would show up here even before any interaction.
+    expect(rootText(container)).toBe(EXPECTED_ROOT_TEXT_CLOSED);
+
+    openMenu();
+    expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
+    expect(popoverChildIds()).toEqual(EXPECTED_POPOVER_CHILD_TESTIDS);
+    expect(popoverText()).toBe(EXPECTED_POPOVER_TEXT);
+    expect(rootText(container)).toBe(EXPECTED_ROOT_TEXT_OPEN);
   });
 
-  it("re-renders the note when the popover is closed and re-opened", () => {
+  it("keeps the UNRELATED switch-person announcer working, not merely present", () => {
     blockWrites();
     renderMenu();
-    openMenu();
-    flipTheme();
-    expect(note()?.textContent).toBe("This device won't remember this choice.");
 
-    act(() => fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" }));
-    expect(screen.queryByTestId("theme-persist-note")).toBeNull();
-    // The ANNOUNCER survives the close, so the report is not withdrawn from
-    // assistive tech when the popover goes away.
-    expect(announcer().textContent).toBe("This device won't remember this choice.");
-
-    openMenu();
-    // Hook state lives on the component, not the popover: the device has not
-    // started remembering just because the menu closed.
-    expect(note()?.textContent).toBe("This device won't remember this choice.");
+    // Naming the survivor is what stops the removal from being satisfied by
+    // deleting the wrong `role="status"`. Asserting its ROLE and its live text
+    // is what stops it from being satisfied by leaving an inert shell.
+    const survivor = screen.getByTestId("avatar-menu-switch-announcer");
+    expect(survivor).toHaveAttribute("role", "status");
+    expect(survivor.textContent).toBe("");
+    expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
   });
 
-  it("keeps the note through a repeated failure and clears it on recovery (AC-1, AC-3)", () => {
+  it("stays silent across repeated blocked writes and on recovery", () => {
+    document.documentElement.dataset.theme = "light";
     blockWrites();
-    renderMenu();
+    const { container } = renderMenu();
     openMenu();
 
     flipTheme();
+    expect(document.documentElement.dataset.theme).toBe("dark");
     flipTheme();
-    expect(note()?.textContent).toBe("This device won't remember this choice.");
+    expect(document.documentElement.dataset.theme).toBe("light");
 
-    allowWrites();
-    flipTheme();
-    // Recovery removes the visible note and EMPTIES the live region rather than
-    // unmounting it, so the next failure is a content change it can announce.
-    expect(note()).toBeNull();
-    expect(announcer().textContent).toBe("");
+    expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
+    expect(popoverChildIds()).toEqual(EXPECTED_POPOVER_CHILD_TESTIDS);
+    expect(popoverText()).toBe(EXPECTED_POPOVER_TEXT);
+    expect(rootText(container)).toBe(EXPECTED_ROOT_TEXT_OPEN);
   });
 });
 
