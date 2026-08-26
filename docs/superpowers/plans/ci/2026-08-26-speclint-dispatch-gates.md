@@ -65,12 +65,30 @@ as UNDECLARED — the plan cited them from markers without declaring them. Fixed
   `tests/codexGuard/guardSurfaceGate.test.ts:1-30`: every rejecting case writes an APPROVE
   scenario FIRST and then asserts zero fake-codex calls, because without a scenario the fake exits
   before recording a call and the zero-call assertion holds even had the gate dispatched.
+  **AC-1 names three further side effects and each gets its own assertion**
+  (plan review R1 finding 7): no lock taken, no result artifact written, and no
+  corpus row appended. Zero fake-codex calls proves none of the three on its own —
+  a gate that refused after taking the lock would satisfy it. The refusal cases
+  therefore assert the lock path is absent, the `--out` dir holds no
+  result artifact, and the branch's corpus file is byte-identical before and after.
 - **CREATES** tests/specLintGate/bridgeParity.test.ts — parity between the enrolled `.ts` core
   and the `.mjs` bridge, modelled on `tests/reviewRounds/bridgeParity.test.ts`.
 - **EXTENDS** `tests/codexGuard/importSurface.test.ts` — one allowlist row.
 - **EXTENDS** `tests/specLint/taskContractWiring.test.ts` — `CODE_FIXTURES` rows and the title count.
 - **EXTENDS** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — two `BACKLOG_GRADUATED` rows.
 - **EXTENDS** `tests/mutation/source/registry.ts` — one row for the new lint-gate core.
+- **EXTENDS** `tests/mutation/_metaLedgerKindsDeclarationParity.test.ts` — an
+  `EXPECTED_LEDGER_KINDS` entry. Exact key equality at `tests/mutation/_metaLedgerKindsDeclarationParity.test.ts:94`, so the new registry
+  row reds it by default.
+- **EXTENDS** `tests/mutation/_metaPremiseContract.test.ts` — an
+  `EXPECTED_ENV_TOUCHING` entry for the new gate suite, enforced at
+  `tests/mutation/_metaPremiseContract.test.ts:511`.
+
+**Both are filesystem-discovered and merge-gating, and neither is exercised by
+Task 1's own command** (plan review R1 finding 5). That is the walked-population
+shape: a task commits green while the mutation suite is deterministically red at
+merge. Task 1 therefore runs all three commands in its GREEN step, not just its
+own suite, and the plan says so rather than leaving it to be discovered in CI.
 - **NOT APPLICABLE:** advisory-lock topology (no `pg_advisory*` surface), Supabase call boundary
   (no client call), `admin_alerts` catalog (no alert), sentinel hiding (no tile), layout-dimensions
   and transition-audit (no UI surface).
@@ -107,7 +125,7 @@ its new case fail, verified absent on the live tree at `b30413cf5`.
 
 ## Task 1: the lint-gate core as an enrolled leaf
 
-<!-- task: red=`pnpm vitest run tests/specLintGate/gate.test.ts` red-state=authored red-target=`scripts/codex-guard.mjs:1873` why=`the decision currently lives inline in the wrapper's lint loop at :1873 and there is no importable module to test; lib/specLintGate/gate.ts does not exist, so the suite this task writes cannot resolve its import and fails at collection` ac=AC-1,AC-2,AC-3 -->
+<!-- task: red=`pnpm vitest run tests/codexGuard/lintGate.test.ts -t enforcement` red-state=authored red-target=`scripts/codex-guard.mjs:1939` why=`the lint loop's only refusal is the {0,1} status check at :1920; a status of 1 means hard findings and falls through to cfg.prompt = composePrompt(cfg) at :1939, so a hard document DISPATCHES. The new case drives the real CLI over a planted hard document and asserts exit 2, which fails against that fall-through. An unresolved-import RED would be invalid by construction (docs/agents/writing-plans.md:15), so this task's RED is the wrapper's observable behaviour and the leaf is the shape the GREEN takes` ac=AC-1,AC-2,AC-3 -->
 
 Pure function, no filesystem and no spawn: given the stage, the parsed per-document reports and the
 flags, return refuse-or-proceed plus the message. The wrapper keeps the I/O.
@@ -116,7 +134,7 @@ RED: lib/specLintGate/gate.ts does not exist.
 
 ## Task 2: the bare-node bridge and its parity suite
 
-<!-- task: red=`pnpm vitest run tests/specLintGate/bridgeParity.test.ts` red-state=authored red-target=`tests/codexGuard/importSurface.test.ts:21` why=`the allowlist at :21-27 is an EXACT pin of five specifiers and scripts/specLintGate.mjs is not among them, so the bridge cannot be imported by the wrapper until the pin is grown in this task; the bridge file does not exist and the parity suite cannot resolve it` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/codexGuard/importSurface.test.ts` red-state=authored red-target=`scripts/codex-guard.mjs:21` why=`the allowlist at importSurface.test.ts:21-27 is an EXACT set equality over the specifiers imported at codex-guard.mjs:21. The moment this task adds the bridge import to the wrapper, that equality fails until the allowlist row lands, so the RED is observed on the PRODUCTION import rather than on a test that cannot resolve a file` ac=AC-1 -->
 
 scripts/specLintGate.mjs mirrors the core; the parity suite runs both over the same cases and
 asserts they agree, with a header naming the failure it catches — the bridge losing a branch of the
@@ -159,6 +177,12 @@ which is untouched; both refuse for different reasons and both are planted.
 The message prints one conforming line verbatim; the AGENTS.md bullet shows the same line. The
 separator grammar is NOT widened — a "plus" line is still refused, still exit 2, still no result
 artifact, and the test asserts all three.
+
+**Both string-presence guards here carry the four-mutant proof** (plan review R1
+finding 8): a presence assertion passes against a string that merely contains the
+token, so each is proved by planting the line absent, misspelled, present but
+non-conforming, and present in a fenced block — the last because the guard-surface
+reader elides fences and a conforming line inside one must satisfy nothing.
 
 <!-- tasks: end -->
 
@@ -208,7 +232,7 @@ prose, and cites both.
 
 ## Task 9: wire the codes
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContractWiring.test.ts` red-state=authored red-target=`tests/specLint/taskContractWiring.test.ts:180` why=`the title at :180 asserts ALL TEN codes and the table iterates CODE_FIXTURES; adding two rows without moving the count leaves the title stating ten while twelve run, and the new rows have no fixtures yet so the per-code exit/FAIL assertions fail` ac=AC-4,AC-5 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContractWiring.test.ts -t derived-cover` red-state=authored red-target=`lib/specLint/taskContract.ts:373` why=`the derived-cover case this task writes parses every fail() call's first-argument literal out of lib/specLint/taskContract.ts and asserts set equality with the CODE_FIXTURES keys. Once Tasks 7 and 8 add their codes at the production sites, the production set contains codes the fixture set does not, and the case fails on that inequality. The it() title at :180 is prose and asserts nothing, so it is NOT the red-target` ac=AC-4,AC-5 -->
 
 One `CODE_FIXTURES` row per new code, single-finding each per the file's own
 comment at `tests/specLint/taskContractWiring.test.ts:69`, and the count in the title moves from ten to twelve.
@@ -253,7 +277,26 @@ ONE paragraph in `docs/agents/writing-plans.md` per spec §4.2 constraint 3 — 
 `AGENTS.md`. It states the convention, the accept-set direction, and that a
 disposition may only say what the plan already says.
 
-## Task 12: archive both bookkeeping rows — LAST, and it must be last
+<!-- tasks: end -->
+
+## Task 12: archive both bookkeeping rows — LAST, outside the region
+
+**Outside the red-contract region, deliberately.** This is a bookkeeping-and-merge
+tail, not a TDD unit, which is the same disposition
+`docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md:24`
+takes for its own Task 12. It also cannot carry a marker even if it wanted one:
+its defective production input is `BACKLOG.md`, a repo-root file, and
+`lib/specLint/redContract.ts:164` rejects a bare filename in a `red-target=`.
+That is a documented limit of the red-contract arm, not a reason to cite
+something less true.
+
+**Its red-then-green, stated in prose because the marker cannot state it.** RED:
+`pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` with a
+`BACKLOG_GRADUATED` row added for either id, while both rows are still open in
+`BACKLOG.md` (the nullcode container and the orphaned-components row) — the
+archive-only assertion at `tests/docs/_metaDeferralLedgerGraduation.test.ts:704`
+fails. GREEN: the same command, after both sections move and both IN PROGRESS
+markers come off in this same commit.
 
 **Ordering is a correctness constraint here, not a preference** (plan review R1
 finding 1). An archive categorically rejects an in-flight entry
@@ -264,8 +307,6 @@ five task commits still to land, and `origin` would advertise both rows as
 unclaimed for that whole window, which is exactly the signal invariant 12 exists
 to keep honest. So the archive is the last commit, and it carries the marker
 removal with it.
-
-<!-- task: red=`pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:99` why=`both rows are still in the open ledger, so a BACKLOG_GRADUATED row added to the registry at :99 fails the archive-only assertion at :704-737 until the sections move` ac=AC-8 -->
 
 Cut heading-to-any-NEXT-heading. **The next heading after the nullcode container at `BACKLOG.md:220`
 is a `###`, not a `##`.** Proof is set arithmetic, run before and after: `^## BL-` 21 to 19 and
@@ -281,7 +322,7 @@ one would also steal a live claim.
 both ledgers via `ledgerFiles()` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:67`).
 
 
-<!-- tasks: end -->
+
 
 ## 12. Closeout
 

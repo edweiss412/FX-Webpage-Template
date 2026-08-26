@@ -388,14 +388,25 @@ it flagged. Two forms, anchored, matched against the declaring line AFTER the id
 ac-disposition := "(" WS* body WS* ")" WS* EOL
 body           := "RETIRED" (":" WS+ reason)?
                 | "discharged by " owner
-owner          := ("Task" | "task") WS+ ident (WS* ("," | "+" | "and") WS* ("Task"|"task")? WS* ident)*
+owner          := task-list | non-task
+task-list      := ("Task" | "task") WS+ ident (WS* ("," | "+" | "and") WS* ("Task"|"task")? WS* ident)*
+non-task       := "closeout" | "the closeout" | "the PR's last commit"
 ident          := [A-Za-z0-9][A-Za-z0-9.-]*
 reason         := any text to the closing paren
 ```
 
 Concretely: `(RETIRED)`, `(RETIRED: superseded by AC-4)`,
 `(discharged by Task 10)`, `(discharged by Task 3 and Task 6)`,
-`(discharged by Task N2b)`.
+`(discharged by Task N2b)`, `(discharged by closeout)`.
+
+**The non-task owners are corpus-forced** (plan review R1 finding 3). Seven live
+flagged ids are settled by work that is deliberately NOT a task — "close-out
+step", "the PR's last commit", "no task (a spec-time derivation)", "closeout, not
+by a task". A task-only grammar could express none of them, and they are not
+UNSETTLED either, so they would have had nowhere to go: not the residue, not a
+disposition, and no way to reach the done condition. This arc's own plan supplies
+one of the seven, for AC-9. The set is closed and enumerated, not free prose,
+which is what keeps it from being the sentence that was already there.
 
 Three properties are deliberate. **It is parenthesised and end-anchored**, so a
 sentence that merely happens to end in "Task 10." does not dispose anything — the
