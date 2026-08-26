@@ -2,6 +2,7 @@ import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { autocorrectGuidance } from "@/lib/messages/autocorrectGuidance";
 import type { ParseWarning } from "@/lib/parser/types";
@@ -274,6 +275,52 @@ export function PerShowActionableWarnings({
           </span>
         ) : null;
 
+        // The matched vocabulary label the near-miss detector attached (spec §3.2). Same band
+        // grammar as `Sheet row` above, which is the shipped detail-band idiom, with its own
+        // testids. `Looks like` is the eyebrow because it is the word the emitted message
+        // already uses (warnings.ts emitUnknownField) and because it is honestly weaker than a
+        // claim of certainty. Mono value, matching `Sheet row`: both are exact strings the
+        // operator compares character by character.
+        //
+        // No `w.code` gate. The guard is on the FIELD, and `candidate` is set on no other code
+        // (fieldNearMiss.ts is the sole producer), so a second predicate could only ever agree
+        // with the first.
+        const candidate = candidateLabel(w);
+        const candidateBand: ReactNode = candidate ? (
+          <span
+            className="inline-flex items-center gap-1.5"
+            data-testid="per-show-actionable-candidate"
+          >
+            <span className="text-[10px] font-semibold tracking-wider text-warning-text uppercase">
+              Looks like
+            </span>
+            <span
+              className="font-mono text-xs text-text"
+              data-testid="per-show-actionable-candidate-value"
+            >
+              {candidate}
+            </span>
+          </span>
+        ) : null;
+
+        // §3.3 collapse. `present()` (CompactAlertCard.tsx) is four inequalities, and a JSX
+        // fragment is an object satisfying all four, so wrapping unconditionally would render a
+        // bordered but EMPTY band on every card with no detail content. The shell deliberately
+        // does not special-case that (compactAlertCard.test.tsx asserts the band RENDERS for 0,
+        // NaN and [], over a comment saying adapters normalize), so the collapse belongs here.
+        // Written as a conditional rather than `[a, b].filter(Boolean)`: an array of children
+        // needs keys, and two literal children in a fragment do not.
+        const detail = detailBand ?? fieldBand;
+        const combinedDetail: ReactNode =
+          detail && candidateBand ? (
+            <>
+              {detail}
+              {candidateBand}
+            </>
+          ) : (
+            (detail ?? candidateBand)
+          );
+
         const sheetLink: ReactNode = href ? (
           <a
             href={href}
@@ -343,7 +390,7 @@ export function PerShowActionableWarnings({
                   />
                 ) : null
               }
-              detailBand={detailBand ?? fieldBand}
+              detailBand={combinedDetail}
               controlsBand={controlsBand}
             />
           </li>
