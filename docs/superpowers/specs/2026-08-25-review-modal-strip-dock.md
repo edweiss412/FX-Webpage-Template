@@ -369,7 +369,7 @@ pushed out exactly as the band is. So the bound ships with the dock, in the orde
 **Bound the cause, not each symptom.** Both measured symptoms — the `h2` at `324` and the subline at
 `210` — have ONE cause: the `shrink-0` action cluster takes whatever width it wants, and the
 `min-w-0 flex-1` text block gets the remainder. At 30 items the pill reads
-`10 issues · 20 monitoring`, the cluster reaches roughly `242` of the header's `335` content width,
+`20 issues · 10 monitoring`, the cluster reaches roughly `242` of the header's `335` content width,
 and the title column is starved to roughly `81`. Clamping the title alone would leave the subline
 starved; capping the cluster fixes both, because both are downstream of the same width.
 
@@ -423,7 +423,7 @@ real `II -` show titles run far longer, and §7 exercises the saturated-title fi
 reason. Stated plainly so a reviewer does not have to infer it: **the clamp does not engage at the
 measured loads, and it is kept anyway.**
 
-The cap lives in ONE place. `max-sm:max-w-40` is the Tailwind spelling; the sweep test derives its
+The cap lives in ONE place. `max-sm:max-w-[10rem]` is the Tailwind spelling; the sweep test derives its
 expectation from the rendered cluster width rather than repeating `160`, so the two cannot drift.
 
 **What the bound does not do.** It does not cap the number of attention items, change any pill copy,
@@ -787,10 +787,10 @@ therefore ranges over `MODES ∪ REAL`, declared in its own row.
 | AC-14 | **REAL** | At each of the twelve cells: the header's height equals its 0-load height AT THAT VIEWPORT within 0.5px, the strip's rect lies entirely inside the panel, and the publish switch's rect lies entirely inside the panel. This is the executable form of "reachable on every supported phone" and it is the arc's central assertion. The baseline is per-viewport, because header height is width-dependent. |
 | AC-15 | **REAL** | The panel column sums to `panel.clientHeight` within 0.5px (grab + header + main + footer in sheet mode; no grab term at `≥sm`), so no child overflows and the body never collapses to 0. |
 | AC-16 | **STRUCTURAL** | Step 3's modal header is byte-identical: `ReviewModalShell.tsx` is unmodified, and `tests/components/admin/review/reviewModalShell.test.tsx` passes unchanged, including the T-STEP3-INVARIANT cases. |
-| AC-17 | **REAL (the load-30 cells)** | The four load-30 cells only: a pill that is not wide enough to wrap cannot exercise the cap. At those cells every segment (`10 issues`, the middot, `20 monitoring`) is present in the pill's `textContent`, and no segment carries `display: none` or an ellipsis. **Plus geometric containment, which text assertions cannot establish (round-1 finding 5): the pill's rect and its `relative` wrapper's rect both lie within the capped cluster's rect, and the pill's rect does not intersect the title block's rect.** The accessible name of the dialog still contains the complete title despite `line-clamp-2`. |
+| AC-17 | **REAL (the load-30 cells)** | The four load-30 cells only: a pill that is not wide enough to wrap cannot exercise the cap. At those cells every segment (`20 issues`, the middot, `10 monitoring`) is present in the pill's `textContent`, and no segment carries `display: none` or an ellipsis. **Plus geometric containment, which text assertions cannot establish (round-1 finding 5): the pill's rect and its `relative` wrapper's rect both lie within the capped cluster's rect, and the pill's rect does not intersect the title block's rect.** The accessible name of the dialog still contains the complete title despite `line-clamp-2`. |
 | AC-19 | **REAL** | Each migrated overlay's rendered width equals `bounds.width` (the host rect inset by `VIEWPORT_INSET`) within 0.5px, and its left edge equals `bounds.left` within 0.5px — the executable form of "full width survived the migration" (round-2 finding 1). Derived from the measured host rect and the imported constant, never from a literal. |
 | AC-20 | **REPLICA 1-4 ∪ DEGENERATE** | An unsatisfiable geometry is SIGNALED, not merely rendered. Arm 2 (a `maxHeight` below `MIN_FITTED_HEIGHT`) is exercised by REPLICA case 4, whose geometry is derived to land there. **Arm 1 (`kind === "hidden"`) is exercised in the new `place.ts` warning suite by calling `placeWithinVisibleViewport` DIRECTLY with a degenerate input — not through a component.** Round-4 finding 5: consumers intercept degenerate measurements before the core sees them, so no component path delivers a `hidden` result and an arm asserted through one would never fire. The warning is a `place.ts` concern and is tested at `place.ts`. De-duplication is per `warnKey`, which the caller supplies (§3.2b). Asserted NOT to fire on REPLICA 1, 2 or 3 — a warning that always fires signals nothing — including the boundary `maxHeight === MIN_FITTED_HEIGHT`, which is silent. |
-| AC-18 | **STRUCTURAL** | The cap is written once, as `max-sm:max-w-40` on the action cluster; the sweep test derives its expectations from measured rects (the cluster's rendered width, the 0-item header height) and never repeats `160` or `164.19` as a literal. |
+| AC-18 | **STRUCTURAL** | The cap is written once, as `max-sm:max-w-[10rem]` on the action cluster; the sweep test derives its expectations from measured rects (the cluster's rendered width, the 0-item header height) and never repeats `160` or `164.19` as a literal. |
 
 ---
 
