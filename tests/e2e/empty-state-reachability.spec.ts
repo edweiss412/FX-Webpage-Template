@@ -115,6 +115,8 @@
  * existence checks.
  */
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 import { admin } from "./helpers/supabaseAdmin";
@@ -125,8 +127,34 @@ import { copyShowLocked, deleteShowsLocked } from "./helpers/lockedShowCopy";
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 const STALE_SEVERE_AGE_MS = 7 * 60 * 60 * 1000; // 7h — > 6h SYNC_DELAYED_SEVERE boundary
 
-/** The canonical required-field copy, owned by ScheduleSection.tsx:316. */
-const NO_DATES_COPY = "Show dates haven't been confirmed yet.";
+/**
+ * The canonical required-field copy, DERIVED from the component that owns it
+ * rather than transcribed here.
+ *
+ * A transcribed literal makes the assertion "the page renders the string this
+ * test remembers", which stays green after the component's copy changes and
+ * goes red for a copy edit that is not a defect. Reading the declaration means
+ * the assertion is the real contract: what ScheduleSection DECLARES is what the
+ * page RENDERS. A component that declares one string and renders another fails
+ * here, and that is the only way this can fail.
+ *
+ * The premise is asserted at extraction: an EmptyState whose label this cannot
+ * find throws by name instead of yielding an empty expectation that every page
+ * satisfies.
+ */
+const SCHEDULE_SECTION_SRC = join(__dirname, "../../components/crew/sections/ScheduleSection.tsx");
+function scheduleEmptyStateCopy(): string {
+  const src = readFileSync(SCHEDULE_SECTION_SRC, "utf8");
+  const m = /<EmptyState\s+label="([^"]+)"\s*\/>/.exec(src);
+  if (!m?.[1]) {
+    throw new Error(
+      `empty-state-reachability.spec: no <EmptyState label="..."/> in ${SCHEDULE_SECTION_SRC} — ` +
+        `the schedule required-field placeholder moved or changed shape`,
+    );
+  }
+  return m[1].replaceAll("&apos;", "'");
+}
+const NO_DATES_COPY = scheduleEmptyStateCopy();
 
 type ShowRow = Record<string, unknown>;
 type ReservationRow = Record<string, unknown>;
