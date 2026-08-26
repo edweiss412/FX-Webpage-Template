@@ -412,7 +412,7 @@ describe("ReportIssueSection — form mechanics (spec §D3)", () => {
     expect(submit.className).toMatch(/\bmin-h-tap-min\b/);
   });
 
-  test("impeccable dual-gate P2 pins: quiet secondary submit (never accent — one accent CTA per view), ring-offset matches the bg pane, textarea keeps border-strong + surface fill", () => {
+  test("impeccable dual-gate P2 pins: quiet secondary submit (never accent — one accent CTA per view), ring-offset matches the bg pane, textarea clears 3:1 on a surface fill", () => {
     stubFetch();
     const q = renderInChrome(sectionData(), () => "venue");
     const submit = q.getByTestId(ttid("submit"));
@@ -427,22 +427,23 @@ describe("ReportIssueSection — form mechanics (spec §D3)", () => {
     expect(submitClasses).toContain("hover:bg-surface-sunken");
     // Ring-offset color present so the focus halo isn't white in dark mode.
     expect(submitClasses).toContain("focus-visible:ring-offset-bg");
-    // The textarea keeps `border-strong` on a `surface` fill. NOT a 3:1 pairing,
-    // and the old wording here claimed it was: recomputed from the runtime
-    // tokens 2026-08-16, `border-strong` on `surface` is 1.5897:1 light /
-    // 1.6017:1 dark. It is pinned because it is the shipped recipe and because
-    // `border-border` on `bg-bg` is quieter still at 1.22:1 (audit P2), not
-    // because it clears SC 1.4.11.
+    // The textarea now carries `text-faint` on a `surface` fill, and clears the
+    // 3:1 non-text floor. It did not until 2026-08-26, and the previous version
+    // of this comment is worth keeping in mind rather than deleting: it pinned
+    // `border-strong` (1.5897:1 light / 1.6017:1 dark) explicitly NOT because
+    // that clears SC 1.4.11 but because `border-border` on `bg-bg` was quieter
+    // still at 1.22:1, and it named its own blocker — a text field was outside
+    // the scanner's element vocabulary and outside the 2026-08-16 ruling, filed
+    // as BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER family A.
     //
-    // The 2026-08-16 control-outline swap deliberately did NOT move it: a text
-    // field is outside the scanner's element vocabulary (it admits `<input>`
-    // only at type checkbox/radio) and outside the user's ruling, which was
-    // taken against a mockup of buttons resting on cards. Filed as
-    // BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER family A, with
-    // CONTROLOUTLINE-BORDER-TOKEN-NEUTRAL-FILL-1 in DEFERRED.md.
+    // That row is what `fix/control-outline-cover` closes. The ruling of
+    // 2026-08-26 made a text field's border a control outline, the scanner
+    // gained a declared `textEntry` axis, and this element came back in the red
+    // the widened cover produced. So the pin moves for the reason it recorded,
+    // by the arc it named.
     const textarea = q.getByTestId(ttid("textarea"));
     const textareaClasses = textarea.className.split(/\s+/);
-    expect(textareaClasses).toContain("border-border-strong");
+    expect(textareaClasses).toContain("border-text-faint");
     expect(textareaClasses).toContain("bg-surface");
     expect(textareaClasses).not.toContain("bg-bg");
   });

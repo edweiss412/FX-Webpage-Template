@@ -28,7 +28,12 @@
  * elsewhere (`scripts/ac15-width-parity.mts`, 767 elements, 0 differences) and
  * cannot stand in for contrast.
  */
-import { test, expect, type Page } from "@playwright/test";
+// `test` comes from the shared font-fidelity fixture, NOT from @playwright/test:
+// this spec compiles its own CSS with `compileEntryCss` and renders documents
+// from it, and the fixture is what attaches the font oracle to them. Pinned by
+// tests/e2e/_metaFontFidelityWiring.test.ts, whose subject is exactly the set
+// of specs that call `compileEntryCss`.
+import { test, expect, type Page } from "./helpers/fontFidelityFixture";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";

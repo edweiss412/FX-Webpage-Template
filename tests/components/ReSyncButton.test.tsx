@@ -668,7 +668,11 @@ describe("mobile Sync skin (spec 2026-07-24-strip-mobile-stacked-band §3 R2)", 
       "px-3",
       "rounded-sm",
       "border",
-      "border-border",
+      // `border-text-faint`, not `border-border`. This skin is a resting control
+      // outline and `border-border` puts it at 1.22:1; the 2026-08-26 cover
+      // widening moved it with the rest of its class. The pin is here because
+      // the skin's shape is this test's subject, so the token travels with it.
+      "border-text-faint",
     ]) {
       expect(mobile.className).toContain(cls);
     }

@@ -1540,7 +1540,7 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       "components/admin/nav/AdminNav.tsx:154",
       "components/admin/showpage/AttentionMenu.tsx:189",
       "components/admin/telemetry/EventFilters.tsx:97",
-      "components/admin/wizard/step3ReviewSections.tsx:2431",
+      "components/admin/wizard/step3ReviewSections.tsx:2432",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 
