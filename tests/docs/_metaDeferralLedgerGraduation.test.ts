@@ -97,6 +97,29 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/e2e-proof-retired-route-subpixel (2026-08-25): the two e2e-proof rows,
+  // graduating together because one arc answered both and because their repairs
+  // turned out to share a root — a real-browser proof reporting something other
+  // than the contract it was written to guard. The empty-state row shipped MORE
+  // than it filed: re-targeting the route was necessary and not sufficient, and
+  // three further blockers (a picker cookie WebKit will not store over http, a
+  // per-show tagged cache that swallows direct DB writes, and a "no dates" shape
+  // that faults the shell) were only visible from real runs. The tap-target row
+  // shipped the OPPOSITE of what it proposed: its named suspect, the half-pixel
+  // tolerance, was refuted by measurement (537 of 546 reads bit-identical, every
+  // outlier inside 120ms of the panel mounting) and no tolerance changed at all.
+  // Residues stay as documented limits on their owning surfaces rather than as
+  // new rows, per Eric's 2026-08-25 no-new-rows directive: the venue §8.3 gap in
+  // the shipped spec §7.4, the dark-on-main window in the workflow header, and
+  // the font-wait guard's blind spot in its own header.
+  {
+    id: "BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE",
+    provenance: "fix/e2e-proof-retired-route-subpixel",
+  },
+  {
+    id: "BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE",
+    provenance: "fix/e2e-proof-retired-route-subpixel",
+  },
   // fix/speclint-prose-consistency-arms (2026-08-18): the two prose-consistency rows,
   // graduating together because one spec answered both — a universal-quantifier claim
   // standing away from its enumeration is the same structure the post-repair sweep keeps

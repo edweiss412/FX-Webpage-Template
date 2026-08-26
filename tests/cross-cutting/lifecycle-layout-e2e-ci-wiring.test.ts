@@ -104,7 +104,7 @@ function tapArgv(): string[] {
  * applies exactly as it will in CI — that is what makes a `--grep` narrowing visible here instead
  * of only at runtime. `--list` starts no webServer, so this stays unit-speed.
  *
- * IDENTITY, not row: `(file, line, title, projectId)`. `spec.id` is not sufficient — the app-e2e
+ * IDENTITY, not row: `(describe path, file, line, title, projectId)`. `spec.id` is not sufficient — the app-e2e
  * guard measured `repeatEach: 2` over seven cases producing fourteen distinct ids, so an
  * id-counting oracle reads a halved, doubled-up run as full coverage. Skipped cases are excluded:
  * a collected case that never executes is not coverage.
@@ -124,9 +124,10 @@ function resolvedByCommand(argv: string[], specBase: string): number {
   }
   const parsed = JSON.parse(out.slice(out.indexOf("{"))) as { suites?: unknown[] };
   const identities = new Set<string>();
-  const walk = (suites: unknown[]): void => {
+  const walk = (suites: unknown[], suitePath: string[] = []): void => {
     for (const suite of suites) {
       const s = suite as {
+        title?: string;
         suites?: unknown[];
         specs?: {
           file?: string;
@@ -135,14 +136,25 @@ function resolvedByCommand(argv: string[], specBase: string): number {
           tests?: { expectedStatus?: string; projectId?: string }[];
         }[];
       };
+      // The enclosing describe titles are part of the identity, matching the app
+      // sibling. Without them, two cases sharing a file, a line and a leaf title
+      // under DIFFERENT describes collapse into one key here AND in the oracle,
+      // so the floor this parity check certifies is one lower than the suite
+      // really resolves and one case may run dark. Whole-diff review round 3
+      // demonstrated the collapse on the oracle side; both walkers carry the
+      // nesting now, because a floor and its verifier that share a blind spot
+      // agree with each other and with nothing else.
+      const here = s.title ? [...suitePath, String(s.title)] : suitePath;
       for (const sp of s.specs ?? []) {
         if (!(sp.file ?? "").endsWith(specBase)) continue;
         for (const t of sp.tests ?? []) {
           if (t.expectedStatus === "skipped") continue;
-          identities.add(`${sp.file}:${sp.line}:${sp.title}|${t.projectId ?? "?"}`);
+          identities.add(
+            `${here.join(" > ")}::${sp.file}:${sp.line}:${sp.title}|${t.projectId ?? "?"}`,
+          );
         }
       }
-      walk(s.suites ?? []);
+      walk(s.suites ?? [], here);
     }
   };
   walk(parsed.suites ?? []);
