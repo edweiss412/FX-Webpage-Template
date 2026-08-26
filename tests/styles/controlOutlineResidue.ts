@@ -461,6 +461,7 @@ export function residueOf(rootDir: string, oracle: Oracle): Residue {
 
 export type ResidueCategory =
   | "switch-track"
+  | "inner-chrome"
   | "side-divider"
   | "focus-state-chrome"
   | "responsive-skin-filed"
@@ -469,6 +470,7 @@ export type ResidueCategory =
 
 export const RESIDUE_CATEGORIES: readonly ResidueCategory[] = [
   "switch-track",
+  "inner-chrome",
   "side-divider",
   "focus-state-chrome",
   "responsive-skin-filed",
@@ -670,6 +672,30 @@ export function validateRow(
       );
   }
 
+  /**
+   * `inner-chrome` (spec §8): non-interactive chrome painted INSIDE a control.
+   *
+   * The STRUCTURAL half is the one with teeth and it reads the LIVE element,
+   * not the row: a row is refused when its element is in scope on its own,
+   * which is what stops a real control being parked here. The FORM half is the
+   * same pair `switch-track` demands, and it is form for the same reason:
+   * whether a painted child is chrome or the control's own visual is a RULING
+   * (`DESIGN.md` §1.2a's scope paragraph), not a property this module may grow
+   * a predicate for. A false citation costs its author a false citation.
+   */
+  if (row.category === "inner-chrome") {
+    if (el.admittedAs !== "painted-child")
+      problems.push(
+        `${row.file}: inner-chrome element is in scope on its own; it is a control, not chrome inside one`,
+      );
+    if (!/DESIGN\.md §1\.2a/.test(row.reason))
+      problems.push(`${row.file}: inner-chrome reason must cite DESIGN.md §1.2a`);
+    if (!/\d\.\d\d:1 light \/ \d\.\d\d:1 dark/.test(row.reason))
+      problems.push(
+        `${row.file}: inner-chrome reason must record the ratio as n.nn:1 light / n.nn:1 dark`,
+      );
+  }
+
   if (row.category === "side-divider") {
     for (const alternative of alternatives) {
       if (!alternative.some(weakOn)) continue;
@@ -735,6 +761,7 @@ export function validateRow(
 /** One line per category, naming its bar. The failure message is the guard's whole interface. */
 export const CATEGORY_BARS: readonly string[] = [
   "switch-track: exactly two alternatives, each with exactly one fill and one outline colour declaration; reason cites DESIGN.md §1.2a and records the OFF ring ratio as n.nn:1 light / n.nn:1 dark",
+  "inner-chrome: the element was admitted as a painted child and is not in scope on its own; reason cites DESIGN.md §1.2a and records the ratio as n.nn:1 light / n.nn:1 dark",
   "side-divider: every border token is a side width (border-t/b/l/r, optionally -<n>) or the weak colour itself; reason names the side utility",
   "focus-state-chrome: every weak token carries focus: or focus-visible:, and the element carries a focus ring token; reason states what carries the focus indication",
   "responsive-skin-filed: every weak token carries a responsive variant; backlogRef resolves to a ## heading whose body names this file",

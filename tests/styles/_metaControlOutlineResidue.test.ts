@@ -755,6 +755,84 @@ describe("category bars: refusals (spec §1.5, AC-4)", () => {
   const skipLink = () => liveElement("app/help/layout.tsx");
   const divider = () => liveElement("components/admin/showpage/AttentionMenu.tsx");
 
+  /**
+   * `inner-chrome` (spec §8): non-interactive chrome painted INSIDE a control.
+   *
+   * Its bar is two halves. The FORM half is the same pair `switch-track`
+   * already demands, a §1.2a citation and a recorded ratio, and it is form
+   * because whether a painted child is chrome or the control's own visual is a
+   * RULING, exactly like trackness, which this module may not grow a predicate
+   * for. The STRUCTURAL half is the one with teeth: the live element must have
+   * been admitted as a painted child, so a real control cannot be parked here.
+   *
+   * The subject is CONSTRUCTED for the same reason the responsive-skin one is:
+   * these cases must exercise the bar itself, not whichever live row happens to
+   * exist today.
+   */
+  const CHROME_REASON =
+    "a status chip inside the control, not its boundary (DESIGN.md §1.2a); 1.27:1 light / 1.27:1 dark";
+  const chromeElement = (over: Partial<ScanElement> = {}): ScanElement => ({
+    file: "components/admin/Constructed.tsx",
+    line: 1,
+    tag: "span",
+    paths: [["rounded-pill border border-border bg-surface px-2"]],
+    unresolved: false,
+    hasClassName: true,
+    allowlisted: false,
+    admittedAs: "painted-child",
+    ...over,
+  });
+  const chromeRow = (over: Partial<ResidueRow> = {}): ResidueRow => ({
+    file: "components/admin/Constructed.tsx",
+    tag: "span",
+    paint: ["bg-surface border border-border"],
+    category: "inner-chrome",
+    reason: CHROME_REASON,
+    ...over,
+  });
+
+  // covers: AC-8
+  it("accepts a well-formed inner-chrome row on a painted child", () => {
+    expect(validateRow(chromeRow(), chromeElement(), oracle, ledger)).toEqual([]);
+  });
+
+  // covers: AC-8
+  it("REFUSES an inner-chrome row whose live element is in scope on its own", () => {
+    // The teeth: a real control parked as chrome. Nothing about the ROW
+    // differs, which is the point - only the element does.
+    expect(
+      validateRow(chromeRow(), chromeElement({ admittedAs: "element" }), oracle, ledger),
+    ).toEqual([
+      "components/admin/Constructed.tsx: inner-chrome element is in scope on its own; it is a control, not chrome inside one",
+    ]);
+  });
+
+  // covers: AC-8
+  it("refuses an inner-chrome reason that does not cite the ruling", () => {
+    expect(
+      validateRow(
+        chromeRow({ reason: "a status chip inside the control; 1.27:1 light / 1.27:1 dark" }),
+        chromeElement(),
+        oracle,
+        ledger,
+      ),
+    ).toEqual(["components/admin/Constructed.tsx: inner-chrome reason must cite DESIGN.md §1.2a"]);
+  });
+
+  // covers: AC-8
+  it("refuses an inner-chrome reason that records no ratio", () => {
+    expect(
+      validateRow(
+        chromeRow({ reason: "a status chip inside the control (DESIGN.md §1.2a)" }),
+        chromeElement(),
+        oracle,
+        ledger,
+      ),
+    ).toEqual([
+      "components/admin/Constructed.tsx: inner-chrome reason must record the ratio as n.nn:1 light / n.nn:1 dark",
+    ]);
+  });
+
   // covers: AC-4, W8
   it("refuses a switch-track row with three render alternatives", () => {
     const row: ResidueRow = {
