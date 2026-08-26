@@ -51,11 +51,11 @@ touch, and it pulls an unbounded waiver population into a CI-fidelity diff.
 **The asymmetry.** `scanCandidates` (`tests/help/_renderFaultScan.ts`) gives its `IfStatement` arm a
 vocabulary fallback: an unclassifiable guard matching `/error|fail|infra|degrad|unavailable|corrupt/i`
 is pushed as `unknown` and lands in `REPORTED_RESIDUE`. The `ConditionalExpression` arm has no fallback
-and does a bare `continue` at `:395`. A ternary whose `whenTrue` is JSX is exactly the shape layer 1
+and does a bare `continue` at `:754`. A ternary whose `whenTrue` is JSX is exactly the shape layer 1
 claims to reach, so this is a gap INSIDE the claimed coverage, not the documented ceiling at spec §4.2.
 
-**Probe** (ts-morph over `scannedFiles()`, live tree, 2026-08-24): **714** ternaries under the derived
-roots return JSX in `whenTrue`; **91** of those carry a fault-vocabulary guard. The classifiable ones are
+**Probe** (ts-morph over `scannedFiles()`, live tree, re-run 2026-08-25): **719** ternaries under the derived
+roots return JSX in `whenTrue`; **79** of those carry a fault-vocabulary guard, 70 of them in `"use client"` files. The classifiable ones are
 enforced; the rest are dropped in silence rather than reported. Reported residue today is 5, every one of
 them from an `IfStatement`.
 

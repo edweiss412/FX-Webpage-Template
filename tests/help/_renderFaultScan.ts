@@ -747,16 +747,34 @@ export function scanCandidates(): Candidate[] {
       if (jsx === null) continue;
       const guard = conditional.getCondition();
       const form = classifyExpression(guard, predicates);
-      // ASYMMETRY, stated rather than left to be discovered: the IfStatement arm
-      // above falls back to a vocabulary probe and reports an unclassifiable
-      // guard as `unknown` residue. This arm drops it silently. A ternary whose
-      // whenTrue is JSX is exactly the shape layer 1 claims to reach, so this is
-      // a gap INSIDE the claimed coverage, not the documented ceiling at spec
-      // section 4.2. Probed: 714 such ternaries under the derived roots, 91 on a
-      // fault-vocabulary guard. Closing it means declaring every unclassifiable
-      // one, which is a residue population this arc cannot hand-write without
-      // reducing the registry to boilerplate and destroying the signal it
-      // carries. Tracked as BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY.
+      // ASYMMETRY, DECLINED AND DOCUMENTED rather than closed. The IfStatement
+      // arm above falls back to a vocabulary probe and reports an unclassifiable
+      // guard as `unknown` residue. This arm drops it, deliberately.
+      //
+      // Probed: 719 such ternaries under the derived roots, 79 on a
+      // fault-vocabulary guard and unclassifiable. 70 of those 79 sit in
+      // `"use client"` files, where the guard is interaction state -- `errorCode`,
+      // `state.kind === "error"`, `persistFailed` -- and not a server-render
+      // fault. The screenshot harness captures server-rendered output, so a
+      // client error toast is a different population from the one this
+      // instrument measures. Nine are in server components, of which four are
+      // emptiness checks (`allHidden && !roomsFetchFailed` and three siblings in
+      // components/crew/sections/) and two are already registered.
+      //
+      // So the vocabulary probe is the WRONG FILTER on this arm, which answers
+      // the question BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY left open. Adding
+      // the fallback would hand the registry 79 hand-written reasons to carry
+      // roughly three new server-render fault sites, and the IfStatement arm's
+      // comment above already records why that trade is bad: a false candidate
+      // dilutes exactly the signal the residue exists to carry.
+      //
+      // RE-FILE TRIGGER, and it is computed rather than promised: if the count of
+      // server-component ternaries that are unclassified, fault-vocabulary AND
+      // unregistered rises above 7 -- its resting value today -- the decline is
+      // re-opened. `tests/help/_metaRenderFaultMarking.test.ts` asserts that
+      // bound, re-derives both figures above and compares them to this comment,
+      // and pins each registered site as still unreachable. Editing these numbers
+      // without re-probing fails there.
       if (form === null) continue;
       push(conditional, jsx, form, guard.getText());
     }

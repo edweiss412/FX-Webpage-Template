@@ -1,10 +1,19 @@
 // @vitest-environment node
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { premise } from "../_shared/premise";
 import { Node, Project, ScriptTarget, SyntaxKind } from "ts-morph";
-import { ACCEPTED_FORMS, attributeCanRender, scanCandidates, scanRoots } from "./_renderFaultScan";
+import {
+  ACCEPTED_FORMS,
+  attributeCanRender,
+  classifyExpression,
+  infraPredicateNames,
+  scanCandidates,
+  scanRoots,
+  scannedFiles,
+} from "./_renderFaultScan";
+import { stripCommentsForFile } from "../_shared/stripComments";
 
 // One scan for the file: the walk is over every .ts/.tsx under the derived
 // roots and is the expensive part.
@@ -54,8 +63,8 @@ const REPORTED_RESIDUE: Record<string, string> = {
  * scanner claims to reach. `scanCandidates` gives its `IfStatement` arm a
  * vocabulary fallback that reports an unclassifiable guard as `unknown`
  * residue, and gives its `ConditionalExpression` arm no fallback at all
- * (`_renderFaultScan.ts:395`). Probed on the live tree: 714 ternaries under the
- * derived roots return JSX, 91 of them on a fault-vocabulary guard, and the
+ * (`_renderFaultScan.ts:754`). Probed on the live tree: 719 ternaries under the
+ * derived roots return JSX, 79 of them on a fault-vocabulary guard, and the
  * unclassifiable ones are dropped in silence rather than reported. Tracked as
  * BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY. Tracing a flag to the JSX that consumes it is dataflow
  * analysis this arc does not carry (spec §4.2), so the registry is the honest
@@ -81,6 +90,126 @@ const FLAG_RESIDUE: Record<string, string> = {
   "app/admin/layout.tsx:inOnboarding":
     "assigns a routing flag and returns no JSX from that branch; fails open by design.",
 };
+
+// ---- Ternary-arm decline, pinned (BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY) ----
+//
+// The ConditionalExpression arm keeps its bare `continue`. Everything below
+// exists so that decision stays TRUE rather than merely written down: the
+// numbers the arm's comment declares are re-derived and compared, the trigger
+// that would re-open the decline is computed, and the sites the decline is
+// about are pinned individually.
+const FAULT_VOCABULARY = /error|fail|infra|degrad|unavailable|corrupt/i;
+
+/** The four ternary sites the residue registry declares. */
+const REGISTERED_TERNARIES: readonly (readonly [string, number])[] = [
+  ["components/admin/Dashboard.tsx", 674],
+  ["components/admin/Dashboard.tsx", 858],
+  ["components/admin/IgnoredSheetsDisclosure.tsx", 79],
+  ["components/admin/OnboardingWizard.tsx", 803],
+];
+
+function containsJsx(node: Node | undefined): boolean {
+  if (node === undefined) return false;
+  if (Node.isJsxElement(node) || Node.isJsxSelfClosingElement(node) || Node.isJsxFragment(node)) {
+    return true;
+  }
+  return Boolean(
+    node.getFirstDescendant(
+      (d) => Node.isJsxElement(d) || Node.isJsxSelfClosingElement(d) || Node.isJsxFragment(d),
+    ),
+  );
+}
+
+const TERNARY_PROJECT = new Project({
+  compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+  skipAddingFilesFromTsConfig: true,
+});
+TERNARY_PROJECT.addSourceFilesAtPaths(scannedFiles());
+
+const CANDIDATE_KEYS = new Set(CANDIDATES.map((c) => `${c.file}:${c.line}`));
+
+type TernaryRow = { file: string; line: number; client: boolean; registered: boolean };
+
+const TERNARY_SURVEY: { jsxTernaries: number; unclassifiedVocab: TernaryRow[] } = (() => {
+  let jsxTernaries = 0;
+  const unclassifiedVocab: TernaryRow[] = [];
+  for (const path of scannedFiles()) {
+    const source = TERNARY_PROJECT.getSourceFileOrThrow(path);
+    const file = relative(process.cwd(), path);
+    const raw = readFileSync(path, "utf8");
+    const client = /^["']use client["'][ \t]*(?:;|$|\r?\n)/.test(
+      stripCommentsForFile(raw, path).trimStart(),
+    );
+    for (const conditional of source.getDescendantsOfKind(SyntaxKind.ConditionalExpression)) {
+      if (!containsJsx(conditional.getWhenTrue())) continue;
+      jsxTernaries++;
+      const line = conditional.getStartLineNumber();
+      if (CANDIDATE_KEYS.has(`${file}:${line}`)) continue;
+      if (!FAULT_VOCABULARY.test(conditional.getCondition().getText())) continue;
+      const registered = REGISTERED_TERNARIES.some(([f, l]) => f === file && l === line);
+      unclassifiedVocab.push({ file, line, client, registered });
+    }
+  }
+  return { jsxTernaries, unclassifiedVocab };
+})();
+
+const UNREGISTERED_SERVER = TERNARY_SURVEY.unclassifiedVocab.filter(
+  (row) => !row.client && !row.registered,
+);
+
+describe("the ConditionalExpression arm's decline is pinned, not just written down", () => {
+  it("the numbers the arm declares equal the numbers the tree computes", () => {
+    // NOT "the comment exists". Both figures are re-derived and compared, so a
+    // comment edited without a re-probe fails. The previous figures (714 and 91)
+    // went stale in eight days, which is the concrete failure this catches.
+    const armSource = readFileSync(join(process.cwd(), "tests/help/_renderFaultScan.ts"), "utf8");
+    const declared = armSource.match(
+      /Probed:\s*(\d+)\s+such ternaries under the derived roots,\s*(\d+)\s+on a/,
+    );
+    expect(declared, "the arm must declare both figures in a parseable form").not.toBeNull();
+    expect(Number(declared![1])).toBe(TERNARY_SURVEY.jsxTernaries);
+    expect(Number(declared![2])).toBe(TERNARY_SURVEY.unclassifiedVocab.length);
+  });
+
+  it("the re-file trigger has not tripped: at most 7 unregistered server-side sites", () => {
+    // The computable set with NO unstated exclusion. An earlier draft set this at
+    // 3, which discounted four emptiness checks by a rule the assertion never
+    // applied and was tripped the moment it was written.
+    //
+    // DOCUMENTED LIMIT: a bound on a COUNT does not pin site identity. Swapping a
+    // registered site for a new one leaves the count at 7 and passes. That is
+    // deliberate -- this asks one question, has the unreached server-side
+    // population GROWN, and a count is the right instrument. Site identity is
+    // pinned in the residue registry, for the entries that carry a declared cause.
+    expect(
+      UNREGISTERED_SERVER.length,
+      UNREGISTERED_SERVER.map((r) => `${r.file}:${r.line}`).join("\n"),
+    ).toBeLessThanOrEqual(7);
+  });
+
+  it("the arm still does not reach the sites the decline is about", () => {
+    // Asserted POSITIVELY per site. "No unknown candidate originates from a
+    // ternary" is green in BOTH directions of the growth it claims to forbid: if
+    // classifyExpression learns to recognise one of these guards, the site
+    // becomes an ACCEPTED candidate rather than an unknown one, and the weaker
+    // assertion never notices.
+    for (const [file, line] of REGISTERED_TERNARIES) {
+      const source = TERNARY_PROJECT.getSourceFileOrThrow(join(process.cwd(), file));
+      const conditional = source
+        .getDescendantsOfKind(SyntaxKind.ConditionalExpression)
+        .find((c) => c.getStartLineNumber() === line);
+      expect(conditional, `${file}:${line} must still be a ternary`).toBeDefined();
+      expect(
+        classifyExpression(conditional!.getCondition(), infraPredicateNames(source)),
+        `${file}:${line} became classifiable — classifyExpression grew, which the decline forbids`,
+      ).toBeNull();
+      expect(
+        CANDIDATE_KEYS.has(`${file}:${line}`),
+        `${file}:${line} became a candidate — the arm reached it`,
+      ).toBe(false);
+    }
+  });
+});
 
 describe("the scanner's population is pinned against resolver drift", () => {
   it("scanCandidates reports exactly 35 candidates", () => {
