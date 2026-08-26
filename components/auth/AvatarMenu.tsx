@@ -443,10 +443,17 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
       ) : null}
 
       {/*
-        Same shape for the switch-person pending state: mounted always, text
-        only while the clear is in flight. Outside the popover AND outside the
-        aria-busy item, because AT may ignore descendant changes under an
-        aria-busy ancestor (the _ClaimedRowButton precedent).
+        ALWAYS MOUNTED, text only while the clear is in flight. A `role="status"`
+        node inserted WITH its message announces nothing, which this repo
+        measured on an inserted status card (components/admin/ReSyncButton.tsx).
+        It sits outside the popover AND outside the aria-busy item, because AT
+        may ignore descendant changes under an aria-busy ancestor (the
+        _ClaimedRowButton precedent).
+
+        This used to read "Same shape for the switch-person pending state",
+        pointing at a theme persist-failure announcer directly above it. That
+        one was removed 2026-08-26 by product ruling, so the reasoning is
+        restated here rather than left pointing at nothing.
       */}
       <span role="status" data-testid="avatar-menu-switch-announcer" className="sr-only">
         {switchPending ? "Switching person" : ""}
