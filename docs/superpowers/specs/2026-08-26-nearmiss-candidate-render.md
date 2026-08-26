@@ -137,8 +137,8 @@ Total over the four input states, stated as a table because this is the assertio
 
 | `detail` | `candidateBand` | slot receives | band renders |
 |---|---|---|---|
-| null | null | `null` | nothing, exactly today's output |
-| non-null | null | `detail` | one band, exactly today's output |
+| null | null | `null` | nothing, exactly today's structure |
+| non-null | null | `detail` | one band, exactly today's structure |
 | null | non-null | `candidateBand` | one band |
 | non-null | non-null | fragment of both | two bands, wrapping |
 
@@ -228,7 +228,7 @@ It takes `unknown` because the jsonb boundary is unvalidated: a warning read bac
 1. **Legacy persistence.** Every `UNKNOWN_FIELD` written to `shows_internal.parse_warnings` before the detector landed on 2026-08-15 has no `candidate` key. Those rows drain as each show re-syncs and its warnings are rewritten, but nothing in the system says every show has re-synced.
 2. **The dev attention gallery.** `spreadWarning` (`lib/dev/attentionScenarios/tier2.ts:604-612`) builds an `UNKNOWN_FIELD` with no `candidate` today and keeps doing so (R8). It renders through the same component.
 
-In both, the card degrades to exactly today's output: one band, or no band, no empty divider, no placeholder, and no copy referring to a suggestion that is not there.
+In both, the card degrades to today's STRUCTURE: one band, or no band, no empty divider, no placeholder. Its TEXT is not today's text, and deliberately so: §6.2 rewrites four shared copy fields precisely because today's text asserts a near-miss that never happened on these cards. Saying "unchanged" here would put the spec at odds with AC-3 and would invite a regression test that freezes the false copy in place.
 
 ---
 
@@ -357,7 +357,7 @@ Every guard below states a premise it can fail on, and is written before its imp
 Pins §3.3's four-row table on the real component:
 
 - A warning WITH a candidate renders `per-show-actionable-candidate-value` with the candidate's text, AND still renders `per-show-actionable-row-label-value`. Both bands, one card.
-- A warning WITHOUT the key renders no `per-show-actionable-candidate`, and the card's remaining output is unchanged.
+- A warning WITHOUT the key renders no `per-show-actionable-candidate`, and the card's remaining STRUCTURE is unchanged: same row-label band, same controls, same deep link. The assertion is on the rendered elements, never on the card's text, because §6.2 moves the text on purpose. A test that pinned the text here would freeze the copy this spec is repairing.
 - **A code with neither a row label nor a candidate renders NO `compact-alert-detail-band` at all.** This is the assertion that catches the fragment trap, and it fails on the naive implementation. Its premise is executable: the case asserts first that the chosen warning reaches the component and renders a card, so a fixture that silently rendered nothing could not pass it vacuously.
 
 This extends coverage that already exists rather than duplicating it. The surface's absence assertions today are `tests/admin/perShowDataQualityActionable.test.tsx:112` (`queryByTestId("per-show-actionable-row-label")` null on a `PULL_SHEET_PARSE_PARTIAL` pipe row) and `tests/components/perShowActionableWarnings.fieldBand.test.tsx:69` (six absent-`field` cases). The empty-fragment case is covered NOWHERE today. `tests/components/admin/compactAlertCard.test.tsx:25-32` tests `null | undefined | false | ""` and nothing else, which is precisely why the naive implementation would ship green.
@@ -380,18 +380,33 @@ Precedent: `tests/components/admin/showpage/unreadCalloutRemoved.test.tsx:23` an
 
 The same three cases against `wizard-step3-card-${dfid}-warning-${i}-candidate`, reading the same shared helper. Same shape, same PR: two render surfaces are one class, and if the guard shape is right on one it is the same shape on the other.
 
-Worth knowing before writing them: the step-3 row-label testid at `components/admin/wizard/step3ReviewSections.tsx:3106` has ZERO assertions anywhere in `tests/`. Its only coverage is by visible text at `tests/components/step3SheetCard.test.tsx:819-820`. So these are the first testid-keyed assertions on that row, and they cannot be modelled on an existing one.
+Worth knowing before writing them: the step-3 row-label testid at `components/admin/wizard/step3ReviewSections.tsx:3106` has ZERO assertions anywhere in `tests/`. Its only coverage is by visible text at `tests/components/step3SheetCard.test.tsx:819-820`.
+
+### 7.4a The AC-8 guard, which none of the above provides
+
+§7.4's cases are keyed on the candidate testid with `UNKNOWN_FIELD` fixtures, so every one of them passes on today's ungated expression. AC-8 needs its own case or it has no guard at all, and invariant 1 is not satisfied by a test that cannot go red:
+
+- A `PULL_SHEET_PARSE_PARTIAL` warning whose `rawSnippet` is a raw pipe row renders NO `wizard-step3-card-${dfid}-warning-${i}-label`. This FAILS today, because `labelFromRawSnippet` runs ungated at `components/admin/wizard/step3ReviewSections.tsx:3103` and returns the first cell.
+- An `UNKNOWN_FIELD` in the SAME render keeps its label. Without this, a gate that suppressed every label would pass, which is the tautology the first assertion invites.
+
+Neither existing suite covers it: `tests/components/step3SheetCard.test.tsx:797-821` asserts only that `UNKNOWN_FIELD` rows keep their labels, and the PULL-sheet absence case at `tests/admin/perShowDataQualityActionable.test.tsx:112` is against `PerShowActionableWarnings`, the surface that already has the gate. So these are the first testid-keyed assertions on that row, and they cannot be modelled on an existing one.
 
 ### 7.5 Real-browser verification
 
 No e2e spec asserts any band on either surface today, so this is new coverage on existing seeding paths rather than a new harness.
 
-| Surface | Spec | Route | How a candidate-bearing warning gets there |
-|---|---|---|---|
-| Per-show card | `tests/e2e/warning-panel-polish.spec.ts` | `/admin?show=<slug>` via `openShowReviewModal` | It already seeds `shows_internal.parse_warnings` directly (`tests/e2e/warning-panel-polish.spec.ts:65-71`, warning literals at `tests/e2e/warning-panel-polish.spec.ts:33-54`). One of those gains a `candidate`; a second `UNKNOWN_FIELD` without one is the absent case in the same render. |
-| Wizard step 3 | `tests/e2e/admin-parse-panel.spec.ts` | `/admin/show/staged/${staged_id}` | It already seeds a `parse_result` (today with no warnings). It gains the same pair. |
+**The two surfaces need different paths, and the reason is a trim gate rather than convenience.** `WarningsBreakdown` computes `visibleWarningRows(warnings, routedWarningsRenderElsewhere)` where the flag comes from React context (`components/admin/wizard/step3ReviewSections.tsx:2907-2908`), and `visibleWarningRows` drops every warn-severity row when it is true (`lib/admin/visibleWarningRows.ts:18-22`). On a published surface it IS true (`components/admin/review/ShowReviewSurface.tsx:271-272`), because those rows already render as actionable section extras. `UNKNOWN_FIELD` is warn-severity, so on `/admin?show=<slug>` it reaches `PerShowActionableWarnings` and is trimmed OUT of the step-3 panel.
 
-Both are real app routes reading real persisted rows, which is what makes them evidence for AC-1 and AC-2 rather than a re-run of the unit assertions in a browser. The narrow-viewport wrap in §9 is asserted here too, since jsdom computes no layout.
+Round 2 caught the consequence: an earlier draft assigned `/admin/show/staged/${stagedId}` to surface B, and that route renders `StagedReviewCard` (`app/admin/show/staged/[stagedId]/page.tsx:281`), which renders `PerShowActionableWarnings` (`components/admin/StagedReviewCard.tsx:534`). It never mounts the wizard line at all, so the evidence would have been for surface A twice.
+
+| Surface | Spec | What renders it | How a candidate-bearing warning gets there |
+|---|---|---|---|
+| Per-show card | `tests/e2e/warning-panel-polish.spec.ts` | `/admin?show=<slug>` via `openShowReviewModal`, section extras | It already seeds `shows_internal.parse_warnings` directly (`tests/e2e/warning-panel-polish.spec.ts:65-71`, warning literals at `tests/e2e/warning-panel-polish.spec.ts:33-54`), and one of those literals is already an `UNKNOWN_FIELD` with no `candidate`, so the absent case is there for free. A fourth entry carrying one gives both states in one render. |
+| Wizard step 3 | `tests/e2e/step3-review-modal.interactions.spec.ts` via `tests/e2e/_step3ReviewModalHarness.tsx` | the harness mounts the real step-3 modal in a real browser | The harness's only warning today is `HARNESS_CREW_WARNING` (`tests/e2e/_step3ReviewModalHarness.tsx:90`), which carries no `rawSnippet`. It gains an `UNKNOWN_FIELD` with a candidate, one without, and one `PULL_SHEET_PARSE_PARTIAL` for AC-8. |
+
+Surface B uses the harness rather than an app route because the trim gate means no PUBLISHED route lists a warn row in that panel, and the only mount where the flag is false is the onboarding wizard, which a spec would have to drive through a full folder-scan flow to reach step 3. The harness mounts the real component in a real browser with real props, which is what AC-6 asks for; what it does not exercise is the route wiring, and this PR does not change the route wiring.
+
+The narrow-viewport wrap from §9 is asserted on surface A, where the two bands sit in one flex container. jsdom computes no layout, so it cannot be asserted anywhere else.
 
 `tests/e2e/compact-alert-card-layout.spec.ts` also renders this component in a standalone esbuild harness with an `UNKNOWN_FIELD` (`tests/e2e/_compactAlertCardLiveEntry.tsx:116-121`). It is deliberately NOT extended: it exists to measure the card shell's layout, and adding product assertions to it would put this spec's regression surface in a file whose subject is something else.
 
@@ -436,7 +451,7 @@ Compound: a card whose Ignore/Report control is mid-transition never changes can
 - **AC-4** Live copy strings pointing Doug at a row he does not have: 7 → 0, counted by §1's command verbatim, including its two path exclusions. The number is stored as that command and not as a literal anywhere else, because a count of occurrences of a string is invalidated by the document that discusses the string.
 
 - **AC-5** All twelve required CI checks green, `x1-catalog-parity` among them.
-- **AC-6** Both bands verified rendered in a real browser, not only in jsdom.
+- **AC-6** Both renders verified in a real browser, not only in jsdom: the band on surface A and the line on surface B. They are different treatments (§4.1), so "both bands" would be wrong about surface B.
 - **AC-7** `/impeccable critique` and `/impeccable audit` both pass on the diff, P0 and P1 fixed in-branch.
 - **AC-8** A `PULL_SHEET_*` warning on the wizard step-3 list renders no row label, where today it renders its `rawSnippet`'s first cell as a fake one. An `UNKNOWN_FIELD` in the same render keeps its label.
 
