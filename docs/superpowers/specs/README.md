@@ -74,6 +74,7 @@ the root of this directory alongside the dated product specs.
 | [`2026-08-21-pane-compaction-send-authorization.md`](./2026-08-21-pane-compaction-send-authorization.md) | Unfences `--checkpoint`/`--compact`/`--resume`: one read-once pass per authorization (a literally atomic snapshot is unobtainable, and the spec says so), addressed payloads, the six probe chains as the acceptance floor. |
 | [`2026-08-24-replacement-string-class-sweep.md`](./2026-08-24-replacement-string-class-sweep.md) | A repo-wide AST judge for `String.replace`'s second argument: a runtime value there is parsed as a substitution grammar, not inserted. 56 offender sites swept, the gate ships `fail`. |
 | [`2026-08-25-ui-polish-class-sweep-design.md`](./2026-08-25-ui-polish-class-sweep-design.md) | Eleven product-facing `BL-` rows, each blocked on a design decision nobody had taken. Takes all eleven decisions, ships the repairs, and states each choice so it can be overridden at review. Adds `--color-control-outline-tinted`; sweeps the alert-pill ladder and the marker-suppressing `<summary>` family. |
+| [`2026-08-26-speclint-dispatch-gates-design.md`](./2026-08-26-speclint-dispatch-gates-design.md) | `codex-guard` refuses a spec/plan dispatch whose artifact carries hard `spec:lint` failures, and requires one to be named; the task-contract AC check gains the declared-but-unclaimed direction behind an opt-in `ac-declared` region, the corpus having ruled out every body grammar at 60 of 100 plans. |
 
 ## Conventions
 

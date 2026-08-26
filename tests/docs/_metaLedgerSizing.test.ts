@@ -69,22 +69,18 @@ describe("ledger sizing guard", () => {
     // Without this, deleting both open ledgers would make every assertion pass.
     const files = openLedgers();
     expect(files).toEqual(["BACKLOG.md", "DEFERRED.md"]);
-    // Per FILE, never on the flat sum: an emptied BACKLOG.md beside a populated
-    // DEFERRED.md must still fail here, and a total floor cannot express that.
-    //
-    // This replaced `openEntries().length > 50`, which was the right intent in the
-    // wrong shape. The OPEN queue is the one ledger population that SHRINKS -- a
-    // graduated row moves to an archive rather than vanishing -- so a magic floor
-    // drifts toward the live count until some arc crosses it. It sat at >50 while
-    // the count was 52, and a two-row graduation reached 50 and redded a guard whose
-    // subject was untouched. Non-emptiness is what the premise actually needs, and
-    // it cannot erode.
-    const rows = openEntries();
+    // PER-FILE non-emptiness, not a corpus count floor. The floor was
+    // `> 50`, which made the premise a function of how much work happens to be
+    // OPEN: main sat at 52 and an ordinary arc archiving three rows dropped it
+    // to 49, reding a guard that had nothing to say about that arc. A count
+    // floor cannot distinguish "the walk broke" — the thing this premise
+    // exists to catch — from "the queue got shorter", which is the outcome the
+    // repo wants. Per-file non-emptiness catches the first and is indifferent
+    // to the second. Ruled fleet-wide 2026-08-26 after the archive in #904 hit
+    // it; no grandfather list, because nothing is being excused.
     for (const file of files) {
-      expect(
-        rows.filter((row) => row.file === file).length,
-        `${file} yielded no entries — the walker or the parser stopped seeing it`,
-      ).toBeGreaterThan(0);
+      const count = openEntries().filter((row) => row.file === file).length;
+      expect(count, `${file} parsed zero entries — the walk is broken`).toBeGreaterThan(0);
     }
   });
 

@@ -317,6 +317,9 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // Enrolled by reviewRoundFiling (enforcement-pair arc): parses literal
   // markdown strings through remark and reaches no member of
   // ENVIRONMENT_SOURCES.
+  // Pure in-memory decision function driven over a shared case table: no
+  // filesystem, no spawn, no env. Measured 0, not estimated.
+  "tests/specLintGate/bridgeParity.test.ts": 0,
   "tests/reviewRounds/filing.test.ts": 0,
   // M-wave 2 W-GUARDS (2026-08-10): both guard-extractor suites are pure by
   // the same rule as the corpus suite — they read the live tree via node:fs
