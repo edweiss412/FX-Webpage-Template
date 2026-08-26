@@ -5369,7 +5369,12 @@ describe("arm 2 - a WHOLE-VALUE accepted expansion has its operand decided", () 
   // section 3.3. The lexer consumes a `${...}` expansion whole and appends the
   // raw slice as ONE opaque word - the property that stops brace-protected
   // whitespace from splitting a redirection target into a phantom argv word,
-  // and it is PRESERVED. Arm 2 adds a DECISION alongside that word: when the
+  // and it is PRESERVED. What moved underneath it is WHERE the expansion ends:
+  // the delimiter walk now delegates to any construct it crosses, so a `}`
+  // inside a nested `$()` no longer ends the expansion early and the "whole"
+  // slice is now whole on the crossing spellings too
+  // (`BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND`). The property is the same;
+  // the reason it holds is not. Arm 2 adds a DECISION alongside that word: when the
   // whole value is one expansion drawn from a six-member ACCEPT-SET, its
   // dequoted operand becomes an ADDITIONAL string tested by the SAME
   // `valueBinds` predicate. The verbatim text is still tested, unchanged.
@@ -6708,7 +6713,12 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
   });
 
   // Diff round 1, finding 1. `matchBraceEnd` asked whether the character it
-  // LANDED on equals the closing delimiter. `matchBrace` returns the final index
+  // LANDED on equals the closing delimiter. It reads the walk's own `closed`
+  // flag instead, and that is what keeps these rows correct now that the walk
+  // DELEGATES to the constructs it crosses: an unclosed foreign construct fails
+  // the enclosing span, so `closed` is false on spellings where the landed-on
+  // character still equals the delimiter. A re-derivation would report them
+  // closed. The original defect was: `matchBrace` returns the final index
   // when it runs out of input, so a span whose last character merely IS that
   // delimiter - escaped, inside an unclosed quote, or closing a NESTED opener -
   // read as closed. The target was then resolved and its bodies collected, and
@@ -6757,6 +6767,167 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
         scanShellIndirection(source, "x.sh").length,
       ]),
     ).toEqual(rows.map(([label]) => [label, 1, 0]));
+  });
+
+  // Design section 2.1's ACCEPT-SET, every row, each one ALONE.
+  //
+  // `matchBraceSpan` counted ONLY its own delimiter pair, so a `}` belonging to a
+  // nested `$()` decremented the enclosing `${` walk to zero and a `)` inside a
+  // nested `${}` closed the enclosing `$(` early. Both readings disagree with
+  // bash, and they disagree in the two directions the consequence bound forbids:
+  // one shape is a SILENT MISS, the other a WRONG ATTRIBUTION.
+  //
+  // EVERY ROW ASSERTS ATTRIBUTION, NOT PRESENCE, and that is load-bearing rather
+  // than thorough. A mis-delimited span still leaves exactly one thing reporting,
+  // so a count-shaped assertion cannot discriminate a boundary defect at all:
+  // eleven of these rows fail on the merge-base walk and several of them fail
+  // while reporting a site, with `nested` false where it must be true. The arc
+  // measured this on its own instrument - the probe's bash-rejected rows were
+  // first written as counts, and BOTH `$$` under-repairs passed the entire probe
+  // because their defect flips `nested` while leaving one site and zero
+  // advisories exactly where they were. Weakening any row here to a count removes
+  // the only thing that catches that row's impostor.
+  //
+  // The population is the probe's, not a hand-built list: `shapes.mts` owns these
+  // ids and a list typed out by hand was wrong in BOTH directions at once,
+  // omitting `P4`/`P5` and including a row the probe classifies as bash-rejected.
+  test("the delimiter walk delegates to the constructs it crosses, and attributes every crossing correctly", () => {
+    const rows: Array<
+      [
+        label: string,
+        source: string,
+        sites: number,
+        nested: boolean | null,
+        nestedInBacktick: boolean | null,
+        advisories: number,
+      ]
+    > = [
+      ["R1-attached", "cat >\"$(echo ${A:-)}; psql -c 'x')\"\n", 1, true, false, 0],
+      ["R1-detached", "cat > \"$(echo ${A:-)}; psql -c 'x')\"\n", 1, true, false, 0],
+      ["R2-attached", "cat >${OUT:-$(echo }; psql -c 'x')}\n", 1, true, false, 0],
+      ["R2-detached", "cat > ${OUT:-$(echo }; psql -c 'x')}\n", 1, true, false, 0],
+      ["R1-bare-word", "echo $(echo ${A:-)}; psql -c 'x')\n", 1, true, false, 0],
+      ["R2-bare-word", "echo ${OUT:-$(echo }; psql -c 'x')}\n", 1, true, false, 0],
+      ["R1-attached-nodq", "cat >$(echo ${A:-)}; psql -c 'x')\n", 1, true, false, 0],
+      ["R2-attached-dq", "cat >\"${OUT:-$(echo }; psql -c 'x')}\"\n", 1, true, false, 0],
+      ["Q1-dq-inside-subst-inside-dq", 'cat >"$(echo ")"; psql -c \'x\')"\n', 1, true, false, 0],
+      ["Q2-backtick-inside-subst", "cat >$(echo `echo )`; psql -c 'x')\n", 1, true, false, 0],
+      [
+        "Q3-subst-inside-backtick-in-brace",
+        "cat >${OUT:-`echo }`; psql -c 'x'}\n",
+        0,
+        null,
+        null,
+        0,
+      ],
+      ["C1-psql-before-crossing", "cat >\"$(psql -c 'x'; echo ${A:-)})\"\n", 1, true, false, 0],
+      ["C2-plain-attached-subst", "cat >\"$(psql -c 'x')\"\n", 1, true, false, 0],
+      ["C3-plain-call", "psql -c 'x'\n", 1, false, false, 0],
+      ["C4-quoted-paren-in-subst", "cat > \"$(echo ')'; psql -c 'x')\"\n", 1, true, false, 0],
+      ["C5-nested-same-pair", "cat > \"$(echo $(echo x); psql -c 'x')\"\n", 1, true, false, 0],
+      [
+        "P4-dollardollar-relexed-operand",
+        'echo ${OUT:-$$(echo ; psql -c "x")}\n',
+        0,
+        null,
+        null,
+        0,
+      ],
+      [
+        "P5-dollardollar-relexed-in-dq",
+        "cat >\"${OUT:-$$(echo ; psql -c 'x')}\"\n",
+        0,
+        null,
+        null,
+        0,
+      ],
+      ["P3-dollardollar-control", "echo $${A:-y}; psql -c 'x'\n", 1, false, false, 0],
+      ["W2k-squote-in-dq-in-subst", "cat >$(echo \"it's\"; psql -c 'x')\n", 1, true, false, 0],
+      ["W2k-squote-in-dq-in-dq-target", 'cat >"$(echo "\'"; psql -c \'x\')"\n', 1, true, false, 0],
+      ["C6-arith-not-subst", "cat >\"$((1+2))\"; psql -c 'x'\n", 1, false, false, 0],
+    ];
+    expect(
+      rows.map(([label, source]) => {
+        const found = sitesIn(source, "x.sh");
+        return [
+          label,
+          found.length,
+          found.length === 1 ? found[0]!.nested : null,
+          found.length === 1 ? found[0]!.nestedInBacktick : null,
+          scanShellIndirection(source, "x.sh").length,
+        ];
+      }),
+    ).toEqual(
+      rows.map(([label, , sites, nested, nestedInBacktick, advisories]) => [
+        label,
+        sites,
+        nested,
+        nestedInBacktick,
+        advisories,
+      ]),
+    );
+  });
+
+  // Diff review round 1, finding 1. The delegation's accept-set carried `$(`
+  // and `${` and stopped there, while `lexShellWords` ALREADY treats `<(` and
+  // `>(` as constructs that EXECUTE their body. Two lists meant to agree did
+  // not, and the gap was a WRONG ATTRIBUTION rather than a missing feature: the
+  // walk counted the `}` INSIDE the process substitution as the enclosing
+  // `${`'s closer and reported the call at top level with `nested: false`.
+  //
+  // Every row here is ONE ORDINARY EDIT from `R2-bare-word` in the accept-set
+  // above -- `$(` becomes `>(` -- which is what makes it a domain probe rather
+  // than a constructed curiosity. Bash was run on each: all three `>(` rows
+  // PARSE and invoke psql exactly once, so `nested: true` is the only correct
+  // reading and the pre-repair `false` was the forbidden direction.
+  //
+  // WHAT THE `<(` ROW DOES NOT PROVE, stated rather than left implied. Its
+  // assertion is about DELIMITER ACCOUNTING, which is deterministic: the walk
+  // must not count the inner `}`. It is NOT an execution oracle -- `<(…)`
+  // starts a process whose output need not land before the parent exits, so
+  // measuring "did psql run" there is a race, and this row deliberately does
+  // not rest on that.
+  test("a process substitution is a construct the walk crosses, not a delimiter it counts", () => {
+    const rows: Array<
+      [label: string, source: string, sites: number, nested: boolean, advisories: number]
+    > = [
+      [
+        "R2 bare word, >( executes and psql runs once",
+        "echo ${OUT:->(echo }; psql -c 'x')}\n",
+        1,
+        true,
+        0,
+      ],
+      ["R2 attached target, >(", "cat >${OUT:->(echo }; psql -c 'x')}\n", 1, true, 0],
+      ["R2 detached target, >(", "cat > ${OUT:->(echo }; psql -c 'x')}\n", 1, true, 0],
+      [
+        "R1 bare word, >( — correct BEFORE the repair too, so it is the control",
+        "echo >(echo ${A:-)}; psql -c 'x')\n",
+        1,
+        true,
+        0,
+      ],
+      [
+        "<( — delimiter accounting only, see the note above",
+        "echo ${OUT:-<(echo }; psql -c 'x')}\n",
+        1,
+        true,
+        0,
+      ],
+    ];
+    expect(
+      rows.map(([label, source]) => {
+        const found = sitesIn(source, "x.sh");
+        return [
+          label,
+          found.length,
+          found.length === 1 ? found[0]!.nested : null,
+          scanShellIndirection(source, "x.sh").length,
+        ];
+      }),
+    ).toEqual(
+      rows.map(([label, , sites, nested, advisories]) => [label, sites, nested, advisories]),
+    );
   });
 
   // Diff round 3. `$((` is ARITHMETIC, not a command substitution, and the

@@ -144,9 +144,25 @@ describe.each(RESOLVED.map((r, i) => [i + 1, r] as const))(
       expect(resolvedRow.element).not.toBeNull();
     });
 
-    it(`carries border-text-faint (${label})`, () => {
+    /**
+     * The token this row wears TODAY, which is `text-faint` for all but the
+     * three that later moved to a tinted plate (`outline` on the census row,
+     * 2026-08-25). Asserting the row's own token rather than a constant is what
+     * keeps this a record of where each swept control ended up; asserting
+     * `text-faint` unconditionally would force the three plate controls out of
+     * the census and lose the fact that they were swept at all.
+     *
+     * The retired token is asserted absent in the same case, so a row cannot
+     * satisfy this by carrying both.
+     */
+    it(`carries its recorded outline token (${label})`, () => {
       expect(resolvedRow.element).not.toBeNull();
-      expect(carries(resolvedRow.element as ScanElement, "border-text-faint")).toBe(true);
+      const element = resolvedRow.element as ScanElement;
+      const expected = `border-${resolvedRow.row.outline ?? "text-faint"}`;
+      const retired =
+        expected === "border-text-faint" ? "border-control-outline-tinted" : "border-text-faint";
+      expect(carries(element, expected)).toBe(true);
+      expect(carries(element, retired)).toBe(false);
     });
 
     /**
@@ -297,20 +313,63 @@ describe("negative control — the assertion can fail", () => {
 
 describe("adjacent tokens survive the swap", () => {
   /**
-   * The census pin checks the token that MOVED. This checks the token that must
-   * NOT. Plan review R3 probed it: corrupting both `max-sm:border-border` tokens
-   * after an otherwise-correct swap leaves every census row reading
-   * `faint=true strong=false`, so the whole suite stays green while ShareHub's
-   * responsive treatment is silently gone (spec §6 records it at 1.27:1).
+   * The census pin checks the token that MOVED. This checks the RESPONSIVE
+   * treatment that must not silently vanish. Plan review R3 probed the original
+   * failure mode: corrupting both `max-sm:` border tokens after an otherwise
+   * correct swap leaves every census row reading `faint=true strong=false`, so
+   * the whole suite stays green while ShareHub's responsive treatment is gone.
+   *
+   * INVERTED 2026-08-25, and the reason is recorded here rather than left to a
+   * blame trail. This case shipped asserting `max-sm:border-border`, because a
+   * ratified decision (spec 2026-07-24-strip-mobile-stacked-band §3 R3, the
+   * in-file comment at ShareHub.tsx:798-801) fenced those two elements out of
+   * the 2026-08-16 and 2026-08-18 sweeps. The cost of that fence was measured
+   * and filed as BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT: ONE button
+   * painting 3.35:1 above 640px and 1.27:1 below it, on the viewport where the
+   * crew-facing half of this product actually lives.
+   *
+   * `feat/ui-polish-class-sweep` took that decision (design doc
+   * 2026-08-25-ui-polish-class-sweep-design.md, D1): DESIGN.md §1.2a's
+   * control-outline rule supersedes R3's border clause. R3 ratified a SPLIT ROW
+   * LAYOUT, and the border colour was one line of skin riding inside it; the
+   * layout is untouched and the border width is still 1px.
+   *
+   * So the assertion moves and the case does NOT weaken. A guard rewritten to
+   * match the change it exists to detect is the failure shape the ledger row
+   * itself names (BACKLOG.md:2091), and the difference is that this one still
+   * fails if BOTH arms lose their responsive outline, still fails if only one
+   * arm moves, and now also fails if either arm keeps the retired token.
    */
-  it("keeps max-sm:border-border on BOTH ShareHub ternary arms", () => {
-    const shareHub = RESOLVED.find(
-      (r) => r.row.file === "components/admin/showpage/ShareHub.tsx",
-    )?.element;
+  const SHARE_HUB = "components/admin/showpage/ShareHub.tsx";
+
+  it("keeps a max-sm outline on BOTH ShareHub ternary arms, at the control token", () => {
+    const shareHub = RESOLVED.find((r) => r.row.file === SHARE_HUB)?.element;
     expect(shareHub).toBeTruthy();
     const element = shareHub as ScanElement;
     premise("ShareHub element carries more than one render alternative", element.paths.length, 1);
-    expect(everyPathCarries(element, "max-sm:border-border")).toBe(true);
+    expect(everyPathCarries(element, "max-sm:border-text-faint")).toBe(true);
+    expect(carries(element, "max-sm:border-border")).toBe(false);
+  });
+
+  /**
+   * The kebab, which the census never held.
+   *
+   * It is a sibling `<button>` in the same band wearing the same `max-sm:`
+   * skin, and it was fenced by the same R3 clause — so D1 settles it by the
+   * same rule, and leaving it out would ship a split treatment inside one row.
+   * Resolved from the scanner directly rather than through `RESOLVED`, because
+   * `CENSUS` holds one ShareHub row (line 781) and adding the kebab to the
+   * census would claim it was part of a 2026-08-16 swap it was not part of.
+   */
+  it("settles the ShareHub kebab by the same rule as the arms", () => {
+    const kebabs = UNIVERSE.filter(
+      (e) => e.file === SHARE_HUB && carries(e, "max-sm:min-w-tap-min"),
+    );
+    premise("the scanner finds the ShareHub kebab", kebabs.length, 0);
+    for (const kebab of kebabs) {
+      expect(everyPathCarries(kebab, "max-sm:border-text-faint")).toBe(true);
+      expect(carries(kebab, "max-sm:border-border")).toBe(false);
+    }
   });
 });
 

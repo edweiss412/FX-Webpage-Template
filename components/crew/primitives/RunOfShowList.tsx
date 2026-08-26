@@ -7,6 +7,7 @@
  *
  * Pure move — behavior identical.
  */
+import { ChevronRight } from "lucide-react";
 import type { JSX } from "react";
 
 import type { AgendaEntry } from "@/lib/parser/types";
@@ -78,11 +79,25 @@ export function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
           }`}
         >
           {isLong ? (
-            <details data-testid="agenda-title-truncated" className="min-w-0">
+            <details data-testid="agenda-title-truncated" className="group min-w-0">
+              {/* The chevron, not the ellipsis, is the fold affordance
+                  (BL-RUNOFSHOW-SUMMARY-NO-MARKER, design doc
+                  2026-08-25-ui-polish-class-sweep-design.md D10). This is the one
+                  DESIGN §1.1a Family S site that suppressed the native marker and
+                  rendered nothing in its place, so on a mobile-first crew surface
+                  the only hint that the title expands was its trailing ellipsis —
+                  a truncation mark, not a control. The site stays in Family S and
+                  keeps its dim tone; what it gains is the affordance the family
+                  already claims carries it. `group` on the <details> is what lets
+                  the chevron rotate on open. */}
               <summary
                 className={`inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center text-sm font-medium ${titleTone} [&::-webkit-details-marker]:hidden`}
               >
                 {`${title.slice(0, TITLE_TRUNCATE_AT)}…`}
+                <ChevronRight
+                  aria-hidden="true"
+                  className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
+                />
               </summary>
               <span className={`text-sm ${titleTone}`}>{title}</span>
             </details>

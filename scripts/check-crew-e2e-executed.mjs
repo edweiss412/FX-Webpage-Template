@@ -25,11 +25,12 @@ import { collectInfraRecoveries, printInfraRecoveries } from "./lib/infraRecover
 // Every count is the spec's FULL executable set, not a floor of 1. Whole-diff review R12 (HIGH):
 // a minimum of 1 let a nested `beforeEach(() => test.skip())` runtime-skip 5 of 6, 5 of 6 and 3 of
 // 4 cases respectively while one cheap case kept the job green — a partially dark suite is the
-// same defect as a wholly dark one, just quieter. picker-flow is 6 because one of its 7 collected
-// cases is the registered static skip (its own comment at picker-flow.spec.ts:354).
+// same defect as a wholly dark one, just quieter. picker-flow is 7 because one of its 8 collected
+// cases is the registered static skip (its own comment in picker-flow.spec.ts, the
+// "Admin Reset + Rotate flow" case).
 export const REQUIRED = {
   "crew-section-toggle.spec.ts": 6,
-  "picker-flow.spec.ts": 6,
+  "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
   "stage-restricted-crew-schedule.spec.ts": 6,

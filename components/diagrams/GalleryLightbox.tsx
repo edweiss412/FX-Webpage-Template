@@ -274,6 +274,14 @@ export function GalleryLightbox({
   // pause so a 1.0 → 2.5 pinch doesn't fire a dozen intermediate
   // announcements).
   const [liveRegionText, setLiveRegionText] = useState("");
+  /**
+   * The pending scale reset came from NAVIGATION, not from a user de-zoom.
+   *
+   * A ref rather than state: it is read inside the debounced announcement below
+   * and must not itself schedule a render, and it is set in an Embla event
+   * handler that already runs outside React's batching.
+   */
+  const navigatedRef = useRef(false);
   // Tracks whether the live region previously announced "Zoomed in"
   // so the de-zoom transition can emit "Zoomed out" without
   // announcing on the initial scale=1 state.
@@ -418,6 +426,10 @@ export function GalleryLightbox({
       // also resets so the next keyboard +/- bases targets on 1.
       setActiveScale(1);
       requestedScaleRef.current = 1;
+      // The announcement is owed by THIS handler, not by the chevrons: a swipe
+      // changes the slide with no button involved, and since the inactive
+      // slides left the accessibility tree the change is otherwise silent.
+      navigatedRef.current = true;
     }
     emblaApi.on("select", onSelect);
     return () => {
@@ -463,7 +475,17 @@ export function GalleryLightbox({
     // outer ref needed. Each scale change cancels its predecessor's
     // pending setTimeout via the cleanup function below.
     const handle = setTimeout(() => {
-      if (isZoomed(activeScale)) {
+      if (navigatedRef.current) {
+        // A navigation-driven reset, so this region says NOTHING. The slide
+        // itself is announced by the page indicator above, which is the element
+        // that displays it; emitting here too would put two polite regions on
+        // one gesture, which is exactly what audit P1-B objected to. And
+        // "Zoomed out" would be wrong on its own terms: the reset came from the
+        // slide change, not from the user zooming out.
+        navigatedRef.current = false;
+        wasAnnouncedZoomedRef.current = false;
+        setLiveRegionText("");
+      } else if (isZoomed(activeScale)) {
         const rounded = Math.round(activeScale * 10) / 10;
         setLiveRegionText(`Zoomed in, ${rounded}x`);
         wasAnnouncedZoomedRef.current = true;
@@ -479,7 +501,7 @@ export function GalleryLightbox({
     return () => {
       clearTimeout(handle);
     };
-  }, [activeScale]);
+  }, [activeScale, activeIndex]);
 
   const scrollPrev = useCallback(() => {
     // Per shape brief: navigation always resets zoom on the OLD slide
@@ -622,15 +644,28 @@ export function GalleryLightbox({
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-text-subtle">Diagrams</span>
           {/*
-            Audit P1-B: removed `aria-live="polite"` from the page
-            indicator. Two competing polite regions (page indicator
-            + zoom region below) interleave on chevron-while-zoomed
-            transitions. Slide change is already user-initiated via
-            the labeled chevron button, so the announcement was
-            redundant. The visible text remains for sighted users.
+            `aria-live="polite"` RESTORED here 2026-08-25, ruled by the owner on
+            BL-LIGHTBOX-INACTIVE-SLIDES-IN-A11Y-TREE: the current slide is
+            announced on every change, from the element that already displays
+            it, so the sighted indicator and the announced one cannot disagree.
+
+            This reverses audit P1-B, and its objection is answered rather than
+            ignored. P1-B removed aria-live for two reasons. The first —
+            "slide change is already user-initiated via the labeled chevron, so
+            the announcement was redundant" — stopped being true in this same
+            commit: inactive slides left the accessibility tree, so a swipe now
+            replaces the only exposed figure with nothing announcing it, and a
+            swipe involves no labeled button at all. The second, that two
+            competing polite regions interleave on a chevron-while-zoomed
+            transition, is a real mechanism and is handled: navigation resets
+            scale to 1, and the zoom region below deliberately stays SILENT on a
+            navigation-driven reset (`navigatedRef`), so exactly one region
+            speaks per gesture-end.
           */}
           <span
             data-testid="lightbox-page-indicator"
+            aria-live="polite"
+            aria-atomic="true"
             className="text-sm font-medium tabular-nums text-text-subtle"
           >
             {activeIndex + 1} of {items.length}
@@ -735,6 +770,17 @@ export function GalleryLightbox({
               return (
                 <figure
                   key={item.id}
+                  // Embla keeps every slide MOUNTED, so without this the whole
+                  // gallery is in the accessibility tree at once: a screen-reader
+                  // user reading the dialog top to bottom meets N figures with
+                  // nothing saying which one the viewport shows, and the chevrons
+                  // move an index nothing in the tree names
+                  // (BL-LIGHTBOX-INACTIVE-SLIDES-IN-A11Y-TREE, design doc
+                  // 2026-08-25-ui-polish-class-sweep-design.md D8). Hiding them
+                  // makes the transition silent, which is why the announcement
+                  // below the Embla `select` handler exists — the two ship
+                  // together or the second half of the problem is worse.
+                  aria-hidden={!isActive}
                   // `relative` is a positioning context only (no offsets, so it
                   // is paint-identical): the demote chip anchors HERE rather
                   // than at the viewport container, or it would hang in place
@@ -770,7 +816,13 @@ export function GalleryLightbox({
                     <div
                       aria-hidden="true"
                       data-testid="lightbox-demote-chip"
-                      className="pointer-events-none absolute inset-x-0 bottom-2 z-dropdown mx-auto w-fit rounded-pill border border-border-strong bg-surface-raised px-4 py-1.5 text-sm font-medium text-text-strong shadow-tile transition-opacity duration-fast ease-out-quart starting:opacity-0"
+                      // border-text-faint, not border-border-strong: this chip
+                      // shares its rounded-pill bg-surface-raised recipe with
+                      // the Reset chip and can be on screen at the same time,
+                      // so §1.2a's pairing clause gives it that control's
+                      // weight (D3). It is still non-interactive chrome, so
+                      // this is hierarchy, not SC 1.4.11.
+                      className="pointer-events-none absolute inset-x-0 bottom-2 z-dropdown mx-auto w-fit rounded-pill border border-text-faint bg-surface-raised px-4 py-1.5 text-sm font-medium text-text-strong shadow-tile transition-opacity duration-fast ease-out-quart starting:opacity-0"
                     >
                       Full detail unavailable
                     </div>

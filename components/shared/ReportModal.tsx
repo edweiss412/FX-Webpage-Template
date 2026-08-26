@@ -623,7 +623,7 @@ export function ReportModal(props: ReportModalProps) {
                 type="button"
                 data-testid="report-modal-start-fresh-cancel"
                 onClick={handleStartFreshCancel}
-                className="inline-flex min-h-tap-min items-center rounded-sm border border-text-faint bg-surface px-3 py-2 font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg"
+                className="inline-flex min-h-tap-min items-center rounded-sm border border-control-outline-tinted bg-surface px-3 py-2 font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg"
               >
                 Cancel
               </button>

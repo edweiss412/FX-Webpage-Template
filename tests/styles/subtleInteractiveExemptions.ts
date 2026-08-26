@@ -97,12 +97,12 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/crew/primitives/RunOfShowList.tsx",
-    line: 82,
+    line: 93,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
     reason:
-      "Run-of-show synthetic-row disclosure header; both caption-like as a fold label and deliberately dim as a synthetic row (DESIGN §1.1a Family S). CAVEAT, recorded rather than papered over: this is the ONE Family S site that suppresses the native marker (`list-none [&::-webkit-details-marker]:hidden`) without rendering a replacement chevron, so the only visible fold cue is the title's trailing ellipsis. Family S names the marker as the affordance, so restoring a cue here — or moving the site out of the family — is a crew-surface design decision, filed as BL-RUNOFSHOW-SUMMARY-NO-MARKER (whole-diff R2 F3)",
+      "Run-of-show synthetic-row disclosure header; both caption-like as a fold label and deliberately dim as a synthetic row (DESIGN §1.1a Family S). The caveat this row used to carry is RESOLVED: it was the one Family S site that suppressed the native marker without rendering a replacement, so the only visible fold cue was the title's trailing ellipsis — a truncation mark, not a control. BL-RUNOFSHOW-SUMMARY-NO-MARKER closed on 2026-08-25 (design doc 2026-08-25-ui-polish-class-sweep-design.md, D10): the site KEEPS Family S and its dim tone and now renders a chevron, so the family's own claim — that the marker and the interaction carry the fold, not label weight — is true of this site again. Pinned by tests/styles/summaryFoldCue.test.ts",
   },
 
   // ---- Family C: dismissable filter chips (1) -----------------------------

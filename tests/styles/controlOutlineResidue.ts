@@ -908,34 +908,13 @@ export const RESIDUE_CENSUS: readonly ResidueRow[] = [
     reason:
       "border-b separates menu rows and last:border-b-0 drops it on the final one; a divider, not a control outline",
   },
-  {
-    file: "components/admin/showpage/ShareHub.tsx",
-    tag: "button",
-    paint: [
-      "bg-surface border border-text-faint hover:bg-surface-sunken max-sm:border max-sm:border-border",
-      "bg-surface border border-text-faint hover:bg-surface-sunken max-sm:border max-sm:border-border",
-      "bg-surface border border-text-faint hover:bg-surface-sunken max-sm:border max-sm:border-border",
-      "bg-surface border border-text-faint hover:bg-surface-sunken max-sm:border max-sm:border-border",
-    ],
-    category: "responsive-skin-filed",
-    reason:
-      "the phone skin's outline weight is filed and fenced by a ratified decision; the desktop rest state is border-text-faint",
-    backlogRef: "BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT",
-  },
-  {
-    file: "components/admin/showpage/ShareHub.tsx",
-    tag: "button",
-    paint: [
-      "bg-surface-sunken max-sm:border max-sm:border-border",
-      "bg-surface-sunken max-sm:border max-sm:border-border",
-      "bg-transparent max-sm:border max-sm:border-border",
-      "bg-transparent max-sm:border max-sm:border-border",
-    ],
-    category: "responsive-skin-filed",
-    reason:
-      "the phone skin's outline weight is filed and fenced by a ratified decision; the desktop rest state is border-text-faint",
-    backlogRef: "BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT",
-  },
+  // The two ShareHub rows that stood here until 2026-08-25 are GONE, and their
+  // absence is the repair rather than an omission: `BL-CONTROL-OUTLINE-SHAREHUB-
+  // MOBILE-SKIN-WEIGHT` closed, both elements now carry `max-sm:border-text-faint`,
+  // and they are no longer residue at all. `responsive-skin-filed` is therefore
+  // an EMPTY category, kept because its bar is what the next filed responsive
+  // skin will be measured against; the suite exercises that bar against a
+  // constructed subject and pins the member count at zero.
   {
     file: "components/admin/telemetry/EventFilters.tsx",
     tag: "button",

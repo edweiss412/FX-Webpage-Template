@@ -38,6 +38,7 @@
 import type { JSX, ReactNode } from "react";
 import {
   Boxes,
+  ChevronRight,
   Frame,
   LayoutGrid,
   Lightbulb,
@@ -395,8 +396,20 @@ export function GearSection({
                                 </span>
                                 <span className="truncate">{c.caseLabel || `Case ${idx + 1}`}</span>
                               </span>
-                              <span className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle tabular-nums">
+                              {/* The item count is a fact, not an affordance:
+                                  this summary suppresses the native marker and
+                                  rendered no replacement (design doc
+                                  2026-08-25-ui-polish-class-sweep-design.md, D10
+                                  — the same shape as
+                                  BL-RUNOFSHOW-SUMMARY-NO-MARKER, swept with it).
+                                  The chevron sits after the count, at the row's
+                                  trailing edge where a disclosure cue is read. */}
+                              <span className="flex shrink-0 items-center gap-1 text-xs font-medium uppercase tracking-eyebrow text-text-subtle tabular-nums">
                                 {c.items.length} {c.items.length === 1 ? "item" : "items"}
+                                <ChevronRight
+                                  aria-hidden="true"
+                                  className="inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
+                                />
                               </span>
                             </summary>
                             <ul className="flex flex-col gap-1.5 border-t border-border p-3  text-sm text-text">
