@@ -227,10 +227,10 @@ RED:
 
 1. `tests/components/admin/useFitWithinClip.test.tsx:281` → `expect(afterMount, "mount measure count changed").toBe(1)`.
 2. Rewrite the comment at `tests/components/admin/useFitWithinClip.test.tsx:276-279`. It currently cites `BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE` as live debt. It must stop citing a row this branch closes, and say instead that one attach is one measure, pinned here so a regression to two is visible rather than absorbed into the coalescing delta below.
-3. Add case (h3): after `view.unmount()`, fire a `window` resize and flush frames; assert `applyCount` did not move. Its red is mutant M3.
+3. Add case (h3): after `view.unmount()`, fire a `window` resize and flush frames; assert `applyCount` did not move. **No mutant kills it** — §5 records M3 as an ACCEPTED GAP for exactly this reason: the teardown has already removed that listener, so nothing calls `apply()` either way. (h3) is a regression pin against a future teardown that stops cancelling, not a mutant-backed case.
 4. Add case (h2): call the ref callback with `null` directly and assert it neither throws nor measures. Its red is mutant M4.
-5. Add case (h14): the LIVE conditional-host harness — the same tree with the overlay behind a flag, which is what all five call sites render. Assert per appearance: one `apply()`, one ancestor walk, and — the load-bearing one — **one owner render pass**, where the counter takes two. The existing always-present harness stays for the cases built on it; this one exists because no consumer uses that shape and spec §0.1's first two drafts drew the wrong conclusion from it. Its red is mutant M12.
-6. Add case (h13): the same conditional-host harness inside `<StrictMode>`, asserting the replay's counts EXACTLY — two applies per appearance and two owner renders, against the current code's one and four. It pins the development cost in the direction it actually moves, so a later change that makes the replay worse is visible rather than absorbed. Its red is mutant M13, and it is the only case that would notice a ref callback that stopped returning its teardown.
+5. Add case (h14): the LIVE conditional-host harness — the same tree with the overlay behind a flag. That is `ReSyncButton`'s shape specifically — **not all five call sites**, which spec §0.1 shows take three distinct lifecycles; (h15)-(h17) in Task 3 cover them one apiece. Assert per appearance: one `apply()`, one ancestor walk, and — the load-bearing one — **one owner render pass**, where the counter takes two. The existing always-present harness stays for the cases built on it; this one exists because spec §0.1's first two drafts drew the wrong conclusion from the always-present shape, which is `AttentionMenuPanel`'s and not nobody's. Its red is mutant M12.
+6. Add case (h13): the same conditional-host harness inside `<StrictMode>`, asserting the replay's counts EXACTLY — two applies per appearance and two owner renders, against the current code's one and four. It pins the development cost in the direction it actually moves, so a later change that makes the replay worse is visible rather than absorbed. It has **no mutant of its own**: plan review R1 proved Strict Mode yields two renders and two applies with or without a returned cleanup, so M13 is repointed to (h21) in §5, which counts disconnects. (h13) pins the replay's COUNTS, which is its own job.
 7. Add case (h12) **before touching the wiring**, per spec §5.1: replace case (d)'s throwaway `ResizeObserver` stub with one that CAPTURES the constructor callback, then invoke it once with the clip ancestor resized and once with the positioned ancestor resized, asserting the cap re-derives from the new geometry each time. This is the only re-measure signal with no behavioural case, and Task 1 is the task that moves it — covering it afterwards would mean the move happened unobserved. Its red is mutant M11, which on the unmodified tree kills nothing at all.
 8. Observe red. Paste every failure line into the commit.
 
@@ -316,11 +316,14 @@ GREEN — `components/admin/useFitWithinClip.ts`:
 
 Verify, each as its own command: the suite; `pnpm vitest run tests/components/_metaScrollNeutralMeasurement.test.ts`; `pnpm exec eslint components/admin/useFitWithinClip.ts` (expect ZERO warnings — the disable comment is what makes that true); `pnpm typecheck`.
 
-Then RUN mutants M1, M3, M4, M5, M11, M12 and M13 against the green tree, confirm each named case goes red, revert each, and paste all seven results into the commit. Two are worth reading twice: M11 must go from killing NOTHING to killing (h12), and M12 must kill (h14) — it is the only guard on the render halving this arc's headline now rests on.
+Then RUN **every mutant whose `Run in` column names Task 1**, read off §5's table rather than
+re-listed here — plan review R1 and R2 both charged this task for carrying a stale copy of those
+pairings after the table was corrected. For each: confirm the case §5 names goes red, revert, paste
+the result. **M11 is the one to read twice**: it must go from killing NOTHING to killing (h12).
 
 ## Task 2 — `apply()` returns the clip it already resolved
 
-<!-- task: red=`pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx` red-state=authored red-target=`components/admin/useFitWithinClip.ts:161` why=`the ref callback re-walks the ancestor chain after apply() already walked it, so the new ancestor-getComputedStyle counter reads two walks where the assertion derives one` ac=AC-2 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx` red-state=authored red-target=`components/admin/useFitWithinClip.ts:203` why=`the returned ref callback is where the second ancestor walk lives once Task 1 has moved it, so the new ancestor-getComputedStyle counter reads two walks where the assertion derives one; this cites the SURVIVING surface, not the line Task 1 deletes (5b)` ac=AC-2 -->
 
 **What is red and why.** After Task 1 the mount still walks twice: once inside `apply()` and once in the wiring, at what is `components/admin/useFitWithinClip.ts:161` on the pre-Task-1 tree. Case (h) is authored in this task and fails on that second walk. It cannot pass by accident: it counts `getComputedStyle` calls on ANCESTORS only, and its expected value is derived, not typed.
 
@@ -398,7 +401,7 @@ migration (mutants A/B in the plan)".
 
 ## Task 3 — transition audit, and the class sweep re-run as a closeout
 
-**Red:** mutants M8, M9 and M10 from §5 — the two that target the compound rows specifically, since a
+**Red:** every mutant whose `Run in` column names Task 3, read off §5's table — the two that target the compound rows specifically, since a
 compound case that only re-proves what (g3) already proves is not worth its line. M8 drops
 `coalescer.cancel()` from the teardown and must turn BOTH (g3) and the new (h5) red; M9 reorders the
 teardown so the `transitionend` listener outlives the cancel and must turn the new (h7) red. Each RUN
@@ -410,41 +413,26 @@ in the file says so today.
 
 The spec's Transition Inventory in full, with the case that covers each. The writing-plans transition-audit rule requires the table in the task body, and requires compound transitions to be exercised, not described.
 
-Eight of twelve ordered pairs are reachable — spec review R1 finding 3 corrected an earlier count of six, and `D → F` / `D → N` are the two it restored. Four are unreachable and are named in the spec rather than elided.
+**The inventory is spec §3.1 and is NOT restated here.** Plan review R1 and R2 both charged this
+section for carrying a stale copy: it still assigned direct `F → N` to family A and `N → F` to family
+B (both are compound `F → D → …`), still claimed `N → D` has no observer, and still cited `(h4)` and
+`(h10)`, two ids that never existed. Every one of those was corrected in the spec rounds and the copy
+did not follow.
 
-| Pair | Treatment | Covered by |
-| --- | --- | --- |
-| U → F | Instant, synchronous, pre-paint; one apply, one walk | (g2), (g), (h) |
-| U → N | Instant; no clip found, no `max-height` written | (b) |
-| F → N | Instant; the stale fit is REMOVED, not retained | family A |
-| N → F | Instant; the re-fit derives from the DECLARED cap | family B |
-| F → D | Teardown: disconnect, unlisten ×2, cancel frame, null the node | (g3), (h3) |
-| N → D | Same teardown; `observer?.` already guards the absent observer | (h4), new here |
-| D → F | The re-attach a `reapplyKey` change or a host reappearing takes | (c), (h8) |
-| D → N | Same, where nothing clips on the new attach | (h10), new here |
-| Compound: `reapplyKey` changes with a frame pending | Detach cancels the frame; re-attach measures synchronously | (h5), new here |
-| Compound: unmount with a frame pending | Frame cancelled; `apply()` never runs on a detached node | (g3) |
-| Compound: `reapplyKey` changes in the same commit that attaches | One attach, one measure | (h6), new here |
-| Compound: `transitionend` mid-teardown | Listener removed before `cancel()`, so a late event cannot schedule | (h7), new here |
-| Compound: conditional host hides and reappears, owner mounted throughout | F → D → F; the teardown's `nodeRef.current = null` sits in between | (h11), new here |
-| Compound: the key and the node drop together | Teardown only, no re-attach. `PublishedToggle`'s close path — one boolean gates both | (h16), close half |
-| Compound: a stable-ref re-render while the DOM's clip status changes | **Nothing happens**, deliberately. The cap corrects on the next signal; the SUBSCRIPTION does not correct at all (spec §7, and `BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION`) | (h19), (h20), whose first assertion is exactly this negative |
+So the audit reads the spec's table and this task carries no second copy. **Two tables that must
+agree will eventually disagree, and the copy is always the one that is wrong.** Open
+`docs/superpowers/specs/2026-08-25-fitwithinclip-measure-class.md` §3.1, work its eight reachable
+edges, its two composites and its seven compound rows, and confirm each case performs the transition
+its row names rather than merely sitting near it.
 
-Nothing animates: every pair is deliberately instant, because the hook exists to write a cap BEFORE paint. There is no `AnimatePresence`, no `exit`/`initial`/`animate` prop, and no ternary render in `components/admin/useFitWithinClip.ts` — `rg -n 'AnimatePresence|initial=|animate=|exit=' components/admin/useFitWithinClip.ts` returns nothing. The audit's finding is therefore "all instant, deliberately", and the four new compound cases are what makes that executable rather than asserted.
+The committed checker settles the id half mechanically:
 
-**(h21)** and **(h22)** cover the two rows spec review R8 found citing ids this arc had never defined, and they correct a claim the inventory carried for four rounds: **state N still holds an observer.** With nothing clipping there is no CLIP to observe, but the POSITIONED ancestor is observed regardless (`components/admin/useFitWithinClip.ts:167-170`), and the teardown disconnects it — measured `constructed=1 observed=[["inner"]]` on the attach and `disconnected=1` on the unmount. (h21) asserts exactly that pair; (h22) asserts the re-attach onto a chain that stopped clipping builds a FRESH observer watching the positioned ancestor alone, disconnects the previous one, and removes the stale cap. Their red is mutant M20.
+```
+$ python3 docs/superpowers/specs/2026-08-25-fitwithinclip-case-id-parity.py
+```
 
-**PROBE DISCIPLINE, learned the hard way in spec review R10 and binding on every probe this plan authors:** give each one a CONTROL row whose expected value is the null result. R10's key/node probe wrapped the hook's ref in a fresh inline arrow per render, so the WRAPPER's identity changed every render and forced the very detach-and-attach it was measuring; it reported that a no-op re-render re-attaches, which is false, and it read exactly like a discovery. The control — `CONTROL_NOTHING_MOVES` must log `[]` — is what caught it. A probe without a null-result control cannot tell its own instrument from its subject.
-
-**Counting note that applies to (h21), (h22) and any case on an UNCLIPPED path:** counting `apply()` by counting `getBoundingClientRect` on the fitted node is valid only where the chain CLIPS. On the no-clip path `apply()` returns before reading that rect (`components/admin/useFitWithinClip.ts:91-96`) and the proxy reports zero for a run that happened — spec review R8 finding 2. Those cases count walk entries instead, and say so in place.
-
-**(h19)** and **(h20)** cover the two SIGNAL-DRIVEN edges spec review R7 established, neither of which had any case. R7's probe is the recipe and the reason: with a stable ref and an unchanged `reapplyKey`, a re-render does NOTHING even when the DOM's clip status changes in that commit, so both cases must be driven by a `window` resize plus a flushed frame, not by the re-render. Each asserts the re-render changed nothing FIRST — that negative is the fact R7 established and is worth pinning — then signals and asserts the cap appears (h19) or is removed (h20). Expected values derive from `computeFittedMaxHeight` against the fixture geometry, never typed. Reds are M18 and M19, and like M11 they kill nothing in today's suite.
-
-The superseded reading, recorded so it is not re-attempted: an earlier draft of (h19) flipped `clips` on a re-render and expected the cap to appear. That would FAIL a correct implementation. `clips` and `reapplyKey` are independent fixture inputs (`tests/components/admin/useFitWithinClip.test.tsx:84`), and changing `reapplyKey` would not fix it either — that routes through a detach, giving `N to D to F` rather than the direct edge.
-
-**M11 and M18 are the two mutants to run FIRST**, because both kill nothing in today's suite: a mutant that already kills something proves the suite has a pin, while a mutant that kills nothing proves it does not.
-
-**(h18)** covers the FOURTH runtime path, which no round raised and which the source sweep found: the hook called with its ref NEVER attached. `PublishedToggle`'s `variant` defaults to `"card"` (`components/admin/PublishedToggle.tsx:98`), and the arm carrying `ref={fitRef}` is behind `if (variant === "inline" || variant === "settings")` (`components/admin/PublishedToggle.tsx:134`) — the file has exactly one `ref={fitRef}`, so the default variant calls the hook and never attaches. (h18) renders that arrangement and asserts zero applies, zero walks, and no throw. Its red is mutant M16. It is the only path where this refactor removes work with no number to show for it: today the layout effect still runs and returns early on the null node; after, nothing runs at all.
+It exits non-zero if §3.1 cites an id nothing defines, and it has a positive control (a planted
+`(h99)` exits 1).
 
 Cases created here, each named in the inventory above, plus the three per-lifecycle count cases spec review R4 forced into existence — **(h15)** the `ReSyncButton` shape, **(h16)** the `PublishedToggle` shape where the key IS the mounting condition, and **(h17)** the `AttentionMenuPanel` shape where the node is present at its owner's first render, which asserts TWO snapshots — the attach against spec §0.1, then the totals after flushing the entrance frame against §0.1a. Spec review R5 established that a single cumulative assertion there is unsatisfiable unless the entrance re-attach is suppressed, and suppressing it would leave the `scale-95` entrance's transformed geometry stale without tripping the floor-clamp diagnostic. Each asserts renders, applies and walks for its own row of spec §0.1, bare and under `<StrictMode>`, against the exact numbers there — including `ReSyncButton`'s dev apply count of 2, pinned AS 2 rather than wished down to 1. Their shared red is mutant M14: an implementation that improves one lifecycle by pessimising another, which every earlier version of this suite would have reported as success because it modelled a single shape. And: **(h4)** the N to D teardown with no observer to disconnect, **(h5)** a `reapplyKey` change with a coalesced frame pending, **(h6)** a `reapplyKey` change landing in the same commit that attaches the node, **(h7)** a `transitionend` arriving mid-teardown, **(h10)** the D to N re-attach where nothing clips on the new attach, and **(h11)** the conditional host hiding and reappearing while the owner stays mounted. The last is the live shape's own compound row and the one the §2.1 probe transcript was rewritten around.
 
@@ -461,7 +449,7 @@ jsdom computes no layout, so spec §3's Dimensional Invariants are settled only 
 Shape, on both surfaces the file can drive — the AttentionMenu scroller (`SCROLLER` against `PANEL`) and the PublishedToggle banner (`TOGGLE_BANNER` against `TOGGLE_CLIP`):
 
 - `page.emulateMedia({ reducedMotion: "reduce" })` and `page.setViewportSize({ width: 390, height: 560 })` FIRST, so the entrance transition cannot distort a sampled rect. Existing cases establish that order (`tests/e2e/popover-clip-fit.spec.ts:252-254`).
-- `page.addInitScript` installs a `requestAnimationFrame` loop that records `{ overlayBottom, clipBottom }` on every frame where both nodes exist. It must be an init script: `openMenu` navigates, and the menu auto-opens on mount, so anything installed afterwards misses the frames under test (§3 fact 2).
+- `page.addInitScript` installs a `requestAnimationFrame` loop that records a row on EVERY frame — `{ present: false }` while either node is missing, `{ present: true, overlayBottom, clipBottom }` once both exist. Recording only the both-exist frames makes the arming premise below unsatisfiable on a correct implementation, which plan review R2 caught. It must be an init script: `openMenu` navigates, and the menu auto-opens on mount, so anything installed afterwards misses the frames under test (§3 fact 2).
 - Drive with the existing `openMenu(page, 10, 10, 10)` / `openToggleBanner(page)` helpers. Read the samples in ONE `page.evaluate`, which is also what keeps both rects from being read at two different scroll positions.
 - Assert three things in this order, per spec §5.2. **(1) ARMING**: the recording contains at least one ABSENT row before its first present row, which is an executable statement that the recorder preceded the appearance. Spec review R4 finding 2 charged the earlier draft for omitting exactly this — "at least one frame was sampled" permits sampling to begin after the overlay corrected itself, which turns this case into a slower copy of the two after-settle cases it exists to complement, and the repo already carried the requirement in prose at `tests/e2e/section-header-reconcile.layout.spec.ts:117-119`. **(2) NON-VACUITY**: at least one PRESENT row exists. **(3) CONTAINMENT**: every present row satisfies `overlayBottom <= clipBottom + 0.5`. Mutant M15 arms the sampler after appearance and must turn (1) red; a sampler that never fired at all must turn (2) red.
 
@@ -506,7 +494,7 @@ the impeccable v3 context load of PRODUCT.md and DESIGN.md (the skill's own setu
 3. Both halves EXTERNALLY attested — never self-attested by the session that wrote the code.
 4. Every P0 and P1 either fixed in this branch or explicitly deferred with a `DEFERRED.md` entry.
 5. Findings and dispositions land in §12 below.
-6. Flip the header marker from `impeccable-gate: PENDING` to the closeout form.
+6. WRITE the marker line into §12 in its RAN form with the real counts. There is nothing to "flip": no marker exists yet, deliberately, because the grammar has no pending form.
 
 Expect the surface to be quiet: the diff removes a `useState` and a `useLayoutEffect` from one hook
 and adds test cases. It renders nothing, changes no class string, no token, no copy and no DOM shape.
@@ -534,10 +522,10 @@ gate:
 | AC-0 | The arc's headline holds on the LIVE conditional-host shape, not only on the unit harness: owner render passes per overlay appearance go 2 to 1 in production and 4 to 2 under Strict Mode, pinned by (h14) and (h13), with mutant M12 as the guard. |
 | AC-0b | The development-only cost is pinned rather than assumed: `apply()` goes 1 to 2 per appearance under Strict Mode's replay, asserted exactly by (h13). Production is unchanged at 1. |
 | AC-1a | All FOUR of the hook's re-measure signals have a behavioural case: `window` resize (f), `transitionend` (e)/(e2)/(g4), `reapplyKey` (c), and the `ResizeObserver` callback (h12) — the last of which had none before this arc and is the wiring the arc relocates. Mutant M11 turns (h12) red where today it turns nothing red. |
-| AC-1 | One ATTACH is one `apply()`, on both harnesses. On the always-present harness that is one per mount, pinned by (g); on the live conditional-host harness it is one per appearance in production and two under Strict Mode's replay, pinned by (h14) and (h13). Mutants M1/M3/M4/M5 each turn a named case red. |
+| AC-1 | One ATTACH is one `apply()`, on both harnesses. On the always-present harness that is one per mount, pinned by (g); on the live conditional-host harness it is one per appearance in production and two under Strict Mode's replay, pinned by (h14) and (h13). Mutants M1, M4 and M5 each turn a named case red; M3 is an accepted gap, recorded in §5 with its reason. |
 | AC-1b | EVERY cell of spec §0.1's table is pinned — both modes, all three metrics. Renders by (h14) and (h13); applies by (g), (h14) and (h13); walks by (h) and (h14). The `reapplyKey` change is pinned by (h8) and the unchanged re-render by (h9). No cell of the acceptance condition is unfalsifiable, which is the defect round 1 charged. |
 | AC-2 | One attach is one ancestor walk, pinned by (h) with a derived expectation, and mutants M2/M7 turn a named case red. |
 | AC-3 | All eight reachable pairs and all SEVEN compound rows (the count is the spec's; plan review R1 caught this table carrying five and this criterion claiming five) have an executable case that ACTUALLY PERFORMS that transition — not one that merely cites a nearby test. Spec review R6 found `N to F` citing a clipped-to-clipped case for six rounds; (h19) closes it and every other row was re-verified against what its cited case does. Mutants M8, M9, M10 and M18 each turn a named one red. |
 | AC-4 | In a real engine, neither overlay is ever painted crossing its clip edge, on any frame from first appearance, and mutant M6 breaks that. |
-| AC-6 | Invariant 8's dual gate has RUN — both halves, externally attested, with findings and dispositions in §12 and the header marker flipped off PENDING. |
+| AC-6 | Invariant 8's dual gate has RUN — both halves, externally attested, findings and dispositions in §12, and a valid RAN-form marker line WRITTEN there, which is what turns `tests/docs/_metaInvariant8Closeout.test.ts` green. |
 | AC-5 | Every gate green as its own command; no new CI wiring needed and the e2e coverage meta-test confirms it. |
