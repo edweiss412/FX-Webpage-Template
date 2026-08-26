@@ -50,3 +50,23 @@ export function tailwindTextAlignUtilities(): string[] {
   }
   return names;
 }
+
+/**
+ * Does a class token set `text-align`, under ANY Tailwind variant?
+ *
+ * Diff review r3 finding 2: the guards compared COMPLETE tokens against the
+ * unprefixed utilities, so `max-sm:text-right` passed while compiling to
+ * `@media (width < 40rem) { text-align: right }` — right-aligned at both of the
+ * widths this arc measures. Variants stack and are open-ended (`sm:`, `max-sm:`,
+ * `dark:`, `group-hover:`, arbitrary `[&>*]:`), so the check cannot enumerate
+ * them either. It strips everything up to the last colon and asks whether what
+ * remains is an alignment utility, which holds for any prefix combination.
+ *
+ * `!` important markers are stripped from both ends too: Tailwind accepts
+ * `!text-right` and `text-right!` depending on version, and both align.
+ */
+export function isTextAlignToken(token: string, utilities: string[]): boolean {
+  const lastColon = token.lastIndexOf(":");
+  const bare = (lastColon === -1 ? token : token.slice(lastColon + 1)).replace(/^!+|!+$/g, "");
+  return utilities.includes(bare);
+}

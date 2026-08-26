@@ -370,6 +370,28 @@ describe("no persist-failure note (removed 2026-08-26)", () => {
     return [...popover.children].map((el) => el.getAttribute("data-testid"));
   }
 
+  /**
+   * Every character the popover renders.
+   *
+   * The structural pins above (live-region set, direct-child set) are necessary
+   * and NOT sufficient: diff review r3 finding 1 planted visible note copy
+   * INSIDE the existing `avatar-menu-items` element, and both arrays stayed
+   * identical while the forbidden sentence rendered. That was the third
+   * appearance of one shape — an assertion covering a specific LOCATION rather
+   * than the PROPERTY "no note copy renders anywhere" — so this one is the
+   * property. Any added copy, at any depth, under any testid, changes this
+   * string.
+   *
+   * A legitimate label change fails here too, and that is correct: a census is
+   * supposed to make anyone editing this menu's copy look at this test.
+   */
+  function popoverText(): string {
+    return screen.getByTestId("avatar-menu-popover").textContent ?? "";
+  }
+
+  /** Captured from the live render, fixture name "Doug L." and role "Lead". */
+  const EXPECTED_POPOVER_TEXT = "Doug L.,  · LeadDark modeNot you? Switch person";
+
   it("renders no extra live region and no extra popover child on a blocked write", () => {
     document.documentElement.dataset.theme = "light";
     blockWrites();
@@ -389,6 +411,8 @@ describe("no persist-failure note (removed 2026-08-26)", () => {
     // Same for the visible note, which used to sit between the identity block
     // and the menu as a popover child of its own.
     expect(popoverChildIds()).toEqual(EXPECTED_POPOVER_CHILD_TESTIDS);
+    // And the property the two structural pins do not cover: no copy anywhere.
+    expect(popoverText()).toBe(EXPECTED_POPOVER_TEXT);
   });
 
   it("mounts no extra live region before the menu is even opened", () => {
@@ -403,6 +427,7 @@ describe("no persist-failure note (removed 2026-08-26)", () => {
     openMenu();
     expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
     expect(popoverChildIds()).toEqual(EXPECTED_POPOVER_CHILD_TESTIDS);
+    expect(popoverText()).toBe(EXPECTED_POPOVER_TEXT);
   });
 
   it("keeps the UNRELATED switch-person announcer working, not merely present", () => {
@@ -431,6 +456,7 @@ describe("no persist-failure note (removed 2026-08-26)", () => {
 
     expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
     expect(popoverChildIds()).toEqual(EXPECTED_POPOVER_CHILD_TESTIDS);
+    expect(popoverText()).toBe(EXPECTED_POPOVER_TEXT);
   });
 });
 

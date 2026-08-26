@@ -28,7 +28,7 @@ vi.mock("@/app/admin/settings/admins/actions", () => ({
 }));
 
 import { RevokeRowButton } from "@/app/admin/settings/admins/RevokeRowButton";
-import { tailwindTextAlignUtilities } from "@/tests/_shared/textAlignUtilities";
+import { isTextAlignToken, tailwindTextAlignUtilities } from "@/tests/_shared/textAlignUtilities";
 
 beforeEach(() => {
   mockState.nextResult = { kind: "ok" };
@@ -330,8 +330,10 @@ describe("RevokeRowButton — the self-last hint starts every line at the same x
     // and recreated the exact defect. The set now comes out of the installed
     // Tailwind's own utility table, so a future alignment utility is covered
     // without anyone remembering to widen a literal.
-    for (const utility of tailwindTextAlignUtilities()) {
-      expect(tokens, `${utility} would re-align the wrapped lines`).not.toContain(utility);
-    }
+    // Variant-aware (diff review r3 finding 2): comparing whole tokens let
+    // `max-sm:text-right` through, which right-aligns at both measured widths.
+    const utilities = tailwindTextAlignUtilities();
+    const aligning = tokens.filter((t) => isTextAlignToken(t, utilities));
+    expect(aligning, "no alignment utility, under any variant prefix").toEqual([]);
   });
 });
