@@ -86,9 +86,12 @@ hardcoded literal that silently contradicts the constant the moment the constant
 **EXTENDS** `tests/mutation/_metaSourceShardIntegrity.test.ts` (one new case; its existing
 byte-identical-template and env-pin cases are exercised over eight files rather than four without
 being edited). **EXTENDS**
-`tests/mutation/source/shardPartition.test.ts` (one case DELETED, one added, Task 2). **EXTENDS**
-`tests/ci/_workflowCoverageScan.ts` (one pinned value text). **CREATES** no new meta-test file: every
-property this diff can break already has a home, and adding a file would be a second place to look.
+`tests/mutation/source/shardPartition.test.ts` (one case DELETED, one added). **EXTENDS**
+`tests/ci/_workflowCoverageScan.ts` (one pinned value text). **EXTENDS** `tests/mutation/_metaSpawnDisposition.test.ts` (one
+`DISPOSITIONS` row). **CREATES** **tests/mutation/_metaShardRangeTracked.test.ts**, and only because
+the spawn-disposition contract forces it: the guard shells out to git, and the file that would
+otherwise have hosted it already carries a blanket `member: false` row that a real spawn would
+contradict. The task says so at the point of the decision.
 
 No Supabase call boundary, no `admin_alerts` row, no advisory lock, no §12.4 catalog row, no
 migration, no UI surface, no React component, no `pg_advisory` path, no new e2e spec.
@@ -136,7 +139,7 @@ both scored nightlies, plus the worst per-leg overhead observed, 216.8 s. The at
 `controlOutlineResidue` at 3,056.9 s of children plus that overhead, 3,273.7 s, which is 90.9%
 of a leg on its own and is why N above 8 buys 24.9 s.
 
-Exact-millisecond check on the equality Task 2 depends on, because the re-arming case at
+Exact-millisecond check on the equality the task depends on, because the re-arming case at
 `shardPartition.test.ts:203` asserts `makespan === heaviest` rather than `>=`:
 
 ```
@@ -147,7 +150,7 @@ n=8 makespan_ms=2443987 heaviest_ms=2443987 equal=true  evenSplit_ms=2331465.3 h
 At four shards that case takes its early-return branch. At eight it takes the `premise(...)` branch
 and asserts equality, which holds exactly. Raising the count therefore RE-ARMS a case that has been
 dormant, which is what its author built it to do, and its stale comment naming "521" and "21
-surfaces" and `SOURCE_SHARD_COUNT = 4` is rewritten in Task 2 rather than left describing a premise
+surfaces" and `SOURCE_SHARD_COUNT = 4` is rewritten by the task rather than left describing a premise
 that no longer applies.
 
 ## Acceptance criteria these tasks discharge
@@ -169,7 +172,7 @@ task region records why the task that would have added it was deleted.
 
 ## Task 1 — eight shards, the partition fits, and the tracked range follows the count
 
-<!-- task: red=`pnpm vitest run tests/mutation/source/shardPartition.test.ts tests/mutation/_metaSourceShardIntegrity.test.ts` red-state=authored red-target=`tests/mutation/source/shardPartition.ts:26` why=`this line holds 4, so the modelled binding leg is 4666275ms against a 3600s budget and the budget assertion written in place of the breach-recording case fails, and the scratch ignore rule keyed to the same count has no relation to it so raising the line makes every added shard file unstageable` ac=AC-1,AC-2,AC-3,AC-4,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/mutation/source/shardPartition.test.ts tests/mutation/_metaSourceShardIntegrity.test.ts tests/mutation/_metaShardRangeTracked.test.ts tests/mutation/_metaSpawnDisposition.test.ts` red-state=authored red-target=`tests/mutation/source/shardPartition.ts:26` why=`this line holds 4, so the modelled binding leg is 4666275ms against a 3600s budget and the budget assertion written in place of the breach-recording case fails, and the scratch ignore rule keyed to the same count has no relation to it so raising the line makes every added shard file unstageable` ac=AC-1,AC-2,AC-3,AC-4,AC-7 -->
 
 **RED, in two recorded steps. Both fail before anything is made to pass, and both go in the
 commit message.**
@@ -236,12 +239,29 @@ looked at a non-empty set before concluding anything, or a `SOURCE_SHARD_COUNT` 
 halves vacuously true. `premiseHolds(description, condition)` from `tests/_shared/premise.ts`,
 which this file already imports.
 
-**Registry fan-out, and it fails by default without this.** `tests/mutation/_metaSpawnDisposition.test.ts`
-walks `tests/mutation/` for child-process call shapes derived from `node:child_process`'s own
-exports, and a new site with no disposition row reds it. The guard's `execFileSync` therefore
-needs a `{ kind: "file", member: true, reason: … }` row in that file's `DISPOSITIONS`, and a
-member row's ceiling claim is CHECKED per hit, so every `execFileSync` call the guard makes passes
-an explicit `timeout`. This was not in the first draft of this plan and would have failed CI.
+**Where the guard lives, which the spawn-disposition contract decides rather than taste.**
+`tests/mutation/_metaSpawnDisposition.test.ts` walks `tests/mutation/` for child-process call
+shapes derived from `node:child_process`'s own exports, and a new site with no disposition row
+reds it. A first draft of this plan put the guard in `_metaSourceShardIntegrity.test.ts` and
+planned a row for it there. That cannot work, and plan review probed why:
+
+- That file already produces one hit, a `RegExp.prototype.exec`, and it already has a file-level
+  row (`_metaSpawnDisposition.test.ts:388`) declaring the whole file `member: false` with
+  `hits: 1` and a digest.
+- File rows match EVERY hit in their file (`rowsFor`), so adding a second file-level row with
+  `member: true` gives both hits two rows, and a `kind: "site"` row does not displace the file
+  row either, it composes with it. The blanket `member: false` claim would then cover a real
+  spawn.
+- Replacing the existing row with `member: true` classifies the regex `exec` as a spawn, and a
+  member row's ceiling claim is checked PER HIT, so the accounting comes up one ceiling short:
+  two spawn hits, one `timeout`.
+
+So the guard goes in a NEW file, **tests/mutation/_metaShardRangeTracked.test.ts**, with its own
+`{ kind: "file", member: true, reason: … }` row in `DISPOSITIONS` and an explicit `timeout` on
+every `execFileSync` call it makes. That is participating in the walker rather than dodging it:
+the new file is walked like any other, and its one row makes exactly one claim about exactly one
+file. It also overrides this plan's earlier "creates no new meta-test file" line, which was a
+preference and loses to a contract.
 
 **GREEN.** Then, in this order, because the order is the point:
 
@@ -334,9 +354,31 @@ shipped one.
 
 `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`, each as its own
 command. Then push, then the real `mutation-harness` run, which the PR fires by path filter without
-a manual dispatch. AC-5 reads its per-leg `elapsed.txt` values. If the measured max leg breaches
-while the model says it fits, N is raised again in this same PR and re-run: the model is evidence,
-the run adjudicates.
+a manual dispatch.
+
+AC-5 reads its per-leg `elapsed.txt` values, and a breach is CLASSIFIED before it is answered,
+because the spec's AC-5 has two branches and only one of them is "raise N". A first draft of this
+closeout said to raise N unconditionally, which contradicts the spec it implements:
+
+- **Divisible.** No single surface on the breaching leg, plus the per-leg overhead, exceeds the
+  budget alone. Raise N in this same PR and re-run.
+- **Indivisible.** Some single surface on that leg does exceed it alone. No N helps, so the
+  response is the spec's L-1 remedies (split the surface, or move the budget with the ceiling
+  relation in lockstep) plus a message to bl-orch, because that is a scope decision this arc does
+  not take alone. Never a filed ledger row.
+
+Before the whole-diff review's `GUARD SURFACE:` line, derive the touched-surface set rather than
+asserting it, with two EXPLICIT SHAS, the merge base and this worktree's local head:
+
+```
+git -C <worktree> rev-parse HEAD
+sh /Users/ericweiss/FX-worktrees/_briefs/seam-inputs.sh <base-sha> <head-sha>
+```
+
+Explicit shas, not `HEAD`: that script runs in the MAIN checkout, so a literal `HEAD` resolves to
+main and reports a false clean seam. Not `origin/<branch>` either: that reads only the pushed head
+and under-reports unpushed commits. The script also reads MAIN's registry, so a surface this branch
+newly enrols is invisible to it and is declared by hand; this branch enrols none.
 
 The `BL-MUTATION-SHARD-BUDGET-AGGREGATE-OVER` row is archived with the decision, the arithmetic and
 the residual. The IN PROGRESS marker comes off in the PR's LAST commit, before any merge. This arc
@@ -344,8 +386,9 @@ does not merge; bl-orch issues the merge word.
 
 ## Plan checklist
 
-- [ ] Every `red=` validated: the `red-state=live` marker observed failing, each `red-state=authored`
-      marker naming a production line that was read rather than resolved.
+- [ ] The single `red=` validated: `spec:lint --exec-red` clean, and the one `red-state=authored`
+      marker names a production line that was read rather than resolved. There is no
+      `red-state=live` marker in this plan; an earlier checklist required observing one.
 - [ ] The prose sweep re-run rather than trusted, and its N/A rows justified individually.
 - [ ] `sourceShardPartition` re-scored, scoped, with the take and release announced to bl-orch.
 - [ ] No `BL-` or `DEF-` row filed, of any facing. Findings repaired here or recorded as documented
