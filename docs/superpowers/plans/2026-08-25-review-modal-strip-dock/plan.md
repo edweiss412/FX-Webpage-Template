@@ -683,7 +683,7 @@ entries, so the marker cannot ride along). This is the PR's last commit, before 
 
 ## §12 Close-out
 
-impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=0 dispositions=none
+impeccable-gate: critique=RAN audit=RAN-DEGRADED p0=0 p1=0 dispositions=4-fixed-5-documented
 
 **Both halves ran and both are declared DEGRADED, with the reason, because a silent
 degraded gate is a failed gate.** The skill requires the critique's two assessments to run
@@ -694,8 +694,22 @@ their transcripts were not recoverable by path. That is a known failure mode on 
 machine, and the honest response is the banner rather than a quiet inline re-run presented
 as a dual-agent result.
 
-⚠️ DEGRADED: single-context (dispatched sub-agents went idle without returning; mechanical
-half re-run inline, design-judgment half is the author's own and is weaker for it)
+⚠️ DEGRADED applies to the AUDIT half only: single-context (its dispatched sub-agents went
+idle without returning; the mechanical half was re-run inline). The CRITIQUE half is NO
+LONGER degraded and the banner above is superseded for it, recorded below.
+
+**The critique half was resolved by a genuinely fresh session, not by relabelling.** Three
+sub-agents dispatched from this session went idle without delivering. Before declaring
+that unrecoverable I scraped for their output rather than trusting the earlier "not
+recoverable by path": zero `isSidechain` records in this session's transcript, and of the
+five unattributed transcripts touched that day the only impeccable-heavy one carried zero
+references to this worktree, so it belonged to another arc. Nothing was recoverable.
+
+Re-running inline would not have upgraded anything — single-context is precisely what the
+banner names — so the orchestrator (pane wP:p1A) dispatched an isolated critique session of
+its own against this worktree at `6da7b6ad4` with the canonical v3 setup gates, and handed
+the findings back for triage. That is a real second context, which is what the invariant
+asks for. Findings: `_briefs/2026-08-26-stripdock-critique-fresh.md`.
 
 **What the mechanical half actually establishes.** All of this was re-run inline and is
 reproducible:
@@ -762,3 +776,91 @@ zero findings. The repairs are `e84b98839`, verified locally for the four in `po
 and by CI's `published-modal-e2e` job for the fifth, which runs under a config the local
 standalone run does not cover. That asymmetry is stated rather than smoothed over: four fixes
 were watched to green on this machine, one was not.
+
+### Fresh-critique triage (invariant 8, design-judgment half)
+
+Findings: `_briefs/2026-08-26-stripdock-critique-fresh.md`. **P0 none, P1 none.** Two P2, four P3,
+two pre-existing adjacent. Dispositions ruled by the orchestrator; repairs are in this branch.
+
+**Repaired in-branch.**
+
+- **F1 (P2) — both static alert pills hard-clipped with no ellipsis.** `truncate` sets
+  `text-overflow: ellipsis` on an `inline-flex` container, but the label is an anonymous flex item
+  and `text-overflow` does not inherit into it, so the browser clipped without drawing an ellipsis:
+  "Alerts unavailab" cut hard against the pill edge below `sm`, where the capped cluster leaves
+  ~108px against a label needing ~124px. This was mine and recent — round 3 added `truncate` to both
+  pills, and the comment justifying it claimed the label "ellipsises rather than overflowing", which
+  was false as written. `truncate` is removed from both; the copy now wraps inside the `min-w-0`
+  box, which keeps shrinking non-destructive and satisfies §3.0's "no copy is cut". The comment is
+  corrected in place rather than deleted, because the false claim is the more useful record.
+- **F3 (P3) — the wrapped attention pill orphaned its middot.** As a standalone flex item the
+  separator could land last on line 1, so a 30-item load at 375px read "● 20 issues ·" over
+  "○ 10 monitoring". Separator and monitoring segment are now bound inside one `inline-flex` item,
+  making them a single wrap unit so the middot leads line 2. Deliberately NOT `display: contents`,
+  which removes the wrapper from layout and hands both children back as separate flex items — the
+  exact orphaning being fixed. The separator stays a real `" · "` text node, visible and announced
+  (#537 space-node rule); hiding it below `sm` would have removed the glyph from the announced string.
+- **F7 (P3) — `StatusStrip` root comments contradicted the shipped layout.** §5 promised these were
+  updated in the same commit and they were not. Both claims were false: `w-full` is now load-bearing
+  (the strip is a flex ITEM of the shell's footer wrapper, `flex flex-wrap items-center`, verified at
+  `PublishedReviewModal.tsx:1181`, and Tailwind v4 does not default `.flex` to `align-items: stretch`),
+  and "the band owns the positioned ancestor" describes nothing since every overlay is portaled and
+  placed against `stripRef`. Both blocks rewritten to name the footer and the placement module.
+
+**Documented limits, no rows filed.**
+
+- **F2 (P2) — portaled overlays land last in the dialog's Tab order.** `createPortal` appends each
+  overlay as the panel's last child, so after a refusal, Tab from the switch visits Re-sync, the
+  sync-status controls and both share-hub triggers before reaching the banner's tabbable scroll
+  region, which is drawn ABOVE the strip. Focus order runs opposite to visual order (WCAG 2.4.3;
+  meaning is preserved, so not a failure, but a visible upward jump). **Class-sweep exception (c):**
+  the clean repair is a dedicated overlay slot between body and footer in the host, and the
+  shell-unchanged ruling fences that surface for this arc. The partial repair was available and was
+  declined on purpose — the shrink-confirm focus idiom (`ReSyncButton.tsx:354-356`) transfers to the
+  two dismiss panels but NOT to the refusal banner, which has no dismiss control, only a `tabIndex={0}`
+  scroll region. Fixing two of three sites and documenting the third is the drip-feed pattern this arc
+  already paid for in rounds 2 and 3. **Probe:** the shrink confirm at `ReSyncButton.tsx:503` is
+  unaffected because it moves focus to "Keep current version" on open, which is what makes the
+  three-site asymmetry visible rather than theoretical. Re-file trigger: the shell fence lifting, or
+  an operator reporting the focus jump.
+- **F4 (P3) — overlay edges sit 12px outside the content column.** `w-full` inside the panel host
+  resolves to `bounds.width` (the panel inset by `VIEWPORT_INSET = 8`), while header, body and strip
+  content sit at `px-tile-pad = 20px`. Cosmetic alignment drift. §3.2 item 5 states the number; it is
+  recorded here as a limit because §10 did not carry it.
+- **F5 (P3) — the clamped title has no on-screen recovery.** Already §10 item 4, with the re-file
+  trigger "an operator reports a title they cannot read". A `title=` tooltip is hover-only, which
+  PRODUCT.md forbids. Accepted; noted so the gate record shows it was considered.
+- **F6 (P3) — an unplaceable geometry hides the overlay behind a dev-only log.** Already §10 item 2:
+  unreachable at every domain viewport after the dock (`spaceAbove` exceeds the banner's natural
+  height at 375x667), and the degenerate path (AC-11) correctly stays visible. Accepted.
+- **F8 and F9 (P3, pre-existing adjacent) — the switch does not `aria-describedby` the refusal banner,
+  and the shrink confirm has no role or accessible name.** Both are unchanged from `origin/main`
+  (`:180` and `:262`); the portal only made them easier to see by putting the panels side by side.
+  Ruled out of this diff's scope and not to be widened into.
+
+**Rulings the gate returned in the arc's favour, fenced against relitigation.**
+
+- **The 6px gap where Re-sync's panels used to abut** (§10 item 1, re-file trigger "the invariant-8
+  impeccable gate rejecting the gap"): **ACCEPTED.** It is the same `GAP` the share-hub popover opens
+  with from this strip, and opening upward from a floor dock, "attached to the strip" is carried by the
+  shared left edge and the warning fill.
+- **The dock's cost on the smallest phone:** Assessment A's ~100px change-list estimate is **REFUTED**
+  from the classes. The old subheader band was `py-2` (16px) and the footer is `pt-3 pb-3` (24px) plus
+  `env(safe-area-inset-bottom)`, which is 0 on a 375x667 home-button phone, so the body loses 8px
+  relative to the band: ~136px against the 143.75px measured in §0. The six-row mobile strip is the
+  ratified stacked-band design and pre-dates this arc.
+
+### The walked-population baseline was missed at first push
+
+`tests/e2e/standalone-baseline.json` is a walked-population identity census, so adding a test case is a
+membership change it must be regenerated for. Round 4's F5 repair parameterized the static-pill
+containment case over both static branches, which added one test, and the baseline was not regenerated.
+CI shard 7/8 caught it (`tests/ci/_metaSpecRegistration.test.ts:83`, 34 local identities against 33
+baseline, the unexpected identity being exactly the new "In sync" case).
+
+Worth recording because the reflex was wrong: a walked-population guard reddening on a PR usually means
+a sibling arc's merge grew the population, and the documented playbook is to prove non-causation. Here
+the population grew because THIS diff added a test. The local standalone run passes at 34 precisely
+because it regenerates nothing and compares nothing — only CI's `--list-check` holds the committed
+census against reality, so "my local run is green" is not evidence about this class at all. Check your
+own diff before reaching for the sibling-merge hypothesis; the inward check is one command.

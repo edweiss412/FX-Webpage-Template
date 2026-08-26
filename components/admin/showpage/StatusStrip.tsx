@@ -225,17 +225,31 @@ export function StatusStrip({
       // (published-review-modal.layout.spec.ts); it superseded T-COPY-FLUSH when
       // the hub absorbed the standalone copy-link.
       //
-      // Honest note: `w-full` is DEFENSIVE, not load-bearing today. The band is
-      // a block-level, non-flex container, so this block-level flex row already
-      // fills it; the flush assertion passes with `w-full` removed. It is kept because
-      // the guarantee would evaporate the moment the band became a flex
-      // container — the strip would then shrink-wrap as a flex item (this
-      // repo's Tailwind v4 does not default `.flex` to align-items: stretch)
-      // and `ml-auto` would flush to the strip's own edge instead.
+      // `w-full` is LOAD-BEARING as of the strip dock, and this comment said the
+      // opposite until diff round 4's critique (F7) caught it. The old text was
+      // written when the strip lived in a block-level, non-flex band, where a
+      // block-level flex row already filled its parent and the flush assertion
+      // passed with `w-full` removed. The strip now lives in the shell's FOOTER
+      // wrapper, which is `flex flex-wrap items-center`
+      // (PublishedReviewModal.tsx, the freshness-band `w-full` note). As a flex
+      // ITEM the strip shrink-wraps without `w-full` — this repo's Tailwind v4
+      // does not default `.flex` to `align-items: stretch` — and `ml-auto` then
+      // flushes to the strip's own edge instead of the band's. The hazard the
+      // old comment called hypothetical is the current layout. AC-4 catches a
+      // deletion, so the blast radius is bounded, but do not delete it.
       //
-      // Deliberately NO `relative` here — that would re-anchor the Task 7
-      // Re-sync overlay to the strip and break its `inset-x-0` full-band width.
-      // The band owns the positioned ancestor.
+      // Deliberately NO `relative` here, but NOT for the reason this comment
+      // used to give (diff round 4 critique, F7). The old text said "the band
+      // owns the positioned ancestor" and that no longer describes anything:
+      // since the dock, no overlay anchors to a positioned ancestor at all.
+      // The refusal banner and Re-sync's three panels are PORTALED into the
+      // panel host and placed by `placeWithinVisibleViewport` against this
+      // strip's rect, which is why `stripRef` is passed to both consumers as
+      // `anchorRef`. `relative` here would still be wrong — it would make this
+      // element a containing block for anything that did fall back to CSS
+      // anchoring — but the live mechanism is the placement module, not an
+      // ancestor chain. `inset-x-0` is gone from POPOVER_POSITION for the same
+      // reason.
       className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap"
     >
       {/* R0 (spec 2026-07-24-strip-mobile-stacked-band §3): mobile-only state

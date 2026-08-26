@@ -1049,28 +1049,46 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   {selfHeal.length > 0 ? (
                     <>
                       {/* Separator only BETWEEN segments — never a leading
-                          glyph on the monitoring-only pill (spec §3.1). */}
-                      {needsYou.length > 0 ? <span className="opacity-50">{" · "}</span> : null}
-                      {/* /80 floor: /70 computes 4.01:1 over --color-warning-bg in
+                          glyph on the monitoring-only pill (spec §3.1).
+                          The `inline-flex` pair wrapper below is load-bearing,
+                          and round 4's critique (F3, P3) is why. As a STANDALONE
+                          flex item the separator could land last on line 1 when
+                          the pill wraps under `max-sm:flex-wrap`, so a 30-item
+                          load at 375px read "● 20 issues ·" / "○ 10 monitoring"
+                          — a dangling middot that scans as a typo. Binding the
+                          separator to the monitoring segment inside ONE flex
+                          item makes them a single wrap unit, so the middot leads
+                          line 2 instead of orphaning on line 1.
+                          NOT `display: contents` — that removes the wrapper from
+                          layout and hands both children back to the parent as
+                          separate flex items, which is exactly the orphaning
+                          this fixes. The separator stays a REAL " · " text node,
+                          visible and announced (#537 space-node rule); hiding it
+                          below `sm` was the other option and would have taken
+                          the glyph out of the announced string. */}
+                      <span className="inline-flex items-center gap-1.5">
+                        {needsYou.length > 0 ? <span className="opacity-50">{" · "}</span> : null}
+                        {/* /80 floor: /70 computes 4.01:1 over --color-warning-bg in
                           light theme (below AA 4.5:1 at text-xs); /80 is ~5.35:1
                           light, higher dark. Impeccable critique P1, 2026-07-22. */}
-                      <span
-                        data-testid="attention-pill-monitoring-segment"
-                        className={`inline-flex items-center gap-1 font-medium ${
-                          monitoringOnly ? "text-text-subtle" : "text-warning-text/80"
-                        }`}
-                      >
-                        {/* hollow positive-tone dot (spec §3.2) — same cue as the
+                        <span
+                          data-testid="attention-pill-monitoring-segment"
+                          className={`inline-flex items-center gap-1 font-medium ${
+                            monitoringOnly ? "text-text-subtle" : "text-warning-text/80"
+                          }`}
+                        >
+                          {/* hollow positive-tone dot (spec §3.2) — same cue as the
                             monitoring-only pill, distinct from the solid review
                             dot. Omitted on the monitoring-only pill, whose
                             LEADING dot is already the hollow cue (no double dot). */}
-                        {monitoringOnly ? null : (
-                          <span
-                            aria-hidden="true"
-                            className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
-                          />
-                        )}
-                        {selfHeal.length > 99 ? "99+" : selfHeal.length} monitoring
+                          {monitoringOnly ? null : (
+                            <span
+                              aria-hidden="true"
+                              className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
+                            />
+                          )}
+                          {selfHeal.length > 99 ? "99+" : selfHeal.length} monitoring
+                        </span>
                       </span>
                       {selfHeal.length > 99 ? (
                         <>
@@ -1108,7 +1126,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                  To-confirm state; the Overview notice card is the detail. */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                className="inline-flex min-w-0 items-center gap-1.5 truncate rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-text-subtle"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-text-subtle"
               >
                 Alerts unavailable
               </span>
@@ -1122,14 +1140,26 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                  unavailable" is ~104px at 12px semibold in Inter, and with
                  padding, the 8px cluster gap and the 44px close target the row
                  reaches ~176px against a 160px cap.
-                 `truncate` is what makes shrinking non-destructive — the label
-                 ellipsises rather than overflowing the cluster and pushing the
-                 close control out. The in-sync branch carries the same fix even
-                 though its shorter copy happens to fit today; that it fits is a
-                 property of the string, not of the layout. */
+                 Round 4's fresh critique (F1, P2) refuted what this comment
+                 used to claim. It said `truncate` made shrinking
+                 non-destructive because the label "ellipsises rather than
+                 overflowing". That is false as written: `truncate` puts
+                 `text-overflow: ellipsis` on this `inline-flex` container, the
+                 label is an ANONYMOUS FLEX ITEM inside it, and `text-overflow`
+                 does not inherit into that item. The browser clipped with no
+                 ellipsis drawn — "Alerts unavailab" cut hard against the pill
+                 edge below `sm`, where the capped cluster leaves ~108px and the
+                 label needs ~124px.
+                 `truncate` is therefore REMOVED from both static pills. Without
+                 `whitespace-nowrap` the copy wraps inside the `min-w-0` box, so
+                 shrinking stays non-destructive AND no copy is cut, which is
+                 what spec §3.0 asks for and what the button pill at :991
+                 already does with `max-sm:flex-wrap`. The in-sync branch gets
+                 the same treatment even though its shorter copy fits today;
+                 that it fits is a property of the string, not of the layout. */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                className="inline-flex min-w-0 items-center gap-1.5 truncate rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-status-positive-text"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-status-positive-text"
               >
                 <span
                   aria-hidden="true"
