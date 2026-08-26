@@ -446,7 +446,7 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     );
   });
 
-  test("390x560: rotating the share link scrolls the popover back to the URL row (SHARELINK-CUE-VISIBILITY-1)", async ({
+  test("390x460: rotating the share link scrolls the popover back to the URL row (SHARELINK-CUE-VISIBILITY-1)", async ({
     page,
   }) => {
     // The cue's whole problem: the URL block sits at the TOP of the popover's
@@ -470,7 +470,19 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
         return r;
       };
     });
-    await page.setViewportSize({ width: 390, height: 560 });
+    // 390x460, NOT 390x560, and the height is MEASURED (spec
+    // docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md §4).
+    // The premise below needs the URL row to sit fully above the scroll range, i.e.
+    // `maxScrollTop > rowBottom`. `rowBottom` is 127, set by the copy and untouched by the
+    // dock. Docking ShareHub's trigger to the panel floor moved the popover to the `top`
+    // side, where the room grows with viewport height faster than the capped body does,
+    // so the taller the viewport, the LESS the popover overflows. That trend is a fitted
+    // observation rather than an identity, so the height is picked from the MEASUREMENTS
+    // and not computed from it. Measured maxScrollTop:
+    // 97 at 560 (the premise cannot hold), 168 at 460, 201 at 420. 460 is the tallest
+    // swept height that clears 127, so it keeps the most of the original phone framing
+    // while restoring a premise that can actually hold.
+    await page.setViewportSize({ width: 390, height: 460 });
     const modal = await openShowReviewModal(page, published.slug, {
       timeoutMs: 30_000,
     });
@@ -502,7 +514,7 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
         rowBottom: rowEl.offsetTop + rowEl.offsetHeight,
       };
     });
-    expect(premise.overflows, "the popover must overflow at 390x560").toBe(true);
+    expect(premise.overflows, "the popover must overflow at 390x460").toBe(true);
     expect(
       premise.rowBottom,
       "the URL row must be scrolled OUT of view before the rotation",
@@ -543,22 +555,59 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     }).toPass({ timeout: 5_000 });
   });
 
-  // ── T-REGROW (spec §2.1.2b) ──────────────────────────────────────────────
-  // The hub's body is NOT static like HoverHelp's: arming Archive swaps a 44px
-  // row for the confirm block (~477 -> 583 border-box, measured). At any
-  // viewport where the IDLE body fits below the trigger, computePopoverPlacement
-  // returns side "bottom" with maxHeight null -- no cap, because none was needed
-  // -- so a placement that only re-measures on VIEWPORT resize keeps that stale
-  // answer and the grown body overhangs the clip edge again. That is the exact
-  // defect this branch exists to close, reappearing in the one interaction the
-  // branch is about, which is why it gets its own case.
+  // ── T-REGROW (spec §2.1.2b, re-derived for the docked anchor) ────────────
+  // The case exists for one defect: the popover's OWN body grows when Archive is
+  // armed (a 44px row becomes the confirm block), and a placement that only
+  // re-runs on VIEWPORT resize keeps its stale answer while the grown body
+  // overhangs. ShareHub.tsx's `bodyObserver` is the mechanism that closes it,
+  // and this case is what proves the mechanism is wired.
   //
-  // The viewport is FOUND, not hardcoded: a fixed height either stops isolating
-  // the case when the copy changes, or silently tests nothing.
-  test("T-REGROW: re-places when the popover's own content grows", async ({ page }) => {
-    // Each ladder rung is a full navigation plus a modal-readiness wait, and the
-    // real run adds one more, so this case needs more than the 60s default.
-    test.setTimeout(240_000);
+  // WHAT CHANGED WITH THE DOCK, and why the old ladder could not simply be
+  // re-tuned. The ladder swept viewports for a height where the idle body fit
+  // its side uncapped and the armed body did not. Docking the strip put the
+  // trigger on the panel floor, so the chosen side is always `top`, the room
+  // there is about `0.85*vh - 70`, and the body is capped by
+  // `max-h-[min(70vh,30rem)]`. The room grows faster than the body, so that
+  // particular state is not reachable at any MEASURED height, and re-tuning the
+  // three ladder rungs would only move them somewhere the measurements give no
+  // reason to expect it either. That is a reason the ladder was not worth
+  // re-tuning; it is NOT load-bearing for anything below, because the
+  // assertions are written against the module's contract rather than against
+  // the arithmetic. Measured table and the regime argument:
+  // docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md §2.
+  //
+  // WHAT REPLACES IT, and why it is stronger than what it replaces. The old
+  // ladder found ONE height and then asserted containment. This asserts the
+  // module's actual placement CONTRACT at four heights spanning both regimes —
+  // capped (420) and uncapped (560, 680, 844):
+  //
+  //   - The GAP to the trigger on the chosen side is exactly GAP. This is the
+  //     assertion the old case was missing, and it is the one a stale placement
+  //     breaks. It is LOAD-BEARING AT 680 AND 844 ONLY, and the sweep does not
+  //     pretend otherwise: at 420 and 560 the class cap holds the idle and armed
+  //     boxes at the same size, so a missing re-place would not move the gap
+  //     there. Those two rungs are carried for the CAP clause below, which is
+  //     the branch they do exercise. The planted-defect run confirms the split —
+  //     disabling ShareHub's bodyObserver fails at 390x680, not before it.
+  //     `lib/popover/position.ts:135` computes
+  //     `y = trigger.top - GAP - effectiveHeight`, so a body that grows without
+  //     re-placing keeps its old `y` and its bottom crosses `trigger.top - GAP`
+  //     by exactly the growth. Containment alone CANNOT see this — the overhang
+  //     is into the trigger, not out of the clip rect, so the body stays inside
+  //     the panel the whole time.
+  //   - A cap is written exactly when the room is short of the body, and when
+  //     written it equals the room.
+  //   - The body is inside the clip rect.
+  //
+  // Deliberately NOT asserted: that any particular regime is reachable. A panel
+  // change that puts a height back into the capped regime is handled by the
+  // contract above rather than falsifying a premise, which is the whole reason
+  // the assertions are written against the contract instead of against the
+  // arithmetic. What IS pinned is that the sweep still exercises the defect:
+  // at least one height must actually grow the body's BOX, or the case is
+  // proving nothing about re-placement and says so.
+  test("T-REGROW: the placement follows the body when its own content grows", async ({ page }) => {
+    test.setTimeout(360_000);
     const measure = () =>
       page.evaluate(() => {
         const body = document.querySelector(
@@ -573,139 +622,136 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
         // stays active on purpose: that is exactly the metric
         // computePopoverPlacement contracts for ("body border-box size with NO
         // inline constraints, class caps active", lib/popover/position.ts:42-43).
-        // Measuring with `maxHeight: none` instead would report a natural height
-        // the placement core never sees, and the case would never isolate.
         const priorMaxH = body.style.maxHeight;
         body.style.maxHeight = "";
         const natural = body.getBoundingClientRect().height;
         body.style.maxHeight = priorMaxH;
         const p = panel.getBoundingClientRect();
         const t = trigger.getBoundingClientRect();
+        const b = body.getBoundingClientRect();
         const boundsBottom = Math.min(p.bottom, window.innerHeight) - 8; // VIEWPORT_INSET
         const boundsTop = Math.max(p.top, 0) + 8;
-        const b = body.getBoundingClientRect();
+        const side = body.dataset["popoverSide"] ?? null;
         return {
           natural,
-          spaceBelow: boundsBottom - t.bottom - 6, // GAP
-          // Added with the dock: the rung that selects a viewport now asks for
-          // the room on whichever side the module CHOSE, and docked at the panel
-          // floor that side is always the one this value describes.
-          spaceAbove: t.top - boundsTop - 6, // GAP
+          side,
+          // Room on whichever side the module chose, computed the way the core
+          // does (lib/popover/position.ts:113-114). Never a named side: a literal
+          // side pins the anchor's position, not the placer.
+          roomOnChosenSide: side === "top" ? t.top - boundsTop - 6 : boundsBottom - t.bottom - 6,
+          // The GAP the core promises on the chosen side. Stale placement moves
+          // this by exactly the amount the body grew.
+          gapToTrigger: side === "top" ? t.top - b.bottom : b.top - t.bottom,
+          boxHeight: b.height,
           boundsTop,
           boundsBottom,
-          side: body.dataset["popoverSide"] ?? null,
           inlineMaxHeight: body.style.maxHeight,
+          scrollHeight: body.scrollHeight,
           bodyTop: b.top,
           bodyBottom: b.bottom,
         };
       });
 
-    const openHub = async (height: number) => {
+    const GAP = 6; // lib/popover/position.ts:16
+    let grewSomewhere = false;
+
+    // 420 is the capped regime, the other three the uncapped one. Both branches
+    // of the module's answer are therefore exercised by the same contract.
+    for (const height of [420, 560, 680, 844]) {
       await page.setViewportSize({ width: 390, height });
       await ensureWatchedFolder();
-      const modal = await openShowReviewModal(page, held.slug, {
-        timeoutMs: 30_000,
-      });
+      const modal = await openShowReviewModal(page, held.slug, { timeoutMs: 30_000 });
       const popover = modal.getByTestId("share-hub-popover");
       await expect(async () => {
         await modal.getByTestId("share-hub-kebab").click();
         await expect(popover).toBeVisible({ timeout: 1500 });
       }).toPass({ timeout: 15_000 });
-      return { modal, popover };
-    };
 
-    // Search for a height where the idle body fits below but the armed one does
-    // not. Both numbers come from the page, so copy changes move the answer
-    // instead of breaking the test.
-    let chosen: number | null = null;
-    // The window is narrow and its location is arithmetic, not guesswork:
-    // spaceBelow grows at 0.85 per viewport px (the panel is max-h-85vh), the
-    // idle body measures ~454 and the class cap pins the armed body at 480, so
-    // "idle fits, armed does not" lives in spaceBelow within [454, 480) --
-    // roughly vh 952..982. Measured at 390x1120: idle 454, armed 480 (583
-    // uncapped), spaceBelow 597. A ladder starting at 1000 sits ENTIRELY above
-    // the window, which is how the first draft of this test silently proved
-    // nothing.
-    for (const height of [955, 965, 975]) {
-      const { modal, popover } = await openHub(height);
       const idle = await measure();
-      if (!idle) continue;
+      expect(idle, `390x${height}: idle measurement returned null`).not.toBeNull();
+      expect(idle!.side, `390x${height}: the module placed the idle popover`).not.toBeNull();
+      // The IDLE cell gets the whole §3 contract too, not merely "a side
+      // exists". Round-3 review: without this, idle/capped and idle/uncapped
+      // are cells the Transition Inventory claims and no assertion owns.
+      expect(idle!.gapToTrigger, `390x${height}: idle GAP is wrong`).toBeCloseTo(6, 0);
+      expect(
+        idle!.inlineMaxHeight !== "",
+        `390x${height}: idle cap must be written iff the room is short`,
+      ).toBe(idle!.roomOnChosenSide < idle!.natural);
+      expect(idle!.bodyTop).toBeGreaterThanOrEqual(idle!.boundsTop - TOL);
+      expect(idle!.bodyBottom).toBeLessThanOrEqual(idle!.boundsBottom + TOL);
+
+      // Arm, then retry the whole measurement: the re-placement is an async
+      // effect DOWNSTREAM of the growth, so confirm-button visibility is not the
+      // settle signal these assertions need. A fixed wait read the
+      // pre-re-placement state on a loaded runner (PR #604). If placement never
+      // re-runs, this block never passes and toPass times out reporting the
+      // gap assertion below, which is the true diagnosis.
+      // `at` is hoisted so every message inside the retry can name the swept
+      // viewport without spending the callback's char budget on it — the settle
+      // guard measures from the arming click to `}).toPass(`, and that budget is
+      // what keeps the retry adjacent to the site it settles.
+      const at = `390x${height}:`;
       await popover.getByTestId("archive-show-button").click();
       await expect(popover.getByTestId("archive-show-confirm-button")).toBeVisible();
-      // Settle on GROWTH, not on a fixed wait: this rung's decision depends on the
-      // armed NATURAL height, and a rung where growth never appears should fail
-      // here rather than silently select a wrong height. The probe and the value
-      // the rung uses are two separate measures on purpose -- a `let` assigned only
-      // inside the callback narrows to `never` on the outside read.
       await expect(async () => {
-        const probe = await measure();
-        expect(probe, "armed measurement returned null").not.toBeNull();
-        expect(probe!.natural, "armed body has not grown past the idle body yet").toBeGreaterThan(
-          idle.natural,
-        );
+        const a = await measure();
+        expect(a, `${at} no measurement`).not.toBeNull();
+        expect(a!.scrollHeight, `${at} grew nothing`).toBeGreaterThan(idle!.scrollHeight);
+        expect(a!.gapToTrigger, `${at} stale placement, GAP broken`).toBeCloseTo(GAP, 0);
+        const short = a!.roomOnChosenSide < a!.natural;
+        expect(a!.inlineMaxHeight !== "", `${at} cap iff room short`).toBe(short);
+        if (short) {
+          expect(Number.parseFloat(a!.inlineMaxHeight), `${at} cap != room`).toBeCloseTo(
+            a!.roomOnChosenSide,
+            0,
+          );
+        }
+        expect(a!.bodyTop).toBeGreaterThanOrEqual(a!.boundsTop - TOL);
+        expect(a!.bodyBottom).toBeLessThanOrEqual(a!.boundsBottom + TOL);
       }).toPass({ timeout: 15_000 });
+
       const armed = await measure();
-      if (!armed) continue;
-      // SIDE-AGNOSTIC since the dock (spec 2026-08-25-review-modal-strip-dock
-      // §3.1). This rung used to require `idle.natural <= idle.spaceBelow`, i.e.
-      // that BELOW was the fitting side. The strip is now docked at the panel
-      // floor, so `spaceBelow` is 0 at every viewport height — measured 0 at
-      // 375x667 in popover-clip-fit.spec.ts's §7 case — and that predicate can
-      // never be satisfied again. It would fail reporting "the armed/idle
-      // height delta may have changed", which is not the cause and would send
-      // the next reader down the wrong path.
-      //
-      // What the rung is actually looking for is a height where the IDLE body
-      // fits on its chosen side and the ARMED body does not, which is what
-      // forces a re-place. Expressed against the room on whichever side the
-      // module picked, that survives the dock unchanged.
-      const idleRoom = idle.side === "top" ? idle.spaceAbove : idle.spaceBelow;
-      if (idle.natural <= idleRoom && idleRoom < armed.natural) {
-        chosen = height;
-        break;
-      }
-      await modal.press("Escape").catch(() => {});
+      if (armed && armed.boxHeight > idle!.boxHeight + TOL) grewSomewhere = true;
+
+      // THE SHRINK DIRECTION. Cancel is reachable (ArchiveShowButton.tsx:336)
+      // and takes the body back from 476/480 to 471,
+      // so at 680 and 844 the box SHRINKS. A placement that does not re-run then
+      // keeps its old `y` and the gap OPENS instead of closing — 11px at 680 and
+      // 15px at 844 — which every assertion above is blind to, because they all
+      // ran while the body was still large. Round-3 review: an ordinary edit that
+      // schedules the body observer only when `scrollHeight` INCREASES passes
+      // both the arming leg and T-TRANSITION while breaking exactly this path.
+      await popover.getByTestId("archive-show-cancel-button").click();
+      await expect(async () => {
+        const c = await measure();
+        expect(c, `390x${height}: no cancel measurement`).not.toBeNull();
+        expect(c!.scrollHeight, `390x${height}: cancel did not shrink`).toBeLessThan(
+          armed!.scrollHeight,
+        );
+        expect(c!.gapToTrigger, `390x${height}: stale after cancel, GAP opened`).toBeCloseTo(6, 0);
+        expect(c!.bodyTop).toBeGreaterThanOrEqual(c!.boundsTop - TOL);
+        expect(c!.bodyBottom).toBeLessThanOrEqual(c!.boundsBottom + TOL);
+      }).toPass({ timeout: 15_000 });
+      // Park on a blank document between rungs. This loop reuses ONE page across
+      // four navigations to the SAME url, and the admin surface performs its own
+      // client-side navigation on mount — which collides with the next rung's
+      // `page.goto` as "Navigation to ... is interrupted by another navigation
+      // to [the same url]", observed on this loop and on the ladder it replaced.
+      // Closing the modal with Escape does NOT fix it: that is itself a route
+      // change (/admin?show=X -> /admin) and races the same way. A blank
+      // document has nothing in flight to collide with.
+      await page.goto("about:blank");
     }
+
+    // Anti-vacuity, at the level of the SWEEP rather than of one height: if no
+    // swept viewport grows the body's BOX, every gap assertion above held
+    // trivially and this case proved nothing about re-placement. It must fail
+    // and say so rather than stay green.
     expect(
-      chosen,
-      "no swept viewport isolates 'idle fits on its chosen side, armed does not'; the armed/idle height delta may have changed",
-    ).not.toBeNull();
-
-    // Real run at the found height.
-    const { popover } = await openHub(chosen!);
-    const idle = await measure();
-    expect(idle).not.toBeNull();
-    // Precondition: a side was chosen and needed NO cap. This is the state that
-    // goes stale; if it ever stops holding the case below proves nothing. The
-    // SIDE is no longer asserted to be a particular one — docked at the panel
-    // floor the hub has no room below it, so the module always picks `top`, and
-    // pinning that here would restate the dock rather than test the re-place.
-    expect(idle!.side, "the module placed the idle popover").not.toBeNull();
-    expect(idle!.inlineMaxHeight, "the idle popover needed no cap").toBe("");
-
-    // Re-placement is an async effect DOWNSTREAM of the growth, so confirm-button
-    // visibility is not the settle signal these assertions need. A fixed wait read
-    // the pre-re-placement state on a loaded runner and failed the clip-rect
-    // assertion (PR #604, lifecycle-layout-e2e / mobile-safari, 24 passed 1 failed,
-    // green on a re-run of the identical tree). Retrying the whole measurement is
-    // what makes a transient state retry while a real regression still fails: if
-    // placement never re-runs, this block never passes and toPass times out with
-    // the same assertion text it reports today.
-    await popover.getByTestId("archive-show-button").click();
-    await expect(popover.getByTestId("archive-show-confirm-button")).toBeVisible();
-    await expect(async () => {
-      const armed = await measure();
-      expect(armed, "armed measurement returned null").not.toBeNull();
-
-      // The invariant: still inside the clip rect after the growth.
-      expect(armed!.bodyTop).toBeGreaterThanOrEqual(armed!.boundsTop - TOL);
-      expect(armed!.bodyBottom).toBeLessThanOrEqual(armed!.boundsBottom + TOL);
-
-      // And it got there by RE-PLACING, not by a CSS cap that happened to bite:
-      // either the side flipped or a fitted max-height was written.
-      const replaced = armed!.side !== idle!.side || armed!.inlineMaxHeight !== "";
-      expect(replaced, "placement did not re-run when the body grew").toBe(true);
-    }).toPass({ timeout: 15_000 });
+      grewSomewhere,
+      "no swept viewport grew the popover's box, so the GAP assertions never exercised a re-place",
+    ).toBe(true);
   });
 
   // ── T-CARET-1 / T-CARET-2 (spec §3) ──────────────────────────────────────
@@ -1212,12 +1258,29 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     await confirm.evaluate((el) => el.setAttribute("data-transition-probe", "1"));
     const before = await page.evaluate(() => {
       const b = document.querySelector('[data-testid="share-hub-popover"]') as HTMLElement;
-      return { side: b.dataset["popoverSide"] ?? null };
+      return { side: b.dataset["popoverSide"] ?? null, cap: b.style.maxHeight };
     });
 
-    // Resize ACROSS the flip boundary: 844 places below, 560 places above.
+    // Resize ACROSS THE CAP BOUNDARY: 844 places uncapped, 420 forces a cap.
+    //
+    // This used to resize 844 -> 560 and read the SIDE flip as its witness. The
+    // dock retired that witness: ShareHub's trigger now sits on the panel floor,
+    // `spaceBelow` measures -2 at every swept height, and the module answers
+    // `top` at 390x{500,560,620,640,680,720,844,955} without exception — so
+    // there is no viewport pair left that flips the side through this component.
+    //
+    // A reachable boundary remains, and it is a boundary of the same kind: the
+    // module writes an INLINE CAP exactly when the room runs out, i.e. when
+    // `0.85*vh - 70 < min(0.7*vh, 480)`. No exact threshold is claimed: the fit
+    // that inequality rests on is a fit, not an identity, so the crossing is
+    // stated as the MEASURED bracket it actually is. Measured caps: none
+    // at 560, `321px` at 460, `288.296875px` at 420. Resizing 844 -> 420 crosses
+    // it, so the module must return a materially different answer, and the cap it
+    // writes is the observable evidence that placement re-ran. Derivation:
+    // docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md §2.
+    //
     // Settle on the TRANSITION having ended, read as a computed style that has
-    // stopped changing across two frames. The resize crosses the flip boundary,
+    // stopped changing across two frames. The resize crosses the cap boundary,
     // so the popover re-places and whatever transitions with it must finish
     // before `after` is sampled.
     //
@@ -1228,7 +1291,7 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     // COMMENTS ABOVE THE ANCHOR: the settle-contract guard requires
     // `}).toPass(` within a fixed window of the settle site, and widening that
     // window for prose would retire the guard.
-    await page.setViewportSize({ width: 390, height: 560 });
+    await page.setViewportSize({ width: 390, height: 420 });
     await expect(async () => {
       const settled = await page.evaluate(async () => {
         const read = () => {
@@ -1255,9 +1318,20 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       const panel = document.querySelector("[data-review-modal-panel]") as HTMLElement;
       const p = panel.getBoundingClientRect();
       const r = b.getBoundingClientRect();
+      const trigger = document.querySelector('[data-testid="share-hub-root"]') as HTMLElement;
+      const t = trigger.getBoundingClientRect();
       return {
         popoverStillOpen: !!b,
         side: b.dataset["popoverSide"] ?? null,
+        cap: b.style.maxHeight,
+        gapToTrigger: b.dataset["popoverSide"] === "top" ? t.top - r.bottom : r.top - t.bottom,
+        // The room the module had on the side it chose, computed the same way
+        // the placement core does: the clip rect inset by VIEWPORT_INSET, minus
+        // the GAP between the trigger and the body.
+        roomOnChosenSide:
+          b.dataset["popoverSide"] === "top"
+            ? t.top - (Math.max(p.top, 0) + 8) - 6
+            : Math.min(p.bottom, window.innerHeight) - 8 - t.bottom - 6,
         confirmStillMounted: !!c,
         sameConfirmNode: c?.getAttribute("data-transition-probe") === "1",
         withinBounds:
@@ -1270,9 +1344,79 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     expect(after.confirmStillMounted, "resize discarded the armed confirm").toBe(true);
     expect(after.sameConfirmNode, "resize REMOUNTED the armed confirm").toBe(true);
     expect(after.withinBounds, "re-placement left the clip rect").toBe(true);
-    // The flip is the observable evidence placement actually re-ran.
-    expect(before.side).toBe("bottom");
-    expect(after.side).toBe("top");
+
+    // The cap crossing is the observable evidence placement actually re-ran.
+    // Premise first: at 844 the room exceeds the body, so the module wrote NO
+    // inline cap. If that ever stops holding, the crossing below proves nothing
+    // and this must fail here rather than pass quietly.
+    expect(before.cap, "at 390x844 the armed popover needed no cap").toBe("");
+    // The witness: after the resize the module wrote one. A placement that never
+    // re-ran would still be carrying the uncapped answer from 844.
+    expect(after.cap, "the resize did not re-place: no cap was written").not.toBe("");
+    // And the cap is the ROOM, not an arbitrary number — which is what tells a
+    // real re-place apart from any stale or hardcoded value that happens to be
+    // non-empty.
+    expect(
+      Number.parseFloat(after.cap),
+      "the written cap is not the room the module had",
+    ).toBeCloseTo(after.roomOnChosenSide, 0);
+    // And the POSITION moved with it. A cap is a size; it says nothing about
+    // where the box sits, so a re-place that wrote the right cap at the wrong
+    // coordinate would pass everything above.
+    expect(after.gapToTrigger, "the re-placed popover does not sit at GAP").toBeCloseTo(6, 0);
+
+    // THE CLEAR DIRECTION, which everything above is blind to. ShareHub writes
+    // the cap in one branch and clears it in ANOTHER —
+    // `body.style.removeProperty("max-height")` (ShareHub.tsx:354), reached only
+    // when the placement comes back uncapped. Deleting that branch leaves every
+    // assertion so far green: the write direction never exercises it, and
+    // T-REGROW opens each of its heights on a fresh page, so it never starts
+    // from a capped state either. Resizing BACK gives the module room again, so
+    // the cap it wrote must go.
+    //
+    // Settled the same way as the flip above, and for the same reason: the
+    // predicate watches the styles stop moving, it does not read the cap. That
+    // is the assertion, and it stays outside.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(async () => {
+      const settled = await page.evaluate(async () => {
+        const read = () => {
+          const el = document.querySelector('[data-testid="share-hub-popover"]');
+          if (!el) return null;
+          const cs = getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return `${cs.transform}|${cs.opacity}|${r.top}|${r.height}`;
+        };
+        const first = read();
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        return first !== null && first === read();
+      });
+      expect(settled, "the popover is still transitioning after the resize back").toBe(true);
+    }).toPass({ timeout: 5_000 });
+
+    const restored = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="share-hub-popover"]') as HTMLElement;
+      const panel = document.querySelector("[data-review-modal-panel]") as HTMLElement;
+      const p = panel.getBoundingClientRect();
+      const r = b.getBoundingClientRect();
+      const trigger = document.querySelector('[data-testid="share-hub-root"]') as HTMLElement;
+      const t = trigger.getBoundingClientRect();
+      return {
+        cap: b.style.maxHeight,
+        gapToTrigger: b.dataset["popoverSide"] === "top" ? t.top - r.bottom : r.top - t.bottom,
+        withinBounds:
+          r.top >= Math.max(p.top, 0) + 8 - 0.5 &&
+          r.bottom <= Math.min(p.bottom, window.innerHeight) - 8 + 0.5,
+      };
+    });
+    expect(restored.cap, "the cap was not CLEARED when the room came back").toBe("");
+    expect(restored.withinBounds, "clearing the cap left the clip rect").toBe(true);
+    // The GAP is what makes clearing the cap a RE-PLACE rather than a style
+    // edit. Round-4 review found the false-green this closes: clear the cap at
+    // 844 while keeping the coordinate computed for 420, and the 480px body is
+    // still contained and still uncapped, sitting roughly 173px off its trigger.
+    // Both assertions above pass on that; this one does not.
+    expect(restored.gapToTrigger, "the cap was cleared without re-placing").toBeCloseTo(6, 0);
   });
 
   // Opener discrimination (whole-diff review, finding 2). The two T-CARET cases
