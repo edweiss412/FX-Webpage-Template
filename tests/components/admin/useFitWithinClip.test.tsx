@@ -12,7 +12,9 @@
  * the extension existing.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+
+import { StrictMode, useEffect, useState } from "react";
 
 import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
 import { premiseHolds } from "../../_shared/premise";
@@ -456,7 +458,7 @@ describe("useFitWithinClip", () => {
     }
   });
 
-  test("(h4) N to D: an observer exists with nothing clipping, and teardown disconnects it", () => {
+  test("(h21) N to D: an observer exists with nothing clipping, and teardown disconnects it", () => {
     // Four rounds of the inventory claimed state N holds no observer. It does:
     // with no clip to watch, the POSITIONED ancestor is watched regardless.
     const observedPer: string[][] = [];
@@ -552,6 +554,225 @@ describe("useFitWithinClip", () => {
     fireEvent(window, new Event("resize"));
     flushFrames();
     expect(fitted.style.maxHeight, "the signal must REMOVE the stale cap").toBe("");
+  });
+
+  test("(h15) the ReSyncButton lifecycle: one render, one apply, one walk per appearance", () => {
+    // No reapplyKey; the node sits behind a flag on the SAME owner. Spec §0.1's
+    // first row. Counts RENDERS as well as applies, because the render halving
+    // is this arc's actual win — the counter fired setAttachCount on every
+    // attach AND detach, each a state update re-rendering the owner subtree.
+    const renderLog: number[] = [];
+    const seen: string[] = [];
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
+      const data = (el as HTMLElement).dataset;
+      const id = data?.["testid"] ?? "";
+      if (id !== "fitted") seen.push(id);
+      const clips = data?.["clips"] === "true";
+      return {
+        overflowX: clips ? "clip" : "visible",
+        overflowY: clips ? "clip" : "visible",
+        maxHeight: id === "fitted" ? `${DECLARED_CAP}px` : "none",
+      } as unknown as CSSStyleDeclaration;
+    });
+    function Resync({ show }: { show: boolean }) {
+      renderLog.push(1);
+      const fit = useFitWithinClip();
+      return (
+        <div data-testid="outer" data-clips="true">
+          <div data-testid="inner">{show ? <div data-testid="fitted" ref={fit} /> : null}</div>
+        </div>
+      );
+    }
+    const view = render(<Resync show={false} />);
+    const base = { r: renderLog.length, a: applyCount, w: seen.length };
+
+    view.rerender(<Resync show />);
+
+    expect(renderLog.length - base.r, "one owner render per appearance").toBe(1);
+    expect(applyCount - base.a, "one apply per appearance").toBe(1);
+    expect(seen.length - base.w, "one ancestor walk per appearance").toBe(2);
+  });
+
+  test("(h16) the PublishedToggle lifecycle: the key IS the mounting condition, both directions", () => {
+    // One boolean gates both the reapplyKey and the node, so the first error is
+    // a key change AND an attach in one commit (one attach, NO detach — nothing
+    // was attached), and the close is a key change AND a detach.
+    const renderLog: number[] = [];
+    function Toggle({ err }: { err: boolean }) {
+      renderLog.push(1);
+      const fit = useFitWithinClip(err);
+      return (
+        <div data-testid="outer" data-clips="true">
+          <div data-testid="inner">{err ? <div data-testid="fitted" ref={fit} /> : null}</div>
+        </div>
+      );
+    }
+    const view = render(<Toggle err={false} />);
+    let base = { r: renderLog.length, a: applyCount };
+
+    view.rerender(<Toggle err />);
+    expect(renderLog.length - base.r, "first error: one owner render").toBe(1);
+    expect(applyCount - base.a, "first error: one apply, not a detach-then-attach").toBe(1);
+
+    base = { r: renderLog.length, a: applyCount };
+    view.rerender(<Toggle err={false} />);
+    expect(renderLog.length - base.r, "close: one owner render").toBe(1);
+    expect(applyCount - base.a, "close: teardown only, no measure").toBe(0);
+  });
+
+  test("(h17) the AttentionMenuPanel lifecycle: node present at ITS first render, then the entrance flip", () => {
+    // The panel mounts only while open and renders the node unconditionally, so
+    // from the hook's owner the node is present at first render — the shape two
+    // drafts of the spec dismissed as used by no route. `entered` then flips
+    // from a mount-scoped rAF, which re-attaches. Both snapshots are asserted
+    // separately: a single cumulative number is unsatisfiable without
+    // suppressing that re-attach, and the re-attach is load-bearing (the
+    // scale-95 entrance distorts the measured rect).
+    const renderLog: number[] = [];
+    function Panel() {
+      renderLog.push(1);
+      const [entered, setEntered] = useState(false);
+      const fit = useFitWithinClip(entered);
+      useEffect(() => {
+        const raf = requestAnimationFrame(() => setEntered(true));
+        return () => cancelAnimationFrame(raf);
+      }, []);
+      return (
+        <div data-testid="outer" data-clips="true">
+          <div data-testid="inner">
+            <div data-testid="fitted" ref={fit} />
+          </div>
+        </div>
+      );
+    }
+    function Host({ open }: { open: boolean }) {
+      return open ? <Panel /> : <div data-testid="outer" data-clips="true" />;
+    }
+
+    const view = render(<Host open={false} />);
+    const base = { r: renderLog.length, a: applyCount };
+
+    view.rerender(<Host open />);
+    expect(renderLog.length - base.r, "attach: one owner render").toBe(1);
+    expect(applyCount - base.a, "attach: one apply").toBe(1);
+
+    act(() => {
+      flushFrames();
+    });
+    expect(renderLog.length - base.r, "settled: two owner renders").toBe(2);
+    expect(applyCount - base.a, "settled: two applies, the entrance re-attach included").toBe(2);
+  });
+
+  test("(h13) Strict Mode replays the cleanup-returning ref, and the counts are pinned AS they are", () => {
+    // React 19 replays a callback ref that returns a cleanup. This is
+    // DEVELOPMENT-only — the symbols are absent from the production react-dom
+    // bundle — so no admin pays it. Pinned at what it actually is rather than
+    // wished down: the ReSyncButton shape's dev apply count goes 1 -> 2, which
+    // is the arc's one regression, and its render count still halves 4 -> 2.
+    const renderLog: number[] = [];
+    function Resync({ show }: { show: boolean }) {
+      renderLog.push(1);
+      const fit = useFitWithinClip();
+      return (
+        <div data-testid="outer" data-clips="true">
+          <div data-testid="inner">{show ? <div data-testid="fitted" ref={fit} /> : null}</div>
+        </div>
+      );
+    }
+    const view = render(
+      <StrictMode>
+        <Resync show={false} />
+      </StrictMode>,
+    );
+    const base = { r: renderLog.length, a: applyCount };
+
+    view.rerender(
+      <StrictMode>
+        <Resync show />
+      </StrictMode>,
+    );
+
+    expect(renderLog.length - base.r, "Strict Mode: two owner renders per appearance").toBe(2);
+    expect(
+      applyCount - base.a,
+      "Strict Mode: the replay costs a second apply, and that is EXPECTED",
+    ).toBe(2);
+  });
+
+  test("(h22) D to N: a re-attach onto a chain that stopped clipping", () => {
+    const observedPer: string[][] = [];
+    let disconnected = 0;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        private mine: string[] = [];
+        constructor(_cb: ResizeObserverCallback) {
+          observedPer.push(this.mine);
+        }
+        observe(t: Element) {
+          this.mine.push((t as HTMLElement).dataset["testid"] ?? "?");
+        }
+        unobserve() {}
+        disconnect() {
+          disconnected += 1;
+        }
+      },
+    );
+
+    const { view, fitted } = withOffsetParent(() => mount({ clips: true, reapplyKey: 1 }));
+    // PREMISE (own inputs): a cap must exist first, or "removed" is vacuous.
+    premiseHolds("a fitted cap exists before the re-attach", fitted.style.maxHeight !== "");
+
+    withOffsetParent(() => view.rerender(<Harness reapplyKey={2} clips={false} />));
+
+    expect(observedPer.length, "the re-attach builds a FRESH observer").toBe(2);
+    expect(
+      observedPer[1],
+      "nothing clips now, so only the positioned ancestor is observed",
+    ).toEqual(["inner"]);
+    expect(disconnected, "the previous observer is disconnected").toBeGreaterThanOrEqual(1);
+    expect(fitted.style.maxHeight, "the stale cap must be removed").toBe("");
+  });
+
+  test("(h8) a reapplyKey change costs one apply and one walk", () => {
+    const seen: string[] = [];
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
+      const data = (el as HTMLElement).dataset;
+      const id = data?.["testid"] ?? "";
+      if (id !== "fitted") seen.push(id);
+      const clips = data?.["clips"] === "true";
+      return {
+        overflowX: clips ? "clip" : "visible",
+        overflowY: clips ? "clip" : "visible",
+        maxHeight: id === "fitted" ? `${DECLARED_CAP}px` : "none",
+      } as unknown as CSSStyleDeclaration;
+    });
+    const { view } = mount({ clips: true, reapplyKey: "closed" });
+    const base = { a: applyCount, w: seen.length };
+
+    view.rerender(<Harness reapplyKey="entered" clips />);
+
+    expect(applyCount - base.a, "a key change costs exactly one apply").toBe(1);
+    expect(seen.length - base.w, "a key change costs exactly one ancestor walk").toBe(2);
+  });
+
+  test("(h14) the live conditional-host shape: ONE owner render per appearance", () => {
+    // The arc's headline in its minimal form. The counter took two.
+    const renderLog: number[] = [];
+    function Owner({ show }: { show: boolean }) {
+      renderLog.push(1);
+      const fit = useFitWithinClip("k");
+      return (
+        <div data-testid="outer" data-clips="true">
+          <div data-testid="inner">{show ? <div data-testid="fitted" ref={fit} /> : null}</div>
+        </div>
+      );
+    }
+    const view = render(<Owner show={false} />);
+    const base = { r: renderLog.length, a: applyCount };
+    view.rerender(<Owner show />);
+    expect(renderLog.length - base.r, "one owner render per appearance").toBe(1);
+    expect(applyCount - base.a, "one apply per appearance").toBe(1);
   });
 
   test("(g4) a non-transform transitionend does not re-measure", () => {
