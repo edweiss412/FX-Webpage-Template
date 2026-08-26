@@ -298,3 +298,39 @@ Without the control the arm is a claim about this branch; with it, it is a check
 - Stage explicit paths, never `git add -A`: `tests/specLint/cli.test.ts` writes scratch inside the tracked tree during a full run.
 - Before every codex-guard dispatch, grep the brief and print counts for REVIEWER ONLY, the consequence bound, `PROBE DOMAIN:`, the threat fence, and the VERDICT/FINDINGS instruction. Every count must be 1.
 - Run the guard that READS a surface before designing against it. Two review rounds here were spent on shapes an existing guard already rejected.
+
+## 12. Closeout
+
+impeccable-gate: N/A — no UI surface
+
+The diff touches no file under `app/` outside `app/api/**`, nothing under `components/`, and neither `app/globals.css`, `DESIGN.md` nor a Tailwind config. `playwright.config.ts` and `.github/workflows/app-e2e.yml` are test and CI infrastructure, not UI surfaces under invariant 8's definition.
+
+### AC-4's end-to-end capture proof, run 2026-08-26
+
+The only claim in this arc whose evidence is a transcript rather than an assertion, because no CI assertion can supply it: the spec measures 2 to 6 ambient faults per attempt, so a CI grep finding the code proves the gateway faulted, never that the injected request produced the record. The proof is the DIFFERENCE between an injected run and a control.
+
+```
+$ BASELINE_SERVER_ONLY=1 TEST_DATABASE_URL=<local> DATABASE_URL=<local> \
+    pnpm heavy pnpm exec playwright test tests/e2e/admin-upstream-retry.spec.ts \
+    --project=desktop-chromium --retries=0 > injected.log 2>&1
+$ grep -c 'SUPABASE_UPSTREAM_FAULT' injected.log
+10
+
+$ ... tests/e2e/admin-layout.spec.ts ... > control.log 2>&1
+$ grep -c 'SUPABASE_UPSTREAM_FAULT' control.log
+0
+```
+
+Sample captured record, showing the whole chain intact — the observer's emit, through `log.debug` to the Next server's stdout, through Playwright's `stdout: "pipe"` forwarding, into the redirected log:
+
+```
+[WebServer]   code: 'SUPABASE_UPSTREAM_FAULT',
+```
+
+**Injected 10, control 0.** The records are attributable to the injection rather than to ambient traffic, which is the property the count alone cannot establish. An earlier run of the same injected spec under the default DSN posture yielded 12, and the difference between 10 and 12 is the run's own retry behaviour rather than anything about the chain.
+
+### One pre-existing failure, isolated rather than assumed
+
+Two cases in `tests/e2e/admin-upstream-retry.spec.ts` fail locally (`locator('main')` not visible on the admin page). They are NOT caused by this diff, and that was established by isolation rather than by argument: reverting `lib/supabase/server.ts` to `origin/main`'s version and re-running the same command produces the identical two failures.
+
+Pinning both DSNs at the local stack did not change it either, so it is not the `TEST_DATABASE_URL` split the batch-2 spec records as a documented limit of local probing. Left as an observation about this local environment; the spec is a required app-e2e member and CI is the authority on it.
