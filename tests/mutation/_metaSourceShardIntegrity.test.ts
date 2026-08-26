@@ -37,6 +37,8 @@ type Step = {
 };
 type Job = {
   "timeout-minutes"?: number;
+  /** The JOB's own condition, distinct from any step's. Pinned by the PR-narrowing cases. */
+  if?: string;
   strategy?: { matrix?: Record<string, unknown>; "fail-fast"?: boolean };
   needs?: string[];
   steps?: Step[];
@@ -559,5 +561,99 @@ describe("mutation-harness matrices are pinned to their constants", () => {
       .map((j) => `${j.name}: ${j.minutes ?? "(absent)"}min < ${requiredSeconds / 60}min required`);
 
     expect(offenders.join("\n"), "legs whose ceiling can cancel a budget breach").toBe("");
+  });
+});
+
+describe("source-shards stands up the environment its enrolled surfaces need", () => {
+  // WHY. `retryableRpcVolatilityScan`'s deciding suite opens a real Postgres
+  // connection and FAILS rather than skipping when the catalog is unreachable
+  // -- a ratified choice, because a skip would leave the retry set unverified
+  // while the suite reported pass. This job stood up no database, so that
+  // surface failed its baseline on every run and took its co-tenants' verdicts
+  // with it. Same defect one dependency later than the chromium pair already
+  // here, which #885 introduced and this job's own comment records.
+  const steps = wf.jobs["source-shards"]?.steps ?? [];
+
+  it("installs the Supabase CLI at the SAME version unit-suite-db pins", () => {
+    // Read from the other workflow, never hardcoded here. The failure this
+    // guards is the two drifting apart: this job would then bootstrap with a CLI
+    // the shared script was never exercised against, and the divergence would be
+    // invisible until a nightly went red for a reason nobody could place.
+    const unitSuite = parseYaml(
+      readFileSync(join(ROOT, ".github/workflows/unit-suite.yml"), "utf8"),
+    ) as { jobs: Record<string, Job> };
+    const pinnedThere = (unitSuite.jobs["unit-suite-db"]?.steps ?? []).find((x) =>
+      (x.uses ?? "").startsWith("supabase/setup-cli"),
+    );
+    premiseHolds(
+      "unit-suite-db pins a Supabase CLI version",
+      pinnedThere?.with?.version !== undefined,
+    );
+    const here = steps.find((x) => (x.uses ?? "").startsWith("supabase/setup-cli"));
+    expect(here, "source-shards installs no Supabase CLI").toBeDefined();
+    expect(here!.with?.version).toBe(pinnedThere!.with!.version);
+  });
+
+  it("installs psql and runs the SHARED bootstrap, not a second copy of its steps", () => {
+    // The shared script is what keeps the guarded-migration hold-aside list from
+    // drifting between workflows; an inlined `supabase start` here would be a
+    // second copy of that list with nothing keeping them equal.
+    const runs = steps.map((x) => x.run ?? "");
+    expect(runs.some((r) => r.includes("postgresql-client"))).toBe(true);
+    expect(runs.some((r) => r.includes("scripts/ci/supabase-local-bootstrap.sh"))).toBe(true);
+  });
+
+  it("adds all of that WITHOUT disturbing the step accounting this file pins", () => {
+    // Same case, deliberately: a repair that satisfies the requirements above by
+    // breaking the contract below must not be able to pass. `steps[0]` is the
+    // elapsed stamp the budget job reads, and exactly one step may write the job
+    // environment -- a second writer silently overwrites the stamp and every
+    // leg's recorded seconds become setup-exclusive without anything failing.
+    expect(steps[0]?.id).toBe("stamp-start");
+    expect(steps.filter((x) => (x.run ?? "").includes("GITHUB_ENV"))).toHaveLength(1);
+  });
+});
+
+describe("the long legs are nightly-only; pull requests get the gates smoke leg", () => {
+  // Ruled 2026-08-26. The full matrix ran on every harness-touching pull
+  // request, and those legs competed with that PR's own required checks: 16
+  // full-matrix fan-outs on 2026-08-26 alone, eleven cancelled by the next push
+  // before producing any verdict. The trigger and its ten path globs are NOT
+  // narrowed -- each covers a path whose edit can change a verdict, and three of
+  // them are pinned by name below. The narrowing is at the JOB.
+  const GATE = "github.event_name != 'pull_request'";
+
+  it("gates parser-shards and source-shards on the event", () => {
+    expect(wf.jobs["parser-shards"]?.if?.trim()).toBe(GATE);
+    expect(wf.jobs["source-shards"]?.if?.trim()).toBe(GATE);
+  });
+
+  it("gates budget WITHOUT dropping always(), which is load-bearing", () => {
+    // budget already carries `if: always()`, and a job cannot have two `if:`
+    // keys. Replacing rather than composing would skip the job whenever a
+    // prerequisite fails or skips -- exactly when its completeness and
+    // rate-drift reporting matter. Composed, by equality on the whole string.
+    const cond = (wf.jobs["budget"]?.if ?? "").replace(/\s+/g, " ").trim();
+    expect(cond).toBe("${{ always() && github.event_name != 'pull_request' }}");
+  });
+
+  it("leaves the two gates jobs UNCONDITIONAL, or a PR gets no harness signal at all", () => {
+    // The other direction, and the one an over-broad edit fails: gating
+    // everything would make the narrowing total. These two are the smoke leg --
+    // 333 s and 38 s measured on run 32958581720 -- and they carry the
+    // structural signal a harness-touching PR still needs.
+    expect(wf.jobs["parser-gates"]?.if).toBeUndefined();
+    expect(wf.jobs["source-gates"]?.if).toBeUndefined();
+  });
+
+  it("does not pay for the narrowing out of the path filter's coverage", () => {
+    // Same case as the gating above, deliberately. A "narrowing" that deleted
+    // globs would trade a capacity problem for a coverage hole: a harness edit
+    // under a dropped glob would fire nothing at all, not even the smoke leg.
+    const paths = wf.on?.pull_request?.paths ?? [];
+    expect(paths).toHaveLength(10);
+    expect(paths).toContain("tests/mutation/**");
+    expect(paths).toContain(".github/workflows/mutation-harness.yml");
+    expect(paths).toContain("lib/mutationWeight/**");
   });
 });

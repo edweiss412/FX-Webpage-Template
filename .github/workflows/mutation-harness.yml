@@ -69,6 +69,10 @@ jobs:
   # PARSER fixture-mutation harness: 8 LPT shards + 1 generation-only gates file.
   # ---------------------------------------------------------------------------
   parser-shards:
+    # NIGHTLY-ONLY on pull requests, ruled 2026-08-26. See the note on
+    # `source-shards` below for the measurement, what a PR loses, and the
+    # `workflow_dispatch` escape.
+    if: github.event_name != 'pull_request'
     # fail-fast:false — a red shard must NOT cancel its siblings. Cancelling them
     # turns one known failure into eleven unknown ones and destroys the failure
     # signature the close-out compares against.
@@ -152,6 +156,34 @@ jobs:
   # no committed weight table (tests/mutation/source/shardPartition.ts).
   # ---------------------------------------------------------------------------
   source-shards:
+    # NIGHTLY-ONLY on pull requests, ruled 2026-08-26.
+    #
+    # The full matrix is 20 job rows, 18 of them full test legs, and it ran on
+    # EVERY harness-touching PR -- competing with that PR's own required checks.
+    # Measured 2026-08-26: 16 full-matrix fan-outs in one day across four
+    # branches, ELEVEN cancelled by the next push before producing any verdict.
+    # A harness-touching PR now sends 2 jobs to runners instead of 19 (`notify`
+    # was already skipped on PRs, so it never cost a runner).
+    #
+    # The TRIGGER and its ten path globs are deliberately unchanged: each covers
+    # a path whose edit can change a verdict, and dropping globs would trade a
+    # capacity problem for a coverage hole. The narrowing is at the job.
+    #
+    # WHAT A PULL REQUEST NO LONGER SEES, named because it does lose something:
+    # the mutation SCORES; anything that exists only in a shard job's setup
+    # (including the database bring-up below); artifact upload actually working,
+    # whose hidden-file exclusion is observable only in a real Actions run;
+    # elapsed.txt production; and `budget` plus the rate-drift report executing
+    # at all. A suite weakened so a guard stops pinning what it claims now reds
+    # on the next nightly, after merge, rather than at PR time.
+    #
+    # THE ESCAPE, so the next arc does not rediscover it: `workflow_dispatch` is
+    # enabled above, so any branch can have a real full run on demand with
+    #   gh workflow run mutation-harness.yml --ref <branch>
+    # A branch dispatch sends 19 (`notify` is gated to schedule or the default
+    # branch). That is also the ONLY way to validate a change to this trigger,
+    # since a trigger cannot validate its own removal.
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -177,6 +209,35 @@ jobs:
       # nothing: its one child runs an inert fixture, never a deciding suite.
       - run: pnpm exec playwright install-deps chromium
       - run: pnpm exec playwright install chromium
+      # Database bring-up, the same defect class as the chromium pair above and
+      # one dependency later. `retryableRpcVolatilityScan`'s deciding suite opens
+      # a real Postgres connection and FAILS rather than skipping when the
+      # catalog is unreachable -- ratified in that suite's own header, because a
+      # skip would leave the retry set unverified while reporting pass. With no
+      # database this job failed that surface's baseline on every run, and the
+      # BaselineNotGreenError took its co-tenants' verdicts with it (run
+      # 32958581720: leg 5 held 8 surfaces and 7 reported nothing).
+      #
+      # MEASURED COST: 84 s per leg (setup-cli 2 s + bootstrap 82 s, off
+      # unit-suite-db job 98210351983), against legs of 2494-3267 s. The binding
+      # leg goes to about 93% of the 3600 s budget. Documented limit L-1: a
+      # conditional bring-up would pay this on one leg instead of eight and was
+      # rejected as more machinery than eleven nightly minutes is worth. Re-file
+      # if the binding leg passes 95% of the budget with this as the marginal
+      # cause, or if a second database-needing surface enrols.
+      #
+      # The SHARED bootstrap script, never an inlined `supabase start`: it is
+      # what keeps the guarded-migration hold-aside list from drifting between
+      # the workflows that use it.
+      - uses: supabase/setup-cli@v1
+        with:
+          # Pinned, and pinned to the SAME version unit-suite-db uses -- the
+          # integrity meta-test reads that value from the other workflow rather
+          # than hardcoding it here, so the two cannot drift. `latest` resolves
+          # through the GitHub API and rate-limits on shared runners.
+          version: 2.107.0
+      - run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - run: bash scripts/ci/supabase-local-bootstrap.sh
       - name: Run source-mutation shard ${{ matrix.shard }}
         env:
           VITEST_INCLUDE_MUTATION_HARNESS: "1"
@@ -257,7 +318,13 @@ jobs:
   # ---------------------------------------------------------------------------
   budget:
     needs: [parser-shards, parser-gates, source-shards, source-gates]
-    if: always()
+    # COMPOSED, not replaced. `always()` is load-bearing -- without it this job
+    # is skipped whenever a prerequisite fails or skips, which is exactly when
+    # its completeness and rate-drift reporting matter. It is gated on the event
+    # for the same reason the shard jobs are: its subject is the legs, and on a
+    # pull request there are none, so it would fail on sixteen missing records
+    # and say nothing true about a run that measured nothing.
+    if: ${{ always() && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
