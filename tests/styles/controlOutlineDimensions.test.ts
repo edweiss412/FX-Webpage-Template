@@ -5,21 +5,32 @@
  * Spec: docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md
  * §14, AC-13.
  *
- * WHAT THIS IS AND IS NOT. `tests/e2e/control-outline-dimensions.layout.spec.ts`
- * measures two of §14's five pairs in a real browser on `/admin`. The other
- * three render only inside the step-3 wizard review surface, behind a seeded
- * parse fixture; the existing `step3-review-modal.layout.spec.ts` builds a
- * static render harness rather than drive it live, and that route is closed to
- * these three because `CrewRowActions` transitively imports
- * `lib/auth/requireAdmin.ts`, which cannot render outside a Next request.
+ * WHAT THIS IS AND IS NOT. Four of §14's five pairs are measured in a REAL
+ * BROWSER: two on `/admin` (`tests/e2e/control-outline-dimensions.layout.spec.ts`)
+ * and two in the mounted step-3 tree
+ * (`tests/e2e/control-outline-contrast.live.spec.ts`, which asserts computed
+ * border contrast at the 3:1 non-text floor in both themes and REDS when the
+ * pre-sweep tokens are planted back).
  *
- * So these three are pinned from SOURCE, and the pin is narrow on purpose: it
- * asserts the class strings that CREATE each relationship still sit on the
- * elements §14 names. That is weaker than a rendered rect and it is stated as
- * weaker. It is not the only evidence: `scripts/ac15-width-parity.mts` compares
- * the border-WIDTH multiset of every element in the corpus before and after the
- * sweep (767 elements, 0 differences), which is the whole-population form of
- * the claim this file spot-checks.
+ * An earlier revision of this file claimed the step-3 route was closed because
+ * `CrewRowActions` transitively imports `lib/auth/requireAdmin.ts`. That was
+ * wrong twice over and is corrected here rather than quietly dropped: the
+ * bundle helper `tests/e2e/_step3ReviewModalBundle.mjs` stubs `"use server"`
+ * modules by class, which is exactly that edge, and the import failure that
+ * prompted the claim was a MISSING E2E ENV (`HASH_FOR_LOG_PEPPER`) under a bare
+ * `tsx` invocation, not a property of the graph.
+ *
+ * ONE pair genuinely cannot mount there, and its probe is
+ * `docs/superpowers/specs/probes/2026-08-26-crewrowactions-not-in-step3-tree.txt`:
+ * `CrewRowActions` is passed its `actions` prop only on step3ReviewSections'
+ * `isPublished(s)` branch, so it mounts on the published-show surface and not in
+ * the wizard tree.
+ *
+ * So this file is the CHEAP layer: it asserts the class strings that CREATE
+ * each relationship still sit on the elements §14 names. That is weaker than a
+ * rendered rect and it is stated as weaker. `scripts/ac15-width-parity.mts` is
+ * the third layer, comparing the border-WIDTH multiset of every element in the
+ * corpus before and after the sweep (767 elements, 0 differences).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
