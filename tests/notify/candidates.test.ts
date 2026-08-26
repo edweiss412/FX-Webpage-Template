@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import { SYNC_PROBLEM_CODES } from "@/lib/notify/constants";
 import { listRealtimeCandidates, type CandidateSql } from "@/lib/notify/detect/candidates";
 import { mintIdFor } from "@/lib/sync/unpublishBinding";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 function fakeSql() {
   const calls: Array<{ text: string; values: unknown[] }> = [];
@@ -186,13 +187,13 @@ describe("listRealtimeCandidates", () => {
   });
 });
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 
 describe("listRealtimeCandidates real DB filters", () => {
   test.skipIf(!DB_URL)(
     "returns show, global, and pending candidates while excluding resolved/inactive/wizard/new rows",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `candidates-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const showDrive = `drive-${suffix}`;
       const archivedDrive = `archived-${suffix}`;
@@ -294,7 +295,7 @@ describe("listRealtimeCandidates real DB — auto_publish_undo (M12.13 §4.1)", 
   test.skipIf(!DB_URL)(
     "live-token published show → exactly one undo candidate; expired/null/archived → none; same-ms re-mints → distinct dedupKeys; read-only",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `undo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const liveDrive = `live-${suffix}`;
       const expiredDrive = `expired-${suffix}`;

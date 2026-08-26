@@ -1,10 +1,13 @@
 import { afterAll, expect, test } from "vitest";
 import postgres from "postgres";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-// DB schema test (defaults to local 54322; CI sets TEST_DATABASE_URL=validation).
+// DB schema test against the LOCAL stack (DATABASE_URL, default 54322).
 // Pins the agenda_extract_leases table shape (PK, expires_at index, DML revoked).
 const sql = postgres(
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  assertLocalDbUrl(
+    process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  ),
   { max: 1, prepare: false },
 );
 afterAll(async () => {

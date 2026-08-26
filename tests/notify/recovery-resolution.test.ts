@@ -5,6 +5,7 @@ import {
   STATUS_TO_CODE,
   type RecoveryResolutionSql,
 } from "@/lib/notify/detect/recoveryResolution";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 function fakeSql(rows: Array<Record<string, unknown>> = []) {
   const calls: Array<{ text: string; values: unknown[] }> = [];
@@ -128,14 +129,14 @@ describe("notify recovery-resolution status map", () => {
   });
 });
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 
 describe("notify recovery-resolution real DB race", () => {
   test.skipIf(!DB_URL)(
     "two-connection race: conditional resolve does not clobber a concurrently re-set current alert",
     async () => {
-      const sql1 = postgres(DB_URL!, { max: 1, prepare: false });
-      const sql2 = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql1 = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
+      const sql2 = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `recovery-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const driveFileId = `drive-${suffix}`;
       const slug = `slug-${suffix}`;

@@ -3,8 +3,9 @@ import { describe, expect, test, vi } from "vitest";
 import { deliverRealtimeCandidates, type DeliverySql, type LockClient } from "@/lib/notify/deliver";
 import type { RealtimeCandidate } from "@/lib/notify/detect/candidates";
 import type { SendArgs, SendResult } from "@/lib/notify/send";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 const LOCK_SQL = "select pg_try_advisory_xact_lock(hashtext('notify:realtime-delivery')) as locked";
 
 function showCandidate(suffix: string, showId: string, us: string): RealtimeCandidate {
@@ -25,8 +26,8 @@ describe("single-flight guard against a real database (batching spec §2.1b)", (
   test.skipIf(!DB_URL)(
     "second pass lockSkips while a competitor holds the xact lock; lock frees after completion and after a thrown pass",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
-      const competitor = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
+      const competitor = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `lock-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       let showId: string | undefined;
 

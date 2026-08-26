@@ -82,6 +82,7 @@ const SYNTHETIC_NO_VERSION_MARKDOWN =
 // (spec §4.1.2; pinned by tests/cross-cutting/corpus-temp-prefix.test.ts).
 const TEMP_FIXTURE_NAME = `${CORPUS_TEMP_PREFIX}mi1-no-version.md`;
 import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 const FIXTURE_DIR = join(process.cwd(), "fixtures/shows/raw");
 
@@ -537,8 +538,9 @@ describe("Round 5 Finding 1 — dev_phase1_stage clears opposite-table live row 
 // transactions cleanly, so this test uses psql via execFileSync — same
 // pattern as tests/db/checks.test.ts. No new dependency.
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 function runPsqlAt(sql: string): string {
   return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", databaseUrl], {

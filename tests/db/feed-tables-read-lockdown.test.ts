@@ -15,11 +15,11 @@ import { randomUUID } from "node:crypto";
 
 import postgres, { type Sql } from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // Privileged connection: connects as the DB owner (postgres) / service_role-equivalent.
 // It bypasses RLS so it can seed + read the rows the untrusted roles must NOT see.

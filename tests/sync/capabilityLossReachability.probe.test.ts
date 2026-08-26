@@ -65,11 +65,11 @@ import { runPhase2 } from "@/lib/sync/phase2";
 
 import { crew, parseResult, phase2Tx, readCrew, seedCrew, seedShow } from "./_holdAwareTestkit";
 import { premiseHolds } from "@/tests/_shared/premise";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 const sql: Sql = postgres(DB_URL, { max: 2, prepare: false });
 afterAll(async () => {
   await sql.end({ timeout: 5 });

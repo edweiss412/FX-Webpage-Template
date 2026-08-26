@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;

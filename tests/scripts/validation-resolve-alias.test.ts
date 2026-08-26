@@ -9,11 +9,13 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
 import { runValidationCli, type CliRun } from "./_cli-helpers";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 const RESOLVE_ALIAS_SCRIPT = join(process.cwd(), "scripts/validation-resolve-alias.ts");
 
-const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DATABASE_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const LOCAL_SUPABASE_URL = "http://127.0.0.1:54321";
 const LOCAL_SERVICE_ROLE_KEY =

@@ -3,8 +3,8 @@
  *
  * Centralized safe cleanup for validation-tooling tests. Two safety
  * properties enforced:
- *   1. Target guard — destructive cleanup fails closed unless the
- *      TEST_DATABASE_URL points at localhost (127.0.0.1 / localhost /
+ *   1. Target guard — destructive cleanup fails closed unless
+ *      DATABASE_URL points at localhost (127.0.0.1 / localhost /
  *      [::1]). Running these tests against a shared/prod-equivalent DB
  *      with the broad pre-R20 predicate (drive_file_id LIKE
  *      'validation_%' — unescaped underscore wildcard) could DELETE
@@ -21,13 +21,17 @@ import { execFileSync } from "node:child_process";
 const LOCAL_DB_URL_REGEX =
   /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\//i;
 
+// DATABASE_URL, not TEST_DATABASE_URL. The suites that call cleanup() resolve their own
+// connection from DATABASE_URL (2026-08-26), and a cleanup helper that followed a different
+// variable would either delete on a database the suite never seeded or, in a shell exporting
+// the validation DSN for parity work, refuse at module eval and take the whole suite with it.
 function resolveDatabaseUrl(): string {
-  const raw = process.env.TEST_DATABASE_URL;
+  const raw = process.env.DATABASE_URL;
   if (raw === undefined) {
     return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
   }
   if (raw.trim() === "") {
-    throw new Error("TEST_DATABASE_URL is set but empty — refuse to run destructive cleanup.");
+    throw new Error("DATABASE_URL is set but empty — refuse to run destructive cleanup.");
   }
   return raw;
 }
@@ -37,7 +41,7 @@ const databaseUrl = resolveDatabaseUrl();
 function assertSafeDestructiveTarget(): void {
   if (!LOCAL_DB_URL_REGEX.test(databaseUrl)) {
     throw new Error(
-      `R20-F1 — destructive validation cleanup refused: TEST_DATABASE_URL='${databaseUrl}' is not a local DB. ` +
+      `R20-F1 — destructive validation cleanup refused: DATABASE_URL='${databaseUrl}' is not a local DB. ` +
         "These cleanup queries DELETE validation_state + crew_members + show_share_tokens + shows " +
         "scoped to 'validation_' + client_label='M12 Validation'. Even with the sentinel, the " +
         "test harness MUST NOT run against shared/prod-equivalent DBs because mint integration " +
