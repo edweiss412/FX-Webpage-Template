@@ -221,15 +221,25 @@ export function PublishedToggle({
       right: r.right,
       bottom: r.bottom,
     });
-    // A zero-area HOST is degenerate too, and guarding only the trigger and the
-    // natural rect let it through: invalid bounds reach the core, which
-    // correctly returns `kind: "hidden"`, and ALL FOUR overlays vanish — the
-    // precise outcome AC-11 forbids for an unmeasurable geometry. Falling back
-    // to `null` here means viewport-only bounds, which is the same disposition
-    // a body-hosted overlay already gets and is measurable. (Round 2, 🔴.)
+    // A zero-area HOST is DEGENERATE — reset and stop. Round 2 made this fall
+    // back to `null`, i.e. viewport bounds, and round 3 showed that trades one
+    // failure for a worse one: the coordinate conversion below turns
+    // `hostRectOrNull === null` into the offset `{left: 0, top: 0}`, which is
+    // only correct when the host really IS the body. A zero-HEIGHT host at a
+    // nonzero screen origin then places the overlay off by that origin, and the
+    // result is `kind: "placed"`, so NEITHER sanctioned warning fires. Hidden is
+    // bad; silently mispositioned with no signal violates the correct-or-
+    // signalled bound outright.
+    //
+    // The honest disposition is the one AC-11 already gives an unmeasurable
+    // geometry: we are portaled INTO this host, so its box is our coordinate
+    // space, and a box we cannot measure is a space we cannot place in.
     const hostRaw = host === document.body ? null : host.getBoundingClientRect();
-    const hostRectOrNull =
-      hostRaw === null || hostRaw.width <= 0 || hostRaw.height <= 0 ? null : toRect(hostRaw);
+    if (hostRaw !== null && (hostRaw.width <= 0 || hostRaw.height <= 0)) {
+      resetPlacement(body);
+      return;
+    }
+    const hostRectOrNull = hostRaw === null ? null : toRect(hostRaw);
     // ONE snapshot serves both the bounds decision and the placement, so the
     // two can never disagree at the visible-slice boundary.
     const triggerRect = trigger.getBoundingClientRect();

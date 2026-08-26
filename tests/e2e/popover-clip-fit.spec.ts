@@ -1358,6 +1358,82 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
     );
   });
 
+  test("the DEGRADED static pill also stays inside the cap", async ({ page }) => {
+    // Round 3 (P1): round 2 gave both static pills `min-w-0` and left them
+    // `shrink-0`, which cannot work — `min-w-0` lowers the automatic minimum
+    // while `flex-shrink: 0` refuses to contract at all, so the cap was
+    // unenforceable on exactly the branches nothing measured. The reviewer got
+    // there by arithmetic (~104px of label, plus padding, the 8px gap and the
+    // 44px close target, against a 160px cap); this is the measurement that
+    // would have caught it, at the load and state that reach it.
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForFunction(
+      () => (window as unknown as { __hydrated?: boolean }).__hydrated === true,
+    );
+    await page.evaluate(() => {
+      (
+        window as unknown as {
+          __setItems: (a: number, n: number, s: number, d: boolean) => void;
+        }
+      ).__setItems(0, 0, 0, true);
+    });
+
+    const m = await page.evaluate(
+      ([panelSel]) => {
+        const header = document.querySelector(panelSel as string)!.querySelector("header")!;
+        const cluster = header.querySelector<HTMLElement>(".shrink-0.items-center");
+        const pill = header.querySelector<HTMLElement>('[data-testid$="-alert-pill"]');
+        const close = header.querySelector<HTMLElement>('[data-testid$="-close"]');
+        if (cluster === null || pill === null || close === null) return null;
+        const c = cluster.getBoundingClientRect();
+        const pl = pill.getBoundingClientRect();
+        const cl = close.getBoundingClientRect();
+        return {
+          text: (pill.textContent ?? "").trim(),
+          clusterWidth: c.width,
+          clusterRight: c.right,
+          pillRight: pl.right,
+          closeRight: cl.right,
+          closeWidth: cl.width,
+          headerRight: header.getBoundingClientRect().right,
+        };
+      },
+      [PANEL] as const,
+    );
+    expect(m, "PREMISE: the degraded pill and close control must render").not.toBeNull();
+    // PREMISE: this is genuinely the degraded branch, not the composite pill.
+    expect(m!.text, `pill reads "${m!.text}"`).toMatch(/unavailable/i);
+
+    expect(m!.clusterWidth, "the cluster honours its 160px cap below sm").toBeLessThanOrEqual(
+      160.5,
+    );
+    // The close control is the thing an overflowing pill pushes out, so its
+    // containment is the consequence worth asserting, not just the cluster's.
+    // The PILL is what must stay inside the cluster — it is the growing element
+    // and the one the cap exists to contain.
+    expect(
+      m!.pillRight,
+      `pill right ${m!.pillRight} vs cluster right ${m!.clusterRight}`,
+    ).toBeLessThanOrEqual(m!.clusterRight + 0.5);
+
+    // The CLOSE control is measured against the HEADER, not the cluster, and
+    // that is deliberate: `ModalCloseButton` carries `-mr-1`, a 4px optical
+    // outdent, so its border box legitimately sits 4px past the cluster's
+    // content edge. The first draft of this case asserted containment in the
+    // cluster and failed by exactly that 4px — the assertion was wrong, not the
+    // layout. What actually matters is that an overflowing pill cannot push the
+    // close control out of the header or shrink its tap target.
+    expect(
+      m!.closeRight,
+      `close right ${m!.closeRight} escapes the header at ${m!.headerRight}`,
+    ).toBeLessThanOrEqual(m!.headerRight + 0.5);
+    expect(m!.closeWidth, "the close control keeps its 44px tap width").toBeGreaterThanOrEqual(
+      43.5,
+    );
+  });
+
   test("the title clamps to two lines below sm — asserted on the EMITTED style", async ({
     page,
   }) => {
