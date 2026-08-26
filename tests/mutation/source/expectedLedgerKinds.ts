@@ -22,6 +22,11 @@
  * taskContract's 18/2 against every surface in `describe.each`).
  */
 export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
+  // The transport observer, enrolled 2026-08-25. Declares an EMPTY ledger: every mutant of it is
+  // killed, with no proven equivalence and no accepted gap. A row appearing here later is the
+  // surface's first and owes its own argument — the module is 60 lines of straight-line transport
+  // handling, so an equivalence claim on it should be viewed with suspicion rather than accepted.
+  observeTransport: {},
   // The invariant-10 discovery engine, enrolled 2026-08-17. The first scored run
   // reported 64 survivors on `enumerate.ts` (score 0.6168) and 5 on totality.ts
   // (0.75); the module had one deciding suite and a large pre-existing surface
