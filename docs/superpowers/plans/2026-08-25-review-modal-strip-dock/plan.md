@@ -4,8 +4,14 @@ Spec: `docs/superpowers/specs/2026-08-25-review-modal-strip-dock.md`.
 Row: `BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED`. Branch: `feat/review-modal-strip-dock`.
 Every task: failing test observed → minimal implementation → passing test → one commit (invariant 1, 6).
 
-impeccable-gate: required — UI surface (`components/admin/**`), both halves in §12. Reads
-`DESIGN.md` §1.2a, the pairing clause #890 added on 2026-08-25.
+**Invariant 8 applies** — this arc ships admin UI (`components/admin/**`), so the dual gate runs at
+close-out and reads `DESIGN.md` §1.2a, the pairing clause #890 added on 2026-08-25.
+
+**The `impeccable-gate:` marker line is deliberately ABSENT until then.** Its grammar has only run
+states (`critique=RAN`, `audit=RAN`), so writing one now would assert a gate that has not executed;
+and `tests/docs/_invariant8Closeout.ts:109` treats naming both halves verbatim AS the claim, which is
+why this paragraph names neither. The marker lands in T7's close-out with the values the run produced —
+red until then by construction, which is the guard working.
 
 Acceptance criteria are quantified over the spec's four AXES (REAL / REPLICA / DEGENERATE /
 STRUCTURAL, spec §4). This plan does not restate the axes or re-list their cells: four spec rounds
@@ -163,7 +169,8 @@ it is a hand-maintained enumeration of something a command can derive.
 > pnpm heavy node_modules/.bin/playwright test \
 >   tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/admin-parse-panel.spec.ts \
 >   tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/attention-modal-gallery.spec.ts \
->   tests/e2e/step3-review-modal.layout.spec.ts tests/e2e/attention-pill-focus.spec.ts
+>   tests/e2e/step3-review-modal.layout.spec.ts tests/e2e/attention-pill-focus.spec.ts \
+  tests/e2e/admin-lifecycle-layout.spec.ts
 > ```
 
 **The e2e suites are ENUMERATED ONCE for the whole arc, not derived per task, and round-4 finding 2 is
@@ -230,7 +237,8 @@ in the band and working, so this task ends green on its own.
 **Files:** `components/admin/PublishedToggle.tsx`, `components/admin/ReSyncButton.tsx`,
 `components/admin/showpage/StatusStrip.tsx`, `tests/components/admin/showpage/popoverOverlayRegistry.ts`,
 `tests/e2e/_publishedToggleClipLiveEntry.tsx`, `tests/components/ReSyncButton.test.tsx`,
-`tests/e2e/popover-clip-fit.spec.ts`, `tests/components/admin/PublishedToggle.test.tsx`.
+`tests/e2e/popover-clip-fit.spec.ts`, `tests/components/admin/PublishedToggle.test.tsx`,
+`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts`.
 
 **The RED is BEHAVIOURAL, not the registry meta-test (round-1 finding 3).** The first draft's red was
 `_metaPopoverPlacementContract`, which checks only that the file contains an import matching
@@ -254,14 +262,23 @@ on its own root and passes it to both children as a prop.** Rejected: querying
 mounts the skeleton and the loaded modal on ONE page with the same test ids, scoped by `data-parity`,
 so a global query there resolves to whichever came first.
 
+**The third registry, named by neither document until now.**
+`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` asserts that
+`components/admin/PublishedToggle.tsx` adopts `useFitWithinClip`
+(`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:100`). This task falsifies that
+row, so the row becomes a `createRafCoalescer` adoption row with `requiresCancelAdoption: true` — the
+migrated effect does call `coalescer.cancel()` in cleanup. Its docblock at
+`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:47-48` also cites
+`PublishedToggle.test.tsx`'s "the banner is capped against the clip ancestor" as the behavioural
+backstop for a helper this component will no longer use; that sentence is retargeted in the same
+commit. §3.3 reconciled two registries and this is a third, which is why the spec's changed set now
+names it.
+
 **The replica is rebuilt in this commit** (spec §3.6): a `PopoverHostContext.Provider` on the replica
 panel, a strip-shaped trigger, and four geometries derived from the algebra's branches
 (`lib/popover/position.ts:126`, `lib/popover/position.ts:127`, `lib/popover/position.ts:128-131`, plus the sub-floor variant). It ships WITH the
 migration because a fixture split from the code it exercises has no valid red of its own — which is
 exactly what round-1 finding 5 caught in the first draft.
-
-**Ends green:** the banner still anchors within the band, the module picks `bottom` there, and the
-full-tree GREEN criterion above is what proves nothing else moved.
 
 **Ends green:** the banner still anchors within the band, the module picks `bottom` there, and the
 full-tree GREEN criterion above is what proves nothing else moved.
@@ -345,6 +362,10 @@ declared cap; colours and per-overlay layout classes are untouched, which is wha
 `ReSyncButtonProps` gains the same optional anchor ref `PublishedToggle` takes, passed by `StatusStrip`
 from its own root — one mechanism for both consumers, not two.
 
+`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:112` carries the `ReSyncButton`
+half of the same registry row T2 retargets for `PublishedToggle`. It is falsified by THIS task and
+updated here, in the commit that falsifies it.
+
 **Ends green** by the full-tree criterion, which is what covers the default-config interaction suite
 this task retargets.
 
@@ -389,7 +410,7 @@ panel. The 0-load baseline is per-viewport because header height is width-depend
 
 **GREEN** — spec §3.0's three parts:
 1. `components/admin/showpage/PublishedReviewModal.tsx:952` → `flex shrink-0 items-center gap-2 max-sm:max-w-[10rem]`.
-2. The pill's `relative` wrapper (`components/admin/showpage/PublishedReviewModal.tsx:966`) gains `min-w-0` — round-1 finding 5 of the SPEC round: it is
+2. The pill's `relative` wrapper (`components/admin/showpage/PublishedReviewModal.tsx:963`) gains `min-w-0` — round-1 finding 5 of the SPEC round: it is
    a direct flex item defaulting to `min-width: auto`, and `items-center` transfers no width cap.
 3. The pill button's `className` (`components/admin/showpage/PublishedReviewModal.tsx:976`) gains `min-w-0 max-sm:flex-wrap max-sm:justify-end`; the
    `h2`'s inner span (`components/admin/showpage/PublishedReviewModal.tsx:913`) gains `max-sm:line-clamp-2`.
@@ -445,7 +466,7 @@ band-scoped locator IN THE SAME INSTANT. Splitting them leaves the tree red acro
 `tests/e2e/step3-review-modal.layout.spec.ts`, `tests/e2e/_shareLinkFlashLiveEntry.tsx`,
 `tests/e2e/_skeletonParityHarness.tsx`, `tests/components/admin/showpage/publishedReviewModal.test.tsx`,
 `tests/components/admin/showpage/statusStrip.test.tsx`, `tests/e2e/popover-clip-fit.spec.ts`,
-`lib/layout/fitWithinClip.ts`.
+`tests/e2e/admin-lifecycle-layout.spec.ts`, `lib/layout/fitWithinClip.ts`.
 
 **`tests/components/admin/showpage/statusStrip.test.tsx` is claimed here** (round-2 finding 6's other
 direction: the spec's set required it and no task mentioned it). Its comment at `tests/components/admin/showpage/statusStrip.test.tsx:603` explains the
@@ -453,6 +474,20 @@ strip carries no chrome because "the band owns it" — the reason survives, the 
 `PAGE_ONLY_CHROME` (`tests/components/admin/showpage/statusStrip.test.tsx:612-622`) is unchanged and still correct: the strip must carry no `sticky`,
 `top-0`, `z-30`, `border-b`, `bg-surface` or padding of its own, and the footer supplies those exactly
 as the band did.
+
+**The dock flips ShareHub's popover side, and two hardcoded tables must be re-derived.**
+`tests/e2e/admin-lifecycle-layout.spec.ts` drives the real app and imports nothing this arc changes,
+so no source-keyed command reaches it. It pins `side === "bottom"` for the idle popover
+(`tests/e2e/admin-lifecycle-layout.spec.ts:662`) and hardcodes `[560, "top"], [844, "bottom"]` for
+T-CARET (`tests/e2e/admin-lifecycle-layout.spec.ts:694-696`) and T-FOCUS
+(`tests/e2e/admin-lifecycle-layout.spec.ts:905-907`). Moving the strip to the panel floor moves the
+hub trigger with it, and the placement module re-derives the side from the trigger's new position.
+**ShareHub is not repaired and is not a defect**: it is already `placement-module`, and adapting to a
+moved anchor is the behaviour this arc migrates four other overlays to obtain. The three assertions
+are re-derived from the docked geometry, not edited literal by literal, because the caret's
+border-face variants flip with the side: T-CARET's corner-clearance assertions are re-checked on the
+NEW side rather than relabelled. The suite is added to the arc's GREEN enumeration above, which is the
+one place that list is edited.
 
 **The dock.** `PublishedReviewModal` stops passing `subHeader` (`components/admin/showpage/PublishedReviewModal.tsx:1119`) and passes `footer`; the whole
 fragment moves verbatim, and the freshness band div (`components/admin/showpage/PublishedReviewModal.tsx:1142`) gains `w-full` because its new parent is
@@ -644,5 +679,7 @@ entries, so the marker cannot ride along). This is the PR's last commit, before 
 
 ## §12 Close-out
 
-impeccable-gate: `/impeccable critique` AND `/impeccable audit` on the affected diff, both externally
-attested, findings and dispositions recorded here.
+The invariant-8 dual gate runs on the affected diff, both halves externally attested, with findings and
+dispositions recorded in this section. The `impeccable-gate:` marker line is added HERE, in T7's
+commit, carrying the run's actual `critique=`, `audit=`, `p0=`, `p1=` and `dispositions=` values —
+never before the run, for the reason stated at the head of this plan.

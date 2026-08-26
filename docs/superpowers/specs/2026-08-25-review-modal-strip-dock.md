@@ -376,7 +376,7 @@ starved; capping the cluster fixes both, because both are downstream of the same
 **The change, in three parts, applied as one set.** None restructures the shell, per the ruling.
 
 1. **Cap the action cluster below `sm`.** `components/admin/showpage/PublishedReviewModal.tsx:952`
-   becomes `flex shrink-0 items-center gap-2 max-sm:max-w-40` (`max-w-40` = `10rem` = `160px`; the
+   becomes `flex shrink-0 items-center gap-2 max-sm:max-w-[10rem]` (`10rem` = `160px`; the
    constant is derived below, not chosen).
 2. **Let the pill wrap inside that cap.** The pill gains `min-w-0` and `flex-wrap` below `sm`, so its
    content reflows onto a second line instead of overflowing the capped cluster. **No copy is cut,
@@ -812,9 +812,9 @@ browser by the AC-2/AC-3/AC-4 Playwright assertions; jsdom computes no layout an
 | StatusStrip root (`flex flex-wrap`) | trailing control (`ml-auto`) | flushes to the footer's content edge | the `w-full` chain above | `StatusStrip.tsx:208-222` |
 | body (`flex min-h-0 flex-1 flex-col lg:flex-row`) | content pane | fills; scrolls | `min-w-0 flex-1 overflow-y-auto` | `ShowReviewSurface.tsx:1028` |
 | panel (the popover HOST) | each migrated overlay, PORTALED — **not a child of the footer** | full width, inset `VIEWPORT_INSET` from each panel edge, on the side the module chooses | `w-full` on the overlay + the module's `maxWidth`/`x` clamp to `bounds` | §3.2 item 5, `lib/popover/position.ts:118-120`, `lib/popover/position.ts:138` |
-| `<header>` (`flex items-start gap-3`) | text block | takes the width the cluster leaves, never less than the header width minus `160px` minus the gap | `min-w-0 flex-1` on the block + `max-sm:max-w-40` on the cluster — **NEW, and it is the header bound** | `components/admin/showpage/PublishedReviewModal.tsx:902`, `components/admin/showpage/PublishedReviewModal.tsx:952`, §3.0 |
+| `<header>` (`flex items-start gap-3`) | text block | takes the width the cluster leaves, never less than the header width minus `160px` minus the gap | `min-w-0 flex-1` on the block + `max-sm:max-w-[10rem]` on the cluster — **NEW, and it is the header bound** | `components/admin/showpage/PublishedReviewModal.tsx:902`, `components/admin/showpage/PublishedReviewModal.tsx:952`, §3.0 |
 | text block | `h2` inner span | at most two rendered lines below `sm`; full text still in the a11y tree | `max-sm:line-clamp-2` — **NEW** | `components/admin/showpage/PublishedReviewModal.tsx:913`, §3.0 |
-| `<header>` action cluster (capped, `flex items-center`) | **the pill's `relative` wrapper — a DIRECT flex item, which the first draft's table skipped (round-1 finding 5)** | must not exceed the cluster's cap; a flex item defaults to `min-width: auto`, so its min-content width can force it WIDER than a capped parent | **`min-w-0` on that wrapper — NEW.** `items-center` is cross-axis only and transfers no width cap; nothing else in the chain constrains this element | `components/admin/showpage/PublishedReviewModal.tsx:966` |
+| `<header>` action cluster (capped, `flex items-center`) | **the pill's `relative` wrapper — a DIRECT flex item, which the first draft's table skipped (round-1 finding 5)** | must not exceed the cluster's cap; a flex item defaults to `min-width: auto`, so its min-content width can force it WIDER than a capped parent | **`min-w-0` on that wrapper — NEW.** `items-center` is cross-axis only and transfers no width cap; nothing else in the chain constrains this element | `components/admin/showpage/PublishedReviewModal.tsx:963` |
 | the pill's `relative` wrapper | pill button | wraps inside the cap instead of overflowing it; at 30 items it measures `65.59` tall, which exceeds the `44px` close button, so the CLUSTER's height is pill-driven in the stress state — it still does not drive the header, because the text block is taller | `min-w-0` + `max-sm:flex-wrap` on the pill | `components/admin/showpage/PublishedReviewModal.tsx:976`, §3.0 |
 
 **The load-bearing flip, stated once.** `StatusStrip.tsx:215-222` records that `w-full` is defensive
@@ -980,6 +980,7 @@ lib/layout/fitWithinClip.ts
 lib/popover/place.ts
 tests/components/ReSyncButton.test.tsx
 tests/components/admin/PublishedToggle.test.tsx
+tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts
 tests/components/admin/showpage/popoverOverlayRegistry.ts
 tests/components/admin/showpage/publishedReviewModal.test.tsx
 tests/components/admin/showpage/statusStrip.test.tsx
@@ -990,6 +991,7 @@ tests/e2e/_publishedToggleClipLiveEntry.tsx
 tests/e2e/_shareLinkFlashLiveEntry.tsx
 tests/e2e/_skeletonParityHarness.tsx
 tests/e2e/_statusStripToggleHarness.tsx
+tests/e2e/admin-lifecycle-layout.spec.ts
 tests/e2e/admin-parse-panel.spec.ts
 tests/e2e/attention-modal-gallery.spec.ts
 tests/e2e/popover-clip-fit.spec.ts
@@ -1005,6 +1007,33 @@ tests/lib/popover/placeWarning.test.ts
 
 Plus the documents the arc writes: this spec, its plan, `BACKLOG.md` and `BACKLOG-archive.md`,
 `docs/review-rounds/feat/review-modal-strip-dock/**`, and `docs/superpowers/specs/README.md`.
+
+**Two files were added to that list AFTER round 4 closed, both found by reading rather than by the
+discovery command, and they are different failures.**
+
+`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` is the THIRD registry. §3.3
+reconciled two of them and neither document named this one. It carries rows asserting that
+`components/admin/PublishedToggle.tsx` and `components/admin/ReSyncButton.tsx` adopt
+`useFitWithinClip`; T2 and T2a falsify both. The discovery command DOES reach it, since it greps the
+helper name. It was missed by a human reading a long grep result, which is the ordinary way an
+enumeration goes wrong and is an argument for the class sweep, not against the command.
+
+`tests/e2e/admin-lifecycle-layout.spec.ts` is the interesting one, because no source-keyed command
+could have reached it. It imports nothing this arc changes. It drives the real app and asserts
+ShareHub's PLACEMENT SIDE: `tests/e2e/admin-lifecycle-layout.spec.ts:662` pins `bottom` for the idle
+popover, and `tests/e2e/admin-lifecycle-layout.spec.ts:694-696` and
+`tests/e2e/admin-lifecycle-layout.spec.ts:905-907` hardcode `[560, "top"], [844, "bottom"]` per
+viewport. Docking the strip moves ShareHub's trigger to the panel floor, so the module re-derives
+those sides. **ShareHub itself needs no repair: it is already `placement-module`, and adapting to a
+moved anchor is exactly the behaviour this arc migrates four other overlays to obtain.** What needs
+repair is two hardcoded tables, and they are re-derived from the docked geometry rather than edited
+literal by literal, because the caret's border-face variants flip with the side too.
+
+This is the same shape round-4 finding 6 recorded for `step3-review-modal.layout.spec.ts`, and it is
+now the second instance: **a default-config suite can assert this modal's geometry without importing
+one line of it.** Two instances make it a class rather than an anecdote, and the response is the one
+§9 already chose. The enumeration in the plan's GREEN criterion is the cover, edited in one place when
+a suite is found; a wider grep is not attempted, because there is no source reference to widen toward.
 
 **`tests/e2e/step3-review-modal.layout.spec.ts` is in that list because of round-4 finding 6, and it
 is the most useful thing this round produced about §9.** Its comment at `tests/e2e/step3-review-modal.layout.spec.ts:301` says the published modal has NO
