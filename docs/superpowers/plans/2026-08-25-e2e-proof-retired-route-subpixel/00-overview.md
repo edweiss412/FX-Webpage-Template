@@ -4,7 +4,9 @@ Spec: `docs/superpowers/specs/2026-08-25-e2e-proof-retired-route-subpixel-design
 Branch: `fix/e2e-proof-retired-route-subpixel`
 Closes: `BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE`, `BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE`
 
-impeccable-gate: N/A — no UI surface. The diff touches `tests/**`, `.github/workflows/**`, `playwright.config.ts` and `docs/**` only. No file under `app/` outside `app/api/**`, none under `components/`, no design token file, no `DESIGN.md`. Section 4 records the one place where a product-code edit was considered and declined.
+impeccable-gate: N/A — no UI surface
+
+The diff touches `tests/**`, `.github/workflows/**`, `playwright.config.ts` and `docs/**` only. No file under `app/` outside `app/api/**`, none under `components/`, no design token file, no `DESIGN.md`. Section 4 records the one place where a product-code edit was considered and declined.
 
 ## 1. Shape of the work
 
