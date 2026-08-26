@@ -62,15 +62,24 @@ the room it actually had, which the tests check directly.
 Against that, the body is capped by the class `max-h-[min(70vh,30rem)]`, so it grows at 0.7·vh until
 it saturates: the idle body at 471 and the armed body at the `30rem` ceiling of 480.
 
-**Consequence A, stated precisely.** The room grows at 0.85 per viewport pixel and the body at 0.7, so
-the room outruns the body. The specific state the old T-REGROW ladder hunted — idle fits its side
-uncapped while armed does not — is not reachable in the measured domain. Three regimes exhaust it:
+**Consequence A, and the weight it can carry.** The room grows at roughly 0.85 per viewport pixel and
+the body at 0.7, so the room outruns the body. The state the old T-REGROW ladder hunted — idle fits its
+side uncapped while armed does not — does not occur at any measured height, and the trend gives no
+reason to expect it between them. Splitting on the fitted line:
 
 - `0.7·vh <= 471`, i.e. `vh <= 672.86`: the class cap clamps BOTH bodies to the same `0.7·vh`, so the
   two conditions become `room >= 0.7·vh` and `room < 0.7·vh` at once.
 - `471 < 0.7·vh < 480`, i.e. `672.86 < vh < 685.71`: the armed body is under 480, and the room is
   already above 502.
 - `0.7·vh >= 480`, i.e. `vh >= 685.71`: the armed body is exactly 480, and the room is above 512.8.
+
+**This is an argument, not a proof, and nothing depends on it being one.** The bounds come from
+extrapolating a fitted line through eight points; eight measurements do not settle every height
+between them, least of all the narrow 672.86–685.71 band. It is stated because it is the reason the
+ladder was not worth re-tuning — the rungs would land somewhere the measurements give no reason to
+expect the state either. Every assertion in §4 is written against the module's CONTRACT (§3) rather
+than against this arithmetic, precisely so that a wrong extrapolation costs a paragraph and not a
+gate.
 
 **What Consequence A does NOT say, and the correction it forced.** It shows the growth cannot change
 the chosen SIDE and cannot introduce a CAP. It does not show that re-placement is unnecessary, and
@@ -79,8 +88,12 @@ that reading would be wrong. `lib/popover/position.ts:135` places a `top` body a
 grows from 471 to 480 without re-placing keeps its old `y` and its bottom moves from `trigger.top - 6`
 to `trigger.top + 3`, eating the gap and overlapping the trigger. **Containment cannot see this** —
 the overhang is into the trigger, not out of the clip rect, so the body stays inside the panel
-throughout. Re-placement on growth remains necessary at every height, and `ShareHub.tsx`'s
-`bodyObserver` is the mechanism that supplies it.
+throughout. Re-placement on growth is necessary **wherever the growth changes the body's BOX** —
+which, per the table above, is 680 and 844, where the idle body is unclamped at 471 and the armed one
+reaches 476 and 480. At 420 and 560 the class cap holds both states at the same size, so there is
+nothing to re-place and the gap cannot move. `ShareHub.tsx`'s `bodyObserver` is the mechanism that
+supplies the re-place where it is needed, and the planted-defect run in §4 fails at 390x680 — not
+before it, which is the same split stated from the other side.
 
 **Consequence B — a second reachable boundary.** The module writes an inline cap exactly when the room
 is short of the body. Measured: no cap at 560 (room 406, body 392), a cap at 460 (321 vs 322, one
@@ -123,7 +136,10 @@ Each is re-derived from §2, and each was proved to still fail by planting a def
   What replaces it is stronger than what it replaced: the ladder found ONE height and asserted
   containment, whereas the case now asserts the full §3 contract at four heights spanning both
   regimes — 420 (capped) and 560, 680, 844 (uncapped) — with the `GAP` assertion of §3 point 2 as the
-  witness that placement re-ran. A sweep-level anti-vacuity check requires at least one swept height
+  witness that placement re-ran. That witness is load-bearing at 680 and 844 ONLY: at 420 and 560 the
+  cap holds the idle and armed boxes at one size, so a missing re-place would not move the gap. Those
+  two rungs are carried for clause 3 of §3, the branch they do exercise. The negative control below
+  fails at 390x680 and not before it, which is that split measured rather than asserted. A sweep-level anti-vacuity check requires at least one swept height
   to actually grow the body's BOX, so the case cannot quietly stop exercising re-placement.
   No premise asserts that a regime is reachable: a panel change that moves a height into the capped
   regime is HANDLED by the contract rather than falsifying an assumption.
@@ -134,8 +150,14 @@ Each is re-derived from §2, and each was proved to still fail by planting a def
   (§2), so the resize target moves from 560 to 420, crossing the cap boundary of Consequence B, and
   the witness that placement re-ran becomes the cap the module wrote — checked against the room it
   had, so a stale or hardcoded non-empty value cannot pass. Every armed-state assertion is unchanged.
-  _Negative control:_ restore the 560 target, which crosses no boundary, and the uncapped answer from
-  844 survives the resize, failing "the resize did not re-place: no cap was written".
+  The case then resizes BACK to 844 and asserts the cap is cleared, because ShareHub writes the cap in
+  one branch and clears it in another (`removeProperty("max-height")`, `ShareHub.tsx:354`). Without
+  that leg the clear branch is reachable by no case in this file — T-REGROW opens every height on a
+  fresh page, so it never starts from a capped state — and deleting it would leave the suite green.
+  _Negative controls:_ restore the 560 target, which crosses no boundary, and the uncapped answer from
+  844 survives the resize, failing "the resize did not re-place: no cap was written"; and delete the
+  `removeProperty` branch, and the resize back fails "the cap was not CLEARED when the room came
+  back".
 
 ## 4a. Transition Inventory
 
@@ -146,10 +168,10 @@ or **capped** (it does not).
 
 | move | what changes | animated? | who covers it |
 | --- | --- | --- | --- |
-| idle → armed, uncapped | the body's box grows; `y` must be recomputed or `GAP` is eaten | instant — no animation; the re-place is a layout write | T-REGROW at 560, 680, 844 |
-| idle → armed, capped | the box does not grow (the cap already binds); the scroller absorbs the content | instant — no animation | T-REGROW at 420 |
+| idle → armed, box grows | `y` must be recomputed or `GAP` is eaten | instant — no animation; the re-place is a layout write | T-REGROW at 680 and 844, the only measured heights where the box grows |
+| idle → armed, box does not grow | a cap or the class cap already binds, so the scroller absorbs the content and the placement is already correct | instant — no animation | T-REGROW at 420 (inline cap) and 560 (class cap) |
 | uncapped → capped, by resize | a cap appears and equals the new room | the popover transitions; the case settles on the computed style holding still across two frames | T-TRANSITION, 844 → 420 |
-| capped → uncapped, by resize | the cap is cleared | as above, same settle | not exercised through ShareHub; the reverse direction is the same code path with the same witness, and the forward direction is the one a shrinking phone viewport actually produces |
+| capped → uncapped, by resize | the cap is CLEARED through a different branch — `body.style.removeProperty("max-height")`, `ShareHub.tsx:354` — than the one that writes it | as above, same settle | T-TRANSITION, 420 → 844 back |
 | armed, viewport resize while armed | the armed confirm must survive without remounting | as above | T-TRANSITION asserts the confirm node identity across the move |
 
 The compound case — a viewport resize landing WHILE the body is mid-growth — is deliberately not

@@ -72,7 +72,8 @@ const SITES: ReadonlyArray<{
     // 420, not 560. The case used to resize ACROSS THE SIDE FLIP, and the dock
     // retired that boundary: ShareHub's trigger sits on the panel floor, so the
     // module answers `top` at every height and no viewport pair flips it. The
-    // resize now crosses the CAP boundary at vh 467 instead (derivation:
+    // resize now crosses the CAP boundary between 460 and 560 instead — a
+    // measured bracket, not an exact threshold (derivation:
     // docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md §2),
     // which is a boundary of the same kind and the one witness left that proves
     // placement re-ran.

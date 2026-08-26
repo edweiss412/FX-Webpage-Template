@@ -566,9 +566,12 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
   // trigger on the panel floor, so the chosen side is always `top`, the room
   // there is about `0.85*vh - 70`, and the body is capped by
   // `max-h-[min(70vh,30rem)]`. The room grows faster than the body, so that
-  // particular state is not reachable at any height in the swept domain —
-  // re-tuning the three ladder rungs would only move them somewhere else that
-  // also cannot satisfy the predicate. Derivation and the measured table:
+  // particular state is not reachable at any MEASURED height, and re-tuning the
+  // three ladder rungs would only move them somewhere the measurements give no
+  // reason to expect it either. That is a reason the ladder was not worth
+  // re-tuning; it is NOT load-bearing for anything below, because the
+  // assertions are written against the module's contract rather than against
+  // the arithmetic. Measured table and the regime argument:
   // docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md §2.
   //
   // WHAT REPLACES IT, and why it is stronger than what it replaces. The old
@@ -578,7 +581,13 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
   //
   //   - The GAP to the trigger on the chosen side is exactly GAP. This is the
   //     assertion the old case was missing, and it is the one a stale placement
-  //     breaks: `lib/popover/position.ts:135` computes
+  //     breaks. It is LOAD-BEARING AT 680 AND 844 ONLY, and the sweep does not
+  //     pretend otherwise: at 420 and 560 the class cap holds the idle and armed
+  //     boxes at the same size, so a missing re-place would not move the gap
+  //     there. Those two rungs are carried for the CAP clause below, which is
+  //     the branch they do exercise. The planted-defect run confirms the split —
+  //     disabling ShareHub's bodyObserver fails at 390x680, not before it.
+  //     `lib/popover/position.ts:135` computes
   //     `y = trigger.top - GAP - effectiveHeight`, so a body that grows without
   //     re-placing keeps its old `y` and its bottom crosses `trigger.top - GAP`
   //     by exactly the growth. Containment alone CANNOT see this — the overhang
@@ -1230,7 +1239,9 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     //
     // A reachable boundary remains, and it is a boundary of the same kind: the
     // module writes an INLINE CAP exactly when the room runs out, i.e. when
-    // `0.85*vh - 70 < min(0.7*vh, 480)`, which is `vh < 467`. Measured caps: none
+    // `0.85*vh - 70 < min(0.7*vh, 480)`. No exact threshold is claimed: the fit
+    // that inequality rests on is a fit, not an identity, so the crossing is
+    // stated as the MEASURED bracket it actually is. Measured caps: none
     // at 560, `321px` at 460, `288.296875px` at 420. Resizing 844 -> 420 crosses
     // it, so the module must return a materially different answer, and the cap it
     // writes is the observable evidence that placement re-ran. Derivation:
@@ -1316,6 +1327,50 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       Number.parseFloat(after.cap),
       "the written cap is not the room the module had",
     ).toBeCloseTo(after.roomOnChosenSide, 0);
+
+    // THE CLEAR DIRECTION, which everything above is blind to. ShareHub writes
+    // the cap in one branch and clears it in ANOTHER —
+    // `body.style.removeProperty("max-height")` (ShareHub.tsx:354), reached only
+    // when the placement comes back uncapped. Deleting that branch leaves every
+    // assertion so far green: the write direction never exercises it, and
+    // T-REGROW opens each of its heights on a fresh page, so it never starts
+    // from a capped state either. Resizing BACK gives the module room again, so
+    // the cap it wrote must go.
+    //
+    // Settled the same way as the flip above, and for the same reason: the
+    // predicate watches the styles stop moving, it does not read the cap. That
+    // is the assertion, and it stays outside.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(async () => {
+      const settled = await page.evaluate(async () => {
+        const read = () => {
+          const el = document.querySelector('[data-testid="share-hub-popover"]');
+          if (!el) return null;
+          const cs = getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return `${cs.transform}|${cs.opacity}|${r.top}|${r.height}`;
+        };
+        const first = read();
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        return first !== null && first === read();
+      });
+      expect(settled, "the popover is still transitioning after the resize back").toBe(true);
+    }).toPass({ timeout: 5_000 });
+
+    const restored = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="share-hub-popover"]') as HTMLElement;
+      const panel = document.querySelector("[data-review-modal-panel]") as HTMLElement;
+      const p = panel.getBoundingClientRect();
+      const r = b.getBoundingClientRect();
+      return {
+        cap: b.style.maxHeight,
+        withinBounds:
+          r.top >= Math.max(p.top, 0) + 8 - 0.5 &&
+          r.bottom <= Math.min(p.bottom, window.innerHeight) - 8 + 0.5,
+      };
+    });
+    expect(restored.cap, "the cap was not CLEARED when the room came back").toBe("");
+    expect(restored.withinBounds, "clearing the cap left the clip rect").toBe(true);
   });
 
   // Opener discrimination (whole-diff review, finding 2). The two T-CARET cases
