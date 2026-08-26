@@ -11,6 +11,7 @@ import {
 } from "@/vitest.projects";
 import { globToRegExp as globRe } from "@/lib/test/serialAudit";
 import { premiseHolds } from "../_shared/premise";
+import { SOURCE_SHARD_COUNT } from "../mutation/source/shardPartition";
 
 // Structural guard for the two-project vitest split (PR B). The #1 risk of a
 // projects split is a glob typo that drops a whole directory from BOTH projects
@@ -251,10 +252,22 @@ describe("vitest projects split — partition is complete and correctly wired", 
           expect(admitting, `${f} must be admitted by exactly one default project`).toHaveLength(1);
         }
       }
+      // DERIVED on the term that moves. The source-mutation shard files are one
+      // per shard, so this count tracked `SOURCE_SHARD_COUNT` all along and said
+      // 16 only because that constant said 4; raising it to 8 red this line with
+      // a number nobody could act on. The other three terms are literals with
+      // their own reasons, and each fails loudly on its own glob above if it
+      // moves, so deriving them here would restate the globs rather than check
+      // anything.
+      const PARSER_HARNESS_FILES = 10;
+      const CORPUS_WIDE_NIGHTLY = 2; // the source-mutation gates file + the browser-mutant gate
+      const expectedNightly = PARSER_HARNESS_FILES + SOURCE_SHARD_COUNT + CORPUS_WIDE_NIGHTLY;
       expect(
         nightlyCount,
-        "exactly the 16 nightly files (10 parser harness + 4 source-mutation shards + the source-mutation gates file + the browser-mutant gate) live in no default project",
-      ).toBe(16);
+        `exactly the ${String(expectedNightly)} nightly files (${String(PARSER_HARNESS_FILES)} parser harness + ` +
+          `${String(SOURCE_SHARD_COUNT)} source-mutation shards + the source-mutation gates file + ` +
+          "the browser-mutant gate) live in no default project",
+      ).toBe(expectedNightly);
       // Anti-collapse floors, computed from RESOLVED membership (not the
       // matchesParallel helper): exact-once alone permits massive drift, since
       // every file could pile into one project and still be admitted exactly

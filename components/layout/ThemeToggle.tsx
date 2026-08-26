@@ -50,7 +50,7 @@
 
 import { Moon, Sun } from "lucide-react";
 
-import { readAppliedTheme, THEME_PERSIST_FAILED_NOTE, useAppliedTheme } from "./useAppliedTheme";
+import { readAppliedTheme, useAppliedTheme } from "./useAppliedTheme";
 
 /**
  * The standalone theme control.
@@ -62,7 +62,7 @@ import { readAppliedTheme, THEME_PERSIST_FAILED_NOTE, useAppliedTheme } from "./
  * cannot drift apart on what "dark" means.
  */
 export function ThemeToggle() {
-  const { mounted, theme, isDark, persistFailed, setTheme } = useAppliedTheme();
+  const { mounted, theme, isDark, setTheme } = useAppliedTheme();
   void theme;
 
   function flip() {
@@ -80,19 +80,19 @@ export function ThemeToggle() {
 
   return (
     /*
-      WRAPPER, and its in-flow box is exactly the button's box. The note has to
-      appear beside a control that lives in three differently-engineered rows —
-      the identity-less crew header, the admin nav's width-engineered 320px
-      action cluster, and the help header, where a trailing "Back to admin" link
-      sits to the toggle's right. In-flow side text would displace all three, so
-      the note is an ANCHORED BUBBLE out of the flow entirely (spec §2.2) and no
-      consumer's row grows, wraps, or overflows.
+      The button IS the component. It used to sit inside a `relative inline-flex`
+      wrapper that anchored an absolutely-positioned persist-failure bubble; the
+      2026-08-26 ruling removed the note (spec 2026-08-15-theme-persistence-note
+      §2.2, "Amendment, 2026-08-26"), so the wrapper anchored nothing and went
+      with it. That the removal is layout-neutral is not an assumption: the note
+      arc's own AC-10 had already pinned wrapper box == button box within 0.5px,
+      and tests/e2e/appHealthIndicator.layout.spec.ts keeps measuring the admin
+      cluster row this control sits in.
     */
-    <span className="relative inline-flex">
-      <button
-        type="button"
-        data-testid="theme-toggle"
-        /*
+    <button
+      type="button"
+      data-testid="theme-toggle"
+      /*
         PRE-HYDRATION THIS CONTROL DOES NOT CLAIM A STATE. The SSR-stable
         placeholder is `light`, but the no-FOUC script has already painted the
         palette from the OS — so on an OS-dark first paint the page rendered
@@ -105,7 +105,7 @@ export function ThemeToggle() {
         about a state we do not yet know, whereas `false` is a wrong claim. One
         React tick later the real state arrives.
       */
-        /*
+      /*
         ONE SEMANTIC MODEL, not two. This carried a NEXT-ACTION name ("Switch to
         light theme") together with `aria-pressed` reporting CURRENT state, so a
         screen reader in dark mode announced "Switch to light theme, pressed" —
@@ -120,51 +120,25 @@ export function ThemeToggle() {
         Pre-mount the state is unknown, so `aria-pressed` is still omitted
         rather than guessed.
       */
-        aria-label="Dark mode"
-        {...(mounted ? { "aria-pressed": isDark } : {})}
-        onClick={flip}
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-text-faint bg-surface text-text transition-colors duration-fast hover:border-text-subtle hover:bg-surface-raised hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-      >
-        {/*
+      aria-label="Dark mode"
+      {...(mounted ? { "aria-pressed": isDark } : {})}
+      onClick={flip}
+      className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-text-faint bg-surface text-text transition-colors duration-fast hover:border-text-subtle hover:bg-surface-raised hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+    >
+      {/*
           Show the icon for the OTHER theme — affordance is "this is
           what you'll get if you tap." Pre-mount we render Moon as the
           SSR-stable placeholder; post-mount we swap based on the
           actually-applied theme. suppressHydrationWarning silences the
           expected SSR/CSR icon divergence for OS-dark-mode visitors.
         */}
-        <span aria-hidden="true" suppressHydrationWarning>
-          {mounted && isDark ? (
-            <Sun className="size-4" aria-hidden="true" />
-          ) : (
-            <Moon className="size-4" aria-hidden="true" />
-          )}
-        </span>
-      </button>
-      {/*
-        ALWAYS MOUNTED, text conditional — never inserted at failure time. A
-        `role="status"` node that arrives WITH its message announces nothing;
-        this repo measured exactly that on an inserted status card
-        (components/admin/ReSyncButton.tsx:147), and the always-mounted shape is
-        the one that works (FinalizeAnnouncer, components/admin/FinalizeButton.tsx:549).
-
-        The container carries POSITIONING ONLY, so an empty region paints
-        nothing on every page that renders the toggle; the chrome rides on the
-        inner span that exists only when there is something to say. `max-w-36`
-        is derived, not chosen: in the help header at 320px the toggle is not
-        the rightmost element, so a right-anchored bubble must stay under about
-        161px to keep its left edge inside the page padding.
-      */}
-      <span
-        role="status"
-        data-testid="theme-persist-note"
-        className="absolute right-0 top-full mt-1 w-max max-w-36 wrap-break-word z-dropdown"
-      >
-        {persistFailed ? (
-          <span className="block rounded-sm border border-border bg-surface-raised px-2.5 py-1.5 text-right text-xs/relaxed text-text-subtle shadow-tile">
-            {THEME_PERSIST_FAILED_NOTE}
-          </span>
-        ) : null}
+      <span aria-hidden="true" suppressHydrationWarning>
+        {mounted && isDark ? (
+          <Sun className="size-4" aria-hidden="true" />
+        ) : (
+          <Moon className="size-4" aria-hidden="true" />
+        )}
       </span>
-    </span>
+    </button>
   );
 }

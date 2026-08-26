@@ -71,7 +71,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
  * that reports an unclassifiable guard as `unknown` residue, and gives its
  * `ConditionalExpression` arm no fallback at all (`_renderFaultScan.ts:754`).
  * That arm's silent drop is a documented limit, not a gap left open: probed on
- * the live tree, 722 ternaries under the derived roots return JSX in `whenTrue`,
+ * the live tree, 720 ternaries under the derived roots return JSX in `whenTrue`,
  * 79 of them carry a fault-vocabulary guard and are unclassifiable, and 70 of
  * those 79 sit in `"use client"` files -- interaction state, not a server-render
  * fault -- so the fallback would buy roughly three new server-side sites for 79

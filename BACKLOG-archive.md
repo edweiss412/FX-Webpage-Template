@@ -1,3 +1,137 @@
+## BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE — a dispatch spends reviewer attention on lint the wrapper could have refused — CLOSED 2026-08-26
+
+**Graduated:** 2026-08-26 on `feat/speclint-dispatch-gates` (PR #904). **Status:** SHIPPED.
+
+**Resolution — the wrapper now refuses instead of disclosing.** On `--stage spec|plan`, `codex-guard` exits 2 before any lock, dispatch, result artifact or corpus row when the artifact under review carries hard `spec:lint` failures. Three arms: COVERAGE (such a dispatch must NAME an artifact, or the gate stays the opt-in flag that ran zero times), ENFORCEMENT (every named document is checked, not the first — real dispatches cite a spec plus its probe records), and GRAMMAR (a summary line with no readable count refuses as an infra fault rather than defaulting to zero). Advisory findings never block; `--no-lint-gate` waives it for an artifact mid-repair.
+
+**The decision is expressible and enrolled.** `codex-guard.mjs` is ratified CANNOT-EXPRESS for the source-mutation registry, so the logic lives in `lib/specLintGate/gate.ts` with `scripts/specLintGate.mjs` as its bare-node bridge and a parity suite pinning the two equal — the same shape `reviewRoundEmit` uses. Scored 22/22, zero unaccepted survivors, empty accept ledger.
+
+**One shipped contract was deliberately reversed and recorded rather than deleted.** `tests/codexGuard/lintDoc.test.ts`'s AC-4 asserted "a doc with hard findings still dispatches — the report is why the reviewer is there". It now asserts the opposite, keeps its AC number, and states what superseded it, so the old contract cannot be reintroduced by someone reading only the new one.
+
+**Also repaired, since the arc was in that file:** the guard-surface refusal now prints one conforming line verbatim, asserted to actually pass the gate, and AGENTS.md shows the same line instead of the conjunction prose that caused a contributor to write "plus" and be refused. The separator grammar is NOT widened.
+
+<details><summary>Original entry, verbatim</summary>
+
+**Status:** OPEN · **Severity:** LOW (no shipped defect; this is review-economy waste) · **Class:** review tooling / dispatch hygiene · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R1 F2 + R2 F5) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a change to `scripts/codex-guard.mjs`, a surface this arc does not otherwise touch · **Reachability:** PROBED — both incidents are committed corpus rows, and the failing lint reproduces on the pre-repair blobs.
+
+`node scripts/codex-guard.mjs review` already refuses a round-1 `--stage diff` brief whose `GUARD SURFACE:` line carries no mutation score, exiting 2 before any dispatch. It makes no equivalent check on the ARTIFACT under review. So a spec or plan carrying hard `pnpm spec:lint` failures dispatches normally, and the reviewer spends a finding — and the arc spends a round — on a class the repo already detects mechanically in under a minute.
+
+**Incident.** This arc, twice. Spec review R1 F2 reported **18 hard citation failures** (all the empty-path `` `:213` `` form) against `docs/superpowers/specs/2026-08-18-control-outline-border-token-design.md`; R2 F5 reported **13 more** in the sibling probe record. Both were `CITATION_MALFORMED`, both are what `pnpm spec:lint` prints, and neither needed a reviewer to find. Corpus rows: `docs/review-rounds/fix/control-outline-border-token/2ddbf038bdf4.jsonl`, rounds 1 and 2. Two findings out of sixteen across four rounds — roughly an eighth of the arc's total reviewer attention — spent on a mechanical class.
+
+**Incident, second class (2026-08-21, cross-arc).** `pnpm typecheck` is a SECOND mechanical gate the same refusal could cover. Three arcs in one day (`feat/speclint-red-reason-verification`, `fix/shell-attached-redirection-target`, `feat/destructive-guard-discovery-by-connection`) independently committed probe scripts that import with a `.ts` extension (TS5097) or call `ts.isImportKeyword` (runtime-only, TS2339); `tsx` resolves both, so every local run passed, and the third arc's probes survived twelve commits and four adversarial rounds — because reviewers run sandboxed and read-only and never execute the gates, so a round is BLIND to a gate-red by construction. Caught only by `pnpm typecheck`, which docs-stage work rarely runs. Same wrapper, same exit-2 refusal, one more gate in the list.
+
+**Incident, third instance (2026-08-21, independently filed).** `feat/speclint-red-reason-verification` spent a diff-round-3 finding on its plan failing its OWN `spec:lint` — `CITATION_MALFORMED at line 72: malformed citation \`:837\` (empty path)`, the same empty-path form as the eighteen above. Corpus row: `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.jsonl`, `diff`round 3,`findingCount`2 (the round carried a second finding, so the round is not chargeable here; the reviewer attention is). That arc filed it as`BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE`, blind to this row, which sat on an unmerged branch at the time — which is itself the point: the same defect was independently rediscovered by a session reading `origin/main` to choose work. Its own diagnosis is worth keeping verbatim: that plan declared two oracles as COMMANDS and this obligation as a PARAGRAPH, and the commands ran several times each while the paragraph ran zero times.
+
+**Shape of the repair.** In `review`, when `--stage` is `spec` or `plan`, resolve the artifact path(s) the brief cites, run the existing lint, and exit 2 naming the failing file and count if any HARD failure is present. Advisory failures do not block — the probe-record artifacts show advisory noise is normal and blocking on it would be its own waste. The escape hatch matches the existing ones in that script (an explicit flag), because a brief may legitimately review an artifact that is mid-repair.
+
+**Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
+
+**First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
+
+---
+
+</details>
+
+## BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS — one component retained by contract; the other four retired — CLOSED 2026-08-26
+
+**Graduated:** 2026-08-26 on `feat/speclint-dispatch-gates` (PR #904). **Status:** COMPLETE — the working state was reached 2026-08-03; this archives the record.
+
+**Resolution — no code, and none was owed.** The row's own text already said "A future sweep must not read this row as unfinished work." It sat in the open queue for three weeks saying so, which is the one place a future sweep does not look. This entry says it where a sweep will.
+
+Four of five components were RETIRED 2026-08-03 on `chore/orphan-components-lead-prose`, each with a named superseding commit AND a named live successor — "nothing imports it" was the guard's finding, never the argument for deletion. The fifth, `components/shared/WrappedTile.tsx`, is RETAINED by the ratified KEEP at `docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/04-layout-migration-closeout.md:10`.
+
+**The debt is not silent and was never dark.** `tests/components/_orphanedComponents.ts` holds the one allowlist row, whose `backlog:` field cites this id, and `tests/components/_metaOrphanedComponents.test.ts` pins the list to exactly that one file and asserts its reason still names the KEEP and both cascade dependents. Neither file is touched by this graduation: the citation resolves against BOTH ledgers via `ledgerFiles()`, so the move keeps it resolvable, and editing it would break a pin that is doing its job.
+
+<details><summary>Original entry, verbatim</summary>
+
+**Effort:** XS
+
+**Filed:** 2026-08-02 (`chore/copy-deadcode-sweep`, the class sweep that closed `BL-ADMIN-PARSEPANEL-ORPHANED`) · **Worked:** 2026-08-03 (`chore/orphan-components-lead-prose`) · **Class:** dead code · **Severity:** low
+
+ParsePanel was not alone. Shape swept: **a file under `components/` that no file under `app/`, `components/`, or `lib/` imports.** Test importers deliberately do not count — ParsePanel HAD two, which is why it survived the pivot unnoticed for months.
+
+**Worked 2026-08-03. Four of the five were RETIRED**, each with a named superseding commit AND a named live successor — "nothing imports it" was the guard's finding, never the argument for deletion:
+
+| File                                      | Disposition                                                                                                                                                       |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `components/admin/PerShowCrewSection.tsx` | RETIRED. Mount removed at `d70761005`; the route is now a 307 into the dashboard modal, where `CrewBreakdown` renders the roster.                                 |
+| `components/admin/ResolveAlertButton.tsx` | RETIRED. Superseded at `67ce6d082` by the bell panel's resolve control (labelled `Confirm` / `Mark resolved`, never "Dismiss").                                   |
+| `components/admin/RunFinalCASButton.tsx`  | RETIRED. Superseded at `bd214c04b`; `FinalizeButton`'s `"finish"` mode is the live finalize-cas path.                                                             |
+| `components/right-now/RightNowCard.tsx`   | RETIRED. Superseded at `b327d5eb0` by `RightNowHero`; its two regression suites were RETARGETED onto the hero first, each proven by mutation rather than assumed. |
+| `components/shared/WrappedTile.tsx`       | **RETAINED — a decided terminal state, not leftover work.**                                                                                                       |
+
+**Why the entry stays open with one row.** `WrappedTile` is retained by the ratified KEEP at `docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/04-layout-migration-closeout.md:10`. Its dormancy is itself the contract the 2026-07-24 alert-autoresolve family relies on — it keeps `TileServerFallback`'s `TILE_SERVER_RENDER_FAILED` producer dormant and its write-site pin honest — and `tests/crew/_metaTileProducerTopology.test.ts` pins exactly that. Deleting it would not shrink this ledger: it is the sole production importer of BOTH `TileErrorBoundary` and `TileServerFallback`, so the ledger would grow by two and take a registered alert producer with it. There is no mount to wire either — the live crew sections are synchronous and use `WrappedSection`, the deliberate synchronous analog; `WrappedTile` is the async `load()` form. **A future sweep must not read this row as unfinished work.** `tests/components/_metaOrphanedComponents.test.ts` asserts the row's reason names the KEEP and both cascade dependents, so the reason cannot decay back into an observation.
+
+**The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
+
+</details>
+
+## BL-NULLCODE-STAMP-BATCH-2 residuals (2026-07-03) — CLOSED 2026-08-26
+
+**Graduated:** 2026-08-26 on `feat/speclint-dispatch-gates` (PR #904). **Status:** COMPLETE — container heading only; its working order finished and the heading is not a topic.
+
+**Resolution — the working order is done and the heading never was a subject.** PR2 #592, PR3 #610, PR4 #621, PR5 #623 and PR6 #624 all closed. `BL-HEALTH-RESOLVE-DB-LOCKDOWN` remains a deliberately accepted risk and `BL-STEP3-IMPECCABLE-LIVE-RENDER` shipped 2026-08-02; both are separate entries and neither travels with this heading. The container's own text says it best: items accreted under it by filing date rather than by subject, so "the heading is not a topic."
+
+**ONLY THE CONTAINER HEADING MOVED.** The next heading after it in `BACKLOG.md` is a `###`, not a `##`, so the cut runs heading-to-any-NEXT-heading; a cut to the next `##` would have swept five open sub-rows into the archive, and that error is invisible in a diff read at speed. Proved by set arithmetic across both files, before and after:
+
+|                                 | before | after              |
+| ------------------------------- | ------ | ------------------ |
+| `BACKLOG.md` `^## BL-`          | 20     | 18                 |
+| `BACKLOG.md` `^### BL-`         | 12     | **12, unchanged**  |
+| `BACKLOG-archive.md` `^## BL-`  | 388    | 390                |
+| `BACKLOG-archive.md` `^### BL-` | 109    | **109, unchanged** |
+
+The five sub-rows that stayed OPEN and in place, named individually: `BL-AGENDA-PROSE-SECOND-DAY`, `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK`, `BL-HEALTH-RESOLVE-DB-LOCKDOWN`, `BL-PARSER-FIELD-PROVENANCE-MODEL`, `BL-EXPORT-BLANK-ROW-SEGMENTATION`. The brief that routed this arc named SEVEN; `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE` and `BL-THEME-NOTE-BUBBLE-TEXT-ALIGN` were archived by #903 while this branch was in flight, so the set was re-derived from the live file rather than from the brief.
+
+<details><summary>Original entry, verbatim</summary>
+
+**Effort:** XS
+
+Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observability/2026-07-03-nullcode-forensic-batch2-design.md` §9) — separate user-facing / alerting surfaces beyond the pure log-code enrichment.
+
+**Heading caveat:** only the first two items (`BL-SCAN-SSE-BODY-NULL-CODE`, `BL-PICKER-TAMPER-ADMIN-ALERT`) actually came out of that batch. The rest accreted under this heading afterwards from unrelated 2026-07-04+ work (agenda visibility, quiet-link a11y, alert-link e2e, health-resolve lockdown, Step-3 impeccable) and are grouped here by filing date, not by subject. Read each item on its own; the heading is not a topic.
+
+**Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk, deliberately and not by omission. `BL-STEP3-IMPECCABLE-LIVE-RENDER` was unscheduled here and SHIPPED 2026-08-02 on `test/step3-live-render-cluster` (graduated to `BACKLOG-archive.md`).
+
+</details>
+
+## BL-THEME-NOTE-BUBBLE-TEXT-ALIGN — the note bubble right-aligned copy the width math wrapped to three lines — CLOSED 2026-08-26
+
+**Status:** CLOSED BY REMOVAL 2026-08-26 · **Effort (as shipped):** XS · **Shipped by:** `fix/theme-note-polish`
+
+**Resolution — the defect was real and measured; the surface it lived on is gone.** The row said the bubble carried `text-right` on copy that spec §2.2's own width derivation wraps to three lines, giving every line a different starting x at exactly the width engineered tightest. That was measured on the live tree at merge base `b30413cf5`, before the ruling that closed it: one `page.evaluate` per reading collecting `Range.getClientRects()` line boxes, across the help header and the admin nav at 320px and 390px in both palettes.
+
+|                         | line-start spread  | line boxes         | computed alignment |
+| ----------------------- | ------------------ | ------------------ | ------------------ |
+| as shipped              | 57.68px to 57.69px | 3 at every reading | `right`            |
+| alignment class dropped | 0.00px             | 3 at every reading | `start`            |
+
+Eight readings, every one wrapping to three lines, so the measurement discriminated rather than passing trivially on a single line. Light and dark geometry were byte-identical.
+
+**It closes by removal, not by refutation.** Eric ruled on 2026-08-26 that the persist-failure note should not exist at all: saving a theme choice is a convenience, not a failure mode that needs acknowledging. The alignment repair was drafted and then discarded because the node it applied to was deleted in the same PR. What shipped instead is the removal amendment at `docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` §2.2, which retires the whole class list this row quoted:
+
+> **Amendment, 2026-08-26 (branch `fix/theme-note-polish`, product ruling by Eric via the orchestrator session).** Everything this section ratifies above is RETIRED. There is no note, in either control, in any state.
+
+**The class was not one, and the peers were repaired here rather than filed.** Sweeping `text-right` across `components/` and `app/` returned eight hits. Five were column and value-cell alignment (`step3ReviewSections.tsx`, `CronHealthList.tsx`, `FactRows.tsx`, plus two comment lines) and are not this shape. Two were the same shape on surfaces this row never named: the self-last revoke hint (`app/admin/settings/admins/RevokeRowButton.tsx`) and the developer-toggle error (`components/admin/settings/DeveloperToggleButton.tsx`), neither spec-ratified. Both are right-positioned by their column's `items-end`, so the alignment class was a no-op on one line and the ragged-start defect on a wrapped one, with no third case. Both dropped it here, each with a unit assertion pinning the absent class against a rendered element carrying its real chrome. The repo had already taken this exact repair once, on the sibling of the first: `RevokeRowButton`'s lockout error carried the same trio until M9 commit `4e438b0`.
+
+---
+
+## BL-THEME-NOTE-NO-DISMISS-AFFORDANCE — the persist-failure note could not be dismissed, so a permanently blocked device kept it up all visit — CLOSED 2026-08-26
+
+**Status:** CLOSED BY REMOVAL 2026-08-26 · **Effort (as shipped):** S · **Shipped by:** `fix/theme-note-polish`
+
+**Resolution — the question the row asked was answered by deleting its subject.** The row was filed because a dismiss control is a product decision, not an implementation detail: it needed its own copy, a 44px tap target inside a 144px-wide bubble, an a11y contract for a button inside a `role="status"` region, and a rule for whether a dismissal survives a later failure. That decision went to Eric on 2026-08-26 and came back as a different answer than either branch the row anticipated: **no note at all.** Saving a theme choice is a UX convenience, not a failure mode that needs acknowledging. Nothing to dismiss, so nothing to design.
+
+**What shipped.** The rendered note in both controls, the shared copy const, the persist-failure field on the theme hook, the avatar menu's screen-reader-only announcer, and the positioning wrapper in `ThemeToggle` that existed only to anchor the bubble. The silent absorb in `setTheme` stays, and is now silent by ruling rather than by omission, with a comment in the catch pointing at the amendment.
+
+**§4 limit 5 is retired with it.** That limit ratified the overlay this row was filed against. It is kept in the spec as the record of what was accepted while the note existed.
+
+**The removal is pinned by inverted suites, not by deletion**, so the note cannot come back unnoticed: `tests/components/layout/themeToggleNote.test.ts`, the `no persist-failure note (removed 2026-08-26)` block in `tests/components/auth/avatarMenu.test.tsx`, and `tests/components/layout/useAppliedThemePersistFailure.test.ts`, which asserts the flag's absence with an `in` check rather than `toBeUndefined()` because an absent key and a key set to `undefined` are indistinguishable to the latter. Every case carries a premise only a working control satisfies, so "nothing rendered" cannot pass as "the note is gone". `tests/e2e/theme-persistence-note.spec.ts` keeps the real-browser half, which jsdom cannot cover: removing the wrapper changed layout in three consumer rows, two of them width-engineered.
+
+**Paired deferral `THEMENOTE-BUBBLE-DISMISS-1` graduates with this row** (`DEFERRED-archive.md`). Its stated un-defer trigger was "a product decision on whether the note is dismissible"; the decision arrived.
+
+---
+
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount — CLOSED 2026-08-26
 
 **Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** S · **Shipped by:** `feat/fitwithinclip-measure-class`
@@ -12470,6 +12604,71 @@ just the clock: a deleted loop advance, a removed `break`, or a flipped terminat
 is non-termination and is honestly killed. Anything else is a genuine candidate for a re-run
 with its surface alone on a leg, which is how any mover in the untouched population is treated
 before it is attributed to the repricing.
+
+## BL-MUTATION-SHARD-BUDGET-AGGREGATE-OVER — the source-mutation shards are 60% over budget in AGGREGATE, and the four-shard pin's premise no longer holds
+
+**Status:** SHIPPED via PR #902 (`fix/mutation-shard-budget-six`) · **Filed:** 2026-08-22 (queued by `bl-orch` onto `ci/app-e2e-batch2`'s closeout commit, from `dbconn`'s arithmetic) · **Facing:** process · **Severity:** MEDIUM (the budget gate is FAILURE on main itself, so every arc reads its own leg against a red baseline and cannot tell a regression from the inherited state) · **Class:** CI capacity · **Effort:** M · **Reachability:** PROBED — the main-red runs linked in the incident are this row's own evidence; the shard wall-clocks below were measured by `dbconn` on its own legs and are recorded here as ROUTED figures, attributed rather than re-derived, because the arc that measured them holds the artifacts. · **Incident:** the `mutation-harness` workflow is red on MAIN, not on a branch, and has been for days — the last five scheduled runs on `main` all failed: [32559529251](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32559529251) (2026-08-22), [32459382957](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32459382957), [32344648722](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32344648722), [32228276600](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32228276600) and [32111856491](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32111856491), listed by `gh run list --workflow=mutation-harness.yml --branch main`. Those are cost events that already happened, not a constructed hypothetical.
+
+Shard wall-clocks, measured by `dbconn` and routed here by the orchestrator (that arc holds the run
+artifacts; this row does not re-derive them): **4669 s, 6958 s, 4667 s, 6786 s = 23080 s** of work
+against a budget of `4 x 3600 s`. That is 60% over IN AGGREGATE, and — the part that matters for the fix — **all four
+legs are over**, with no single surface dominating any of them. The spec's §2.4 premise for pinning
+`SOURCE_SHARD_COUNT = 4` was that a small number of expensive surfaces set the ceiling; that premise
+is now false, so the pin cannot be defended on its original grounds.
+
+Fix candidate, by the same arithmetic: **n = 8 fits** at roughly 2885 s for the longest leg. `n = 5`
+and `n = 6` are both still over, so a one-notch bump buys nothing.
+
+**Per-leg ceiling proximity is trending, not just the aggregate.** One shard measured 111 minutes and
+then 118 minutes on consecutive runs against a 125-minute ceiling (`panecompact`, 2026-08-22). The
+aggregate says the budget is wrong; that pair says a single leg is now close enough to the ceiling
+that ordinary variance reaches it, and a leg that CANCELS at the ceiling reports nothing — the silent
+form this row exists to prevent.
+
+**The first scheduled step is the shard-count decision as a FLEET item, not a unilateral edit.**
+`shardPartition` is a shared surface and the LPT partition re-packs whenever the surface set changes,
+so a shard-count change moves which shard every enrolled surface lands in, and every arc holding a
+stamped score is affected at once. Note also that `arc-ctloutline`'s incoming **231 sites** land on
+this same partition and make every number above worse before any repair lands.
+
+---
+
+**GRADUATED 2026-08-26 via PR #902.** The decision this row asked for was taken as a fleet item by
+`bl-orch` and executed by `arc-shardbudget`: **`SOURCE_SHARD_COUNT` = 8.**
+
+**The arithmetic, and why it is not this row's.** This row's `n = 8` came from measured leg wall
+clock under the boot-count weight. The predecessor arc (#896) then replaced that weight model, and
+its handoff predicted `n = 6` from the priced model. Both were valid on their own inputs. The
+shipped figure was re-derived from neither: the partition is packed by modelled weight and then
+scored against the seconds surfaces ACTUALLY took on two of main's nightlies, plus the worst
+observed per-leg overhead, because `SHARD_BUDGET_SECONDS` is checked against a leg's whole
+`elapsed.txt` and the model prices only child work. On that scoring six overruns by 17.6% and seven
+by 6.8%; eight fits at 3,284.5 s with 315.5 s of margin, 8.8%. This row's `n = 8` was right, by a
+route it did not take. Full derivation, with the command that reproduces it:
+`docs/superpowers/specs/ci/2026-08-26-mutation-shard-budget-fit.md` §1.
+
+**The residual this row warned about has LANDED, and it is now the binding constraint.**
+`arc-ctloutline`'s 231 sites are enrolled as `controlOutlineResidue`, which measures 3,056.9 s and,
+with per-leg overhead, **3,273.7 s — 90.9% of a single leg, alone.** A surface is atomic in this
+partition, so from N = 8 on the makespan IS that surface and no shard count can go below it: nine
+and above buy 10.8 s. The premise this row correctly said was false at four ("a small number of
+expensive surfaces set the ceiling") is true again at eight, for one surface.
+
+**So the shard count has stopped being the variable, and that is the successor condition rather
+than a new row.** If `controlOutlineResidue` grows about 10%, or a run is about 10% slower, it
+breaches the budget on its own at any N. The remedies are then splitting that surface into
+separately-enrolled parts, or moving the budget with the ceiling relation at
+`tests/mutation/_metaSourceShardIntegrity.test.ts` moved in lockstep. Re-rating it is NOT one:
+`millisPerBoot` decides placement, never execution time, and the surface is already alone on its
+leg. Recorded as documented limits in the spec's §4 (L-1, and L-3's measured 1.29x slow-run event,
+which breaches at every N) rather than filed forward, per the arc's directive.
+
+**Also closed by the same PR, because the count reached further than this row knew:** the
+`.gitignore` scratch rule ignored `guardSurfaces.shard[4-9].test.ts`, so every shard file a raised
+count adds was silently unstageable; `shardBalance`'s held-out pairs are four-leg measurements that
+were reading the live constant; and `vitest-projects-partition` hardcoded a nightly-file count that
+tracked the constant. The first is now guarded by a derivation
+(`tests/mutation/_metaShardRangeTracked.test.ts`) so it cannot recur at the next change.
 
 ### BL-NEARMISS-CANDIDATE-RENDER — the near-miss card asks Doug to judge a suggestion no surface displays
 

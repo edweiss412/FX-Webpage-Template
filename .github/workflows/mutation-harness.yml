@@ -5,7 +5,7 @@ name: mutation-harness
 # 101,795 mutants across 8 LPT-balanced shard files + 1 generation-only gates
 # file. The source-mutation guard gate mutates PROGRAM TEXT: every enrolled
 # surface in tests/mutation/source/registry.ts, one vitest child per mutant,
-# partitioned across 4 LPT-balanced shard files + 1 corpus-wide gates file.
+# partitioned across LPT-balanced shard files + 1 corpus-wide gates file.
 #
 # WHY JOBS AND NOT FILES (wall-clock spec
 # docs/superpowers/specs/ci/2026-08-16-mutation-gate-wallclock-design.md §1.1).
@@ -147,7 +147,7 @@ jobs:
           path: elapsed.txt
 
   # ---------------------------------------------------------------------------
-  # SOURCE-mutation guard gate: 4 LPT shards + 1 corpus-wide gates file. The
+  # SOURCE-mutation guard gate: SOURCE_SHARD_COUNT LPT shards + 1 corpus-wide gates file. The
   # partition is recomputed from the live registry on every runner, so there is
   # no committed weight table (tests/mutation/source/shardPartition.ts).
   # ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3] # == SOURCE_SHARD_COUNT (tests/mutation/source/shardPartition.ts)
+        shard: [0, 1, 2, 3, 4, 5, 6, 7] # == SOURCE_SHARD_COUNT (tests/mutation/source/shardPartition.ts)
     runs-on: ubuntu-latest
     timeout-minutes: 125
     permissions:
@@ -195,7 +195,7 @@ jobs:
       # place. `if: always()` is load-bearing in BOTH directions: conditioned on
       # success it reproduces the failure-only defect, conditioned on failure it
       # reproduces it inverted. The artifact name carries the matrix shard so the
-      # four workspaces cannot collide on one constant.
+      # per-shard workspaces cannot collide on one constant.
       - name: Upload mutation records
         uses: actions/upload-artifact@v4
         if: always()
@@ -213,7 +213,7 @@ jobs:
           path: .mutation-records/
           # THE DIRECTORY IS DOT-PREFIXED AND upload-artifact@v4 TREATS EVERY
           # FILE INSIDE ONE AS HIDDEN, excluding them by default. Without this
-          # the step is green on all four shards while uploading nothing —
+          # the step is green on every shard while uploading nothing —
           # the CI-only blind spot §1.0 measures, rebuilt inside its own repair.
           include-hidden-files: true
           # `error`, not `warn` and certainly not `ignore`: hidden-file exclusion
@@ -293,7 +293,7 @@ jobs:
           ELAPSED_DIR: elapsed
           SHARD_BUDGET_SECONDS: "3600"
           PARSER_SHARD_COUNT: "8"
-          SOURCE_SHARD_COUNT: "4"
+          SOURCE_SHARD_COUNT: "8"
         run: pnpm tsx scripts/check-shard-budget.ts
       # The RECORDS, not the elapsed stamps: drift is per SURFACE, and only the
       # per-surface record carries the child wall clock a rate is derived from.

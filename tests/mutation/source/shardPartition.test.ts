@@ -81,7 +81,7 @@ describe("source-mutation shard partition", () => {
     }
   });
 
-  it("is total: the union of the four shard slices is exactly the registry (AC-1)", () => {
+  it("is total: the union of every shard slice is exactly the registry (AC-1)", () => {
     // Built the way the SHARD FILES build it, so a filter bug is caught here
     // rather than in CI. Comparing the Map's size to itself would not do that.
     const slices = Array.from({ length: SOURCE_SHARD_COUNT }, (_, i) => surfacesForShard(i));
@@ -201,14 +201,19 @@ describe("source-mutation shard partition", () => {
   });
 
   it("records which regime pins the makespan, and holds the tight claim in the tight one", () => {
-    // Spec §2.4 measured `max` pinned at 521 by `specLintNumerics` for every
-    // n >= 4, and SOURCE_SHARD_COUNT = 4 was chosen on that basis. Enrolment has
-    // since carried the registry OUT of that regime: at 21 surfaces the even
-    // split is 555 and the heaviest surface no longer dominates, so the makespan
-    // is 560 rather than 521. The design is unaffected -- 560 boots is 47 min
-    // against a 60 min budget -- but the equality the plan asserted is only true
-    // while the premise below holds, so it is guarded rather than deleted. If a
-    // heavy enough surface enrols, or lighter ones retire, this re-arms itself.
+    // This case has now been through both regimes, which is what it was built for.
+    //
+    // The original design pinned `max` at the heaviest surface for every n >= 4 and
+    // chose SOURCE_SHARD_COUNT on that basis. Enrolment carried the registry OUT of
+    // that regime: the heaviest surface stopped dominating an even split at four, the
+    // makespan rose above it, and this case took its early-return branch and asserted
+    // almost nothing. Raising the count to eight carried it back IN -- an even split is
+    // now smaller than the heaviest surface again -- so the branch below fires and the
+    // equality is live once more. That is the re-arming this case's guard exists for,
+    // and it needed no edit to do it.
+    //
+    // No figures here on purpose. An earlier version of this comment carried four of
+    // them and every one had rotted; both branches read the live registry instead.
     if (heaviest <= total / SOURCE_SHARD_COUNT) {
       expect(makespan).toBeGreaterThan(heaviest);
       return;
@@ -231,26 +236,26 @@ describe("source-mutation shard partition", () => {
     expect(SHARD_BUDGET_SECONDS).toBeLessThan(90 * 60);
   });
 
-  it("RECORDS that the live partition does not fit the budget, and by how much", () => {
-    // A DOCUMENTED LIMIT, recorded so the improvement above cannot be read as
-    // sufficiency. The spec chose the binding leg RELATIVE to the shipped model as
-    // AC-3's criterion, deliberately rather than an absolute budget, "because an
-    // absolute would be met or missed by how heavy the corpus happened to be that
-    // week." This is that week.
+  it("the binding leg fits the budget, derived from the live registry", () => {
+    // Replaces a case that RECORDED the opposite. Its author wrote this
+    // replacement into its own comment: when the binding leg drops under the
+    // budget that case fails, and that is the moment to delete it and assert the
+    // budget instead. Raising SOURCE_SHARD_COUNT from four to eight is that
+    // moment (spec docs/superpowers/specs/ci/2026-08-26-mutation-shard-budget-fit.md).
     //
-    // Measured on the live registry: the priced model's binding leg is about 4509s
-    // against the boot-count model's 5228s, so pricing takes roughly 719s off it -- and
-    // the budget is 3600s, so BOTH breach it. The shortfall is not a packing that could
-    // be improved: total modelled child wall clock is about 18,025s, so the lower bound
-    // at four shards is about 4506s and NO assignment of four can fit. Six would.
+    // DERIVED, with no committed second count on either side: `makespan` comes
+    // from the live registry through `weightOf` and the shipped assignment, and
+    // the bound is the budget constant. A literal here would rot exactly the way
+    // the deleted case's did.
     //
-    // Asserted as a RECORD of today's state, not as a target. If the binding leg ever
-    // drops under the budget this case fails, and that is exactly the moment to delete
-    // it and assert the budget instead.
-    expect(lowerBound / 1000).toBeGreaterThan(SHARD_BUDGET_SECONDS);
-    expect(makespan / 1000).toBeGreaterThan(SHARD_BUDGET_SECONDS);
-    // Derived rather than remembered, so the number cannot rot the way "21 surfaces"
-    // did in a comment a few lines up.
-    expect(Math.ceil(total / 1000 / SHARD_BUDGET_SECONDS)).toBeGreaterThan(SOURCE_SHARD_COUNT);
+    // What this catches: a surface enrols heavy enough, or a rate is re-measured
+    // upward, and the partition silently stops fitting. It is NOT satisfiable by
+    // moving the constant alone -- raising SOURCE_SHARD_COUNT with the registry
+    // unchanged lowers the makespan, which is the direction this permits.
+    //
+    // The MODELLED makespan, which is what this process can compute. The realized
+    // claim is the spec's AC-5 and is settled by a real mutation-harness run,
+    // because leg wall clock includes per-leg overhead no in-process check sees.
+    expect(makespan / 1000).toBeLessThanOrEqual(SHARD_BUDGET_SECONDS);
   });
 });

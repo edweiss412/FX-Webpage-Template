@@ -77,7 +77,7 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const run = mkRun();
       const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
-      const r = await runGuard(run, ["--lint-doc", rel], REAL_CLI);
+      const r = await runGuard(run, ["--lint-doc", rel, "--no-lint-gate"], REAL_CLI);
       expect(r.code).toBe(0);
       expect(readResult(run).verdict).toBe("APPROVE");
     },
@@ -90,7 +90,7 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const run = mkRun();
       const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
-      await runGuard(run, ["--lint-doc", rel], REAL_CLI);
+      await runGuard(run, ["--lint-doc", rel, "--no-lint-gate"], REAL_CLI);
 
       const prompt = readCalls(run)[0]!.stdin;
       expect(prompt).toContain(`===== SPEC-LINT: ${rel} =====`);
@@ -132,14 +132,26 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
   );
 
   it(
-    "AC-4: a doc with hard findings still dispatches — the report is why the reviewer is there",
+    "AC-4 (SUPERSEDED 2026-08-26): a doc with hard findings is now REFUSED before dispatch",
     async () => {
+      // This test asserted the opposite until the pre-dispatch lint gate landed:
+      // "a doc with hard findings still dispatches — the report is why the
+      // reviewer is there." That contract was deliberately reversed by
+      // `docs/superpowers/specs/2026-08-26-speclint-dispatch-gates-design.md` §3,
+      // closing `BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE`, because three
+      // committed incidents showed the reviewer spending a finding — and the arc
+      // a round — on a class `pnpm spec:lint` prints in under a minute. The
+      // embed is unchanged and still disclosed; what changed is that a HARD
+      // artifact no longer reaches a reviewer at all.
+      //
+      // Kept as a reversal record rather than deleted, so the old contract
+      // cannot be reintroduced by someone reading only the new one.
       const run = mkRun();
       const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
       const r = await runGuard(run, ["--lint-doc", rel], REAL_CLI);
-      expect(r.code).toBe(0);
-      expect(readCalls(run).length).toBeGreaterThan(0);
+      expect(r.code).toBe(2);
+      expect(readCalls(run)).toHaveLength(0);
     },
     T,
   );
@@ -150,7 +162,7 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const a = mkRun();
       const rel = plantDoc(a, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(a, APPROVE);
-      await runGuard(a, ["--lint-doc", rel], REAL_CLI);
+      await runGuard(a, ["--lint-doc", rel, "--no-lint-gate"], REAL_CLI);
       expect(readResult(a).lintArm).toBe("present");
 
       const b = mkRun();
@@ -183,7 +195,7 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const run = mkRun();
       const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
-      const r = await runGuard(run, ["--lint-doc", rel], REAL_CLI);
+      const r = await runGuard(run, ["--lint-doc", rel, "--no-lint-gate"], REAL_CLI);
       expect(r.code).toBe(0);
       expect(readCalls(run)[0]!.stdin).toContain("TASK_MARKER_MISSING");
     },
@@ -205,7 +217,7 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
           `process.stdout.write("spec:lint ${rel}\\nkind: plan (inferred)\\n\\nsummary: 0 hard, 0 advisory\\n");\nprocess.exit(${status});\n`,
         );
         writeScenario(run, APPROVE);
-        const r = await runGuard(run, ["--lint-doc", rel], {
+        const r = await runGuard(run, ["--lint-doc", rel, "--no-lint-gate"], {
           ...REAL_CLI,
           CODEX_GUARD_SPEC_LINT: stub,
         });
@@ -248,7 +260,10 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
       const many = Array.from({ length: 40 }, () => ["--lint-doc", rel]).flat();
-      const r = await runGuard(run, many, { ...REAL_CLI, CODEX_GUARD_LINT_BUDGET_BYTES: "4000" });
+      const r = await runGuard(run, [...many, "--no-lint-gate"], {
+        ...REAL_CLI,
+        CODEX_GUARD_LINT_BUDGET_BYTES: "4000",
+      });
       expect(r.code).toBe(2);
       expect(r.stderr).toMatch(/cannot be seated/);
       expect(readCalls(run)).toEqual([]);
@@ -263,7 +278,7 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
       const budget = 3000;
-      const r = await runGuard(run, ["--lint-doc", rel, "--lint-doc", rel], {
+      const r = await runGuard(run, ["--lint-doc", rel, "--lint-doc", rel, "--no-lint-gate"], {
         ...REAL_CLI,
         CODEX_GUARD_LINT_BUDGET_BYTES: String(budget),
       });
@@ -393,7 +408,7 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const run = mkRun();
       const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
-      const r = await runGuard(run, ["--lint-doc", rel], {
+      const r = await runGuard(run, ["--lint-doc", rel, "--no-lint-gate"], {
         ...REAL_CLI,
         CODEX_GUARD_LINT_BUDGET_BYTES: "300",
       });

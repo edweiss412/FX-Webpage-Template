@@ -1,5 +1,7 @@
 # Theme persistence-failure note — implementer handoff (Opus pane entry point)
 
+> **RETIRED 2026-08-26.** The feature this document builds was removed by product ruling; the persist-failure note no longer exists in either theme control. Kept as the build record. Current state is `docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` §2.2, "Amendment, 2026-08-26".
+
 You are the Opus implementer session for `feat/theme-persistence-note`. This file is self-contained: everything you need is here or one `Read` away. GATE CHECK before anything else: open `docs/superpowers/plans/2026-08-15-theme-persistence-note/plan.md` and confirm its **Status** line reads plan-APPROVED with a codex-guard round reference — if it still says DRAFT or pending, STOP and do nothing (you were launched early; the authoring session owns the gate). Both user review gates were WAIVED by the user's 2026-08-15 batch autonomy grant. Do not re-ask any ratified decision — they are enumerated in the spec §1.1.
 
 ## Step 0 — takeover protocol (in your FIRST turn, in order)

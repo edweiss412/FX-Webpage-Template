@@ -1,5 +1,7 @@
 # theme-persistence-note — closeout
 
+> **RETIRED 2026-08-26.** The feature this document records was removed by product ruling; the persist-failure note no longer exists in either theme control. Everything below describes what shipped in August 2026 and was later deleted: the `persistFailed` flag, the anchored bubble and its wrapper, the avatar-menu note and announcer, and the limits said to be "carried forward" are all gone. Kept as the build record. Current state is `docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` §2.2, "Amendment, 2026-08-26", and the removal arc's own record at `docs/superpowers/plans/2026-08-26-theme-note-removal.md`.
+
 Unit: `docs/superpowers/plans/2026-08-15-theme-persistence-note/`
 Branch: `feat/theme-persistence-note` · Spec: `docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md`
 

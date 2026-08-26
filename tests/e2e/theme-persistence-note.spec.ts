@@ -1,28 +1,29 @@
 /**
- * Real-browser geometry for the theme persist-failure note (spec
- * 2026-08-15-theme-persistence-note-design §2.2, AC-10b).
+ * Real-browser guard that the theme persist-failure note is GONE, and that
+ * removing its anchor did not move the rows the toggle sits in.
  *
- * WHY A BROWSER. The unit suite pins the CLASS contract (`absolute` on the note,
- * `relative inline-flex` on the wrapper). Classes are not layout: a
- * right-anchored bubble whose width outgrows the space to the toggle's left
- * would still carry every asserted class while hanging off the left edge of a
- * 320px phone. The width in §2.2 (`max-w-36`) was DERIVED from the tightest
- * consumer — the help header, where the toggle is not the rightmost element —
- * so the derivation gets a live check rather than a comment.
+ * Product ruling 2026-08-26 (spec 2026-08-15-theme-persistence-note-design §2.2,
+ * "Amendment, 2026-08-26"): saving the theme choice is a convenience, not a
+ * failure mode the user acknowledges. A device that cannot persist still gets
+ * the theme it asked for, for the visit, silently.
  *
- * The existing admin cluster guard (tests/e2e/appHealthIndicator.layout.spec.ts)
- * is NOT this proof: it transcribes a bare button, so it cannot see a wrapper
- * that grew. It stays as the cluster-geometry regression check and must remain
- * green UNMODIFIED.
+ * WHY THIS STAYS A BROWSER TEST after the note is gone. The removal deleted more
+ * than a node: `ThemeToggle` used to return a `relative inline-flex` wrapper
+ * whose only job was anchoring the absolute bubble, and that wrapper is gone
+ * too. jsdom does not lay out, so the unit suite cannot see a consumer row that
+ * reflowed. Three rows render this control and two are width-engineered — the
+ * admin nav's 320px action cluster and the help header, where a trailing
+ * "Back to admin" link sits to the toggle's right. This file measures those two.
  *
- * Storage is blocked SURGICALLY — only the theme key throws — so the failure is
- * deterministic while every other client write on these pages keeps working. A
- * blanket `Storage.prototype.setItem` throw would take down unrelated app state
- * and the note would then be measured on a broken page.
+ * Storage is blocked SURGICALLY — only the theme key throws — so the write
+ * really is refused while every other client write on the page keeps working.
  *
- * Project: desktop-chromium only (playwright.config.ts). The 320px containment
- * cases size the viewport in-test, so the mobile project would add a second
- * execution of an identical assertion, not coverage.
+ * The admin cluster's own guard (tests/e2e/appHealthIndicator.layout.spec.ts) is
+ * the other half and must stay green UNMODIFIED.
+ *
+ * Project: desktop-chromium only (playwright.config.ts). The 320px cases size
+ * the viewport in-test, so the mobile project would re-run an identical
+ * assertion rather than add coverage.
  */
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
@@ -46,9 +47,8 @@ async function blockThemeWrites(page: Page): Promise<void> {
  * Wait until the toggle is INTERACTIVE, not merely visible.
  *
  * `ThemeToggle` is a client island: pre-hydration the button is SSR markup with
- * no onClick, so a click is silently a no-op and the note never appears — a
- * readiness bug that reads exactly like a product bug. The gate is React's own
- * hydration marker, the same one tests/e2e/theme-toggle.spec.ts uses.
+ * no onClick, so a click is silently a no-op — and a no-op click would make
+ * every "no note rendered" assertion below pass for the wrong reason.
  */
 async function waitForToggleHydrated(page: Page): Promise<void> {
   await expect(page.getByTestId("theme-toggle")).toBeVisible({ timeout: 15_000 });
@@ -62,13 +62,6 @@ async function waitForToggleHydrated(page: Page): Promise<void> {
   );
 }
 
-/** Click the toggle once and wait for the note to render. */
-async function failThePersist(page: Page): Promise<void> {
-  await waitForToggleHydrated(page);
-  await page.getByTestId("theme-toggle").click();
-  await expect(page.getByTestId("theme-persist-note")).toBeVisible({ timeout: 10_000 });
-}
-
 async function gotoTight(page: Page, path: string): Promise<void> {
   await page.setViewportSize(TIGHT_VIEWPORT);
   await signInAs(page, ADMIN_FIXTURE);
@@ -76,86 +69,108 @@ async function gotoTight(page: Page, path: string): Promise<void> {
   await page.goto(path, { waitUntil: "domcontentloaded" });
 }
 
-/** The note's box, and the viewport it has to stay inside. */
-async function noteContainment(page: Page): Promise<{
-  left: number;
-  right: number;
-  width: number;
+/**
+ * Everything the removal claims, read in ONE evaluate.
+ *
+ * One evaluate per rect set is not style: `boundingBox()` is viewport-relative
+ * and Playwright's actionability check can scroll between two Locator reads,
+ * which manufactures overlaps that do not exist.
+ */
+async function readHeader(page: Page): Promise<{
+  appliedTheme: string | undefined;
+  noteNodes: number;
+  statusRegions: number;
+  toggle: { left: number; right: number; top: number; width: number; height: number };
   innerWidth: number;
+  bodyScrollWidth: number;
 }> {
   return page.evaluate(() => {
-    const note = document.querySelector('[data-testid="theme-persist-note"]');
-    const rect = note!.getBoundingClientRect();
+    const btn = document.querySelector('[data-testid="theme-toggle"]') as HTMLElement;
+    const r = btn.getBoundingClientRect();
     return {
-      left: rect.left,
-      right: rect.right,
-      width: rect.width,
+      appliedTheme: document.documentElement.dataset.theme,
+      noteNodes: document.querySelectorAll('[data-testid="theme-persist-note"]').length,
+      statusRegions: document.querySelectorAll('[data-testid="theme-persist-announcer"]').length,
+      toggle: { left: r.left, right: r.right, top: r.top, width: r.width, height: r.height },
       innerWidth: window.innerWidth,
+      bodyScrollWidth: document.body.scrollWidth,
     };
   });
 }
 
-/** The wrapper's in-flow box against the button's — the R2 F1 no-displacement claim. */
-async function wrapperVersusButton(page: Page): Promise<{
-  wrapper: { x: number; y: number; width: number; height: number };
-  button: { x: number; y: number; width: number; height: number };
-}> {
-  return page.evaluate(() => {
-    const button = document.querySelector('[data-testid="theme-toggle"]') as HTMLElement;
-    const wrapper = button.parentElement as HTMLElement;
-    const box = (el: HTMLElement) => {
-      const r = el.getBoundingClientRect();
-      return { x: r.x, y: r.y, width: r.width, height: r.height };
-    };
-    return { wrapper: box(wrapper), button: box(button) };
+async function flipTheme(page: Page): Promise<void> {
+  await waitForToggleHydrated(page);
+  await page.getByTestId("theme-toggle").click();
+  // The applied theme is the observable the click promises; wait on it rather
+  // than on a note that is never coming.
+  await page.waitForFunction(() => document.documentElement.dataset.theme === "dark", undefined, {
+    timeout: 10_000,
   });
 }
 
-test.describe("theme persist-failure note geometry", () => {
-  test("stays inside a 320px viewport in the help header", async ({ page }) => {
+test.describe("theme toggle renders no persist-failure note", () => {
+  for (const [name, path] of [
+    ["help header", "/help/admin/dashboard"],
+    ["admin nav", "/admin"],
+  ] as const) {
+    test(`${name}: a blocked write applies the theme and says nothing`, async ({ page }) => {
+      await gotoTight(page, path);
+      await page.evaluate(() => {
+        document.documentElement.dataset.theme = "light";
+      });
+      await flipTheme(page);
+
+      const seen = await readHeader(page);
+
+      // PREMISE first: the click went through the refused write and the theme
+      // really changed. Every absence assertion below is meaningless without it.
+      expect(seen.appliedTheme, "the theme applied despite the blocked write").toBe("dark");
+
+      expect(seen.noteNodes, "no persist-failure note anywhere").toBe(0);
+      expect(seen.statusRegions, "no persist announcer anywhere").toBe(0);
+    });
+
+    test(`${name}: the toggle keeps its tap target and its row at 320px`, async ({ page }) => {
+      await gotoTight(page, path);
+      await flipTheme(page);
+
+      const seen = await readHeader(page);
+
+      expect(seen.innerWidth, "the tight-viewport premise").toBe(TIGHT_VIEWPORT.width);
+      // The wrapper that used to hold this button is gone. If its removal
+      // reflowed the row, it shows up here as a shrunken target or an
+      // overflowing page, not as a failing unit test.
+      expect(seen.toggle.width).toBeGreaterThanOrEqual(44);
+      expect(seen.toggle.height).toBeGreaterThanOrEqual(44);
+      expect(seen.toggle.left).toBeGreaterThanOrEqual(0);
+      expect(seen.toggle.right).toBeLessThanOrEqual(seen.innerWidth);
+      expect(seen.bodyScrollWidth, "no horizontal overflow").toBeLessThanOrEqual(seen.innerWidth);
+    });
+  }
+
+  test("help header: the trailing link still sits clear of the toggle", async ({ page }) => {
     await gotoTight(page, "/help/admin/dashboard");
-    await failThePersist(page);
+    await flipTheme(page);
 
-    const box = await noteContainment(page);
-    expect(box.innerWidth, "the tight-viewport premise").toBe(TIGHT_VIEWPORT.width);
-    // A zero-width read would satisfy both bounds while proving nothing.
-    expect(box.width).toBeGreaterThan(0);
-    expect(box.left).toBeGreaterThanOrEqual(0);
-    expect(box.right).toBeLessThanOrEqual(box.innerWidth);
-  });
+    const rects = await page.evaluate(() => {
+      const btn = document.querySelector('[data-testid="theme-toggle"]') as HTMLElement;
+      const link = document.querySelector('a[aria-label="Back to admin"]') as HTMLElement;
+      const b = btn.getBoundingClientRect();
+      const l = link.getBoundingClientRect();
+      return {
+        toggleRight: b.right,
+        linkLeft: l.left,
+        linkWidth: l.width,
+        innerWidth: window.innerWidth,
+      };
+    });
 
-  test("leaves the help header's toggle box unchanged while shown", async ({ page }) => {
-    await gotoTight(page, "/help/admin/dashboard");
-    await failThePersist(page);
-
-    const { wrapper, button } = await wrapperVersusButton(page);
-    expect(button.width).toBeGreaterThan(0);
-    expect(Math.abs(wrapper.width - button.width)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(wrapper.height - button.height)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(wrapper.x - button.x)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(wrapper.y - button.y)).toBeLessThanOrEqual(0.5);
-  });
-
-  test("stays inside a 320px viewport in the admin nav cluster", async ({ page }) => {
-    await gotoTight(page, "/admin");
-    await failThePersist(page);
-
-    const box = await noteContainment(page);
-    expect(box.innerWidth, "the tight-viewport premise").toBe(TIGHT_VIEWPORT.width);
-    expect(box.width).toBeGreaterThan(0);
-    expect(box.left).toBeGreaterThanOrEqual(0);
-    expect(box.right).toBeLessThanOrEqual(box.innerWidth);
-  });
-
-  test("leaves the admin nav's toggle box unchanged while shown", async ({ page }) => {
-    await gotoTight(page, "/admin");
-    await failThePersist(page);
-
-    const { wrapper, button } = await wrapperVersusButton(page);
-    expect(button.width).toBeGreaterThan(0);
-    expect(Math.abs(wrapper.width - button.width)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(wrapper.height - button.height)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(wrapper.x - button.x)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(wrapper.y - button.y)).toBeLessThanOrEqual(0.5);
+    // The help header is the row the note's width was originally derived from,
+    // which makes it the row most likely to notice a wrapper disappearing.
+    expect(rects.linkWidth, "the trailing link is really rendered").toBeGreaterThan(0);
+    expect(rects.linkLeft, "the link starts right of the toggle").toBeGreaterThanOrEqual(
+      rects.toggleRight,
+    );
+    expect(rects.innerWidth).toBe(TIGHT_VIEWPORT.width);
   });
 });
