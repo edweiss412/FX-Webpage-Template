@@ -21,16 +21,19 @@ $ grep -rn '\.candidate\b' components/ app/
 
 The detector attaches it structurally at `lib/parser/warnings.ts:427` (`if (opts.candidate !== undefined) warning.candidate = opts.candidate;`), it is jsonb-persisted on `shows_internal.parse_warnings` and `pending_syncs.parse_result` (`lib/parser/types.ts:113-125`), and it dies at the render boundary.
 
-**Seven.** Live copy sites carrying an invented worked example, `'Stage'` for `'Stage Size'`, which exists only because there was nothing real to point at. The example lives in exactly two authored strings, and every site is a copy of one of them, so the count is derived rather than kept by hand:
+**Seven.** Live copy sites carrying an UNREPRESENTATIVE worked example, `'Stage'` for `'Stage Size'`. Probed, because the backlog row calls it invented and it is not: that pair occurs twice in the committed baseline (`tests/parser/__fixtures__/fieldNearMiss.baseline.json`), 6th of the 10 distinct pairs across 65 emissions. It is real and it is wrong for 63 of them, which is a sharper defect than a fabrication would be, since a reader has no way to tell one case in thirty-three from the general rule. The example lives in exactly two authored strings, and every site is a copy of one of them, so the count is derived rather than kept by hand:
 
 ```
 $ grep -rn -e "like 'Stage' for 'Stage Size'" -e "labeled 'Stage' where we show" \
-    --exclude-dir=node_modules --exclude-dir=.git . | wc -l
+    --exclude-dir=node_modules --exclude-dir=.git . | sed 's|^\./||' > /tmp/hits
+$ wc -l < /tmp/hits
 11
-$ ... | grep -v '^docs/superpowers/plans/' \
-      | grep -v '^docs/superpowers/specs/2026-08-26-nearmiss-candidate-render.md' | wc -l
+$ grep -v '^docs/superpowers/plans/' /tmp/hits \
+  | grep -v '^docs/superpowers/specs/2026-08-26-nearmiss-candidate-render.md' | wc -l
 7
 ```
+
+The `sed` is load-bearing and was added after round 1 found the command did not reproduce. Some grep builds prefix every path with a dot and a slash for a search rooted at the current directory, and others do not; the author's printed bare paths and the reviewer's did not, so the anchored exclusions matched for one of them and silently for neither of the other's lines. Normalising the prefix makes the number the same on both.
 
 Both numbers are printed so the subtraction is visible: 11 occurrences, 4 excluded, 7 live. The two exclusions are records rather than copy that ships. `docs/superpowers/plans/2026-08-15-field-near-miss-detector.md:296` is a dated execution record and is never corrected; this spec accounts for the other three, quoting the string once in the command above and twice in the before/after diff at §6.2.
 
@@ -180,6 +183,21 @@ No `w.code` gate. The guard is on the FIELD, and the field is set on no other co
 
 ---
 
+### 4.3 The gate the sibling surface already has, applied here
+
+Found while enumerating this row's render paths, probed, and repaired in this PR rather than recorded, because no class-sweep deferral exception applies to it.
+
+**Read this before judging it against R3, which fences the opposite operation.** R3 says the per-show surface's `w.code === "UNKNOWN_FIELD"` gate is not to be WIDENED. This applies that same gate to the second surface, which is the opposite direction: it narrows what step 3 shows, to what the per-show surface already shows.
+
+The defect. `components/admin/wizard/step3ReviewSections.tsx:3103` computes `labelFromRawSnippet(w.rawSnippet)` with no code gate. Only `UNKNOWN_FIELD` writes `rawSnippet` in the `<label> | <value>` shape; `lib/parser/pull-sheet.ts:252` and `lib/parser/pull-sheet.ts:343` set it to a RAW pipe-delimited markdown row. So a `PULL_SHEET_*` warning renders its first cell as a fake field label.
+
+It is reachable, not hypothetical. `lib/admin/visibleWarningRows.ts:18-22` filters warn-severity rows out only when `routedWarningsRenderElsewhere` is true, which is the PUBLISHED surface's gate. On the wizard the argument is false and every warning passes through, `PULL_SHEET_*` included.
+
+This is precisely the defect audit idx46/#217 fixed on the per-show surface (`components/admin/PerShowActionableWarnings.tsx:194-201`). That fix landed on one of the two surfaces. This is the other half of a class sweep somebody stopped halfway, and "same defect, different file" is named in AGENTS.md as never sufficient grounds to defer.
+
+Verified safe before proposing it: the only existing assertions on that label are `tests/components/step3SheetCard.test.tsx:805-821`, for "Floor Plan" and "GS Podium Type", and both of those warnings are `UNKNOWN_FIELD`. The gate does not touch them.
+
+
 ## 5. The guard, stated over its whole input domain
 
 One rule, one implementation, both call sites. This spec adds one new module, lib/parser/candidateLabel.ts:
@@ -214,52 +232,109 @@ In both, the card degrades to exactly today's output: one band, or no band, no e
 
 ---
 
-## 6. Copy: retargeting off the invented example
+## 6. Copy: two claims the card could not keep
+
+The copy carries two problems, not one. §6.1 is the worked example that holds for 2 of 65 emissions. §6.2 is the assertion, in four separate fields, that a near-miss occurred at all, which is false on every candidate-less card. Both are repaired in one commit because they are edits to the same strings.
 
 ### 6.1 What the copy may say, and why it is narrower than it looks
 
 The obvious retarget is to point Doug at the band: "matches the closest row we found, shown on this card." **That is not available**, and the reason is the same reason the candidate was made a structured field in the first place.
 
-The catalog string is per-CODE. The band is per-WARNING. So a string that promises the band is wrong on exactly the cards §5 enumerates. Being wrong there is the same copy-behavior mismatch this row exists to close, pointed the other way. `longExplanation` makes it sharper still: it renders on `/help/errors` (`app/help/errors/page.tsx:108`), a page with no card on it at all.
+The measurement settles it before the reasoning does. The 65 committed emissions carry 10 distinct candidates, and the largest single pair is 15 of 65:
 
-So the division is the one the field's own design already made: **the copy carries the class, the band carries the instance.** The copy stops inventing an example, and stops there. The card shows the real one.
+```
+15  'Room Diagram' -> 'DETAILS/ROOM DIAGRAM'
+15  'Backdrop'     -> 'Backdrop / Scenic'
+ 9  'Address:'     -> 'VENUE ADDRESS'
+ 9  'Phone:'       -> 'Client Phone'
+ 9  'E-mail:'      -> 'Client Email'
+ 2  'Stage'        -> 'Stage Size'
+ 2  'Storage'      -> 'Equipment Storage'
+ 2  'Speaker'      -> 'Virtual Speaker'
+ 1  'Diagrams?'    -> 'DIagrams'
+ 1  'Client:/Contact:' -> 'Client Contact'
+```
 
-That is also what closes the row's stated defect. The invented pair is wrong not because it is an example but because it names a row that is not Doug's. 'Stage Size' is the wrong suggestion for nearly every emission §1 counts. Deleting it, with the real suggestion now on screen, is the whole repair.
+Derived from `tests/parser/__fixtures__/fieldNearMiss.baseline.json`, which
+`tests/parser/fieldNearMissBaseline.test.ts` regenerates from the real parser. **No per-code string can name a representative instance, because there is no representative instance.** Swapping `'Stage'` for the most common pair would be wrong for 50 of 65 rather than 63, which is not a repair.
 
-### 6.2 The strings
+Two structural reasons a pointer at the card also fails. The catalog string is per-CODE and the band is per-WARNING, so a string that promises the band is wrong on exactly the cards §5 enumerates. Being wrong there is the same copy-behavior mismatch this row exists to close, pointed the other way. `longExplanation` makes it sharper still: it renders on `/help/errors` (`app/help/errors/page.tsx:108`), a page with no card on it at all.
 
-`helpfulContext`, current then new:
+So the division is the one the field's own design already made: **the copy carries the class, the band carries the instance.** The example goes; the card shows the real one.
+
+That closes the half of the row's defect that is about the example. The pair is wrong not because it is fabricated, which it is not, but because it names a row that is not Doug's in 63 of 65 emissions. §6.2 is the other half, and it was not in the row at all.
+
+### 6.2 A second defect in the same class, found by sweeping it
+
+Round-1 review raised that the new `helpfulContext` still says "It nearly matches one now" while a candidate-less card is on screen. That is right, and the sweep found the class is wider than the two strings the finding named.
+
+**Probed, because the claim turns on what the OLD emitter fired on.** Before the detector landed, `emitUnknownField` had two call sites and neither passed a candidate. Both are gone from the current tree, so this is a citation into history rather than into the file: `git grep -n 'emitUnknownField(' 9f9b0ef06^ -- lib` returns them in blocks/event.ts and blocks/venue.ts, where the detector's single call site now stands (`lib/parser/fieldNearMiss.ts:258`). It fired on ANY unrecognized label in those blocks. So a legacy persisted `UNKNOWN_FIELD` is a genuinely unknown label that never near-matched anything, and every string asserting a near-miss occurred is FALSE on exactly the cards §5 enumerates.
+
+The class is "a copy field that asserts a near-miss happened". Swept over all seven fields on the catalog row, not over the two the finding named:
+
+| Field | Asserts a near-miss? | Disposition |
+|---|---|---|
+| `dougFacing` | yes, "It nearly matches one now" | rewritten |
+| `helpfulContext` | yes, "It nearly matches one now" | rewritten |
+| `triggerContext` | yes, "nearly matches a row we know how to show" | rewritten |
+| `longExplanation` | yes, "labeled close to a row we show" | rewritten |
+| `title` | no, "Row we couldn't match" is true either way | unchanged |
+| `followUp` | no | unchanged |
+| `crewFacing` | `null` | unchanged |
+
+`dougFacing` and `triggerContext` were NOT in the finding. They carry the identical claim, so repairing only the named two would have left the class open and the next round would have found them.
+
+### 6.3 The strings
+
+Each is true whether or not the card shows a suggestion. The near-miss framing that the 2026-08-15 arc deliberately introduced is not reverted; it moves from an unconditional assertion into a conditional that names what is on screen, which is where the band can honour it.
+
+`dougFacing`:
+
+```
+- Rename the row labeled _<key>_ in _<sheet-name>_ so it matches the row we show. It nearly matches one now, which is why it isn't showing on the crew page.
++ Rename the row labeled _<key>_ in _<sheet-name>_ so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. When we can tell which row you meant, the notice names it.
+```
+
+`helpfulContext`:
 
 ```
 - Rename this row in your sheet so it matches the row we show. It nearly matches one now (like 'Stage' for 'Stage Size'), which is why it isn't showing on the crew page. Report flags it to us; Ignore hides this notice.
-+ Rename this row in your sheet so it matches the row we show. It nearly matches one now, which is why it isn't showing on the crew page. Report flags it to us; Ignore hides this notice.
++ Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. When we can tell which row you meant, this card names it. Report flags it to us; Ignore hides this notice.
 ```
 
-`longExplanation`, current then new:
+`triggerContext`:
+
+```
+- Appears when a row's label nearly matches a row we know how to show, but doesn't match it exactly.
++ Appears when a row's label doesn't exactly match a row we know how to show.
+```
+
+`longExplanation`:
 
 ```
 - A row in your sheet is labeled close to a row we show, but not close enough for us to read it as that row, so it isn't showing on the crew page: a row labeled 'Stage' where we show 'Stage Size', for example. Rename it in the sheet and it will show the next time this show checks its sheet. We don't rename it for you, because the row you meant would be a guess.
-+ A row in your sheet is labeled close to a row we show, but not close enough for us to read it as that row, so it isn't showing on the crew page. When we can tell which row you meant, the notice names it. Rename it in the sheet and it will show the next time this show checks its sheet. We don't rename it for you, because the row you meant would be a guess.
++ A row in your sheet is labeled something we don't read as one of the rows we show, so it isn't showing on the crew page. When we can tell which row you meant, the notice names it. Rename it in the sheet and it will show the next time this show checks its sheet. We don't rename it for you, because the row you meant would be a guess.
 ```
 
-The `longExplanation` replacement is a conditional, not a hedge: "when we can tell which row you meant" is a true statement of §5's guard, and it is the sentence that tells a Doug reading the help page what the new band on the card is.
+"When we can tell which row you meant" is a conditional, not a hedge: it is a true statement of §5's guard, and it is the sentence that tells a Doug reading the help page what the band on the card is. `title`, `followUp`, and `crewFacing` are unchanged.
 
-`dougFacing`, `crewFacing`, `followUp`, `triggerContext`, and `title` are unchanged. They carry no invented example.
+### 6.4 The lockstep, derived from the gates that read each site
 
-### 6.3 The lockstep, derived from the gates that read each site
-
-Not an enumerated list to maintain by hand. Each row below names the gate that would red if the site were missed, which is what makes the set complete:
+Not an enumerated list to maintain by hand. Each row names the gate that would red if the site were missed, which is what makes the set complete. §6.2's sweep moved `dougFacing` and `triggerContext` into scope, so the §12.4 TABLE row is now in this set where an earlier draft of this spec said it was not:
 
 | # | Site | Field | Gate that catches a miss |
 |---|---|---|---|
-| 1 | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3255` (§12.4 YAML appendix) | `helpfulContext` | `x1-catalog-parity` via the regen in row 2 |
-| 2 | `lib/messages/__generated__/spec-codes.ts` via `pnpm gen:spec-codes` | `helpfulContext` | `tests/cross-cutting/codes.test.ts:87-90` compares catalog to §12.4 |
-| 3 | `lib/messages/catalog.ts:1346` | `helpfulContext` | same as row 2 |
-| 4 | `lib/messages/catalog.ts:1351` | `longExplanation` | `EXPECTED_LONG_EXPLANATION` only, since §12.4 has no such column and x1 does not compare it |
-| 5 | `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:147` (§4.2, the `UNKNOWN_FIELD` entry) | `helpfulContext` | `tests/messages/_metaWarningCardCopy.test.ts:99-121`, read FROM the document and byte-compared |
-| 6 | `tests/messages/warningCardCopyRegistry.ts:261` and `tests/messages/warningCardCopyRegistry.ts:166` | `helpfulContext`, `longExplanation` | `tests/messages/_metaWarningCardCopy.test.ts` frozen-fixture cases |
+| 1 | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2898` (§12.4 table row) | `dougFacing` | `tests/cross-cutting/codes.test.ts:78-80` via the regen in row 3 |
+| 2 | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3255` (§12.4 YAML appendix) | `helpfulContext` | `x1-catalog-parity` via the regen in row 3 |
+| 3 | `lib/messages/__generated__/spec-codes.ts` via `pnpm gen:spec-codes` | `dougFacing`, `helpfulContext` | `tests/cross-cutting/codes.test.ts:87-90` compares catalog to §12.4 |
+| 4 | `lib/messages/catalog.ts:1341` | `dougFacing` | same as row 3 |
+| 5 | `lib/messages/catalog.ts:1345` | `helpfulContext` | same as row 3 |
+| 6 | `lib/messages/catalog.ts:1347` | `triggerContext` | `tests/messages/_metaWarningCardCopy.test.ts:99-121` and `EXPECTED_TRIGGER_CONTEXT` |
+| 7 | `lib/messages/catalog.ts:1350` | `longExplanation` | `EXPECTED_LONG_EXPLANATION` only, since §12.4 has no such column and x1 does not compare it |
+| 8 | `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:147` (§4.2, the `UNKNOWN_FIELD` entry) | `helpfulContext`, `triggerContext` | `tests/messages/_metaWarningCardCopy.test.ts:99-121`, read FROM the document and byte-compared |
+| 9 | `tests/messages/warningCardCopyRegistry.ts:102`, `tests/messages/warningCardCopyRegistry.ts:166`, `tests/messages/warningCardCopyRegistry.ts:261` | `triggerContext`, `longExplanation`, `helpfulContext` | `tests/messages/_metaWarningCardCopy.test.ts` frozen-fixture cases |
 
-The §12.4 TABLE row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2898` is NOT in this set. Its columns are `Code | Where it surfaces | Doug-facing message | Crew-facing message | Follow-up` (header at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2773`), with no `helpfulContext` column, and `dougFacing`/`followUp` do not change. `scripts/extract-spec-codes.ts` reads the table for `dougFacing`/`crewFacing`/`followUp` and the YAML appendix for `helpfulContext`, joining them; editing the appendix alone regenerates `helpfulContext` correctly, and the table row must merely continue to exist.
+`scripts/extract-spec-codes.ts` reads the §12.4 table for `dougFacing`/`crewFacing`/`followUp` and the YAML appendix for `helpfulContext`, joining them, so rows 1 and 2 are both regen inputs and neither substitutes for the other. The table's columns are `Code | Where it surfaces | Doug-facing message | Crew-facing message | Follow-up` (header at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2773`).
 
 **Constraints every new string clears**, all mechanically checked:
 
@@ -267,7 +342,7 @@ The §12.4 TABLE row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md
 - `helpfulContext` ≤ 300 characters (`tests/messages/_metaWarningCardCopy.test.ts:64`); `triggerContext` ≤ 160 (`tests/messages/_metaWarningCardCopy.test.ts:69`).
 - No `|` character anywhere in a string that lands in the §4.2 markdown table. The gate splits that row on `|` and reads cells by index (`tests/messages/_metaWarningCardCopy.test.ts:113-117`).
 
-### 6.4 The catalog comment block
+### 6.5 The catalog comment block
 
 `lib/messages/catalog.ts:1324-1339` currently records, as fact, that "the matched candidate is computed and attached but NOTHING renders it" and that "Rendering it is filed as `BL-NEARMISS-CANDIDATE-RENDER`; until it ships, the copy names only what is on screen." Both sentences become false in the same commit that makes them false. The block is rewritten to state what is then true: the candidate renders on both operator surfaces, the copy carries the class because the string is per-code, and the F4/F5 dispositions it also records are unchanged. A comment that survives its own repair is the next reviewer's finding.
 
@@ -326,10 +401,9 @@ Both are real app routes reading real persisted rows, which is what makes them e
 
 Each is a conservative degrade with no silent corruption, so each is recorded here rather than filed (R9).
 
-1. **A legacy warning shows no suggestion.** A pre-detector persisted `UNKNOWN_FIELD` renders today's card exactly. It resolves itself when the show next syncs. The copy does not promise otherwise (§6.1). *Re-file trigger:* a report of a card whose copy names a suggestion the card does not show.
+1. **A legacy warning shows no suggestion.** A pre-detector persisted `UNKNOWN_FIELD` renders the card with no candidate band. It resolves itself when the show next syncs, since a sync rewrites `parse_warnings` and the current producer always supplies a candidate. After §6.2 no string on that card promises a suggestion or asserts a near-miss, so what remains is an absence rather than a contradiction. *Re-file trigger:* a report of a card whose copy names a suggestion the card does not show.
 2. **The band shows the label, not the diff.** It names the vocabulary entry that matched; it does not highlight which characters differ from Doug's label. Deliberate: the two strings sit adjacent in the same band for exactly that comparison, and a character diff on a two-word label is decoration.
 3. **One candidate, not a ranked list.** `emitUnknownField` takes a single `candidate` and the detector supplies the §3.1 tie-break winner (`lib/parser/fieldNearMiss.ts:258`). Showing runners-up would need a carrier that does not exist. *Re-file trigger:* a measured case where the tie-break winner is the wrong suggestion often enough to matter.
-4. **The wizard step-3 row label is ungated on `w.code`** (`components/admin/wizard/step3ReviewSections.tsx:3103`), where the per-show surface gates it on `UNKNOWN_FIELD` (R3). Pre-existing, untouched by this spec, and reported as an unfixed peer in the PR body rather than widened or narrowed under a spec that is not about it.
 
 ---
 
@@ -358,19 +432,20 @@ Compound: a card whose Ignore/Report control is mid-transition never changes can
 
 - **AC-1** On a show whose parse emits `UNKNOWN_FIELD`, every near-miss card on the per-show surface names its matched suggestion. 0 → all of them; 65 of 65 on the committed corpus, since `tests/parser/fieldNearMissBaseline.test.ts:221` already proves every emission carries one.
 - **AC-2** The same on the wizard step-3 row.
-- **AC-3** A warning with no `candidate` renders today's card byte-for-byte, and a card with neither a row label nor a candidate renders no detail band at all.
-- **AC-4** Live copy strings pointing Doug at a row he does not have: 7 → 0, counted by §1's command verbatim, including its three exclusions. The number is stored as that command and not as a literal anywhere else, because a count of occurrences of a string is invalidated by the document that discusses the string.
+- **AC-3** A warning with no `candidate` renders no candidate band, and no string on that card asserts a near-miss occurred. Deliberately NOT "byte-for-byte identical to today": §6 changes the shared copy, so a candidate-less card's text moves too, and it moves precisely because today's text is false there. What is byte-identical is the card's STRUCTURE: same bands, same controls, same deep link. A card with neither a row label nor a candidate renders no detail band at all.
+- **AC-4** Live copy strings pointing Doug at a row he does not have: 7 → 0, counted by §1's command verbatim, including its two path exclusions. The number is stored as that command and not as a literal anywhere else, because a count of occurrences of a string is invalidated by the document that discusses the string.
 
 - **AC-5** All twelve required CI checks green, `x1-catalog-parity` among them.
 - **AC-6** Both bands verified rendered in a real browser, not only in jsdom.
 - **AC-7** `/impeccable critique` and `/impeccable audit` both pass on the diff, P0 and P1 fixed in-branch.
+- **AC-8** A `PULL_SHEET_*` warning on the wizard step-3 list renders no row label, where today it renders its `rawSnippet`'s first cell as a fake one. An `UNKNOWN_FIELD` in the same render keeps its label.
 
 ---
 
 ## 12. Out of scope
 
 - `BL-TYPO-NORMALIZED-V4-VENUE-SHAPE`, phase 2, behind a pending product decision.
-- Widening or narrowing either surface's row-label gate (R3, limit 4).
+- Widening either surface's row-label gate beyond `UNKNOWN_FIELD` (R3). §4.3 applies the existing gate to the second surface, which is the opposite operation.
 - Any change to `NoteWarningCard`'s rendering (R2).
 - A design-token replacement for the shipped band eyebrow class (R5).
 - Any new dev-gallery scenario (R8).
