@@ -17,18 +17,18 @@
  * the explicit `grant all ... to service_role` — so a privilege gap can't
  * masquerade as denial.
  *
- * DB-gated like the other tests/db/* files: uses TEST_DATABASE_URL / DATABASE_URL,
+ * DB-gated like the other tests/db/* files: uses DATABASE_URL,
  * defaulting to the local stack. Real CI is the arbiter.
  */
 import { randomUUID } from "node:crypto";
 
 import postgres, { type Sql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // Privileged connection: connects as the DB owner (postgres). Bypasses RLS so it
 // can seed + read the row the untrusted roles must NOT see.

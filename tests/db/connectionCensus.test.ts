@@ -33,6 +33,7 @@ import {
   CONNECTION_CENSUS_DISPOSITIONS,
   type DispositionRow,
 } from "./_connectionCensusDispositions";
+import { type ValidationEnvAllowRow } from "./_validationEnvAllowlist";
 import {
   type FileClass,
   type ImportResolver,
@@ -52,6 +53,7 @@ import {
   ownClassesFor,
   propagateThroughImports,
   reconcileDispositions,
+  reconcileValidationEnv,
   renderReport,
   sitesIn,
   SOURCE_EXTENSIONS,
@@ -1486,7 +1488,7 @@ describe("connection census — the report shape and the remedy text (AC-C6 rend
     ],
     [
       report({ kind: "remote-literal", site: `"postgresql://db.example.invalid/x"`, ordinal: 2 }),
-      "tests/db/subject.test.ts:12 site#2 remote-literal — read the target from TEST_DATABASE_URL or guard it with assertLocalDbUrl",
+      "tests/db/subject.test.ts:12 site#2 remote-literal — resolve the target from DATABASE_URL and wrap it in assertLocalDbUrl",
     ],
     [
       report({ kind: "shadowed-driver", site: "url", ordinal: null }),
@@ -2440,5 +2442,96 @@ describe("connection census — the second scored run's survivors", () => {
       },
     ).split("\n");
     expect(rendered[1]).toBe("    affected: tests/db/one.test.ts");
+  });
+});
+
+// ── validation-env reconciliation (the allowlist arm) ─────────────────────────
+// The census NAMES the class; this arm decides whether a member of it is permitted.
+// Constructed sources only — the live-tree measurement is the meta-test's job, and
+// keeping the corpus out of here is what keeps this suite's input set closable.
+
+const ALLOW = (
+  file: string,
+  reason = "a CI job points it at validation",
+): ValidationEnvAllowRow => ({
+  file,
+  reason,
+});
+
+const VALIDATION_SRC = [IMPORT, `const sql = postgres(${ENV});`].join("\n");
+const LOOPBACK_SRC = [IMPORT, `const sql = postgres(${LOOPBACK});`].join("\n");
+
+describe("reconcileValidationEnv — the allowlist arm (validation-env is permitted BY FILE)", () => {
+  test("a validation-env site in a file with no row is REPORTED, by file, line and argument", () => {
+    const rec = classifyFile("tests/db/_b2Helpers.ts", VALIDATION_SRC);
+    const { unallowed, stale, inadmissible } = reconcileValidationEnv([rec], []);
+    expect(unallowed).toEqual([
+      { file: "tests/db/_b2Helpers.ts", line: 2, site: "process.env.TEST_DATABASE_URL" },
+    ]);
+    expect(stale).toEqual([]);
+    expect(inadmissible).toEqual([]);
+  });
+
+  test("the same site in an allowlisted file is NOT reported", () => {
+    const rec = classifyFile("tests/db/validation-schema-parity.test.ts", VALIDATION_SRC);
+    const allow = [ALLOW("tests/db/validation-schema-parity.test.ts")];
+    expect(reconcileValidationEnv([rec], allow).unallowed).toEqual([]);
+  });
+
+  test("the allowance is scoped to ITS file, not to the class", () => {
+    // A row must never launder a validation-env site in some OTHER file: that is the
+    // exact shape of the defect (one legitimate remote reader, sixty accidental ones).
+    const allowed = classifyFile("tests/db/validation-schema-parity.test.ts", VALIDATION_SRC);
+    const other = classifyFile("tests/notify/deliver-real-db.test.ts", VALIDATION_SRC);
+    const allow = [ALLOW("tests/db/validation-schema-parity.test.ts")];
+    expect(reconcileValidationEnv([allowed, other], allow).unallowed.map((r) => r.file)).toEqual([
+      "tests/notify/deliver-real-db.test.ts",
+    ]);
+  });
+
+  test("every validation-env site in an unallowed file is reported, not just the first", () => {
+    // A reconciler that stopped at the first site would under-report a helper holding
+    // two connections — which `_b2Helpers.ts` does (a pooled client and `newConn`).
+    const rec = classifyFile(
+      "tests/db/_b2Helpers.ts",
+      [IMPORT, `const a = postgres(${ENV});`, `const b = postgres(${ENV});`].join("\n"),
+    );
+    expect(reconcileValidationEnv([rec], []).unallowed.map((r) => r.line)).toEqual([2, 3]);
+  });
+
+  test("a row whose file no longer has a validation-env site is STALE", () => {
+    // The repair direction: once the file resolves locally its row must red, rather than
+    // sit there permitting a site that could come back under it.
+    const repaired = classifyFile("tests/db/_b2Helpers.ts", LOOPBACK_SRC);
+    const result = reconcileValidationEnv([repaired], [ALLOW("tests/db/_b2Helpers.ts")]);
+    expect(result.stale).toEqual(["tests/db/_b2Helpers.ts"]);
+    expect(result.unallowed).toEqual([]);
+  });
+
+  test("a row naming a file that is not in the walk at all is STALE too", () => {
+    // A moved or deleted file leaves a row that permits nothing and protects nothing.
+    expect(reconcileValidationEnv([], [ALLOW("tests/db/gone.test.ts")]).stale).toEqual([
+      "tests/db/gone.test.ts",
+    ]);
+  });
+
+  test("a row with a blank reason is INADMISSIBLE — an empty reason is a free hole", () => {
+    const rec = classifyFile("tests/db/validation-schema-parity.test.ts", VALIDATION_SRC);
+    const rows = [{ file: "tests/db/validation-schema-parity.test.ts", reason: "   " }];
+    const result = reconcileValidationEnv([rec], rows);
+    expect(result.inadmissible).toEqual(["tests/db/validation-schema-parity.test.ts"]);
+    // Inadmissible AND permitting nothing: the site it names still reports.
+    expect(result.unallowed.map((r) => r.file)).toEqual([
+      "tests/db/validation-schema-parity.test.ts",
+    ]);
+  });
+
+  test("a non-validation-env site is never reported by this arm", () => {
+    const rec = classifyFile("tests/db/some.test.ts", LOOPBACK_SRC);
+    premiseHolds(
+      "the fixture really does classify as loopback-literal, so the arm has something to ignore",
+      rec.sites.every((s) => s.cls === "loopback-literal"),
+    );
+    expect(reconcileValidationEnv([rec], []).unallowed).toEqual([]);
   });
 });

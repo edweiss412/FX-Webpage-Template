@@ -11,12 +11,14 @@ import {
   diffEmailBoundaryParity,
 } from "@/lib/audit/emailCanonicalization";
 import { extractEmailBoundariesFromDocs } from "@/scripts/extract-email-boundaries";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 const specPath = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md";
 const planPath = "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md";
 const fixtureRoot = "tests/cross-cutting/fixtures/email-canonicalization";
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -47,7 +49,7 @@ if (!livePsqlReachable) {
   console.warn(
     "[x5-email-canonicalization] Skipping live-DB backfill test — psql unreachable at " +
       databaseUrl +
-      ". Run locally with TEST_DATABASE_URL set to a reachable Postgres to exercise the migration regression.",
+      ". Run locally with DATABASE_URL set to a reachable LOCAL Postgres to exercise the migration regression.",
   );
 }
 

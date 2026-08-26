@@ -1,11 +1,14 @@
 import postgres from "postgres";
 import { afterAll, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-// DB schema test (connects to TEST_DATABASE_URL, else local). Pins the two
+// DB schema test against the LOCAL stack (DATABASE_URL, else loopback). Pins the two
 // use_raw_decisions jsonb columns added for the structural-transform "use raw"
 // feature (spec §3; migration 20260711000000_use_raw_decisions).
 const sql = postgres(
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  assertLocalDbUrl(
+    process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  ),
   { max: 1, prepare: false },
 );
 afterAll(async () => {

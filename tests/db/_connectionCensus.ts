@@ -1569,7 +1569,7 @@ export function attachAffected(
 export const REMEDIES: Record<ReportKind, string> = {
   unclassifiable:
     "add a CONNECTION_CENSUS_DISPOSITIONS row of kind `resolver` or `unclassifiable` naming this site",
-  "remote-literal": "read the target from TEST_DATABASE_URL or guard it with assertLocalDbUrl",
+  "remote-literal": "resolve the target from DATABASE_URL and wrap it in assertLocalDbUrl",
   "shadowed-driver": "rename the local declaration that reuses the driver binding's name",
   acquisition: "use a static default import, or add an `acquisition` disposition row",
   "value-reference": "call the driver binding directly, or add an `acquisition` disposition row",
@@ -1603,4 +1603,50 @@ export function renderReport(reports: readonly Report[], counts: ClassCounts): s
   ];
   lines.push(order.map((cls) => `${cls} ${counts[cls]}`).join(" / "));
   return lines.join("\n");
+}
+
+export type ValidationEnvSite = { file: string; line: number; site: string };
+
+export type ValidationEnvReconciliation = {
+  /** validation-env sites in files with no allow row. Every site, not the first per file. */
+  unallowed: ValidationEnvSite[];
+  /** Allow rows whose file has no validation-env site — repaired, moved, or deleted. */
+  stale: string[];
+  /** Allow rows carrying no reason. They permit nothing; their sites still report. */
+  inadmissible: string[];
+};
+
+/**
+ * Which `validation-env` connect sites are PERMITTED.
+ *
+ * `classifySite` says a site's URL comes from `TEST_DATABASE_URL`; this says whether the
+ * file it lives in is one of the two the repo points at validation on purpose. The
+ * allowance is per FILE because what makes those two legitimate is the CI job they run in.
+ *
+ * A row with a blank reason permits nothing — otherwise "add the path" would be a
+ * one-line escape from the whole gate, which is the shape `_connectionCensusDispositions`
+ * deliberately refused for its own rows.
+ */
+export function reconcileValidationEnv(
+  records: readonly FileRecord[],
+  allow: readonly { file: string; reason: string }[],
+): ValidationEnvReconciliation {
+  const permitted = new Set(allow.filter((row) => row.reason.trim() !== "").map((row) => row.file));
+  const unallowed: ValidationEnvSite[] = [];
+  const withSites = new Set<string>();
+
+  for (const record of records) {
+    for (const site of record.sites) {
+      if (site.cls !== "validation-env") continue;
+      withSites.add(record.file);
+      if (permitted.has(record.file)) continue;
+      unallowed.push({ file: record.file, line: site.line, site: site.argText });
+    }
+  }
+
+  return {
+    unallowed,
+    stale: allow.map((row) => row.file).filter((file) => !withSites.has(file)),
+    inadmissible: allow.filter((row) => row.reason.trim() === "").map((row) => row.file),
+  };
 }

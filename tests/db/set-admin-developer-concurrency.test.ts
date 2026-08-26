@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "vitest";
-const url =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+import { assertLocalDbUrl } from "./_localDbUrl";
+const url = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 // Async `execFile`/`exec` ignore the `input` option (only *Sync variants accept it),
 // so `pexec("psql", …, { input: sql })` leaves psql blocking on stdin until the
 // vitest timeout kills it. Use a genuinely-concurrent spawn runner (mirrors

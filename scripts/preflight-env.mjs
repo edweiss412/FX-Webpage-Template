@@ -139,12 +139,16 @@ if (!skipClaims) {
 }
 
 // --- non-loopback WARNINGS: this is a LOCAL preflight ------------------------
-// SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL should point at local Supabase and
-// TEST_DATABASE_URL at local Postgres. A remote value here silently makes
-// "local" test runs target validation/prod (loopback-guarded DB tests then
-// skip/throw instead of exercising local). Warn — don't fail; the same
-// TEST_DATABASE_URL is DELIBERATELY validation for the schema-parity /
-// postgrest-dml-lockdown CI-parity scripts (see AGENTS.md).
+// SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL should point at local Supabase. Warn, don't
+// fail: TEST_DATABASE_URL is DELIBERATELY the validation project here, because the
+// schema-parity and postgrest-dml-lockdown gates need a validation credential and it is
+// the only one that exists as a repo secret (see AGENTS.md).
+//
+// The warnings are DEFERRED to an exit handler so they print AFTER the verdict line.
+// They used to print above it, and every arc read a WARN followed by `preflight: env ✓
+// local DB ✓` and kept going — which is exactly what happened on 2026-08-26, when db
+// suites honouring TEST_DATABASE_URL seeded and published shows on validation and its
+// notify cron mailed nine alerts between 01:10 and 03:10 CDT.
 const LOOPBACK_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\])$/i;
 function hostOf(url) {
   try {
@@ -153,14 +157,36 @@ function hostOf(url) {
     return null;
   }
 }
-for (const key of ["SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL", "TEST_DATABASE_URL"]) {
+
+const deferredWarnings = [];
+process.on("exit", () => {
+  for (const line of deferredWarnings) console.warn(line);
+});
+
+for (const key of ["SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL"]) {
   const v = process.env[key];
   if (!v) continue;
   const host = hostOf(v);
   if (host && !LOOPBACK_HOST.test(host)) {
-    console.warn(
-      `WARN: ${key} is NON-LOOPBACK (${host}) — "local" runs that read it will ` +
-        `target remote; loopback-guarded DB tests will skip.`,
+    deferredWarnings.push(
+      `WARN: ${key} is NON-LOOPBACK (${host}) — "local" runs that read it will target remote.`,
+    );
+  }
+}
+
+{
+  const v = process.env.TEST_DATABASE_URL;
+  const host = v ? hostOf(v) : null;
+  if (host && !LOOPBACK_HOST.test(host)) {
+    deferredWarnings.push(
+      `WARN: TEST_DATABASE_URL is NON-LOOPBACK (${host}) — this is the VALIDATION ` +
+        `deployment, and it is set that way on purpose for the schema-parity gates.\n` +
+        `      Anything that honours this variable writes to validation, where the notify ` +
+        `cron sends REAL email to Doug.\n` +
+        `      Since 2026-08-26 no test helper or suite honours it ` +
+        `except the two rows in tests/db/_validationEnvAllowlist.ts, so this line is\n` +
+        `      informational. Export DATABASE_URL (loopback) to point local DB runs at a ` +
+        `specific local Postgres.`,
     );
   }
 }

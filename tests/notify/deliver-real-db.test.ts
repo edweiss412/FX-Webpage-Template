@@ -3,14 +3,15 @@ import { describe, expect, test, vi } from "vitest";
 
 import { deliverRealtimeCandidates, type DeliverySql } from "@/lib/notify/deliver";
 import type { RealtimeCandidate } from "@/lib/notify/detect/candidates";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 
 describe("deliverRealtimeCandidates real DB sent-race guard", () => {
   test.skipIf(!DB_URL)(
     "treats a zero-row failed-ledger upsert as a sent-race skip without EMAIL_DELIVERY_FAILED",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `deliver-sent-race-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const driveFileId = `drive-${suffix}`;
       const recipient = `notify-${suffix}@example.com`;
@@ -104,7 +105,7 @@ describe("deliverRealtimeCandidates real DB context jsonb shape", () => {
   test.skipIf(!DB_URL)(
     "writes context as a jsonb object on both sent and failed ledger rows",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `deliver-ctx-shape-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const driveFileId = `drive-${suffix}`;
       const recipient = `notify-${suffix}@example.com`;

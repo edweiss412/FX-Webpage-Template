@@ -4,7 +4,7 @@
  * Live local-DB behavior test for `public.get_bell_feed_rows` (spec §6.1,
  * adversarial R5/R6/R9/R10 shape; viewer-state folding per plan-review R4).
  * Connection pattern mirrors tests/db/_b2Helpers.ts / tests/db/upsert-admin-alert-dedup.test.ts
- * (postgres.js against TEST_DATABASE_URL ?? DATABASE_URL ?? local stack) —
+ * (postgres.js against DATABASE_URL ?? the local stack) —
  * NOT tests/db/validation-schema-parity.test.ts's psql-introspection style,
  * because this test asserts on actual row DATA the RPC returns, not schema
  * shape, so a real SQL client (not psql text output) is required.
@@ -22,11 +22,11 @@
 import { randomUUID } from "node:crypto";
 import postgres, { type Sql } from "postgres";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const sql: Sql = postgres(DB_URL, { max: 4, prepare: false });
 

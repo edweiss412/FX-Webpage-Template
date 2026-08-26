@@ -34,11 +34,13 @@ import { runValidationCli, type CliRun } from "../scripts/_cli-helpers";
 // minted name + the mutation probes to the SAME single source of truth the
 // reseed + check-seed use — they can never drift to a stale literal.
 import { fixtureCrewName, fixtureShowName } from "@/lib/validation/fixtures";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 const CHECK_SEED_SCRIPT = join(process.cwd(), "scripts/validation-check-seed.ts");
 
-const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DATABASE_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const LOCAL_SUPABASE_URL = "http://127.0.0.1:54321";
 const LOCAL_SERVICE_ROLE_KEY =

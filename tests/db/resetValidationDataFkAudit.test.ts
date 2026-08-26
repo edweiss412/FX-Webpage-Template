@@ -17,11 +17,11 @@
 import { afterAll, describe, expect, test } from "vitest";
 import postgres, { type Sql } from "postgres";
 import { latestResetValidationDataBody } from "./_resetRpcSource.js";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const sql: Sql = postgres(DB_URL, { max: 2, prepare: false });
 

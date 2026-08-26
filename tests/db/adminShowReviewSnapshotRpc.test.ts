@@ -22,9 +22,11 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // is_admin() honours app_metadata.role === 'admin' regardless of the
 // admin_emails table (JWT-role override arm), so no email seed is needed.
