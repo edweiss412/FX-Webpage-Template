@@ -18,8 +18,12 @@ describe("mutation oracle (spec §3.4, AC-6)", () => {
     // Without this, a surface whose suite is already red scores every mutant
     // KILLED and reports a perfect result — the harness would be measuring the
     // broken suite, not the mutants.
-    expect(() => assertCleanBaseline(1, "tests/x.test.ts", "someSurface")).toThrow(BaselineNotGreenError);
-    expect(() => assertCleanBaseline(1, "tests/x.test.ts", "someSurface")).toThrow(/tests\/x\.test\.ts/);
+    expect(() => assertCleanBaseline(1, "tests/x.test.ts", "someSurface")).toThrow(
+      BaselineNotGreenError,
+    );
+    expect(() => assertCleanBaseline(1, "tests/x.test.ts", "someSurface")).toThrow(
+      /tests\/x\.test\.ts/,
+    );
   });
 
   it("proceeds when the unmutated baseline is green", () => {

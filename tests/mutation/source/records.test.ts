@@ -296,7 +296,8 @@ describe("a FAULTED surface's record can carry its cause (design section 3.1)", 
   it("round-trips a fault through emit and read", () => {
     const cell = mkdtempSync(join(tmpdir(), "fx-records-fault-"));
     try {
-      const fault = "BaselineNotGreenError: someSurface: tests/a.test.ts fails on UNMUTATED source.";
+      const fault =
+        "BaselineNotGreenError: someSurface: tests/a.test.ts fails on UNMUTATED source.";
       const result = emitRunRecord({
         surfaceId: "faulted",
         passed: false,

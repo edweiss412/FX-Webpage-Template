@@ -189,7 +189,7 @@ GREEN: add the conditions. `budget` becomes `if: ${{ always() && github.event_na
 Probed at plan time:
 
 ```
-$ pnpm tsx .scratch/r3probe.ts
+$ node --import tsx -  # clean reconcileValidationEnv vs the same body with line 1641 removed
 premise: the fixture has a validation-env site = true
 clean  stale = []
 mutant stale = ["tests/db/validation-schema-parity.test.ts"]
@@ -278,7 +278,7 @@ The budget row's entry carries the subsumption arithmetic and its warn-band resi
 **Derived from the registry, not enumerated.** Round-3 review found a surface missing from a hand-written list, so the list is replaced by the derivation that produces it: for every file this plan edits, which registry rows name that file as a `sourcePath` or a `suitePath`. Re-run it if the file set changes.
 
 ```
-$ pnpm tsx .scratch/editsweep.ts
+$ node --import tsx - <<'EOF'   # the derivation, inline; it is ten lines and owns no file
 surfaces this diff obliges a score for, DERIVED from the registry:
   connectionCensus       tests/db/connectionCensus.test.ts (suitePath)
   sourceShardPartition   tests/mutation/_metaSourceShardIntegrity.test.ts (suitePath)
