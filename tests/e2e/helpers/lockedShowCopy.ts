@@ -100,31 +100,34 @@ export function deleteShowBody(driveFileId: string): string {
 export type SqlExecutor = (sql: string) => string;
 
 /**
- * The one place a child process is started. Injectable so the proof can drive
- * the REAL `psqlExecutor` and read back the bytes it hands the child.
+ * The child-process call itself, injectable. `typeof execFileSync` deliberately:
+ * the seam IS Node's own function, so there is no project-owned code left
+ * between this parameter and the operating system.
  *
- * The seam is HERE and not one level up on purpose. An injectable
- * `SqlExecutor` alone leaves `psqlExecutor` itself unexercised, so an edit that
- * stripped the lock from the SQL just before spawning would keep every unit
- * assertion green — probed by the diff reviewer, who mutated exactly that and
- * watched both proofs stay green. Below this function there is no SQL handling
- * left to get wrong: one `execFileSync` call that forwards `input` verbatim.
+ * THAT IS THE POINT, and it took three review rounds to reach. The seam started
+ * at an `SqlExecutor` and a reviewer mutated `psqlExecutor` beneath it; it moved
+ * to a `Spawn` and a reviewer mutated the `execFileSpawn` closure beneath THAT.
+ * Every intermediate wrapper is one more untested bottom, so the wrappers are
+ * gone: `psqlExecutor` hands its arguments straight to the injected function and
+ * transforms nothing.
+ *
+ * DOCUMENTED LIMIT, so this axis has an end rather than a next round. What is
+ * still unproved by any unit test is Node's `execFileSync` and what Postgres
+ * does with the text it receives. Neither is ours, and both belong to the live
+ * e2e run, which drives this default path against a real database.
  */
-export type Spawn = (args: readonly string[], input: string, env: NodeJS.ProcessEnv) => string;
-
-const execFileSpawn: Spawn = (args, input, env) =>
-  execFileSync("psql", [...args], { input, encoding: "utf8", env });
+export type ExecFile = typeof execFileSync;
 
 /** The real executor. `-q` is load-bearing: see `assertDeletedRows`. */
-export function psqlExecutor(sql: string, spawn: Spawn = execFileSpawn): string {
+export function psqlExecutor(sql: string, exec: ExecFile = execFileSync): string {
   // Resolved HERE, at the spawn, not at import: a mistargeted DSN must be
   // refused before it reaches a database. See lockedCrewRestriction's header.
   const dsn = psqlTarget();
-  return spawn(
-    ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-At", dsn],
-    sql,
-    psqlChildEnv({ honorRemoteOptIn: true }),
-  );
+  return exec("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-At", dsn], {
+    input: sql,
+    encoding: "utf8",
+    env: psqlChildEnv({ honorRemoteOptIn: true }),
+  }) as string;
 }
 
 /** A row id line, which is the only output a `RETURNING id` under `-Atq` emits. */

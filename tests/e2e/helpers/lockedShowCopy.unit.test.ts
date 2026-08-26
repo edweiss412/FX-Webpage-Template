@@ -45,7 +45,7 @@ import {
   copyShowLocked,
   deleteShowsLocked,
   psqlExecutor,
-  type Spawn,
+  type ExecFile,
   type SqlExecutor,
 } from "./lockedShowCopy";
 
@@ -59,21 +59,27 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 /**
  * An executor that records what it was asked to run and returns `rows`.
  *
- * It routes through the REAL `psqlExecutor`, capturing at the SPAWN. Recording
- * at the `SqlExecutor` seam instead would leave `psqlExecutor` unexercised, and
- * an edit that stripped the lock just before spawning would keep every
- * assertion here green — which is precisely what a reviewer probe demonstrated
- * against the previous version of this file.
+ * It routes through the REAL `psqlExecutor` and captures at Node's own
+ * `execFileSync`. Two shallower seams were tried and each left a project-owned
+ * closure below it that a reviewer probe mutated while every assertion here
+ * stayed green. There is nothing of ours below this one.
  */
-function recorder(rows: string[]): { exec: SqlExecutor; seen: string[]; args: string[][] } {
+function recorder(rows: string[]): {
+  exec: SqlExecutor;
+  seen: string[];
+  args: string[][];
+  files: string[];
+} {
   const seen: string[] = [];
   const args: string[][] = [];
-  const spawn: Spawn = (a, input) => {
+  const files: string[] = [];
+  const fake = ((file: string, a: readonly string[], opts: { input: string }) => {
+    files.push(file);
     args.push([...a]);
-    seen.push(input);
+    seen.push(opts.input);
     return rows.join("\n");
-  };
-  return { seen, args, exec: (sql: string) => psqlExecutor(sql, spawn) };
+  }) as unknown as ExecFile;
+  return { seen, args, files, exec: (sql: string) => psqlExecutor(sql, fake) };
 }
 
 describe("copyShowLocked emits exactly one locked transaction, keyed on the new show", () => {
@@ -181,13 +187,15 @@ describe("deleteShowsLocked takes one lock per show, on that show's own key", ()
 
 describe("the real executor forwards the transaction and asks psql for bare rows", () => {
   test("the SQL reaching the child is the SQL the caller built, byte for byte", () => {
-    const { exec, seen, args } = recorder([NEW_ID]);
+    const { exec, seen, files } = recorder([NEW_ID]);
     copyShowLocked(TEMPLATE, { id: NEW_ID, drive_file_id: NEW_DFID }, exec);
     // The lock survives the whole path, spawn included. This is the assertion
     // an injected SqlExecutor could not make: with the seam one level up, an
     // edit inside psqlExecutor was invisible.
     expect(seen[0]).toContain(`pg_advisory_xact_lock(hashtext('show:' || '${NEW_DFID}'))`);
     expect(seen[0]).toContain("insert into public.shows");
+    // The executable is psql, not something else the executor chose.
+    expect(files[0]).toBe("psql");
   });
 
   test("`-q` is passed, because the delete check depends on it", () => {
