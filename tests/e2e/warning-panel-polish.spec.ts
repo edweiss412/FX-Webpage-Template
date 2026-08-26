@@ -52,6 +52,17 @@ const ROUTED_WARNINGS = [
     rawSnippet: "Contact | e2e-contact",
     blockRef: { kind: "contacts", name: "e2e-contact" },
   },
+  // The near-miss pair, in ONE render: the row above carries NO `candidate`, which is what a
+  // pre-detector persisted row looks like, and this one carries the label the detector matched.
+  // Both reach the same component, so the band's presence is the only difference between them.
+  {
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "unknown venue field e2e; looks like 'VENUE ADDRESS'",
+    rawSnippet: "Addres | e2e-venue-address",
+    blockRef: { kind: "client", name: "Addres" },
+    candidate: "VENUE ADDRESS",
+  },
 ];
 
 let show: SeededShow;
@@ -272,6 +283,47 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
   // plan Task 0): the real Ignore round trip below mutates the seeded warning
   // population; running last means no later test observes the mutation, and
   // afterAll's seed deletion is the restoration.
+  test("candidate band: names the matched label, and is absent when the warning carries none", async ({
+    page,
+  }) => {
+    // Real route, real persisted rows: the seed above writes both warnings into
+    // shows_internal.parse_warnings, so this exercises the render the way Doug reaches it.
+    // jsdom computes no layout, which is why the wrap assertion below lives here.
+    await openModal(page);
+
+    const bands = page.locator('[data-testid="per-show-actionable-candidate"]');
+    const values = page.locator('[data-testid="per-show-actionable-candidate-value"]');
+
+    // Premise: the cards rendered at all. Without this the absence arithmetic below is
+    // satisfied by a page that rendered nothing.
+    const cards = page.locator('[data-testid="per-show-actionable-item"]');
+    await expect(cards.first()).toBeVisible({ timeout: 30_000 });
+    const cardCount = await cards.count();
+    expect(cardCount).toBeGreaterThan(1);
+
+    // EXACTLY ONE of the two UNKNOWN_FIELD rows carries a candidate, so exactly one band.
+    await expect(values).toHaveCount(1);
+    await expect(values.first()).toHaveText("VENUE ADDRESS");
+    await expect(bands.first()).toContainText("Looks like");
+
+    // The two bands share one flex container and wrap at a narrow width. Assert they are on
+    // DIFFERENT lines there and the SAME line when wide, which is the §9 behaviour jsdom
+    // cannot compute.
+    const row = page.locator('[data-testid="per-show-actionable-row-label"]').first();
+    const topsAt = async (width: number) => {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(bands.first()).toBeVisible();
+      const a = await row.boundingBox();
+      const b = await bands.first().boundingBox();
+      if (!a || !b) throw new Error("candidate or row-label band has no box");
+      return [a.y, b.y] as const;
+    };
+    const [wideRowY, wideCandY] = await topsAt(1280);
+    expect(Math.abs(wideRowY - wideCandY)).toBeLessThan(4);
+    const [narrowRowY, narrowCandY] = await topsAt(380);
+    expect(narrowCandY).toBeGreaterThan(narrowRowY + 4);
+  });
+
   test("announcer region: empty on load, speaks the pinned clause after Ignore", async ({
     page,
   }) => {
