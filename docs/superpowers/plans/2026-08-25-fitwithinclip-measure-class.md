@@ -536,16 +536,106 @@ reason to skip it.
 
 ## 12. Impeccable findings and dispositions
 
-Filled at close-out by Task 6. Until then this section reads exactly one line, and that line is the
-gate:
+impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=0 p1=0 dispositions=none
 
-> **NOT RUN.** No marker line appears above, deliberately: the grammar has only a RAN form and an
-> N/A form, so any line written here before the gate runs would be either malformed or a lie.
->
-> **`tests/docs/_metaInvariant8Closeout.test.ts` is therefore RED on this branch until Task 6 runs**,
-> reporting that this unit declares the dual gate and carries no valid marker. That is the guard
-> working, not an accident, and it is recorded here so nobody reads the red as flake and silences it.
-> It goes green when Task 6 writes the real line with real counts.
+### How each half was run
+
+Both halves ran against the diff with the canonical v3 setup gates: the skill's context script loaded
+PRODUCT.md and DESIGN.md targeted at `components/admin/useFitWithinClip.ts`, and the **product**
+register reference was read (this is admin UI, so the product register, not the brand one). Those
+skill files live in the impeccable plugin tree outside this repo, so they are named rather than cited.
+
+**Why critique is marked RAN-DEGRADED and audit is not.** The critique reference carries a hard
+invariant: its two assessments must run as isolated sub-agents whenever a sub-agent tool is exposed.
+One is exposed here, and the attempt failed. Five assessors were dispatched across two batches, three
+in the first and two in the second, with the second batch explicitly instructed to report a
+permission denial rather than go quiet. **All five went idle without ever delivering a report**, none
+answered a direct follow-up message, and none left a transcript to scrape: this session's own
+transcript holds zero sidechain entries, and no new transcript file appeared on disk while they ran.
+So the critique judgement is the session's own rather than an isolated assessor's, which is exactly
+what the DEGRADED label is for. The audit half has no such isolation requirement, its diagnostic scan
+ran in full, and its central instrument was positive-controlled, so it is marked RAN.
+
+External attestation is not abandoned, only moved: the whole-diff Codex review carries a section
+asking it to check this record against the artifact. Codex is a different model under a different
+CLI, which is a stronger independence claim than an in-harness sub-agent, and it is the reason this
+section states its counts conservatively rather than waiting.
+
+### Audit health score
+
+| # | Dimension | Score | Moved by this diff? | Key finding |
+| --- | --- | --- | --- | --- |
+| 1 | Accessibility | 3 | No | No ARIA, focus, contrast or keyboard surface is touched. The one a11y-relevant behaviour is the ratified floor-clamp limit below. |
+| 2 | Performance | 4 | **Yes, upward** | The dimension this diff exists to move. See below. |
+| 3 | Theming | 4 | No | The diff introduces no colour, token or class string. Verified by grep over the diff's added lines. |
+| 4 | Responsive | 4 | No | No fixed width, no tap target, no breakpoint touched. Viewport-derived fitting is the hook's whole purpose and its arithmetic is out of scope. |
+| 5 | Anti-patterns | 4 | No | `detect.mjs --json` returns `[]` on all three consumers. |
+| **Total** | | **19/20** | | **Excellent (minor polish)** |
+
+### Anti-patterns verdict: PASS
+
+The detector run with `--json` over `components/admin/PublishedToggle.tsx`,
+`components/admin/ReSyncButton.tsx` and `components/admin/showpage/AttentionMenu.tsx` returns `[]`.
+
+**A null result from an instrument nobody has proved fires is not evidence**, so the detector was
+positive-controlled first: run against a deliberately slop-shaped fixture it reported `side-tab`,
+`gradient-text` and `ai-color-palette`. The instrument fires on `.tsx`, so the `[]` is a real null.
+
+The diff cannot introduce a visual tell in any case: it adds no class string, no design token, no
+user-visible copy and no DOM shape. All four checked by grep over the diff's added lines.
+
+### Performance, the one dimension that moves
+
+- The `attachCount` counter leaves state entirely, so the owning component no longer re-renders on
+  every attach **and every detach**. That re-render, not the doubled measure the ledger row named,
+  was the real cost.
+- Measures per mount go 2 to 1; ancestor walks per measure go 2 to 1, because `apply()` returns the
+  clip it resolved instead of making the caller walk again.
+- The mount measure stays **synchronous** and deliberately bypasses the coalescer, so the overlay
+  cannot be painted uncapped. Only the burst-prone event-driven signals are coalesced, to one
+  `apply()` per frame.
+- `transitionend` is scoped to `event.target === positioned` **and** `propertyName === "transform"`.
+  Without both, a panel of roughly twenty rows carrying `transition-colors` would force a synchronous
+  reflow on every hover fade, and every entrance would fire twice.
+- Teardown disconnects the observer, removes both listeners, cancels any scheduled frame and clears
+  the node ref, in that order, so a late event cannot schedule a frame after the cancel.
+
+One regression, development-only: Strict Mode replays cleanup-returning callback refs, so `apply()`
+runs twice per appearance on `ReSyncButton` instead of once. Verified dev-only against the shipped
+bundles, 101 hits for the replay symbols in the React DOM development client and zero in the
+production client. Pinned exactly by unit case (h13) and stated as AC-0b.
+
+### Findings
+
+No P0 and no P1, which is why the marker reads `dispositions=none`: the cross-check in
+`tests/docs/_invariant8Closeout.ts:141` requires `none` when `p0 + p1` is zero.
+
+**[P3] A `null` node call would leak the wiring.** `components/admin/useFitWithinClip.ts:155`. The
+callback returns early on a `null` node without tearing down a previous attach. React 19 calls the
+returned cleanup instead of re-invoking with `null`, so this is unreachable on the pinned React, and
+a host with pre-19 ref semantics is outside the threat fence. Recorded, not repaired: repairing it
+means keeping a second teardown path alive for a case the pinned runtime cannot produce, and an
+untested branch is its own liability.
+
+**[P3] One forced reflow per attach, multiplied by simultaneous attaches.** `useFitWithinClip.ts:92`
+and `components/admin/useFitWithinClip.ts:165`. `withNaturalSize` clears, reads and restores, which
+forces a synchronous reflow, and it
+runs in the commit's layout phase. N overlays attaching in one commit means N reflows in that phase.
+Bounded in practice: three consumers exist and their overlays open one at a time under user input.
+Recorded, not repaired, because the alternative is deferring the measure, which reintroduces the
+uncapped paint the synchronous measure exists to prevent. That trade is settled in spec §4.2.
+
+### Not raised, and why
+
+The floor-clamp case, where the room below the anchor is under `MIN_FITTED_HEIGHT` and the overlay
+overhangs its clip edge with only a development-only diagnostic, is the spec's stated consequence
+bound in §6. §6 states the weaker fact verbatim rather than a bound that would be false, and the
+residue is filed. It is a documented limit, so it is not counted as a finding here. It is also the
+reason accessibility scores 3 rather than 4.
+
+The stale clip-ancestor subscription, the AnchoredPortal triple-measure-per-open, the toggle-banner
+anchor room, `lib/layout/fitWithinClip.ts` arithmetic and `lib/popover/position.ts` are all fenced by
+ratified scope decisions or filed ledger rows, listed in §1b.
 
 ## 7. Acceptance criteria
 
