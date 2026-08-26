@@ -512,6 +512,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"00be2a2d5f91dd16c717-24401baf934c61cda90b\",[\"step3-review-modal.interactions.spec.ts\",\"§K14 at 390px (sheet mode): overlay rescan result stays fully on-screen — footer-anchored left below sm (impeccable audit P1: right-0 on the left-positioned wrapper clipped ~139px off the left viewport edge)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"00be2a2d5f91dd16c717-24d3be6e8a01114e9011\",[\"step3-review-modal.interactions.spec.ts\",\"§6.3a coordinate proof: far rail click lands the section within 90px of the scroller top\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"00be2a2d5f91dd16c717-2f0f69db7dc1190e4a22\",[\"step3-review-modal.interactions.spec.ts\",\"§K11/§K12 with motion enabled\",\"§K11 wheel mid-glide: user input resumes the spy — active leaves the clicked id\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"00be2a2d5f91dd16c717-35161cb64b28934ef80f\",[\"step3-review-modal.interactions.spec.ts\",\"candidate line and row-label gate, in a real browser\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"00be2a2d5f91dd16c717-38fd9f38f7c3ba1f391c\",[\"step3-review-modal.interactions.spec.ts\",\"§D: report toggle expands the form live — submit button visible with height ≥ 44\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"00be2a2d5f91dd16c717-560071001535fcde5e02\",[\"step3-review-modal.interactions.spec.ts\",\"MODAL-CLOSE-EXIT-ANIM-1 — exit window (motion enabled)\",\"(b) X dismiss: Publish cannot fire inside the exit window\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"00be2a2d5f91dd16c717-5a6ec2f4aebfdcaf1417\",[\"step3-review-modal.interactions.spec.ts\",\"§16 Tab audit @ sheet 390px: every stop visible, hidden nav unreachable, cycle wraps\"]]",
@@ -674,5 +675,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 591
+  "totalTests": 592
 }

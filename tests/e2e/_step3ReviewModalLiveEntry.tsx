@@ -22,7 +22,12 @@
  */
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { buildSectionData, harnessResolution, modalElement } from "./_step3ReviewModalHarness";
+import {
+  buildSectionData,
+  harnessResolution,
+  modalElement,
+  nearMissHarnessWarnings,
+} from "./_step3ReviewModalHarness";
 
 declare global {
   interface Window {
@@ -76,6 +81,9 @@ function deferred(name: string): Promise<boolean> {
 const params = new URLSearchParams(window.location.search);
 const DEFER_ACTIONS = params.get("deferActions") === "1";
 const WITH_RESOLUTION = params.get("resolution") === "1";
+// Third flag in the same idiom. A navigation WITHOUT it passes `{}` to buildSectionData,
+// which is byte-identical to the no-argument call every existing case makes.
+const NEAR_MISS = params.get("nearMiss") === "1";
 
 window.__resolveAction = (name: string, ok = true) => {
   pendingActions.get(name)?.(ok);
@@ -85,7 +93,7 @@ window.__resolveAction = (name: string, ok = true) => {
 function LiveHarness() {
   const [open, setOpen] = useState(true);
   if (!open) return null;
-  return modalElement(buildSectionData(), {
+  return modalElement(buildSectionData(NEAR_MISS ? { warnings: nearMissHarnessWarnings() } : {}), {
     onRequestSetChecked: DEFER_ACTIONS ? () => deferred("publish") : async () => true,
     ...(WITH_RESOLUTION
       ? {
