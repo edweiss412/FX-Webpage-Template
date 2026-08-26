@@ -66,7 +66,43 @@ export function tailwindTextAlignUtilities(): string[] {
  * `!text-right` and `text-right!` depending on version, and both align.
  */
 export function isTextAlignToken(token: string, utilities: string[]): boolean {
-  const lastColon = token.lastIndexOf(":");
-  const bare = (lastColon === -1 ? token : token.slice(lastColon + 1)).replace(/^!+|!+$/g, "");
-  return utilities.includes(bare);
+  const bare = stripVariantsAndImportant(token);
+  if (utilities.includes(bare)) return true;
+
+  // ARBITRARY PROPERTIES bypass the utility table entirely (diff review r4
+  // finding 2). `[text-align:right]` compiles to `.\[text-align\:right\] {
+  // text-align: right }` without ever appearing in Tailwind's static
+  // registrations, so scraping that table — however correctly — cannot see it.
+  // Two mechanisms produce the same declaration, so the check needs both arms.
+  //
+  // Underscores are Tailwind's space escape inside arbitrary values, and the
+  // property is matched case-insensitively because CSS property names are.
+  const arbitrary = /^\[\s*text-align\s*:\s*[^\]]+\]$/i;
+  return arbitrary.test(bare.replace(/_/g, " "));
+}
+
+/** Strip any variant stack (`sm:`, `max-sm:`, `[&>*]:`) and `!` markers. */
+function stripVariantsAndImportant(token: string): string {
+  const lastColonOutsideBrackets = lastTopLevelColon(token);
+  const bare = lastColonOutsideBrackets === -1 ? token : token.slice(lastColonOutsideBrackets + 1);
+  return bare.replace(/^!+|!+$/g, "");
+}
+
+/**
+ * The last `:` that is NOT inside square brackets.
+ *
+ * Splitting on the last colon outright would cut `[text-align:right]` in half
+ * and hand back `right]`, which matches nothing — the arbitrary-property arm
+ * would then be dead code that looks alive.
+ */
+function lastTopLevelColon(token: string): number {
+  let depth = 0;
+  let found = -1;
+  for (let i = 0; i < token.length; i += 1) {
+    const ch = token[i];
+    if (ch === "[") depth += 1;
+    else if (ch === "]") depth = Math.max(0, depth - 1);
+    else if (ch === ":" && depth === 0) found = i;
+  }
+  return found;
 }

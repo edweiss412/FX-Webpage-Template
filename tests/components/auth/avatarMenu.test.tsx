@@ -389,13 +389,30 @@ describe("no persist-failure note (removed 2026-08-26)", () => {
     return screen.getByTestId("avatar-menu-popover").textContent ?? "";
   }
 
+  /**
+   * Every character the WHOLE COMPONENT renders, not just the popover.
+   *
+   * Diff review r4 finding 1: the popover census was still scoped to a
+   * location. A note added as a root SIBLING of the popover left all three
+   * previous assertions byte-identical while rendering the forbidden sentence.
+   * That is the fourth consecutive round in which my repair was one level
+   * narrower than the property, so this one is scoped to the render root —
+   * there is no enclosing element left for a note to hide outside of.
+   */
+  function rootText(container: HTMLElement): string {
+    return container.textContent ?? "";
+  }
+
   /** Captured from the live render, fixture name "Doug L." and role "Lead". */
   const EXPECTED_POPOVER_TEXT = "Doug L.,  · LeadDark modeNot you? Switch person";
+  /** "DL" is the trigger's initials, which render whether the menu is open or not. */
+  const EXPECTED_ROOT_TEXT_CLOSED = "DL";
+  const EXPECTED_ROOT_TEXT_OPEN = "DL" + EXPECTED_POPOVER_TEXT;
 
   it("renders no extra live region and no extra popover child on a blocked write", () => {
     document.documentElement.dataset.theme = "light";
     blockWrites();
-    renderMenu();
+    const { container } = renderMenu();
     openMenu();
 
     flipTheme();
@@ -413,21 +430,28 @@ describe("no persist-failure note (removed 2026-08-26)", () => {
     expect(popoverChildIds()).toEqual(EXPECTED_POPOVER_CHILD_TESTIDS);
     // And the property the two structural pins do not cover: no copy anywhere.
     expect(popoverText()).toBe(EXPECTED_POPOVER_TEXT);
+    // And outside the popover, which is where r4 found the escape.
+    expect(rootText(container)).toBe(EXPECTED_ROOT_TEXT_OPEN);
   });
 
   it("mounts no extra live region before the menu is even opened", () => {
     blockWrites();
-    renderMenu();
+    const { container } = renderMenu();
 
     // The old shape mounted the theme announcer at the component ROOT, outside
     // the popover, so it existed before any interaction. An empty region left
     // behind would be dead a11y surface rather than a harmless leftover.
     expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
 
+    // Closed, the whole component renders only the trigger's initials. A note
+    // mounted at the root would show up here even before any interaction.
+    expect(rootText(container)).toBe(EXPECTED_ROOT_TEXT_CLOSED);
+
     openMenu();
     expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
     expect(popoverChildIds()).toEqual(EXPECTED_POPOVER_CHILD_TESTIDS);
     expect(popoverText()).toBe(EXPECTED_POPOVER_TEXT);
+    expect(rootText(container)).toBe(EXPECTED_ROOT_TEXT_OPEN);
   });
 
   it("keeps the UNRELATED switch-person announcer working, not merely present", () => {
@@ -446,7 +470,7 @@ describe("no persist-failure note (removed 2026-08-26)", () => {
   it("stays silent across repeated blocked writes and on recovery", () => {
     document.documentElement.dataset.theme = "light";
     blockWrites();
-    renderMenu();
+    const { container } = renderMenu();
     openMenu();
 
     flipTheme();
@@ -457,6 +481,7 @@ describe("no persist-failure note (removed 2026-08-26)", () => {
     expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
     expect(popoverChildIds()).toEqual(EXPECTED_POPOVER_CHILD_TESTIDS);
     expect(popoverText()).toBe(EXPECTED_POPOVER_TEXT);
+    expect(rootText(container)).toBe(EXPECTED_ROOT_TEXT_OPEN);
   });
 });
 
