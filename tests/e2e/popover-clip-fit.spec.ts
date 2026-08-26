@@ -130,8 +130,8 @@ const GUTTER = 8;
 const CSS_CAP = 384;
 /** Mirrors MIN_FITTED_HEIGHT (lib/layout/fitWithinClip.ts) — the collapse floor. */
 const FLOOR = 48;
-/** The refusal banner's offset below the strip it anchors to (`mt-1`). */
-const BANNER_OFFSET = 4;
+/** The refusal banner's offset below the strip it anchors to (`mt-1`). Reference only. */
+const _BANNER_OFFSET = 4;
 /** The strip is the banner's positioned ancestor (`sticky` ⇒ positioned). */
 const STRIP = '[data-testid="show-status-strip"]';
 
