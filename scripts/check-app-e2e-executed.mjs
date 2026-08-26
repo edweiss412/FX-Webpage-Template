@@ -66,6 +66,13 @@ export const REQUIRED = {
   // 7 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
   // projects, --retries=0: 181 executed identities, zero skipped.
   "developer-tier.spec.ts": 7,
+  // 4 cases x 1 project — empty-state-reachability resolves under mobile-safari
+  // only. It came OUT of the desktop-chromium testMatch with the 2026-08-25
+  // re-target (BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE): it is a live
+  // fixture writer and §8.4 makes the crew page mobile-primary, so a second
+  // project doubles the writes and buys no coverage. Measured on the branch,
+  // CI posture, --retries=0: 4 passed.
+  "empty-state-reachability.spec.ts": 4,
   // 14 NAV routes + the NAV-parity guard, x 1 project — help-pages resolves under mobile-safari
   // only (playwright.config.ts testMatch), and the route list derives from app/help/_nav.ts, so a
   // NAV row added without a HELP_ROUTES row fails the parity guard rather than quietly lowering
