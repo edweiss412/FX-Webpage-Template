@@ -315,20 +315,26 @@ describe("the scanner's population is pinned against resolver drift", () => {
 // have. It stays in the entries' prose, which is where a true statement no
 // checker can settle belongs.
 type UnreachedCause = "unreached-no-ternary" | "unreached-ternary";
-type Site = { file: string; line: number; flag: string };
+type Site = { file: string; line: number; symbol: string };
 
 function parseSite(key: string): Site {
-  // `file:line:flag`. Split from the RIGHT: a path never ends in `:<digits>:<id>`
-  // by accident, and the flag may itself be dotted (`SystemHealthCard.unavailable`).
+  // `file:line:symbol`. Split from the RIGHT: a path never ends in
+  // `:<digits>:<id>` by accident, and the symbol may itself be dotted
+  // (`SystemHealthCard.unavailable`).
+  //
+  // SYMBOL, not flag: three entries name a boolean flag, but
+  // `OnboardingWizard.tsx:803:OperatorErrorBlock` names an exported COMPONENT
+  // (`components/admin/OnboardingWizard.tsx:666`). Calling the field `flag` is
+  // what produced two universal claims this registry cannot support.
   const lastColon = key.lastIndexOf(":");
-  const flag = key.slice(lastColon + 1);
+  const symbol = key.slice(lastColon + 1);
   const head = key.slice(0, lastColon);
   const secondColon = head.lastIndexOf(":");
-  return { file: head.slice(0, secondColon), line: Number(head.slice(secondColon + 1)), flag };
+  return { file: head.slice(0, secondColon), line: Number(head.slice(secondColon + 1)), symbol };
 }
 
-/** The flag's own identifier: `SystemHealthCard.unavailable` looks for `unavailable`. */
-const identifierOf = (flag: string): string => flag.slice(flag.lastIndexOf(".") + 1);
+/** The symbol's own identifier: `SystemHealthCard.unavailable` looks for `unavailable`. */
+const identifierOf = (symbol: string): string => symbol.slice(symbol.lastIndexOf(".") + 1);
 
 const sourceAt = (file: string) => TERNARY_PROJECT.getSourceFileOrThrow(join(process.cwd(), file));
 
@@ -374,14 +380,14 @@ function deriveCause(site: Site): UnreachedCause | null {
 /**
  * The coordinate is VERIFIED, per cause, and each half asserts uniqueness.
  *
- * A ternary entry's line is where the flag is USED; a flag entry's line is where
+ * A ternary entry's line is where the symbol is USED; a flag entry's line is where
  * it is DECLARED. One uniform rule cannot fit both -- requiring a declaration at
  * a ternary's line is unsatisfiable. Text-mention alone is also too weak:
  * `dataGapsDegraded` appears in three of Dashboard's ternaries, and only the
  * conjunction with the cause predicates picks out the registered one.
  */
 function uniqueCoordinate(site: Site): boolean {
-  const identifier = identifierOf(site.flag);
+  const identifier = identifierOf(site.symbol);
   const source = sourceAt(site.file);
   const mentions = new RegExp(`\\b${identifier}\\b`);
 
@@ -447,7 +453,7 @@ describe("every residue entry's declared cause is COMPUTED, not asserted in pros
     // conjunct labels every reached IfStatement candidate unreached.
     const control = CANDIDATES.find((c) => !ternaryStartsAt(c.file, c.line));
     premise("some candidate sits at a line where no ternary begins", control ? 1 : 0, 0);
-    expect(isUnreachedNoTernary({ file: control!.file, line: control!.line, flag: "" })).toBe(
+    expect(isUnreachedNoTernary({ file: control!.file, line: control!.line, symbol: "" })).toBe(
       false,
     );
   });
@@ -458,7 +464,7 @@ describe("every residue entry's declared cause is COMPUTED, not asserted in pros
     // all seven entries correctly.
     for (const [file, line] of registeredTernaries()) {
       expect(
-        isUnreachedNoTernary({ file, line, flag: "" }),
+        isUnreachedNoTernary({ file, line, symbol: "" }),
         `${file}:${line} is a ternary and must fail the no-ternary conjunct`,
       ).toBe(false);
     }
@@ -468,16 +474,18 @@ describe("every residue entry's declared cause is COMPUTED, not asserted in pros
     // Pins the classifyExpression === null conjunct. Derived, not named.
     const control = CANDIDATES.find((c) => c.form !== "unknown" && ternaryStartsAt(c.file, c.line));
     premise("some accepted candidate originates at a ternary", control ? 1 : 0, 0);
-    expect(isUnreachedTernary({ file: control!.file, line: control!.line, flag: "" })).toBe(false);
+    expect(isUnreachedTernary({ file: control!.file, line: control!.line, symbol: "" })).toBe(
+      false,
+    );
   });
 });
 
 describe("the unreached residue is named, since no scan can reach it", () => {
-  it("gives every registered flag a reason naming what it reaches", () => {
+  it("gives every registered site a reason naming what it reaches", () => {
     expect(Object.keys(UNREACHED_RESIDUE).length).toBeGreaterThan(0);
     for (const [site, { reason }] of Object.entries(UNREACHED_RESIDUE)) {
       expect(reason.length, `${site} needs a reason`).toBeGreaterThan(20);
-      expect(site, `${site} must name a file and a flag`).toContain(":");
+      expect(site, `${site} must name a file, a line and a symbol`).toContain(":");
     }
   });
 
@@ -499,13 +507,13 @@ describe("the unreached residue is named, since no scan can reach it", () => {
     premise("some unreached-residue entry claims a hand-marking", claimed.length, 0);
 
     for (const [site] of claimed) {
-      const { file, flag } = parseSite(site);
-      // The flag's own identifier, so `SystemHealthCard.unavailable` looks for
+      const { file, symbol } = parseSite(site);
+      // The symbol's own identifier, so `SystemHealthCard.unavailable` looks for
       // `unavailable`. Two entries can name the SAME file, which is why a
       // file-scoped check is not enough: TelemetryOverviewStrip declares two
       // and carries four marker occurrences, so deleting one of the two left a
       // surviving mutant under the previous version of this case.
-      const identifier = identifierOf(flag);
+      const identifier = identifierOf(symbol);
       // Comment lines are dropped BEFORE matching. A commented-out marker is
       // exactly the state this case exists to catch -- someone disabling the
       // attribute while the declaration still claims it -- and a line regex
