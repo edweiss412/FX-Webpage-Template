@@ -205,3 +205,74 @@ describe("resolve-label transitions", () => {
     vi.unstubAllGlobals();
   });
 });
+
+// ---------------------------------------------------------------------------
+// The refusal banner's transition inventory (spec
+// 2026-08-25-review-modal-strip-dock §6). Asserted HERE, in the task that
+// creates the states, rather than in a task of its own — a separate task could
+// have no valid red for it, since the subject it would assert is created by
+// this one, so a case authored afterwards passes the moment it is written and
+// one authored beforehand leaves the tree red across a commit boundary. The
+// rule's purpose is that the inventory gets asserted; this serves it.
+//
+// Rows A↔B and A↔C ("instant BY DESIGN") are already covered for this file by
+// the SERVER_RENDERED sweep above, which bans motion libraries, AnimatePresence
+// and mount-animation utilities across every listed surface. What that sweep
+// does NOT pin is the banner's own `transition-` classes or the single-side
+// invariant, so those are here. The compound rows that need real layout —
+// one placement per resize frame, the entrance transform, a Re-sync overlay
+// open at the same time — are exercised against a real browser in
+// tests/e2e/popover-clip-fit.spec.ts and published-review-modal.interactions.spec.ts,
+// because jsdom computes no geometry and could not tell those outcomes apart.
+// ---------------------------------------------------------------------------
+describe("refusal banner — transition inventory (§6)", () => {
+  const banner = () => src("components/admin/PublishedToggle.tsx");
+
+  it("A↔B and A↔C are instant: the banner skin declares no transition or animation", () => {
+    // POPOVER_POSITION is the banner's own class const. A `transition-*` here
+    // would animate a box whose left/top the module rewrites on every resize
+    // frame, which is the layout-property animation DESIGN.md §5.4 bans.
+    const skin = /const POPOVER_POSITION = cn\(\s*"([^"]*)"/.exec(banner())?.[1] ?? "";
+    expect(skin, "PREMISE: the skin const must be found, or this asserts nothing").not.toBe("");
+    expect(skin).not.toMatch(/\btransition-/);
+    expect(skin).not.toMatch(/\banimate-/);
+    expect(skin).not.toMatch(/\bduration-/);
+  });
+
+  it("B↔C: exactly ONE node carries data-popover-side, written and cleared in one place", () => {
+    const s = banner();
+    // One write, one delete. Two write sites would mean two nodes could carry
+    // the attribute at once, and a reader could not tell which side won.
+    const writes = s.match(/dataset\["popoverSide"\]\s*=/g) ?? [];
+    const deletes = s.match(/delete\s+\w+\.dataset\["popoverSide"\]/g) ?? [];
+    expect(writes, "exactly one write site for the side").toHaveLength(1);
+    expect(deletes, "exactly one clear site for the side").toHaveLength(1);
+    // And exactly one PLACED node. Counting `data-testid` occurrences would be
+    // wrong here and the first draft of this case got it wrong: the finalize
+    // hint deliberately SHARES the popover testid while being an in-flow chip
+    // (see "the finalize chip and the idle state are untouched" in
+    // PublishedToggle.test.tsx), so there are two such elements by design and
+    // they are mutually exclusive branches of one ternary. What must be unique
+    // is the node the placement effect drives, which is the one holding the
+    // body ref.
+    const placed = s.match(/ref=\{bodyRef\}/g) ?? [];
+    expect(placed, "exactly one node is placed by the effect").toHaveLength(1);
+  });
+
+  it("a resize burst schedules through the shared coalescer and cancels on unmount", () => {
+    const s = banner();
+    // The compound row "side changes mid-resize": every listener schedules
+    // through createRafCoalescer, so a burst produces one applyPlacement per
+    // frame rather than one per event. The cancel is what stops a pending
+    // frame from firing into an unmounted tree.
+    expect(s).toMatch(/createRafCoalescer\(applyPlacement\)/);
+    expect(s).toMatch(/coalescer\.cancel\(\)/);
+    // Every listener the effect adds is removed again. Counted rather than
+    // eyeballed: an added-but-not-removed listener is the leak this row exists
+    // to catch, and the counts are what make it visible.
+    const added = s.match(/addEventListener\(/g) ?? [];
+    const removed = s.match(/removeEventListener\(/g) ?? [];
+    expect(added.length, "PREMISE: the effect must add listeners").toBeGreaterThan(0);
+    expect(removed.length, "every listener added is removed").toBe(added.length);
+  });
+});

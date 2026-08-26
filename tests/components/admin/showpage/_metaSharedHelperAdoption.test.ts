@@ -44,8 +44,16 @@ import { describe, expect, it } from "vitest";
  *   - ReSyncButton fit        -> tests/components/ReSyncButton.test.tsx,
  *                                "overlay is capped to the room left inside a
  *                                clipping ancestor".
- *   - PublishedToggle fit     -> tests/components/admin/PublishedToggle.test.tsx,
- *                                "the banner is capped against the clip ancestor".
+ *   - PublishedToggle
+ *     coalescer               -> tests/e2e/popover-clip-fit.spec.ts, the four
+ *                                "§3.6 — the module selects the side" cases,
+ *                                which drive each branch of the placement
+ *                                algebra against a real clip panel. The fit
+ *                                backstop this line used to name went with the
+ *                                migration: the banner is no longer capped by
+ *                                the hook, so a unit assertion about that cap
+ *                                would pin behaviour the component no longer
+ *                                has.
  *   - AttentionMenu fit       -> attentionMenu.test.tsx, "the scroller is capped
  *                                against the clip ancestor, not just by the CSS
  *                                cap", plus the settled-fit browser cases in
@@ -96,11 +104,17 @@ const ROWS: readonly AdoptionRow[] = [
     module: "@/lib/popover/rafCoalescer",
     requiresCancelAdoption: true,
   },
+  // Migrated off the fit hook 2026-08-25 (feat/review-modal-strip-dock): the
+  // refusal banner is placed by the module now, so what this consumer shares
+  // with ShareHub and HoverHelp is the frame throttle rather than the cap. The
+  // row moves rather than being deleted — the point of the registry is that a
+  // consumer cannot quietly stop sharing a helper, and that applies just as
+  // much when it starts sharing a different one.
   {
     consumer: "components/admin/PublishedToggle.tsx",
-    helper: "useFitWithinClip",
-    module: "@/components/admin/useFitWithinClip",
-    requiresCancelAdoption: false,
+    helper: "createRafCoalescer",
+    module: "@/lib/popover/rafCoalescer",
+    requiresCancelAdoption: true,
   },
   {
     consumer: "components/admin/showpage/AttentionMenu.tsx",

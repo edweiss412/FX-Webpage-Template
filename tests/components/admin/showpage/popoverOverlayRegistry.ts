@@ -105,9 +105,9 @@ export const POPOVER_OVERLAY_REGISTRY: readonly OverlayRow[] = [
   {
     file: "components/admin/PublishedToggle.tsx",
     overlay: "published-toggle-popover",
-    disposition: "fit-within-clip",
+    disposition: "placement-module",
     reason:
-      "Detected 2026-08-02, the moment its anchored refusal banner became an internal scroller (BL-PUBLISHED-TOGGLE-OVERLAY-CLIP). Absolutely anchored inside the sticky strip inside the review-modal panel (overflow-clip, NOT a scroll container); useFitWithinClip caps it against that edge. Full-width inset-x-0, so side-flipping buys nothing.",
+      'Migrated 2026-08-25 (feat/review-modal-strip-dock, BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED). Same portal + placeWithinVisibleViewport stack as HoverHelp and ShareHub, anchored to the StatusStrip root that StatusStrip now hands down as a ref. This row previously read "Full-width inset-x-0, so side-flipping buys nothing" under a fit-within-clip disposition, and that is the claim the arc refuted: it held only while the strip sat at the TOP of the panel, where the room below never ran out. Docking the strip to the panel floor removes that room, and CSS anchoring cannot flip — so the banner needed the side selection it was assumed not to need. The width argument was sound and is unaffected; what was wrong was reading it as a reason side selection could not matter.',
   },
   {
     file: "components/admin/showpage/AttentionMenu.tsx",

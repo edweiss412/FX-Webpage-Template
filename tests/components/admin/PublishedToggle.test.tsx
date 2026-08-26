@@ -17,9 +17,9 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { PublishedToggle } from "@/components/admin/PublishedToggle";
 import { messageFor } from "@/lib/messages/lookup";
-import { computeFittedMaxHeight } from "@/lib/layout/fitWithinClip";
 
 const routerRefresh = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -290,16 +290,27 @@ describe("PublishedToggle — inline variant", () => {
 
   it("error skin keeps the absolute banner; finalize skin is an in-flow chip (mechanism split)", async () => {
     const POSITION = [
+      // `absolute` STAYS, and deliberately: the overlay registry's recognizer
+      // qualifies an element that is positioned AND scrolls internally
+      // (_popoverOverlayExtract.ts:63). Dropping it in the migration would have
+      // taken this banner out of the registry it was being re-dispositioned in,
+      // which is a clean pass that means the opposite of what it looks like.
       "absolute",
-      "inset-x-0",
-      "top-full",
       "z-banner",
-      "mt-1",
+      // `inset-x-0`, `top-full` and `mt-1` are GONE (spec
+      // 2026-08-25-review-modal-strip-dock §3.2). The module writes `left` and
+      // `top` from a measured trigger rect, so CSS anchoring would fight it,
+      // and `mt-1` would add 4px on top of the module's own GAP. `w-full` takes
+      // over the width the old `inset-x-0` used to give it.
+      "w-full",
+      // The declared cap. The module writes a FITTED max-height when neither
+      // side has room; this is the ceiling that applies when it does not.
+      "max-h-[min(50vh,20rem)]",
       // `wrap-break-word` is Tailwind v4's canonical spelling of the old
       // `break-words`; the rule reported the rename once the const moved inside
       // `cn(...)` and became visible to it (quick-wins-2 §2.3).
       "wrap-break-word",
-      // The banner is a capped SCROLL REGION now (spec §4.3): useFitWithinClip
+      // The banner is a capped SCROLL REGION (spec §4.3): the placement module
       // writes its max-height, so the overflow has to be scrollable rather than
       // clipped away. The x axis is pinned explicitly because `overflow-y: auto`
       // forces the other axis's `visible` to compute to `auto`, which would give
@@ -606,18 +617,58 @@ describe("PublishedToggle — refusal banner clip fit (§4.3)", () => {
     expect(alert?.textContent?.trim()).not.toBe("");
   });
 
-  it("the banner is capped against the clip ancestor", async () => {
+  // WHAT REPLACED "the banner is capped against the clip ancestor", and why the
+  // old assertion could not simply be re-pointed. It compared the written
+  // max-height against `computeFittedMaxHeight(...)` — the fit hook's own
+  // arithmetic — and the banner does not use that hook any more (spec
+  // 2026-08-25-review-modal-strip-dock §3.2). Its subject is gone, not renamed.
+  //
+  // The cap claim did not go uncovered: it moved to real layout, where it is
+  // strictly stronger. `tests/e2e/popover-clip-fit.spec.ts`'s four "§3.6 — the
+  // module selects the side" cases drive every branch of the algebra against a
+  // real clip panel and assert, with two-sided premises, that a fitting side is
+  // left UNCAPPED and a non-fitting one is capped to the space on the side the
+  // module chose. jsdom computes no layout, so it could never have decided
+  // between those two outcomes at all.
+  //
+  // What jsdom CAN still prove is the wiring, and that is what this asserts:
+  // the banner is portaled into the supplied host rather than left as a
+  // descendant of the strip. That is load-bearing on its own — a banner that is
+  // a child of the strip is clipped by whatever the strip sits in, which is the
+  // entire reason the migration portals.
+  it("the banner is portaled into the popover host, not left inside the strip", async () => {
     const clip = installLayoutStubs();
-    const banner = await refuseInto(clip);
-    const expected = `${computeFittedMaxHeight({
-      elementTop: geometry.bannerTop,
-      clipBottom: geometry.clipBottom,
-      cap: CAP_PX,
-    })}px`;
-    expect(banner.style.maxHeight).toBe(expected);
-    expect(banner.style.maxHeight, "wrote the CSS cap, so nothing was fitted").not.toBe(
-      `${CAP_PX}px`,
+    const hostRef = { current: clip };
+    render(
+      <PopoverHostContext.Provider value={hostRef}>
+        <PublishedToggle
+          slug="s1"
+          variant="inline"
+          published={false}
+          finalizeOwned={false}
+          setPublished={vi.fn(async () => ({ ok: false as const, code: "FINALIZE_OWNED_SHOW" }))}
+        />
+      </PopoverHostContext.Provider>,
+      { container: document.body.appendChild(document.createElement("div")) },
     );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("published-toggle"));
+    });
+    const banner = screen.getByTestId("published-toggle-popover");
+    const inline = screen.getByTestId("published-toggle-inline");
+
+    expect(banner.parentElement, "the banner must be a child of the HOST").toBe(clip);
+    expect(
+      inline.contains(banner),
+      "and must NOT remain a descendant of the strip, which its clipping ancestor would bound",
+    ).toBe(false);
+    // AC-11: a degenerate measurement is INTERCEPTED and the banner is left
+    // unpositioned and VISIBLE — never hidden. Hiding is right for a real
+    // browser that measured an unplaceable anchor; here nothing was measured,
+    // and hiding would take the refusal out of the accessibility tree exactly
+    // when an operator needs to read it.
+    expect(banner.style.visibility).not.toBe("hidden");
+    expect(banner.textContent?.trim()).not.toBe("");
   });
 
   it("the finalize chip and the idle state are untouched (instant, classes as today)", () => {

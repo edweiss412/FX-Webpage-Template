@@ -40,7 +40,11 @@ const rect = (left: number, top: number, width: number, height: number): Rect =>
 
 /** A window with no visualViewport, so `place` takes its layout-bounds path. */
 const win = (w: number, h: number) =>
-  ({ innerWidth: w, innerHeight: h, document: { documentElement: { clientWidth: w, clientHeight: h } } }) as unknown as Window;
+  ({
+    innerWidth: w,
+    innerHeight: h,
+    document: { documentElement: { clientWidth: w, clientHeight: h } },
+  }) as unknown as Window;
 
 let debug: ReturnType<typeof vi.spyOn>;
 
@@ -133,7 +137,9 @@ describe("placeWithinVisibleViewport — the unsatisfiable-geometry signal", () 
         expect(debug, `warned at a legitimate cap of ${out.maxHeight}`).not.toHaveBeenCalled();
       } else {
         sawSubFloor = true;
-        expect(debug, `stayed silent at a sub-floor cap of ${out.maxHeight}`).toHaveBeenCalledTimes(1);
+        expect(debug, `stayed silent at a sub-floor cap of ${out.maxHeight}`).toHaveBeenCalledTimes(
+          1,
+        );
       }
     }
     // Premise, on this case's OWN inputs: the sweep reached BOTH sides of the
@@ -141,7 +147,9 @@ describe("placeWithinVisibleViewport — the unsatisfiable-geometry signal", () 
     // direction — a sweep entirely above the floor never tests silence against a
     // real warning, and one entirely below never tests the legitimate cap.
     expect(sawBoundary, "no fixture produced maxHeight === MIN_FITTED_HEIGHT").toBe(true);
-    expect(sawSubFloor, "no fixture produced a sub-floor cap, so silence proves nothing").toBe(true);
+    expect(sawSubFloor, "no fixture produced a sub-floor cap, so silence proves nothing").toBe(
+      true,
+    );
   });
 
   it("de-duplicates per warnKey: same key once, different keys twice, no key every time", () => {
@@ -158,7 +166,10 @@ describe("placeWithinVisibleViewport — the unsatisfiable-geometry signal", () 
 
     place(unplaceable);
     place(unplaceable);
-    expect(debug, "no key must not de-duplicate — nobody told us what once means").toHaveBeenCalledTimes(4);
+    expect(
+      debug,
+      "no key must not de-duplicate — nobody told us what once means",
+    ).toHaveBeenCalledTimes(4);
   });
 
   it("is silent in production, because a dev diagnostic has no business shipping", () => {

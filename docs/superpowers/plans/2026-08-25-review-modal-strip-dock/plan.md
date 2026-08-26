@@ -409,18 +409,18 @@ panel. The 0-load baseline is per-viewport because header height is width-depend
 375x667 x load-30 cell measures `560.97` against a `164.19` baseline.
 
 **GREEN** — spec §3.0's three parts:
-1. `components/admin/showpage/PublishedReviewModal.tsx:952` → `flex shrink-0 items-center gap-2 max-sm:max-w-[10rem]`.
+1. `components/admin/showpage/PublishedReviewModal.tsx:952` → `flex shrink-0 items-center gap-2 max-sm:max-w-40`.
 2. The pill's `relative` wrapper (`components/admin/showpage/PublishedReviewModal.tsx:963`) gains `min-w-0` — round-1 finding 5 of the SPEC round: it is
    a direct flex item defaulting to `min-width: auto`, and `items-center` transfers no width cap.
 3. The pill button's `className` (`components/admin/showpage/PublishedReviewModal.tsx:976`) gains `min-w-0 max-sm:flex-wrap max-sm:justify-end`; the
    `h2`'s inner span (`components/admin/showpage/PublishedReviewModal.tsx:913`) gains `max-sm:line-clamp-2`.
 
-`max-sm:max-w-[10rem]` is the spelling AC-18 names; `10rem` is `160px`, swept in spec §3.0 across eight
+`max-sm:max-w-40` is the spelling AC-18 names; `10rem` is `160px`, swept in spec §3.0 across eight
 cap values and three loads.
 
 **AC-18 requires EXACTLY ONE occurrence of that token, and round-4 finding 5 is right that nothing
 inspected it.** The browser assertions measure geometry and the emitted `line-clamp`; neither can tell
-`max-sm:max-w-[10rem]` from a second copy of the cap somewhere else, which is the drift AC-18 exists to
+`max-sm:max-w-40` from a second copy of the cap somewhere else, which is the drift AC-18 exists to
 prevent. A source-scan case asserts the token occurs exactly once across `components/`, and that the
 occurrence is on the action cluster element. A probe today finds it only in this plan and the spec — no
 test contract at all. **`line-clamp-2` has no existing usage in this repo**, so the task asserts
@@ -596,9 +596,13 @@ site spec §9's discovery command provably cannot reach.
 form reported green while the defect was present — `--exec-red` caught that as `RED_ALREADY_GREEN`.
 `grep -rniE`, not `rg`: the probe shell has no `rg` and returned exit 127.
 
-Current output, **six lines** (round-1 finding 9: the first draft called this seven and the count was
-wrong — `tests/e2e/popover-clip-fit.spec.ts:135` reads "The strip is the banner's positioned ancestor
-(`sticky` ⇒ positioned)", which this pattern does not match):
+Current output, **eight lines across six files**, re-run at implementation time. Round-1 finding 9
+corrected an earlier "seven" and over-corrected in two directions at once: it renamed the quantity to a
+FILE count while the block below enumerates LINES, and it claimed
+`tests/e2e/popover-clip-fit.spec.ts:135` is not matched by the pattern. That line reads "The strip is
+the banner's positioned ancestor (`sticky` ⇒ positioned)", the `positioned ancestor .{0,2}sticky`
+branch matches it, and it is sitting in the block's own list. Both errors were found by RUNNING the
+command rather than reading it, which is the whole argument for a live `red-state`:
 
 ```
 components/admin/PublishedToggle.tsx:52

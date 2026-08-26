@@ -60,6 +60,7 @@
  * `ml-auto` resolve against the BAND's width rather than the strip's shrink-wrapped one.
  */
 
+import { useRef } from "react";
 import { PublishedToggle } from "@/components/admin/PublishedToggle";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
 import { StatusIndicator, StatusDot } from "@/components/admin/StatusIndicator";
@@ -160,6 +161,10 @@ export function StatusStrip({
   unarchiveAction,
   devCaptureSnapshot,
 }: StatusStripProps) {
+  // Handed to both overlay owners as their placement anchor; see the root
+  // element below for why they cannot reach it themselves.
+  const stripRef = useRef<HTMLDivElement | null>(null);
+
   // Sync age: guard null BEFORE formatRelative so the "never" sentinel never renders
   // (spec §11 omit contract). Element existence is gated on lastSyncedAt (a show that
   // never synced shows nothing). For the `ok` bucket the displayed TIME is
@@ -198,6 +203,14 @@ export function StatusStrip({
 
   return (
     <div
+      // The anchor BOTH overlay owners place against (spec
+      // 2026-08-25-review-modal-strip-dock §3.2). PublishedToggle is a
+      // grandchild and ReSyncButton's root is a fragment with no box, so
+      // neither can reach this element on its own; CSS used to resolve it
+      // implicitly by walking up to the nearest positioned ancestor, and the
+      // placement module takes a rect instead. The owner that renders both
+      // consumers is the one place that can hand it over.
+      ref={stripRef}
       // share-hub T4: the #share-access deep-link target (built by
       // lib/adminAlerts/alertActions.ts:51) lives on this UNCONDITIONAL root so it
       // survives every lifecycle. Archived still renders the hub, but with no
@@ -258,6 +271,7 @@ export function StatusStrip({
             published={published}
             finalizeOwned={finalizeOwned}
             setPublished={setPublished}
+            anchorRef={stripRef}
           />
         </div>
       )}

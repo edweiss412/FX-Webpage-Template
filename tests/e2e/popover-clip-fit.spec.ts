@@ -35,6 +35,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
+// GAP and VIEWPORT_INSET are IMPORTED, never mirrored: the branch cases below
+// compute the same spaceAbove/spaceBelow the module computes, and a mirrored
+// copy is a second definition that can drift from the one under test.
+import { GAP, VIEWPORT_INSET } from "@/lib/popover/position";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
@@ -121,6 +125,8 @@ const HUB_KEBAB = '[data-testid="share-hub-kebab"]';
 const HUB_POPOVER = '[data-testid="share-hub-popover"]';
 const TOGGLE_BANNER = '[data-testid="published-toggle-popover"]';
 const TOGGLE_CLIP = '[data-testid="toggle-clip-panel"]';
+/** The replica's strip-shaped trigger — what the migrated banner measures against. */
+const STRIP_TRIGGER = '[data-testid="show-status-strip"]';
 /** The scroller inside the menu panel — the node this cluster gives a role. */
 const SCROLLER = 'div[role="group"][aria-label="Attention items"]';
 
@@ -130,8 +136,6 @@ const GUTTER = 8;
 const CSS_CAP = 384;
 /** Mirrors MIN_FITTED_HEIGHT (lib/layout/fitWithinClip.ts) — the collapse floor. */
 const FLOOR = 48;
-/** The refusal banner's offset below the strip it anchors to (`mt-1`). */
-const BANNER_OFFSET = 4;
 /** The strip is the banner's positioned ancestor (`sticky` ⇒ positioned). */
 const STRIP = '[data-testid="show-status-strip"]';
 
@@ -579,27 +583,61 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
     ).toBeLessThanOrEqual(m.clipBottom + 0.5);
   });
 
-  test("the banner height matches the room actually available", async ({ page }) => {
+  test("the banner height matches the room on the side the module CHOSE", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 560 });
     await openToggleBanner(page);
 
     // Containment and overflow alone do NOT pin the fit: cross-model review
     // showed a private ref writing `max-height: 1px` satisfies both while being
-    // useless. Compare the measured height against the room the clip leaves.
+    // useless. That escape is still what this case exists to close, but the
+    // quantity it compares against CHANGED WITH THE MIGRATION and the old one
+    // is now wrong rather than merely stale.
+    //
+    // Under `useFitWithinClip` the banner always sat below its anchor, so "the
+    // room available" was unambiguously the distance down to the clip edge. The
+    // placement module picks a SIDE, and at this fixture's geometry it picks
+    // `top` — so measuring down to the clip bottom now reports the room on the
+    // side the banner is not on (204px against a 97px box) and the old
+    // assertion failed for a banner that was placed correctly.
+    //
+    // The pin is therefore against the space on the CHOSEN side, computed the
+    // way the module computes it. A `max-height: 1px` ref still cannot pass:
+    // the height has to equal a value derived from the live geometry.
     const m = await page.evaluate(
-      ([clipSel, bannerSel, gutter]) => {
-        const clip = document.querySelector(clipSel as string)!.getBoundingClientRect();
-        const banner = document.querySelector(bannerSel as string)!.getBoundingClientRect();
+      ([clipSel, stripSel, bannerSel, gap, inset]) => {
+        const panel = document.querySelector(clipSel as string)!.getBoundingClientRect();
+        const trigger = document.querySelector(stripSel as string)!.getBoundingClientRect();
+        const el = document.querySelector(bannerSel as string) as HTMLElement;
+        const banner = el.getBoundingClientRect();
+        const side = el.dataset["popoverSide"] ?? null;
+        const spaceAbove = Math.max(
+          0,
+          trigger.top - (panel.top + (inset as number)) - (gap as number),
+        );
+        const spaceBelow = Math.max(
+          0,
+          panel.bottom - (inset as number) - trigger.bottom - (gap as number),
+        );
         return {
           height: banner.height,
-          available: Math.floor(clip.bottom - banner.top - (gutter as number)),
+          side,
+          chosen: side === "top" ? spaceAbove : spaceBelow,
+          scrollHeight: el.scrollHeight,
         };
       },
-      [TOGGLE_CLIP, TOGGLE_BANNER, GUTTER] as const,
+      [TOGGLE_CLIP, STRIP_TRIGGER, TOGGLE_BANNER, GAP, VIEWPORT_INSET] as const,
     );
+
+    expect(m.side, "PREMISE: the module must have placed the banner").not.toBeNull();
+    // PREMISE: this fixture must actually be in the CAPPED regime, or the
+    // equality below is asserting nothing about capping at all.
     expect(
-      Math.abs(m.height - m.available),
-      `banner height ${m.height} does not match the available room ${m.available}`,
+      m.scrollHeight,
+      "PREMISE: the fixture must overflow, or nothing is capped",
+    ).toBeGreaterThan(m.chosen);
+    expect(
+      Math.abs(m.height - m.chosen),
+      `banner height ${m.height} does not match the ${m.side} room ${m.chosen}`,
     ).toBeLessThanOrEqual(0.5);
   });
 
@@ -652,6 +690,175 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
         { message: `scrollTop never advanced from ${before}` },
       )
       .toBeGreaterThan(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T2 — the banner is PLACED by the module, on the side the geometry selects
+// (spec 2026-08-25-review-modal-strip-dock §3.6, AC-8/AC-9/AC-11/AC-20)
+// ---------------------------------------------------------------------------
+
+/**
+ * Drives the replica at an explicit panel/spacer geometry and returns the
+ * placement INPUTS alongside the OUTCOME, measured in one pass so the two can
+ * never describe different frames.
+ *
+ * The inputs are recomputed here from the live rects rather than trusted from
+ * the URL, because that is what lets every case below assert its own PREMISE.
+ * A branch fixture whose geometry silently lands on a neighbouring branch would
+ * otherwise pass its outcome assertion for the wrong reason -- which is the
+ * exact failure the first draft of this arc's T1 fixtures had, where a sweep
+ * meant to reach a 48px floor never produced a cap under 366.
+ */
+async function placeReplica(page: Page, geo: { panel: number; spacer: number }) {
+  await page.goto(`${baseUrl}toggle.html?panel=${geo.panel}&spacer=${geo.spacer}`);
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForFunction(
+    () => (window as unknown as { __hydrated?: boolean }).__hydrated === true,
+  );
+  await expect(page.locator('[data-testid="published-toggle-inline"]')).toBeVisible();
+  await page
+    .locator(
+      '[data-testid="published-toggle-inline"] button, [data-testid="published-toggle-inline"] input',
+    )
+    .first()
+    .click();
+  await expect(page.locator(TOGGLE_BANNER)).toBeVisible();
+
+  return page.evaluate(
+    ([panelSel, stripSel, bannerSel, gap, inset]) => {
+      const panel = document.querySelector(panelSel as string)!.getBoundingClientRect();
+      const trigger = document.querySelector(stripSel as string)!.getBoundingClientRect();
+      const el = document.querySelector(bannerSel as string) as HTMLElement;
+      const banner = el.getBoundingClientRect();
+      const boundsTop = panel.top + (inset as number);
+      const boundsBottom = panel.bottom - (inset as number);
+      return {
+        spaceAbove: Math.max(0, trigger.top - boundsTop - (gap as number)),
+        spaceBelow: Math.max(0, boundsBottom - trigger.bottom - (gap as number)),
+        boundsTop,
+        boundsBottom,
+        triggerTop: trigger.top,
+        triggerBottom: trigger.bottom,
+        bannerTop: banner.top,
+        bannerBottom: banner.bottom,
+        bannerHeight: banner.height,
+        side: el.dataset["popoverSide"] ?? null,
+        inlineMaxHeight: el.style.maxHeight,
+        visibility: getComputedStyle(el).visibility,
+        portaledIntoPanel:
+          el.parentElement !== null &&
+          document.querySelector(panelSel as string)!.contains(el) &&
+          !document.querySelector(stripSel as string)!.contains(el),
+      };
+    },
+    [TOGGLE_CLIP, STRIP_TRIGGER, TOGGLE_BANNER, GAP, VIEWPORT_INSET] as const,
+  );
+}
+
+/**
+ * The banner's natural height, measured with room to spare on the preferred
+ * side so nothing caps it. Every geometry below is DERIVED from this number
+ * rather than chosen, so a copy change moves the fixtures instead of silently
+ * retargeting which branch each case exercises.
+ */
+async function naturalBannerHeight(page: Page) {
+  const m = await placeReplica(page, { panel: 1400, spacer: 20 });
+  expect(m.side, "the probe geometry must place BELOW, uncapped").toBe("bottom");
+  expect(m.inlineMaxHeight, "the probe geometry must not cap").toBe("");
+  return { h: m.bannerHeight, stripH: m.triggerBottom - m.triggerTop };
+}
+
+test.describe("§3.6 — the module selects the side, and the component writes it", () => {
+  test("bottom fits: side=bottom, uncapped, GAP below the trigger", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 1400 });
+    const { h, stripH } = await naturalBannerHeight(page);
+    // spaceBelow = panel - spacer - stripH - (INSET + GAP); spaceAbove = spacer - (INSET + GAP).
+    const spacer = 20;
+    const m = await placeReplica(page, {
+      panel: Math.ceil(spacer + stripH + 14 + h + 40),
+      spacer,
+    });
+
+    expect(m.spaceBelow, "PREMISE: below must fit the natural height").toBeGreaterThanOrEqual(h);
+    expect(m.spaceAbove, "PREMISE: above must NOT fit, or the side is not forced").toBeLessThan(h);
+
+    expect(m.side).toBe("bottom");
+    expect(m.inlineMaxHeight, "a fitting side must not be capped").toBe("");
+    expect(Math.abs(m.bannerTop - (m.triggerBottom + GAP))).toBeLessThanOrEqual(0.5);
+    expect(m.portaledIntoPanel, "the banner portals into the host, not the strip").toBe(true);
+  });
+
+  test("bottom does not fit but above does: the side FLIPS, still uncapped", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 1400 });
+    const { h, stripH } = await naturalBannerHeight(page);
+    const spacer = Math.ceil(h + 44);
+    const m = await placeReplica(page, { panel: Math.ceil(spacer + stripH + 24), spacer });
+
+    expect(m.spaceBelow, "PREMISE: below must NOT fit").toBeLessThan(h);
+    expect(m.spaceAbove, "PREMISE: above must fit").toBeGreaterThanOrEqual(h);
+
+    expect(m.side).toBe("top");
+    expect(m.inlineMaxHeight, "a fitting side must not be capped").toBe("");
+    // Placed GAP ABOVE the trigger, which is the whole content of "flipped".
+    expect(Math.abs(m.bannerBottom - (m.triggerTop - GAP))).toBeLessThanOrEqual(0.5);
+  });
+
+  test("neither side fits: caps to the LARGER side, above the floor", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 1400 });
+    const { h, stripH } = await naturalBannerHeight(page);
+    const spaceAbove = Math.floor(h - 10);
+    const spaceBelow = Math.floor(h - 30);
+    const spacer = spaceAbove + 14;
+    const m = await placeReplica(page, {
+      panel: Math.ceil(spacer + stripH + 14 + spaceBelow),
+      spacer,
+    });
+
+    expect(m.spaceAbove, "PREMISE: above must not fit").toBeLessThan(h);
+    expect(m.spaceBelow, "PREMISE: below must not fit").toBeLessThan(h);
+    expect(m.spaceAbove, "PREMISE: above must be the LARGER side").toBeGreaterThan(m.spaceBelow);
+    expect(m.spaceAbove, "PREMISE: the cap must land ABOVE the floor").toBeGreaterThanOrEqual(
+      FLOOR,
+    );
+
+    expect(m.side).toBe("top");
+    expect(m.inlineMaxHeight, "a non-fitting side must be capped").not.toBe("");
+    expect(Number.parseFloat(m.inlineMaxHeight)).toBeCloseTo(m.spaceAbove, 0);
+    // Capped, not hidden, and still inside the panel.
+    expect(m.visibility).not.toBe("hidden");
+    expect(m.bannerTop).toBeGreaterThanOrEqual(m.boundsTop - 0.5);
+    expect(m.bannerBottom).toBeLessThanOrEqual(m.boundsBottom + 0.5);
+  });
+
+  test("neither side fits and the larger is UNDER the floor: still placed, still visible", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 1400 });
+    const { h, stripH } = await naturalBannerHeight(page);
+    const spaceAbove = 30;
+    const spaceBelow = 20;
+    const spacer = spaceAbove + 14;
+    const m = await placeReplica(page, {
+      panel: spacer + Math.ceil(stripH) + 14 + spaceBelow,
+      spacer,
+    });
+
+    expect(m.spaceAbove, "PREMISE: above must not fit").toBeLessThan(h);
+    expect(m.spaceBelow, "PREMISE: below must not fit").toBeLessThan(h);
+    expect(m.spaceAbove, "PREMISE: the larger side must be UNDER the floor").toBeLessThan(FLOOR);
+    expect(m.spaceAbove, "PREMISE: and it must still be the larger side").toBeGreaterThan(
+      m.spaceBelow,
+    );
+
+    // AC-11: a sub-floor cap is a DIAGNOSTIC condition, not a hiding one. The
+    // module places, the component writes, and the dev warning fires (pinned in
+    // tests/lib/popover/placeWarning.test.ts) -- it is never made invisible,
+    // which would take the refusal out of the a11y tree exactly when an
+    // operator most needs to read it.
+    expect(m.side).toBe("top");
+    expect(m.visibility).not.toBe("hidden");
+    expect(Number.parseFloat(m.inlineMaxHeight)).toBeCloseTo(m.spaceAbove, 0);
   });
 });
 
