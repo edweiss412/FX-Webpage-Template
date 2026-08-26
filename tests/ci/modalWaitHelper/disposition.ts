@@ -458,12 +458,17 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a standalone harness page (mkdtemp workdir or the dev gallery route), not the /admin loader",
     },
-    // 73 -> 74: feat/review-modal-strip-dock added one standalone-harness
-    // navigation — the §7 anchor-room measurement, which drives a refusal
-    // through the real modal at `baseUrl` and is the case that finally gave
-    // BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED its number. A declared count is
-    // a population claim, so growing the population is an edit here by design.
-    expectedCount: 74,
+    // 73 -> 74 -> 75: feat/review-modal-strip-dock added standalone-harness
+    // navigations twice. First the §7 anchor-room measurement, which drives a
+    // refusal through the real modal at `baseUrl` and is the case that finally
+    // gave BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED its number; then the
+    // degraded-pill case from diff review round 3, which boots the same entry
+    // at load 0 with `alertsDegraded` to reach the branch where the 160px cap
+    // was unenforceable. A declared count is a population claim, so growing the
+    // population is an edit here by design — and this rule is a SUBJECT of
+    // _metaScratchRootCleanup, so a stale count here fails that suite's premise
+    // downstream, which is how this second bump was found.
+    expectedCount: 75,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {
