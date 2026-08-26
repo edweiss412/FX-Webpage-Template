@@ -101,6 +101,13 @@ own suite, and the plan says so rather than leaving it to be discovered in CI.
 work is self-contained in that one file and needs NO new enrolment.
 
 `scripts/codex-guard.mjs` is ratified CANNOT-EXPRESS, measured not argued:
+**The score is EXECUTED, not merely declared.** `pnpm heavy:mutation` runs at the
+shipping head before the round-1 diff dispatch, and its result goes on that
+brief's `GUARD SURFACE:` line as `MUTATION SCORE: <k>/<n>, 0 unaccepted
+survivors; OPERATORS: all` — the wrapper refuses a round-1 diff brief without it
+(`scripts/codex-guard.mjs:526`). Both the existing `taskContract` row and the new
+gate row are covered by that one run.
+
 `docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md` §1.1 item 8 records that
 the runner overlays a target only when a Vitest suite imports it and every `tests/codexGuard`
 suite spawns the script instead. That ratification also gives the shipped remedy: the lib half is
@@ -196,10 +203,25 @@ these are TDD units like the rest.
 
 <!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts -t unclaimed` red-state=authored red-target=`lib/specLint/taskContract.ts:373` why=`the loop at :373-377 walks marker-cited ids only and there is no traversal in the other direction anywhere in the file, so a declared id nothing cites draws nothing; the new case asserting TASK_AC_UNCLAIMED on such a plan fails` ac=AC-4 -->
 
-Collect the ids the plan declares — a list item or ATX heading whose content
-begins with the id, **that LEADING id only, with its end anchored** — collect the
-ids every `ac=` cites, and report the declared-and-uncited difference unless the
-declaring line carries a disposition.
+Collect the ids the plan declares, per spec §4.1's **v4** recognizer, and this
+task implements v4 in full rather than the leading-id rule v3 shipped:
+
+1. Elide fenced blocks first. A declaration inside one is inert — the witness is
+   the shell comment at
+   `docs/superpowers/plans/2026-08-21-control-outline-forward-guard.md:326`.
+2. A candidate is a list item or ATX heading whose content begins with an id,
+   that id's end anchored so the range form `AC-1..AC-7` declares nothing.
+3. **Count every id on the candidate line.** Exactly one makes it CERTAIN.
+   More than one makes the line AMBIGUOUS: the arm declines both directions on it
+   and the line is recorded.
+
+Then collect the ids every `ac=` cites and report the certain-and-uncited
+difference, unless the declaring line carries a disposition.
+
+The count in step 3 is the whole termination argument (spec §4.1) and its cases
+are this task's, not Task 10's: 14 ambiguous lines across 12 plans exist in the
+live corpus today, so a Task 7 that omits them commits green while classifying
+inputs v4 must decline.
 
 Both narrowings are corpus-forced and were refuted into existence across two
 review rounds (spec §4.1): secondary-id collection read four other documents'

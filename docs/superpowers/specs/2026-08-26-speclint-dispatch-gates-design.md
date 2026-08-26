@@ -292,9 +292,10 @@ reasoning are kept because the decision is the load-bearing part of this section
 - **(A) MIGRATE — RULED.** The body grammar IS the declaration; an id that no
   marker cites must carry an explicit disposition on its own declaring line.
   Closes the row live and permanently. The unit is a DECLARING LINE, not a plan:
-  19 plans, 33 ids, and eight of those plans need more than one line
-  (`app-e2e-batch2` needs five). R2 finding 5 measured the v2 set at 39 lines for
-  40 ids; the v3 set is smaller and is enumerated in the migration probe record.
+  19 plans and 31 ids under v4, hence 31 declaring lines, since a multi-id line is
+  ambiguous and disposes nothing. `app-e2e-batch2` needs six. Earlier drafts said
+  33 ids, 25 edits and five; all three were superseded by the v4 measurement and
+  the migration probe record enumerates the current set.
 - **(B) Opt-in region.** Rejected: a silent false negative, which fails the
   consequence bound in §10. The row's own incident would not have been caught.
 - **(C) Ship the lint gate alone and re-file the AC premise defect.** Rejected:
@@ -303,7 +304,7 @@ reasoning are kept because the decision is the load-bearing part of this section
 
 **Constraints on (A), ratified with the ruling and binding on the implementation:**
 
-1. Each of the 25 edits states ONLY what that plan's prose already says — a
+1. Each migration edit states ONLY what that plan's prose already says — a
    `RETIRED` or a discharged-by-Task-N, cited from the plan's own line. Never a
    reinterpretation, and never an inference from task structure.
 2. A plan whose prose does NOT settle the disposition is not given one. It goes
@@ -350,9 +351,9 @@ the supplied syntax" is the same fence:
 | --- | --- |
 | a declaration inside a fenced code block | inert. The document model elides fenced blocks, so a plan documenting the convention neither declares nor disposes. |
 | a near-miss disposition (misspelled, wrong case) | the id stays unclaimed and is REPORTED. The grammar is closed and fails toward the finding, never toward silence — an accept-set, not a deny-set. |
-| a disposition on a line that declares two ids | disposes BOTH, matching how the line declares both (`- AC-10 … + AC-10b …`). A plan needing to dispose one and not the other splits the line. |
 | a disposition on a line declaring nothing | inert, and not an error: an ordinary sentence may contain the word. |
 | an id declared twice, disposed once | disposed. The id is one criterion; the plan mentioning it twice is not two criteria. |
+| **a disposition on a multi-id line** | it disposes NOTHING, because the line is not a declaring line at all — see the row below, which is the single authority on multi-id lines. An author wanting to dispose one of two ids splits the line first; that split is the whole migration path for the 14 ambiguous lines. |
 | **a declaring line carrying more than one id** | **AMBIGUOUS. The arm does not fire on it in either direction, and the line is recorded by name in the documented limits.** The recognizer cannot tell this plan's sibling criterion (`- AC-10 … + AC-10b …`) from a cross-reference to another document's (`- AC-6 … ; AC-11.11 carries r12`), and three review rounds each found a new lexical class trying. Declining on a COUNT of ids is structural rather than lexical, so it has no next grammar corner. |
 | a declaration inside a fenced block | inert. Fences are elided before the walk. |
 | a cited id that is also declared and disposed | claimed, and the disposition is redundant but not an error. A task claiming it is stronger evidence than a line saying someone else will. |
@@ -591,12 +592,19 @@ the first `###` sub-row.
    enrols no tasks is unchecked. Conservative (silence, not a wrong answer), and
    consistent with the arm's scope, but an author cannot distinguish it from
    clean.
-7. **Ambiguous declaring lines are not classified, by design.** 14 lines across
-   12 plans carry more than one id; the arm declines both directions on them and
-   they are recorded by name (§4.1). This is a deliberate stop, taken after three
-   rounds each refuted a new lexical rule on that axis, and it is the reason the
-   grammar has a terminating condition at all. Reversing it means re-opening the
-   axis, and the record is the place to argue that from.
+7. **Ambiguous declaring lines are not classified, by design** — and the record
+   of them is ASSERTED, not merely generated. 14 lines across 12 plans carry more
+   than one id; the arm declines both directions on them. R4 found that "recorded
+   by name" was a promise with nothing behind it: a snapshot regenerates, and a
+   line added after it would have been declined in silence, which is the
+   consequence bound's one forbidden outcome. So the ambiguous set gets the SAME
+   treatment as the residue — the corpus test asserts the live ambiguous set
+   equals the committed record exactly, fail-closed, so a new multi-id line reds
+   until someone looks at it (AC-10). The declining is then loud by construction
+   rather than by intention. The stop itself is deliberate, taken after three
+   rounds each refuted a new lexical rule on that axis, and it is why the grammar
+   terminates at all; reversing it means re-opening the axis, and the record is
+   where that argument starts.
 8. **The residue list is the documented-limits record for the unclaimed arm.**
    It is not a ledger row and nothing is filed for it. It holds the UNSETTLED
    pairs with their negative evidence, and it may shrink as owning arcs resolve
@@ -632,6 +640,7 @@ or proceed, and neither is a visual state.
 - AC-6: the live plans corpus's unclaimed set equals the committed residue list EXACTLY — asserted over every enrolled plan walked from disk, after the migration in §4.2. The residue holds only UNSETTLED pairs, each with the plan, the id and what was searched; every other flagged pair migrates to zero. Fail-closed by construction: a new unclaimed id is not on the list and reds the assertion. This is the done condition, and it is a number outside the guard that a later arc can drive down.
 - AC-7: the guard-surface refusal prints one conforming `GUARD SURFACE:` line verbatim, and the AGENTS.md bullet shows the same line; the separator grammar is unchanged and a "plus" line is still refused with exit 2 and no result artifact.
 - AC-8: both ledger rows are archived with `provenance: "feat/speclint-dispatch-gates"`, and the heading arithmetic proves the two `##` headings moved while all seven `###` sub-rows stayed in `BACKLOG.md`, each named in the assertion.
+- AC-10: the live AMBIGUOUS declaring-line set equals the committed record EXACTLY, asserted over every enrolled plan walked from disk. Fail-closed: a new multi-id declaring line is not in the record and reds, so declining is never silent.
 - AC-9: `taskContract` scores at or above its `scoreFloor` of 0.95 with zero unaccepted survivors at the shipping head.
 
 impeccable-gate: N/A — no UI surface
