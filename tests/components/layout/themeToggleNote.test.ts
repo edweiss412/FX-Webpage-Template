@@ -1,23 +1,23 @@
 // @vitest-environment jsdom
 /**
- * ThemeToggle — persist-failure note (theme-persistence-note Task N2, spec
- * §2.2; AC-1 / AC-2 / AC-4 / AC-5 / AC-10a).
+ * ThemeToggle — the persist-failure note is GONE, and stays gone.
  *
- * The note is an ANCHORED BUBBLE, not in-flow text: the standalone toggle has
- * three consumers, two of which are width-engineered rows (the admin nav's
- * 320px action cluster and the help header), and none of them can absorb a
- * growing sibling. The class-contract cases below are the unit-level half of
- * that; the real-browser half is tests/e2e/theme-persistence-note.spec.ts.
+ * Product ruling 2026-08-26 (recorded in spec 2026-08-15-theme-persistence-note
+ * §2.2, "Amendment, 2026-08-26"): saving a theme choice is a convenience, not a
+ * failure mode that needs acknowledging. A device that cannot persist the
+ * choice still gets the theme it asked for, for the visit, and is told nothing.
  *
- * AC-4 is the ReSyncButton trap pinned as a test: a `role="status"` node that
- * is INSERTED at failure time announces nothing, so the container is queried
- * BEFORE the failing click and must already be there.
+ * So this file inverted. It used to pin the note's shape (AC-1/2/4/5/10a); it
+ * now pins its ABSENCE, which is a harder thing to test honestly: `queryBy...`
+ * returning null is also what a component that failed to render returns. Every
+ * case below therefore carries a PREMISE that only a working toggle satisfies —
+ * the applied theme actually flips on the click — so "nothing rendered" can
+ * never be mistaken for "the note is gone".
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
-import { THEME_PERSIST_FAILED_NOTE } from "@/components/layout/useAppliedTheme";
 
 function blockWrites(): void {
   vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
@@ -43,9 +43,13 @@ function installMatchMedia(): void {
   );
 }
 
-/** The always-mounted status region — queried by role, never by the note text. */
-function statusRegion(): HTMLElement {
-  return screen.getByRole("status");
+function toggle(): HTMLElement {
+  return screen.getByTestId("theme-toggle");
+}
+
+/** The applied theme, which is the only thing the control still promises. */
+function appliedTheme(): string | undefined {
+  return document.documentElement.dataset.theme;
 }
 
 beforeEach(() => {
@@ -60,107 +64,75 @@ afterEach(() => {
   delete document.documentElement.dataset.theme;
 });
 
-describe("ThemeToggle persist-failure note", () => {
-  it("mounts the status container empty, BEFORE any failure (AC-4)", () => {
+describe("ThemeToggle renders no persist-failure note", () => {
+  it("says nothing when the write is blocked, and still applies the theme", () => {
     blockWrites();
     render(createElement(ThemeToggle));
 
-    // Present pre-click. An inserted live region announces nothing.
-    expect(statusRegion()).toBeTruthy();
-    expect(statusRegion().textContent).toBe("");
+    fireEvent.click(toggle());
+
+    // PREMISE: the click did real work through the throwing write. Without
+    // this, every absence assertion below would also pass on a dead render.
+    expect(appliedTheme()).toBe("dark");
+
+    expect(screen.queryByTestId("theme-persist-note")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("renders the shared copy const when the write is blocked (AC-1, AC-5)", () => {
+  it("mounts no live region at all, before or after a blocked write", () => {
     blockWrites();
-    render(createElement(ThemeToggle));
+    const { container } = render(createElement(ThemeToggle));
 
-    fireEvent.click(screen.getByTestId("theme-toggle"));
+    // The old shape kept an always-mounted empty `role="status"` so that a
+    // later message would announce. There is no later message now, so the
+    // region itself is the thing that must not exist — an empty one left
+    // behind is dead a11y surface, not a harmless leftover.
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(container.querySelector('[role="status"]')).toBeNull();
 
-    expect(statusRegion().textContent).toBe(THEME_PERSIST_FAILED_NOTE);
-    // The absorb is intact: the theme still applied in-tab.
-    expect(document.documentElement.dataset.theme).toBe("dark");
+    fireEvent.click(toggle());
+
+    expect(appliedTheme()).toBe("dark");
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
-  it("keeps the note through a second blocked write (AC-1 repeated failure)", () => {
+  it("renders no visible copy of any wording on a blocked write", () => {
     blockWrites();
-    render(createElement(ThemeToggle));
+    const { container } = render(createElement(ThemeToggle));
 
-    fireEvent.click(screen.getByTestId("theme-toggle"));
-    expect(statusRegion().textContent).toBe(THEME_PERSIST_FAILED_NOTE);
-    fireEvent.click(screen.getByTestId("theme-toggle"));
+    fireEvent.click(toggle());
+    expect(appliedTheme()).toBe("dark");
 
-    expect(statusRegion().textContent).toBe(THEME_PERSIST_FAILED_NOTE);
+    // Deliberately NOT a match against the deleted string: a reworded note
+    // would slip past that, and the point of the ruling is that there is no
+    // note of any wording. The control's only content is an aria-hidden icon,
+    // so any rendered text at all is a regression.
+    expect(container.textContent).toBe("");
   });
 
-  it("empties then re-fills across fail, recover, fail (the announceable transition)", () => {
-    blockWrites();
-    render(createElement(ThemeToggle));
-
-    fireEvent.click(screen.getByTestId("theme-toggle"));
-    expect(statusRegion().textContent).toBe(THEME_PERSIST_FAILED_NOTE);
-
-    allowWrites();
-    fireEvent.click(screen.getByTestId("theme-toggle"));
-    // Emptied, not unmounted — the region has to survive to announce again.
-    expect(statusRegion().textContent).toBe("");
-
-    blockWrites();
-    fireEvent.click(screen.getByTestId("theme-toggle"));
-    expect(statusRegion().textContent).toBe(THEME_PERSIST_FAILED_NOTE);
-  });
-
-  it("stays silent on a working device (AC-2)", () => {
+  it("still flips the theme on a device where the write succeeds", () => {
     allowWrites();
     render(createElement(ThemeToggle));
 
-    fireEvent.click(screen.getByTestId("theme-toggle"));
-    fireEvent.click(screen.getByTestId("theme-toggle"));
+    fireEvent.click(toggle());
+    expect(appliedTheme()).toBe("dark");
 
-    expect(statusRegion().textContent).toBe("");
+    fireEvent.click(toggle());
+    expect(appliedTheme()).toBe("light");
+
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("carries plain-language copy with no technical vocabulary (AC-5)", () => {
-    expect(THEME_PERSIST_FAILED_NOTE).not.toContain("—");
-    for (const banned of ["localStorage", "browser storage", "cookies"]) {
-      expect(THEME_PERSIST_FAILED_NOTE.toLowerCase()).not.toContain(banned.toLowerCase());
-    }
-    // Straight apostrophe, matching every shipped catalog contraction.
-    expect(THEME_PERSIST_FAILED_NOTE).not.toContain("’");
-  });
-
-  it("anchors the note out of flow and keeps the wrapper the button's box (AC-10a)", () => {
+  it("returns the button as its root, with no anchoring wrapper left behind", () => {
     blockWrites();
-    render(createElement(ThemeToggle));
+    const { container } = render(createElement(ThemeToggle));
 
-    const region = statusRegion();
-    expect(region.className).toContain("absolute");
-
-    const wrapper = region.parentElement;
-    expect(wrapper).not.toBeNull();
-    expect(wrapper?.className).toContain("relative");
-    expect(wrapper?.className).toContain("inline-flex");
-    // The button is the wrapper's only in-flow child.
-    expect(wrapper?.contains(screen.getByTestId("theme-toggle"))).toBe(true);
-  });
-
-  it("paints nothing while empty — chrome lives on the inner span (AC-10a)", () => {
-    blockWrites();
-    render(createElement(ThemeToggle));
-
-    // Empty: positioning only. Any border/background/padding here would paint a
-    // box on every page that renders the toggle, failure or not.
-    const emptyClasses = statusRegion().className;
-    for (const chrome of ["border", "bg-", "shadow", "px-", "py-"]) {
-      expect(emptyClasses).not.toContain(chrome);
-    }
-
-    fireEvent.click(screen.getByTestId("theme-toggle"));
-
-    const inner = statusRegion().firstElementChild;
-    expect(inner).not.toBeNull();
-    expect(inner?.className).toContain("border");
-    expect(inner?.className).toContain("bg-surface-raised");
-    expect(inner?.className).toContain("text-xs/relaxed");
-    expect(inner?.className).toContain("text-text-subtle");
+    // The `relative inline-flex` span existed ONLY to anchor the absolute
+    // bubble (spec §2.2). With the bubble gone it anchors nothing, and a
+    // pass-through wrapper is the kind of dead structure that later reads as
+    // load-bearing. The button is the component.
+    expect(container.children).toHaveLength(1);
+    expect(container.firstElementChild).toBe(toggle());
+    expect(toggle().tagName).toBe("BUTTON");
   });
 });

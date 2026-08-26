@@ -3359,7 +3359,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // so a mutant of either constant is self-consistent and survives -- which is
     // exactly what enrolment's first run reported (integer-literal:26:35:4>5 and
     // both halves of 60 * 60). The integrity meta-test compares the same two
-    // constants against the WORKFLOW's hard-coded `[0, 1, 2, 3]` and `"3600"`,
+    // constants against the WORKFLOW's hard-coded shard matrix and budget text,
     // which no mutant of this file can move, so it is what kills them.
     suitePaths: [
       "tests/mutation/source/shardPartition.test.ts",

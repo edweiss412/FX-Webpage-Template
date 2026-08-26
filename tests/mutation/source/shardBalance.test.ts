@@ -17,7 +17,6 @@ import { describe, expect, it } from "vitest";
 import { premise } from "../../_shared/premise";
 import type { Measured } from "@/lib/mutationWeight/records";
 import { bindingLeg, heldOutMargin } from "@/lib/mutationWeight/weights";
-import { SOURCE_SHARD_COUNT } from "./shardPartition";
 
 type Fixture = {
   seedRun: string;
@@ -27,6 +26,10 @@ type Fixture = {
   boots: Record<string, number>;
   excluded: string[];
   observed: {
+    /** Per-leg seconds under the seconds-calibrated weight. Its LENGTH is the shard
+     *  count this pair was measured at, which is what the comparison below runs at. */
+    secondsLegs: number[];
+    bootsLegs: number[];
     secondsBinding: number;
     bootsBinding: number;
     marginSeconds: number;
@@ -71,6 +74,22 @@ describe("held-out binding leg (AC-3)", () => {
   });
 
   describe.each(PAIRS)("$path", ({ fx }) => {
+    // The shard count comes from the FIXTURE, not from `SOURCE_SHARD_COUNT`, and the
+    // difference is load-bearing rather than stylistic.
+    //
+    // Every `observed` block here is a MEASUREMENT of a particular partition:
+    // `secondsLegs` has one entry per leg, so the fixture states the count it was taken
+    // at. Reading the shipped constant instead coupled these pairs to a number the claim
+    // does not depend on -- the claim is that the seconds-calibrated weight beats the
+    // boot-count weight on held-out data, which is a question about WEIGHTS -- and
+    // raising SOURCE_SHARD_COUNT from four to eight duly broke all three pairs
+    // (5174/6138/965 became 2875/3283/408, and pairs 2 and 3 moved likewise).
+    //
+    // Recomputing `observed` at the new count was the other option and it is the wrong
+    // one: it would derive the expectation from the code under test, which is exactly
+    // what the "not from weightOf" case below exists to prevent. The measurements stay
+    // measurements, and the count comes from the data rather than from the constant, so
+    // a future pair measured at a different count works with no edit here.
     const run = () =>
       heldOutMargin(
         new Map(Object.entries(fx.seed)),
@@ -81,7 +100,7 @@ describe("held-out binding leg (AC-3)", () => {
             { boots, mutants: 0, accepted: 0, suites: 1 },
           ]),
         ),
-        SOURCE_SHARD_COUNT,
+        fx.observed.secondsLegs.length,
       );
 
     it("is genuinely held out: two DISTINCT, non-empty run ids", () => {

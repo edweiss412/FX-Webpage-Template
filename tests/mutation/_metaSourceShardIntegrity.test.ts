@@ -2,7 +2,7 @@
 // The workflow's matrices, the shard FILE sets, the shard file BODIES, and each
 // leg's REALIZED TARGET, all pinned to their TypeScript constants (spec §3.4.1).
 //
-// WHY REALIZED TARGETS AND NOT JUST INDEX LISTS. A correct `[0,1,2,3]` says
+// WHY REALIZED TARGETS AND NOT JUST INDEX LISTS. A correct index list says
 // nothing about what each leg RUNS. Every leg could hard-code the shard-0 file
 // with the index list, the file set, and the gates file's totality proof all
 // still green, while three quarters of the surfaces never executed. Not

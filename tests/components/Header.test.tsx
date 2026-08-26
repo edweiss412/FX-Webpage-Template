@@ -162,6 +162,38 @@ describe("Header identityChip slot (M11.5 §B Task C4)", () => {
     expect(queryByTestId("header-test-fixture-chip")?.textContent).toBe("Alice · Audio A1");
   });
 
+  it("mounts the toggle as a DIRECT child of the right slot, with no wrapper around it", () => {
+    // The crew header is the third consumer of the standalone toggle and the
+    // only one whose branch is conditional (no resolved identity). Until
+    // 2026-08-26 `ThemeToggle` returned a `relative inline-flex` span around
+    // its button to anchor the persist-failure bubble; the note was removed and
+    // the wrapper went with it, which makes the button a direct flex child of
+    // this row rather than a wrapped one.
+    //
+    // jsdom does not lay out, so this pins the STRUCTURE, which is the thing
+    // that would silently change if someone reintroduced a wrapper. The
+    // real-browser geometry for the OTHER two consumers is in
+    // tests/e2e/theme-persistence-note.spec.ts; this branch has no e2e of its
+    // own, and that is a stated limit rather than an oversight — reaching it
+    // needs a seeded show, a share token, and no picked identity.
+    const { getByTestId } = render(<Header show={baseShow} />);
+
+    const slot = getByTestId("page-header-right-slot");
+    const toggle = getByTestId("theme-toggle");
+
+    // PREMISE: this is the no-identity branch, the only one that renders the
+    // standalone toggle. Without it the assertions below would pass on the
+    // wrong slot.
+    expect(slot.getAttribute("data-identity")).toBe("none");
+
+    expect(toggle.tagName).toBe("BUTTON");
+    expect(toggle.parentElement).toBe(slot);
+    expect([...slot.children].map((el) => el.getAttribute("data-testid"))).toEqual([
+      "page-header-fxav-wordmark",
+      "theme-toggle",
+    ]);
+  });
+
   it("does NOT hide the identityChip slot on mobile (no `hidden sm:block` class regression)", () => {
     const chip = <span data-testid="header-test-fixture-chip">Alice · Audio A1</span>;
     const { getByTestId } = render(<Header show={baseShow} identityChip={chip} />);

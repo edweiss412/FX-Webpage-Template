@@ -320,7 +320,12 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
           <p
             id={hintId}
             data-testid="admin-allowlist-self-last-hint"
-            className="max-w-xs text-right text-xs text-text-subtle"
+            // No alignment class: the box is right-positioned by the column's
+            // `items-end`, so `text-right` only ever changed where WRAPPED lines
+            // started. Dropped 2026-08-26 in the BL-THEME-NOTE-BUBBLE-TEXT-ALIGN
+            // class sweep, matching the repair this row's own lockout sibling
+            // already took in M9 (4e438b0).
+            className="max-w-xs text-xs text-text-subtle"
           >
             You can&rsquo;t revoke your own admin access.
           </p>
