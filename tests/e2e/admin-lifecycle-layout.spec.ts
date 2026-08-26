@@ -1324,6 +1324,7 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
         popoverStillOpen: !!b,
         side: b.dataset["popoverSide"] ?? null,
         cap: b.style.maxHeight,
+        gapToTrigger: b.dataset["popoverSide"] === "top" ? t.top - r.bottom : r.top - t.bottom,
         // The room the module had on the side it chose, computed the same way
         // the placement core does: the clip rect inset by VIEWPORT_INSET, minus
         // the GAP between the trigger and the body.
@@ -1359,6 +1360,10 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       Number.parseFloat(after.cap),
       "the written cap is not the room the module had",
     ).toBeCloseTo(after.roomOnChosenSide, 0);
+    // And the POSITION moved with it. A cap is a size; it says nothing about
+    // where the box sits, so a re-place that wrote the right cap at the wrong
+    // coordinate would pass everything above.
+    expect(after.gapToTrigger, "the re-placed popover does not sit at GAP").toBeCloseTo(6, 0);
 
     // THE CLEAR DIRECTION, which everything above is blind to. ShareHub writes
     // the cap in one branch and clears it in ANOTHER —
@@ -1394,8 +1399,11 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       const panel = document.querySelector("[data-review-modal-panel]") as HTMLElement;
       const p = panel.getBoundingClientRect();
       const r = b.getBoundingClientRect();
+      const trigger = document.querySelector('[data-testid="share-hub-root"]') as HTMLElement;
+      const t = trigger.getBoundingClientRect();
       return {
         cap: b.style.maxHeight,
+        gapToTrigger: b.dataset["popoverSide"] === "top" ? t.top - r.bottom : r.top - t.bottom,
         withinBounds:
           r.top >= Math.max(p.top, 0) + 8 - 0.5 &&
           r.bottom <= Math.min(p.bottom, window.innerHeight) - 8 + 0.5,
@@ -1403,6 +1411,12 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     });
     expect(restored.cap, "the cap was not CLEARED when the room came back").toBe("");
     expect(restored.withinBounds, "clearing the cap left the clip rect").toBe(true);
+    // The GAP is what makes clearing the cap a RE-PLACE rather than a style
+    // edit. Round-4 review found the false-green this closes: clear the cap at
+    // 844 while keeping the coordinate computed for 420, and the 480px body is
+    // still contained and still uncapped, sitting roughly 173px off its trigger.
+    // Both assertions above pass on that; this one does not.
+    expect(restored.gapToTrigger, "the cap was cleared without re-placing").toBeCloseTo(6, 0);
   });
 
   // Opener discrimination (whole-diff review, finding 2). The two T-CARET cases

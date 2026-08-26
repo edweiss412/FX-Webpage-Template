@@ -88,10 +88,11 @@ that reading would be wrong. `lib/popover/position.ts:135` places a `top` body a
 grows from 471 to 480 without re-placing keeps its old `y` and its bottom moves from `trigger.top - 6`
 to `trigger.top + 3`, eating the gap and overlapping the trigger. **Containment cannot see this** —
 the overhang is into the trigger, not out of the clip rect, so the body stays inside the panel
-throughout. Re-placement on growth is necessary **wherever the growth changes the body's BOX** —
-which, per the table above, is 680 and 844, where the idle body is unclamped at 471 and the armed one
-reaches 476 and 480. At 420 and 560 the class cap holds both states at the same size, so there is
-nothing to re-place and the gap cannot move. `ShareHub.tsx`'s `bodyObserver` is the mechanism that
+throughout. Re-placement on growth is necessary **wherever the growth changes the body's BOX** — per the table
+above, every height from 680 up: 471→476 at 680 and 471→480 at 720, 844 and 955. At 420 and 560 the
+class cap holds both states at the same size, so there is nothing to re-place and the gap cannot
+move. T-REGROW sweeps four of those heights, so within ITS sweep the growth rungs are 680 and 844;
+that is a fact about the sweep, not about the geometry. `ShareHub.tsx`'s `bodyObserver` is the mechanism that
 supplies the re-place where it is needed, and the planted-defect run in §4 fails at 390x680 — not
 before it, which is the same split stated from the other side.
 
@@ -153,15 +154,18 @@ Each is re-derived from §2, and each was proved to still fail by planting a def
 - **`tests/e2e/admin-lifecycle-layout.spec.ts:1191`, T-TRANSITION.** The side flip is unreachable
   (§2), so the resize target moves from 560 to 420, crossing the cap boundary of Consequence B, and
   the witness that placement re-ran becomes the cap the module wrote — checked against the room it
-  had, so a stale or hardcoded non-empty value cannot pass. Every armed-state assertion is unchanged.
+  had, so a stale or hardcoded non-empty value cannot pass — and the GAP, because a cap is a SIZE and
+  says nothing about where the box sits. Every armed-state assertion is unchanged.
   The case then resizes BACK to 844 and asserts the cap is cleared, because ShareHub writes the cap in
   one branch and clears it in another (`removeProperty("max-height")`, `ShareHub.tsx:354`). Without
   that leg the clear branch is reachable by no case in this file — T-REGROW opens every height on a
   fresh page, so it never starts from a capped state — and deleting it would leave the suite green.
   _Negative controls:_ restore the 560 target, which crosses no boundary, and the uncapped answer from
-  844 survives the resize, failing "the resize did not re-place: no cap was written"; and delete the
+  844 survives the resize, failing "the resize did not re-place: no cap was written"; delete the
   `removeProperty` branch, and the resize back fails "the cap was not CLEARED when the room came
-  back".
+  back"; and clear the cap WITHOUT re-placing — the round-4 false-green, where a 480px body keeps the
+  coordinate computed for 420 and sits roughly 173px off its trigger while remaining contained and
+  uncapped — which fails only "the cap was cleared without re-placing".
 
 ## 4a. Transition Inventory
 
@@ -172,7 +176,7 @@ or **capped** (it does not).
 
 | move | what changes | animated? | who covers it |
 | --- | --- | --- | --- |
-| idle → armed, box grows | `y` must be recomputed or `GAP` is eaten | instant — no animation; the re-place is a layout write | T-REGROW at 680 and 844, the only measured heights where the box grows |
+| idle → armed, box grows | `y` must be recomputed or `GAP` is eaten | instant — no animation; the re-place is a layout write | T-REGROW at 680 and 844, its two swept heights where the box grows — the measured table also shows growth at 720 and 955, which the sweep does not visit |
 | idle → armed, box does not grow | a cap or the class cap already binds, so the scroller absorbs the content and the placement is already correct | instant — no animation | T-REGROW at 420 (inline cap) and 560 (class cap) |
 | uncapped → capped, by resize | a cap appears and equals the new room | the popover transitions; the case settles on the computed style holding still across two frames | T-TRANSITION, 844 → 420 |
 | capped → uncapped, by resize | the cap is CLEARED through a different branch — `body.style.removeProperty("max-height")`, `ShareHub.tsx:354` — than the one that writes it | as above, same settle | T-TRANSITION, 420 → 844 back |

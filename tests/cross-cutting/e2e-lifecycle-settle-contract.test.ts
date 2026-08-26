@@ -93,6 +93,7 @@ const SITES: ReadonlyArray<{
       "popoverStillOpen",
       "withinBounds",
       "after.cap",
+      "after.gapToTrigger",
       "roomOnChosenSide",
     ],
   },
@@ -118,7 +119,12 @@ const SITES: ReadonlyArray<{
     // The case asserts the cap was CLEARED and that clearing it kept the body
     // inside the clip rect. The predicate may watch the styles stop moving; it
     // may not read either of those.
-    forbidden: ["restored.cap", "restored.withinBounds", "was not CLEARED"],
+    forbidden: [
+      "restored.cap",
+      "restored.gapToTrigger",
+      "restored.withinBounds",
+      "was not CLEARED",
+    ],
   },
 ];
 
