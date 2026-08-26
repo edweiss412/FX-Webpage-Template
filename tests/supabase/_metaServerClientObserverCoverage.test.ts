@@ -38,17 +38,27 @@ const CONSTRUCTORS = ["createClient", "createServerClient", "createBrowserClient
  * `browser.ts` is sanctioned and NOT observed: the observer's record is a server log line, and a
  * browser client cannot reach one.
  */
-const FACTORIES = new Set(["lib/supabase/server.ts", "lib/supabase/browser.ts"]);
+const FACTORIES: Record<string, number> = {
+  // path -> how many constructions the file may contain. A COUNT rather than a membership test,
+  // because membership cannot distinguish the two sanctioned factories in server.ts from a third
+  // one added beside them.
+  "lib/supabase/server.ts": 2,
+  "lib/supabase/browser.ts": 1,
+};
 
 /**
  * Exempt constructions, each with the ground it is exempt ON. A path alone would let the reason
  * rot away from the row.
  */
-const EXEMPT: Record<string, string> = {
-  "app/api/test-auth/set-session/route.ts":
-    "test-auth gated (ENABLE_TEST_AUTH + bearer); never a production request path",
-  "lib/dev/materialize/client.ts":
-    "a one-line indirection so tests can stub the module; not a request path",
+const EXEMPT: Record<string, { count: number; ground: string }> = {
+  "app/api/test-auth/set-session/route.ts": {
+    count: 2,
+    ground: "test-auth gated (ENABLE_TEST_AUTH + bearer); never a production request path",
+  },
+  "lib/dev/materialize/client.ts": {
+    count: 1,
+    ground: "a one-line indirection so tests can stub the module; not a request path",
+  },
 };
 
 /** Comments and string literals blanked, so a MENTION of a call is never read as one. */
@@ -103,9 +113,14 @@ export function scanConstructions(root: string, roots: readonly string[]): strin
     const code = stripNonCode(raw);
     for (const name of CONSTRUCTORS) {
       if (!bound.has(name)) continue;
-      if (new RegExp(`\\b${name}\\s*\\(`).test(code)) {
-        hits.push(file.slice(root.length + 1));
-        break;
+      // Every CALL SITE, not the first per file. Round 3 probed why: recording a path and
+      // breaking meant a fourth construction added BESIDE an existing one inside
+      // lib/supabase/server.ts left the hit set unchanged, so the guard stayed green while a new
+      // server client bypassed the observer. That is the exact case AC-3 names, and the original
+      // fail-by-default proof missed it because it added a new FILE rather than a new SITE.
+      for (const m of code.matchAll(new RegExp(`\\b${name}\\s*\\(`, "g"))) {
+        const line = code.slice(0, m.index).split("\n").length;
+        hits.push(`${file.slice(root.length + 1)}:${line}`);
       }
     }
   }
@@ -113,28 +128,43 @@ export function scanConstructions(root: string, roots: readonly string[]): strin
 }
 
 describe("every server-side Supabase client is observed, or exempt on a stated ground", () => {
-  it("finds only the factories and the stated exemptions", () => {
+  it("accounts for every construction SITE, not merely every file", () => {
     const hits = scanConstructions(ROOT, ROOTS);
 
     // PREMISE, and it executes before anything it guards. An empty or near-empty walk — a wrong
     // root, an extension miss, a stripper that blanked the file — makes every assertion below
     // pass vacuously, which is the exact shape retryableRpcVolatilityScan.ts records.
-    premise("constructions found in the product roots", hits.length, 2);
-    for (const f of FACTORIES) expect(hits, `the walk must reach the factory ${f}`).toContain(f);
+    premise("construction sites found in the product roots", hits.length, 2);
 
-    const unaccounted = hits.filter((f) => !FACTORIES.has(f) && EXEMPT[f] === undefined);
+    const perFile = new Map<string, number>();
+    for (const site of hits) {
+      const file = site.slice(0, site.lastIndexOf(":"));
+      perFile.set(file, (perFile.get(file) ?? 0) + 1);
+    }
+    for (const f of Object.keys(FACTORIES))
+      expect([...perFile.keys()], `the walk must reach the factory ${f}`).toContain(f);
+
+    // A COUNT comparison, so a construction added beside a sanctioned one is UNACCOUNTED rather
+    // than absorbed by its file's good name. That was round 3's finding.
+    const allowed: Record<string, number> = {
+      ...FACTORIES,
+      ...Object.fromEntries(Object.entries(EXEMPT).map(([f, e]) => [f, e.count])),
+    };
+    const unaccounted = [...perFile.entries()]
+      .filter(([f, n]) => (allowed[f] ?? 0) !== n)
+      .map(([f, n]) => `${f}: ${n} construction(s), ${allowed[f] ?? 0} accounted`);
     expect(
       unaccounted,
-      "a new directly-constructed Supabase client must be a factory or carry an exemption",
+      "every Supabase client construction must be a known factory site or carry an exemption",
     ).toEqual([]);
   });
 
   it("stays silent on the two LIVE comment mentions", () => {
     // Real negative coverage, not a constructed fixture: both files genuinely name
     // `createClient()` in prose about types, and a bare grep flags both.
-    const hits = scanConstructions(ROOT, ROOTS);
-    expect(hits).not.toContain("lib/observe/query/events.ts");
-    expect(hits).not.toContain("lib/validation/reseedFixtures.ts");
+    const files = scanConstructions(ROOT, ROOTS).map((h) => h.slice(0, h.lastIndexOf(":")));
+    expect(files).not.toContain("lib/observe/query/events.ts");
+    expect(files).not.toContain("lib/validation/reseedFixtures.ts");
   });
 });
 
@@ -155,7 +185,7 @@ describe("the scanner itself (a guard that matches nothing is worse than none)",
         'import { createClient } from "@supabase/supabase-js";\nexport const c = createClient(u, k, {});\n',
     });
     try {
-      expect(scanConstructions(dir, ["lib"])).toEqual(["lib/newthing.ts"]);
+      expect(scanConstructions(dir, ["lib"])).toEqual(["lib/newthing.ts:2"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -170,7 +200,7 @@ describe("the scanner itself (a guard that matches nothing is worse than none)",
         'export async function make() {\n  const { createClient } = await import("@supabase/supabase-js");\n  return createClient(u, k, {});\n}\n',
     });
     try {
-      expect(scanConstructions(dir, ["lib"])).toEqual(["lib/dyn.ts"]);
+      expect(scanConstructions(dir, ["lib"])).toEqual(["lib/dyn.ts:3"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -198,7 +228,7 @@ describe("the scanner itself (a guard that matches nothing is worse than none)",
         'import { createClient } from "@supabase/supabase-js";\nexport const c = createClient(u, k, {});\n',
     });
     try {
-      expect(scanConstructions(dir, ["lib"])).toEqual(["lib/real.ts"]);
+      expect(scanConstructions(dir, ["lib"])).toEqual(["lib/real.ts:2"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

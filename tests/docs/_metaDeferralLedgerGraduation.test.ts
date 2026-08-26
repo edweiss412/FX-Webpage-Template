@@ -1673,34 +1673,40 @@ describe("supabase-upstream-fault-class: graduation carries its limits, and mint
     };
     expect(
       novel("## BL-ALPHA — a\n\nbody\n", "## BL-ALPHA — a\n\nbody\n\n## BL-BETA — b\n\nbody\n"),
-      "the check must SEE a novel id",
+      "the check must SEE a novel BL- id",
     ).toEqual(["BL-BETA"]);
     expect(
       novel("## BL-ALPHA — a\n\nbody\n", "## BL-ALPHA — a\n\nreworded body\n"),
       "and must not invent one from an edit",
     ).toEqual([]);
 
-    const baseOpen = gitShow("origin/main:BACKLOG.md");
-    const baseArchive = gitShow("origin/main:BACKLOG-archive.md");
-    if (baseOpen === null || baseArchive === null) {
+    // ALL FOUR ledgers, not just the BACKLOG pair. Round 3 probed the gap: the check called
+    // itself "no new BL-/DEF- row ANYWHERE" and read only BACKLOG.md and BACKLOG-archive.md with
+    // BACKLOG_OPTS, so a new row in DEFERRED.md or DEFERRED-archive.md was unguarded. The arc
+    // does not mint one, which is precisely why the false claim would have survived: nothing it
+    // failed to cover was ever exercised.
+    const LEDGERS: ReadonlyArray<readonly [string, ExtractOpts]> = [
+      ["BACKLOG.md", BACKLOG_OPTS],
+      ["BACKLOG-archive.md", BACKLOG_OPTS],
+      ["DEFERRED.md", DEFERRED_OPTS],
+      ["DEFERRED-archive.md", DEFERRED_OPTS],
+    ];
+    const baseTexts = LEDGERS.map(([rel]) => gitShow(`origin/main:${rel}`));
+    if (baseTexts.some((t) => t === null)) {
       // A checkout that cannot read origin/main at all is a fetch-shape problem rather than a
       // verdict, and saying so beats a green that means nothing. But a PARTIAL failure — one
       // blob readable and the other not — is never a fetch shape; it is this helper being
       // wrong, which is exactly what happened the first time (maxBuffer). Fail loudly on it.
       expect(
-        { open: baseOpen === null, archive: baseArchive === null },
+        baseTexts.map((t) => t === null),
         "origin/main must be either fully readable or fully unreachable",
-      ).toEqual({ open: true, archive: true });
+      ).toEqual(LEDGERS.map(() => true));
       return;
     }
-    const before = new Set([
-      ...ledgerIds(baseOpen, BACKLOG_OPTS),
-      ...ledgerIds(baseArchive, BACKLOG_OPTS),
-    ]);
-    const after = new Set([
-      ...backlogIdsIn("BACKLOG.md"),
-      ...backlogIdsIn("BACKLOG-archive.md"),
-    ]);
+    const before = new Set(
+      LEDGERS.flatMap(([, opts], i) => [...ledgerIds(baseTexts[i] as string, opts)]),
+    );
+    const after = new Set(LEDGERS.flatMap(([rel, opts]) => [...ledgerIds(read(rel), opts)]));
     expect(
       [...after].filter((id) => !before.has(id)),
       "this arc files NO new BL-/DEF- row of any facing",
