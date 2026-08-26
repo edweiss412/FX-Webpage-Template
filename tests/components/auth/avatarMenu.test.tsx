@@ -329,9 +329,22 @@ describe("no persist-failure note (removed 2026-08-26)", () => {
   // gone — the aria-hidden visible paragraph AND the root-level sr-only
   // announcer whose only content was that same sentence.
   //
-  // The menu keeps a SECOND, unrelated `role="status"` announcer for the
-  // switch-person flow, so every case below names the region it means. A blanket
-  // "no status region" assertion would pass by deleting the wrong one.
+  // REWRITTEN after diff review r2 finding 1. The first version asserted the
+  // absence of two `data-testid` values, which is the SAME defect round 1 caught
+  // in the hook suite wearing different clothes: it pinned the identifier the
+  // deletion happened to remove rather than the PROPERTY the ruling requires.
+  // Two ordinary regressions walked straight through it — restore the visible
+  // copy under a different testid, or add a second announcer without the old
+  // one — and every assertion still passed.
+  //
+  // So the assertions below are structural and copy-independent. The menu keeps
+  // one legitimate `role="status"` (the switch-person announcer), so the pin is
+  // that the status regions are EXACTLY that one, and that the popover's own
+  // children are exactly the identity block and the menu. A reworded note under
+  // a fresh testid fails both.
+  const EXPECTED_STATUS_TESTIDS = ["avatar-menu-switch-announcer"];
+  const EXPECTED_POPOVER_CHILD_TESTIDS = ["avatar-menu-identity", "avatar-menu-items"];
+
   function blockWrites(): void {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("blocked");
@@ -344,7 +357,20 @@ describe("no persist-failure note (removed 2026-08-26)", () => {
     });
   }
 
-  it("renders neither note node on a blocked write, and still applies the theme", () => {
+  /** Every live region in the tree, by testid, so an EXTRA one cannot hide. */
+  function statusRegionIds(): (string | null)[] {
+    return screen
+      .queryAllByRole("status", { hidden: true })
+      .map((el) => el.getAttribute("data-testid"));
+  }
+
+  /** The popover's own element children, so a restored note cannot hide either. */
+  function popoverChildIds(): (string | null)[] {
+    const popover = screen.getByTestId("avatar-menu-popover");
+    return [...popover.children].map((el) => el.getAttribute("data-testid"));
+  }
+
+  it("renders no extra live region and no extra popover child on a blocked write", () => {
     document.documentElement.dataset.theme = "light";
     blockWrites();
     renderMenu();
@@ -353,36 +379,43 @@ describe("no persist-failure note (removed 2026-08-26)", () => {
     flipTheme();
 
     // PREMISE: the flip did real work through the throwing write. Without it,
-    // both absence assertions would also pass on a menu that never rendered.
+    // every absence assertion below would also pass on a menu that never rendered.
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(screen.getByRole("menu")).toBeInTheDocument();
 
-    expect(screen.queryByTestId("theme-persist-note")).toBeNull();
-    expect(screen.queryByTestId("theme-persist-announcer")).toBeNull();
+    // The property, not the identifier: a restored announcer fails this whatever
+    // testid it carries, or none.
+    expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
+    // Same for the visible note, which used to sit between the identity block
+    // and the menu as a popover child of its own.
+    expect(popoverChildIds()).toEqual(EXPECTED_POPOVER_CHILD_TESTIDS);
   });
 
-  it("mounts no theme announcer at all, before the menu is even opened", () => {
+  it("mounts no extra live region before the menu is even opened", () => {
     blockWrites();
     renderMenu();
 
-    // The old shape mounted this region empty at the component root so a later
-    // message would announce. There is no later message, so an empty region
-    // left behind would be dead a11y surface rather than a harmless leftover.
-    expect(screen.queryByTestId("theme-persist-announcer")).toBeNull();
+    // The old shape mounted the theme announcer at the component ROOT, outside
+    // the popover, so it existed before any interaction. An empty region left
+    // behind would be dead a11y surface rather than a harmless leftover.
+    expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
 
     openMenu();
-    expect(screen.queryByTestId("theme-persist-announcer")).toBeNull();
+    expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
+    expect(popoverChildIds()).toEqual(EXPECTED_POPOVER_CHILD_TESTIDS);
   });
 
-  it("keeps the UNRELATED switch-person announcer, which is a different region", () => {
+  it("keeps the UNRELATED switch-person announcer working, not merely present", () => {
     blockWrites();
     renderMenu();
 
-    // Names the survivor explicitly. This is what stops the removal from being
-    // satisfied by deleting the wrong `role="status"` node.
+    // Naming the survivor is what stops the removal from being satisfied by
+    // deleting the wrong `role="status"`. Asserting its ROLE and its live text
+    // is what stops it from being satisfied by leaving an inert shell.
     const survivor = screen.getByTestId("avatar-menu-switch-announcer");
     expect(survivor).toHaveAttribute("role", "status");
-    expect(screen.queryByTestId("theme-persist-announcer")).toBeNull();
+    expect(survivor.textContent).toBe("");
+    expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
   });
 
   it("stays silent across repeated blocked writes and on recovery", () => {
@@ -396,8 +429,8 @@ describe("no persist-failure note (removed 2026-08-26)", () => {
     flipTheme();
     expect(document.documentElement.dataset.theme).toBe("light");
 
-    expect(screen.queryByTestId("theme-persist-note")).toBeNull();
-    expect(screen.queryByTestId("theme-persist-announcer")).toBeNull();
+    expect(statusRegionIds()).toEqual(EXPECTED_STATUS_TESTIDS);
+    expect(popoverChildIds()).toEqual(EXPECTED_POPOVER_CHILD_TESTIDS);
   });
 });
 

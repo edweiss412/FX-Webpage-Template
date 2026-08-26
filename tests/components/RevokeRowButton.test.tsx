@@ -28,6 +28,7 @@ vi.mock("@/app/admin/settings/admins/actions", () => ({
 }));
 
 import { RevokeRowButton } from "@/app/admin/settings/admins/RevokeRowButton";
+import { tailwindTextAlignUtilities } from "@/tests/_shared/textAlignUtilities";
 
 beforeEach(() => {
   mockState.nextResult = { kind: "ok" };
@@ -323,7 +324,14 @@ describe("RevokeRowButton — the self-last hint starts every line at the same x
     expect(hint.textContent ?? "").toContain("revoke your own admin access");
     expect(tokens).toContain("max-w-xs");
 
-    expect(tokens).not.toContain("text-right");
-    expect(tokens).not.toContain("text-center");
+    // DERIVED, not enumerated (diff review r2 finding 2). The first version
+    // excluded only `text-right` and `text-center`, so adding `text-end` — which
+    // resolves to the same visual result in this app's LTR direction — passed it
+    // and recreated the exact defect. The set now comes out of the installed
+    // Tailwind's own utility table, so a future alignment utility is covered
+    // without anyone remembering to widen a literal.
+    for (const utility of tailwindTextAlignUtilities()) {
+      expect(tokens, `${utility} would re-align the wrapped lines`).not.toContain(utility);
+    }
   });
 });

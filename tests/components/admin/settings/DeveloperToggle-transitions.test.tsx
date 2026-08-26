@@ -26,6 +26,7 @@ import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import type { AdminEmailRow } from "@/lib/data/adminEmails";
 import type { EmbeddedAdminEmailsResult } from "@/lib/admin/embeddedAdminEmails";
 import type { SetDeveloperActionResult } from "@/app/admin/settings/admins/developerActions";
+import { tailwindTextAlignUtilities } from "@/tests/_shared/textAlignUtilities";
 
 // Per-email deferred action controller: each submit registers a resolver keyed
 // by its FormData `email`, so a test can hold row A pending while resolving row B
@@ -238,8 +239,13 @@ describe("DeveloperToggle transition audit (Task 18c)", () => {
     expect(tokens).toContain("max-w-prose");
     expect(tokens).toContain("bg-warning-bg");
 
-    expect(tokens).not.toContain("text-right");
-    expect(tokens).not.toContain("text-center");
+    // Derived from the installed Tailwind, same as the self-last hint's guard
+    // and for the same reason (diff review r2 finding 2): a hand-written
+    // deny-list fails open on the member nobody thought of, and `text-end` was
+    // that member.
+    for (const utility of tailwindTextAlignUtilities()) {
+      expect(tokens, `${utility} would re-align the wrapped lines`).not.toContain(utility);
+    }
   });
 
   it("compound: toggling row A while row B is mid-pending leaves B's pending state intact (independent useActionState)", async () => {
