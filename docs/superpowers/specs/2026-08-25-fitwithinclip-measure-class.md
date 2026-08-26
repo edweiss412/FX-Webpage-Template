@@ -124,7 +124,7 @@ separately rather than one cumulative number.
 
 ### §0.2 — Why it is worth doing
 
-`apply()` forces a synchronous reflow — it clears the caps, reads two rects and one computed style, writes a cap (`components/admin/useFitWithinClip.ts:90-111`) — and it is a **layout** effect, so every one of those reflows is on the path to the first paint of the overlay. Three overlays in `ReSyncButton` alone (`components/admin/ReSyncButton.tsx:111-113`), one in `PublishedToggle` (`components/admin/PublishedToggle.tsx:132`), one in `AttentionMenu` (`components/admin/showpage/AttentionMenu.tsx:72`). The `AttentionMenu` case pays twice over: its `reapplyKey` is the entrance flag, so opening the menu is an appearance plus a key change, and it pays §0.1's appearance column and its key-change cost together.
+`apply()` forces a synchronous reflow — it clears the caps, reads two rects and one computed style, writes a cap (`components/admin/useFitWithinClip.ts:90-111`) — and it is a **layout** effect, so every one of those reflows is on the path to the first paint of the overlay. Three overlays in `ReSyncButton` alone (`components/admin/ReSyncButton.tsx:111-113`), one in `PublishedToggle` (`components/admin/PublishedToggle.tsx:132`), one in `AttentionMenu` (`components/admin/showpage/AttentionMenu.tsx:72`). The `AttentionMenu` case pays twice over: its `reapplyKey` is the entrance flag, so opening the menu is an appearance plus a key change, and it pays its §0.1 attach row and its §0.1a entrance row together.
 
 ---
 
@@ -223,16 +223,43 @@ Fact 4 is why `reapplyKey` stays a dependency of a callback that does not read i
 
 The hook has one parameter and one runtime input.
 
-| Input | Value | Behaviour | Pinned by |
+**`reapplyKey` is not the only variable, and round-10 finding 1 caught these rows written as if it
+were.** What happens on a re-render is decided by the PAIR: did the key change, and did the node's
+presence change. Measured on the §2 shape, with a control row proving the instrument is not itself
+causing the attaches it reports:
+
+```
+PAIR2 CONTROL_NOTHING_MOVES         []
+PAIR2 UNCHANGED_KEY_NODE_APPEARS    ["attach","apply"]
+PAIR2 CHANGED_KEY_NO_NODE           []
+PAIR2 CHANGED_KEY_AND_NODE_APPEARS  ["attach","apply"]
+PAIR2 UNCHANGED_KEY_NODE_DISAPPEARS ["cleanup"]
+PAIR2 CHANGED_KEY_NODE_STAYS        ["cleanup","attach","apply"]
+```
+
+| `reapplyKey` | Node presence | Behaviour | Pinned by |
 | --- | --- | --- | --- |
-| `reapplyKey` | omitted (`undefined`) | Stable across renders, so the ref never re-attaches on a re-render. One measure per ATTACH — which is one per appearance in production and two under Strict Mode's replay, §0.1. | `ReSyncButton.tsx:111-113` uses this arm; case (g), and (h13) for the replay |
-| `reapplyKey` | changes between renders | Detach, re-measure, re-wire. Unchanged from today. | case (c), `tests/components/admin/useFitWithinClip.test.tsx:193` |
-| `reapplyKey` | unchanged between renders (any type) | Nothing happens. `Object.is` identity is React's own dependency comparison, not ours. | §0.1's no-op row; case (h9) |
-| `reapplyKey` | an unstable object or array literal | Re-attach on every render — one measure and one walk per render. Same exposure as today, where it was an effect dependency with the same comparison. No consumer does this. The hook is exported from one module, so its call sites are enumerable: `rg -n 'useFitWithinClip\(' components app lib` returns SIX lines — five call sites (three passing nothing, two passing a boolean) plus the declaration itself at `components/admin/useFitWithinClip.ts:69`. Round-9 finding 2 caught this printed as five. | the five call sites, enumerated below |
-| ref `node` | an `HTMLElement` | Measure, wire, return teardown. | every case |
-| the hook is called, ref NEVER attached | — | Nothing happens at all: no measure, no wiring, no teardown, and after this arc no effect invocation either. The DEFAULT `card` variant of `PublishedToggle` (`components/admin/PublishedToggle.tsx:98`, `components/admin/PublishedToggle.tsx:134`). | §5.1 case (h18) |
-| ref `node` | `null` | Return without measuring or wiring. Unreachable under React 19 cleanup refs (fact 1) but retained: the `RefCallback` type admits it, and returning `undefined` there is what React expects. | §5.1 case (h2) |
-| clip ancestor | none found | `max-height` is removed rather than left stale, and no `ResizeObserver.observe` is issued for it. | case (b) `tests/components/admin/useFitWithinClip.test.tsx:188`, family A `tests/components/admin/useFitWithinClip.test.tsx:368` |
+| unchanged | unchanged | **Nothing at all.** No attach, no measure, no teardown | (h9) |
+| unchanged | appears | One attach, one measure. No detach — there was nothing attached | (h14), (h15) |
+| unchanged | disappears | Teardown only | (h3), (h21) |
+| changed | absent throughout | **Nothing at all** — the callback identity changed but no node ever received it | (h18) |
+| changed | appears | One attach, one measure. **NOT a detach-then-attach**: nothing was attached to detach. This is `PublishedToggle`'s shipped shape, where the key IS the mounting condition | (h16) |
+| changed | unchanged (still present) | Teardown, then attach, then measure — the `X → D → Y` route | (c), (h17) |
+
+The `reapplyKey` VALUE matters only for the identity comparison React does on the callback, which is
+`Object.is` and not ours. Two further value cases:
+
+| `reapplyKey` value | Behaviour | Pinned by |
+| --- | --- | --- |
+| omitted (`undefined`) | Stable forever, so the ref never re-attaches on a re-render. `ReSyncButton` uses this arm | (g), and (h13) for the Strict Mode replay |
+| an unstable object or array literal | A fresh identity every render, so every render is a detach-and-attach. No consumer does this — the hook is exported from one module and its call sites are enumerable: `rg -n 'useFitWithinClip\(' components app lib` returns SIX lines, five call sites (three passing nothing, two passing a boolean) plus the declaration itself at `components/admin/useFitWithinClip.ts:69`. Same exposure as today, where `reapplyKey` was an effect dependency compared the same way | (h9), whose zero-cost assertion is the only thing in the suite that can see it |
+
+And the two ref-node cases:
+
+| ref `node` | Behaviour | Pinned by |
+| --- | --- | --- |
+| an `HTMLElement` | Measure, wire, return the teardown | every case |
+| `null` | Return without measuring or wiring. Unreachable under React 19 cleanup refs (fact 1), retained because the `RefCallback` type admits it and returning `undefined` is what React expects there | (h2) |
 
 ---
 
@@ -281,8 +308,10 @@ driven only by a re-measure signal**. Those signals do fire and do the right thi
 (`F->N_after_signal` removes the cap, `N->F_after_signal` writes it back). **State N still holds an
 observer** — no clip to watch, but the positioned ancestor is watched regardless
 (`components/admin/useFitWithinClip.ts:167-170`), `constructed=1 observed=[["inner"]]`, and the
-teardown disconnects it. And a `reapplyKey` change is **`X → D → Y`**, never a direct edge:
-`constructed=2 disconnected=1` with two distinct observed sets.
+teardown disconnects it. And a `reapplyKey` change is **`X → D → Y` when a node was already attached** — `constructed=2
+disconnected=1` with two distinct observed sets. When nothing was attached it is a plain attach with
+no D at all (§2.2's matrix, `CHANGED_KEY_AND_NODE_APPEARS`), which is `PublishedToggle`'s shipped
+first-error case. Round-10 finding 1 caught this stated without its condition.
 
 | Edge | Mechanism | Pinned by |
 | --- | --- | --- |
@@ -440,7 +469,7 @@ about those. Reading a count without knowing its harness is how §0.1 went wrong
 | (h) | always-present | One attach is ONE ancestor walk. Ancestor `getComputedStyle` calls only, expected value derived from the harness's own chain, never typed | M2, M7 |
 | (h2) | always-present | The ref callback with `null`: no measure, no throw. Unreachable under React 19 cleanup refs but the type admits it | M4 |
 | (h3) | always-present | The teardown nulls the node, so a stale `apply()` after unmount cannot measure. React no longer calls `ref(null)`, so this is not free any more | M3, M13 |
-| (h8), (h9) | always-present | The `reapplyKey`-change and unchanged-re-render rows of §0.1. (h9) is the ONLY case that can see an identity-churning callback, because every other assertion is about a single attach | M10 |
+| (h8), (h9) | always-present | The two re-render rows of §2.2's matrix — key changed with the node still present, and nothing changed at all. (h9) is the ONLY case that can see an identity-churning callback, because every other assertion is about a single attach | M10 |
 | (h12) | always-present | The `ResizeObserver` callback actually re-measures. That arm had NO behavioural case at all; case (d) discards the constructor callback | M11 |
 | (h13) | conditional, in `<StrictMode>` | Strict Mode's replay counts, asserted EXACTLY — including `ReSyncButton`'s dev apply going to 2, pinned as 2 rather than wished down to 1 | M13 |
 | (h14) | conditional | One owner render per appearance on the plainest live shape. The arc's headline in its minimal form | M12 |
@@ -509,7 +538,7 @@ Existing containment cases (`tests/e2e/popover-clip-fit.spec.ts:310`, `tests/e2e
 
 Carried verbatim into every review brief for this arc.
 
-**Consequence bound.** Every overlay this hook serves is capped correctly on mount and on every re-measure signal — all four of them, the `ResizeObserver` arm included, which round 2 found had no behavioural case at all — or the miss is surfaced by the existing floor-clamp diagnostic (`useFitWithinClip.ts:118-131`). Correct or signaled, never silently wrong: there is no third outcome, and that is the acceptance posture rather than a wish. A conservative fit plus a surfaced warning is a DOCUMENTED LIMIT, not a finding. The arc is done when every cell of the §0.1 table — both modes, both columns — holds its stated count and no overlay in the probe domain is capped wrongly without the diagnostic firing — a finite, measured condition, not an absence of imaginable inputs.
+**Consequence bound.** Every overlay this hook serves is capped correctly on mount and on every re-measure signal — all four of them, the `ResizeObserver` arm included, which round 2 found had no behavioural case at all — or the miss is surfaced by the existing floor-clamp diagnostic (`useFitWithinClip.ts:118-131`). Correct or signaled, never silently wrong: there is no third outcome, and that is the acceptance posture rather than a wish. A conservative fit plus a surfaced warning is a DOCUMENTED LIMIT, not a finding. The arc is done when every cell of §0.1's per-consumer table and §0.1a's entrance table holds its stated count and no overlay in the probe domain is capped wrongly without the diagnostic firing — a finite, measured condition, not an absence of imaginable inputs.
 
 **Probe domain.** The five live call sites, across three components — `components/admin/ReSyncButton.tsx:111-113` (three of them), `components/admin/PublishedToggle.tsx:132`, `components/admin/showpage/AttentionMenu.tsx:72` — plus the fixtures in `tests/components/admin/useFitWithinClip.test.tsx` and `tests/e2e/popover-clip-fit.spec.ts`. A probe outside that set, or more than one ordinary edit from an input in it, files to documented limits.
 
