@@ -80,7 +80,7 @@ export function scannedFiles(): string[] {
  * component -- arrive through that alias, so leaving it to the resolver would
  * silently drop the two cases the spec names as load-bearing.
  */
-function resolveSpecifier(file: SourceFile, specifier: string): SourceFile | null {
+export function resolveSpecifier(file: SourceFile, specifier: string): SourceFile | null {
   const base = specifier.startsWith("@/")
     ? join(process.cwd(), specifier.slice(2))
     : specifier.startsWith(".")
@@ -89,7 +89,13 @@ function resolveSpecifier(file: SourceFile, specifier: string): SourceFile | nul
   if (base === null) return null;
 
   const project = file.getProject();
-  for (const extension of [".ts", ".tsx"]) {
+  // The two directory-index forms are not decoration. Five live imports in the
+  // scan roots -- four of `@/lib/log`, one of `@/lib/parser` -- resolve only
+  // through an index file, and without them a caller deriving a population from
+  // this resolver silently gets 209 modules where TypeScript sees 211. Neither
+  // missed module happens to hold a violation today, so the omission would have
+  // shown up as a clean run over a smaller population rather than as a failure.
+  for (const extension of [".ts", ".tsx", "/index.ts", "/index.tsx"]) {
     const candidate = base + extension;
     if (!existsSync(candidate)) continue;
     return project.getSourceFile(candidate) ?? project.addSourceFileAtPath(candidate);
@@ -683,10 +689,15 @@ function firstReturnedJsx(body: Node): Node | null {
 }
 
 /**
- * Every JSX-returning fault branch under the manifest-derived roots.
+ * Every JSX-returning fault branch under the manifest-derived roots that the
+ * `IfStatement`, `CaseClause` and `CatchClause` arms reach.
  *
  * A branch qualifies by returning JSX directly; its guard FORM then decides
- * whether it is accepted or reported by name. Branches that render nothing —
+ * whether it is accepted or reported by name -- ON THOSE THREE ARMS. The
+ * `ConditionalExpression` arm has no residue fallback and drops an
+ * unclassifiable guard SILENTLY, a declined asymmetry documented at the arm
+ * itself. `components/admin/IgnoredSheetsDisclosure.tsx:79` is a live instance:
+ * JSX in `whenTrue`, `classifyExpression` null, no candidate emitted. Branches that render nothing —
  * a flag assignment, an announce-only effect, a predicate definition — are not
  * candidates at all: tracing a flag to the JSX that consumes it is dataflow
  * analysis this arc does not carry, and those live in the reported residue.
@@ -741,16 +752,34 @@ export function scanCandidates(): Candidate[] {
       if (jsx === null) continue;
       const guard = conditional.getCondition();
       const form = classifyExpression(guard, predicates);
-      // ASYMMETRY, stated rather than left to be discovered: the IfStatement arm
-      // above falls back to a vocabulary probe and reports an unclassifiable
-      // guard as `unknown` residue. This arm drops it silently. A ternary whose
-      // whenTrue is JSX is exactly the shape layer 1 claims to reach, so this is
-      // a gap INSIDE the claimed coverage, not the documented ceiling at spec
-      // section 4.2. Probed: 714 such ternaries under the derived roots, 91 on a
-      // fault-vocabulary guard. Closing it means declaring every unclassifiable
-      // one, which is a residue population this arc cannot hand-write without
-      // reducing the registry to boilerplate and destroying the signal it
-      // carries. Tracked as BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY.
+      // ASYMMETRY, DECLINED AND DOCUMENTED rather than closed. The IfStatement
+      // arm above falls back to a vocabulary probe and reports an unclassifiable
+      // guard as `unknown` residue. This arm drops it, deliberately.
+      //
+      // Probed: 719 such ternaries under the derived roots, 79 on a
+      // fault-vocabulary guard and unclassifiable. 70 of those 79 sit in
+      // `"use client"` files, where the guard is interaction state -- `errorCode`,
+      // `state.kind === "error"`, `persistFailed` -- and not a server-render
+      // fault. The screenshot harness captures server-rendered output, so a
+      // client error toast is a different population from the one this
+      // instrument measures. Nine are in server components, of which four are
+      // emptiness checks (`allHidden && !roomsFetchFailed` and three siblings in
+      // components/crew/sections/) and two are already registered.
+      //
+      // So the vocabulary probe is the WRONG FILTER on this arm, which answers
+      // the question BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY left open. Adding
+      // the fallback would hand the registry 79 hand-written reasons to carry
+      // roughly three new server-render fault sites, and the IfStatement arm's
+      // comment above already records why that trade is bad: a false candidate
+      // dilutes exactly the signal the residue exists to carry.
+      //
+      // RE-FILE TRIGGER, and it is computed rather than promised: if the count of
+      // server-component ternaries that are unclassified, fault-vocabulary AND
+      // unregistered rises above 7 -- its resting value today -- the decline is
+      // re-opened. `tests/help/_metaRenderFaultMarking.test.ts` asserts that
+      // bound, re-derives both figures above and compares them to this comment,
+      // and pins each registered site as still unreachable. Editing these numbers
+      // without re-probing fails there.
       if (form === null) continue;
       push(conditional, jsx, form, guard.getText());
     }
@@ -766,4 +795,58 @@ export function scanCandidates(): Candidate[] {
   }
 
   return candidates.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+}
+
+/**
+ * The `lib/**` modules a set of rendered files imports DIRECTLY at runtime.
+ *
+ * Depth 1, deliberately. A module a rendered file imports directly is on the
+ * render path; one four hops behind it is in the same module graph for reasons
+ * that have nothing to do with rendering, and following the graph to its end
+ * pulls in the cron and sync trees. Measured against the server-time guard's
+ * own filters: depth 1 is 211 modules and 13 violations, depth 2 is 319 and 22,
+ * unbounded is 396 and 31, and the whole directory is 532 and 55. All four
+ * reach `lib/admin/loadAppEvents.ts`, and every violation unbounded depth adds
+ * sits in a module whose only `app/` importers are under `app/api/**` or a cron
+ * path -- none is awaited by a render.
+ *
+ * Type-only edges are excluded: an `import type` declaration, and a named group
+ * whose every specifier is type-only with no default and no namespace binding,
+ * are erased at build and carry no render.
+ */
+export function deriveImportedLibFiles(rootFiles: string[]): string[] {
+  const project = new Project({
+    compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+    skipAddingFilesFromTsConfig: true,
+  });
+  const found = new Set<string>();
+
+  for (const path of rootFiles) {
+    const source = project.getSourceFile(path) ?? project.addSourceFileAtPath(path);
+    const specifiers: string[] = [];
+
+    for (const declaration of source.getImportDeclarations()) {
+      const named = declaration.getNamedImports();
+      const typeOnly =
+        declaration.isTypeOnly() ||
+        (named.length > 0 &&
+          named.every((specifier) => specifier.isTypeOnly()) &&
+          !declaration.getDefaultImport() &&
+          !declaration.getNamespaceImport());
+      if (!typeOnly) specifiers.push(declaration.getModuleSpecifierValue());
+    }
+    for (const declaration of source.getExportDeclarations()) {
+      const specifier = declaration.getModuleSpecifierValue();
+      if (specifier !== undefined && !declaration.isTypeOnly()) specifiers.push(specifier);
+    }
+
+    for (const specifier of specifiers) {
+      const target = resolveSpecifier(source, specifier);
+      if (target === null) continue;
+      const path = target.getFilePath();
+      if (relative(process.cwd(), path).startsWith("lib/")) found.add(path);
+    }
+  }
+
+  return [...found].sort();
 }

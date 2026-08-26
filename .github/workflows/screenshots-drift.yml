@@ -1,5 +1,58 @@
 name: Screenshots drift
 
+# RUNNER POPULATION COMPARISON, 2026-08-25 (fix/screenshots-drift-residue).
+#
+# BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED scheduled a comparison between
+# a reproducing run and a non-reproducing one. Eight evidence records were
+# collected inside their 7-day window: six `pull_request` and two
+# `workflow_dispatch`, against the row's minimum of four with at least two per
+# trigger. Result, as numbers:
+#
+#   * 4 distinct `cpuModel` values across the 8 runs. `runnerArch` X64,
+#     `runnerOs` Linux and `cpuCount` 4 on every one; 8 distinct `runnerName`.
+#   * `dashboard-overview/light` -- the identity that drifted on 2026-08-18 --
+#     holds ONE `pixelSha256` on all 8 records, across all four CPU models AND
+#     both triggers. Seven other identities are likewise single-valued.
+#   * The six `crew-preview-*` identities hold two values, and the split is by
+#     HEAD BRANCH, not by runner: both minority records are
+#     `feat/ui-polish-class-sweep`, which changed crew rendering and updated its
+#     own baselines. Two CPU models appear on BOTH sides of that split, so the
+#     runner reading is refuted for this split on independent pairs.
+#   * Zero identities where `pixelSha256` moved while the source tree held
+#     still, and zero where `webpSha256` moved without it.
+#
+# CONCLUSION, and it is a DECLINE rather than a clearance. Not one of the eight
+# reproduces the drift, so eight passing runs are not evidence about a failure
+# none of them contains, and the comparison the row actually schedules cannot be
+# built out of passing runs alone. The runner reading is UNTESTED, not negative.
+# The same correction applies to the row's trigger hypothesis: two dispatch
+# records agreeing with six PR records does not refute "the trigger is the
+# difference", because neither trigger reproduced the failure here.
+#
+# So the pin is extended to NOTHING. Byte equality has held across the four
+# `cpuModel` values these eight runs drew; nothing in the records names
+# `cpuModel` as the variable, and GitHub-hosted runners expose no CPU selection
+# in any case. The 2026-08-18 drift stays unexplained on every axis this arc
+# could read. No screenshots repair is opened and no perceptual-tolerance
+# comparator is built, per the row's own scope decision.
+#
+# RE-FILE TRIGGER: the next failure of the `Check screenshot drift` STEP
+# specifically -- not any red run of this job. The distinction is load-bearing
+# and was caught in review: Supabase startup, the capture itself and the
+# evidence verification can each fail independently, and none of those leaves a
+# reproducing sample. Only the drift step fails BECAUSE a captured identity's
+# bytes differ from the committed baseline. The evidence record uploads on both
+# outcomes, so THAT run's record is the reproducing sample the population lacks.
+# Compare it against the per-run table and the question becomes testable for the
+# first time.
+#
+# The per-run table (run id, trigger, `runnerName`, `cpuModel`, and both
+# identities' hashes) is in section 1.5 of
+# docs/superpowers/specs/ci/2026-08-25-drift-residue-design.md. It lives there
+# rather than here because `retention-days: 7` below expires the artifacts and
+# the evidence record is never committed -- within a week that table is the only
+# surviving association between a runner and a hash.
+
 on:
   # Per-PR, run only when a render input could have changed — this job boots
   # Supabase + a Docker Playwright image (~280s), so firing it on PRs that touch

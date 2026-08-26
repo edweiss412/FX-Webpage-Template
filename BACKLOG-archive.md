@@ -98,6 +98,102 @@ rather than attempting a fifth widening of a grep.
 
 **Two guards were strengthened on the way, both found by review probes rather than by the arc.** The fixture `shows` writes moved onto the per-show advisory lock (invariant 2) with an executable proof, after a probe showed `walker-routes` is equally green with the lock deleted; that proof went through three shapes before landing on one with no recognizer at all — it drives the real callers through an injected spawn and compares emitted SQL. And the lifecycle execution oracle's case identity gained the enclosing describe path, closing a collapse that let a partially dark parameterized run report its floor.
 
+## BL-SERVER-TIME-GUARD-EXCLUDES-LIB — the server-time guard's population never walked `lib/` — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** M · **Severity (as filed):** LOW · **Class:** guard fidelity · **Facing:** process · **Shipped by:** `fix/screenshots-drift-residue`
+
+**Resolution — the population grows by RENDER REACHABILITY, not by directory.** `discoverScanRoots()` seeded
+`components` plus manifest-derived `app/<segment>` roots, so `lib/**` was never walked and
+`lib/admin/loadAppEvents.ts:45` was a live unwaived survivor the guard reported clean over. The population is
+now that root walk PLUS every `lib/**` module those files import DIRECTLY at runtime, resolved through
+`resolveSpecifier`, which already existed for the render-fault scanner and was exported rather than rebuilt.
+
+**The numbers that chose depth 1**, all measured under the guard's own filters (comments stripped,
+`lib/time/now.ts` self-exempt, `"use client"` skipped, per-line waivers honoured): **depth 1 is 211 modules
+and 13 violations**, depth 2 is 319 and 22, unbounded is 396 and 31, and the whole directory is 532 and 55.
+All four reach the survivor. Probed: every violation unbounded depth adds sits in a module whose only `app/`
+importers are under `app/api/**` or a cron path, so depth 1 loses no render-side survivor while the naive
+widening would have been a 55-line waiver-writing exercise.
+
+**One repair, twelve waivers.** `lib/admin/loadAppEvents.ts:45` is REPAIRED, not waived: `/admin/dev/telemetry`
+awaits it during SSR and that page already reads its instant through `lib/time/now.ts`. The twelve are bound
+to their site AND their reason family by a registry, because a bare count of 12 passes when a contributor
+repairs some other violation and waives the survivor instead — the exact outcome this row existed to prevent.
+
+**`resolveSpecifier` gained the two directory-index forms**, without which five live imports of `@/lib/log`
+and `@/lib/parser` miss and the population is 209 — a clean run over a smaller population rather than a
+failure. The scanner's candidate SET is pinned by a digest over sorted `file:line:form:marked`, not merely its count of 35, so a change that adds one candidate and drops another cannot pass unnoticed.
+
+**Documented limit.** The guard's roots are `components/**` and `app/admin/**`; every manifest route is under
+`/admin`, so `app/show` and `app/me` are outside the population. Probed at close: zero live time calls under
+either. Re-file trigger: a live time call under either root, or a manifest route outside `/admin`.
+
+## BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY — the marking scanner's ternary arm drops what its if-arm reports — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM · **Class:** guard fidelity · **Facing:** process · **Shipped by:** `fix/screenshots-drift-residue`
+
+**Resolution, in two halves: the asymmetry is DECLINED, and the registry's honesty is REPAIRED.**
+
+**The decline, and the measurement that forced it.** Re-probed on the live tree: **719** JSX-in-`whenTrue`
+ternaries under the derived roots, **79** unclassifiable on a fault-vocabulary guard, and **70 of those 79 in
+`"use client"` files** — interaction state (`errorCode`, `state.kind === "error"`, `persistFailed`), not a
+server-render fault, and this instrument captures server-rendered output. Of the nine in server components,
+four are emptiness checks and two were already registered, so the fallback would have bought roughly three
+new sites for 79 hand-written reasons. That answers the question this row left open: **the vocabulary probe is
+the wrong filter on this arm.** The arm keeps its bare `continue`, and the limit is recorded at the arm, in
+the registry docblock, and in the coverage limit of the 2026-08-22 design.
+
+**Re-file trigger, computed rather than promised:** the count of server-component ternaries that are
+unclassifiable, fault-vocabulary AND unregistered rises above **7**, its resting value today. The suite
+asserts that bound, re-derives 719 and 79 and compares them to the arm's own comment, and pins each
+registered site as still unreached — so these figures cannot go stale silently, which is how the previous
+pair (714 and 91) did in eight days.
+
+**The registry was the actual defect.** `FLAG_RESIDUE` was named for one cause while four of its seven rows
+had three others. It is now `UNREACHED_RESIDUE`, keyed `file:line:flag`, each entry declaring one of two
+causes that ONE derivation function computes from the node at that line — so **the count of entries whose
+stated cause is false is 0, computed rather than promised.** Two causes and not three: which arm holds the
+fault is not decidable without a fault oracle the scanner does not have, so it stays in prose. Both conjuncts
+of `unreached-no-ternary` are pinned by their own control and no control iterates a hand-written list: two
+derive from `scanCandidates()`, and the no-ternary control derives from the registry's own keys filtered by
+the AST, since a ternary entry is by definition not a candidate. Deleting either conjunct fails. Coordinates are verified per cause and each half asserts uniqueness in the file.
+
+**The prior design's four normative coverage claims were false at HEAD** once the decline was ratified — a
+ternary whose `whenTrue` is JSX directly returns JSX and is reachable from the manifest. Each is now
+qualified to the three arms that report.
+
+## BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED — one `dashboard-overview-light.webp` byte drift, population comparison executed and returning UNTESTED — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** M · **Severity (as filed):** LOW · **Class:** CI-INFRA · **Facing:** process · **Shipped by:** `fix/screenshots-drift-residue`
+
+**Resolution — the comparison was EXECUTED, and its outcome is a decline rather than an answer.** Eight
+evidence records were collected inside their retention window: **six `pull_request` and two
+`workflow_dispatch`**, against this row's minimum of four with at least two per trigger.
+
+**The numbers.** **4 distinct `cpuModel` values** across the eight; `runnerArch` X64, `runnerOs` Linux and
+`cpuCount` 4 on every one; eight distinct `runnerName`. `dashboard-overview/light` — the identity that drifted
+— holds **ONE `pixelSha256` on all eight**, across all four CPU models AND both triggers, and seven other
+identities are likewise single-valued. The six `crew-preview-*` identities hold two values and the split is by
+**head branch**, not by runner: both minority records are `feat/ui-polish-class-sweep`, which changed crew
+rendering and updated its own baselines, and two CPU models appear on BOTH sides of that split. Zero
+identities moved `pixelSha256` while the source tree held still.
+
+**What the eight records CANNOT settle, which is the point.** Not one reproduces the drift, so eight passing
+runs are not evidence about a failure none of them contains, and the comparison this row actually schedules —
+a reproducing run against a non-reproducing one — cannot be built out of passing runs alone. **The runner
+reading is UNTESTED, not negative.** The same correction applies to this row's trigger hypothesis: two
+dispatch records agreeing with six PR records does not refute "the trigger is the difference", because
+neither trigger reproduced the failure. The mis-sample criticism of the old 0/9 probe stands; the variable it
+named is untested.
+
+**The pin is extended to nothing**, no repair is opened and no perceptual-tolerance comparator is built, per
+this row's own scope decision. **Re-file trigger: the next failure of the `Check screenshot drift` STEP**, whose
+uploaded record is the reproducing sample the population lacks. Not any red run of the job — Supabase
+startup, capture and evidence verification each fail independently and leave no such sample. The full per-run table is in section 1.5 of
+`docs/superpowers/specs/ci/2026-08-25-drift-residue-design.md`, because `retention-days: 7` expires the
+artifacts and the evidence record is never committed — within a week that table is the only surviving
+association between a runner and a hash.
+
 ## BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND — the brace walk counts its own delimiter pair without respecting other constructs, so a `}` inside a nested `$()` closes the `${` early — CLOSED 2026-08-25
 
 **Status:** SHIPPED 2026-08-25 · **Effort (as shipped):** L · **Severity (as filed):** MEDIUM · **Class:** detector fidelity · **Facing:** process · **Shipped by:** `fix/shell-brace-cross-construct`
