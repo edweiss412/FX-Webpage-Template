@@ -470,13 +470,15 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
         return r;
       };
     });
-    // 390x460, NOT 390x560, and the height is DERIVED (spec
+    // 390x460, NOT 390x560, and the height is MEASURED (spec
     // docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md §4).
     // The premise below needs the URL row to sit fully above the scroll range, i.e.
     // `maxScrollTop > rowBottom`. `rowBottom` is 127, set by the copy and untouched by the
     // dock. Docking ShareHub's trigger to the panel floor moved the popover to the `top`
-    // side, where the room is `0.85*vh - 70` against a body capped at `min(0.7*vh, 480)` —
-    // so the taller the viewport, the LESS the popover overflows. Measured maxScrollTop:
+    // side, where the room grows with viewport height faster than the capped body does,
+    // so the taller the viewport, the LESS the popover overflows. That trend is a fitted
+    // observation rather than an identity, so the height is picked from the MEASUREMENTS
+    // and not computed from it. Measured maxScrollTop:
     // 97 at 560 (the premise cannot hold), 168 at 460, 201 at 420. 460 is the tallest
     // swept height that clears 127, so it keeps the most of the original phone framing
     // while restoring a premise that can actually hold.
@@ -668,6 +670,16 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       const idle = await measure();
       expect(idle, `390x${height}: idle measurement returned null`).not.toBeNull();
       expect(idle!.side, `390x${height}: the module placed the idle popover`).not.toBeNull();
+      // The IDLE cell gets the whole §3 contract too, not merely "a side
+      // exists". Round-3 review: without this, idle/capped and idle/uncapped
+      // are cells the Transition Inventory claims and no assertion owns.
+      expect(idle!.gapToTrigger, `390x${height}: idle GAP is wrong`).toBeCloseTo(6, 0);
+      expect(
+        idle!.inlineMaxHeight !== "",
+        `390x${height}: idle cap must be written iff the room is short`,
+      ).toBe(idle!.roomOnChosenSide < idle!.natural);
+      expect(idle!.bodyTop).toBeGreaterThanOrEqual(idle!.boundsTop - TOL);
+      expect(idle!.bodyBottom).toBeLessThanOrEqual(idle!.boundsBottom + TOL);
 
       // Arm, then retry the whole measurement: the re-placement is an async
       // effect DOWNSTREAM of the growth, so confirm-button visibility is not the
@@ -701,6 +713,26 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
 
       const armed = await measure();
       if (armed && armed.boxHeight > idle!.boxHeight + TOL) grewSomewhere = true;
+
+      // THE SHRINK DIRECTION. Cancel is reachable (ArchiveShowButton.tsx:336)
+      // and takes the body back from 476/480 to 471,
+      // so at 680 and 844 the box SHRINKS. A placement that does not re-run then
+      // keeps its old `y` and the gap OPENS instead of closing — 11px at 680 and
+      // 15px at 844 — which every assertion above is blind to, because they all
+      // ran while the body was still large. Round-3 review: an ordinary edit that
+      // schedules the body observer only when `scrollHeight` INCREASES passes
+      // both the arming leg and T-TRANSITION while breaking exactly this path.
+      await popover.getByTestId("archive-show-cancel-button").click();
+      await expect(async () => {
+        const c = await measure();
+        expect(c, `390x${height}: no cancel measurement`).not.toBeNull();
+        expect(c!.scrollHeight, `390x${height}: cancel did not shrink`).toBeLessThan(
+          armed!.scrollHeight,
+        );
+        expect(c!.gapToTrigger, `390x${height}: stale after cancel, GAP opened`).toBeCloseTo(6, 0);
+        expect(c!.bodyTop).toBeGreaterThanOrEqual(c!.boundsTop - TOL);
+        expect(c!.bodyBottom).toBeLessThanOrEqual(c!.boundsBottom + TOL);
+      }).toPass({ timeout: 15_000 });
       // Park on a blank document between rungs. This loop reuses ONE page across
       // four navigations to the SAME url, and the admin surface performs its own
       // client-side navigation on mount — which collides with the next rung's

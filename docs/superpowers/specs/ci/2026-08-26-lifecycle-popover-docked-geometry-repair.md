@@ -81,8 +81,8 @@ expect the state either. Every assertion in §4 is written against the module's 
 than against this arithmetic, precisely so that a wrong extrapolation costs a paragraph and not a
 gate.
 
-**What Consequence A does NOT say, and the correction it forced.** It shows the growth cannot change
-the chosen SIDE and cannot introduce a CAP. It does not show that re-placement is unnecessary, and
+**What Consequence A does NOT say, and the correction it forced.** At the measured heights the growth
+does not change the chosen SIDE and does not introduce a CAP. It does not show that re-placement is unnecessary, and
 that reading would be wrong. `lib/popover/position.ts:135` places a `top` body at
 `y = trigger.top - GAP - effectiveHeight`. The coordinate is a function of the height, so a body that
 grows from 471 to 480 without re-placing keeps its old `y` and its bottom moves from `trigger.top - 6`
@@ -131,15 +131,19 @@ Each is re-derived from §2, and each was proved to still fail by planting a def
   regression reproduced.
 
 - **`tests/e2e/admin-lifecycle-layout.spec.ts:558`, T-REGROW.** The selection ladder is removed,
-  because the state it hunted is not reachable in the measured domain (§2 Consequence A) and
-  re-tuning its three rungs would only move them somewhere that also cannot satisfy the predicate.
+  because the state it hunted occurs at no measured height (§2 Consequence A) and re-tuning its three
+  rungs would only move them somewhere the measurements give no reason to expect it either.
   What replaces it is stronger than what it replaced: the ladder found ONE height and asserted
   containment, whereas the case now asserts the full §3 contract at four heights spanning both
   regimes — 420 (capped) and 560, 680, 844 (uncapped) — with the `GAP` assertion of §3 point 2 as the
   witness that placement re-ran. That witness is load-bearing at 680 and 844 ONLY: at 420 and 560 the
   cap holds the idle and armed boxes at one size, so a missing re-place would not move the gap. Those
   two rungs are carried for clause 3 of §3, the branch they do exercise. The negative control below
-  fails at 390x680 and not before it, which is that split measured rather than asserted. A sweep-level anti-vacuity check requires at least one swept height
+  fails at 390x680 and not before it, which is that split measured rather than asserted.
+  The case also CANCELS at each height, because the box shrinking back to 471 is the mirror defect:
+  a stale placement then OPENS the gap instead of closing it, and every assertion in the arming leg
+  ran while the body was still large. An ordinary edit that schedules the body observer only when
+  `scrollHeight` INCREASES passes the arming leg and T-TRANSITION and breaks only this one. A sweep-level anti-vacuity check requires at least one swept height
   to actually grow the body's BOX, so the case cannot quietly stop exercising re-placement.
   No premise asserts that a regime is reachable: a panel change that moves a height into the capped
   regime is HANDLED by the contract rather than falsifying an assumption.
@@ -173,11 +177,32 @@ or **capped** (it does not).
 | uncapped → capped, by resize | a cap appears and equals the new room | the popover transitions; the case settles on the computed style holding still across two frames | T-TRANSITION, 844 → 420 |
 | capped → uncapped, by resize | the cap is CLEARED through a different branch — `body.style.removeProperty("max-height")`, `ShareHub.tsx:354` — than the one that writes it | as above, same settle | T-TRANSITION, 420 → 844 back |
 | armed, viewport resize while armed | the armed confirm must survive without remounting | as above | T-TRANSITION asserts the confirm node identity across the move |
+| armed → idle, box shrinks | Cancel (`ArchiveShowButton.tsx:336`) returns the body to 471, so `y` must be recomputed or the `GAP` OPENS — 11px at 680, 15px at 844 | instant — no animation | T-REGROW's cancel leg at every swept height; load-bearing at 680 and 844 |
+| idle, at rest | the placement must already satisfy all three clauses of §3 before anything is armed | not a move | T-REGROW asserts the full contract on the idle measurement at all four heights |
 
-The compound case — a viewport resize landing WHILE the body is mid-growth — is deliberately not
-constructed. Both signals converge on the same `schedule()` through one rAF coalescer
-(`lib/popover/rafCoalescer.ts`), so the two orders produce one placement pass, and every assertion
-above is on the settled result rather than on an intermediate frame.
+**One cell is deliberately unowned, and it is named rather than absorbed.** An idle popover resized
+across the cap boundary — capped ↔ uncapped while NOT armed — has no case. What that sequence would
+execute is the same pair of branches the armed resize already drives: `applyPlacement` writes
+`body.style.maxHeight` or calls `removeProperty("max-height")` (`ShareHub.tsx:353-354`) and does not
+branch on armed-ness anywhere. So the BRANCHES are covered and the SEQUENCE is not. That distinction
+is the one this spec got wrong once already — the clear branch was excused as "the same code path"
+when in fact no case executed it at all — so it is stated as a limit with the line numbers that make
+it checkable, not as an equivalence.
+
+The compound case — a viewport resize landing WHILE the body is mid-growth — is not constructed, and
+the reason first written here was wrong. It claimed both signals collapse into ONE placement pass
+because they share a coalescer. They do share one (`lib/popover/rafCoalescer.ts`), but it clears its
+pending flag BEFORE running (`rafCoalescer.ts:21`) precisely so a signal arriving during the pass
+schedules another frame, and its unit test pins two registrations for that order. So the compound case
+produces one pass or two, depending on timing.
+
+The reason it is still not constructed is different and does not depend on the count. Each pass places
+from the CURRENT measured geometry — `applyPlacement` reads live rects rather than applying a queued
+delta — so one pass and two passes land on the same answer, the one the final geometry implies. Every
+assertion in the table above is on the settled result, and the settle predicates wait for the computed
+style to hold still across two frames, which a second pass would disturb and therefore extend rather
+than escape. What is genuinely untested is an intermediate frame, and the contract makes no claim
+about intermediate frames.
 
 ## 5. Resolved scope — do not relitigate
 
