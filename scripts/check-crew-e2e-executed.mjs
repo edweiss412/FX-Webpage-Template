@@ -73,13 +73,20 @@ export const REQUIRED = {
   // wiring guard derives this same number from live per-project resolution minus
   // its PROJECT_GATED registry — it is not trusted as a literal here.
   "theme-toggle.spec.ts": 9,
-  // 4 — the persist-failure geometry matrix: two consumers (help header, admin
-  // nav cluster) x two claims (viewport containment of the anchored bubble, and
-  // the wrapper box still equal to the button box). desktop-chromium ALONE,
-  // which is the spec's only project: the containment cases size the viewport
-  // in-test, so a second project would re-run an identical assertion rather than
-  // add cover. The wiring guard re-derives this from live per-project resolution.
-  "theme-persistence-note.spec.ts": 4,
+  // 5 — REWRITTEN 2026-08-26 when the persist-failure note was removed by product
+  // ruling (spec 2026-08-15-theme-persistence-note-design §2.2, "Amendment,
+  // 2026-08-26"). It was 4: two consumers x two claims about a bubble and the
+  // wrapper anchoring it, both of which are now deleted. It is now two consumers
+  // (help header, admin nav cluster) x two claims (a blocked write applies the
+  // theme and renders no note; the toggle keeps its 44px target and its row at
+  // 320px), plus one help-header case that the trailing "Back to admin" link
+  // still sits clear of the toggle. That last one is the wrapper-removal
+  // regression check: the toggle became a direct flex child of a
+  // width-engineered row. desktop-chromium ALONE, which is the spec's only
+  // project: the cases size the viewport in-test, so a second project would
+  // re-run an identical assertion rather than add cover. The wiring guard
+  // re-derives this from live per-project resolution.
+  "theme-persistence-note.spec.ts": 5,
   // ── wired 2026-08-10 by M-wave 2 W-E2E (BL-RIGHTNOW-SECTION57-FIXTURE-INERT +
   // BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER) ────────────────────────
   // 3 = the §5.7 anchor pair (Day-1 anchor, midnight rollover) + the restricted-

@@ -32,6 +32,8 @@ When `localStorage.setItem` throws (restrictive in-app browser, private mode, th
 
 ### §2.1 Hook state (the one shared seam)
 
+**RETIRED 2026-08-26 (§2.2 amendment).** The hook carries no persist-failure state at all now; `setTheme` keeps the try/catch absorb and nothing else. Everything in this section is the record of what the flag did while it existed. Original text follows.
+
 `useAppliedTheme` gains `persistFailed: boolean` on its returned object (both variants of `AppliedTheme`; `false` in the unmounted variant). Mechanics in `setTheme`:
 
 - try `setItem` succeeds: state becomes `{ mounted: true, theme: next, persistFailed: false }` — a later successful write CLEARS a previous failure (storage can come back; a stale warning would then lie).

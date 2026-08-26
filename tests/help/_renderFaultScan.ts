@@ -759,7 +759,7 @@ export function scanCandidates(): Candidate[] {
       // Probed: 719 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 70 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
-      // `state.kind === "error"`, `persistFailed` -- and not a server-render
+      // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
       // fault. The screenshot harness captures server-rendered output, so a
       // client error toast is a different population from the one this
       // instrument measures. Nine are in server components, of which four are
