@@ -1,14 +1,93 @@
-# Review-modal StatusStrip dock + upward refusal banner
+# Review-modal StatusStrip dock, header bound, and upward refusal banner
 
 **Row:** `BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED` (`BACKLOG.md`, effort M, filed 2026-08-02).
 **Branch:** `feat/review-modal-strip-dock`. **Decision:** Option A, ratified by Eric 2026-08-25.
 **Facing:** product.
 
-The published review modal's control strip sits in a band directly under the identity header. At
-375x667 that band scrolls out of the panel's clip window entirely, so the Published switch, the
-Re-sync trigger and the share hub are unreachable on the tightest phone the app supports. This
-spec docks the strip to the bottom of the panel, scrolls the change list above it, and gives the
-publish refusal banner an upward arm so it stays readable once its anchor is at the panel floor.
+The published review modal's control strip sits in a band directly under the identity header. This
+spec docks it to the bottom of the panel, scrolls the change list above it, and gives the publish
+refusal banner an upward arm so it stays readable once its anchor is at the panel floor.
+
+**Read §0 before anything else.** The pre-spec measurement refutes the premise the row was filed on,
+and it changes what this spec may claim. Nothing below assumes the strip is unreachable in the
+ordinary state, because it is not.
+
+---
+
+## §0 Pre-spec measurement, and what it refutes
+
+Run 2026-08-25 against the live hydrated harness (`tests/e2e/_pillFocusLiveEntry.tsx` mounting the
+REAL `PublishedReviewModal` through `tests/e2e/_publishedReviewModalHarness.tsx`), in Chromium under
+real compiled Tailwind, reduced motion, viewport 375x667. Measured with `getBoundingClientRect()`.
+This is the empirical spike `docs/agents/spec-self-review.md` requires before speccing a layout /
+lifecycle surface, and it earned its cost immediately.
+
+Panel: top `100.0625`, bottom `667`, height `566.9375`, `clientHeight` 567, overflow `clip/clip`.
+
+| attention items | menu | header h | strip rect | body h | publish switch |
+|---|---|---|---|---|---|
+| 0 | closed | `164.1875` | `316.25 .. 514.25` | `143.75` | reachable, `348.25 .. 392.25` |
+| 2 | open | `164.1875` | `316.25 .. 514.25` | `143.75` | reachable, `348.25 .. 392.25` |
+| 30 (10/10/10) | open | `560.96875` | `713.03125 .. 911.03125` | `0` | NOT reachable, `745.03 .. 789.03` |
+
+Column sum at 0 items: `44 + 164.1875 + 215 + 143.75 = 566.9375` — exactly the panel height, so the
+column is intact and nothing overflows.
+
+**What this refutes.** `BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED` records the strip at
+`713.03..911.03` against a panel bottom of `667`, room `-257px`, and asks whether that is "an
+unrepresentative fixture or a real responsive defect". It reproduces EXACTLY — and only in the third
+row. At a realistic attention load the strip is fully inside the clip window and the Published switch
+is already reachable at 375x667 today. The row's figure was taken with the attention menu open on a
+30-item stress fixture.
+
+**What causes the third row, and it is not the strip.** The shell header is
+`flex shrink-0 items-start gap-3` (`components/admin/review/ReviewModalShell.tsx:672`) holding a
+`min-w-0 flex-1` text block and a `shrink-0` action cluster
+(`components/admin/showpage/PublishedReviewModal.tsx:902` and
+`components/admin/showpage/PublishedReviewModal.tsx:952`). A composite attention pill
+widens the `shrink-0` cluster, which squeezes the `flex-1` title block at 375px: the `h2` wraps from
+`54` to `324` and the subline from `83` to `210`, so the header reaches `561` inside a `567` panel
+and everything below it is pushed out of the `overflow-clip` window. The modal's own comment predicts
+this class and caps the count at 99+ (`components/admin/showpage/PublishedReviewModal.tsx:1000`) —
+which caps digits, not segments.
+
+**What that means for the dock, stated rather than buried.** Docking does NOT by itself make the
+switch reachable in the 30-item state. Header `561` plus a docked footer of roughly `222` is `783`
+against a `567` panel, and both are `shrink-0`, so the column overflows and the footer is pushed out
+exactly as the band is today. The dock's honest, measured benefits are different ones and this spec
+claims only those:
+
+1. **Ordering.** The controls become the last thing in the column instead of the third, so chrome
+   growth above them pushes the SCROLL REGION, which can absorb it, rather than the controls, which
+   cannot. That is a real structural improvement even while an unbounded header can still defeat it.
+2. **Reach.** Bottom-docked controls are thumb-reachable on a phone; the band at `316..514` on a
+   667px screen is not, in the one-handed posture Doug actually uses on a venue floor.
+3. **A measurable anchor.** The refusal banner finally gets a real-surface room number, which is the
+   row's actual obligation.
+
+**The header bound is IN SCOPE, by orchestrator ruling.** This spec's first draft proposed deferring
+it to a sibling arc under class-sweep exception (c). bl-orch overruled that on 2026-08-25 and the
+ruling is recorded here so it is not relitigated in either direction:
+
+> SCOPE CALL: B. Eric's ratified decision is 'reachable on every phone'; your spike shows the dock
+> alone does not deliver it at 30 items, so the header bound is part of the same deliverable, not
+> another instance of a shape. Constrain it: bound the shrink-0 action cluster (composite pill) so
+> the title never wraps past two lines at 375px, or let the title truncate; do not restructure the
+> shell. Reviewers get the shell contract tests in scope explicitly. Assert the measurement across
+> item counts (0, 2, 30) so the stress state and the ordinary state are both pinned.
+
+The reasoning that settles it: the deliverable is the GOAL Eric ratified, not the mechanism named
+alongside it, and a dock that is pushed out of the panel by the header delivers no goal at all. §3.0
+is the bound, constrained exactly as the ruling constrains it. It is product-facing (a header that
+hides the publish switch is something an admin sees), so the 2026-08-25 process mint freeze is not
+in play.
+
+**Probe hygiene.** The probe was a temporary `test.describe` appended to
+`tests/e2e/popover-clip-fit.spec.ts`, run through its existing boot so it measured the same served
+page the census does, then reverted — it is not part of the diff. It varied ONE dimension (item
+count) across three values and read the header's subtree rather than only the strip, which is what
+separated the two candidate causes; a probe that sampled the 30-item state alone would have
+reproduced the row's number and confirmed the wrong diagnosis.
 
 ---
 
@@ -66,6 +145,11 @@ Each item carries its ratification. Verify the citation; do not re-derive the de
    when nothing clips, and it is exercised end to end by the replica entry
    (`tests/e2e/_publishedToggleClipLiveEntry.tsx`), which is where T4's four down-direction
    obligations live.
+
+7. **The header bound ships in this arc.** bl-orch's 2026-08-25 SCOPE CALL B, quoted in full in §0.
+   The deferral this spec originally proposed is superseded. Equally not relitigable in the other
+   direction: the bound is the two changes in §3.0 and nothing more — no shell restructuring, no cap
+   on item counts, no pill copy change, no hidden segment.
 
 ### §1.2 Concurrency fence (not a design decision — a coordination constraint)
 
@@ -264,6 +348,76 @@ at `tests/e2e/_publishedReviewModalHarness.tsx:375`. `_pillFocusLiveEntry.tsx:11
 
 ## §3 The change
 
+### §3.0 Bound the header so the dock can hold
+
+The dock is only as good as the column it sits in. §0 measures the column failing at 30 items because
+one `shrink-0` child grows without limit; a `shrink-0` footer under an unbounded `shrink-0` header is
+pushed out exactly as the band is. So the bound ships with the dock, in the order cause-then-effect.
+
+**Bound the cause, not each symptom.** Both measured symptoms — the `h2` at `324` and the subline at
+`210` — have ONE cause: the `shrink-0` action cluster takes whatever width it wants, and the
+`min-w-0 flex-1` text block gets the remainder. At 30 items the pill reads
+`10 issues · 20 monitoring`, the cluster reaches roughly `242` of the header's `335` content width,
+and the title column is starved to roughly `81`. Clamping the title alone would leave the subline
+starved; capping the cluster fixes both, because both are downstream of the same width.
+
+**The change, in three parts, applied as one set.** None restructures the shell, per the ruling.
+
+1. **Cap the action cluster below `sm`.** `components/admin/showpage/PublishedReviewModal.tsx:952`
+   becomes `flex shrink-0 items-center gap-2 max-sm:max-w-40` (`max-w-40` = `10rem` = `160px`; the
+   constant is derived below, not chosen).
+2. **Let the pill wrap inside that cap.** The pill gains `min-w-0` and `flex-wrap` below `sm`, so its
+   content reflows onto a second line instead of overflowing the capped cluster. **No copy is cut,
+   no segment is hidden and nothing ellipsises** — measured, see the sweep.
+3. **Clamp the title to two lines below `sm`.** The `h2`'s inner span
+   (`components/admin/showpage/PublishedReviewModal.tsx:913`) gains `max-sm:line-clamp-2`. This is
+   the guarantee the ruling names in as many words. It is belt-and-braces, not redundant: parts 1-2
+   bound the width the title has to work with, part 3 bounds the height it may take whatever that
+   width turns out to be. `line-clamp` is visual only — the full text stays in the accessibility
+   tree, so `aria-labelledby={h2Id}` still names the dialog with the complete title.
+
+**The cap is MEASURED. Sweep run 2026-08-25, same harness and viewport as §0**, applying all three
+parts in-page and reading `getBoundingClientRect()`. `headerH` is the number that matters; the
+0-item baseline is `164.19`.
+
+| cap | items 0 | items 2 | items 30 | pill height @30 | any truncation |
+|---|---|---|---|---|---|
+| none (today) | `164.19` | `164.19` | **`560.97`, strip and switch OUTSIDE the panel** | `24.8` | no |
+| `96` | **`143.89`** | **`143.89`** | `143.89` | `105.19` | no |
+| `112` | `164.19` | `164.19` | `164.19` | `105.19` | no |
+| `128` | `164.19` | `164.19` | `164.19` | `105.19` | no |
+| `144` | `164.19` | `164.19` | `164.19` | `105.19` | no |
+| **`160`** | **`164.19`** | **`164.19`** | **`164.19`** | `65.59` | no |
+| `176` | `164.19` | `164.19` | `164.19` | `65.59` | no |
+| `192` | `164.19` | `164.19` | **`184.48`** | `47.59` | no |
+
+At every capped row the strip's rect and the publish switch's rect lie inside the panel; at the
+uncapped row both lie outside. `96` is rejected even though it "passes" the containment check: it
+changes the 0-item header height, i.e. it alters the ordinary state to fix the stress state.
+
+**Why `160` and not the largest passing value.** `176` is the largest cap that holds and `192` is the
+first that fails, so `176` sits on its own boundary — a font-metric shift or one more pill segment
+walks it over. `160` is one step below, leaving `32px` of margin to the failure point, and it still
+clears the 2-item cluster's natural width of `147.73`, so no realistic attention load is affected at
+all: at 0 and 2 items the cluster measures `125.38` and `147.73`, both under the cap, and the rendered
+header is byte-identical to today. **The cap engages only in the stress state it exists for.**
+
+**What is doing the work, since the sweep applied three changes together.** The cap and the pill wrap.
+At `160`/30 items the header is `164.19`, which is exactly the 0-item height where the title renders
+on ONE line — so `line-clamp-2` cannot be contributing, because clamping a one-line title is a no-op.
+The clamp is a guarantee against a title longer than the fixture's, which is
+`"Published Modal Layout Fixture"` (`tests/e2e/_publishedReviewModalHarness.tsx:94`, 30 characters);
+real `II -` show titles run far longer, and §7 exercises the saturated-title fixture for exactly that
+reason. Stated plainly so a reviewer does not have to infer it: **the clamp does not engage at the
+measured loads, and it is kept anyway.**
+
+The cap lives in ONE place. `max-sm:max-w-40` is the Tailwind spelling; the sweep test derives its
+expectation from the rendered cluster width rather than repeating `160`, so the two cannot drift.
+
+**What the bound does not do.** It does not cap the number of attention items, change any pill copy,
+hide any segment, or alter the menu. It does not touch `ReviewModalShell`, so Step 3's header is
+byte-identical — pinned by AC-16.
+
 ### §3.1 Dock target: the shell's existing `footer` slot
 
 `PublishedReviewModal` stops passing `subHeader` and passes `footer` instead. No new shell mechanism
@@ -427,6 +581,11 @@ Pinned by AC-6.
 | AC-11 | `chooseDirection` returns `"down"` for every guard condition in §3.3's table, and `"down"` on an exact tie under the floor. |
 | AC-12 | `rg -n -i 'sticky\s+(status\s?)?strip\|sticky\s+StatusStrip' app components tests lib` returns zero hits, AND all seven sites in §2.3 name the real positioned ancestor, AND the triaged remainder in §2.3 is unchanged. Dated records under `docs/` are out of the sweep by §2.3. |
 | AC-13 | `BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED` is archived with the measured numbers, in the same commit that removes its in-progress marker. |
+| AC-14 | **The item-count sweep.** At 375x667, for attention loads 0 (menu closed), 2 (menu open) and 30 (menu open), the header's height equals its 0-item height within 0.5px, the strip's rect lies entirely inside the panel, and the publish switch's rect lies entirely inside the panel. This is the executable form of "reachable on every supported phone" and it is the arc's central assertion. |
+| AC-15 | At those same three loads the panel column sums to `panel.clientHeight` within 0.5px (grab + header + main + footer in sheet mode), so no child overflows and the body never collapses to 0. |
+| AC-16 | Step 3's modal header is byte-identical: `ReviewModalShell.tsx` is unmodified, and `tests/components/admin/review/reviewModalShell.test.tsx` passes unchanged, including the T-STEP3-INVARIANT cases. |
+| AC-17 | The pill's full copy survives the cap: at 30 items every segment (`10 issues`, the middot, `20 monitoring`) is present in the pill's `textContent`, and no segment carries `display: none` or an ellipsis. The accessible name of the dialog still contains the complete title despite `line-clamp-2`. |
+| AC-18 | The cap is written once, as `max-sm:max-w-40` on the action cluster; the sweep test derives its expectations from measured rects (the cluster's rendered width, the 0-item header height) and never repeats `160` or `164.19` as a literal. |
 
 ---
 
@@ -448,6 +607,9 @@ browser by the AC-2/AC-3/AC-4 Playwright assertions; jsdom computes no layout an
 | StatusStrip root (`flex flex-wrap`) | trailing control (`ml-auto`) | flushes to the footer's content edge | the `w-full` chain above | `StatusStrip.tsx:208-222` |
 | body (`flex min-h-0 flex-1 flex-col lg:flex-row`) | content pane | fills; scrolls | `min-w-0 flex-1 overflow-y-auto` | `ShowReviewSurface.tsx:1028` |
 | `<footer>` (`relative`) | refusal banner (`absolute inset-x-0`) | spans the footer's padding box | `relative` on the footer + `inset-x-0` on the banner | `components/admin/review/ReviewModalShell.tsx:727`, §3.2 |
+| `<header>` (`flex items-start gap-3`) | text block | takes the width the cluster leaves, never less than the header width minus `160px` minus the gap | `min-w-0 flex-1` on the block + `max-sm:max-w-40` on the cluster — **NEW, and it is the header bound** | `components/admin/showpage/PublishedReviewModal.tsx:902`, `components/admin/showpage/PublishedReviewModal.tsx:952`, §3.0 |
+| text block | `h2` inner span | at most two rendered lines below `sm`; full text still in the a11y tree | `max-sm:line-clamp-2` — **NEW** | `components/admin/showpage/PublishedReviewModal.tsx:913`, §3.0 |
+| `<header>` action cluster (`items-center`) | pill | wraps inside the cap instead of overflowing it; at 30 items it measures `65.59` tall, which exceeds the `44px` close button, so the CLUSTER's height is pill-driven in the stress state — it still does not drive the header, because the text block is taller | `min-w-0` + `max-sm:flex-wrap` on the pill, `items-center` on the cluster | §3.0 |
 
 **The load-bearing flip, stated once.** `StatusStrip.tsx:215-222` records that `w-full` is defensive
 "today" and would become load-bearing "the moment the band became a flex container". The footer IS a
@@ -564,7 +726,9 @@ list someone has to keep current:
 | `components/admin/showpage/ShowReviewModalSkeleton.tsx:113-165` | The skeleton passes the band as `subHeader`, with a ≥sm row mirror and a `<sm` stacked mirror, both already `w-full`. | **Move the whole fragment to `footer`**, unchanged in content. It is what keeps skeletonBandParity green. |
 | `tests/e2e/_statusStripToggleHarness.tsx:170-179` (`errorProbeHtml`) | A HAND-ROLLED replica of the banner's `absolute inset-x-0 top-full` geometry — not the real component — backing invariant (d), which measures the real error CONTENT's WIDTH in a width-governing box. | No class change: direction does not affect width, and nothing clips in that harness so the real component would take the down arm there anyway. **Comment updated** to say the replica pins width only and that direction is out of its scope. |
 | `tests/e2e/_shareLinkFlashLiveEntry.tsx:126` | A replica entry mounting the REAL shell with the REAL strip in `subHeader`. Its assertions are about the share-link flash cue's colors, not geometry, but a replica that contradicts production placement is a fixture that will mislead the next reader. | **Repair in this PR** — one prop rename, no assertion change expected. |
-| `tests/components/admin/review/reviewModalShell.test.tsx:169-235, 334-345` | Exercises the `subHeader` slot generically against a test Host, not against `PublishedReviewModal`. | No change. The slot still exists and is still contract-tested. |
+| `tests/components/admin/review/reviewModalShell.test.tsx:169-235, 334-345` | Exercises the `subHeader` slot generically against a test Host, not against `PublishedReviewModal`. **Explicitly in review scope by the §0 ruling**, because the header bound sits one level above shell chrome that Step 3 also mounts. | No change expected, and that expectation is itself the assertion: `ReviewModalShell.tsx` is unmodified, so every case here must pass untouched (AC-16). A change needed here would mean §3.0 restructured the shell, which the ruling forbids. |
+| `tests/components/admin/showpage/publishedReviewModal.test.tsx` header cases | Assert the header's two-child structure, the title/subline content and the pill's four states. | Extended, not rewritten: add the `max-sm` cap and clamp classes to the structural assertions. Content and state assertions unchanged — the bound changes geometry, not copy (AC-17). |
+| `components/admin/wizard/Step3ReviewModal.tsx:521` | The other `ReviewModalShell` consumer, and the only one that already passes `footer`. | Untouched. It is the proof that the footer slot works as a dock before this arc uses it. |
 | The seven stale-anchor sites enumerated in §2.3 | Each asserts the strip is sticky and/or is the banner's positioned ancestor. Both halves are false today and stay false after the dock. | **Repair all six in this PR.** Cover is the §2.3 `rg` returning zero live hits (AC-12), not the table. |
 | `docs/superpowers/plans/admin/2026-07-17-casp2-*.md`, `docs/superpowers/specs/admin/2026-07-17-casp2-*.md` | Same phrase, in dated historical records. | **Deliberately unchanged** (§2.3). |
 | `tests/e2e/statusStripToggleLayout.spec.ts` | Real-browser geometry for the compact inline toggle in the strip; its overhang assertions are about the FINALIZE chip staying in flow, not about the refusal banner's direction. | Comments corrected (site 6 above); assertions unchanged — verify green, do not adjust. |
@@ -608,7 +772,20 @@ consequence bound in §11, these are limits, not findings.
    (`tests/e2e/popover-clip-fit.spec.ts:545`). A viewport outside the declared domain is not a claim
    this spec makes; widening the set is a new measurement, not a finding.
 
-4. **`offsetParent` is the anchor.** The predicate reads `node.offsetParent`, which returns `null`
+4. **The bound is a width cap, not a content policy.** A show whose title is one unbroken 60-character
+   token still produces two clamped lines with the tail visually cut at 375px; `line-clamp` ellipsises
+   rather than reflowing, and the full title remains the dialog's accessible name and is one tap away
+   in the sheet. Capping the item count, shortening titles, or adding a title tooltip are content
+   decisions this arc does not take. **Re-file trigger:** an operator reports a title they cannot read
+   in the modal.
+
+5. **The cap is measured at 375x667 and applies below the `sm` breakpoint.** Between 375 and 640 the
+   cap is the same value, which is conservative at the wide end: at 639px the cluster could safely
+   take more than it is allowed to. The cost is cosmetic (a pill that wraps a line earlier than it
+   must); the alternative is a per-width cap the sweep would have to derive at every width, which
+   buys nothing measurable. Widening it into a `clamp()` is a new measurement, not a finding.
+
+6. **`offsetParent` is the anchor.** The predicate reads `node.offsetParent`, which returns `null`
    inside a `position: fixed` ancestor and for a `display: none` subtree. Both yield the down arm
    with no cap written, which is today's behavior. A `transform`/`filter`/`contain` ancestor between
    the banner and the footer would change the containing block without changing `offsetParent`; none
@@ -618,14 +795,19 @@ consequence bound in §11, these are limits, not findings.
 
 ## §11 Convergence criterion (carried into every review brief)
 
-**Consequence bound.** At every supported viewport the Published switch is reachable, and the refusal
-banner is either fully readable or scrollable within its clip — never silently cut. A conservative
-clamp plus a surfaced dev warning is a documented limit, not a finding.
+**Consequence bound.** At every supported viewport, and at every attention load in the probe domain,
+the Published switch is reachable — its rect lies inside the clipping panel — and the refusal banner
+is either fully readable or scrollable within its clip, never silently cut. A conservative clamp plus
+a surfaced dev warning is a documented limit, not a finding. Visually clamped title text whose full
+value remains in the accessibility tree is a documented limit (§10 item 4), not a finding.
 
 **PROBE DOMAIN.** The review modal at the fixture viewports the suite already uses — 375x667,
-375x844, 390x560, 390x844 — through the shared harness (`_publishedReviewModalHarness.tsx` via
-`_pillFocusLiveEntry.tsx`) and the replica entry (`_publishedToggleClipLiveEntry.tsx`). A probe
-outside those viewports, or against a hand-built panel, files to §10 rather than to a finding.
+375x844, 390x560, 390x844 — crossed with attention loads 0, 2 and 30, through the shared harness
+(`tests/e2e/_publishedReviewModalHarness.tsx` via `tests/e2e/_pillFocusLiveEntry.tsx`) and the replica
+entry (`tests/e2e/_publishedToggleClipLiveEntry.tsx`). The item-count axis is part of the domain, not
+an extra: §0 measured that a probe varying only the viewport reproduces the row's number and confirms
+the wrong cause. A probe outside those viewports or loads, or against a hand-built panel, files to §10
+rather than to a finding.
 
 **Threat fence.** Ordinary responsive layout under real compiled Tailwind at supported phone sizes.
 Adversarial CSS injected into the panel, a caller mounting the strip outside the shell, and hostile
@@ -639,6 +821,8 @@ ancestor stacking are out of scope and file to §10.
   the `lib/layout/fitWithinClip.ts:38-43` docblock (§1.2).
 - Any user-visible copy change in `PublishedToggle` (§1.1 item 4).
 - The wizard's Step 3 modal, which never passes `subHeader` and is asserted unchanged by
-  `reviewModalShell.test.tsx:334-345`.
+  `tests/components/admin/review/reviewModalShell.test.tsx:334-345` (AC-16).
+- Any change to `components/admin/review/ReviewModalShell.tsx`. The header bound lives entirely in
+  the consumer, per the §0 ruling's "do not restructure the shell".
 - Re-hosting `StatusStrip` on any surface other than the published review modal.
 - Server actions: none is touched, so invariant 10 does not apply.
