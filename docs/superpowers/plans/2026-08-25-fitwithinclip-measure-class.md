@@ -152,6 +152,8 @@ rather than the hook, and M21 is a conditional change with no single-line spelli
 no owning task, so "each is RUN in the task that owns it" was aspiration. The **Run in** column below
 is the fix: every row names its task, and a row without one is a plan defect.
 
+**A row marked ACCEPTED GAP is RUN and recorded as SURVIVING.** That is its expected result, not a failure, and it is the one exception to "every assigned mutant turns its named case red". M3 is the only such row. Round 3 charged the plan for assigning M3 to a task whose generic instruction demanded a red it had already proved impossible.
+
 | # | Mutant | Must turn red | Run in |
 | --- | --- | --- | --- |
 | M1 | Restore `useLayoutEffect` + `attachCount` as the effect trigger | (g) mount apply count | Task 1 |
@@ -196,24 +198,25 @@ DELETES the second `findClippingAncestor` call its `red-target` names, so **no l
 can name that defect at all.** Incomplete, because four later-task citations are moved or deleted by
 Tasks 1 and 2 and it named none of them.
 
-The citations this plan's own execution invalidates:
+The citations this plan's own execution moves or deletes, all six:
 
 | Citation | Named in | Invalidated by |
 | --- | --- | --- |
-| `components/admin/useFitWithinClip.ts:161`, Task 2's `red-target` | Task 2's marker | Task 1 deletes the effect it lives in; Task 2 then deletes the call itself |
+| `components/admin/useFitWithinClip.ts:77`, **Task 1's `red-target`** | Task 1's marker | Task 1 itself deletes the `attachCount` declaration. Expected: a marker names the defect it removes, and the RED is observed BEFORE the removal |
+| `components/admin/useFitWithinClip.ts:203`, **Task 2's `red-target`** | Task 2's marker | Task 1 moves the ref callback's opening line. The marker deliberately names the SURVIVING surface rather than `components/admin/useFitWithinClip.ts:161`, the line Task 1 deletes — round 1 charged the earlier version for citing the deleted line |
 | the family-pin precedent, `tests/components/admin/useFitWithinClip.test.tsx:362-366` | Tasks 3 and 4 | Task 1 and Task 3 both add cases above it |
 | observer wiring, `components/admin/useFitWithinClip.ts:167-170` | Task 3 | Task 1 moves it into the ref callback |
 | the no-clip branch, `components/admin/useFitWithinClip.ts:91-96` | Task 3 | Task 2 changes `apply()`'s return shape |
 | the synchronous measure, `components/admin/useFitWithinClip.ts:144` | Task 4 | Task 1 deletes the effect around it |
 
-**So the rule is not "re-point at the end" — it is that a citation naming a line the plan DELETES
+Round 3 charged the earlier version of this table for still calling `components/admin/useFitWithinClip.ts:161` Task 2's target after the marker had moved to `components/admin/useFitWithinClip.ts:203`, and for omitting Task 1's `components/admin/useFitWithinClip.ts:77` entirely. **So the rule is not "re-point at the end" — it is that a citation naming a line the plan DELETES
 must not be a `red-target` at all.** Task 2's marker therefore names the surviving surface (the ref
 callback's wiring, where the second walk lives after Task 1) with a `why=` describing the defect
-rather than the deleted line. The five rows above are re-verified at close-out **by READING each
+rather than the deleted line. Every row above is re-verified at close-out **by READING each
 cited line and matching it to the symbol its sentence names** — confirming a citation RESOLVES
 establishes nothing, which is the documented trap.
 
-## 6. Task list## 6. Task list
+## 6. Task list
 
 <!-- tasks: depth=2 red-contract -->
 
@@ -316,6 +319,8 @@ GREEN — `components/admin/useFitWithinClip.ts`:
 
 Verify, each as its own command: the suite; `pnpm vitest run tests/components/_metaScrollNeutralMeasurement.test.ts`; `pnpm exec eslint components/admin/useFitWithinClip.ts` (expect ZERO warnings — the disable comment is what makes that true); `pnpm typecheck`.
 
+**Commit** (invariant 6, red observed then green, one commit for the task): `refactor(admin): the ref callback owns the wiring, and the attach counter goes away`.
+
 Then RUN **every mutant whose `Run in` column names Task 1**, read off §5's table rather than
 re-listed here — plan review R1 and R2 both charged this task for carrying a stale copy of those
 pairings after the table was corrected. For each: confirm the case §5 names goes red, revert, paste
@@ -382,6 +387,8 @@ The `null` return is two-valued (no node, or no clip). The ref callback has just
 
 Also in this task, case (h8): count applies AND ancestor walks across a `reapplyKey` change, asserting one of each. Its APPLY half is green before and after — a key change always measured once — but its WALK half is red on the pre-Task-2 tree, which reapplies with two walks (§0.1's `PROBE-BASE-REAPPLY ancestorGCS=4`, two per walk). It belongs here because that is where its red is.
 
+**Commit** (invariant 6): `refactor(admin): apply() returns the clip it resolved, so the wiring stops re-walking`.
+
 Verify: the suite; `pnpm typecheck`; `pnpm exec eslint components/admin/useFitWithinClip.ts`. Then RUN mutants M2 and M7, confirm (h) and (d) go red, revert, paste.
 
 <!-- tasks: end -->
@@ -399,69 +406,64 @@ being edited — `tests/components/admin/useFitWithinClip.test.tsx:362-366` says
 cases that they are "green on the pre-migration tree by design; their red condition is a defective
 migration (mutants A/B in the plan)".
 
-## Task 3 — transition audit, and the class sweep re-run as a closeout
+## Task 3 — the transition and lifecycle cases
 
-**Red:** every mutant whose `Run in` column names Task 3, read off §5's table — the two that target the compound rows specifically, since a
-compound case that only re-proves what (g3) already proves is not worth its line. M8 drops
-`coalescer.cancel()` from the teardown and must turn BOTH (g3) and the new (h5) red; M9 reorders the
-teardown so the `transitionend` listener outlives the cancel and must turn the new (h7) red. Each RUN
-against the green tree, each reverted, all output pasted into the commit.
+**No inventory, no mutant pairing and no sweep instrument is restated here.** Rounds 1, 2 and 3 each
+charged this plan for a stale copy in a task body — the copy always outlived the correction. So every
+list this task needs lives in exactly one place and is named, not reproduced:
 
-M9 is the one worth stating twice, because it is the ordering bug this task exists to make visible: the
-listener removal and the frame cancel are two lines whose ORDER carries the whole guarantee, and nothing
-in the file says so today.
+| What | Single source |
+| --- | --- |
+| Which transitions exist, what causes each, and which case pins it | spec §3.1 |
+| The per-consumer counts every case must assert | spec §0.1 and §0.1a |
+| What each case is for | spec §5.1's table |
+| Which mutants this task runs, and what each must turn red | §5's table, rows whose **Run in** says Task 3 |
+| How the class sweep is performed | spec §4.1 — run the committed probe, `node docs/superpowers/specs/2026-08-25-fitwithinclip-ref-callable-probe.mjs`. **Not a grep.** The spelling census it replaced missed the live `ref={fitRef}` consumers |
 
-The spec's Transition Inventory in full, with the case that covers each. The writing-plans transition-audit rule requires the table in the task body, and requires compound transitions to be exercised, not described.
+Author the cases spec §5.1 lists whose ids are not already in the suite. Run every Task 3 mutant,
+confirm the case §5 names goes red, revert, paste the result. **A mutant whose §5 row says ACCEPTED
+GAP is run and recorded as surviving — that is its expected result, not a failure**, and it is the
+one exception to "every assigned mutant turns a case red".
 
-**The inventory is spec §3.1 and is NOT restated here.** Plan review R1 and R2 both charged this
-section for carrying a stale copy: it still assigned direct `F → N` to family A and `N → F` to family
-B (both are compound `F → D → …`), still claimed `N → D` has no observer, and still cited `(h4)` and
-`(h10)`, two ids that never existed. Every one of those was corrected in the spec rounds and the copy
-did not follow.
+Then re-run the §4.1 probe against the post-refactor tree and paste its output; the conclusion must
+still be that shape 1 is present exactly once.
 
-So the audit reads the spec's table and this task carries no second copy. **Two tables that must
-agree will eventually disagree, and the copy is always the one that is wrong.** Open
-`docs/superpowers/specs/2026-08-25-fitwithinclip-measure-class.md` §3.1, work its eight reachable
-edges, its two composites and its seven compound rows, and confirm each case performs the transition
-its row names rather than merely sitting near it.
-
-The committed checker settles the id half mechanically:
-
-```
-$ python3 docs/superpowers/specs/2026-08-25-fitwithinclip-case-id-parity.py
-```
-
-It exits non-zero if §3.1 cites an id nothing defines, and it has a positive control (a planted
-`(h99)` exits 1).
-
-Cases created here, each named in the inventory above, plus the three per-lifecycle count cases spec review R4 forced into existence — **(h15)** the `ReSyncButton` shape, **(h16)** the `PublishedToggle` shape where the key IS the mounting condition, and **(h17)** the `AttentionMenuPanel` shape where the node is present at its owner's first render, which asserts TWO snapshots — the attach against spec §0.1, then the totals after flushing the entrance frame against §0.1a. Spec review R5 established that a single cumulative assertion there is unsatisfiable unless the entrance re-attach is suppressed, and suppressing it would leave the `scale-95` entrance's transformed geometry stale without tripping the floor-clamp diagnostic. Each asserts renders, applies and walks for its own row of spec §0.1, bare and under `<StrictMode>`, against the exact numbers there — including `ReSyncButton`'s dev apply count of 2, pinned AS 2 rather than wished down to 1. Their shared red is mutant M14: an implementation that improves one lifecycle by pessimising another, which every earlier version of this suite would have reported as success because it modelled a single shape. And: **(h4)** the N to D teardown with no observer to disconnect, **(h5)** a `reapplyKey` change with a coalesced frame pending, **(h6)** a `reapplyKey` change landing in the same commit that attaches the node, **(h7)** a `transitionend` arriving mid-teardown, **(h10)** the D to N re-attach where nothing clips on the new attach, and **(h11)** the conditional host hiding and reappearing while the owner stays mounted. The last is the live shape's own compound row and the one the §2.1 probe transcript was rewritten around.
-
-Also in this task, case (h9): re-render with an UNCHANGED `reapplyKey` and assert zero applies and zero ancestor walks. It is green before and after — which is exactly why it is here and not in a red-then-green task — and its red is mutant M10. It is the only case in the suite that can see an identity-churning callback.
-
-And RUN the class sweep from the REPAIRED spec §4.1 against the post-refactor tree, pasting each command with its output. Not the round-1 greps: those enumerated spellings and the shape-1 instrument could not see this hook. Run the derived pair — the scope check that `findClippingAncestor` is exported nowhere, and the ref-callback axis (`ref=\{\s*\(` plus `RefCallback`) whose positive control is that it finds `useFitWithinClip` itself. A sweep described and not run is the defect this rule exists for; a sweep run with an instrument that fails its own positive control is the defect round 1 found.
+**Commit** (invariant 6): `test(admin): transition and lifecycle cases for the measure class`.
 
 ## Task 4 — the real-browser pin: never painted uncapped
 
-**Red:** mutant M6 from §5 — the mount `apply()` deferred into `coalescer.schedule()`. The synchronous mount measure (`components/admin/useFitWithinClip.ts:144` on the live tree) is what keeps the FIRST painted frame capped, so with M6 planted the sampler's first sample sits below the clip edge and the per-frame assertion fails. RUN it, paste the failure, revert.
+jsdom computes no layout, so spec §3's dimensional invariant is settled only here. This is a PIN:
+green on a correct tree by design, its red a named mutant.
 
-jsdom computes no layout, so spec §3's Dimensional Invariants are settled only here. This is a TRANSITION PIN in the sense the file already uses for the family A/B cases (`tests/components/admin/useFitWithinClip.test.tsx:362-366`): green on a correct tree by design, its red condition a defective refactor. That is why its red is proven by RUNNING mutant M6, not claimed.
+**e2e readiness, per `docs/agents/writing-plans.md`:**
 
-Shape, on both surfaces the file can drive — the AttentionMenu scroller (`SCROLLER` against `PANEL`) and the PublishedToggle banner (`TOGGLE_BANNER` against `TOGGLE_CLIP`):
+- **Server boot** — none is added. `tests/e2e/popover-clip-fit.spec.ts` bundles its two live entries
+  out-of-process, compiles Tailwind, and serves them from a tmp dir via `createServer`
+  (`tests/e2e/popover-clip-fit.spec.ts:92`) on an ephemeral port (`tests/e2e/popover-clip-fit.spec.ts:107`).
+  This task adds a case to that harness and boots nothing of its own.
+- **Readiness gate** — `window.__hydrated`, awaited by the existing helpers
+  (`tests/e2e/popover-clip-fit.spec.ts:152-154` for the menu, `tests/e2e/popover-clip-fit.spec.ts:230-232`
+  for the toggle). Never `networkidle`.
+- **Detach safety** — the sampler re-reads both nodes inside its own frame callback and records
+  `{ present: false }` when either is missing, so it cannot auto-wait on an unmounted node.
 
-- `page.emulateMedia({ reducedMotion: "reduce" })` and `page.setViewportSize({ width: 390, height: 560 })` FIRST, so the entrance transition cannot distort a sampled rect. Existing cases establish that order (`tests/e2e/popover-clip-fit.spec.ts:252-254`).
-- `page.addInitScript` installs a `requestAnimationFrame` loop that records a row on EVERY frame — `{ present: false }` while either node is missing, `{ present: true, overlayBottom, clipBottom }` once both exist. Recording only the both-exist frames makes the arming premise below unsatisfiable on a correct implementation, which plan review R2 caught. It must be an init script: `openMenu` navigates, and the menu auto-opens on mount, so anything installed afterwards misses the frames under test (§3 fact 2).
-- Drive with the existing `openMenu(page, 10, 10, 10)` / `openToggleBanner(page)` helpers. Read the samples in ONE `page.evaluate`, which is also what keeps both rects from being read at two different scroll positions.
-- Assert three things in this order, per spec §5.2. **(1) ARMING**: the recording contains at least one ABSENT row before its first present row, which is an executable statement that the recorder preceded the appearance. Spec review R4 finding 2 charged the earlier draft for omitting exactly this — "at least one frame was sampled" permits sampling to begin after the overlay corrected itself, which turns this case into a slower copy of the two after-settle cases it exists to complement, and the repo already carried the requirement in prose at `tests/e2e/section-header-reconcile.layout.spec.ts:117-119`. **(2) NON-VACUITY**: at least one PRESENT row exists. **(3) CONTAINMENT**: every present row satisfies `overlayBottom <= clipBottom + 0.5`. Mutant M15 arms the sampler after appearance and must turn (1) red; a sampler that never fired at all must turn (2) red.
-
-Existing containment cases at `tests/e2e/popover-clip-fit.spec.ts:310` and `tests/e2e/popover-clip-fit.spec.ts:565` and the anchor-room census at `tests/e2e/popover-clip-fit.spec.ts:720-754` are not edited and must stay green. They measure after settle; this one measures from the first frame, which is the property the synchronous mount exists to provide and the only one M6 can break.
+The case itself, its three assertions and their order are spec §5.2. Run the Task 4 mutants from §5
+— both of them — confirm each turns the named assertion red, revert, paste.
 
 Run under `pnpm heavy`.
 
+**Commit** (invariant 6): `test(e2e): pin the first painted frame against the clip edge`.
+
 ## Task 5 — full gates
 
-**Not a red-then-green unit.** This is the post-implementation gate run. Its failure condition is any regression Tasks 1-4 introduced anywhere else in the tree, which is not a contract that can be declared in advance.
+Each as its own command, never chained: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`,
+`pnpm format:check`, `pnpm heavy pnpm test:e2e`, and
+`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts`. Vitest strips types, so a green suite
+proves nothing about `pnpm typecheck`.
 
-Each as its own command, never chained: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`, `pnpm heavy pnpm test:e2e`, and `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts`. Vitest strips types, so a green suite proves nothing about `pnpm typecheck`.
+**Not a red-then-green unit.** Its failure condition is any regression Tasks 1-4 introduced elsewhere,
+which cannot be declared in advance. No commit of its own unless a gate forces a fix, in which case
+that fix commits under its own conventional-commit message.
 
 ## 6b. Review-round accounting across the re-base
 
@@ -523,7 +525,7 @@ gate:
 | AC-0b | The development-only cost is pinned rather than assumed: `apply()` goes 1 to 2 per appearance under Strict Mode's replay, asserted exactly by (h13). Production is unchanged at 1. |
 | AC-1a | All FOUR of the hook's re-measure signals have a behavioural case: `window` resize (f), `transitionend` (e)/(e2)/(g4), `reapplyKey` (c), and the `ResizeObserver` callback (h12) — the last of which had none before this arc and is the wiring the arc relocates. Mutant M11 turns (h12) red where today it turns nothing red. |
 | AC-1 | One ATTACH is one `apply()`, on both harnesses. On the always-present harness that is one per mount, pinned by (g); on the live conditional-host harness it is one per appearance in production and two under Strict Mode's replay, pinned by (h14) and (h13). Mutants M1, M4 and M5 each turn a named case red; M3 is an accepted gap, recorded in §5 with its reason. |
-| AC-1b | EVERY cell of spec §0.1's table is pinned — both modes, all three metrics. Renders by (h14) and (h13); applies by (g), (h14) and (h13); walks by (h) and (h14). The `reapplyKey` change is pinned by (h8) and the unchanged re-render by (h9). No cell of the acceptance condition is unfalsifiable, which is the defect round 1 charged. |
+| AC-1b | EVERY cell of spec §0.1's per-consumer table and §0.1a's entrance table is pinned, in both modes, by the case spec §5.1 assigns to that consumer: `ReSyncButton` by (h15), `PublishedToggle` by (h16), `AttentionMenuPanel` by (h17), with (h17) asserting the attach and post-entrance snapshots separately. (h13) and (h14) pin the replay and the minimal-shape headline; (g) and (h) pin the always-present harness; (h8) and (h9) pin §2.2's two re-render rows. Plan review R3 charged the earlier version for crediting the generic cases with per-consumer rows they do not assert. |
 | AC-2 | One attach is one ancestor walk, pinned by (h) with a derived expectation, and mutants M2/M7 turn a named case red. |
 | AC-3 | All eight reachable pairs and all SEVEN compound rows (the count is the spec's; plan review R1 caught this table carrying five and this criterion claiming five) have an executable case that ACTUALLY PERFORMS that transition — not one that merely cites a nearby test. Spec review R6 found `N to F` citing a clipped-to-clipped case for six rounds; (h19) closes it and every other row was re-verified against what its cited case does. Mutants M8, M9, M10 and M18 each turn a named one red. |
 | AC-4 | In a real engine, neither overlay is ever painted crossing its clip edge, on any frame from first appearance, and mutant M6 breaks that. |
