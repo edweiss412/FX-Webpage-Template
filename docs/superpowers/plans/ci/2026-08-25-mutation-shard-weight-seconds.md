@@ -1112,3 +1112,565 @@ red-then-green cycles, and inventing a `red=` for one would be satisfying a gram
       exists as a rule rather than as five more repairs.
 - [ ] Execution handoff
 
+## 12 — Closeout
+
+<!-- No `impeccable-gate:` line here on purpose. The plan unit already declares it at
+     line 6, and invariant 8's marker is per UNIT, not per section. A second copy in
+     the same file is a second claim about the same thing, which is how two markers
+     drift apart and the guard starts arbitrating between them. -->
+
+### What the weight was actually wrong about
+
+`weightOf` priced a leg by modelled CHILD BOOTS: `mutants + accepted * (suites - 1) + suites`.
+That count is not wrong about the boots. Its unstated assumption is that every boot costs the
+same, quoted in `runner.ts` at roughly 0.75 s.
+
+Measured across the 52 enrolled surfaces, rates run from **762 ms per modelled boot**
+(`supabaseRetryEligibility`) to **18212** (`psqlStartupScan`), a factor of **23.9**. The count
+cannot see any of it, so the heaviest leg was being chosen by a number uncorrelated with what
+that leg costs. The shipped repair is `bootsOf(surface) * surface.millisPerBoot`, with the old
+formula preserved verbatim as `bootsOf` so the count remains available and exact.
+
+**Those two figures rot, and this arc watched them do it.** The comment justifying the change
+read "935 to 4963 ms per modelled boot, a 5.3x spread" — the min and max of the surfaces
+enrolled the day it was written. Four later enrolments moved the max by 3.7x and nobody moved
+the sentence, so the code understated the very problem it existed to justify. My own reports
+carried a different stale pair, 762 to 5006, where 5006 is merely the fifth-highest. The repair
+was the class rather than the literal: the comment now marks its figures as dated, records that
+it has already rotted once, and carries the command that re-derives them from the registry.
+
+### The re-partition seam, with its measured magnitude
+
+Re-derived at claim time against the live registry, 52 surfaces at merge base
+`e381de76ea87`, not carried from when this plan was written and the registry held 48. It was
+re-derived a SECOND time after the absorb, and that mattered: `#890`, `#892` and `#894`
+changed four surfaces' sources, which changes their mutant counts, which changes `bootsOf`,
+which changes the LPT input. The headline held and the totals did not. `36 of 52` is
+unchanged; the binding leg moved from 6452 s to 6467 s under boots and from 4660 s to 4666 s
+under pricing, and the improvement from 1792 s to 1801 s. Numbers derived before an absorb
+are numbers about a tree that is no longer shipping.
+
+| | boots (shipped) | seconds (this diff) |
+|---|---|---|
+| legs, seconds | 4600 / 4842 / 2743 / 6467 | 4661 / 4664 / 4661 / 4666 |
+| binding leg | 6467 s | 4666 s |
+
+**36 of 52 surfaces change leg, 69 percent.** Pricing takes 1801 s off the binding leg,
+up from the 719 s the same comparison gave at 48 surfaces, because the four surfaces main
+enrolled since are not cheap ones. The 2740 next to the 6452 is the defect stated in two
+numbers: under boots, one leg idles for three quarters of an hour while another runs long.
+
+The seam is a one-time re-partition, and it is worth being plain that it does not fix the
+budget. `SHARD_BUDGET_SECONDS` is 3600 and the binding leg is 4660, so four shards cannot
+hold this corpus under EITHER weight. That breach is real, it is recorded as an executable
+documented limit rather than a finding, and raising `SOURCE_SHARD_COUNT` from 4 to 6 is
+held on the orchestrator list. This diff makes the legs level; it does not make them short.
+
+### AC-7's proof retires here, and one half of its promise went unmet
+
+The guard proved that no surface the merge base declared moved under this branch: not a
+`scoreFloor`, not an `accepted` row, not an enrolment. It is deleted in this PR rather than
+kept, because it pins a claim about ONE diff and would otherwise freeze the registry for
+every arc after this one.
+
+**It never ran in CI, and it never could have.** The plan promised the closeout would record
+"the sha and CI run where the proof actually held." The CI half is unfulfillable and saying
+so is better than citing a run that does not exist. The guard computes
+`git merge-base origin/main HEAD`, and `actions/checkout` defaults to `fetch-depth: 1`, so
+the CI checkout has no common history and no merge base exists. It failed loudly rather than
+skipping, which was deliberate: its own comment argued that a check standing down on a
+shallow checkout "stops existing in CI, which is the only place it matters." The reasoning
+was right and its premise was wrong. What it reported loudly in CI was its own unrunnability,
+on a required check, which is how this was found at all.
+
+There is no fix inside the repo's own convention. `unit-suite.yml:110` and `:155` are the two
+precedents for a test needing git history, and both fetch exactly ONE object or ONE ref at
+depth 1 while explicitly refusing `fetch-depth: 0`, because full history regressed that gate
+from 4.2 minutes back toward 9.1. Neither pattern yields a merge base. Buying one for a test
+whose design is to be deleted at merge is the wrong trade, so it retired early instead.
+
+**What the proof did establish is unchanged**, and it is more than a passing test: it passed
+at the shipping tree, and it was made to FAIL on purpose once per case first, so its pass was
+not vacuous. That probe is recorded below.
+
+**What carries the claim in CI is AC-1**, and it is the stronger form. AC-7 asks whether a
+pre-existing surface's registry ROW moved, in a local checkout. AC-1 asks whether a
+pre-existing surface's VERDICTS moved, across two CI runs at one base. The second subsumes
+the first for every purpose this arc cares about.
+
+### Acceptance criteria, and where each is discharged
+
+| AC | discharged by | state |
+|---|---|---|
+| AC-1 verdict neutrality | measurement over two CI runs, in this closeout | see below |
+| AC-2 total and disjoint partition | `shardBalance.test.ts`, `_metaSourceShardIntegrity` at 52 surfaces | passing |
+| AC-3 binding leg held out | three committed pairs of real CI runs, margins 965 s / 1191 s / 1160 s | passing |
+| AC-4 no enrolment without a rate | `validateSurface` bounds, compile-time requirement | passing |
+| AC-5 drift report names every measured surface | `rateDrift.test.ts`, exit status unchanged | passing |
+| AC-6 integer arithmetic preserved | every weight handed to `lptAssign` is an integer | passing |
+| AC-7 nothing verdict-deciding moved | `_metaPreexistingSurfaceImmutability`, 4 cases, shown to discriminate by 5 tampers | passed LOCALLY; retired early at `2f9ef9126`, never ran in CI — see below |
+
+**AC-3's margins do not move with the absorb, and that is the point of holding them out.**
+They come from three pairs of real CI runs at 41 to 42 surfaces (plan §480-482), priced
+binding leg against boots binding leg: 5174 vs 6138, 5783 vs 6974, 5409 vs 6569. The suite
+asserts it "reproduces the recorded margin from the fixture, not from `weightOf`", so these
+are properties of committed historical measurements rather than of the live registry. They
+are deliberately NOT the 52-surface figure quoted above; a held-out number that tracked the
+tree would not be held out.
+
+**AC-1, stated at claim time.** The three populations are re-derived from the diff at the
+final merge base, never from the sentence that named them. Derived at `e381de76ea87`: 50
+surfaces at the base, 52 live, none removed. Population (i), untouched and required to
+keep every verdict, is 48. Population (ii), pre-existing and changed here, is 2. Population
+(iii), newly enrolled with no prior verdict to compare, is `mutationWeightRecords` and
+`mutationWeightWeights`. The three are disjoint and sum to 52.
+
+**Population (ii) has two members, not the one the plan's sentence names, and they differ
+in kind.** `sourceShardPartition` is the expected one and its SOURCE changed, so its
+siteIds move. `premiseScan` is the other: its source is untouched and only a declared SUITE
+changed, because this branch registers its new suite in
+`tests/mutation/_metaPremiseContract.test.ts` with zero environment-touching tests, derived
+from that scanner's definition rather than read off its output. So `premiseScan`'s siteIds
+are fixed and only a verdict could flip. This is not a departure from the plan; it is the
+plan followed. The same section that names `sourceShardPartition` also says to derive the
+populations from the diff at claim time, "never from this sentence," and to state each count
+with the ref it was derived at. An earlier derivation at the pre-absorb base gave 49/1/2,
+which is why the instruction exists. The old-weight side is a FRESH
+`workflow_dispatch` at that base; the earlier capture at `300a9f937` (run `32844208485`,
+43 surfaces) is SUPERSEDED, not lost, because the merge base moved when `#881`, `#882`,
+`#884` and `#893` landed. A later queued baseline was CANCELLED on bl-orch's ruling under
+semaphore pressure, and the cancel is recorded here rather than left as a gap in the
+record.
+
+Both sides must carry the same trigger, verified with
+`gh run view <id> --json event,headSha,conclusion` rather than assumed, because
+`workflow_dispatch` and `pull_request` are separate populations on this repo. The bar is
+sharp because it was measured first: 1 of 4328, 0 of 4360, 0 of 3692 movers across
+consecutive nightlies, the single mover being the inherited `ledgerGit` survivor owned by
+`BL-MUTATION-HARNESS-MAIN-RED`. Any other mover is re-run with its surface ALONE on a leg
+before attribution: green alone and red beside a neighbour is a co-tenancy finding filed
+there, red alone is this arc's.
+
+Where the dispatch cannot be had against capacity, the fallback is a PARTITION-LEVEL
+claim, and it is labelled weaker rather than dressed as verdict equality.
+
+**The two runs, dispatched 2026-08-26T01:55Z.** Side A is main under the old weight, run
+`32920754274` at `e381de76ea87`. Side B is this branch under the priced weight, run
+`32920756364` at `c01ee5121`. Both are `workflow_dispatch`, which is what makes them
+comparable. Side A's head is exactly the announced base, so the constraint that
+`workflow_dispatch` takes a ref NAME rather than a sha never bit: main had not moved
+between the announcement and the dispatch. Had it moved, the head check would have caught
+it, which is why the check is run rather than assumed.
+
+**The main side concluded FAILURE, and that is the evidence rather than a problem.**
+Run `32920754274` at `e381de76ea87`, `workflow_dispatch`, on main's own tree with none of
+this diff: `source-shards (0)` and `(1)` failed, `source-shards (3)` was CANCELLED, and the
+`budget` job failed. All eight parser shards, `parser-gates`, `source-gates` and
+`source-shards (2)` passed.
+
+Three things follow, and one does not.
+
+- **Non-causation is mechanical.** Main's failed log carries
+  `source-mutation gate — modal-wait-disposition` as a failing case. The surface that
+  failed on this branch fails without this branch. Nothing is argued.
+- **The budget breach is main's, confirmed at this base.** The `budget` job failed on
+  main's own run. That is `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH`, which this arc reduces
+  rather than causes.
+- **A leg was CANCELLED on main today.** `source-shards (3)` reports cancelled, which is
+  exactly the censored-leg mechanism the archived row describes: a leg that hits the job
+  ceiling reports nothing for any surface it held. The defect that row documents is live at
+  this very base, and the repricing is what shrinks it, 6467 s to 4666 s on the binding leg.
+  That is a stronger argument for this change than any modelled figure in this document.
+- **What does NOT follow:** `ledgerGit` appears zero times in main's failed log. That is
+  consistent with the environment-dependence diagnosis above and is NOT proof of it, because
+  `source-shards (3)` was cancelled and a cancelled leg reports nothing for any surface it
+  held. Absence inside a censored leg is not absence. `ledgerGit` is therefore recorded as
+  not-this-branch's rather than as proven main's, which is a weaker claim and the only one
+  the evidence supports.
+
+**THE RESULT: 4822 mutants compared across 48 surfaces, ONE verdict move, zero
+timeout-tainted, zero unknowable.** The mover is
+`ledgerGit logical-connector:259:20:&&>||`, SURVIVED to KILLED.
+
+Three things converge on that one mutant, and together they settle it.
+
+- **It is the bar's own known mover.** The bar was measured before the claim: 1 of 4328,
+  0 of 4360, 0 of 3692 across consecutive nightlies, and the plan records that the single
+  mover was "the inherited `ledgerGit` survivor owned by `BL-MUTATION-HARNESS-MAIN-RED`".
+  Same surface, same site. One in 4822 sits inside the measured bar rather than outside it.
+- **It is the site diagnosed hours earlier, from the source, before either CI run existed.**
+  The local re-score failed `ledgerGit` with a stale row at this exact siteId, and the
+  diagnosis from reading `ledger-git.ts` was environment dependence: it shells out to git ten
+  times, and line 259 parses `<mode> blob <oid>\t<path>`. Three independent observations now
+  exist — local KILLED, main CI SURVIVED, branch CI KILLED. The verdict varies with repo
+  state, which is what was predicted.
+- **The direction is the safe one.** SURVIVED to KILLED means this branch CAUGHT a mutant
+  main let through. Whatever explains it, it is not the coverage regression AC-1 exists to
+  detect; that failure mode runs the other way.
+
+**Why re-running it alone cannot settle this one, stated rather than performed.** The
+re-run-alone rule exists because the usual confound is CO-TENANCY. This surface's confound is
+REPO STATE, which running it alone does not vary. Executing the ritual and reporting that it
+"passed" would be a stronger-sounding claim resting on a test that cannot discriminate here.
+
+**Two population (i) surfaces are NOT comparable, and are named rather than dropped:**
+`retryableRpcVolatilityScan` and `supabaseRetryingFetch`. Main's record set holds 48 surfaces
+rather than 52, because main's `source-shards (3)` was CANCELLED at the job ceiling and a
+cancelled leg uploads nothing for any surface it held. So the neutrality claim covers 46 of
+48 population (i) surfaces, and both gaps are caused by main's censored leg rather than by
+this branch. The committed report REFUSED the incomplete sets outright — correct behaviour,
+and the reason the comparison ran over an explicitly restricted, named population instead of
+a silently truncated one.
+
+Run `32844208485` at `300a9f937b8a`, 43 surfaces, is SUPERSEDED and recorded here rather
+than left as a gap: its base stopped being the merge base once `#881`, `#882`, `#884` and
+`#893` landed. A later queued baseline was CANCELLED under semaphore pressure on the
+orchestrator's ruling, and that is recorded too.
+
+### Scores
+Every surface, with its mutant count beside its score. The two columns differ on purpose:
+`score` CREDITS a ledgered survivor, `survivors` is the raw count. `acCoverage` reading
+1.0000 with 4 survivors is correct, not a defect, and a table printing only one of them
+would mislead in one direction or the other.
+
+| surface | passed | score | mutants | survivors (raw) | timeout-kills |
+|---|---|---|---|---|---|
+| `acCoverage` | yes | 1.0000 | 72 | 4 | 1 |
+| `browserMutate` | yes | 1.0000 | 40 | 1 |  |
+| `browserRegistry` | yes | 1.0000 | 57 | 0 |  |
+| `captureRenderFault` | yes | 1.0000 | 6 | 0 |  |
+| `citationIntent` | yes | 1.0000 | 21 | 0 |  |
+| `claimSweep` | yes | 1.0000 | 106 | 7 |  |
+| `connectionCensus` | yes | 1.0000 | 333 | 2 | 8 |
+| `controlOutlineResidue` | yes | 1.0000 | 250 | 14 |  |
+| `controlOutlineScan` | yes | 1.0000 | 65 | 0 |  |
+| `declaredLimitPins` | yes | 1.0000 | 113 | 5 |  |
+| `destructiveFileAnalysis` | yes | 1.0000 | 237 | 8 |  |
+| `executionMethodsDerivation` | yes | 1.0000 | 11 | 0 |  |
+| `fieldNearMiss` | yes | 0.9722 | 37 | 2 |  |
+| `fixtureContract` | yes | 1.0000 | 65 | 2 |  |
+| `heavyReapClassify` | yes | 1.0000 | 17 | 0 |  |
+| `interactionTimingScan` | yes | 1.0000 | 148 | 17 |  |
+| `interactiveScanCore` | yes | 1.0000 | 272 | 11 | 1 |
+| `ledgerClaimsCore` | yes | 1.0000 | 63 | 3 |  |
+| `ledgerGit` | **no** | 1.0000 | 99 | 6 |  |
+| `modal-wait-disposition` | **no** | 0.9853 | 68 | 1 |  |
+| `modal-wait-helper-scan` | yes | 1.0000 | 97 | 2 | 1 |
+| `mutationSurfaceEnumerate` | yes | 1.0000 | 249 | 3 | 1 |
+| `mutationSurfaceTotality` | yes | 1.0000 | 20 | 0 |  |
+| `mutationWeightRecords` | **no** | 0.6842 | 20 | 7 |  |
+| `mutationWeightWeights` | yes | 1.0000 | 157 | 8 |  |
+| `paneCompactionCore` | yes | 1.0000 | 212 | 6 |  |
+| `pgCronSmokes` | yes | 1.0000 | 14 | 0 |  |
+| `phantomGapExecuted` | yes | 1.0000 | 13 | 0 |  |
+| `popoverOverlayExtract` | yes | 1.0000 | 78 | 2 |  |
+| `premiseScan` | yes | 1.0000 | 193 | 2 |  |
+| `psqlStartupScan` | yes | 1.0000 | 81 | 31 |  |
+| `redContract` | yes | 1.0000 | 246 | 7 |  |
+| `renderedTextHaystack` | yes | 1.0000 | 17 | 0 |  |
+| `replacementString` | yes | 1.0000 | 31 | 0 |  |
+| `retryableRpcVolatilityScan` | yes | 1.0000 | 54 | 0 |  |
+| `reviewRoundCorpus` | yes | 1.0000 | 123 | 3 |  |
+| `reviewRoundCount` | yes | 1.0000 | 15 | 0 |  |
+| `reviewRoundFiling` | yes | 1.0000 | 93 | 8 |  |
+| `reviewRoundInstant` | yes | 1.0000 | 67 | 16 |  |
+| `rowScanOpener` | yes | 1.0000 | 17 | 2 |  |
+| `sameOriginServerAction` | yes | 1.0000 | 13 | 0 |  |
+| `sendAuthScan` | yes | 1.0000 | 291 | 0 | 4 |
+| `serializeErrorStructure` | yes | 1.0000 | 65 | 0 |  |
+| `shardBudget` | yes | 1.0000 | 31 | 0 |  |
+| `sourceShardPartition` | yes | 1.0000 | 4 | 0 |  |
+| `spawnBounded` | yes | 1.0000 | 12 | 0 |  |
+| `specLintNumerics` | yes | 1.0000 | 520 | 50 |  |
+| `specLintUniversals` | yes | 1.0000 | 114 | 6 |  |
+| `supabaseRetryEligibility` | yes | 1.0000 | 13 | 0 |  |
+| `supabaseRetryingFetch` | yes | 1.0000 | 48 | 0 |  |
+| `tapTargetScan` | yes | 1.0000 | 1 | 0 |  |
+| `taskContract` | yes | 1.0000 | 115 | 22 |  |
+
+surfaces scored: 52
+failing: ledgerGit, modal-wait-disposition, mutationWeightRecords
+total timeout-kills (deciding child): 16
+
+**Two rows above are SUPERSEDED and must be read from the re-run, not from here.**
+`mutationWeightRecords` is the below-floor failure this arc repaired, and
+`mutationWeightWeights` had its score invalidated by that same repair, because
+`instrument.test.ts` is a declared suite of BOTH. Re-scored alone at `a66f465c7` through
+the gate's own code path:
+
+| surface | passed | mutants | killed | survivors (all ledgered) | timeout-kills |
+|---|---|---|---|---|---|
+| `mutationWeightWeights` | yes | 157 | 149 | 8 | 0 |
+| `mutationWeightRecords` | yes | 20 | 18 | 2 | 0 |
+
+Both at 1.0000 with every survivor carrying a row, no unaccepted survivor and no stale row
+in either direction, and no timeout on either surface. `records` moved from 0.6842 with six
+unaccepted survivors to this; `weights` returned the same 157/8 it had before the suite
+edit, which is the point of re-running it rather than assuming an edit to a shared suite
+left it alone.
+
+The re-run went through `runSurface` + `evaluateGate` directly rather than a scratch test
+file, because `registerSurfaceCases` is pinned to one call per shard file and a new file
+calling it would trip a structural guard. Same code path, one layer down.
+
+**The tree changed while the score was being taken, and that is provably harmless rather
+than merely probably.** The AC-7 retirement landed mid-run, so surfaces scored before it saw
+a different checkout from surfaces scored after. Whether that tears the measurement is a
+decidable question here, not a judgement call, because `stampInputs` stamps each surface's
+own `sourcePath` plus `suitePaths` rather than the tree. Deriving the declared set and
+intersecting it with that commit's four changed files gives zero surfaces disturbed, with
+`registry.ts` and `expectedLedgerKinds.ts` both untouched. Every surface's stamped inputs
+are byte-identical across both heads, so the score stands for the shipping head.
+
+**One surface fails, and it is not this branch's.** `modal-wait-disposition` scores
+0.9853 over 68 mutants, which is ABOVE its 0.95 floor, so the failure is an unaccepted
+survivor rather than a floor breach. The survivor is `logical-connector:502:42`, flipping
+`&&` to `||` in `tests/ci/modalWaitHelper/disposition.ts`.
+
+Two independent proofs it is not this branch's. The surface is in population (i), and none
+of its three declared inputs appears in this diff. And the survivor sits on code this
+branch never saw: the line is byte-identical at the pre-`#892` base, where it was line
+500. `#892` inserted two comment lines above it, so the site id reads as new when only the
+NUMBER moved.
+
+**A prediction made earlier in this arc was too narrow, and recording that is more useful
+than recording the conclusion.** Before absorbing, `#892` was analysed and cleared on three
+checks: the row is `accepted: []` so nothing could go stale, the `expectedCount` literal
+count is 26 on both sides so no new site appeared, and both deciding suites pin that field
+by count drift. The first two hold. The third was true of the LITERALS and was generalised
+to the whole surface. The actual survivor is on code `#892` did not touch, whose killer
+would have been a count assertion whose expected VALUE `#892` changed, 17 to 18 and 18 to
+19. Analysing the changed lines is not the same as analysing the surface's mutant
+population. The conclusion happened to hold; the reasoning offered for it did not cover
+the path that produced the failure.
+
+Routed to a hotfix arc by the orchestrator rather than repaired here, and deliberately not
+filed as a ledger row. `mutation-harness` is not a required check, so it blocks nothing.
+
+**A second surface fails, also main's, and it is the OTHER direction of the same contract.**
+`ledgerGit` scores 1.0000 over 99 mutants and still fails. Every one of its 6 survivors is
+ledgered, so it is neither below-floor nor unaccepted-survivor. It carries SEVEN accept rows
+for SIX survivors, and the orphan is `accepted-gap logical-connector:259:20:&&>||` — a row
+whose mutant no longer survives, so it accepts nothing. That is `stale-ledger-row`, and a
+perfect score sitting on a failing gate is precisely why this direction is the one that gets
+missed. The two failures together are the whole contract demonstrated on main's own surfaces:
+one survivor with no row, one row with no survivor.
+
+Neither is attributable to this range. None of `ledgerGit`'s three declared inputs appears in
+this diff or in the absorb.
+
+**And the cause is worth more than the attribution.** `scripts/lib/ledger-git.ts` shells out
+to git ten times, and line 259 parses `<mode> blob <oid>\t<path>`. Whether that mutant
+survives depends on what git actually returns — refs, branches, tree contents. This
+worktree's git state is not CI's, and neither is whatever state the row was recorded against.
+So the surface's verdicts are environment-dependent by construction, and one of its rows can
+go stale with nobody touching a line of code. Reporting it as a defect someone introduced
+would be the wrong diagnosis and would send the next reader looking for a commit that does
+not exist.
+
+### Review-round dispositions
+Twelve counted rounds across sixteen dispatches, seventy-nine declared findings. The diff
+stage ran split tight-scope reviews, two dispatches per round, which is why it shows eight
+rows for four rounds.
+
+| stage | rounds | findings | last verdict |
+|---|---|---|---|
+| spec | 4 | 21 | NEEDS-ATTENTION / 4 |
+| plan | 4 | 35 | BLOCKING / 8 |
+| diff | 4 (8 dispatches) | 23 | NEEDS-ATTENTION / 1 and BLOCKING / 1 |
+
+**No round returned APPROVE, and that is the honest close.** Every round's findings were
+repaired in a named commit (`58ec7cb2d` seven, `d51440ef8` nine, `01963569c` five,
+`bbada33dc` round four), but the arc closes at the four-round cap under bl-orch's ruling
+rather than on a converged verdict, so there is no independent APPROVE on the final
+repairs. Anyone reading this later should weigh it that way.
+
+The round economy is filed where the corpus expects it, in
+`docs/review-rounds/fix/mutation-shard-weight-seconds/`, across two merge-base files
+because the arc merged main mid-flight and the rows are keyed by merge base. Counting
+rounds from one file alone would undercount this arc; the filing is voluntary for exactly
+that reason.
+
+### One defect this closeout caught in itself
+
+The score reported here is heavy turn 7, not turn 4. Turn 4 scored at 17:14 and commit
+`01963569c` at 18:39 then changed both mutation targets and the shared deciding suite.
+A score taken before its own target measures a tree that no longer exists, and because
+accepted-survivor rows are keyed `operator:line:col`, moved lines silently convert
+ledgered survivors into unaccepted ones. The turn-4 numbers were one step from being
+reported as current. What did NOT cause it is worth recording too: the registry slices of
+both surfaces were diffed scored-against-head and are byte-identical, and the absorb of
+`ae8e9544b` touched neither target nor deciding suite. The staleness was entirely
+self-inflicted by the repair, not inherited from main.
+
+Turn 6 was the rescore that staleness prompted, and it was killed at twelve minutes
+rather than run to completion. Before letting it spend another hour I asked what its gate
+would say, and `pnpm mutation:sites` answered statically in seconds: two accepted rows
+pointed at coordinates the round-3 repair had moved out from under them, so
+`weights.ts:431` resolved to a comment closer and `records.ts:86` to prose. Neither an
+`integer-literal` nor a `statement-removal` mutant can exist at either site, so the run
+was already committed to a `stale-ledger-row` failure at `gate.ts:122`. Killing it cost
+twelve minutes and saved fifty. The kill went to the process GROUP, not the wrapper: a
+killed wrapper leaves the vitest worker reparented to PID 1, still holding its heavy
+slot. Verified zero processes in the group, both pids dead, and slot-0's flock actually
+free by taking it non-blocking rather than trusting the slot file. Both rows were then
+re-anchored to the same sites at their new coordinates in `3507d48b6`, arguments
+untouched, and all nine resolve with zero stale.
+
+This is the quieter half of the accept-list contract. A survivor with no ledger row is
+loud, because something is unaccounted for. A ledger row whose site no longer survives
+accepts nothing, and can drift onto a different site and accept that one instead. The
+gate treats both as hard failures, so a full run would have caught it eventually; asking
+the question statically caught it for the price of one command.
+
+
+### An absorb that arrived mid-flight, and why it owed nothing
+
+`#892` merged to main as `d04d6370985f` while turn 7 was scoring, twenty-seven commits
+past this branch's base. It touches one enrolled mutation surface, and that surface is
+main's rather than this branch's: `tests/ci/modalWaitHelper/disposition.ts`
+(`registry.ts:549`, `modal-wait-disposition`), four comment lines inserted and two
+`expectedCount` literals bumped. That is the shape that has broken other arcs' guards
+from a sibling merge, so it was worth settling before the fold rather than discovering
+after it. Three checks settle it, all read-only:
+
+- The row is `accepted: []`. Zero coordinate-keyed rows, so the `+2`/`+4` line drift
+  below the edit points has nothing to invalidate. This is precisely the class repaired
+  on this branch's own two surfaces above, and it does not recur here.
+- The site count is unchanged, twenty-six `expectedCount:` literals at the base and
+  twenty-six on main. The change moved values, it did not add sites, so the
+  `integer-literal` mutant population is the same size.
+- Both deciding suites pin the field by count drift
+  (`tests/ci/_metaModalWaitHelper.test.ts:422`,
+  `tests/ci/_metaModalWaitCandidateV2.test.ts:109`, each comparing
+  `actual !== rule.expectedCount`), so a mutant on either literal is killed.
+
+The range also touches none of this branch's three scored targets and none of their
+deciding suites, so folding it does not void turn 7's score. Net: no rescore is owed on
+`#892`'s account.
+
+One warning strengthens rather than clears. `tests/ci/_metaModalWaitHelper.test.ts` is
+the decider for both modal-wait surfaces and is the suite that hit a 180008 ms
+timeout-kill during turn 6. A timeout verdict tracks runner load, not the suite, so the
+same mutant can score either way with no code change at all. `#892` adds two more e2e
+candidates to the corpus that suite scans. Since this arc repacks legs for 36 of 52
+surfaces by design, it perturbs co-tenancy more than an ordinary diff does, which makes a
+timeout-sensitive surface likelier to move for reasons that have nothing to do with the
+weight. That surface sits in AC-1 population (i), so the rule stands: any mover there is
+re-run with its surface alone on a leg before any attribution. Presumption is not
+attribution.
+
+### AC-7's guard was made to fail on purpose
+
+A guard that has never failed is a guard nobody has tested, so before AC-7's pass was
+reported it was made to fail on purpose, once per case, each tamper shaped like the
+defect that case exists to catch. A no-defect baseline ran first and last.
+
+| tamper | expected to red | result |
+|---|---|---|
+| `baseSha` set to a non-sha | the base case, on shape | red, plus the added-surfaces case |
+| `baseSha` set to a real but wrong sha | the base case, on the claim | red, plus the added-surfaces case |
+| `rows` emptied | the premise case | red; the row-equality case passed, vacuously |
+| one recorded `scoreFloor` moved | the row-equality case | red, naming the surface |
+| one recorded row dropped | the added-surfaces case | red |
+
+Every run also reconciled its own counts, failing if any of the four cases was ABSENT
+rather than merely passing, because an uncollected case reads exactly like a passing one.
+The fixture came back byte-identical and the closing baseline was clean.
+
+**The probe corrected me twice, and the guard was right both times.** I expected only the
+base case to red on a corrupted `baseSha`; the added-surfaces case reds too, because it
+derives the added set with `addedByThisBranch(snapshot.baseSha)` and cannot survive a base
+it cannot resolve. That coupling is a feature: a corrupted base fails loudly in two places
+instead of being quietly routed around. I also asserted that restoring the fixture left
+`git status` clean, which is the wrong oracle right after a regeneration, when the file is
+legitimately uncommitted. The byte comparison against the pre-probe content is the right
+one, and it held.
+
+The third tamper is the one worth keeping in mind. Emptying `rows` leaves the row-equality
+case passing over an empty loop. That is precisely why the premise case sits outside any
+`.each`, and the probe records the vacuous pass rather than hiding it.
+
+
+### Four timeouts, two meanings, and why the count alone would mislead
+
+A child that hits the 180 s ceiling scores KILLED, following Stryker and PIT. The reflex is to
+treat every such verdict as unscored. This run shows why that reflex is wrong in both
+directions.
+
+| surface | site | what the mutant does | verdict |
+|---|---|---|---|
+| `modal-wait-helper-scan` | `statement-removal:413:5` | deletes `current = current.parent` from a `while (current !== undefined)` loop | cannot terminate — KILLED is honest |
+| `interactiveScanCore` | `statement-removal:565:5` | deletes `cursor = cursor.parent`, the last statement in a `while` body | cannot terminate — KILLED is honest |
+| `mutationSurfaceEnumerate` | `statement-removal:90:5` | deletes `n = n.parent`, the last statement in a walk loop | cannot terminate — KILLED is honest |
+| `acCoverage` | `integer-literal:77:50` | `indexOf(path, i + 1)` becomes `i + 2`; the loop still advances | terminates fine — the timeout is a LOAD artifact and the verdict is UNPROVEN |
+
+THREE of the four are deleted tree-walk advances — `current = current.parent`,
+`cursor = cursor.parent`, `n = n.parent` — each the last statement in its loop body. They hang
+at any load, on any machine, which is why the first reproduced at the identical site across
+three separate runs rather than wandering. That is not a coincidence: `statement-removal`
+applied to a walk's advance produces a non-terminating mutant every time, so this class is
+predictable, and it costs a full 180 s ceiling per instance. Nine minutes of this run went to
+mutants that were guaranteed to hang before they started. Re-running either alone would spin for 180 s and prove nothing. The third
+terminates in normal time and was killed by the clock under roughly 100-way contention; it is
+the one real instance of the upward score bias, since a mutant that might have survived was
+recorded as killed.
+
+So the rule this arc applies is **read the mutant, not the clock**. A deleted loop advance, a
+removed `break`, or a flipped termination condition is non-termination and is honestly killed.
+Anything else is a genuine re-run candidate, re-run with its surface ALONE on a leg, because
+the confound is co-tenancy and re-running beside the same neighbours proves nothing. A policy
+keyed on "timeout implies unscored" would have mis-scored all four — three as unproven when
+they are settled, one as settled when it is unproven.
+
+All four surfaces are population (i), untouched by this diff, so all four are main's and none
+is re-run here. The predictability of the walk-advance class is recorded here as a documented
+limit of the harness rather than filed as a row, per the process-facing mint freeze.
+
+### AC-1 is measured, and the instrument was made to fail before it was believed
+
+The neutrality claim is settled by dispatching `mutation-harness.yml` on both refs at one
+merge base and comparing the uploaded `.mutation-records/` per surface per mutant. The
+comparison itself is not new code: `verdictDelta` (`lib/mutationWeight/weights.ts:557`) is
+committed and tested (`tests/mutationWeight/instrument.test.ts:1206`), and
+`scripts/mutation-shard-weight-report.ts` drives it. It already restricts to shared
+siteIds and already returns the shared counts alongside the moves, for the reason its own
+comment gives: a comparison over almost nothing must not read as a clean result. The
+records carry more than the verdict: each `MutantOutcome` persists
+`children[].kind` as `"exit"` or `"timeout"` (`tests/mutation/source/runner.ts:42`,
+written at `:171`). That matters because a child which hits the wall-clock ceiling scores
+KILLED by convention, following Stryker and PIT, and that verdict tracks runner load
+rather than the suite's judgment. So every mutant lands in one of five classes: verdict
+unchanged; verdict moved with neither side timing out, which is the only real signal;
+verdict moved where either side timed out, reported as its own number and never folded
+into the other two; site present on one side only; and timeout-unknowable, where
+`children` is absent, which is the honest value for the browser runner because it spawns
+no per-suite children at all.
+
+Four controls were run against real records before any of it was trusted, because an
+instrument that bounds its own output is the kind that produces a confident wrong number.
+
+- A side compared against itself: 0 moves over 334 mutants.
+- A clean verdict flip on a mutant that did not time out: detected as a move.
+- The same flip on the timeout-bearing mutant: classified as tainted, not as a move.
+- Empty populations: exits without issuing a verdict.
+
+The fourth control exists because the third revealed a real defect, and it was found by
+running the thing rather than by reading it. The first version printed
+`VERDICT NEUTRAL: YES` for two populations while having compared exactly zero mutants.
+Every input check passed; the happy answer was simply reachable by the shortest path,
+through an empty population list, a mistyped directory, or an artifact that failed to
+download. Neutrality is a claim about mutants that were actually compared, so the count is
+now asserted before the claim is made: mutants compared must exceed zero, and surfaces
+found on both sides must equal surfaces declared.
+
+**The timeout confound is systematic rather than incidental, and it is a documented limit
+here rather than a ledger row.** Heavy turns 6 and 7 both hit the 180 s ceiling on
+`tests/ci/_metaModalWaitHelper.test.ts`, at different mutant sites, and that suite is the
+declared decider for both modal-wait surfaces (`registry.ts:475` and `:551`), both of
+which sit in the untouched population. The cost is concrete: `modal-wait-helper-scan`
+scores a clean 1.000 over 97 mutants, and exactly one of those verdicts was produced by
+wall clock rather than by the suite. The measurement above reports such a mutant as its
+own class instead of counting it as evidence in either direction, which is the whole
+repair. Under the process-facing mint freeze this is recorded against the surface that
+owns it and files nothing new.
