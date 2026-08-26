@@ -862,18 +862,22 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
   // lived in the shell's <header>. The intent (the strip is mounted and carries
   // the toggle) survives; the location assertion is now specific enough to fail
   // for the reason this task exists.
-  it("StatusStrip renders in the subHeader BAND — not in the header wrapper — with the toggle present", () => {
+  it("StatusStrip renders in the FOOTER — not in the header wrapper — with the toggle present", () => {
     renderModal();
     const panel = document.querySelector("[data-review-modal-panel]")! as HTMLElement;
     const strip = within(panel).getByTestId("show-status-strip");
     expect(within(strip).getByTestId("strip-publish-toggle")).toBeTruthy();
 
-    const band = screen.getByTestId(`${TB}-subheader`);
+    const footer = screen.getByTestId(`${TB}-footer`);
     const header = screen.getByTestId(`${TB}-header`);
-    // BOTH directions. The positive alone passes for a COPY of the strip left
-    // behind in the header; the negative is what proves this was a MOVE.
-    expect(band.contains(strip)).toBe(true);
+    // BOTH directions, unchanged in spirit from when this named the subheader
+    // band: the positive alone passes for a COPY of the strip left behind, and
+    // the negative is what proves this was a MOVE. The band itself is gone
+    // (spec 2026-08-25-review-modal-strip-dock §3.1), so its absence is
+    // asserted too — an emptied band would keep painting a seam.
+    expect(footer.contains(strip)).toBe(true);
     expect(header.contains(strip)).toBe(false);
+    expect(screen.queryByTestId(`${TB}-subheader`)).toBeNull();
   });
 
   // T-ARCHIVED-BAND: read-only mode must not degrade the band into an empty
@@ -882,9 +886,9 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
   // at its thinnest here — if
   // the archived strip ever rendered nothing, the band would still paint its
   // border and the panel would grow a hairline for no reason.
-  it("archived: the band still renders non-empty (archived badge), with no toggle or live badge", () => {
+  it("archived: the footer still renders non-empty (archived badge), with no toggle or live badge", () => {
     renderModal({ archived: true, published: false, isLive: true });
-    const band = screen.getByTestId(`${TB}-subheader`);
+    const band = screen.getByTestId(`${TB}-footer`);
     const strip = within(band).getByTestId("show-status-strip");
     expect(within(strip).getByTestId("strip-archived-badge").textContent).toMatch(/read-only/i);
     expect(band.textContent?.trim().length ?? 0).toBeGreaterThan(0);
@@ -1003,9 +1007,16 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
     expect(screen.getByTestId("section-warning-controls-crew")).toBeTruthy();
   });
 
-  it("no footer: the shell footer wrapper is absent", () => {
+  // INVERTED by the dock (spec 2026-08-25-review-modal-strip-dock §3.1). This
+  // asserted the shell footer wrapper was ABSENT, which was true for as long as
+  // the strip lived in the subheader band. The footer is now the strip's home,
+  // so the claim worth pinning is that there is exactly ONE — a second would
+  // mean two strips — and that the band it replaced is gone rather than
+  // emptied.
+  it("exactly one footer, and no leftover subheader band", () => {
     renderModal();
-    expect(screen.queryByTestId(`${TB}-footer`)).toBeNull();
+    expect(screen.getAllByTestId(`${TB}-footer`)).toHaveLength(1);
+    expect(screen.queryByTestId(`${TB}-subheader`)).toBeNull();
   });
 });
 

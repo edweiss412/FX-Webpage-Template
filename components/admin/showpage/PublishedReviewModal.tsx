@@ -1129,9 +1129,17 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
           </div>
         </>
       }
-      // The control strip is its OWN band below the header seam
-      // (modal-header-reconciliation §6.1): identity above, live controls below.
-      subHeader={
+      // The control strip is DOCKED to the panel floor (spec
+      // 2026-08-25-review-modal-strip-dock §3.1). It was its own band directly
+      // below the header seam — identity above, live controls below
+      // (modal-header-reconciliation §6.1) — and that reading survives the move:
+      // the controls are still separated from the identity block, just at the
+      // other end of the column. What forced the move is that a band pinned
+      // under the header rides DOWN with the header, and at 30 attention items
+      // the header alone grew taller than the panel, taking the Published
+      // switch out of reach entirely. A footer's distance from the panel top
+      // does not depend on how tall the header is.
+      footer={
         <>
           {/* Freshness announcement (spec 2026-08-03-modal-freshness-cue §4.6).
               The REGION is branch-stable and always mounted: a region that mounts
@@ -1140,11 +1148,12 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               onto the same text node and that is not a DOM mutation, so a repeat
               cue with identical copy would otherwise be silent to a screen reader.
 
-              In `subHeader`, not the body slot: the shell contracts that its
-              children mount directly in the panel flex column so the consumer's
-              surface root IS the body element, and ShowReviewSurface is that sole
-              child. This band is inside the same dialog subtree, so the region
-              announces identically. */}
+              In the `footer` slot, not the body slot: the shell contracts that
+              its children mount directly in the panel flex column so the
+              consumer's surface root IS the body element, and ShowReviewSurface
+              is that sole child. This row is inside the same dialog subtree, so
+              the region announces identically — the slot it lives in does not
+              change that, which is why the dock is not an announcement change. */}
           <span
             key="freshness-announce"
             role="status"
@@ -1156,6 +1165,11 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
           </span>
           <div
             data-testid={`${TESTID_BASE}-freshness-band`}
+            // `w-full` because the new parent is `flex flex-wrap items-center`
+            // (the shell's footer wrapper) rather than a block band: without it
+            // this row shrink-wraps its content and the strip's own `w-full`
+            // then resolves against the wrong width.
+            className="w-full"
             {...(bandFresh !== null ? { "data-section-freshness-flash": bandFresh.value } : {})}
           >
             <StatusStrip

@@ -190,7 +190,7 @@ for (const { mode, width, height } of VIEWPORTS) {
       await open(page, { width, height });
       for (const state of ["skeleton", "loaded"] as const) {
         await expect(inState(page, state, "header"), `${state} header`).toHaveCount(1);
-        await expect(inState(page, state, "subheader"), `${state} subheader`).toHaveCount(1);
+        await expect(inState(page, state, "footer"), `${state} footer`).toHaveCount(1);
       }
       // The body is the third band. Each state names its own body node, so this
       // asserts presence per state rather than a shared testid.
@@ -206,23 +206,30 @@ for (const { mode, width, height } of VIEWPORTS) {
       ).toHaveCount(1);
     });
 
-    // B — both bands are emitted by ReviewModalShell, so any difference means
-    // the skeleton hand-rolled a band instead of going through the slot.
-    test("B: the skeleton's subheader carries the shell's exact band classes", async ({ page }) => {
+    // B — both slots are emitted by ReviewModalShell, so any difference means
+    // the skeleton hand-rolled one instead of going through the slot.
+    test("B: the skeleton's footer carries the shell's exact slot classes", async ({ page }) => {
       await open(page, { width, height });
       // Fail FAST rather than burning the 120s test timeout inside evaluate()
       // when the band is simply absent (which is the pre-change state).
-      await expect(inState(page, "skeleton", "subheader")).toHaveCount(1, { timeout: 5_000 });
+      await expect(inState(page, "skeleton", "footer")).toHaveCount(1, { timeout: 5_000 });
       const classOf = (state: "skeleton" | "loaded") =>
-        inState(page, state, "subheader").evaluate((el) => el.className);
+        inState(page, state, "footer").evaluate((el) => el.className);
       const skeletonClass = await classOf("skeleton");
       const loadedClass = await classOf("loaded");
       expect(skeletonClass).toBe(loadedClass);
       // Non-vacuity: an empty className on BOTH sides would satisfy the equality
-      // above while proving nothing. Pin the seam, surface and padding the band
+      // above while proving nothing. Pin the seam, surface and padding the slot
       // actually owns.
-      for (const cls of ["border-b", "border-border", "bg-surface", "px-tile-pad", "py-2"]) {
-        expect(skeletonClass, `band retains ${cls}`).toContain(cls);
+      //
+      // The seam is `border-t`, not the band's `border-b`: the shell's footer
+      // seams UPWARD because the body is above it now. Same for the vertical
+      // inset — `pt-3` plus a safe-area-aware bottom, rather than the band's
+      // symmetric `py-2`. These are the SHELL's classes either way, which is
+      // exactly what this case exists to pin; the list is stale whenever the
+      // strip changes slots, and nothing else about the assertion changes.
+      for (const cls of ["border-t", "border-border", "bg-surface", "px-tile-pad", "pt-3"]) {
+        expect(skeletonClass, `footer retains ${cls}`).toContain(cls);
       }
     });
 
@@ -285,10 +292,10 @@ for (const { mode, width, height } of VIEWPORTS) {
     // never this tolerance (spec §1.1 forbids widening).
     const bandHeights = async (page: Page) => {
       await open(page, { width, height });
-      await expect(inState(page, "skeleton", "subheader")).toHaveCount(1, { timeout: 5_000 });
+      await expect(inState(page, "skeleton", "footer")).toHaveCount(1, { timeout: 5_000 });
       return {
-        skeleton: (await rect(inState(page, "skeleton", "subheader"))).height,
-        loaded: (await rect(inState(page, "loaded", "subheader"))).height,
+        skeleton: (await rect(inState(page, "skeleton", "footer"))).height,
+        loaded: (await rect(inState(page, "loaded", "footer"))).height,
       };
     };
 

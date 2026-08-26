@@ -24,10 +24,12 @@
  * into the shell's `subHeader` band, so the panel column is
  * header + subheader + main. Asserted (±0.5px) at 375×812 (sheet) and
  * 1280×900 (popup/two-pane):
- *   - sheet (<sm):  grab + header + subheader + main === panel.clientHeight
- *   - ≥sm:          header + subheader + main === panel.clientHeight
- *                   (grab hidden, and NO footer element exists — the published
- *                   modal omits the shell `footer` prop entirely)
+ *   - sheet (<sm):  grab + header + main + footer === panel.clientHeight
+ *   - ≥sm:          header + main + footer === panel.clientHeight
+ *                   (grab hidden; the strip DOCKED to the footer in
+ *                   2026-08-25-review-modal-strip-dock §3.1, so the modal now
+ *                   supplies the shell `footer` prop and no longer supplies
+ *                   `subHeader` — the band is gone, not emptied)
  *   - "main" = ShowReviewSurface's root node
  *     (`wizard-step3-card-<dfid>-review-main`), scoped INSIDE the
  *     `published-show-review` modal container — it fills to the panel bottom.
@@ -243,7 +245,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     const isSheet = mode === "sheet";
 
     test(`T-LAYOUT ${mode} @ ${width}×${vh}: ${
-      isSheet ? "grab + header + subheader + main" : "header + subheader + main"
+      isSheet ? "grab + header + main + footer" : "header + main + footer"
     } === panel.clientHeight (±0.5px)`, async ({ page }) => {
       await openHarness(page, { width, height: vh });
 
@@ -251,14 +253,27 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
         .locator(PANEL)
         .evaluate((el) => (el as HTMLElement).clientHeight);
       const headerH = await heightOf(page, HEADER);
-      const subHeaderH = await heightOf(page, SUBHEADER);
+      const footerH = await heightOf(page, FOOTER);
       const mainH = await heightOf(page, MAIN);
       const grabH = await heightOf(page, GRAB);
 
-      // The band is a REAL term, not a 0px placeholder that would let the
-      // two-band equation keep passing under a three-band name.
-      expect(subHeaderH, `subheader band has real height @ ${mode}`).toBeGreaterThan(0);
-      await expect(page.locator(SUBHEADER), `exactly one band @ ${mode}`).toHaveCount(1);
+      // The strip DOCKED (spec 2026-08-25-review-modal-strip-dock §3.1): the
+      // term moved from the subheader band to the footer, and the band is gone
+      // rather than emptied. Both halves are asserted, because a 0px leftover
+      // band would let the old equation keep passing under the new name — the
+      // same "real term, not a placeholder" argument this case has always made,
+      // now pointed at the slot that actually holds the strip.
+      expect(footerH, `footer has real height @ ${mode}`).toBeGreaterThan(0);
+      await expect(page.locator(FOOTER), `exactly one footer @ ${mode}`).toHaveCount(1);
+      // COUNT, not height. `heightOf` goes through `locator.evaluate`, which
+      // WAITS for the element — so asking a removed band for its height does
+      // not report 0, it hangs until the test times out. The first draft of
+      // this case did exactly that and spent two minutes per cell failing with
+      // a timeout instead of an assertion.
+      await expect(
+        page.locator(SUBHEADER),
+        `the subheader band is GONE, not emptied @ ${mode}`,
+      ).toHaveCount(0);
 
       // Non-vacuity: the fixture's content pane genuinely overflows the capped
       // panel, so "main fills to the panel bottom" is a min-h-0/flex-1 pin —
@@ -275,15 +290,16 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
         `content pane overflows its viewport @ ${mode} (equation is non-vacuous)`,
       ).toBeGreaterThan(mainScroll!.clientHeight);
 
-      const sum = headerH + subHeaderH + mainH + (isSheet ? grabH : 0);
+      const sum = headerH + mainH + footerH + (isSheet ? grabH : 0);
       expect(
         Math.abs(sum - panelClientHeight),
-        `${isSheet ? `grab ${grabH} + ` : ""}header ${headerH} + subheader ${subHeaderH}` +
-          ` + main ${mainH} === panel.clientHeight ${panelClientHeight} @ ${mode}`,
+        `${isSheet ? `grab ${grabH} + ` : ""}header ${headerH} + main ${mainH}` +
+          ` + footer ${footerH} === panel.clientHeight ${panelClientHeight} @ ${mode}`,
       ).toBeLessThanOrEqual(TOL);
 
-      // No horizontal overflow at this viewport (§8): the band's row must wrap,
-      // never widen the panel.
+      // No horizontal overflow at this viewport (§8): the strip's row must wrap,
+      // never widen the panel. The claim survives the dock unchanged — it was
+      // always about the row, not about which slot holds it.
       const hOverflow = await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
       );
@@ -300,12 +316,14 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
         expect(grabH, `grab strip hidden (display:none) @ ${mode}`).toBe(0);
       }
 
-      // NO footer element exists in the published modal — the shell renders the
-      // footer wrapper only when the consumer provides one, and the published
-      // modal omits it (spec §6.1: publish toggle lives in the StatusStrip;
-      // archive was in Overview then, and is in the share hub's popover now —
-      // either way, not a footer). Asserted in BOTH modes.
-      await expect(page.locator(FOOTER), `no footer element @ ${mode}`).toHaveCount(0);
+      // The footer now EXISTS and is the strip's home (spec
+      // 2026-08-25-review-modal-strip-dock §3.1). This assertion previously
+      // read "NO footer element exists in the published modal", which was true
+      // for as long as the strip lived in the subheader band. It is asserted in
+      // both modes for the same reason it was before: the shell renders the
+      // wrapper only when a consumer supplies the slot, so exactly one is the
+      // claim — a second would mean two strips.
+      await expect(page.locator(FOOTER), `exactly one footer @ ${mode}`).toHaveCount(1);
     });
 
     // T-HUB-FLUSH (share-hub T4; replaces T-COPY-FLUSH, whose subject — the
@@ -320,12 +338,12 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     // carries `px-tile-pad`, so a panel-relative assertion would be off by
     // exactly that padding — and the tempting "fix" would be to delete the
     // padding, which is the wrong repair.
-    test(`T-HUB-FLUSH @ ${width}: the share-hub group's right edge sits at the band's content-box right edge`, async ({
+    test(`T-HUB-FLUSH @ ${width}: the share-hub group's right edge sits at the footer's content-box right edge`, async ({
       page,
     }) => {
       await openHarness(page, { width, height: vh });
 
-      const flush = await page.locator(SUBHEADER).evaluate((band) => {
+      const flush = await page.locator(FOOTER).evaluate((band) => {
         const copy = band.querySelector('[data-testid="share-hub-group"]');
         if (copy === null) return null;
         const bandRect = band.getBoundingClientRect();
@@ -374,44 +392,56 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     // header); the band loses its bottom seam so the panel reads as one
     // undifferentiated block; the strip re-acquires vertical padding of its own
     // and double-counts against the band's `py-2`.
-    test(`band composition @ ${width}: header and subheader are distinct stacked seams`, async ({
+    test(`chrome composition @ ${width}: header and footer are distinct seamed ends of the column`, async ({
       page,
     }) => {
       await openHarness(page, { width, height: vh });
 
-      const comp = await page.locator(SUBHEADER).evaluate((band) => {
-        const panel = band.parentElement!;
+      const comp = await page.locator(FOOTER).evaluate((footer) => {
+        const panel = footer.parentElement!;
         const header = panel.querySelector('[data-testid$="-header"]')!;
-        const bandStyle = getComputedStyle(band);
+        const footerStyle = getComputedStyle(footer);
         const headerStyle = getComputedStyle(header);
-        const strip = band.querySelector('[data-testid="show-status-strip"]')!;
+        const strip = footer.querySelector('[data-testid="show-status-strip"]')!;
         const stripStyle = getComputedStyle(strip);
         const kids = Array.from(panel.children);
         return {
-          bandFollowsHeader: kids.indexOf(band) === kids.indexOf(header) + 1,
+          footerIsLastChild: kids.indexOf(footer) === kids.length - 1,
           headerBorderBottom: parseFloat(headerStyle.borderBottomWidth),
-          bandBorderBottom: parseFloat(bandStyle.borderBottomWidth),
-          gapBetween: band.getBoundingClientRect().top - header.getBoundingClientRect().bottom,
-          bandPadTop: parseFloat(bandStyle.paddingTop),
-          bandPadBottom: parseFloat(bandStyle.paddingBottom),
+          // The footer seams UPWARD (`border-t`), where the band seamed
+          // downward — the seam always faces the body, and the body is now on
+          // the other side of it.
+          footerBorderTop: parseFloat(footerStyle.borderTopWidth),
+          footerBottomGap:
+            panel.getBoundingClientRect().bottom - footer.getBoundingClientRect().bottom,
+          footerPadTop: parseFloat(footerStyle.paddingTop),
+          footerPadBottom: parseFloat(footerStyle.paddingBottom),
           stripPadTop: parseFloat(stripStyle.paddingTop),
           stripPadBottom: parseFloat(stripStyle.paddingBottom),
         };
       });
 
-      expect(
-        comp.bandFollowsHeader,
-        `band is the panel child right after the header @ ${mode}`,
-      ).toBe(true);
+      // DOCKED (spec 2026-08-25-review-modal-strip-dock §3.1). The claim this
+      // case has always made is that the strip's slot is a distinct seamed
+      // child of the panel's flex column, with the slot owning the vertical
+      // inset and the strip owning none. All of that survives the move; what
+      // inverts is WHERE in the column it sits and which way its seam faces.
+      expect(comp.footerIsLastChild, `footer is the panel's LAST child @ ${mode}`).toBe(true);
       expect(comp.headerBorderBottom, `header keeps its own seam @ ${mode}`).toBeGreaterThan(0);
-      expect(comp.bandBorderBottom, `band carries its own seam @ ${mode}`).toBeGreaterThan(0);
-      // Stacked, not spaced: the seams abut. A gap here would mean the band is
-      // not actually in the panel's flex column.
-      expect(Math.abs(comp.gapBetween), `header and band abut @ ${mode}`).toBeLessThanOrEqual(TOL);
-      // The band owns the vertical inset; the strip owns none, so the two can
+      expect(comp.footerBorderTop, `footer carries its own seam @ ${mode}`).toBeGreaterThan(0);
+      // Flush to the panel floor, which is the whole point of docking: a gap
+      // here would mean the footer is not actually pinned to the bottom of the
+      // flex column, and the strip would drift with the body's height again.
+      expect(
+        Math.abs(comp.footerBottomGap),
+        `footer sits flush at the panel floor @ ${mode}`,
+      ).toBeLessThanOrEqual(TOL);
+      // The slot owns the vertical inset; the strip owns none, so the two can
       // never double-count.
-      expect(comp.bandPadTop, `band supplies the vertical inset @ ${mode}`).toBeGreaterThan(0);
-      expect(comp.bandPadBottom, `band supplies the vertical inset @ ${mode}`).toBeGreaterThan(0);
+      expect(comp.footerPadTop, `footer supplies the vertical inset @ ${mode}`).toBeGreaterThan(0);
+      expect(comp.footerPadBottom, `footer supplies the vertical inset @ ${mode}`).toBeGreaterThan(
+        0,
+      );
       expect(comp.stripPadTop, `strip has no own top padding @ ${mode}`).toBe(0);
       expect(comp.stripPadBottom, `strip has no own bottom padding @ ${mode}`).toBe(0);
     });
@@ -861,7 +891,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       });
 
       const sample = await page
-        .locator(`${SUBHEADER} [data-testid="share-hub-kebab"]`)
+        .locator(`${FOOTER} [data-testid="share-hub-kebab"]`)
         .evaluate((btn) => {
           const parse = (c: string): [number, number, number, number] => {
             const n = c.match(/[\d.]+/g)!.map(Number);
@@ -962,7 +992,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
   ] as const;
 
   for (const { name, page: htmlPath, expected } of ORANGE_STATES) {
-    test(`T-NO-ORANGE [${name}]: the accent-resolving set in the header region is EXACTLY ${
+    test(`T-NO-ORANGE [${name}]: the accent-resolving set in the modal chrome is EXACTLY ${
       expected.length === 0 ? "{}" : `{${expected.join(", ")}}`
     }`, async ({ page }) => {
       await openHarness(page, { width: 1280, height: 900 }, htmlPath);
@@ -972,7 +1002,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       await page.mouse.move(0, 0);
 
       const found = await page.evaluate(
-        ({ modalSel, headerSel, subSel }) => {
+        ({ modalSel, headerSel, footerSel }) => {
           // Normalize the token through the browser rather than parsing hex
           // ourselves — that is what makes an aliased token still compare equal.
           const probe = document.createElement("span");
@@ -984,7 +1014,14 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
           probe.remove();
 
           const modal = document.querySelector(modalSel)!;
-          const regions = [modal.querySelector(headerSel), modal.querySelector(subSel)].filter(
+          // The modal's CHROME: the header, plus whichever slot holds the
+          // control strip. That was the subheader band; after the dock (spec
+          // 2026-08-25-review-modal-strip-dock §3.1) it is the footer. The
+          // invariant was never about a particular slot — it is that accent
+          // resolves on exactly the sanctioned controls wherever the chrome
+          // puts them, and `published-toggle` and `status-dot-live` travelled
+          // with the strip.
+          const regions = [modal.querySelector(headerSel), modal.querySelector(footerSel)].filter(
             (n): n is Element => n !== null,
           );
 
@@ -1021,7 +1058,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
           }
           return { accent, labels: Array.from(labels).sort(), rawCount };
         },
-        { modalSel: MODAL, headerSel: `[data-testid="${BASE}-header"]`, subSel: SUBHEADER },
+        { modalSel: MODAL, headerSel: `[data-testid="${BASE}-header"]`, footerSel: FOOTER },
       );
 
       // Non-vacuity: if --color-accent failed to resolve, `accent` would be
@@ -1059,9 +1096,9 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     page,
   }) => {
     await openHarness(page, { width: 1280, height: 900 });
-    const synced = page.locator(`${SUBHEADER} [data-testid="strip-synced-line"]`);
-    const edited = page.locator(`${SUBHEADER} [data-testid="strip-edited-age"]`);
-    const bullet = page.locator(`${SUBHEADER} [data-testid="strip-status-bullet"]`);
+    const synced = page.locator(`${FOOTER} [data-testid="strip-synced-line"]`);
+    const edited = page.locator(`${FOOTER} [data-testid="strip-edited-age"]`);
+    const bullet = page.locator(`${FOOTER} [data-testid="strip-status-bullet"]`);
     await expect(synced).toBeVisible();
     await expect(edited).toBeVisible();
 
@@ -1098,7 +1135,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
   test("T-TAP @1280: the ghost Re-sync trigger's own box clears 44px", async ({ page }) => {
     await openHarness(page, { width: 1280, height: 900 });
     const box = await page
-      .locator(`${SUBHEADER} [data-testid="admin-resync-button"]`)
+      .locator(`${FOOTER} [data-testid="admin-resync-button"]`)
       .evaluate((el) => el.getBoundingClientRect());
     expect(box.height, "ghost trigger height").toBeGreaterThanOrEqual(TAP_MIN - TOL);
     expect(box.width, "ghost trigger width").toBeGreaterThanOrEqual(TAP_MIN - TOL);
@@ -1124,7 +1161,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       });
 
       const sample = await page
-        .locator(`${SUBHEADER} [data-testid="admin-resync-button"]`)
+        .locator(`${FOOTER} [data-testid="admin-resync-button"]`)
         .evaluate((btn) => {
           const parse = (c: string): [number, number, number, number] => {
             const n = c.match(/[\d.]+/g)!.map(Number);

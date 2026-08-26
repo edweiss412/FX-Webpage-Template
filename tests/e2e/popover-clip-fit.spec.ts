@@ -961,19 +961,20 @@ test.describe("anchor-room census — what the MIN_FITTED_HEIGHT docblock may cl
     await page.setViewportSize({ width: 375, height: 667 });
     await openMenu(page, 10, 10, 10);
 
-    // ROOM at this anchor is deliberately NOT asserted. The banner mounts only
-    // on a refusal, which the real modal harness cannot drive, and its anchor
-    // (the strip) renders BELOW the clip window in this fixture at 375x667 --
-    // measured: strip 713.03..911.03 against a panel bottom of 667. A room
-    // figure taken there would describe a clipped-away anchor, not one an
-    // operator sees, so it would be a number without a meaning. Recorded in
-    // BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED rather than faked here.
+    // The STRUCTURAL premise, kept verbatim in substance: walking up from this
+    // anchor lands on the modal panel. If the strip ever stops living inside
+    // the clipping panel, the overlay silently stops being bounded by it and
+    // nothing else would notice. The measurement below does not replace this —
+    // §7 is explicit that the arc adds the number without trading the premise
+    // away for it.
     //
-    // What IS checkable is the STRUCTURAL premise the fit depends on: that
-    // walking up from this anchor lands on the modal panel, the same node the
-    // hook's own findClippingAncestor would resolve. If the strip ever stops
-    // living inside the clipping panel, the hook silently stops capping this
-    // overlay and nothing else would notice.
+    // What this comment USED to say, and why it no longer does: "ROOM at this
+    // anchor is deliberately NOT asserted... the banner mounts only on a
+    // refusal, which the real modal harness cannot drive, and its anchor
+    // renders BELOW the clip window at 375x667 — strip 713.03..911.03 against a
+    // panel bottom of 667." Both obstacles are gone. T3 made the refusal
+    // drivable; T4 and the dock put the anchor back inside the window. The
+    // room figure is measured in the case that follows.
     const verdict = await page.evaluate(
       ([stripSel, panelSel]) => {
         const strip = document.querySelector(stripSel as string);
@@ -1119,6 +1120,81 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
 // ---------------------------------------------------------------------------
 // T3 — the refusal is drivable through the REAL modal (spec §7 obstacle 1)
 // ---------------------------------------------------------------------------
+
+test.describe("the row's obligation — real-surface anchor room (spec §7)", () => {
+  test("the banner is placed on the side the DOCKED anchor actually leaves room for", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await openMenu(page, 10, 10, 10);
+
+    // Load 30 ON PURPOSE, unlike T3's driver cases. This is the load at which
+    // spec §0 measured the failure the row was filed for, so measuring anywhere
+    // else would report room at an anchor nobody was worried about.
+    await page.evaluate(() => {
+      (window as unknown as { __setRefusal: (c: string | null) => void }).__setRefusal(
+        "FINALIZE_OWNED_SHOW",
+      );
+    });
+    await page.locator('[data-testid="published-toggle"]').click();
+    await expect(page.locator(TOGGLE_BANNER)).toBeVisible();
+
+    const m = await page.evaluate(
+      ([panelSel, stripSel, bannerSel, gap, inset]) => {
+        const panel = document.querySelector(panelSel as string)!.getBoundingClientRect();
+        const trigger = document.querySelector(stripSel as string)!.getBoundingClientRect();
+        const el = document.querySelector(bannerSel as string) as HTMLElement;
+        const banner = el.getBoundingClientRect();
+        const boundsTop = panel.top + (inset as number);
+        const boundsBottom = panel.bottom - (inset as number);
+        return {
+          // The module's OWN quantities, so the test and the implementation
+          // cannot disagree about what "room" means.
+          spaceAbove: Math.max(0, trigger.top - boundsTop - (gap as number)),
+          spaceBelow: Math.max(0, boundsBottom - trigger.bottom - (gap as number)),
+          naturalHeight: el.scrollHeight,
+          boundsTop,
+          boundsBottom,
+          triggerTop: trigger.top,
+          bannerTop: banner.top,
+          bannerBottom: banner.bottom,
+          side: el.dataset["popoverSide"] ?? null,
+          inlineMaxHeight: el.style.maxHeight,
+        };
+      },
+      [PANEL, STRIP, TOGGLE_BANNER, GAP, VIEWPORT_INSET] as const,
+    );
+
+    // The two numbers this row was filed to obtain. Recorded in the docblock of
+    // lib/layout/fitWithinClip.ts and in the archive entry.
+    console.log(
+      `[§7] 375x667 load-30 docked: spaceAbove=${m.spaceAbove} spaceBelow=${m.spaceBelow} ` +
+        `natural=${m.naturalHeight} side=${m.side} cap=${m.inlineMaxHeight || "(none)"}`,
+    );
+
+    // WHY the chosen side is chosen, not merely which side it is. Asserting
+    // `side === "top"` alone would pass against a component that hardcoded it.
+    expect(
+      m.spaceBelow,
+      "PREMISE: below the docked strip there is less room than the banner needs",
+    ).toBeLessThan(m.naturalHeight);
+    expect(
+      m.spaceAbove,
+      "PREMISE: above it there is more, which is what makes TOP the correct answer",
+    ).toBeGreaterThan(m.spaceBelow);
+
+    expect(m.side, "the module placed it above the strip").toBe("top");
+    // Placed GAP above the trigger, which pins the geometry rather than just
+    // the attribute — the attribute alone is satisfied by a component that
+    // writes it and no coordinates.
+    expect(Math.abs(m.bannerBottom - (m.triggerTop - GAP))).toBeLessThanOrEqual(0.5);
+    // Inside the panel on both edges. Containment alone is satisfied by a
+    // private ref writing `max-height: 1px`, which is why it is asserted
+    // ALONGSIDE the two premises rather than instead of them.
+    expect(m.bannerTop).toBeGreaterThanOrEqual(m.boundsTop - 0.5);
+    expect(m.bannerBottom).toBeLessThanOrEqual(m.boundsBottom + 0.5);
+  });
+});
 
 test.describe("the shared harness can drive a refusal", () => {
   test("a driven refusal renders the CATALOG copy, not the generic retry string", async ({

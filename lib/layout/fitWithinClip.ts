@@ -35,11 +35,14 @@ export const DEFAULT_CLIP_GUTTER = 8;
  *   - AttentionMenu scroller: swept in a real browser at 375×H — 844→563,
  *     667→412, 560→322, 400→186, 300→101. Linear in viewport height, still
  *     twice the floor at a height no phone has. The floor cannot bind here.
- *   - PublishedToggle refusal banner: room NOT measured. The banner mounts only
- *     on a refusal, which the real-modal harness cannot drive, and its anchor
- *     renders below the clip window in that fixture. What IS pinned is the
- *     structural premise — that the first clipping ancestor above the anchor is
- *     the review-modal panel (tests/e2e/popover-clip-fit.spec.ts). See
+ *   - PublishedToggle refusal banner: RETIRED from this list 2026-08-25. It
+ *     migrated to the placement module (feat/review-modal-strip-dock), so this
+ *     hook no longer serves that anchor and a room figure here would describe a
+ *     mechanism it does not use. The number the row wanted now exists and is
+ *     measured against the real surface in tests/e2e/popover-clip-fit.spec.ts
+ *     ("the row's obligation — real-surface anchor room"): with the strip
+ *     docked at the panel floor there is no room below it, and the module
+ *     places the banner in the 342.94px above. See the archive entry for
  *     BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED.
  *
  * An earlier version of this comment generalized the Re-sync number to the
