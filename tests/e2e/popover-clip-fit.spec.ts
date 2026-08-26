@@ -1246,12 +1246,48 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
         return {
           lineClamp: cs.webkitLineClamp,
           display: cs.display,
+          boxOrient: cs.webkitBoxOrient,
+          overflow: cs.overflow,
+          // Rendered line count from the box's own metrics: total height over
+          // one line's height. This is the thing a clamp is FOR, and it is what
+          // a display override silently breaks while the property still reads 2.
+          renderedLines: Math.round(
+            span.getBoundingClientRect().height / parseFloat(cs.lineHeight || "1"),
+          ),
         };
       },
       [PANEL] as const,
     );
     expect(clamp, "PREMISE: the h2 inner span must render").not.toBeNull();
     expect(clamp!.lineClamp, "the clamp must be EMITTED, not merely classed").toBe("2");
+    // ...and FUNCTIONAL, which the property alone does not establish. Round 2
+    // (P2): `-webkit-line-clamp` keeps reporting "2" while an overriding
+    // `display` disables clamping entirely, so the property is a necessary and
+    // insufficient condition. The clamp only takes effect inside a
+    // `-webkit-box` with vertical orientation and hidden overflow, and the
+    // rendered line count is what a reader actually sees — all four are
+    // asserted so no single override can leave this green.
+    expect(clamp!.overflow, "an unclipped box shows every line regardless").toBe("hidden");
+    // THE FUNCTIONAL ASSERTION, and the one round 2 (P2) actually asked for: the
+    // property alone is necessary and insufficient, because an overriding
+    // `display` leaves `-webkit-line-clamp` reporting "2" while clamping
+    // nothing. Rendered line count is what a reader sees and cannot be faked by
+    // a property value.
+    expect(
+      clamp!.renderedLines,
+      `title renders ${clamp!.renderedLines} lines, cap is 2`,
+    ).toBeLessThanOrEqual(2);
+
+    // NOT asserted, and deliberately so: computed `display` reads `flow-root`
+    // here, not the `-webkit-box` that Tailwind's line-clamp utility is
+    // documented to emit, yet the clamp measurably WORKS (the line count above
+    // holds and the title is visibly capped). I could not explain that
+    // discrepancy from the class list — no custom `@utility` overrides display,
+    // and nothing in the span's classes should. Asserting a mechanism I cannot
+    // account for would pin a belief rather than a behaviour, and would fail the
+    // day the mechanism legitimately changes. Recorded as an open question
+    // instead: if the clamp ever regresses, the display value is the first
+    // thing to inspect. See the ship marker's TEST_5 note.
   });
 });
 

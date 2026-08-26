@@ -252,6 +252,18 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       const panelClientHeight = await page
         .locator(PANEL)
         .evaluate((el) => (el as HTMLElement).clientHeight);
+      // PRESENCE FIRST, heights second — round 2 (P2) caught the same
+      // absent-element trap I had just fixed for the subheader, now sitting on
+      // the footer. `heightOf` goes through `locator.evaluate`, which WAITS: if
+      // the footer disappears, asking for its height hangs to the test timeout
+      // instead of reaching the fast, diagnostic count assertion below. Ordering
+      // is the whole fix, so the count must precede every heightOf on it.
+      await expect(page.locator(FOOTER), `exactly one footer @ ${mode}`).toHaveCount(1);
+      await expect(
+        page.locator(SUBHEADER),
+        `the subheader band is GONE, not emptied @ ${mode}`,
+      ).toHaveCount(0);
+
       const headerH = await heightOf(page, HEADER);
       const footerH = await heightOf(page, FOOTER);
       const mainH = await heightOf(page, MAIN);
@@ -264,16 +276,6 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       // same "real term, not a placeholder" argument this case has always made,
       // now pointed at the slot that actually holds the strip.
       expect(footerH, `footer has real height @ ${mode}`).toBeGreaterThan(0);
-      await expect(page.locator(FOOTER), `exactly one footer @ ${mode}`).toHaveCount(1);
-      // COUNT, not height. `heightOf` goes through `locator.evaluate`, which
-      // WAITS for the element — so asking a removed band for its height does
-      // not report 0, it hangs until the test times out. The first draft of
-      // this case did exactly that and spent two minutes per cell failing with
-      // a timeout instead of an assertion.
-      await expect(
-        page.locator(SUBHEADER),
-        `the subheader band is GONE, not emptied @ ${mode}`,
-      ).toHaveCount(0);
 
       // Non-vacuity: the fixture's content pane genuinely overflows the capped
       // panel, so "main fills to the panel bottom" is a min-h-0/flex-1 pin —

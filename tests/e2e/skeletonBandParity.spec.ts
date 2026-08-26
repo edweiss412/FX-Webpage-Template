@@ -216,17 +216,38 @@ for (const { mode, width, height } of VIEWPORTS) {
           inState(page, state, "subheader"),
           `${state}: the retired subheader band is GONE, not emptied`,
         ).toHaveCount(0);
-        // And the panel carries no FOURTH band. Counted from the panel's own
-        // children rather than by naming what must be absent — an absence list
-        // only ever excludes what someone thought to name.
-        const bandCount = await panel(page, state).evaluate(
-          (el) =>
-            Array.from(el.children).filter((c) =>
-              /-(header|subheader|footer)$/.test(c.getAttribute("data-testid") ?? ""),
-            ).length,
-        );
-        expect(bandCount, `${state}: exactly header + footer, no third chrome band`).toBe(2);
       }
+
+      // PARITY on the panel's whole child list, which is what this suite is
+      // actually for. Round 2 (P2) caught two weaker versions in a row: naming
+      // the three bands only proved they exist, and counting children whose
+      // testid ends in header/subheader/footer let a one-edit extra child —
+      // `published-show-review-extra-body`, say — slip through at the same
+      // count. Comparing the two states' full child SETS cannot be escaped by
+      // choosing a different testid, and it is the stronger claim anyway: the
+      // skeleton's column must have the same SHAPE as the loaded one, not
+      // merely the same named bands.
+      //
+      // The BODY child is named per state by design (the skeleton's `-loading`
+      // against the loaded surface's own root), so it is compared by POSITION
+      // and excluded from the name comparison.
+      const shapeOf = (state: "skeleton" | "loaded") =>
+        panel(page, state).evaluate((el) =>
+          Array.from(el.children).map((c) => c.getAttribute("data-testid") ?? c.tagName),
+        );
+      const skeletonKids = await shapeOf("skeleton");
+      const loadedKids = await shapeOf("loaded");
+      expect(
+        skeletonKids.length,
+        `panel child count differs — skeleton [${skeletonKids.join(", ")}] vs loaded [${loadedKids.join(", ")}]`,
+      ).toBe(loadedKids.length);
+      // Same positions, same identities, body excluded.
+      const bodyIdx = skeletonKids.findIndex((t) => t.endsWith("-loading"));
+      expect(bodyIdx, "the skeleton body child must be locatable").toBeGreaterThanOrEqual(0);
+      expect(
+        skeletonKids.filter((_, i) => i !== bodyIdx),
+        "every non-body panel child matches between the two states",
+      ).toEqual(loadedKids.filter((_, i) => i !== bodyIdx));
     });
 
     // B — both slots are emitted by ReviewModalShell, so any difference means
