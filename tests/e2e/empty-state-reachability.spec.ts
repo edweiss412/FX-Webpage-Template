@@ -108,6 +108,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { admin } from "./helpers/supabaseAdmin";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs } from "./helpers/signInAs";
+import { copyShowLocked, deleteShowsLocked } from "./helpers/lockedShowCopy";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 const STALE_SEVERE_AGE_MS = 7 * 60 * 60 * 1000; // 7h — > 6h SYNC_DELAYED_SEVERE boundary
@@ -122,7 +123,7 @@ type ReservationRow = Record<string, unknown>;
 type Template = { show: ShowRow; reservations: ReservationRow[] };
 
 /** A disposable copy of the template, addressable on the crew route. */
-type Copy = { showId: string; slug: string; shareToken: string };
+type Copy = { showId: string; slug: string; shareToken: string; driveFileId: string };
 
 async function readTemplate(): Promise<Template> {
   // not-subject-to-meta: test-local fixture lookup.
@@ -168,17 +169,21 @@ async function makeCopy(
 ): Promise<Copy> {
   const showId = randomUUID();
   const suffix = showId.slice(0, 8);
-  const row: ShowRow = {
-    ...t.show,
+  const driveFileId = `empty-state-spec:${suffix}`;
+  const slug = `${t.show.slug as string}-es-${suffix}`;
+
+  // LOCKED path, not PostgREST: `shows` is a plan-wide-invariant-2 table, and
+  // tests/help/walker-routes.test.ts forbids unlocked service-role DML on it
+  // anywhere under tests/e2e/. The helper clones the template row inside one
+  // transaction holding the per-show advisory lock.
+  copyShowLocked(SEED_DRIVE_FILE_ID, {
     ...patch,
     id: showId,
-    slug: `${t.show.slug as string}-es-${suffix}`,
-    drive_file_id: `empty-state-spec:${suffix}`,
+    slug,
+    drive_file_id: driveFileId,
     unpublish_token: null,
     unpublish_token_expires_at: null,
-  };
-  const insert = await admin.from("shows").insert(row);
-  if (insert.error) throw new Error(`show copy failed: ${insert.error.message}`);
+  });
 
   // The share token is MINTED BY THE DB on show insert (show_share_tokens is
   // keyed by show_id, and an explicit insert here collides with that row —
@@ -194,21 +199,23 @@ async function makeCopy(
   if (!token?.share_token) {
     throw new Error(`no share_token minted for copied show ${showId}`);
   }
-  const shareToken = token.share_token as string;
 
   if (opts.withReservations && t.reservations.length > 0) {
     const rows = t.reservations.map((r) => ({ ...r, id: randomUUID(), show_id: showId }));
-    const resInsert = await admin.from("hotel_reservations").insert(rows);
-    if (resInsert.error) throw new Error(`reservation copy failed: ${resInsert.error.message}`);
+    // hotel_reservations is NOT an invariant-2 locked table, so the
+    // service-role PostgREST client is the right instrument here.
+    // not-subject-to-meta: test-local fixture write.
+    const { error: resError } = await admin.from("hotel_reservations").insert(rows);
+    if (resError) throw new Error(`reservation copy failed: ${resError.message}`);
   }
-  return { showId, slug: row.slug as string, shareToken };
+  return { showId, slug, shareToken: token.share_token as string, driveFileId };
 }
 
 test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)", () => {
   test.setTimeout(180_000);
 
   let t: Template;
-  const created: string[] = [];
+  const created: Copy[] = [];
 
   /**
    * Navigate to one section of a copy and wait for the shell + that section's
@@ -226,7 +233,7 @@ test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)",
 
   async function copy(patch: ShowRow, opts?: { withReservations: boolean }): Promise<Copy> {
     const c = await makeCopy(t, patch, opts);
-    created.push(c.showId);
+    created.push(c);
     return c;
   }
 
@@ -236,9 +243,21 @@ test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)",
 
   test.afterAll(async () => {
     if (created.length === 0) return;
-    await admin.from("hotel_reservations").delete().in("show_id", created);
-    await admin.from("show_share_tokens").delete().in("show_id", created);
-    await admin.from("shows").delete().in("id", created);
+    // Every response is destructured and checked. A cleanup that discards its
+    // results fails silently and leaves fixture rows behind for the NEXT spec
+    // to trip over, which is the shape invariant 9 exists to stop.
+    // not-subject-to-meta: test-local fixture cleanup.
+    const { error: resError } = await admin
+      .from("hotel_reservations")
+      .delete()
+      .in(
+        "show_id",
+        created.map((c) => c.showId),
+      );
+    if (resError) throw new Error(`reservation cleanup failed: ${resError.message}`);
+    // show_share_tokens rows are removed by the shows delete's FK cascade;
+    // `shows` itself goes through the locked path, one transaction per show.
+    deleteShowsLocked(created.map((c) => c.driveFileId));
   });
 
   test.beforeEach(async ({ page }) => {

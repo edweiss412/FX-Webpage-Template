@@ -141,7 +141,12 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     // the legacy today-band blocks that carried the 2 frozen locked-table fixture
     // writes with seeded-slug + signInAs flows that perform NO unlocked PostgREST
     // DML, so the count dropped to 0 and the (now-stale) exemption is removed.
-    ["empty-state-reachability.spec.ts", 7],
+    // empty-state-reachability.spec.ts: the 2026-08-25 re-target
+    // (BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE) replaced its seven
+    // unlocked `shows` writes with per-test show COPIES made through
+    // helpers/lockedShowCopy.ts, which clones and deletes inside one
+    // transaction holding the per-show advisory lock. The count dropped to 0
+    // and the exemption is removed rather than shrunk.
     ["me-page.spec.ts", 8],
     ["needs-attention-page.spec.ts", 2],
     ["sign-in-page.spec.ts", 5],
