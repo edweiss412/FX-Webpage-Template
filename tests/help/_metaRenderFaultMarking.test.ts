@@ -43,7 +43,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:3755":
+  "components/admin/wizard/step3ReviewSections.tsx:3800":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -71,7 +71,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
  * that reports an unclassifiable guard as `unknown` residue, and gives its
  * `ConditionalExpression` arm no fallback at all (`_renderFaultScan.ts:754`).
  * That arm's silent drop is a documented limit, not a gap left open: probed on
- * the live tree, 719 ternaries under the derived roots return JSX in `whenTrue`,
+ * the live tree, 722 ternaries under the derived roots return JSX in `whenTrue`,
  * 79 of them carry a fault-vocabulary guard and are unclassifiable, and 70 of
  * those 79 sit in `"use client"` files -- interaction state, not a server-render
  * fault -- so the fallback would buy roughly three new server-side sites for 79
@@ -295,7 +295,11 @@ describe("the scanner's population is pinned against resolver drift", () => {
           .join("\n"),
       )
       .digest("hex");
-    expect(digest).toBe("225ed22b3e0cfc6ea673c3a1fce3c30ae10a8159a64f81a73a0ec87a51e55558");
+    // Regenerated 2026-08-26 for feat/nearmiss-surface, and the delta was READ before
+    // it was replaced, which is what "deliberately" means here: membership is unchanged
+    // at 35 both sides, and exactly ONE row moved, step3ReviewSections.tsx 3755 -> 3800,
+    // same file, same form, same marked state. A pure line shift from insertions above it.
+    expect(digest).toBe("8b2d031d8908348eae2947d704dca1b57d90be10702f46ad4edcf8cc9c62598e");
   });
 });
 
