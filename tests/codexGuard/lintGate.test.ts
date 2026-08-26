@@ -95,6 +95,43 @@ function plantDoc(run: Run, rel: string, text: string): string {
   return rel;
 }
 
+/**
+ * A plan at 0 hard WITH advisories, so the advisory case is not vacuous. The
+ * universal-claims arm advises on absolute prose; the task region is well-formed
+ * so nothing is hard.
+ */
+const ADVISORY_DOC = [
+  "# Plan",
+  "",
+  // Draws COPY_UNPAIRED_QUOTE, an ADVISORY. Verified against the real CLI: a
+  // fixture that draws none would make the advisory case vacuous.
+  'The parser handles the "unpaired case fine.',
+  "",
+  "<!-- tasks: depth=2 -->",
+  "",
+  "## Task 1",
+  "",
+  "<!-- task: red=`pnpm vitest run tests/x.test.ts` ac=AC-1 -->",
+  "",
+  "AC-1 holds.",
+  "",
+  "<!-- tasks: end -->",
+  "",
+].join("\n");
+
+/** The REAL CLI's raw report for a planted doc. */
+function rawReport(run: Run, rel: string): string {
+  try {
+    return execFileSync(process.execPath, [TSX, join(ROOT, "scripts/spec-lint.ts"), rel], {
+      cwd: run.cwdDir,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch (e) {
+    return String((e as { stdout?: string }).stdout ?? "");
+  }
+}
+
 /** The hard count the REAL CLI reports, so the expectation is derived. */
 function hardCount(run: Run, rel: string): number {
   let raw = "";
@@ -112,8 +149,167 @@ function hardCount(run: Run, rel: string): number {
   return Number(m[1]);
 }
 
+/**
+ * A stub CLI emitting exact lines, so a summary line that passes `embedReport`'s
+ * frame clauses but carries no readable COUNT can be produced. The real CLI
+ * cannot emit one, which is precisely why the gate must not assume it never
+ * will: `embedReport` validates that a `summary:` line exists, is unique and is
+ * last, and never that a number can be read out of it.
+ */
+function stubCli(run: Run, lines: string[], exitCode = 1): Record<string, string> {
+  const stub = join(run.dir, `stub-${Math.abs(lines.join("").length)}.mjs`);
+  writeFileSync(
+    stub,
+    [
+      `const L = ${JSON.stringify(lines)};`,
+      `process.stdout.write(L.join(String.fromCharCode(10)) + String.fromCharCode(10));`,
+      `process.exitCode = ${exitCode};`,
+    ].join("\n"),
+  );
+  return { ...REAL_CLI, CODEX_GUARD_SPEC_LINT: stub };
+}
+
 const outEmpty = (run: Run) =>
   !existsSync(run.outDir) || readdirSync(run.outDir).every((f) => f !== "result.json");
+
+describe("codex-guard lint gate — coverage", () => {
+  it(
+    "AC-2: refuses a spec-stage dispatch that names no --lint-doc",
+    async () => {
+      // The arm that makes the gate non-optional. Without it the obligation is
+      // the paragraph at docs/agents/spec-self-review.md:25 and the mechanism is
+      // a flag nobody has to pass, which is the row's own diagnosis: two oracles
+      // declared as COMMANDS ran several times each, this one declared as a
+      // PARAGRAPH ran zero times.
+      const run = mkRun();
+      writeScenario(run, APPROVE);
+      // injectDefaults would supply the harness waiver; this case must not take it.
+      const r = await runGuard(
+        run,
+        ["--stage", "spec", "--round", "1"],
+        {},
+        { injectDefaults: false },
+      );
+
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain("--lint-doc");
+      expect(readCalls(run)).toHaveLength(0);
+      expect(outEmpty(run)).toBe(true);
+    },
+    T,
+  );
+
+  it(
+    "AC-2: refuses a plan-stage dispatch that names no --lint-doc",
+    async () => {
+      const run = mkRun();
+      writeScenario(run, APPROVE);
+      const r = await runGuard(
+        run,
+        ["--stage", "plan", "--round", "1"],
+        {},
+        { injectDefaults: false },
+      );
+      expect(r.code).toBe(2);
+      expect(readCalls(run)).toHaveLength(0);
+    },
+    T,
+  );
+
+  it(
+    "AC-2: --no-lint-gate waives the coverage arm",
+    async () => {
+      // The escape is real and meant to be used: a brief may legitimately review
+      // an artifact that is mid-repair. A run that declares that is doing
+      // something different from a run that forgot.
+      const run = mkRun();
+      writeScenario(run, APPROVE);
+      const r = await runGuard(
+        run,
+        ["--stage", "spec", "--round", "1", "--no-lint-gate"],
+        {},
+        { injectDefaults: false },
+      );
+      expect(r.code).toBe(0);
+      expect(readCalls(run)).toHaveLength(1);
+    },
+    T,
+  );
+
+  it.each([["diff"], ["task"]])(
+    "AC-2: --stage %s is untouched by the coverage arm",
+    async (stage) => {
+      // The gate is scoped to the stages whose ARTIFACT is the thing under
+      // review. A diff dispatch names no document and must stay dispatchable.
+      const run = mkRun();
+      writeScenario(run, APPROVE);
+      const r = await runGuard(
+        run,
+        ["--stage", stage!, "--round", "2"],
+        {},
+        { injectDefaults: false },
+      );
+      expect(r.code).toBe(0);
+      expect(readCalls(run)).toHaveLength(1);
+    },
+    T,
+  );
+});
+
+describe("codex-guard lint gate — summary-grammar", () => {
+  it.each([
+    ["a non-numeric count", "summary: banana"],
+    ["a missing advisory half", "summary: 3 hard"],
+    ["a reworded line", "summary: three hard, zero advisory"],
+  ])(
+    "AC-1: %s refuses as an INFRA FAULT rather than defaulting to zero",
+    async (_name, summaryLine) => {
+      // Probed on the shipped wrapper: `summary: banana` passes embedReport
+      // intact. An extractor defaulting to zero there dispatches a hard artifact
+      // with every frame clause green — the silent wrongness the consequence
+      // bound rules out — so this is a refusal, not a parse with a fallback.
+      const run = mkRun();
+      const rel = "docs/superpowers/plans/p.md";
+      plantDoc(run, rel, CLEAN_DOC);
+      writeScenario(run, APPROVE);
+      const r = await runGuard(
+        run,
+        ["--lint-doc", rel, "--stage", "spec"],
+        stubCli(run, [`spec:lint ${rel}`, "kind: plan (inferred)", "", summaryLine]),
+      );
+
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain(rel);
+      expect(readCalls(run)).toHaveLength(0);
+      expect(outEmpty(run)).toBe(true);
+    },
+    T,
+  );
+
+  it(
+    "AC-1: a WELL-FORMED count from the same stub dispatches — the refusal is about the grammar, not the stub",
+    async () => {
+      // The dispatching twin. Without it, a gate that refused every stubbed run
+      // would satisfy all three cases above.
+      const run = mkRun();
+      const rel = "docs/superpowers/plans/p.md";
+      plantDoc(run, rel, CLEAN_DOC);
+      writeScenario(run, APPROVE);
+      const r = await runGuard(
+        run,
+        ["--lint-doc", rel, "--stage", "spec"],
+        stubCli(
+          run,
+          [`spec:lint ${rel}`, "kind: plan (inferred)", "", "summary: 0 hard, 2 advisory"],
+          0,
+        ),
+      );
+      expect(r.code).toBe(0);
+      expect(readCalls(run)).toHaveLength(1);
+    },
+    T,
+  );
+});
 
 describe("codex-guard lint gate — enforcement", () => {
   it(
@@ -134,6 +330,57 @@ describe("codex-guard lint gate — enforcement", () => {
       // AC-1's side effects, each on its own: none is implied by the others.
       expect(readCalls(run)).toHaveLength(0);
       expect(outEmpty(run)).toBe(true);
+    },
+    T,
+  );
+
+  it(
+    "AC-3: a CLEAN document named FIRST does not hide a hard one named after it",
+    async () => {
+      // The multi-document case is REQUIRED, not extra. A gate reading
+      // cfg.lintDocs[0] passes every single-document test above while
+      // dispatching a hard artifact whenever a clean one is named ahead of it —
+      // and real dispatches cite a spec PLUS its probe records, so that ordering
+      // is the common one rather than a contrived one.
+      const run = mkRun();
+      const clean = plantDoc(run, "docs/superpowers/plans/clean.md", CLEAN_DOC);
+      const hard = plantDoc(run, "docs/superpowers/plans/hard.md", HARD_DOC);
+      expect(hardCount(run, clean)).toBe(0);
+      expect(hardCount(run, hard)).toBeGreaterThan(0);
+
+      writeScenario(run, APPROVE);
+      const r = await runGuard(
+        run,
+        ["--lint-doc", clean, "--lint-doc", hard, "--stage", "spec"],
+        REAL_CLI,
+      );
+
+      expect(r.code).toBe(2);
+      // Names the FAILING one, and does not accuse the clean one.
+      expect(r.stderr).toContain(hard);
+      expect(r.stderr).not.toContain(clean);
+      expect(readCalls(run)).toHaveLength(0);
+    },
+    T,
+  );
+
+  it(
+    "AC-3: advisory findings never refuse",
+    async () => {
+      // Advisory noise is normal in probe-record artifacts, and blocking on it
+      // would be its own waste. Asserted with a document that HAS advisories, so
+      // the case is not vacuously satisfied by a clean one.
+      const run = mkRun();
+      const rel = plantDoc(run, "docs/superpowers/plans/p.md", ADVISORY_DOC);
+      const raw = rawReport(run, rel);
+      const m = /^summary: (\d+) hard, (\d+) advisory$/m.exec(raw)!;
+      expect(Number(m[1])).toBe(0);
+      expect(Number(m[2])).toBeGreaterThan(0);
+
+      writeScenario(run, APPROVE);
+      const r = await runGuard(run, ["--lint-doc", rel, "--stage", "spec"], REAL_CLI);
+      expect(r.code).toBe(0);
+      expect(readCalls(run)).toHaveLength(1);
     },
     T,
   );
