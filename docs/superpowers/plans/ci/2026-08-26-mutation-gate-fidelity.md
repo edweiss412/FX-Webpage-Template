@@ -52,7 +52,7 @@ $ pnpm exec vitest run tests/docs/_metaReviewRoundEconomy.test.ts
 | `guardSurfaces.gates.test.ts` case (c), 7 `it(` literals | Task 3 edits the registrar | branch INSIDE the seven bodies; the literal count is unchanged and asserted by Task 3's own green step |
 | `_metaPremiseContract` `EXPECTED_ENV_TOUCHING` | Task 6 adds a case to `connectionCensus.test.ts`, declared 0 | Task 6 re-runs the guard; if the count moves, state the case's premise or carry a `no-premise:` exemption. Baseline recorded above |
 | `_metaSourceShardIntegrity` | Tasks 4 and 5 edit the workflow | step 0 unchanged, no new `$GITHUB_ENV` writer, no upload name change, and its `if:` assertions target steps inside `budget`, not job heads |
-| `_metaSpawnDisposition` `CEILING_NAMES` / `CEILING_HOME` | Task 7 edits `spawnBounded.ts` | comment only; no constant renamed, no value moved |
+| `_metaSpawnDisposition` `CEILING_NAMES` / `CEILING_HOME` | Step A edits `spawnBounded.ts` | comment only; no constant renamed, no value moved |
 | `EXPECTED_LEDGER_KINDS` | Task 6 kills a survivor | killing adds no accepted row, so no declaration changes |
 | `ci-workflow-speedup.test.ts` workflow-level `concurrency` | Task 5 | not edited |
 | `mutation-browser-ci-wiring.test.ts` `on.pull_request.paths` | Task 5 | the trigger and its ten globs are not edited; narrowing is at the job |
@@ -67,7 +67,7 @@ Restated from the spec's §6 so each id resolves in this document; the spec rema
 | --- | --- | --- |
 | **AC-1** | A faulted surface registers exactly seven cases with the same titles and order as an evaluated one, each body throws, a fault notice reaches the `write` sink, and its run record carries a `fault` naming the cause; the healthy surface on the same leg still reports. | Tasks 2, 3 |
 | **AC-2** | `BaselineNotGreenError` names the surface, not only the suite paths. | Task 1 |
-| **AC-3** | `retryableRpcVolatilityScan` scores on a `source-shards` leg with no `BaselineNotGreenError` in any annotation. | Task 4 |
+| **AC-3** | `retryableRpcVolatilityScan` scores on a `source-shards` leg with no `BaselineNotGreenError` in any annotation. | Task 4 writes the steps; **Step C observes the run**. A parsed-YAML assertion cannot establish that a bootstrap SUCCEEDS on a runner, only that it is declared, which is the same gap finding 3 identified for AC-5. |
 | **AC-4** | `reconcileValidationEnv` reports `stale: []` for an allow row whose file still holds a `validation-env` site, and `connectionCensus` has zero unaccepted survivors. | Task 6 |
 | **AC-5** | A harness-touching pull request sends exactly 2 jobs to runners, down from 19; a schedule run still sends 20 and this branch's own dispatch sends 19. | Task 5 |
 | **AC-6** | `steps[0]` of every shard job is still `stamp-start`, exactly one step writes `$GITHUB_ENV`, and the two shell bring-up steps are `run:`. | Task 4 |
@@ -104,7 +104,9 @@ GREEN: add `surfaceId: string` as the third parameter; compose the message leadi
 
 **What is red and why:** a new case round-trips a record carrying `fault` through `emitRunRecord` and `readRunRecord`; today the field is dropped because neither type nor the emit path carries it.
 
-RED: emit with `fault: "BaselineNotGreenError: …"`, read the file back, assert `back.fault` equals it, and assert a record emitted WITHOUT a fault has `fault === undefined`.
+RED: emit with `fault: "BaselineNotGreenError: someSurface …"`, read the file back, assert `back.fault` equals it, and assert a record emitted WITHOUT a fault has `fault === undefined`.
+
+**This task proves TRANSPORT only, and says so.** It shows `emitRunRecord` preserves whatever the caller passes. It cannot show the caller passes anything useful — that is Task 3's, and the split is stated here so neither task assumes the other covered it.
 
 GREEN: add `fault?: string` to `RunRecord` and to `emitRunRecord`'s input, threaded through `writeRunRecord` with the same `...(x === undefined ? {} : {x})` shape the file already uses for its optional options.
 
@@ -122,7 +124,10 @@ RED, in `surfaceCases.test.ts`:
 2. Call `registerSurfaceCases([faulting, healthy], { write, register })` with an INJECTED registrar recording `(title, body)` pairs per describe.
 3. Assert, on the FAULTED surface: exactly 7 recorded titles; the titles equal the healthy surface's 7 titles in the same order; invoking each body throws; the first body's message contains the surface id and `BaselineNotGreenError`.
 4. Assert, on the HEALTHY surface: 7 titles, and invoking each body does not throw.
-5. Assert the fault NOTICE reached the `write` sink naming the faulted surface, and the fault RECORD carries `passed: false` and a non-empty `fault`.
+5. Assert the fault NOTICE reached the `write` sink naming the faulted surface.
+6. Assert the fault RECORD carries `passed: false` and a `fault` that **names the error class and the message**, not merely a non-empty string. Concretely: `fault` starts with `BaselineNotGreenError`, contains the faulted surface's id, and contains the suite path the mock reddened. Derive the expected suite path from the fixture the test itself configured, never a literal typed twice.
+
+**Why the content assertion and not a truthiness check:** an implementation writing `fault: "failed"` satisfies Task 2's transport proof and a non-empty check, while leaving the record unable to tell a red baseline from a source-read failure or an infrastructure fault — which is the whole reason AC-1 requires the field. A truthy assertion here would re-open on the record channel exactly the escape three spec rounds closed on the registration channel.
 
 GREEN, in `surfaceCases.ts`:
 
@@ -163,9 +168,13 @@ GREEN: add the conditions. `budget` becomes `if: ${{ always() && github.event_na
 
 ## Task 6 — kill the `connectionCensus` survivor
 
-<!-- task: red=`pnpm exec vitest run tests/db/connectionCensus.test.ts` red-state=authored red-target=`tests/db/_connectionCensus.ts:1641` why=`no case asserts stale is EMPTY for an allow row whose file still holds a validation-env site, so deleting withSites.add(record.file) leaves every existing assertion green while every live allowance reports as stale` ac=AC-4 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx scripts/mutation-score-surfaces.ts connectionCensus` red-state=live red-target=`tests/db/_connectionCensus.ts:1641` why=`statement-removal:1641:7 survives with no ledger row, observed on run 32958581720 leg 1, because no case asserts stale is EMPTY for an allow row whose file still holds a validation-env site` ac=AC-4 -->
 
-**What is red and why:** the new case is red only against the MUTANT, which is the point — it is the assertion whose absence let the mutant survive. Probed at plan time:
+**What is red and why, and why the red command is the SCORE rather than the unit suite.** The new case passes against clean production the moment it is written — that is what a killing case IS — so `pnpm exec vitest run tests/db/connectionCensus.test.ts` is green before and after and expresses no verdict. The command that is genuinely red today and green after is the scoped mutation score, which reports `unaccepted-survivor: 1` for `statement-removal:1641:7` and reports none once the case lands. That is the same-command red-then-green the contract requires, and it is the established shape for a coverage-gap task (`docs/superpowers/plans/ci/2026-08-25-mutation-shard-weight-seconds.md` uses it).
+
+**Consequence for this plan's own gates:** the marker is `red-state=live`, so `pnpm spec:lint --exec-red` WOULD execute a ~107-minute scored run that also needs the mutation class lock. Do not run `--exec-red` against this plan without the lock held; the plan-time lint run recorded above was made before this marker existed and is not re-runnable in that form.
+
+Probed at plan time:
 
 ```
 $ pnpm tsx .scratch/r3probe.ts
@@ -179,7 +188,7 @@ clean  unallowed n = 0   mutant unallowed n = 0
 
 RED then GREEN: this task adds no production code — the production behavior is already correct. The RED step is the mutation probe showing the mutant survives; the GREEN step is the same probe showing it killed, plus the new case passing. Sequence:
 
-1. Score `connectionCensus` and record the surviving `statement-removal:1641:7`.
+1. The RED is **already observed on CI** and is not re-run: run 32958581720, leg `source-shards (1)`, annotated `unaccepted-survivor: 1 survivor(s) with no ledger row: statement-removal:1641:7:withSites.add(record.file);>(removed)` against this exact content. Re-scoring to watch it fail again would cost a second ~107-minute hold of the mutation class lock to reproduce an annotation already in hand. Record the annotation as the red; the marker's command is what turns green.
 2. Add the case: records carrying a `validation-env` site in file F, allow naming F with a non-empty reason, assert `stale` is `[]`, with a `premiseHolds` that the fixture really does classify as `validation-env` (else the case is vacuous — it would pass on a fixture with no sites at all).
 3. Re-score; the survivor is gone.
 4. **Re-run `_metaPremiseContract`** (baseline 11 passed). If this suite's declared `EXPECTED_ENV_TOUCHING` count moves off 0, state the case's premise or carry a `no-premise:` exemption.
@@ -206,12 +215,30 @@ Replace the derivation comment at `spawnBounded.ts:55-66` with one that states: 
 
 Archive all three rows into `BACKLOG-archive.md` with their evidence, and remove the `IN PROGRESS` markers **in the PR's last commit, before any merge** (invariant 12: a marker that merges into main names a branch the merge just deleted).
 
-Per §6.1, `BL-MUTATION-HARNESS-MAIN-RED`'s entry records the repair, the merge sha, that the first scheduled nightly after that merge is the verification, and that the orchestrator owns observing it and writing the outcome into the entry. The budget row's entry carries the subsumption arithmetic and its warn-band residue with the re-file trigger. The fan-out row's entry carries the ruling, its date, and the measured before/after runner-job counts.
+**The AC-5 "after" number is MEASURED before archival, and this step is where it comes from.** The parsed-YAML assertions in Task 5 establish the workflow's shape, not its behavior; only a real pull request establishes the count. So, in order:
+
+1. Push the branch and open the PR. The harness fires on it, because `tests/mutation/**` is in the path filter.
+2. Count runner jobs by CONCLUSION, not by row: `gh api repos/edweiss412/FX-Webpage-Template/actions/runs/<id>/jobs --paginate --jq '[.jobs[] | select(.conclusion != "skipped")] | length'`. Expect **2**.
+3. Only then write the fan-out row's archive entry, carrying that measured 2 against the 19 measured on run 32958581720 by the same command.
+
+**The merge sha cannot be in this entry, and an earlier draft of this step wrongly asked for it.** The markers come off in the PR's last commit, before the merge, so the merge commit does not exist yet — nothing written here can name it. `BL-MUTATION-HARNESS-MAIN-RED`'s entry therefore records: the repair, **this branch's head sha and the PR number**, that the verification is the first scheduled `mutation-harness` run on `main` after the merge, and that the orchestrator owns observing it and writing both the merge sha and the outcome into the entry's own text. That is consistent with §6.1 assigning the observation to the orchestrator: the entry is authored with a hole its owner fills, not with a fact its author cannot have.
+
+The budget row's entry carries the subsumption arithmetic and its warn-band residue with the re-file trigger.
 
 **BACKLOG.md conflict rule if main moves under this:** a conflict here is a row archived by one side and still open on the other. Resolve by set arithmetic with one extractor on both parents; never keep-both, which resurrects the row.
 
 
 ---
+
+### Step C — the Actions observations, which no local command can provide
+
+Two acceptance criteria turn on what a real runner does, and finding 3 of the plan's round-1 review established that parsed-YAML assertions do not reach them. Both are obtained here, before archival.
+
+1. **`gh workflow run mutation-harness.yml --ref fix/mutation-gate-fidelity`.** Mandatory, not advisory: this arc removes the pull-request trigger, and a change to a workflow's own trigger cannot be validated by the trigger it removes. Expect **19** runner jobs (`notify` is gated to `schedule` or a default-branch dispatch).
+2. **Read that run PER-ANNOTATION**, never per-job status: `gh api repos/edweiss412/FX-Webpage-Template/check-runs/<job_id>/annotations`. AC-3 is met when `retryableRpcVolatilityScan` appears with a score and **no `BaselineNotGreenError` appears on any leg**. A leg that hits `timeout-minutes` reports NOTHING and is not a green leg.
+3. **Count the PR's runner jobs by conclusion** as Step B describes. AC-5 is met at 2.
+
+Report all three in the readiness message with the run URL and its per-leg `elapsed.txt` seconds.
 
 ## Scoring duty
 
@@ -226,7 +253,7 @@ VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx \
 | --- | --- | --- |
 | `connectionCensus` | Task 6 edits its deciding suite | ~107 min measured, 8 timeouts at the ceiling |
 | `retryableRpcVolatilityScan` | Task 4 makes it scorable at all; first score ever | ~30 min |
-| `spawnBounded` | Task 7 edits its source file | 12 mutants, minutes |
+| `spawnBounded` | Step A edits its source file | 12 mutants, minutes |
 
 Each score goes on the round-1 diff brief's `GUARD SURFACE:` line in the comma form the validator accepts: `GUARD SURFACE: <surface>, MUTATION SCORE: k/n, 0 unaccepted survivors, OPERATORS: all`.
 
