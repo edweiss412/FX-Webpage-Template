@@ -465,7 +465,16 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // arc and was FALSE at three sites in legSeconds, one of which returned NaN for the
   // binding leg. Two coalesces four lines apart in heldOutMargin land on opposite
   // sides of that line, which is why they are argued separately.
-  mutationWeightRecords: { equivalent: 1 },
+  // 2 since 2026-08-25: the post-absorb re-score put this surface BELOW FLOOR at
+  // 0.6842 with six unaccepted survivors, all of them in code the round-3 repair
+  // added. FIVE were repaid with cases exactly as the note above requires -- the
+  // zero-duration boundary and the three startedAt comparisons, each verified by
+  // planting the mutant and confirming the suite goes red. Only the SIXTH is a row:
+  // `typeof d !== "number" || !Number.isFinite(d)` is equivalent over this
+  // function's reachable inputs, because every value arrives through JSON.parse and
+  // the witness that would separate the two (a number that is not finite) cannot
+  // survive a JSON round trip. That is a reachability argument, not a bump.
+  mutationWeightRecords: { equivalent: 2 },
   mutationWeightWeights: { equivalent: 8 },
   // shardBudget: the module is pure decision logic with the CLI deliberately in
   // a separate file, so every branch is reachable through the referring suite
