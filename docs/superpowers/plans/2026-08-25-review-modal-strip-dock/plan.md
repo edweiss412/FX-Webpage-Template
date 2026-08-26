@@ -7,11 +7,11 @@ Every task: failing test observed → minimal implementation → passing test �
 **Invariant 8 applies** — this arc ships admin UI (`components/admin/**`), so the dual gate runs at
 close-out and reads `DESIGN.md` §1.2a, the pairing clause #890 added on 2026-08-25.
 
-**The `impeccable-gate:` marker line is deliberately ABSENT until then.** Its grammar has only run
-states (`critique=RAN`, `audit=RAN`), so writing one now would assert a gate that has not executed;
-and `tests/docs/_invariant8Closeout.ts:109` treats naming both halves verbatim AS the claim, which is
-why this paragraph names neither. The marker lands in T7's close-out with the values the run produced —
-red until then by construction, which is the guard working.
+**The close-out marker was deliberately ABSENT until then**, because its grammar has only run states,
+so writing one before the gate executed would assert a gate that had not. It now lives in §12 with the
+values the run actually produced. Note that this paragraph does not spell the marker's own key: the
+guard scans for that literal and would read a prose mention as a malformed marker — which it did, on
+the first draft of this very sentence.
 
 Acceptance criteria are quantified over the spec's four AXES (REAL / REPLICA / DEGENERATE /
 STRUCTURAL, spec §4). This plan does not restate the axes or re-list their cells: four spec rounds
@@ -683,7 +683,51 @@ entries, so the marker cannot ride along). This is the PR's last commit, before 
 
 ## §12 Close-out
 
-The invariant-8 dual gate runs on the affected diff, both halves externally attested, with findings and
-dispositions recorded in this section. The `impeccable-gate:` marker line is added HERE, in T7's
-commit, carrying the run's actual `critique=`, `audit=`, `p0=`, `p1=` and `dispositions=` values —
-never before the run, for the reason stated at the head of this plan.
+impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=0 dispositions=none
+
+**Both halves ran and both are declared DEGRADED, with the reason, because a silent
+degraded gate is a failed gate.** The skill requires the critique's two assessments to run
+as isolated sub-agents. They were dispatched that way — Assessment A (design review) and
+Assessment B (detector plus browser evidence), in parallel, neither seeing the other. Both
+went IDLE WITHOUT DELIVERING: two direct requests for their reports returned nothing, and
+their transcripts were not recoverable by path. That is a known failure mode on this
+machine, and the honest response is the banner rather than a quiet inline re-run presented
+as a dual-agent result.
+
+⚠️ DEGRADED: single-context (dispatched sub-agents went idle without returning; mechanical
+half re-run inline, design-judgment half is the author's own and is weaker for it)
+
+**What the mechanical half actually establishes.** All of this was re-run inline and is
+reproducible:
+
+| check | result |
+|---|---|
+| the impeccable skill's bundled slop detector, over all five changed UI files | **exit 0, `[]`** — no findings |
+| em-dash in ADDED rendered copy (comments exempt) | none |
+| straight apostrophe in ADDED rendered copy | none |
+| `better-tailwindcss/enforce-canonical-classes` | clean (it CAUGHT `max-sm:max-w-[10rem]` pre-code; the shipped form is `max-sm:max-w-40`) |
+| DESIGN.md §5.4 — layout properties written but not ANIMATED | PASS: neither placed skin declares `transition-`, `animate-` or `duration-` |
+| new colour token without a §1.2 contrast pin | none — the arc introduces no colour token |
+| tap targets on changed interactive controls | N/A — the arc adds no new interactive control |
+
+**P0: 0. P1: 0**, and the marker therefore reads `dispositions=none` rather than `recorded`.
+The guard cross-checks those against each other — `recorded` asserts there were findings to
+disposition, which at zero counts would be a claim about nothing — and it caught the first
+draft of this marker saying otherwise. Nothing was deferred, so there is no `DEFERRED.md`
+entry to write either.
+
+**What this gate does NOT establish, stated plainly.** The design-judgment half — AI-slop
+verdict, Nielsen scoring, cognitive load, the emotional-journey read, and the genuinely
+open question of whether a floor-docked control strip is the right affordance for Doug on a
+venue floor — did not get an independent reviewer. The author assessing his own diff is the
+weakest possible form of that half. Three questions a real reviewer should be pointed at:
+does docking the publish switch away from the identity block weaken the "identity above,
+live controls below" reading the old band established; does a footer-docked strip collide
+with the iOS home indicator in practice (the shell pads for `safe-area-inset-bottom`, but
+padding is not the same as feeling right under a thumb); and is a refusal banner that flips
+UPWARD over body content better than one that pushes content down. None of those is settled
+by a green test, and none is settled here.
+
+**Recommendation:** re-run `/impeccable critique` and `/impeccable audit` on this diff from
+a session whose sub-agents deliver, before this merges. The mechanical floor is clean; the
+judgment half is owed.
