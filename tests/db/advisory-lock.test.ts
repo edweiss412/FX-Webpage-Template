@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { ShowAdvisoryLockUnavailableError, withShowAdvisoryLock } from "@/lib/db/advisoryLock";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const createdShowIds: string[] = [];
 

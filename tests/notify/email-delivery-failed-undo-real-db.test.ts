@@ -19,8 +19,9 @@ import {
   type EmailDeliveryFailedSql,
 } from "@/lib/notify/detect/emailDeliveryFailed";
 import { mintIdFor } from "@/lib/sync/unpublishBinding";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 const ENABLED: ChannelToggleState = { kind: "enabled" };
 const DISABLED: ChannelToggleState = { kind: "disabled" };
 const UNKNOWN: ChannelToggleState = { kind: "unknown" };
@@ -59,7 +60,7 @@ describe("auto_publish_undo failure reconciliation — real DB (spec §4.3b)", (
   test.skipIf(!DB_URL)(
     "current-while predicate + every resolution condition, with re-opens between",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `undo-reconcile-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const driveFileId = `drive-${suffix}`;
       const recipient = `notify-${suffix}@example.com`;
@@ -173,7 +174,7 @@ describe("auto_publish_undo failure reconciliation — real DB (spec §4.3b)", (
   test.skipIf(!DB_URL)(
     "a failed undo row WITHOUT context.mintId is non-current — the alert never opens (forward-compat)",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `undo-nomint-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const driveFileId = `drive-${suffix}`;
       const recipient = `notify-${suffix}@example.com`;

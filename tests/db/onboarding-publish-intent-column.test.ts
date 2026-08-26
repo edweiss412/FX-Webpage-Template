@@ -1,11 +1,14 @@
 import postgres from "postgres";
 import { afterAll, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-// DB schema test (connects to TEST_DATABASE_URL = validation project).
+// DB schema test against the LOCAL stack (DATABASE_URL, default 54322).
 // Pins the onboarding_scan_manifest.publish_intent column added for the
 // Held-model step-3 redesign (spec §7.2; migration 20260623000001).
 const sql = postgres(
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  assertLocalDbUrl(
+    process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  ),
   { max: 1, prepare: false },
 );
 afterAll(async () => {

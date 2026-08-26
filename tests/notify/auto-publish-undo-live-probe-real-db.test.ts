@@ -21,8 +21,9 @@
  * The ONLY mocked seam is Resend (`lib/notify/send.ts`): an injected `sendEmail`
  * spy captures the rendered email and proves NO real network call is made.
  *
- * TEST_DATABASE_URL-guarded like the sibling real-DB notify tests. NOTE: the
- * repo's `.env.local` points TEST_DATABASE_URL at the VALIDATION pooler, so this
+ * DATABASE_URL-guarded like the sibling real-DB notify tests. NOTE: the
+ * repo's `.env.local` points TEST_DATABASE_URL at the VALIDATION pooler, which this
+ * suite deliberately does NOT read; DATABASE_URL is the local opt-in, so this
  * probe NEVER relies on the delivery loop's own env-resolved connection (which
  * would hit validation). It connects to the LOCAL stack EXPLICITLY and injects
  * that `sql` into both detect and deliver — exactly the sibling-probe shape in
@@ -46,9 +47,9 @@ import {
 import { unpublishShowViaEmailedLink } from "@/lib/sync/unpublishShow";
 
 // The probe drives the LOCAL stack explicitly (see header) — never the
-// .env.local validation pooler. The presence of TEST_DATABASE_URL is the gate;
+// .env.local validation pooler. The presence of DATABASE_URL is the gate;
 // the local default is the connection target.
-const TEST_DB_URL = process.env.TEST_DATABASE_URL;
+const DB_OPT_IN = process.env.DATABASE_URL;
 const LOCAL_DB_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const ORIGIN = "https://crew.fxav.app";
 
@@ -128,7 +129,7 @@ async function detectUndoCandidate(sql: Sql, showId: string): Promise<AutoPublis
 }
 
 describe("auto_publish_undo LIVE-INTEGRATION probe — real local DB (M12.13 T14.1)", () => {
-  test.skipIf(!TEST_DB_URL)(
+  test.skipIf(!DB_OPT_IN)(
     "real detect→deliver writes a real email_deliveries row (exact context, no token, valid binding), dedups, " +
       "skips after a real in-app undo, and leaves zero token-bearing SHOW_FIRST_PUBLISHED alerts",
     async () => {

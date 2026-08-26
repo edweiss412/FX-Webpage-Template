@@ -2,7 +2,7 @@
  * Phase 2 Task 2.2 — writeMi11Holds: persist one mi11_pending hold per distinct
  * MI-11 crew via service-role SQL inside the show lock.
  *
- * DB-backed (TEST_DATABASE_URL / local Supabase). Assertions read the DB rows,
+ * DB-backed (DATABASE_URL / local Supabase). Assertions read the DB rows,
  * never the input array (anti-tautology). $N::jsonb params receive raw objects.
  */
 import { randomUUID } from "node:crypto";
@@ -11,11 +11,11 @@ import postgres, { type Sql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { writeMi11Holds } from "@/lib/sync/holds/writeMi11Holds";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const sql: Sql = postgres(DB_URL, { max: 2, prepare: false });
 

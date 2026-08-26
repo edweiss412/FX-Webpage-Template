@@ -6,7 +6,7 @@
  * delete, F19 show_share_tokens self-heal, F27 archived/published baseline
  * restore, F49 mint never writes last_seed_date).
  *
- * Runs against local Supabase pg at TEST_DATABASE_URL (default
+ * Runs against local Supabase pg at DATABASE_URL (default
  * postgres:54322). The mint RPC is service_role-only — these tests invoke
  * it via psql which connects as the postgres superuser.
  */
@@ -14,9 +14,11 @@ import { execFileSync } from "node:child_process";
 import { afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { safeValidationCleanup } from "./_validation-cleanup-helpers";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DATABASE_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 function runPsql(sql: string): string {
   return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t", DATABASE_URL], {

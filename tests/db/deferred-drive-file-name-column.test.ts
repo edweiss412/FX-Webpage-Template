@@ -1,11 +1,14 @@
 import postgres from "postgres";
 import { afterAll, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-// DB schema test (defaults to local 54322; CI sets TEST_DATABASE_URL=validation).
+// DB schema test against the LOCAL stack (DATABASE_URL, default 54322).
 // Pins the deferred_ingestions.drive_file_name column for the Ignored-sheets view
 // (spec §6.4 / D11; migration 20260623000002).
 const sql = postgres(
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  assertLocalDbUrl(
+    process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  ),
   { max: 1, prepare: false },
 );
 afterAll(async () => {

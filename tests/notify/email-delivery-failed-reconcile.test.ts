@@ -8,6 +8,7 @@ import {
 } from "@/lib/notify/detect/emailDeliveryFailed";
 import { deliverDigest, type DeliverySql } from "@/lib/notify/deliver";
 import { mintIdFor } from "@/lib/sync/unpublishBinding";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 type ScopeRow = { show_id: string | null };
 
@@ -482,13 +483,13 @@ describe("reconcileEmailDeliveryState — undo channel + tri-state (M12.13 §4.3
   });
 });
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 
 describe("EMAIL_DELIVERY_FAILED reconciliation real DB", () => {
   test.skipIf(!DB_URL)(
     "opens and resolves only this test's show-scoped delivery-failed alert as currentness changes",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `email-delivery-failed-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const driveFileId = `drive-${suffix}`;
       const recipient = `notify-${suffix}@example.com`;
@@ -558,7 +559,7 @@ describe("EMAIL_DELIVERY_FAILED reconciliation real DB", () => {
   test.skipIf(!DB_URL)(
     "opens and resolves this test's NULL-scope digest delivery-failed alert as the digest row changes from failed to sent",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `digest-delivery-failed-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const recipient = `notify-${suffix}@example.com`;
       const driveFileId = `pending-${suffix}`;

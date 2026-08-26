@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParseResult } from "@/lib/parser/types";
 import { processOneFile, type ProcessOneFileDeps } from "@/lib/sync/runScheduledCronSync";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 /**
  * DB-backed end-to-end validation of `shows.last_checked_at` (spec 2026-07-16-last-checked-at):
@@ -25,8 +26,9 @@ import { processOneFile, type ProcessOneFileDeps } from "@/lib/sync/runScheduled
  * instant, so the test cannot pass by accident on a machine with a skewed clock.
  */
 
-const LOCAL_URL =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const FOLDER = "last-checked-at-folder";
 const DRIVE_PREFIX = "drive-lca-";
@@ -131,7 +133,7 @@ try {
   dbUp = false;
 }
 
-const shouldRun = Boolean(process.env.TEST_DATABASE_URL) && dbUp;
+const shouldRun = Boolean(process.env.DATABASE_URL) && dbUp;
 
 function one<T = Record<string, unknown>>(rows: unknown): T {
   return (rows as T[])[0]!;

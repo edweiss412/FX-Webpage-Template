@@ -13,11 +13,13 @@ import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
 import { runValidationCli, type CliRun } from "./_cli-helpers";
 
 import { buildFixtures, fixtureCrewName } from "@/lib/validation/fixtures";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 const CHECK_SEED_SCRIPT = join(process.cwd(), "scripts/validation-check-seed.ts");
 
-const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DATABASE_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const LOCAL_SUPABASE_URL = "http://127.0.0.1:54321";
 // Well-known local Supabase service_role key — surfaced by `npx supabase status -o env`.
