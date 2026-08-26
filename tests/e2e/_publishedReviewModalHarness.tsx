@@ -38,6 +38,7 @@ import {
   type AppRouterInstance,
 } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { PublishedReviewModal } from "@/components/admin/showpage/PublishedReviewModal";
+import type { PublishedReviewModalProps } from "@/components/admin/showpage/PublishedReviewModal";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
@@ -260,6 +261,13 @@ export type HarnessStateOverrides = {
    *  lib/parser/dataGaps.ts:409-435) plus the unmatched "Ghost Crew" fallback.
    *  false ≡ omitted; takes precedence over withCrewWarnings when both are set. */
   withCappedCrewWarnings?: boolean;
+  /** review-modal-strip-dock §7: lets a probe drive a REFUSAL through the REAL
+   *  modal. Until this existed the refusal banner was unreachable from the
+   *  shared harness at all — `setPublished` was hardcoded to NOOP_OK, so every
+   *  click resolved `ok`, refreshed, and mounted no banner. That is half of why
+   *  this arc's row had no measured anchor room. Omitted ≡ NOOP_OK, so every
+   *  existing harness page renders byte-identically. */
+  setPublished?: PublishedReviewModalProps["setPublished"];
 };
 
 /** T5 fixture warnings (spec 2026-07-23-crew-warning-attachment §5.5): the
@@ -372,7 +380,7 @@ export function modalElement(
     archived,
     published,
     finalizeOwned: false,
-    setPublished: NOOP_OK,
+    setPublished: state.setPublished ?? NOOP_OK,
     isLive,
     lastSyncedAt: "2026-05-02T12:00:00.000Z",
     lastCheckedAt: "2026-05-02T12:00:00.000Z",

@@ -90,6 +90,9 @@ function buildItems(a: number, n: number, s: number, longTitles = false): Attent
 declare global {
   interface Window {
     __setItems?: (a: number, n: number, s: number, degraded: boolean, longTitles?: boolean) => void;
+    /** review-modal-strip-dock §7: drives a REFUSAL through the real modal.
+     *  `null` restores the default, so a probe can turn it back off. */
+    __setRefusal?: (code: string | null) => void;
     __hydrated?: boolean;
     /** Installed by the spec's frame-hold init script, not by this entry. */
     __releaseFrames?: () => void;
@@ -105,14 +108,23 @@ function App() {
     degraded: false,
     longTitles: false,
   });
+  const [refusalCode, setRefusalCode] = useState<string | null>(null);
   useEffect(() => {
     window.__setItems = (a, n, s, degraded, longTitles = false) =>
       setState({ a, n, s, degraded, longTitles });
+    window.__setRefusal = (code) => setRefusalCode(code);
     window.__hydrated = true;
   }, []);
   const overrides: HarnessStateOverrides = {
     attentionItems: buildItems(state.a, state.n, state.s, state.longTitles),
     alertsDegraded: state.degraded,
+    // Passed ONLY when a code is set, so the DEFAULT tree is byte-identical
+    // (AC-10). The other two consumers of this entry — attention-pill-focus.spec.ts
+    // and sheetIconLinkContainment.test.ts — never call __setRefusal, so they
+    // see exactly the tree they saw before this field existed.
+    ...(refusalCode !== null
+      ? { setPublished: async () => ({ ok: false as const, code: refusalCode }) }
+      : {}),
   };
   return modalElement(0, overrides);
 }

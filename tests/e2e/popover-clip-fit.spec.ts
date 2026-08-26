@@ -125,8 +125,6 @@ const HUB_KEBAB = '[data-testid="share-hub-kebab"]';
 const HUB_POPOVER = '[data-testid="share-hub-popover"]';
 const TOGGLE_BANNER = '[data-testid="published-toggle-popover"]';
 const TOGGLE_CLIP = '[data-testid="toggle-clip-panel"]';
-/** The replica's strip-shaped trigger — what the migrated banner measures against. */
-const STRIP_TRIGGER = '[data-testid="show-status-strip"]';
 /** The scroller inside the menu panel — the node this cluster gives a role. */
 const SCROLLER = 'div[role="group"][aria-label="Attention items"]';
 
@@ -625,7 +623,7 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
           scrollHeight: el.scrollHeight,
         };
       },
-      [TOGGLE_CLIP, STRIP_TRIGGER, TOGGLE_BANNER, GAP, VIEWPORT_INSET] as const,
+      [TOGGLE_CLIP, STRIP, TOGGLE_BANNER, GAP, VIEWPORT_INSET] as const,
     );
 
     expect(m.side, "PREMISE: the module must have placed the banner").not.toBeNull();
@@ -752,7 +750,7 @@ async function placeReplica(page: Page, geo: { panel: number; spacer: number }) 
           !document.querySelector(stripSel as string)!.contains(el),
       };
     },
-    [TOGGLE_CLIP, STRIP_TRIGGER, TOGGLE_BANNER, GAP, VIEWPORT_INSET] as const,
+    [TOGGLE_CLIP, STRIP, TOGGLE_BANNER, GAP, VIEWPORT_INSET] as const,
   );
 }
 
@@ -995,5 +993,65 @@ test.describe("anchor-room census — what the MIN_FITTED_HEIGHT docblock may cl
       verdict!.isPanel,
       "the first clipping ancestor above the banner anchor is not the modal panel",
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T3 — the refusal is drivable through the REAL modal (spec §7 obstacle 1)
+// ---------------------------------------------------------------------------
+
+test.describe("the shared harness can drive a refusal", () => {
+  test("a driven refusal renders the CATALOG copy, not the generic retry string", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    // LOAD 1, not 10/10/10, and the reason is this arc's own subject. At 30
+    // attention items the header grows until the strip renders BELOW the clip
+    // window (measured in spec §0: strip 713.03..911.03 against a panel bottom
+    // of 667), so the switch cannot be clicked at all — the first draft of this
+    // case timed out on exactly that, which is the row's original symptom
+    // showing up in a test written to check something else. This case is about
+    // the DRIVER; reachability is T5's measurement and is asserted there.
+    await openMenu(page, 1, 1, 1);
+
+    // The obstacle this removes: `modalElement` hardcoded `setPublished: NOOP_OK`,
+    // so every click on the real modal's switch resolved `ok`, refreshed, and
+    // mounted no banner at all. Half of why this arc's row had no measured
+    // anchor room was simply that the banner could not be made to appear.
+    await page.evaluate(() => {
+      (window as unknown as { __setRefusal: (c: string | null) => void }).__setRefusal(
+        "FINALIZE_OWNED_SHOW",
+      );
+    });
+    await page.locator('[data-testid="published-toggle"]').click();
+    const banner = page.locator(TOGGLE_BANNER);
+    await expect(banner).toBeVisible();
+
+    // A DISTINCTIVE substring of FINALIZE_OWNED_SHOW's catalog copy
+    // (lib/messages/catalog.ts:2280), and each of the two obvious alternatives
+    // is weaker in a way that matters. Asserting the text is non-empty passes
+    // against a stub that renders anything. Asserting equality breaks on any
+    // catalog edit, which would make a copy change read as a placement
+    // regression — the exact confusion §12.4's three-way lockstep exists to
+    // avoid. A phrase no other refusal code shares discriminates the code
+    // WITHOUT pinning the sentence.
+    await expect(banner).toContainText("busy with a setup-wizard publish");
+
+    // And it is the catalog path, not the generic fallback: the retry string is
+    // what renders for an UNKNOWN code, so its absence is what proves the code
+    // was recognised rather than swallowed.
+    await expect(banner).not.toContainText("That didn’t go through");
+  });
+
+  test("the default tree is unchanged: no refusal, no banner (AC-10)", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await openMenu(page, 1, 1, 1);
+    // __setRefusal is NOT called. The override is spread in only when a code is
+    // set, so this is the same tree attention-pill-focus.spec.ts and
+    // sheetIconLinkContainment.test.ts see — asserted here rather than assumed,
+    // because "byte-identical when omitted" is the whole contract that lets the
+    // field exist without re-baselining the other two consumers.
+    await page.locator('[data-testid="published-toggle"]').click();
+    await expect(page.locator(TOGGLE_BANNER)).toHaveCount(0);
   });
 });
