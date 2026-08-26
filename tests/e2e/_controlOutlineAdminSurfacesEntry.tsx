@@ -85,15 +85,24 @@ function Surfaces() {
       {surface === "bell" ? (
         <BellPanel viewerIsDeveloper onClose={() => {}} onOpened={() => {}} />
       ) : null}
+      {/* `bg-surface`, NOT the page's `bg-bg`. The closed arm paints no fill of
+          its own, so the ground it is read against is whatever it sits on, and
+          in production that is the shows table's `bg-surface` panel
+          (components/admin/ShowsTable.tsx:514). Mounting it on `bg-bg` measures
+          a ratio production never renders — 3.210 light / 3.998 dark there
+          against 3.352 / 3.763 here. Both clear 3:1, which is exactly why this
+          had to be fixed by matching the ground rather than by the number
+          moving. The open arm owns `bg-surface-sunken` and is unaffected.
+          Whole-diff review round 1, P2. */}
       {surface === "rows" ? (
-        <>
+        <div className="bg-surface flex flex-col gap-8 p-4">
           <div data-testid="row-actions-closed-host">
             <ShowRowActions row={showRow} />
           </div>
           <div data-testid="row-actions-open-host">
             <ShowRowActions row={{ ...showRow, slug: "opened-arm", id: "opened-arm" }} />
           </div>
-        </>
+        </div>
       ) : null}
       {surface === "report" ? (
         <ReportModal

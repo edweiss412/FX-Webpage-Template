@@ -4,7 +4,7 @@
  * Spec: docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md
  * §14 and the done-condition's contrast half, AC-13.
  *
- * ALL FIVE surfaces AC-13 names, measured in a REAL browser rather than pinned
+ * FOUR of the five surfaces AC-13 names, measured in a REAL browser rather than pinned
  * from source, at 390px in both themes. An earlier draft of this arc claimed
  * the wizard route was closed because `CrewRowActions` transitively imports
  * `lib/auth/requireAdmin.ts`; that was wrong, and the refutation is in this
@@ -12,6 +12,12 @@
  * module with a throwing stub and empties node builtins by CLASS, which is
  * exactly that edge, and `_step3ReviewModalLiveEntry.tsx` mounts the real tree
  * with react-dom/client. This spec reuses both.
+ *
+ * The wizard step pill is NOT here. It is measured on a REAL Next route, which
+ * loads the app's own font faces, and the shared fixture's oracle correctly
+ * refuses a document carrying faces `compileEntryCss` never emits. Splitting it
+ * out is the honest resolution rather than relaxing that oracle: see
+ * `control-outline-pill.route.spec.ts`.
  *
  * TWO PAGES, one server. The venue tile and the crew contact icons render
  * inside the step-3 review tree, so they are measured on the modal page. The
@@ -35,14 +41,11 @@
 // of specs that call `compileEntryCss`.
 import { test, expect, type Page } from "./helpers/fontFidelityFixture";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
-import { ADMIN_FIXTURE } from "./helpers/fixtures";
-import { signInAs, signOut } from "./helpers/signInAs";
-import { enterWizardAdminState } from "./helpers/dashboardState";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const MOBILE = { width: 390, height: 900 } as const;
@@ -178,6 +181,10 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (server) await new Promise<void>((r) => server!.close(() => r()));
+  // The mkdtemp workdir holds two bundles and a compiled stylesheet, so leaving
+  // it behind is megabytes per run in the OS temp tree. Whole-diff review round
+  // 1, P3 — this spec was the only changed scratch creator without an rmSync.
+  if (workDir) rmSync(workDir, { recursive: true, force: true });
 });
 
 async function open(page: Page, theme: "light" | "dark"): Promise<void> {
@@ -340,6 +347,98 @@ for (const theme of ["light", "dark"] as const) {
     }
   });
 
+  // ── §14's two pairs that mount ONLY inside the step-3 tree ─────────────────
+  //
+  // These are DIMENSIONAL, not contrast, and they live here because this is the
+  // only spec that mounts the tree they render in. The closeout claimed both
+  // were measured; whole-diff review round 1 found the claim unsupported,
+  // because every case in this file asserted contrast and none took a rect.
+
+  test(`${theme}: §14 pair 3 — the contact icon's 32px visual sits inside its 44px target`, async ({
+    page,
+  }) => {
+    await open(page, theme);
+    const anchors = page.locator('a[href^="tel:"], a[href^="mailto:"]');
+    expect(await anchors.count(), "the fixture's crew carry phone and email").toBeGreaterThan(0);
+
+    const pairs = await page.evaluate(() =>
+      [...document.querySelectorAll('a[href^="tel:"], a[href^="mailto:"]')].map((a) => {
+        const span = a.querySelector("span");
+        const p = a.getBoundingClientRect();
+        const c = span?.getBoundingClientRect();
+        return c
+          ? {
+              parent: {
+                w: p.width,
+                h: p.height,
+                top: p.top,
+                left: p.left,
+                right: p.right,
+                bottom: p.bottom,
+              },
+              child: {
+                w: c.width,
+                h: c.height,
+                top: c.top,
+                left: c.left,
+                right: c.right,
+                bottom: c.bottom,
+              },
+            }
+          : null;
+      }),
+    );
+    const measured = pairs.filter((x): x is NonNullable<typeof x> => x !== null);
+    expect(measured.length, "each contact anchor wraps a painted visual").toBeGreaterThan(0);
+    for (const { parent, child } of measured) {
+      expect(parent.w, `target width: ${JSON.stringify(parent)}`).toBeGreaterThanOrEqual(43.5);
+      expect(parent.h, `target height: ${JSON.stringify(parent)}`).toBeGreaterThanOrEqual(43.5);
+      // 32px visual, and DELIBERATELY smaller than its target: §14's claim is
+      // that the swap moved a colour and left this relationship alone.
+      expect(child.w).toBeGreaterThanOrEqual(31.5);
+      expect(child.w).toBeLessThanOrEqual(32.5);
+      expect(child.h).toBeGreaterThanOrEqual(31.5);
+      expect(child.h).toBeLessThanOrEqual(32.5);
+      // Contained, within a half-pixel of rounding on every side.
+      expect(child.top).toBeGreaterThanOrEqual(parent.top - 0.5);
+      expect(child.left).toBeGreaterThanOrEqual(parent.left - 0.5);
+      expect(child.right).toBeLessThanOrEqual(parent.right + 0.5);
+      expect(child.bottom).toBeLessThanOrEqual(parent.bottom + 0.5);
+    }
+  });
+
+  test(`${theme}: §14 pair 4 — the venue Directions visual IS the 44px target`, async ({
+    page,
+  }) => {
+    await open(page, theme);
+    const rect = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="venue-directions"]');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      const tile = el.closest("a");
+      const t = tile?.getBoundingClientRect();
+      return {
+        w: r.width,
+        h: r.height,
+        top: r.top,
+        left: r.left,
+        right: r.right,
+        bottom: r.bottom,
+        tile: t ? { top: t.top, left: t.left, right: t.right, bottom: t.bottom } : null,
+      };
+    });
+    expect(rect, "the Directions visual is in the DOM").not.toBeNull();
+    // §14 row 4: unlike the other pairs the CHILD is the 44px target here, so
+    // the floor is asserted on the visual itself rather than on its wrapper.
+    expect(rect!.w, `visual width: ${JSON.stringify(rect)}`).toBeGreaterThanOrEqual(43.5);
+    expect(rect!.h, `visual height: ${JSON.stringify(rect)}`).toBeGreaterThanOrEqual(43.5);
+    expect(rect!.tile, "it is absolutely positioned inside the tile anchor").not.toBeNull();
+    expect(rect!.top).toBeGreaterThanOrEqual(rect!.tile!.top - 0.5);
+    expect(rect!.left).toBeGreaterThanOrEqual(rect!.tile!.left - 0.5);
+    expect(rect!.right).toBeLessThanOrEqual(rect!.tile!.right + 0.5);
+    expect(rect!.bottom).toBeLessThanOrEqual(rect!.tile!.bottom + 0.5);
+  });
+
   // ── The four AC-13 surfaces outside the step-3 tree ────────────────────────
 
   test(`${theme}: the BellPanel config inputs clear the 3:1 non-text floor`, async ({ page }) => {
@@ -370,66 +469,6 @@ for (const theme of ["light", "dark"] as const) {
       measured!.ratio!,
       `${theme}: ${measured!.border} on ${measured!.bg}`,
     ).toBeGreaterThanOrEqual(FLOOR);
-  });
-
-  test(`${theme}: the wizard step indicator's DONE pill clears the 3:1 non-text floor`, async ({
-    page,
-  }) => {
-    // The ONE surface of the five measured on its real route rather than in the
-    // static harness, because `OnboardingWizard.tsx` is a server component and
-    // a client bundle is the wrong vehicle for it (the entry file carries the
-    // probe). `?step=2` is the cheapest state where a pill is DONE: `isDone` is
-    // `n < step`, so pill 1 is done and pill 2 is current.
-    //
-    // Two pieces of setup, both load-bearing, both learned by watching this case
-    // fail without them. The wizard renders only while onboarding is INCOMPLETE
-    // and the shared e2e database does not sit in that state, so
-    // `enterWizardAdminState` puts it there and the finally puts it back. And
-    // signOut precedes signIn, exactly as
-    // tests/e2e/onboarding-wizard-step1.spec.ts does it.
-    const restore = await enterWizardAdminState();
-    try {
-      await signOut(page);
-      await signInAs(page, ADMIN_FIXTURE);
-      // `emulateMedia`, NOT a `data-theme` write. The static harness pages have
-      // no theme system so stamping the attribute is fine there; the real route
-      // does, and a run that stamped it read a colour from the OTHER theme
-      // against this theme's background — a ratio that belonged to neither.
-      // globals.css keys dark off `prefers-color-scheme` for exactly this case.
-      await page.emulateMedia({ reducedMotion: "reduce", colorScheme: theme });
-      await page.setViewportSize(MOBILE);
-      await page.goto("/admin?step=2");
-      await page.evaluate(() => document.fonts.ready);
-
-      await expect(
-        page.locator("[data-testid=onboarding-wizard]"),
-        "the wizard itself renders, so a missing pill below is a pill problem",
-      ).toBeVisible();
-      // The painted `-visual` span exists only on a REACHABLE pill (the Link
-      // branch); an unreachable one paints on the bare testid instead. Asserting
-      // it is what distinguishes "the done pill is fine" from "the pill rendered
-      // in its other shape and this case measured nothing".
-      const done = page.locator('[data-testid="wizard-step-indicator-1-visual"]');
-      await expect(done, "pill 1 mounts its painted visual at step 2").toHaveCount(1);
-      // The arm is asserted, not assumed: reading the CURRENT pill instead would
-      // measure a state this sweep never touched, and would still pass.
-      await expect(
-        page.locator('[data-testid="wizard-step-indicator-2"][aria-current="step"]'),
-        "step 2 is the current step, so pill 1 is the DONE arm",
-      ).toHaveCount(1);
-
-      const measured = await outlineContrast(
-        page,
-        '[data-testid="wizard-step-indicator-1-visual"]',
-      );
-      expect(measured!.ratio, `${theme}: ${measured!.border} on ${measured!.bg}`).not.toBeNull();
-      expect(
-        measured!.ratio!,
-        `${theme}: ${measured!.border} on ${measured!.bg}`,
-      ).toBeGreaterThanOrEqual(FLOOR);
-    } finally {
-      await restore();
-    }
   });
 
   test(`${theme}: the row-actions trigger clears the floor in BOTH arms`, async ({ page }) => {

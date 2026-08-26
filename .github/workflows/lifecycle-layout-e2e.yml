@@ -229,7 +229,7 @@ jobs:
       # tests/ci/_metaE2eWorkflowCoverage.test.ts's shadowing assertion).
       #
       # DATABASE_URL for the same reason the tap-target step above carries it, and it is
-      # load-bearing for exactly one of the twelve cases: the wizard step-indicator pill
+      # load-bearing for exactly one of the three specs: the wizard step-indicator pill
       # is measured on its REAL route at /admin?step=2 (its module is a server component,
       # so the bundle harness the other four use cannot mount it), and getting there runs
       # `enterWizardAdminState` through lib/onboarding/sessionLifecycle.ts's postgres.js
@@ -241,7 +241,7 @@ jobs:
       - name: Run control-outline dimension + contrast e2e (mobile-safari, :3000 only)
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
-        run: pnpm exec playwright test tests/e2e/control-outline-dimensions.layout.spec.ts tests/e2e/control-outline-contrast.live.spec.ts --project=mobile-safari --retries=0
+        run: pnpm exec playwright test tests/e2e/control-outline-dimensions.layout.spec.ts tests/e2e/control-outline-contrast.live.spec.ts tests/e2e/control-outline-pill.route.spec.ts --project=mobile-safari --retries=0
       # No `if:` — this must run on the success path, which is the only path where a
       # vacuously-green run is dangerous. A runtime `test.skip()` skips every case while --list
       # still reports them, so the run exits 0 having proved nothing; this reads the run's OWN

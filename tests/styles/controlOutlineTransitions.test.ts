@@ -24,6 +24,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { premise } from "../_shared/premise";
+import { allStrings, scanInteractiveElements } from "./interactiveScanCore";
 import { stripCommentsForFile } from "../_shared/stripComments";
 
 const ROOT = process.cwd();
@@ -153,6 +154,115 @@ describe("§15 transition inventory: the deliberately instant rows", () => {
       `${row.label}: no arm gains ${TOKEN}; §15 declares this one instant`,
     ).toEqual([]);
   });
+});
+
+/**
+ * §15 table 3, row 1: "every Family A field ... the focus cue is a
+ * `focus-visible:ring-*`, not a border tween".
+ *
+ * DERIVED, not enumerated. The hand-written INSTANT list above names the rows
+ * §15 names individually; Family A is a CLASS — every text-entry control the
+ * widened cover admits — and a list of twelve would go stale the day someone
+ * adds a thirteenth field, which is exactly the drift this arc exists to close.
+ * So the population comes from the scanner, on the same axes the outline guards
+ * read, and a new field is covered on arrival rather than on someone noticing.
+ *
+ * Round 1 of the whole-diff review found this half missing: the suite covered
+ * four rows of an inventory the plan says it asserts over whole.
+ */
+describe("§15 table 3: every Family A field stays instant (derived)", () => {
+  // Family A is defined by DIFFERENCE, not by a tag list. The `textEntry` axis
+  // is the thing that admits these controls, so the population is exactly what
+  // the axis adds: scan with it on, scan with it off, keep what only the first
+  // saw. A tag list here would be a second copy of `isInScope`'s predicate and
+  // would go stale the moment that one widens; this cannot.
+  const key = (el: { file: string; line: number; tag: string }) =>
+    `${el.file}:${el.line}:${el.tag}`;
+  const withAxis = scanInteractiveElements(ROOT, { textEntry: true, paintedChildren: true });
+  const withoutAxis = new Set(
+    scanInteractiveElements(ROOT, { paintedChildren: true }).map((el) => key(el)),
+  );
+  // A field with NO readable className declares no tween and is not what §15
+  // means by a Family A field — every row it names has a recipe. Restricting to
+  // the ones that resolved keeps each assertion about something, and the
+  // premises below are what stop that restriction from quietly emptying the set.
+  const fields = withAxis
+    .filter((el) => !withoutAxis.has(key(el)))
+    .filter((el) => allStrings(el).length > 0);
+
+  it("the derivation finds the Family A population, including the fields §15 names", () => {
+    // Two premises, because a derived cover has two ways to go vacuous: the
+    // difference could be empty, and the readable-string filter could empty it.
+    premise("the textEntry axis admits controls the default scan does not", fields.length, 11);
+    // And it reaches the specific fields §15's third table is about. Named
+    // rather than counted: a count stays green while the set drifts to some
+    // other twelve elements.
+    const seen = new Set(fields.map((el) => el.file));
+    for (const file of [
+      "app/admin/settings/admins/AddAdminForm.tsx",
+      "components/admin/BellPanel.tsx",
+      "components/admin/telemetry/EventFilters.tsx",
+      "components/shared/ReportModal.tsx",
+    ]) {
+      expect(seen, `${file} carries a Family A field the derivation must see`).toContain(file);
+    }
+  });
+
+  it.each(fields.map((el) => [`${el.file}:${el.line} <${el.tag}>`, el] as const))(
+    "%s rests and focuses without a border tween",
+    (_label, el) => {
+      const strings = allStrings(el);
+      premise(
+        `${el.file}:${el.line}: the element resolved to at least one class string`,
+        strings.length,
+        0,
+      );
+      expect(
+        strings.filter((str) => str.includes(TOKEN)),
+        `${el.file}:${el.line}: §15 says Family A's focus cue is a ring, not a ${TOKEN} tween`,
+      ).toEqual([]);
+    },
+  );
+});
+
+/**
+ * §15 table 3, last row: "the four `step3ReviewSections` visuals ... single-state;
+ * no state pair exists; instant by construction".
+ *
+ * DERIVED for the same reason as Family A, and scoped the same way §15's own row
+ * is: by FILE. The four were originally cited by line, and every one of those
+ * line numbers had already drifted by the time this was written — three merges
+ * from main moved them. A file-scoped derivation says the same thing and cannot
+ * go stale.
+ *
+ * NOT a blanket claim about painted children: the row-actions trigger visual is
+ * a painted child too, and it is TWEENED (table 1). The scope is what makes this
+ * true, so it is stated as a scope rather than as a property of the admission.
+ */
+describe("§15 table 3: the step-3 single-state visuals stay instant (derived)", () => {
+  const SWEPT = /border-(text-faint|control-outline-tinted)/;
+  const visuals = scanInteractiveElements(ROOT, { textEntry: true, paintedChildren: true }).filter(
+    (el) =>
+      el.file === "components/admin/wizard/step3ReviewSections.tsx" &&
+      el.admittedAs === "painted-child" &&
+      allStrings(el).some((str) => SWEPT.test(str)),
+  );
+
+  it("the derivation finds the four visuals §15 names", () => {
+    // Exactly four, and the count IS the claim here: §15 says "the four", so a
+    // fifth appearing is a change to the inventory rather than a passing test.
+    expect(visuals.map((el) => `${el.line} <${el.tag}>`)).toHaveLength(4);
+  });
+
+  it.each(visuals.map((el) => [`${el.file}:${el.line} <${el.tag}>`, el] as const))(
+    "%s is single-state, so it carries no tween",
+    (_label, el) => {
+      expect(
+        allStrings(el).filter((str) => str.includes(TOKEN)),
+        `${el.file}:${el.line}: §15 declares this visual single-state and instant`,
+      ).toEqual([]);
+    },
+  );
 });
 
 describe("§15 compound cases", () => {

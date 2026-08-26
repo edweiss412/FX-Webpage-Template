@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { premise, premiseHolds } from "../_shared/premise";
+import { stripCommentsForFile } from "../_shared/stripComments";
 
 /**
  * FILE-LEVEL budget, because the cost driver is file-wide and enumerating which cases carry it
@@ -1969,5 +1970,68 @@ describe("what the second score found unpinned", () => {
       reason: "focus chrome; the ring requirement must not fire without a painted weak side",
     };
     expect(validateRow(row, el, oracle, ledger)).toEqual([]);
+  });
+});
+
+/**
+ * AC-9b, asserted against the LIVE tree.
+ *
+ * §6.4's repair is the one place in this sweep where doing what the red said
+ * would have been worse than doing nothing: `FilterTextInput` painted its
+ * outline through `className ?? "<weak default>"` while both call sites passed
+ * their own, so the weak string the transcript named was dead code. Swapping it
+ * would have deleted the only READABLE weak token, cleared `isResidue`, and left
+ * both rendered controls at 1.27:1 behind a green guard.
+ *
+ * `isResidue` is `weakSides(...).length > 0` and reads only readable tokens
+ * (tests/styles/controlOutlineResidue.ts), so `unresolved` does NOT keep an
+ * element in the census — a claim an earlier revision of this arc's spec got
+ * backwards, and the reason this assertion is about resolution rather than about
+ * membership. Whole-diff review round 1 found it promised and absent.
+ */
+describe("AC-9b: the EventFilters text input resolves, and no caller can repaint it", () => {
+  const FILE = "components/admin/telemetry/EventFilters.tsx";
+  const scanned = scanInteractiveElements(ROOT, {
+    textEntry: true,
+    paintedChildren: true,
+  }).filter((el) => el.file === FILE && el.tag === "input");
+
+  // covers: AC-9b
+  it("the scan reaches the field at all", () => {
+    // By FILE and TAG, never by line: three merges from main moved every line
+    // number in this arc at least once.
+    premise(`${FILE} contributes a scanned <input>`, scanned.length, 0);
+  });
+
+  // covers: AC-9b
+  it("its className is FULLY resolved, so the guard reads a real token", () => {
+    for (const el of scanned) {
+      expect(
+        el.unresolved,
+        `${FILE}:${el.line}: an unresolved className would let the guard pass on unreadability rather than on the token`,
+      ).toBe(false);
+      expect(
+        allStrings(el).some((str) => /(^|\s)border-text-faint(\s|$)/.test(str)),
+        `${FILE}:${el.line}: the field wears the swept outline token`,
+      ).toBe(true);
+    }
+  });
+
+  // covers: AC-9b
+  it("`FilterTextInput` owns its recipe: it takes no className prop", () => {
+    // The structural half, read from the source with COMMENTS STRIPPED: the
+    // component's own comment says "Deliberately not a className", and a naive
+    // scan matches that and reports the prop it is promising is absent.
+    // `cn` merges nothing (it is filter(Boolean).join(" ")),
+    // so a caller-supplied className would sit BESIDE the recipe and a
+    // `!border-border` could repaint the field while every assertion above still
+    // passed. The prop is gone rather than merged, which is what makes that
+    // unreachable instead of merely unlikely.
+    const src = stripCommentsForFile(readFileSync(join(ROOT, FILE), "utf8"), FILE);
+    const at = src.indexOf("function FilterTextInput");
+    premise("FilterTextInput is still the component under test", at + 1, 0);
+    const body = src.slice(at, at + 900);
+    expect(body, "FilterTextInput must not accept a className").not.toMatch(/\bclassName\s*[?:]/);
+    expect(body, "it takes the layout boolean instead").toMatch(/\bgrow\s*\??\s*:/);
   });
 });

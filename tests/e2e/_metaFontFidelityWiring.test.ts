@@ -19,6 +19,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
+import { stripCommentsForFile } from "../_shared/stripComments";
 
 const E2E_DIR = resolve(__dirname);
 const FIXTURE = "fontFidelityFixture";
@@ -34,7 +35,17 @@ function specsCallingCompileEntryCss(): string[] {
   for (const entry of readdirSync(E2E_DIR, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".spec.ts")) continue;
     const full = join(E2E_DIR, entry.name);
-    if (readFileSync(full, "utf8").includes("compileEntryCss")) hits.push(entry.name);
+    // COMMENTS STRIPPED, because this walk's subject is specs that CALL
+    // `compileEntryCss`, and a raw substring match cannot tell a call from a
+    // spec that merely NAMES it while explaining why it does not use it. Found
+    // by exactly that case: `control-outline-pill.route.spec.ts` documents, in
+    // prose, that it is outside this oracle's subject — and the un-stripped
+    // match read its own explanation as membership and demanded it bind the
+    // fixture, which would have put a real Next document under an oracle that
+    // accepts only faces `compileEntryCss` emits. Same use-versus-mention error
+    // the review-convergence gate fixed by stripping quoted spans.
+    const src = stripCommentsForFile(readFileSync(full, "utf8"), full);
+    if (src.includes("compileEntryCss")) hits.push(entry.name);
   }
   return hits.sort();
 }
