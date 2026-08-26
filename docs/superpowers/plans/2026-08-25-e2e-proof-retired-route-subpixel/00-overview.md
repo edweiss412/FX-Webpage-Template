@@ -20,10 +20,14 @@ The evidence each task rests on was gathered before the spec was written, becaus
 |---|---|---|
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts` | Task 5 wires the spec into `app-e2e.yml`; its shadowing assertion (`tests/ci/_metaE2eWorkflowCoverage.test.ts:296`) then FORCES the `UNSEEN` row out | red between wiring and row removal, green after; that coupling is the point |
 | `tests/e2e/_metaFontWaitCoverage.test.ts` | Task 6 adds documented limits to its header; `CALLERS` is deliberately NOT extended | unchanged and green — a row for a file this analyzer cannot see a navigation in would pass vacuously |
+| `tests/help/walker-routes.test.ts` | Task 3b moves the `shows` writes onto the locked path | red until the frozen `EXEMPT_PREEXISTING` count for this spec is REMOVED at 0 |
+| `tests/e2e/helpers/lockedShowCopy.unit.test.ts` (new) | invariant 2's "tests assert the lock is held", which walker-routes provably cannot do | new and green, with four mutant controls |
+| `tests/ci/modalWaitHelper/disposition.ts` | the rewrite's `gotoSection` adds a non-literal-goto candidate | census count rises; resolved to the UNION after `origin/main` bumped it for a different site the same day |
+| `scripts/check-app-e2e-executed.mjs` | Task 5 wires the spec, so the executed-count oracle owes it a `REQUIRED` row | new row at 4 (four cases, one project) |
 | `tests/docs/_metaLedgerInProgress.test.ts` | Task 0 marks both rows in progress; Task 7 removes the markers and archives | green throughout: markers name a branch that exists on origin until the last commit removes them |
 | `tests/docs/_metaLedgerMintBar.test.ts` | This arc files NO new row, so nothing new is subject to the bar | unchanged |
 
-No advisory-lock surface is touched, so no holder topology is declared.
+**Advisory-lock holder topology (Task 3b).** The branch DOES touch a lock surface: `tests/e2e/helpers/lockedShowCopy.ts` acquires `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` for each fixture `shows` write. Single holder, at exactly one layer: the psql transaction itself. No JS-side wrapper, no RPC, and no nesting — one acquisition per transaction, asserted as such. Cleanup takes one transaction per show rather than one lock standing in for several.
 
 ## 3. Tasks
 
