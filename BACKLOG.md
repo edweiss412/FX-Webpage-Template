@@ -229,7 +229,7 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 
 ### BL-THEME-NOTE-NO-DISMISS-AFFORDANCE — the persist-failure note cannot be dismissed, and a permanently-blocked device keeps it up all visit
 
-**Status:** OPEN · **Severity:** LOW · **Class:** UX signal · **Filed:** 2026-08-16 (`feat/theme-persistence-note`, impeccable critique P1) · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** fix/theme-note-polish · **Severity:** LOW · **Class:** UX signal · **Filed:** 2026-08-16 (`feat/theme-persistence-note`, impeccable critique P1) · **Effort:** S
 
 **Probed at implementation time, not theorized.** The note renders whenever `persistFailed` is true and clears only when a later write SUCCEEDS (`components/layout/useAppliedTheme.ts`). On a device where storage is blocked for the whole session — the entry that produced this feature named embedded webviews with storage partitioning — no later write can succeed, so the anchored bubble stays under the toggle until the page unloads, overlaying whatever sits beneath it.
 
@@ -243,7 +243,7 @@ Spec `docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` §4 li
 
 ### BL-THEME-NOTE-BUBBLE-TEXT-ALIGN — the note bubble right-aligns copy the width math wraps to three lines
 
-**Status:** OPEN · **Severity:** LOW · **Class:** UX polish · **Filed:** 2026-08-16 (`feat/theme-persistence-note`, impeccable critique P2) · **Effort:** XS
+**Status:** IN PROGRESS · **Branch:** fix/theme-note-polish · **Severity:** LOW · **Class:** UX polish · **Filed:** 2026-08-16 (`feat/theme-persistence-note`, impeccable critique P2) · **Effort:** XS
 
 The bubble's chrome carries `text-right` (spec §2.2 class list, shipped verbatim in `components/layout/ThemeToggle.tsx`). The same spec section derives `max-w-36` from the tightest consumer and states the copy wraps to three short lines at 320px. Right-aligned multi-line body copy gives every line a different starting x, which is the readability case against it — and it lands hardest exactly where the width was engineered tightest.
 
