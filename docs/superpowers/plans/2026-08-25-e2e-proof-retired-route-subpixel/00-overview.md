@@ -16,11 +16,11 @@ The task list below is written FROM `git log`, not from intention, and it is reg
 
 The evidence each task rests on was gathered before the spec was written, because the alternative is a spec whose test section asserts oracles nobody ran. Four tasks exist only because a run disproved the obvious design: the identity §8.3's category 1 lives on, the viewer the route accepts, the cache that swallows a direct DB write, and the shape of "no dates" the shell survives. Each is recorded at its task.
 
-### 1.1 Two ordering defects, recorded rather than hidden
+### 1.1 Three process defects, recorded rather than hidden
 
 Plan review round 1 was right about the commit order, and this section says so instead of presenting an order the history does not have.
 
-**Defect one: the locked path landed after the writes it protects.** Task 1 (`ddf0d83fb`) shipped the rewritten spec with unlocked service-role `shows` writes. `tests/help/walker-routes.test.ts` was RED at that commit, because the file's frozen locked-table count no longer matched. Task 3b (`d6602335c`) then moved those writes onto the per-show lock and removed the frozen row. The correct order was Task 3b first, and the branch passed through a state that violated invariant 2.
+**Defect one: the locked path landed after the writes it protects.** Task 1 (`ddf0d83fb`) shipped the rewritten spec with unlocked service-role `shows` writes. `tests/help/walker-routes.test.ts` was RED at that commit, because the file's frozen locked-table count no longer matched. Task 8 (`d6602335c`) then moved those writes onto the per-show lock and removed the frozen row. The correct order was Task 8 first, and the branch passed through a state that violated invariant 2.
 
 **Defect two: the lock proof landed after the lock.** `d6602335c` added `lockedShowCopy.ts`; its executable proof did not arrive until `95d69f052`, one review round later, and only because the reviewer showed that `walker-routes` is green with the lock deleted. That is a TDD-per-task violation on the one task where the invariant is strictest.
 
@@ -34,8 +34,8 @@ Both are recorded, not rewritten. The final tree satisfies invariants 1, 2, 6 an
 |---|---|---|
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts` | Task 5 wires the spec into `app-e2e.yml`; its shadowing assertion (`tests/ci/_metaE2eWorkflowCoverage.test.ts:296`) then FORCES the `UNSEEN` row out | red between wiring and row removal, green after; that coupling is the point |
 | `tests/e2e/_metaFontWaitCoverage.test.ts` | Task 6 adds documented limits to its header; `CALLERS` is deliberately NOT extended | unchanged and green — a row for a file this analyzer cannot see a navigation in would pass vacuously |
-| `tests/help/walker-routes.test.ts` | Task 3b moves the `shows` writes onto the locked path | red until the frozen `EXEMPT_PREEXISTING` count for this spec is REMOVED at 0 |
-| `tests/e2e/helpers/lockedShowCopy.unit.test.ts` (new) | invariant 2's "tests assert the lock is held", which walker-routes provably cannot do | new and green, with four mutant controls |
+| `tests/help/walker-routes.test.ts` | Task 8 moves the `shows` writes onto the locked path | red until the frozen `EXEMPT_PREEXISTING` count for this spec is REMOVED at 0 |
+| `tests/e2e/helpers/lockedShowCopy.unit.test.ts` (new) | invariant 2's "tests assert the lock is held", which walker-routes provably cannot do | new and green: no recognizer, an exact-text comparison through the real callers, plus eight predicate cases (five negative) on the delete signal |
 | `tests/ci/_metaModalWaitHelper.test.ts` (owning `tests/ci/modalWaitHelper/disposition.ts`) | the rewrite's `gotoSection` adds a non-literal-goto candidate | census count rises; resolved to the UNION (19) after `origin/main` bumped it for a different site the same day |
 | `tests/cross-cutting/app-e2e-ci-wiring.test.ts` | it, NOT the coverage meta-test, owns `REQUIRED` parity for `scripts/check-app-e2e-executed.mjs` | green once the spec's `REQUIRED` row lands at 4 |
 | `tests/docs/_metaDeferralLedgerGraduation.test.ts` | Task 12 graduates two rows, and each owes a `BACKLOG_GRADUATED` registry row with this branch as provenance | two new registry rows |
@@ -45,7 +45,7 @@ Both are recorded, not rewritten. The final tree satisfies invariants 1, 2, 6 an
 | `tests/docs/_metaLedgerInProgress.test.ts` | Task 0 marks both rows in progress; Task 16 removes the markers and archives | green throughout: markers name a branch that exists on origin until the last commit removes them |
 | `tests/docs/_metaLedgerMintBar.test.ts` | This arc files NO new row, so nothing new is subject to the bar | unchanged |
 
-**Advisory-lock holder topology (Task 3b).** The branch DOES touch a lock surface: `tests/e2e/helpers/lockedShowCopy.ts` acquires `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` for each fixture `shows` write. Single holder, at exactly one layer: the psql transaction itself. No JS-side wrapper, no RPC, and no nesting — one acquisition per transaction, asserted as such. Cleanup takes one transaction per show rather than one lock standing in for several.
+**Advisory-lock holder topology (Task 8).** The branch DOES touch a lock surface: `tests/e2e/helpers/lockedShowCopy.ts` acquires `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` for each fixture `shows` write. Single holder, at exactly one layer: the psql transaction itself. No JS-side wrapper, no RPC, and no nesting — one acquisition per transaction, asserted as such. Cleanup takes one transaction per show rather than one lock standing in for several.
 
 ## 3. Tasks, in commit order
 
@@ -70,7 +70,7 @@ Six runs shaped it, each `CI=1 BASELINE_SERVER_ONLY=1 … --project=mobile-safar
 | 5 | 3 passed, 1 failed | `showDays: []` alone leaves travel/set/strike day cards. Empty the four fields `aggregateDays` reads. |
 | 6 | **4 passed (28.6s)** | green |
 
-**This commit is where ordering defect one lands** (§1.1): its `shows` writes were unlocked and `walker-routes` was red until Task 3b.
+**This commit is where ordering defect one lands** (§1.1): its `shows` writes were unlocked and `walker-routes` was red until Task 8.
 
 ### Task 2 — the tap-target barrier premise test, RED (`17ca1e35b`)
 
@@ -120,7 +120,7 @@ Verification: `pnpm exec vitest run tests/help/walker-routes.test.ts` — 7 pass
 
 Same commit closes invariant 9: both remaining calls take `{ data, error }` and USE the data.
 
-Verification: `pnpm exec vitest run tests/e2e/helpers/lockedShowCopy.unit.test.ts` — 5 passed; the spec re-run — 4 passed.
+Verification, both halves of §5's locked-helper budget: `pnpm exec vitest run tests/help/walker-routes.test.ts tests/e2e/helpers/lockedShowCopy.unit.test.ts`, plus the spec re-run — 4 passed.
 
 ### Task 10 — the executed-count floor (`9550de901`)
 
@@ -134,17 +134,17 @@ Verification: `pnpm exec vitest run tests/cross-cutting/app-e2e-ci-wiring.test.t
 
 Verification: the spec re-run under CI posture — 4 passed.
 
-### Task 12 — rebuild the lock analyzer as a whitelist (`e33b76d78`, superseded by Task 14)
+### Task 12 — rebuild the lock analyzer as a whitelist (`e33b76d78`, superseded by Task 15)
 
 Spec review round 3 walked four unsafe transactions through the index-based analyzer. This replaced it with a statement whitelist and eight mutant controls. Round 4 then walked six MORE through the whitelist, which is what made Task 14 a redesign rather than a seventh pattern.
 
 Same commit converted every interpolated replacement string in the proof to a replacer function, which `tests/cross-cutting/replacementString.test.ts` had flagged: `$1` inside an interpolated template is re-interpreted by `String.replace`.
 
-Verification: `pnpm exec vitest run tests/e2e/helpers/lockedShowCopy.unit.test.ts tests/cross-cutting/replacementString.test.ts` — 54 passed.
+Verification: `pnpm exec vitest run tests/e2e/helpers/lockedShowCopy.unit.test.ts tests/cross-cutting/replacementString.test.ts` — 54 passed. It did NOT re-run `walker-routes.test.ts`, which §5's budget requires of any change to the locked helper; Task 15 runs both.
 
-### Task 13 — check that both cleanup layers removed rows (`86738ee32`, partly superseded by Task 15)
+### Task 13 — check that both cleanup layers removed rows (`86738ee32`, superseded by Task 15)
 
-`deleteShowsLocked` read its `RETURNING id` output; the reservation cleanup compared a removed count against a derived total. **Both landed without a negative proof**, which §1.1 records as defect three.
+`deleteShowsLocked` read its `RETURNING id` output; the reservation cleanup compared a removed count against a derived total. **Both landed without a negative proof and with no verification recorded at all**, which §1.1 records as defect three. Task 15 gives the first a predicate with five negative cases and deletes the second.
 
 ### Task 14 — raise the lifecycle oracle floor (`2cd730dde`)
 
@@ -152,7 +152,7 @@ The tap-target spec gained a case and its executed floor did not, so `tests/cros
 
 Verification: `pnpm exec vitest run tests/cross-cutting/lifecycle-layout-e2e-ci-wiring.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts` — 15 passed.
 
-### Task 15 — replace the recognizer with an exact-SQL proof, and prove the joins
+### Task 15 — replace the recognizer with an exact-SQL proof, and prove the joins (`5bd2001d4`)
 
 Spec review round 4 found six more escapes in the whitelist (`where false` and `limit 0` run the lock zero times; `generate_series` and two calls in one select run it twice; a lock on another show's key; a delete broad enough to touch other shows). Widening again was the ratchet AGENTS.md tells arcs to refuse, so **the recognizer is gone**.
 
@@ -162,7 +162,7 @@ Same task fixes the vacuous cleanup check (spec R4 F2): `psql -At` still prints 
 
 And the reservation cleanup is DELETED rather than proved: `hotel_reservations_show_id_fkey` and `show_share_tokens_show_id_fkey` are both `ON DELETE CASCADE`, so removing the show removes both. One cleanup signal, already proved, instead of three to keep right.
 
-Verification: `pnpm exec vitest run tests/e2e/helpers/lockedShowCopy.unit.test.ts` — 16 passed; the spec re-run, plus a post-run `select count(*) from shows where drive_file_id like 'empty-state-spec:%'` to confirm the cascade leaves no residue.
+Verification, both halves of §5's locked-helper budget: `pnpm exec vitest run tests/help/walker-routes.test.ts tests/e2e/helpers/lockedShowCopy.unit.test.ts` — 23 passed (7 + 16); the spec re-run — 4 passed; plus a post-run `select count(*) from shows where drive_file_id like 'empty-state-spec:%'` returning 0, which is what confirms the cascade leaves no residue.
 
 ### Task 16 — graduate both rows (LAST commit of the PR, not yet made)
 

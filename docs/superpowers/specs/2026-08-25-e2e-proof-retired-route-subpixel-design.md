@@ -40,7 +40,7 @@ Re-targeting the route is therefore necessary and not sufficient. Three of the f
 
 ### 2.2 Row 1 states a false mechanism for its second half (dark-on-main)
 
-The row says "`lifecycle-layout-e2e` is path-filtered". It is not. `.github/workflows/lifecycle-layout-e2e.yml:14-16` is `on: pull_request:` with no `paths`, plus `workflow_dispatch:`, and the header comment at `.github/workflows/lifecycle-layout-e2e.yml:4-6` records that the absence of a filter is deliberate, ratified over four spec-review rounds. The job is dark on `main` because it carries **no `push:` trigger at all**, so it never runs there under any circumstance. Only `quality.yml:3-4`, `unit-suite.yml:3-4` and `x-audits.yml:3-4` carry `push: branches: [main]`.
+The row says "`lifecycle-layout-e2e` is path-filtered". It is not. `.github/workflows/lifecycle-layout-e2e.yml:41-43` is `on: pull_request:` with no `paths`, plus `workflow_dispatch:`, and the header records that the absence of a filter is deliberate, ratified over four spec-review rounds. The job is dark on `main` because it carries **no `push:` trigger at all**, so it never runs there under any circumstance. Only `quality.yml:3-4`, `unit-suite.yml:3-4` and `x-audits.yml:3-4` carry `push: branches: [main]`.
 
 Section 5 records the decision this correction leads to, which is not the one the row's wording implies.
 
@@ -148,7 +148,7 @@ The order in the test is: call the settled `openStep3Modal`, then read `animatio
 ### 4.3 What is deliberately not changed
 
 - No tolerance, on any assertion, in any file.
-- No change to `--retries=0` (`.github/workflows/lifecycle-layout-e2e.yml:177-179`) or its execution oracle (`.github/workflows/lifecycle-layout-e2e.yml:195-200`).
+- No change to `--retries=0` (`.github/workflows/lifecycle-layout-e2e.yml:221`) or its execution oracle (`.github/workflows/lifecycle-layout-e2e.yml:226-227`).
 - No change to `CONTACT_CELL_DEAD_SPACE_PX = 34` (`tests/e2e/tap-target-inline-controls.layout.spec.ts:61-62`), which the measurement shows was never wrong.
 
 ---
@@ -192,7 +192,7 @@ This removes every write to the shared seed, so the suite stops being a contende
 
 `tests/help/walker-routes.test.ts` is the guard normally cited for locked-table fixture writes, and it cannot prove this one. It recognizes PostgREST mutation syntax, so it is equally green whether the SQL the helper emits holds the advisory lock or not. Probed by deleting the lock line: `currentWalkerHits: 0`, `mutantWalkerHits: 0`, `lockPresentCurrent: true`, `lockPresentMutant: false`. Same verdict, opposite safety.
 
-Invariant 2 requires tests to assert the lock is HELD, so the transaction shape is exported (`lockedStatement`, `copyShowBody`, `deleteShowBody`) and proved without a database in `tests/e2e/helpers/lockedShowCopy.unit.test.ts`. The analyzer there classifies statement ORDER rather than containment, because containment is satisfied by a lock placed after the write. It compares the emitted transaction character-for-character against the text this proof declares, so every escape changes that text and fails, including the ten a recognizer-shaped version was walked through over two rounds. The first three are the three that cost arc C review rounds 4, 5 and 6 one at a time while a lexical guard stayed green (`tests/e2e/helpers/lockedCrewRestriction.ts` header).
+Invariant 2 requires tests to assert the lock is HELD, so the transaction shape is exported (`lockedStatement`, `copyShowBody`, `deleteShowBody`) and proved without a database in `tests/e2e/helpers/lockedShowCopy.unit.test.ts`. There is no analyzer. The proof drives the REAL `copyShowLocked` and `deleteShowsLocked` through an injected executor and compares the SQL they emit against the text it declares, modulo runs of whitespace, since indentation is not the contract and a normalizer that collapses it is the difference between testing the transaction and testing the source formatting. Every escape changes that text and fails, including the ten that a recognizer-shaped version was walked through over two rounds, and the comparison also fixes which key each caller chooses and that `runLocked` forwards it. The first three are the three that cost arc C review rounds 4, 5 and 6 one at a time while a lexical guard stayed green (`tests/e2e/helpers/lockedCrewRestriction.ts` header).
 
 ### 6.2 Route and auth
 
@@ -232,7 +232,7 @@ It gains a fresh-state half, and the contrast is on the TIER rather than on the 
 
 ### 6.4 The four `toHaveScreenshot` assertions are deleted
 
-The byte-comparison discipline in AGENTS.md forbids pixel baselines on a native Linux runner, and `app-e2e.yml` is native. Moving the spec to the pinned-Docker screenshots job was the alternative; it is rejected because this spec mutates the shared Waldorf seed in `beforeAll`/`beforeEach` and that job is not built for a live-DB writer, and because the §8.3 contract is a DOM contract, not an appearance contract. Every category's real invariant is expressible as behaviour, and section 6.2 expresses it.
+The byte-comparison discipline in AGENTS.md forbids pixel baselines on a native Linux runner, and `app-e2e.yml` is native. Moving the spec to the pinned-Docker screenshots job was the alternative; it is rejected because this suite is a live database writer (it creates and drops a show per state, §6.1) and that job is not built for one, and because the §8.3 contract is a DOM contract, not an appearance contract. Every category's real invariant is expressible as behaviour, and section 6.3 expresses it.
 
 The four `*-mobile-safari-darwin.png` baselines under `tests/e2e/empty-state-reachability.spec.ts-snapshots/` are deleted with them. A `-darwin.png` baseline is by construction unusable on a Linux runner, so nothing is lost that was ever used in CI.
 
@@ -329,7 +329,7 @@ Every assertion about RENDERED behaviour runs in a real browser against the comp
 | T4 | Category 2: the `Power` fact row absent with `TBD`, present with a real value, in one test | The old "`TBD` not in text" form passing on a blank section. |
 | T5 | Category 3: `travel-hotels` visible on the with-reservations copy, count 0 on the without copy, `section-travel` non-blank in both | A travel section that failed to render being read as "the tile is correctly missing", and a card that never renders under any data. |
 | T6 | Category 4: fresh copy renders `stale-footer` at `data-tier="subtle"` with no `data-code`; stale copy renders it red with `SYNC_DELAYED_SEVERE` | A footer that is always red, and a tier ladder regression. |
-| T1b | `lockedStatement` emits begin → advisory lock → write → commit in that order, keyed per show, with exactly one acquisition | The lock deleted, the lock placed after the write, a commit between the two, and a nested second acquisition. Each is built as a mutant and asserted RED, because an order assertion over one known-good string proves nothing about the analyzer. |
+| T1b | The SQL `copyShowLocked` and `deleteShowsLocked` actually emit, captured through an injected executor and compared to the declared text (whitespace runs normalized) | Any change to the transaction at all, including all ten escapes two recognizer-shaped versions were walked through, and the three production joins a hand-composed assertion never touched: which key each caller picks, and whether `runLocked` forwards it. |
 | T7 | Coverage meta-test green with the spec wired and its `UNSEEN` row removed | Wiring and de-allowlisting drifting apart; forced by the shadowing assertion at `tests/ci/_metaE2eWorkflowCoverage.test.ts:296`. |
 
 Null and boundary cases are inside T3, T4 and T5 by construction: each asserts both the missing state and the present state of the same identity.
@@ -352,6 +352,6 @@ Null and boundary cases are inside T3, T4 and T5 by construction: each asserts b
 
 - Eric's no-new-rows directive of 2026-08-25. This arc closes its two rows and mints no `BL-`/`DEF-` row of any facing. Findings are repaired here or recorded as documented limits on the owning surface.
 - The deliberate absence of a `paths` filter on `lifecycle-layout-e2e.yml`, ratified over four spec-review rounds (`.github/workflows/lifecycle-layout-e2e.yml:4-6`).
-- The `--retries=0` flag on the tap-target step (`.github/workflows/lifecycle-layout-e2e.yml:177-179`) and its execution oracle (`.github/workflows/lifecycle-layout-e2e.yml:195-200`).
+- The `--retries=0` flag on the tap-target step (`.github/workflows/lifecycle-layout-e2e.yml:221`) and its execution oracle (`.github/workflows/lifecycle-layout-e2e.yml:226-227`).
 - `shareToken` is a required path segment on the crew route (`tests/e2e/crew-page.spec.ts:152-153`).
 - The six-section redesign retired the flat tile-grid idiom (`tests/e2e/crew-page.spec.ts:147-148`).
