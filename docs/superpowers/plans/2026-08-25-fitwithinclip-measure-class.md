@@ -168,9 +168,10 @@ is the fix: every row names its task, and a row without one is a plan defect.
 | M10 | Make the ref callback's dependency list unstable — add an inline `{}` dep | (h9) unchanged-re-render costs nothing | Task 3 |
 | M11 | `new ResizeObserver(() => {})` — observer constructed, callback dead | (h12) the observer callback re-measures, on both observed targets | Task 1 |
 | M12 | Reintroduce ANY state update on the attach path — `const [n, setN] = useState(0)` bumped in the ref callback | (h14) one owner render per appearance | Task 3 |
-| M13 | Return `undefined` from the ref callback instead of the teardown | **(h21)**, which asserts `disconnected=1` after unmount — with no cleanup returned, React has nothing to call and `observer.disconnect()` never runs. Plan review R1 disproved the earlier claim against (h13): Strict Mode yields two renders and two applies with or without a returned cleanup, so only a CLEANUP-counting case can see this. `_metaSharedHelperAdoption` also does not catch it — it checks `.cancel()` EXISTS, not that the closure is returned | Task 3 |
-| M14 | Improve ONE lifecycle at another's expense — e.g. skip the mount `apply()` when `reapplyKey` is truthy, which flatters `PublishedToggle` and breaks `AttentionMenu` | (h16) and (h17), which must disagree | Task 3 |
+| M13 | Return `undefined` from the ref callback instead of the teardown | **(h3) AND (h21)**. R4 corrected the R1 repair here: removing the whole teardown leaves the `window` resize listener attached AND `nodeRef` pointing at the detached node, so (h3)'s post-unmount resize DOES move `applyCount`. (h21) additionally asserts `disconnected=1` — with no cleanup returned, React has nothing to call and `observer.disconnect()` never runs. Plan review R1 disproved the earlier claim against (h13): Strict Mode yields two renders and two applies with or without a returned cleanup, so only a CLEANUP-counting case can see this. `_metaSharedHelperAdoption` also does not catch it — it checks `.cancel()` EXISTS, not that the closure is returned | Task 3 |
+| M14 | Improve ONE lifecycle at another's expense — skip the mount `apply()` when `reapplyKey` is truthy. R4 probed the live call sites and corrected the example: it SKIPS for `PublishedToggle` (key `true` at first error) and for `AttentionMenu` once `entered` flips, and RUNS for `ReSyncButton` (key `undefined`) — so it breaks BOTH keyed consumers rather than flattering one | (h16) and (h17), which must disagree | Task 3 |
 | M15 | Arm the e2e sampler AFTER the overlay appears instead of via `addInitScript` | Task 4's absent-row-before-first-present-row premise | Task 4 |
+| M22 | Wire the observer and listeners at hook body level rather than on attach, so a never-attached hook still subscribes | **(h18)**, which asserts the never-attached path does nothing at all. R4 caught (h18) losing its mutant when M16 was repointed to (h9) | Task 3 |
 | M16 | Call `apply()` at hook body level, so it runs on every render | **(h9)**, whose no-op re-render must cost zero applies: with a node attached, a body-level `apply()` measures on that re-render. Plan review R1 disproved the earlier claim against (h18) — on the never-attached path `apply()` returns on the null node, so zero applies, zero walks and no throw all still pass | Task 3 |
 | M17 | Suppress the re-attach on a `reapplyKey` change when the node is unchanged — the "optimisation" that would make a single cumulative (h17) assertion pass | (h17)'s settled snapshot, and (c) | Task 3 |
 | M18 | Write the cap only when one already exists — `if (el.style.maxHeight) el.style.maxHeight = …` | (h19) `N to F`. Kills NOTHING in today's suite | Task 3 |
@@ -203,11 +204,11 @@ The citations this plan's own execution moves or deletes, all six:
 | Citation | Named in | Invalidated by |
 | --- | --- | --- |
 | `components/admin/useFitWithinClip.ts:77`, **Task 1's `red-target`** | Task 1's marker | Task 1 itself deletes the `attachCount` declaration. Expected: a marker names the defect it removes, and the RED is observed BEFORE the removal |
-| `components/admin/useFitWithinClip.ts:203`, **Task 2's `red-target`** | Task 2's marker | Task 1 moves the ref callback's opening line. The marker deliberately names the SURVIVING surface rather than `components/admin/useFitWithinClip.ts:161`, the line Task 1 deletes — round 1 charged the earlier version for citing the deleted line |
+| `components/admin/useFitWithinClip.ts:203`, **Task 2's `red-target`** | Task 2's marker | Task 1 REPLACES and relocates that callback, so the line moves even though the symbol survives. Round 4 was right that naming a surviving symbol does not preserve a line citation. **Task 1's commit step therefore re-points Task 2's marker to the post-Task-1 line and verifies it by reading that line for `useCallback`** — an executable step, not an intention |
 | the family-pin precedent, `tests/components/admin/useFitWithinClip.test.tsx:362-366` | Tasks 3 and 4 | Task 1 and Task 3 both add cases above it |
-| observer wiring, `components/admin/useFitWithinClip.ts:167-170` | Task 3 | Task 1 moves it into the ref callback |
-| the no-clip branch, `components/admin/useFitWithinClip.ts:91-96` | Task 3 | Task 2 changes `apply()`'s return shape |
-| the synchronous measure, `components/admin/useFitWithinClip.ts:144` | Task 4 | Task 1 deletes the effect around it |
+| observer wiring, `components/admin/useFitWithinClip.ts:167-170` | **no longer cited by any task** — the R3 referential rewrite removed it; it survives only in the spec | Task 1 moves it into the ref callback |
+| the no-clip branch, `components/admin/useFitWithinClip.ts:91-96` | **no longer cited by any task**, same reason | Task 2 changes `apply()`'s return shape |
+| the synchronous measure, `components/admin/useFitWithinClip.ts:144` | **no longer cited by any task**, same reason | Task 1 deletes the effect around it |
 
 Round 3 charged the earlier version of this table for still calling `components/admin/useFitWithinClip.ts:161` Task 2's target after the marker had moved to `components/admin/useFitWithinClip.ts:203`, and for omitting Task 1's `components/admin/useFitWithinClip.ts:77` entirely. **So the rule is not "re-point at the end" — it is that a citation naming a line the plan DELETES
 must not be a `red-target` at all.** Task 2's marker therefore names the surviving surface (the ref
@@ -230,7 +231,7 @@ RED:
 
 1. `tests/components/admin/useFitWithinClip.test.tsx:281` → `expect(afterMount, "mount measure count changed").toBe(1)`.
 2. Rewrite the comment at `tests/components/admin/useFitWithinClip.test.tsx:276-279`. It currently cites `BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE` as live debt. It must stop citing a row this branch closes, and say instead that one attach is one measure, pinned here so a regression to two is visible rather than absorbed into the coalescing delta below.
-3. Add case (h3): after `view.unmount()`, fire a `window` resize and flush frames; assert `applyCount` did not move. **No mutant kills it** — §5 records M3 as an ACCEPTED GAP for exactly this reason: the teardown has already removed that listener, so nothing calls `apply()` either way. (h3) is a regression pin against a future teardown that stops cancelling, not a mutant-backed case.
+3. Add case (h3): after `view.unmount()`, fire a `window` resize and flush frames; assert `applyCount` did not move. Its red is **M13**, which removes the whole teardown: the resize listener stays attached and `nodeRef` still points at the detached node, so the post-unmount resize moves `applyCount`. (M3, which drops only the `nodeRef.current = null` line, does NOT kill it — §5 records M3 as an ACCEPTED GAP for that reason.)
 4. Add case (h2): call the ref callback with `null` directly and assert it neither throws nor measures. Its red is mutant M4.
 5. Add case (h14): the LIVE conditional-host harness — the same tree with the overlay behind a flag. That is `ReSyncButton`'s shape specifically — **not all five call sites**, which spec §0.1 shows take three distinct lifecycles; (h15)-(h17) in Task 3 cover them one apiece. Assert per appearance: one `apply()`, one ancestor walk, and — the load-bearing one — **one owner render pass**, where the counter takes two. The existing always-present harness stays for the cases built on it; this one exists because spec §0.1's first two drafts drew the wrong conclusion from the always-present shape, which is `AttentionMenuPanel`'s and not nobody's. Its red is mutant M12.
 6. Add case (h13): the same conditional-host harness inside `<StrictMode>`, asserting the replay's counts EXACTLY — two applies per appearance and two owner renders, against the current code's one and four. It pins the development cost in the direction it actually moves, so a later change that makes the replay worse is visible rather than absorbed. It has **no mutant of its own**: plan review R1 proved Strict Mode yields two renders and two applies with or without a returned cleanup, so M13 is repointed to (h21) in §5, which counts disconnects. (h13) pins the replay's COUNTS, which is its own job.
@@ -319,10 +320,14 @@ GREEN — `components/admin/useFitWithinClip.ts`:
 
 Verify, each as its own command: the suite; `pnpm vitest run tests/components/_metaScrollNeutralMeasurement.test.ts`; `pnpm exec eslint components/admin/useFitWithinClip.ts` (expect ZERO warnings — the disable comment is what makes that true); `pnpm typecheck`.
 
+**Before committing**, re-point Task 2's `red-target` to the line the ref callback now opens on, and verify it by READING that line for `useCallback` — Task 1 relocates it, and a surviving symbol does not preserve a line citation (§5b, R4 finding 3).
+
 **Commit** (invariant 6, red observed then green, one commit for the task): `refactor(admin): the ref callback owns the wiring, and the attach counter goes away`.
 
 Then RUN **every mutant whose `Run in` column names Task 1**, read off §5's table rather than
-re-listed here — plan review R1 and R2 both charged this task for carrying a stale copy of those
+re-listed here — **including M3, whose §5 row marks it an ACCEPTED GAP and whose expected result is
+SURVIVING, not red** (§5's global rule; R4 caught this instruction demanding a red that row proves
+impossible) — plan review R1 and R2 both charged this task for carrying a stale copy of those
 pairings after the table was corrected. For each: confirm the case §5 names goes red, revert, paste
 the result. **M11 is the one to read twice**: it must go from killing NOTHING to killing (h12).
 
@@ -454,7 +459,11 @@ Run under `pnpm heavy`.
 
 **Commit** (invariant 6): `test(e2e): pin the first painted frame against the clip edge`.
 
-## Task 5 — full gates
+## Task 5 — full gates (runs LAST, after Task 6)
+
+**Ordering, per R4 finding 1:** this task runs AFTER Task 6, because `pnpm test` collects the
+invariant-8 closeout guard, which is red until Task 6 writes the marker. Running the full sweep first
+would make Task 6 unreachable under its own prerequisite.
 
 Each as its own command, never chained: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`,
 `pnpm format:check`, `pnpm heavy pnpm test:e2e`, and
@@ -489,7 +498,15 @@ to make machine-checkable.
 under `components/`), so BOTH halves run on the affected diff, with the canonical v3 setup gates:
 the impeccable v3 context load of PRODUCT.md and DESIGN.md (the skill's own setup step, not a repo file), then the register reference read.
 
-**Task 6 — impeccable dual gate.** After Task 5's gates are green and before the whole-diff review:
+**Task 6 — impeccable dual gate. Runs BEFORE Task 5, not after.**
+
+Plan review R4 found the earlier ordering circular and it was a P0: Task 5 runs `pnpm test`, which
+collects `tests/docs/_metaInvariant8Closeout.test.ts`, which stays red until Task 6 writes the marker
+— while Task 6's prerequisite was that Task 5 be green. Neither could go first. **The gate run is the
+LAST thing in the arc**, so Task 6 moves ahead of it and Task 5 becomes the final green sweep,
+including the guard Task 6 has by then cleared.
+
+Steps:
 
 1. `/impeccable critique` on the diff. Record every finding with its tier.
 2. `/impeccable audit` on the same diff. Record every finding with its tier.
@@ -497,6 +514,7 @@ the impeccable v3 context load of PRODUCT.md and DESIGN.md (the skill's own setu
 4. Every P0 and P1 either fixed in this branch or explicitly deferred with a `DEFERRED.md` entry.
 5. Findings and dispositions land in §12 below.
 6. WRITE the marker line into §12 in its RAN form with the real counts. There is nothing to "flip": no marker exists yet, deliberately, because the grammar has no pending form.
+7. **Commit** (invariant 6, and R4 finding 2 — this task mutates tracked files like any other): `docs(plan): record the impeccable dual-gate findings and dispositions`. Any P0/P1 FIX the gate forces is its own commit under its own conventional-commit message, before this one.
 
 Expect the surface to be quiet: the diff removes a `useState` and a `useLayoutEffect` from one hook
 and adds test cases. It renders nothing, changes no class string, no token, no copy and no DOM shape.
