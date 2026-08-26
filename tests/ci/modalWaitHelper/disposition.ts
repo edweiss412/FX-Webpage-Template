@@ -458,7 +458,11 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a standalone harness page (mkdtemp workdir or the dev gallery route), not the /admin loader",
     },
-    expectedCount: 73,
+    // 73 until 2026-08-26. `tests/e2e/control-outline-contrast.live.spec.ts`
+    // adds one: it serves the real <Step3ReviewModal> tree from a mkdtemp
+    // workdir over node:http to measure computed outline contrast, so its
+    // `page.goto(baseUrl)` is a harness navigation and never the /admin loader.
+    expectedCount: 74,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {

@@ -2808,7 +2808,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // tokens drawn from that same list, so the optional chain never yields undefined.
       // Falsifier: a token reaching this filter that was not in the classify call above it.
       {
-        siteId: "integer-literal:659:82:0>1",
+        siteId: "integer-literal:663:82:0>1",
         kind: "equivalent",
         reason:
           "rowPaint is built from alternatives.flat() and indexed with tokens from that same list, so the ?? fallback is unreachable; §4.3",
@@ -2851,13 +2851,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // side-divider row — identical problem lists for a clean, a double-spaced and a one-char
       // paint string. Falsifier: a consumer reading token spelling or counting tokens directly.
       {
-        siteId: "relational-boundary:591:81:>>>=",
+        siteId: "relational-boundary:595:81:>>>=",
         kind: "equivalent",
         reason:
           "an empty token admitted by >= 0 carries no paint, and every consumer of alternatives reads paint; probed against a live divider row with identical output; §4.6",
       },
       {
-        siteId: "integer-literal:591:83:0>1",
+        siteId: "integer-literal:595:83:0>1",
         kind: "equivalent",
         reason:
           "a one-char token dropped by > 1 carries no paint, same probe, same identical output; §4.6",
@@ -2871,7 +2871,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // spellings). `<=` and `<` therefore agree on the whole domain. Falsifier: a caller passing
       // a value not of the form b/255.
       {
-        siteId: "relational-boundary:504:33:<=><",
+        siteId: "relational-boundary:508:33:<=><",
         kind: "equivalent",
         reason:
           "lin's domain is {b/255 : b in 0..255} and 0.03928*255 = 10.0164 is not an integer, so no input reaches the boundary — all 256 enumerated; §4.7",
