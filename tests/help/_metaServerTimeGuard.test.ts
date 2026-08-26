@@ -3,7 +3,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 
 import { stripCommentsForFile } from "../_shared/stripComments";
 import { premise } from "../_shared/premise";
-import { deriveImportedLibFiles } from "./_renderFaultScan";
+import { deriveImportedLibFiles, resolveSpecifier } from "./_renderFaultScan";
+import { Project, ScriptTarget } from "ts-morph";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -146,6 +147,33 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     ).toBe(true);
   });
 
+  it("resolveSpecifier resolves each live specifier shape, and refuses the rest", () => {
+    // The population above is only as wide as this resolver. Whole-diff review
+    // round 1 caught these cases promised and not shipped: without them the
+    // resolver could silently narrow and the widening would still look clean,
+    // which is the exact defect shape this arc closes.
+    const project = new Project({
+      compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+      skipAddingFilesFromTsConfig: true,
+    });
+    const anchor = project.addSourceFileAtPath(
+      join(process.cwd(), "tests/help/_renderFaultScan.ts"),
+    );
+
+    // Alias, and a DIRECTORY INDEX — the form whose absence made the population 209.
+    expect(resolveSpecifier(anchor, "@/lib/time/now")?.getFilePath()).toMatch(
+      /lib\/time\/now\.ts$/,
+    );
+    expect(resolveSpecifier(anchor, "@/lib/log")?.getFilePath()).toMatch(/lib\/log\/index\.ts$/);
+    // Relative, resolved against the IMPORTING file's directory.
+    expect(resolveSpecifier(anchor, "./_metaServerTimeGuard.test")?.getFilePath()).toMatch(
+      /tests\/help\/_metaServerTimeGuard\.test\.ts$/,
+    );
+    // A bare package specifier is not ours to resolve, and a dangling path resolves to nothing.
+    expect(resolveSpecifier(anchor, "react")).toBeNull();
+    expect(resolveSpecifier(anchor, "@/lib/this-module-does-not-exist")).toBeNull();
+  });
+
   it("the computed population CONTAINS lib/admin/loadAppEvents.ts", () => {
     // Asserted by direct containment, never by a root count: the root-count case
     // above passes over an empty widening.
@@ -170,7 +198,10 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   // survivor instead, and a diff-derived count has no durable base once the
   // branch merges. Reading the comment AT the coordinate is also what verifies
   // the coordinate -- a row whose line has drifted finds no waiver there.
-  const WAIVER_REGISTRY: Record<string, "mutation-timestamp" | "di-default" | "cli-read-window"> = {
+  const WAIVER_REGISTRY: Record<
+    string,
+    "mutation-timestamp" | "di-default" | "observe-read-window"
+  > = {
     "lib/adminAlerts/resolveAdminAlert.ts:33": "mutation-timestamp",
     "lib/adminAlerts/resolveAdminAlert.ts:60": "mutation-timestamp",
     "lib/drive/watch.ts:956": "di-default",
@@ -178,16 +209,16 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     "lib/drive/watch.ts:1172": "di-default",
     "lib/drive/watch.ts:1389": "di-default",
     "lib/drive/watch.ts:1562": "di-default",
-    "lib/observe/query/events.ts:90": "cli-read-window",
-    "lib/observe/query/failures.ts:43": "cli-read-window",
-    "lib/observe/query/staged.ts:39": "cli-read-window",
-    "lib/observe/query/syncLog.ts:30": "cli-read-window",
+    "lib/observe/query/events.ts:90": "observe-read-window",
+    "lib/observe/query/failures.ts:43": "observe-read-window",
+    "lib/observe/query/staged.ts:39": "observe-read-window",
+    "lib/observe/query/syncLog.ts:30": "observe-read-window",
     "lib/sync/runManualSyncForShow.ts:297": "di-default",
   };
   const FAMILY_TEXT: Record<string, RegExp> = {
     "mutation-timestamp": /mutation timestamp/i,
     "di-default": /dependency-injection default/i,
-    "cli-read-window": /CLI read-path window/i,
+    "observe-read-window": /observe read-path window/i,
   };
 
   it("the waived sites in the derived lib population are exactly the twelve registered ones", () => {

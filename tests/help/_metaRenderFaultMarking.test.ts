@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -64,7 +65,12 @@ const REPORTED_RESIDUE: Record<string, string> = {
  * vocabulary fallback that reports an unclassifiable guard as `unknown`
  * residue, and gives its `ConditionalExpression` arm no fallback at all
  * (`_renderFaultScan.ts:754`). Probed on the live tree: 719 ternaries under the
- * derived roots return JSX, 79 of them on a fault-vocabulary guard, and the
+ * derived roots return JSX, 79 of them on a fault-vocabulary guard, 70 of those in
+ * `"use client"` files. RE-FILE TRIGGER for the decline, computed rather than
+ * promised: the count of server-component ternaries that are unclassifiable,
+ * fault-vocabulary AND unregistered rises above 7, its resting value today. The
+ * suite asserts that bound and re-derives both figures above, so neither can go
+ * stale silently — which is how the previous pair (714 and 91) did. And the
  * unclassifiable ones are dropped in silence rather than reported. Tracked as
  * BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY. Tracing a flag to the JSX that consumes it is dataflow
  * analysis this arc does not carry (spec §4.2), so the registry is the honest
@@ -243,6 +249,26 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // resolution can only ADD resolutions, so a moved count means the scanner
     // had been silently missing a predicate -- worth failing over either way.
     expect(CANDIDATES.length).toBe(35);
+  });
+
+  it("scanCandidates reports exactly the same file:line:form:marked SET", () => {
+    // A count alone is not set stability: a resolver change that ADDS one
+    // candidate and DROPS another leaves 35 and passes. Whole-diff review round
+    // 1 caught the archive claiming the count prevented unnoticed movement,
+    // which only this case makes true.
+    //
+    // Pinned as a digest over the sorted set rather than a 35-line literal: an
+    // enumeration goes stale on any legitimate move and invites being
+    // regenerated without being read, while a digest fails loudly and is
+    // regenerated only deliberately.
+    const digest = createHash("sha256")
+      .update(
+        CANDIDATES.map((c) => `${c.file}:${c.line}:${c.form}:${c.marked}`)
+          .sort()
+          .join("\n"),
+      )
+      .digest("hex");
+    expect(digest).toBe("225ed22b3e0cfc6ea673c3a1fce3c30ae10a8159a64f81a73a0ec87a51e55558");
   });
 });
 

@@ -46,7 +46,7 @@ repairs some other violation and waives the survivor instead — the exact outco
 
 **`resolveSpecifier` gained the two directory-index forms**, without which five live imports of `@/lib/log`
 and `@/lib/parser` miss and the population is 209 — a clean run over a smaller population rather than a
-failure. The scanner's candidate count is pinned at 35 so that change cannot move it unnoticed.
+failure. The scanner's candidate SET is pinned by a digest over sorted `file:line:form:marked`, not merely its count of 35, so a change that adds one candidate and drops another cannot pass unnoticed.
 
 **Documented limit.** The guard's roots are `components/**` and `app/admin/**`; every manifest route is under
 `/admin`, so `app/show` and `app/me` are outside the population. Probed at close: zero live time calls under
