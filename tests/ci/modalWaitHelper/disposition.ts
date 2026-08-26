@@ -458,7 +458,12 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a standalone harness page (mkdtemp workdir or the dev gallery route), not the /admin loader",
     },
-    expectedCount: 73,
+    // 73 -> 74: feat/review-modal-strip-dock added one standalone-harness
+    // navigation — the §7 anchor-room measurement, which drives a refusal
+    // through the real modal at `baseUrl` and is the case that finally gave
+    // BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED its number. A declared count is
+    // a population claim, so growing the population is an edit here by design.
+    expectedCount: 74,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {
