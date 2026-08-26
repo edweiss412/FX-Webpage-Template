@@ -858,3 +858,21 @@ finding.
   arrives through a caller's className reaching `main` at `border-border` or `border-border-strong`.
 - **L6. The `inner-chrome` bar cannot verify that a registered element really is chrome.** §8. Same
   posture as `switch-track`, and for the same reason: it is a ruling, not a projection.
+- **L8. An element's resolved className depends on the path that reached it first, and the scan keeps
+  the first.** Found by the source-mutation gate, not by review. The de-duplication at the end of the
+  scan is keyed `(file, line, tag)` and keeps the FIRST admission, while the import-hop and resolve-depth
+  budgets are spent by whatever path did the reaching: a control that follows into another module hands
+  that module one hop fewer than the module's own walk has. So an element admitted first through a
+  follow can carry a class string that a direct walk would have resolved further. The mutant that made
+  the follow guard true outside a control demonstrated it on the live corpus, turning eight real controls
+  (`RescanSheetButton.tsx:209`, five in `Step3Review.tsx`, two in `Step3SheetCard.tsx`) from resolved
+  into `unresolved` with their class strings gone.
+
+  NOT REACHABLE under the shipped guards, and probed rather than argued: with dedup switched from
+  keep-first to keep-last, the corpus scan is byte-identical across all 767 elements including every
+  resolved class string. The reason is structural rather than lucky, which is why this is a limit and
+  not a defect: a follow always resolves against the DECLARING module, so both paths to one element read
+  one scope, and only the remaining hop budget differs. It becomes reachable only if a followed module's
+  className needs the full three-hop chain, which no corpus module does today. RE-FILE TRIGGER: a
+  four-module className re-export chain reaching a component that is rendered inside a control in
+  another file, or any future widening that makes a follow resolve against the CALLING module's scope.

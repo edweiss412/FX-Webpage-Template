@@ -430,6 +430,268 @@ describe("ScanOptions.paintedChildren resolution edges (spec §5.1)", () => {
   });
 });
 
+/**
+ * The mutants the first scored run of this surface left alive.
+ *
+ * `interactiveScanCore` had never actually been scored before 2026-08-26: its
+ * shard aborted on an unrelated red baseline, so the two axes and the two
+ * resolution edges shipped with no mutation evidence at all. The run that
+ * finally reached it named 20 live sites in that new code. These cases kill the
+ * ones that are killable; the rest carry per-mutant `accepted` rows.
+ *
+ * Each case says which mutant it kills, so a later reader can tell an assertion
+ * that earns its place from one that merely passes.
+ */
+describe("what the first score of this surface found unpinned", () => {
+  const ON = { paintedChildren: true } as const;
+  const painted = (els: ScanElement[]) => els.filter((e) => e.admittedAs === "painted-child");
+
+  it("follows a component declared in the SAME file (kills visit(local) removal)", () => {
+    // The DeveloperToggleButton shape: the paint lives in a sibling component
+    // function, not in the button's own JSX. Only the local-declaration branch
+    // reaches it, and nothing exercised that branch before.
+    const els = scanFixture(
+      `function Track() {
+        return <span className="tracked" />;
+      }
+      export function Fx() {
+        return <button className="outer"><Track /></button>;
+      }`,
+      ON,
+    );
+    expect(painted(els).map((e) => allStrings(e).join(" "))).toEqual(["tracked"]);
+  });
+
+  it("does not resolve an unimported tag through an unrelated DEFAULT import (kills the 994 &&/|| flip)", () => {
+    // With `||` the default-import scan's condition is true for ANY import
+    // (every one has a string-literal specifier), so it resolves the FIRST
+    // import regardless of the name being looked up. That is only OBSERVABLE
+    // when the wrongly-chosen module happens to declare the tag's name too, so
+    // the fixture makes it declare exactly that: `Other.tsx` exports both
+    // `Other` and a painting `Card`, and `Card` is never imported.
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import Other from "./Other";
+          export function Fx() {
+            return <button className="outer"><Card /><Other /></button>;
+          }`,
+        "components/Other.tsx": `export function Card() {
+            return <span className="wrong-module-card" />;
+          }
+          export default function Other() {
+            return <span className="other-paint" />;
+          }`,
+      },
+      ON,
+    );
+    const found = painted(els)
+      .map((e) => allStrings(e).join(" "))
+      .sort();
+    // `Other` IS imported and resolves. `Card` is not imported at all, so its
+    // same-named declaration in the other module must never be reached.
+    expect(found).toEqual(["other-paint"]);
+  });
+
+  it("follows NOTHING outside a control (kills both `insideInScope > 0` flips on the follow guard)", () => {
+    // `lib/` is outside CORPUS_DIRS, so the button below is reachable ONLY by
+    // following. The host renders <Card /> at top level, inside no control at
+    // all, so the shipped scanner must never reach it: component-following is
+    // the mechanism that lets a control account for the paint it OWNS, not a
+    // second corpus walk. Both mutations at that guard (`&&`->`||`, `>`->`>=`)
+    // make the condition true at top level, and both then admit this button.
+    const els = scanFixtureFiles(
+      {
+        "components/Host.tsx": `import Card from "../lib/Card";
+          export function Host() {
+            return <div className="page"><Card /></div>;
+          }`,
+        "lib/Card.tsx": `export default function Card() {
+            return <button className="reachable-only-by-following" />;
+          }`,
+      },
+      ON,
+    );
+    expect(els.map((e) => e.tag)).toEqual([]);
+  });
+
+  it("gives a followed component the import-hop budget of ONE hop, not two (kills `hops + 1` -> `+ 2`)", () => {
+    // MAX_IMPORT_HOPS is 3, so a control at hops 0 that follows into another
+    // module leaves that module 2 hops to resolve a className with. The chain
+    // below needs exactly 2. Spending 2 hops on the single follow leaves 1, and
+    // the class string silently disappears instead of the scan reporting it.
+    const els = scanFixtureFiles(
+      {
+        "components/Host.tsx": `import Card from "../lib/Card";
+          export function Host() {
+            return <button className="outer"><Card /></button>;
+          }`,
+        "lib/Card.tsx": `import { CLS } from "./tok1";
+          export default function Card() {
+            return <span className={CLS} />;
+          }`,
+        "lib/tok1.ts": `import { RAW } from "./tok2";
+          export const CLS = RAW;`,
+        "lib/tok2.ts": `export const RAW = "two-hops-away";`,
+      },
+      ON,
+    );
+    const admitted = painted(els);
+    expect(admitted).toHaveLength(1);
+    const [child] = admitted;
+    expect(child, "the followed module's span was not admitted at all").toBeDefined();
+    expect((child as ScanElement).unresolved).toBe(false);
+    expect(allStrings(child as ScanElement)).toContain("two-hops-away");
+  });
+
+  it("RESETS the resolve depth when it follows, rather than carrying one in (kills `depth: 0` -> `1`)", () => {
+    // MAX_RESOLVE_DEPTH is 6. The followed module's own const chain is measured
+    // from zero because the follow enters a new module, not a deeper expression;
+    // starting it at 1 spends a level the followed module is entitled to and the
+    // last link of the chain resolves to nothing.
+    const chain = Array.from({ length: 6 }, (_, n) =>
+      n === 0 ? `const a0 = "chain-end";` : `const a${n} = a${n - 1};`,
+    ).join("\n          ");
+    const els = scanFixtureFiles(
+      {
+        "components/Host.tsx": `import Card from "../lib/Card";
+          export function Host() {
+            return <button className="outer"><Card /></button>;
+          }`,
+        "lib/Card.tsx": `${chain}
+          export default function Card() {
+            return <span className={a5} />;
+          }`,
+      },
+      ON,
+    );
+    const admitted = painted(els);
+    expect(admitted).toHaveLength(1);
+    const [child] = admitted;
+    expect(child, "the followed module's span was not admitted at all").toBeDefined();
+    expect(allStrings(child as ScanElement)).toContain("chain-end");
+  });
+
+  it("terminates on a MUTUAL import cycle (kills followed.add removal on the import path)", () => {
+    // A renders B, B renders A. The local-declaration guard cannot catch this:
+    // the two names live in different files, so only the import path's own
+    // followed-key stops it. Without that add this recurses until the stack
+    // gives out.
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { B } from "./B";
+          export function Fx() {
+            return <button className="outer"><B /></button>;
+          }`,
+        "components/B.tsx": `import { Fx } from "./Fx";
+          export function B() {
+            return <span className="b-paint"><Fx /></span>;
+          }`,
+      },
+      ON,
+    );
+    expect(painted(els).some((e) => allStrings(e).includes("b-paint"))).toBe(true);
+  });
+
+  it("stops treating siblings as inside once the in-scope element closes (kills insideInScope-- removal)", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        return (
+          <div>
+            <button className="outer"><span className="inside" /></button>
+            <span className="after" />
+          </div>
+        );
+      }`,
+      ON,
+    );
+    // "after" is a sibling of the button, not a child of it.
+    expect(painted(els).map((e) => allStrings(e).join(" "))).toEqual(["inside"]);
+  });
+
+  it("does not follow a bare identifier with no in-scope ancestor (kills the >/>= flip on the const guard)", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        const inner = <span className="held" />;
+        return <div className="plain">{inner}</div>;
+      }`,
+      ON,
+    );
+    expect(painted(els)).toEqual([]);
+  });
+
+  it("does not follow a function CALL in a JSX child (kills the isJsxExpression &&/|| flip, and pins limit L2)", () => {
+    // `A && B && C` mutated to `A || B && C` follows anything whose `.expression`
+    // is an identifier, and a CallExpression's callee is exactly that. The
+    // helper below returns JSX, so the mutant would admit its span — which is
+    // also the documented limit that a call is not a followed edge.
+    const els = scanFixture(
+      `function renderIcon() {
+        return <span className="called" />;
+      }
+      export function Fx() {
+        return <button className="outer">{renderIcon()}</button>;
+      }`,
+      ON,
+    );
+    expect(painted(els).map((e) => allStrings(e).join(" "))).toEqual([]);
+  });
+
+  it("reports a followed child against the CALLEE's own line (kills sf = imported.sf removal)", () => {
+    // Without the source-file swap the line is computed against the CALLER's
+    // text, so the row points at a line in the wrong file. The fixture puts the
+    // callee's span far down its own file so a stale `sf` cannot coincide.
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { Card } from "./Card";
+          export function Fx() {
+            return <div role="button" className="row"><Card /></div>;
+          }`,
+        "components/Card.tsx": `// 1
+          // 2
+          // 3
+          // 4
+          // 5
+          // 6
+          // 7
+          // 8
+          export function Card() {
+            return <div className="card-edge" />;
+          }`,
+      },
+      ON,
+    );
+    const child = painted(els).find((e) => allStrings(e).includes("card-edge"));
+    expect(child).toBeDefined();
+    expect(child!.file).toBe("components/Card.tsx");
+    expect(child!.line).toBe(10);
+  });
+
+  it("restores the caller's file after a follow (kills sf = heldSf and ctx = heldCtx removal)", () => {
+    // An element AFTER the follow, in the caller, must still be attributed to
+    // the caller. Without the restore it inherits the callee's file and line.
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { Card } from "./Card";
+          export function Fx() {
+            return (
+              <button className="outer">
+                <Card />
+                <span className="later" />
+              </button>
+            );
+          }`,
+        "components/Card.tsx": `export function Card() {
+            return <div className="card-edge" />;
+          }`,
+      },
+      ON,
+    );
+    const later = painted(els).find((e) => allStrings(e).includes("later"));
+    expect(later).toBeDefined();
+    expect(later!.file).toBe("components/Fx.tsx");
+  });
+});
+
 describe("resolver corpus walk", () => {
   const all = scanInteractiveElements(process.cwd());
   it("covers the live corpus (premise: non-trivial)", () => {

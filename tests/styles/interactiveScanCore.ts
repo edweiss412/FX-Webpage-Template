@@ -1112,7 +1112,10 @@ export function scanInteractiveElements(rootDir: string, options: ScanOptions = 
         if (opens) insideInScope++;
         for (const child of node.children) visit(child);
         if (opens) insideInScope--;
-        visit(node.closingElement);
+        // The closing element is deliberately not visited. It carries no
+        // attributes, and every branch above keys off an opening or
+        // self-closing element or a JSX expression, so a closing tag matches
+        // none of them; visiting it was a no-op that no assertion could pin.
         return;
       }
       if (
@@ -1142,6 +1145,15 @@ export function scanInteractiveElements(rootDir: string, options: ScanOptions = 
    * elements once per call site, so the result is de-duplicated by identity
    * (AC-4b). With both flags off no element can be reached twice, so this is
    * inert on the default path and AC-1 still holds byte-for-byte.
+   *
+   * KEEPS THE FIRST, and the first is not always the best-resolved: a follow
+   * spends an import hop before the followed module resolves anything, so an
+   * element reached that way has one hop less than the same element reached by
+   * its own module's walk. Not reachable today (switching this to keep-last
+   * leaves the corpus scan byte-identical across all 767 elements), because a
+   * follow always resolves against the DECLARING module, so the two paths read
+   * one scope and differ only in budget. Recorded as limit L8 of the 2026-08-26
+   * cover-widening design; the mutation gate found it, review did not.
    */
   const seen = new Set<string>();
   return elements.filter((el) => {
