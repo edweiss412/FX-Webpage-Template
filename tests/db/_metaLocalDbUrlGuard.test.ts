@@ -24,7 +24,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
-import { describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test } from "vitest";
 
 import { assertLocalDbUrl, assertLocalDbUrlIfSet } from "./_localDbUrl";
 import { classifyLocalDbUrlSource, type LocalDbUrlClassification } from "./_localDbUrlScan";
@@ -350,26 +350,76 @@ function walkTestSources(dir: string): string[] {
  */
 let scanCache: Array<{ path: string } & LocalDbUrlClassification> | null = null;
 
-function scanTree(): Array<{ path: string } & LocalDbUrlClassification> {
-  if (scanCache) return scanCache;
-  scanCache = walkTestSources(TESTS_ROOT)
+/**
+ * PREFILTER, and why it is sound. The walk used to TS-parse every `.ts`/`.tsx` file under
+ * `tests/` — around 2600 of them — to find the ~74 that read the variable. That cost ~5s on
+ * an idle box and blew the suite's 30s ceiling under contention (2026-08-26, unit-suite-db
+ * shard under a full local machine): the scan timed out, so the arm that lists offenders
+ * never ran and reported nothing at all.
+ *
+ * A textual mention of the name is a NECESSARY condition for an AST read: every shape the
+ * classifier resolves spells the variable out — as a property name, as a string-literal or
+ * const-bound key, or as a binding identifier. It is not a SUFFICIENT one, which is the
+ * whole point: the file that survives the prefilter is still classified by the AST walk, so
+ * a comment or a fixture string is still not a read. `a read the prefilter cannot see is a
+ * read the classifier cannot see either` proves the necessary half executably.
+ */
+function computeScan(): Array<{ path: string } & LocalDbUrlClassification> {
+  return walkTestSources(TESTS_ROOT)
     .map((full) => {
       // Repo-relative: guard-module provenance compares resolved paths exactly.
       const path = relative(process.cwd(), full);
-      return { path, ...classifyLocalDbUrlSource(readFileSync(full, "utf8"), path) };
+      return { path, source: readFileSync(full, "utf8") };
     })
+    .filter((row) => row.source.includes("LOCAL_TEST_DATABASE_URL"))
+    .map(({ path, source }) => ({ path, ...classifyLocalDbUrlSource(source, path) }))
     .filter((row) => row.envReads > 0)
     .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function scanTree(): Array<{ path: string } & LocalDbUrlClassification> {
+  // Never lazily compute here. A scan that has not run must be LOUD: an arm that returns
+  // an empty list because its hook was skipped reads exactly like an arm that found no
+  // offenders, and the difference is the whole value of this file.
+  if (scanCache === null) {
+    throw new Error("scanTree() called before the beforeAll hook populated the scan");
+  }
   return scanCache;
 }
 
-// 30s: the first scanTree() call parses the whole tests/ tree. The default 5s
-// timeout is the same order as the walk itself, so a slower CI runner failed here
-// while local passed (real-CI-is-its-own-gate).
+// The scan runs ONCE, in beforeAll, so its cost is paid in one place and a timeout fails
+// the whole describe rather than whichever assertion happened to touch it first.
+//
+// 120s, not 30s. The prefilter above took the walk from ~5s to well under one, but the
+// ceiling has to survive a contended box, not a quiet one: at 30s this suite timed out on
+// 2026-08-26 under a machine running several arcs' heavy phases at once, and a timed-out
+// scan lists no offenders. The ceiling is deliberately far above the measured cost — being
+// generous costs nothing when the suite is healthy, and a flaky ceiling on a guard teaches
+// people to ignore its reds.
 describe(
   "every LOCAL_TEST_DATABASE_URL read in tests/ is guarded (spec §2.6)",
-  { timeout: 30_000 },
+  { timeout: 120_000 },
   () => {
+    beforeAll(() => {
+      scanCache = computeScan();
+    }, 120_000);
+
+    test("a read the prefilter cannot see is a read the classifier cannot see either", () => {
+      // The prefilter's soundness, stated executably. Each of these reaches the variable at
+      // RUNTIME without spelling its name in the source — and the classifier resolves none
+      // of them, because it only follows string literals and const-bound literal keys. So
+      // the set the prefilter drops and the set the classifier ignores are the same set.
+      const hidden = [
+        'const K = "LOCAL_TEST_" + "DATABASE_URL";\nconst U = process.env[K];',
+        'const U = process.env[["LOCAL", "TEST", "DATABASE", "URL"].join("_")];',
+        'const U = process.env[`LOCAL_TEST_${"DATABASE"}_URL`];',
+      ];
+      for (const src of hidden) {
+        expect(src.includes("LOCAL_TEST_DATABASE_URL"), src).toBe(false);
+        expect(classifyLocalDbUrlSource(src).envReads, src).toBe(0);
+      }
+    });
+
     test("no unguarded read survives anywhere in the tree", () => {
       const offenders = scanTree()
         .filter((row) => row.unguardedReads > 0 && row.exemptReason === null)
