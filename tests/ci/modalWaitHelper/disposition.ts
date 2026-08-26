@@ -474,7 +474,13 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // route-census-loops rule below, where it always belonged.
     // 18 since 2026-08-25 (feat/switch-person-google-signout): picker-flow's
     // switch-person case navigates to the seeded show URL held in `url`.
-    expectedCount: 18,
+    // 19 since 2026-08-25 (fix/e2e-proof-retired-route-subpixel):
+    // empty-state-reachability's gotoSection navigates the crew route through a
+    // `url` variable. Same disposition as its neighbours — it is a crew page,
+    // and the /admin?show= snapshot loader is not on its path. Both arcs landed
+    // the same day and each bumped this to 18 independently; the merged count is
+    // the union, not either side's number.
+    expectedCount: 19,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&

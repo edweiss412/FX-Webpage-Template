@@ -359,6 +359,81 @@ async function gotoStep3Card(page: Page, dfid: string): Promise<Locator> {
 }
 
 test.describe("tap-target floor — repaired inline text controls (spec §2, sites 4-8)", () => {
+  /**
+   * The measurement barrier, asserted rather than assumed.
+   *
+   * WHY THIS EXISTS. Every case below reads geometry out of the step-3 review
+   * panel, and `openStep3Modal` used to return the moment
+   * `waitForSelector("[data-step3-review-panel]")` resolved — which is the
+   * moment the panel enters the DOM, which is when its CSS entrance animation
+   * STARTS. At the 390px mobile-safari viewport that entrance is
+   * `step3-details-sheet-rise` over `--duration-normal` (220ms)
+   * (app/globals.css:977-979, :917-924, :285), and a `getBoundingClientRect`
+   * taken inside that window returns rects that are internally inconsistent
+   * between the transformed panel and its descendants.
+   *
+   * MEASURED, 2026-08-25, 39 runs x 14 reads at 40ms spacing on one head under
+   * CI posture: 537 of 546 reads were bit-identical at the canonical
+   * 8.000 / 8.000 / 34.000. All 9 outliers fell at read index 0-3, i.e. inside
+   * 120ms of the panel appearing; indices 4-13 were canonical in every run.
+   * Three of 39 runs had a bad FIRST read, a 7.7% flake rate, which is the
+   * rate BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE was filed on. Six of the nine
+   * outlier pairs sum to exactly 16.000 (two edges of `py-2`): the cell box is
+   * right and the content is displaced inside it. One outlier was `-0.290` top
+   * padding, a NEGATIVE inset no font metric can produce, which is what ruled
+   * out the rasterisation hypothesis the row proposed. The dead-space
+   * total was 34.000 in 546 of 546 reads, so no tolerance in this file was ever
+   * the problem.
+   *
+   * WHAT THIS CATCHES. The settle being deleted from `openStep3Modal`, or the
+   * panel gaining an entrance animation on a descendant the subtree walk does
+   * not reach. Not "a function was called": it reads the browser's own
+   * animation registry after the helper has returned.
+   */
+  test("premise + barrier — openStep3Modal returns only after the entrance settles", async ({
+    page,
+  }) => {
+    await signInAs(page, ADMIN_FIXTURE);
+    const dfid = await seedStagedRow({
+      variant: "ready",
+      title: "Tap Floor Entrance Barrier",
+      preview: { driverPhone: DRIVER_PHONE, driverEmail: DRIVER_EMAIL, vehicle: SEEDED_VEHICLE },
+    });
+    try {
+      await openStep3Modal(page, dfid);
+
+      const panel = page.locator("[data-step3-review-panel]");
+      await expect(panel, "premise: the review panel rendered").toBeVisible();
+
+      // PREMISE, live rather than assumed: the panel must DECLARE an entrance
+      // animation at this viewport. If a future CSS change drops it, this fails
+      // loudly and the barrier below is known to be guarding nothing — instead
+      // of passing unconditionally forever, which is how a guard dies quietly.
+      const animationName = await panel.evaluate((el) => getComputedStyle(el).animationName);
+      expect(
+        animationName,
+        "premise: the panel must declare an entrance animation, or this barrier guards nothing",
+      ).not.toBe("none");
+
+      // THE BARRIER: nothing on the panel or under it is still animating by the
+      // time the helper hands the page back, so every measurement below reads a
+      // final layout.
+      const running = await panel.evaluate((el) =>
+        el
+          .getAnimations({ subtree: true })
+          .filter((a) => a.playState === "running")
+          .map((a) => (a as CSSAnimation).animationName ?? "unnamed"),
+      );
+      expect(
+        running,
+        `openStep3Modal returned while the entrance was still running: ${running.join(", ")}`,
+      ).toEqual([]);
+    } finally {
+      await cleanupStagedRow(dfid);
+      await signOut(page);
+    }
+  });
+
   test("sites 6/7 — tel: and mailto: contact links clear the floor and stay disjoint", async ({
     page,
   }) => {

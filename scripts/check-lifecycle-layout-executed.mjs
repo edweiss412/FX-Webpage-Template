@@ -37,7 +37,11 @@ export const REQUIRED = {
   // second seedable SheetTitleLink render site is the TIGHTER of the two filed
   // overlap contexts (a `mt-1` warning line, 4px of clearance against the old
   // 10px downward bleed), so a half-fix would still fail there.
-  "tap-target-inline-controls.layout.spec.ts": 5,
+  // 5 -> 6 (2026-08-25, fix/e2e-proof-retired-route-subpixel): the premise +
+  // barrier case. It is the reason the other five stopped flaking, so it is the
+  // one case whose absence would be least visible — a run that skipped only it
+  // would look identical to a healthy run until the next unrelated PR ate a red.
+  "tap-target-inline-controls.layout.spec.ts": 6,
 };
 
 /** The report path the workflow step registers, and this script's zero-arg default. */
@@ -61,7 +65,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   /**
    * file basename -> set of UNIQUE (case x project) identities that passed ON THEIR FIRST ATTEMPT.
    *
-   * The identity is `file:line:title|projectId`, NOT `spec.id`: the app-e2e sibling probed the
+   * The identity is `<describe path>::file:line:title|projectId`, NOT `spec.id`: the app-e2e sibling probed the
    * id-based form and it does not hold — `--repeat-each=2` over N cases produces 2N distinct ids
    * while only N logical cases ran, so `--grep` selecting half the cases plus a repeat keeps the
    * count at its floor with half the coverage dark. Deduplicating on the logical identity makes a
@@ -78,8 +82,17 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
    * quarantined suite that looks executed. A test that proves something ends green.
    */
   const executed = new Map();
-  const walk = (suites) => {
+  const walk = (suites, suitePath = []) => {
     for (const suite of suites ?? []) {
+      // The enclosing describe titles are part of the identity, matching the app
+      // sibling (scripts/check-app-e2e-executed.mjs). Whole-diff review round 3
+      // probed the unqualified form THIS script still carried: append a case with
+      // the same file, line and leaf title under a different describe, give it no
+      // result, and the two collapse into one key — the oracle reported
+      // "ok — tap-target-inline-controls.layout.spec.ts 6" for a run where one of
+      // the six never executed. That is the partially-dark run this oracle exists
+      // to refuse. The reporter preserves the nesting; this walk now carries it.
+      const here = suite.title ? [...suitePath, String(suite.title)] : suitePath;
       for (const spec of suite.specs ?? []) {
         const base = String(spec.file ?? "")
           .split("/")
@@ -91,10 +104,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
           if (!executed.has(base)) executed.set(base, new Set());
           executed
             .get(base)
-            .add(`${spec.file}:${spec.line}:${spec.title}|${test.projectId ?? "?"}`);
+            .add(
+              `${here.join(" > ")}::${spec.file}:${spec.line}:${spec.title}|${test.projectId ?? "?"}`,
+            );
         }
       }
-      walk(suite.suites);
+      walk(suite.suites, here);
     }
   };
   walk(report.suites);
