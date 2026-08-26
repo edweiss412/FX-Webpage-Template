@@ -18,8 +18,39 @@ Every figure below is printed by commands, not retyped from a transcript. Three 
 3. the shipped drift report over those records
    RECORDS_DIR=<dir>/meas-<id> DRIFT_ACTIONABLE_AT=20 pnpm tsx scripts/check-rate-drift.ts
 
-§1.3 packs by (1) and scores by (2). It scores LEG ELAPSED, not child seconds: the budget
-check reads elapsed.txt, and the difference is measured in §1.3 rather than assumed away.
+4. §1.3's OWN table. Round 2 was right that (1)-(3) do not produce it: none of them builds the
+   cross-run union, takes the worst figure per surface, derives the per-leg overhead, or prints
+   the N sweep. This does, over the run directories (2) downloaded, and its output IS §1.3:
+
+   RUNS="<dir>/meas-A <dir>/meas-B" pnpm tsx -e '
+   import {readFileSync,readdirSync} from "node:fs"; import {join} from "node:path";
+   import {lptAssign} from "@/tests/parser/mutation/shardPartition";
+   import {weightOf} from "@/tests/mutation/source/shardPartition";
+   import {SHARD_BUDGET_SECONDS as B} from "@/tests/mutation/source/budget";
+   import {GUARD_SURFACES as G} from "@/tests/mutation/source/registry";
+   const dirs = (process.env.RUNS ?? "").split(/\s+/).filter(Boolean);
+   const per = new Map<string, number[]>(); const over: number[] = [];
+   for (const root of dirs) for (const d of readdirSync(root).filter((x) => x.startsWith("mutation-records-source-shards-"))) {
+     let legMs = 0;
+     for (const f of readdirSync(join(root, d))) {
+       const r = JSON.parse(readFileSync(join(root, d, f), "utf8")); let ms = 0;
+       for (const o of r.outcomes ?? []) for (const c of o.children ?? []) ms += c.durationMs ?? 0;
+       per.set(r.surfaceId, [...(per.get(r.surfaceId) ?? []), ms]); legMs += ms;
+     }
+     over.push(Number(readFileSync(join(root, `elapsed-source-shards-${d.slice(-1)}`, "elapsed.txt"), "utf8")) - legMs / 1000);
+   }
+   const OH = Math.max(...over);
+   const val = (id: string) => { const v = per.get(id); return v ? Math.max(...v) : weightOf(G.find((s) => s.id === id)!); };
+   console.log(`overhead_max=${OH.toFixed(1)}s modelled-only=${G.filter((s)=>!per.has(s.id)).map((s)=>s.id).join(",")}`);
+   for (const n of [6,7,8,9,10]) {
+     const a = lptAssign(G.map((s) => ({key: s.id, w: weightOf(s)})), n);
+     const l = new Array<number>(n).fill(0); for (const s of G) l[a.get(s.id)!] += val(s.id);
+     const leg = Math.max(...l)/1000 + OH;
+     console.log(`N=${n} leg_elapsed=${leg.toFixed(1)}s margin=${(B-leg).toFixed(1)}s ${(((B-leg)/B)*100).toFixed(1)}% ${leg<=B?"FITS":"OVER"}`);
+   }'
+
+§1.3 packs by (1) and scores by (2) through (4). It scores LEG ELAPSED, not child seconds: the
+budget check reads elapsed.txt, and the difference is measured rather than assumed away.
 -->
 
 ## §0 Problem
@@ -89,17 +120,33 @@ WORST observed across both scored runs, so a surface measured twice contributes 
 figure. Four surfaces were measured by neither run and fall back to modelled weight; §1.5 sizes
 them.
 
-Runs scored: `32822546867` (2026-08-25) and `32920754274` (2026-08-26), both nightly on `main`.
+Runs scored: `32822546867` (2026-08-25) and `32920754274` (2026-08-26). Both ran on `main`, and
+their TRIGGERS differ, which the first draft got wrong: `gh run view --json event` reports
+`schedule` for the first and `workflow_dispatch` for the second. The `source-shards` job is not
+gated on the trigger (only `notify` is, at `.github/workflows/mutation-harness.yml:335`), so the
+legs are the same work either way; the provenance is stated correctly because combining two runs
+into one timing envelope is exactly where a wrong provenance would matter.
+
+Verbatim output of the header's command (4) over both run directories:
+
+```
+overhead_max=216.8s  modelled-only=mutationWeightRecords,mutationWeightWeights,supabaseRetryingFetch,retryableRpcVolatilityScan
+N=6 leg_elapsed=4404.4s margin=-804.4s -22.3% OVER
+N=7 leg_elapsed=3838.9s margin=-238.9s -6.6% OVER
+N=8 leg_elapsed=3298.6s margin=301.4s 8.4% FITS
+N=9 leg_elapsed=3273.7s margin=326.3s 9.1% FITS
+N=10 leg_elapsed=3273.7s margin=326.3s 9.1% FITS
+```
 
 | N | children on the binding leg | leg elapsed | margin | fits |
 | --- | --- | --- | --- | --- |
 | 6 | 4,187.6 s | 4,404.4 s | 22.3% over | no |
-| 7 | 3,622.2 s | 3,839.0 s | 6.6% over | no |
+| 7 | 3,622.2 s | 3,838.9 s | 6.6% over | no |
 | 8 | 3,081.8 s | 3,298.6 s | 301.4 s, 8.4% | yes |
 | 9 | 3,056.9 s | 3,273.7 s | 326.3 s, 9.1% | yes |
 | 10 | 3,056.9 s | 3,273.7 s | 326.3 s, 9.1% | yes |
 
-**N = 8 is RATIFIED.** It is the smallest N that fits. Seven misses by 239.0 s, which no
+**N = 8 is RATIFIED.** It is the smallest N that fits. Seven misses by 238.9 s, which no
 rounding closes.
 
 Margin at N = 8: **301.4 s, or 8.4% of the budget.** That is thin, and it is stated as thin.
@@ -174,13 +221,26 @@ rg -n -i '\bfour\b|4 LPT|\[0, ?1, ?2, ?3\]|shard0\.\.shard3' \
   .github/workflows/mutation-harness.yml tests/mutation tests/ci vitest.projects.ts .gitignore package.json
 ```
 
-and its members are repaired by DE-NUMBERING, so the same sites cannot rot again at the next
-change: `.github/workflows/mutation-harness.yml` lines 8, 150, 198 and 216;
+**That command generates CANDIDATES; it does not classify them.** Its output on this tree is
+about thirty lines, most of them "four" in an unrelated sense (four required checks, four
+registries, four review rounds), so the members below are the triaged result and the N/A rows are
+part of the answer rather than omissions from it. Two members were missed by a hand sweep and
+found by review, which is why this is written as command-plus-triage rather than as a list.
+
+Members, repaired by DE-NUMBERING so the same sites cannot rot again at the next change:
+`.github/workflows/mutation-harness.yml` lines 8, 150, 198 and 216;
 `tests/mutation/source/shardPartition.test.ts:84`;
 `tests/mutation/_metaSourceShardIntegrity.test.ts:5`;
 `tests/mutation/source/records.test.ts` lines 314 and 323;
-`tests/mutation/source/registry.ts:3332`; `vitest.projects.ts:86`; and the root `.gitignore`
-comment at line 126.
+`tests/mutation/source/registry.ts:3332` (the `[0, 1, 2, 3]` in that sentence; the `"3600"` beside
+it is the budget and stays); `vitest.projects.ts:86`; the root `.gitignore` comments at lines 111
+and 126; and `tests/mutation/_metaLedgerKindsDeclarationParity.test.ts:12`.
+
+N/A, and why: the root `.gitignore` at lines 114 and 132 says "four required checks went red",
+which is an incident count and not the shard count; `tests/planFences/readCore.test.ts:340` counts
+plan-fence source extensions; `tests/mutationWeight/instrument.test.ts:1104` is a self-contained
+fixture with its own literal 4 that does not import `SOURCE_SHARD_COUNT`; and the remaining hits
+are "four" in prose about review rounds, guards and registries.
 
 **Class C, one site that fails silently AND breaks the build.** The root `.gitignore` carries
 a scratch rule at line 137:
@@ -308,16 +368,41 @@ describes the four-shard regime and is rewritten to describe the one the count n
   `budget` job green and every source leg's `elapsed.txt` under 3,600 s. The PR fires it by path
   filter (`pull_request.paths` covers `tests/mutation/**`), so no manual dispatch is required;
   `gh workflow run mutation-harness.yml --ref fix/mutation-shard-budget-six` is the fallback. If
-  the measured max leg breaches while the model says it fits, N is raised again in this same PR
-  and re-run.
+  the measured max leg breaches while the model says it fits, the response depends on WHERE the
+  breach sits, because "raise N" is not always available and §1.4 and L-1 are why:
+
+  - **Above the atomic floor.** Some leg holding more than one surface exceeds the budget while
+    the floor does not. Raising N redistributes it. Raise N in this same PR and re-run.
+  - **At or below the atomic floor.** The binding leg is the one holding
+    `controlOutlineResidue` alone, or the floor itself exceeds the budget. No N helps, by §1.4.
+    The response is L-1's: split that surface into separately-enrolled parts, or move the budget
+    with the ceiling relation moved in lockstep, plus a message to bl-orch, because that is a
+    scope decision this arc does not take alone. It is never a filed ledger row (§6).
+
+  L-3's 1.29x run is the second case by construction, and AC-5 is not satisfiable by raising N
+  when it happens. Saying so is the criterion; pretending otherwise would make AC-5 unfalsifiable
+  in exactly the situation the spec predicts.
 - **AC-6.** The twelve required checks green: `quality`, `unit-suite`, `x1-catalog-parity`,
   `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`,
   `x6-pg-cron-pivot`, `validation-schema-parity`, `affordance-matrix-parity`,
   `postgrest-dml-lockdown`, `traceability-audit`.
 - **AC-7.** The tracked shard range is DERIVED from `SOURCE_SHARD_COUNT`, not a literal: a guard
-  asserts that every index below the count is a path `git check-ignore` does not match, and that
-  the first index at or above it does (the root `.gitignore` scratch rule, §2.1 Class C). Both halves are required; half one alone passes against a
+  asserts that every index below the count is a path the ignore rules do not match, and that the
+  first index at or above it is. Both halves are required; half one alone passes against a
   `.gitignore` that ignores nothing, which is the failure the scratch rule was written for.
+
+  **The guard invokes `git check-ignore --no-index`, and the flag is the whole point.** Without
+  it, git suppresses the answer for a TRACKED path, so half one would report "not ignored" for
+  shard0 through shard7 whatever `.gitignore` says. It would be a guard that cannot fail for
+  exactly the files it protects. Probed with a pattern that DOES match a tracked file:
+
+  ```
+  $ git -c core.excludesFile=<file naming shard0> check-ignore -v tests/mutation/guardSurfaces.shard0.test.ts
+  exit=1                                    # "not ignored", though the pattern matches
+  $ git -c core.excludesFile=<same> check-ignore -v --no-index tests/mutation/guardSurfaces.shard0.test.ts
+  <file>:1:tests/mutation/guardSurfaces.shard0.test.ts	tests/mutation/guardSurfaces.shard0.test.ts
+  exit=0
+  ```
 
 ## §6 Resolved scope — do not relitigate, out of scope, and N/A declarations
 
@@ -356,7 +441,18 @@ One new case, and the rest is already pinned:
 | the partition is total and disjoint | `tests/mutation/guardSurfaces.gates.test.ts` |
 | the binding leg fits the budget | NEW, replacing the deleted breach case (§2.3) |
 | the tracked shard range follows the count | NEW, AC-7 (§2.1 Class C) |
-| no shard slice is empty | NEW: `registerSurfaceCases` wraps `describe.each`, so an empty slice registers zero cases and its shard file reports green having asserted nothing |
+| no shard slice is empty | ALREADY PINNED by `surfacesForShard` at `tests/mutation/source/records.test.ts:413`, which loops over `SOURCE_SHARD_COUNT` and so covers eight without an edit |
+
+An earlier draft of this section listed the non-empty property as NEW and justified it with a
+failure mode that does not exist. Both halves were wrong and both are worth recording, because
+the mistake was to reason about vitest's behaviour instead of checking it. `records.test.ts:413`
+already asserts every slice is non-empty, in a case titled `is LICENSED to error, because every
+shard really does run a surface`, and its comment gives the same reasoning this spec was about to
+give: a registry that shrank below the shard count would let an empty shard red a leg that did
+nothing wrong. And an empty
+shard file would not pass quietly in any case: `passWithNoTests` is not set anywhere in
+`vitest.config.ts` or `vitest.projects.ts`, so it defaults false and vitest fails a file
+containing no suites. Adding a second case would have been a duplicate that could not start red.
 
 ## §8 Ledger graduation
 
