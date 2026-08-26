@@ -45,7 +45,11 @@ RED: a new tests/parser/candidateLabel.test.ts covering spec §5's table, one ca
 
 GREEN: a new lib/parser/candidateLabel.ts, one exported function taking `unknown`, returning the trimmed string or `null`.
 
-**The defect this catches:** a guard written as `w.candidate ?? null`. It passes every string case and renders `42` or `{}` straight into the DOM from an unvalidated jsonb boundary. The non-string cases are the discriminating ones, so the suite can only go green on the real rule.
+**A round-trip over the WHOLE corpus vocabulary, because round 2 caught that two cases were not enough.** An earlier draft tested only `"VENUE ADDRESS"` and its padded form, both already uppercase, so an implementation that trimmed AND uppercased passed the entire red while corrupting `"Client Phone"` and `"Backdrop / Scenic"`. Canonicalization mistaken for normalization is an ordinary contributor error, not an adversarial one.
+
+The case is derived, not hand-listed: read the distinct `candidate` values out of `tests/parser/__fixtures__/fieldNearMiss.baseline.json` and assert each round-trips BYTE-IDENTICAL. There are 10, and two of them do the real work: `"DIagrams"` has an internal capital that any normalization destroys, and `"Backdrop / Scenic"` carries mixed case, spaces, and a slash. Derived rather than enumerated so a vocabulary change extends the cover instead of stranding it.
+
+**The defects this catches:** a guard written as `w.candidate ?? null`, which passes every string case and renders `42` or `{}` straight into the DOM from an unvalidated jsonb boundary; and any implementation that alters the spelling of a value it accepts.
 
 ## Task 2: the per-show band, and the composition collapse
 
@@ -61,6 +65,8 @@ RED, three cases, all reading the new shared helper from the appendix below:
 
 Each absence case carries an executable premise: it asserts first that the warning reached the component and rendered a card, so a fixture that silently rendered nothing cannot pass it vacuously.
 
+**A fourth case, because round 2 caught that the first three do not connect the guard to the component.** All three pass if the component renders `w.candidate` directly and `candidateLabel` sits beside it as unused, fully-tested code. So: a warning whose persisted `candidate` is the NUMBER `42` renders no band. That fails on direct rendering, which would put `42` in the DOM, and it is the only assertion tying task 1's guard to this call site. Spec §5's contract is one implementation and two call sites; without this the plan tests the implementation and the call sites separately and never that they meet.
+
 GREEN: the band markup at spec §3.2 and the four-state collapse at spec §3.3.
 
 **The defect this catches:** the empty-fragment trap. `present()` at `components/admin/CompactAlertCard.tsx:47` is four inequalities; a JSX fragment is an object and satisfies all four, so wrapping unconditionally renders a bordered but empty band on every card with no detail content.
@@ -71,7 +77,7 @@ Keep green, do not edit: `pnpm vitest run tests/components/perShowActionableWarn
 
 <!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3CandidateBand.test.tsx` ac=AC-2,AC-3 -->
 
-The same three cases against `wizard-step3-card-${dfid}-warning-${i}-candidate`, reading the same helper, and with the same split of status: case 1 is the red, cases 2 and 3 are regression guards that pass today.
+The same FOUR cases against `wizard-step3-card-${dfid}-warning-${i}-candidate`, reading the same helper, and with the same split of status: case 1 is the red, the rest are regression guards that pass today. The non-string case is not optional here either: round 2 found this gap on BOTH surfaces, and repairing one would leave the class open on the other.
 
 GREEN: the prose lead-in line at spec §4.2. No `w.code` gate: the guard is on the field, and the field is set on no other code, so a second predicate could only ever agree with the first.
 
@@ -81,7 +87,9 @@ GREEN: the prose lead-in line at spec §4.2. No `w.code` gate: the guard is on t
 
 <!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3RowLabelGate.test.tsx` ac=AC-8 -->
 
-RED: a `PULL_SHEET_PARSE_PARTIAL` warning whose `rawSnippet` is a raw pipe row renders NO `wizard-step3-card-${dfid}-warning-${i}-label`. It fails today, because `labelFromRawSnippet` runs ungated at `components/admin/wizard/step3ReviewSections.tsx:3103`.
+RED: a warning from EACH `PULL_SHEET_*` producer, both carrying a raw pipe row, renders NO `wizard-step3-card-${dfid}-warning-${i}-label`. Both, because round 2 caught that a single fixture licenses a gate excluding only that one code while `PULL_SHEET_AMBIGUOUS_FORMAT` keeps rendering a fake label, which is narrower than both the stated implementation and AC-8's `PULL_SHEET_*` claim. The two producers are `lib/parser/pull-sheet.ts:252` (`rawSnippet: nonFiveColumnRow`) and `lib/parser/pull-sheet.ts:343` (`rawSnippet: row`).
+
+It fails today, and the failure is measured rather than inferred: `labelFromRawSnippet` splits on the first `" | "`, so `"| 2x | Shure SM58 | wireless | Case 3 |"` yields `"| 2x"`, which is non-empty and therefore renders as a field label that is not in the sheet.
 
 The same test asserts a sibling `UNKNOWN_FIELD` in the SAME render keeps its label. Without that control, a gate suppressing every label would pass, which is the tautology the first assertion invites.
 
@@ -91,7 +99,7 @@ Verified safe before planning it: the only existing assertions on that label are
 
 ## Task 5: the copy lockstep, one commit
 
-<!-- task: red=`pnpm vitest run tests/messages/_metaWarningCardCopy.test.ts tests/cross-cutting/codes.test.ts` ac=AC-4 -->
+<!-- task: red=`sh -c 'grep -q "NOTHING renders it" lib/messages/catalog.ts && exit 1; pnpm vitest run tests/messages/_metaWarningCardCopy.test.ts tests/cross-cutting/codes.test.ts'` ac=AC-4 -->
 
 **The RED comes first here too, and round 1 caught that an earlier draft had this backwards.** Both named suites exist and are GREEN at the base, because every one of the nine sites currently agrees on the old copy. Editing the lockstep inputs first and running afterwards is not a TDD cycle, it is a change followed by a confirmation.
 
@@ -105,6 +113,10 @@ So the failing observation is made by moving the FROZEN EXPECTATIONS first, whic
 
 That difference is presentational, not structural. Every task here authors its failing observation first and then satisfies it; tasks 1 through 4 happen to get a non-zero exit for free because the file they author does not exist yet, and task 5's test surface already exists so its failing observation has to be written INTO it. The frozen-expectations move is that writing. What would be a real defect, and what round 1 correctly caught, is a task that edits the implementation first and runs the command afterwards as a confirmation.
 
+**The comment is IN the red, because round 2 caught that no suite can see it.** `_metaWarningCardCopy` imports catalog VALUES and reads the §4.2 document; `codes.test.ts` compares runtime fields with generated ones. Neither reads a comment. So all nine copy sites could be correct while `lib/messages/catalog.ts:1334` still says the candidate "is computed and attached but NOTHING renders it" and the work "is filed as BL-NEARMISS-CANDIDATE-RENDER", both false the moment tasks 2 and 3 land.
+
+The red therefore fails while that sentence survives. It is a crude assertion on one phrase rather than a comment-semantics guard, and deliberately so: the replacement text is authored in this task, the phrase is unique in the file, and a guard that tried to judge comment truth would be a process surface with no done condition. See the replacement block prepared for this task.
+
 All nine sites, and the gate that catches each being missed, are enumerated in spec §6.4. One commit.
 
 **The defect this catches:** any one of the nine sites missed. The gates catch different subsets on different axes, which is why the red names two files: x1 for the §12.4 join, the §4.2 document read for the canonical table, the frozen fixtures for the registry.
@@ -113,7 +125,7 @@ Already verified mechanically on the exact strings: `helpfulContext` 246 of 300,
 
 ## Task 6: real-browser verification, both surfaces
 
-<!-- task: red=`sh -c 'pnpm exec playwright test tests/e2e/warning-panel-polish.spec.ts -g "candidate" && pnpm exec playwright test tests/e2e/step3-review-modal.interactions.spec.ts -g "candidate"'` ac=AC-6,AC-8 -->
+<!-- task: red=`sh -c 'pnpm exec playwright test tests/e2e/warning-panel-polish.spec.ts -g "candidate" && pnpm exec playwright test tests/e2e/step3-review-modal.interactions.spec.ts -g "candidate" && node scripts/check-standalone-baseline.mjs --list-check'` ac=AC-6,AC-8 -->
 
 **Two commands, not one selection.** Round 1 caught that Playwright applies `-g` across the COMBINED selection, so a single invocation naming both files exits zero as soon as EITHER file contributes a matching test. Omitting surface B entirely would have gone green. Run separately and AND them: each invocation then requires at least one matching test in its own file, and Playwright's default fails a run that selects none.
 
@@ -135,6 +147,10 @@ Every existing case navigates without the flag and therefore passes `{}`, which 
 
 The variant carries all three warnings in one render so the assertions are a controlled comparison: an `UNKNOWN_FIELD` with a candidate, one without, and a `PULL_SHEET_PARSE_PARTIAL` for AC-8.
 
+**This task also regenerates the standalone baseline, which round 2 caught and the plan did not know about.** `tests/e2e/step3-review-modal.interactions.spec.ts` runs under `tests/e2e/standalone.config.ts:85`, and `tests/e2e/standalone-baseline.json:493` enumerates that file's EXACT test identities. `tests/ci/_metaSpecRegistration.test.ts:82` requires exact agreement, so adding a test necessarily drifts it: the Playwright commands would pass while the unit suite and standalone CI go red.
+
+Regenerate with `node scripts/check-standalone-baseline.mjs --write` and commit the changed `tests/e2e/standalone-baseline.json` in this task. The red carries `--list-check` so the task cannot go green having skipped it.
+
 **The defect this catches:** both renders passing in jsdom while broken in a browser, plus the narrow-viewport wrap that jsdom cannot compute at all. The wrap is asserted on surface A, where the two bands share one flex container.
 
 ## Task 7: invariant-8 dual gate
@@ -153,9 +169,13 @@ What actually establishes that both halves ran is the findings and dispositions 
 
 ## Task 8: graduate the row, last commit
 
-<!-- task: red=`sh -c 'grep -q "^### BL-NEARMISS-CANDIDATE-RENDER" BACKLOG.md && exit 1; grep -q "^### BL-NEARMISS-CANDIDATE-RENDER" BACKLOG-archive.md || exit 1; grep -A2 "^### BL-NEARMISS-CANDIDATE-RENDER" BACKLOG-archive.md | grep -q "IN PROGRESS" && exit 1; exit 0'` ac=AC-4 -->
+<!-- task: red=`sh -c 'grep -q "^### BL-NEARMISS-CANDIDATE-RENDER" BACKLOG.md && exit 1; awk "/^### BL-NEARMISS-CANDIDATE-RENDER/,/^### /" BACKLOG-archive.md > /tmp/nm-entry.txt; test -s /tmp/nm-entry.txt || exit 1; grep -q "IN PROGRESS" /tmp/nm-entry.txt && exit 1; grep -q "Resolution:" /tmp/nm-entry.txt || exit 1; grep -q "triggerContext" /tmp/nm-entry.txt || exit 1; exit 0'` ac=AC-4 -->
 
-**Three conditions, because round 1 caught that one was not enough.** An earlier red asserted only that the heading had left `BACKLOG.md`, which passes if the entry is deleted, renamed, or moved anywhere at all, and passes if it lands in the archive with its IN PROGRESS marker intact. Since those are the exact two behaviors this task claims, the red now asserts all three: gone from `BACKLOG.md`, PRESENT in `BACKLOG-archive.md`, and carrying no IN PROGRESS marker on its meta line.
+**Five conditions now, across two rounds of narrowing.** Round 1 caught that asserting only "the heading left `BACKLOG.md`" passes on a delete, a rename, or a move anywhere at all, including into the archive with the marker intact. Round 2 caught that even those three pass on moving the entry VERBATIM: the task's GREEN requires the entry to record the settled four-field rewrite and the nine-site lockstep, and none of the three conditions observes the entry's content.
+
+So: gone from `BACKLOG.md`; a non-empty entry block PRESENT in `BACKLOG-archive.md`; no `IN PROGRESS` in that block; the block carries a `Resolution:` line; and the block mentions `triggerContext`.
+
+`triggerContext` is the discriminator and it was chosen by measurement, not taste. The row's body today mentions neither `triggerContext` nor `dougFacing` (`awk` over the entry returns 0 matches for both), because when it was filed only `helpfulContext` and `longExplanation` were in scope. The four-field rewrite is this arc's finding. So a verbatim move fails the red and a real resolution passes it, which is exactly the distinction round 2 asked for.
 
 Archive `BL-NEARMISS-CANDIDATE-RENDER` with the render sites, the retargeted copy, and the nine-site lockstep recorded in the entry. Its IN PROGRESS marker comes off in this same commit, because archives reject in-flight entries.
 
