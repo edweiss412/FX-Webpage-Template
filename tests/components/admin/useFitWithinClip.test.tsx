@@ -408,10 +408,16 @@ describe("useFitWithinClip", () => {
     view.unmount();
     fireEvent(window, new Event("resize"));
     flushFrames();
-    // Red under M13 (the whole teardown removed): the listener would still be
-    // attached and `nodeRef` would still point at the detached node, so this
-    // resize would measure. M3 alone (dropping only `nodeRef.current = null`)
-    // does NOT reach here — the listener is gone either way.
+    // NO mutant turns this case red, measured rather than predicted. An earlier
+    // version of this comment claimed M13 (the whole teardown removed) reds it.
+    // The run says otherwise: M13 reds (g) and (g3) and leaves THIS case
+    // passing, because a leaked listener still schedules, `apply()` then returns
+    // at the null-node guard, and an applyCount delta never moves. M3 (dropping
+    // only `nodeRef.current = null`) does not reach here either. That gap is
+    // what (h23) exists to close: it asserts on the SCHEDULER, which is the only
+    // place a leaked listener is observable. The authoritative mutant-to-case
+    // mapping is plan §5, and diff review round 3 caught this comment
+    // contradicting it.
     expect(applyCount - afterMount, "a resize after unmount measured a dead node").toBe(0);
   });
 

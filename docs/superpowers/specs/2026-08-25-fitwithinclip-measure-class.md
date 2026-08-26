@@ -252,9 +252,9 @@ worth stating as one sentence because six rounds of prose about `reapplyKey` nev
 
 | `reapplyKey` | Node presence | Behaviour | Pinned by |
 | --- | --- | --- | --- |
-| unchanged | stays absent | Nothing | (h18) |
+| unchanged | stays absent | Nothing | **NOT independently executed** — (h18) is the nearest case and it changes the key `1 → 2 → 3`, so it performs the `changed / stays absent` row below, not this one. See §3.1a. |
 | unchanged | appears | One attach, one measure | (h14), (h15) |
-| unchanged | disappears | Teardown only | (h3), (h21) |
+| unchanged | disappears | Teardown only | **NOT independently executed** — (h3) and (h21) unmount the hook's OWNER, which is a different sequence from a conditional node disappearing while its owner stays mounted. See §3.1a. |
 | unchanged | stays present | **Nothing at all** — the control that catches an identity-churning callback | (h9) |
 | changed | stays absent | Nothing. The callback identity changed and no node ever received it | (h18) |
 | changed | appears | One attach, one measure. **NOT detach-then-attach** — nothing was attached. `PublishedToggle`'s shipped first-error case, where the key IS the mounting condition | (h16) |
@@ -363,17 +363,37 @@ any case at all before round 7.
 
 | Compound | Treatment |
 | --- | --- |
-| `reapplyKey` changes with a coalesced frame pending | The detach cancels the frame; the re-attach measures synchronously. Each attach owns its own coalescer, so a stale frame can never land on new wiring |
+| `reapplyKey` changes with a coalesced frame pending — **NOT executed, see §3.1a** | The detach cancels the frame; the re-attach measures synchronously. Each attach owns its own coalescer, so a stale frame can never land on new wiring |
 | Unmount with a coalesced frame pending | Frame cancelled; `apply()` never runs on a detached node — (g3) |
 | `reapplyKey` changes in the same commit that attaches the node | One attach, one measure. This is `PublishedToggle`'s shipped shape (§0.1) |
 | A `transitionend` arrives mid-teardown | The listener is removed BEFORE `coalescer.cancel()`, so a late event cannot schedule after the cancel |
-| The conditional host hides and reappears, owner mounted throughout | F → D → F, with `nodeRef.current = null` in between so a stale `apply()` cannot measure a removed node |
+| The conditional host hides and reappears, owner mounted throughout — **NOT executed, see §3.1a** | F → D → F, with `nodeRef.current = null` in between so a stale `apply()` cannot measure a removed node |
 | The key and the node drop together | Teardown only, no re-attach — `PublishedToggle`'s close path, §2.2's `changed / disappears` cell. The one boolean gates both |
 | A re-render with a stable ref while the DOM's clip status changes | **Nothing happens**, deliberately — the probe above. The cap corrects on the next signal. This is a documented limit, §7, not a defect |
 
 Nothing here animates. Every transition is instant by design: this hook exists to write a cap
 **before** the browser paints, and easing the cap itself would be a visible resize of a panel the
 user is already reading.
+
+### §3.1a — Rows that are NOT independently executed
+
+Diff review round 3 charged §3.1 with claiming executable coverage it does not have. Four rows cited
+a case that performs a DIFFERENT sequence, and the claim is withdrawn rather than reworded. What is
+true is listed here, and nothing above should be read as asserting more:
+
+| Row | Nearest case | Why it does not perform the row |
+| --- | --- | --- |
+| `unchanged` / stays absent | (h18) | (h18) changes the key `1 → 2 → 3`, so it exercises `changed` / stays absent. The `unchanged` variant of a path that measures nothing either way has no separate consequence to assert. |
+| `unchanged` / disappears | (h3), (h21) | Both unmount the hook's OWNER. A conditional node disappearing while its owner stays mounted is a different sequence, and no case performs it. |
+| `reapplyKey` changes with a coalesced frame pending | — | (g3) covers unmount-with-frame-pending; no case changes the key with a frame outstanding. |
+| The conditional host hides and reappears | (h15), (h16) | (h15) performs the appearance only; (h16) hides with a changed key and never reappears. No case performs hide-then-reappear. |
+
+**Why these are documented limits rather than four new cases.** Each is a composition of behaviours
+that ARE individually pinned — teardown by (g3), (h23) and (h24); attach-and-measure by (g), (h),
+(h14) through (h17); the null-node guard by (h2) and (h18). The consequence bound in §6 is what the
+arc defends, and none of these four compositions can reach an outcome that is silently wrong without
+one of the pinned behaviours also being wrong. Authoring them would grow the suite without moving
+that bound. The honest record is that they are unexecuted, which is what this section is.
 
 ## §4 — Class sweep
 
@@ -492,7 +512,7 @@ about those. Reading a count without knowing its harness is how §0.1 went wrong
 | (h13) | conditional, in `<StrictMode>` | Strict Mode's replay counts, asserted EXACTLY — including `ReSyncButton`'s dev apply going to 2, pinned as 2 rather than wished down to 1 |
 | (h14) | conditional | One owner render per appearance on the plainest live shape. The arc's headline in its minimal form |
 | (h16) | `PublishedToggle` key-is-the-condition | BOTH directions of that shape — first error (key changes AND node appears: one attach, no detach) and close (key changes AND node disappears: teardown only), §2.2's two `changed` cells that are not `X → D → Y` — **AND its §0.1 counts in both modes**, renders included. Round 12 caught the directional half shipping alone: a mutant doing one extra owner render passes attach/apply/cleanup and fails §0.1's render row, so the directional assertions cannot stand in for the counts |
-| (h15), (h17) | the remaining two lifecycles: `ReSyncButton` conditional, `AttentionMenuPanel` always-present | One case per shipped lifecycle (§0.1), both modes. (h17) asserts TWO snapshots — the attach, then the totals after the entrance frame (§0.1a) |
+| (h15), (h17) | the remaining two lifecycles: `ReSyncButton` conditional, `AttentionMenuPanel` always-present | One case per shipped lifecycle (§0.1), in the BARE render only. Diff review round 3 charged the earlier "both modes" here: these are bare renders, and the suite's only `<StrictMode>` case is (h13), which covers `ReSyncButton`. `PublishedToggle`'s Strict counts and both `AttentionMenu` Strict snapshots are UNEXECUTED — recorded in §3.1a rather than claimed. (h17) asserts TWO snapshots — the attach, then the totals after the entrance frame (§0.1a) |
 | (h18) | hook called, ref never attached | The hook called with its ref NEVER attached — `PublishedToggle`'s default `card` variant. Zero applies, zero walks, no throw |
 | (h19), (h20) | always-present, driven by a signal | The two SIGNAL-driven edges. Each asserts the re-render changed nothing FIRST, then signals and asserts the cap appears (h19) or is removed (h20) |
 | (h21), (h22) | always-present, unclipped | State N still holds an observer on the positioned ancestor, and the teardown disconnects it. Four rounds of this inventory claimed otherwise |
@@ -582,7 +602,7 @@ Carried verbatim into every review brief for this arc.
 - **The ancestor chain is resolved once per attach for observation purposes.** If an overlay is reparented without a `reapplyKey` change or a resize, the observed clip ancestor is stale until the next signal. This is today's behaviour, unchanged — `apply()` still re-walks on every invocation, so the *measurement* is never stale, only the *subscription*. Reparenting a live overlay is outside the threat fence.
 - **The `PublishedToggle` anchor room is unmeasured**, recorded at `lib/layout/fitWithinClip.ts:38-43` with an open row. Untouched.
 - **`AnchoredPortal` measures three times per open**, §4.2, filed as `BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN`.
-- **`ReSyncButton`'s development `apply()` count goes 1 to 2.** ONE consumer of three, in ONE mode: it is the only shape that measures once today, and the cleanup-returning ref opts it into Strict Mode's replay. `PublishedToggle` holds at 2 and `AttentionMenu` improves 3 to 2 (§0.1). Production is unaffected on all three — the replay is absent from React's production client build entirely (§0.1's grep over the two installed `react-dom` bundles, which are untracked `node_modules` artifacts rather than repo files) — so no admin ever pays it, but a developer profiling a Re-sync overlay in `next dev` sees two forced reflows where they saw one. Accepted deliberately against render passes halving on all three consumers in both modes. Pinned exactly by (h15) so it cannot drift further. Re-file trigger: a third apply under replay on any consumer, or React changing the replay's scope.
+- **`ReSyncButton`'s development `apply()` count goes 1 to 2.** ONE consumer of three, in ONE mode: it is the only shape that measures once today, and the cleanup-returning ref opts it into Strict Mode's replay. `PublishedToggle` holds at 2 and `AttentionMenu` improves 3 to 2 (§0.1). Production is unaffected on all three — the replay is absent from React's production client build entirely (§0.1's grep over the two installed `react-dom` bundles, which are untracked `node_modules` artifacts rather than repo files) — so no admin ever pays it, but a developer profiling a Re-sync overlay in `next dev` sees two forced reflows where they saw one. Accepted deliberately against render passes halving on all three consumers in both modes. Pinned exactly by (h13), the suite's only `<StrictMode>` case, so it cannot drift further. Diff review round 3 corrected an earlier claim here that (h15) pins it; (h15) is a bare render. Re-file trigger: a third apply under replay on any consumer, or React changing the replay's scope.
 - **A clip-status change is stale in the CAP until the next signal, and stale in the SUBSCRIPTION until the next attach.** With a stable ref and an unchanged `reapplyKey`, a re-render does not re-measure, even if an ancestor's `overflow` changed in that same commit (§3.1's probe). The cap corrects on the next `window` resize, `transitionend` or `ResizeObserver` callback. **The subscription does not** — an ancestor that starts clipping after the attach is never observed, so its own resizes deliver nothing and the corrected cap then goes stale silently. An earlier draft of this limit said "stale until the next signal", which was false about the second half; round 12 caught it. Both halves are today's behaviour, unchanged by this arc and byte-identical in the probe, and the second is filed as `BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION`. Re-file trigger: a consumer that toggles an ancestor's `overflow` from state, or one whose clip ancestor is not the review-modal panel.
 - **Shape 2 is bounded to its named resolver.** §4.1's scope derivation excludes a second call site of `findClippingAncestor`, and the manual sweep covers the two sibling measure surfaces the popover registry names. A module that resolves some OTHER value inside a measure function and re-resolves it in the same run is not excluded by any command here; settling that repo-wide is dataflow analysis, which `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:30-33` already rules out for a structural cover. Re-file trigger: a second measure surface adopting the resolve-then-re-resolve pattern, which the popover registry would name as it is added.
 - **The measure now precedes the owner's layout effects.** Moving it from the owner's layout effect to the ref attach makes it EARLIER in the same commit. What it now precedes is empty today on both counts: no consumer declares a `useLayoutEffect` (`rg -n 'useLayoutEffect' components/admin/ReSyncButton.tsx components/admin/PublishedToggle.tsx components/admin/showpage/AttentionMenu.tsx` returns nothing), and all five refs sit on a plain `<div>` in their hook-owner's own JSX with no intervening component boundary, read at each site — where for `AttentionMenu` that owner is `AttentionMenuPanel`, not `AttentionMenu` (§0.1). A future consumer adding a geometry-mutating layout effect in the same commit would have it run AFTER the measure rather than before. Re-file trigger: any `useLayoutEffect` appearing in a file that calls `useFitWithinClip`.

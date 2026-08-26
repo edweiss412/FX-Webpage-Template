@@ -65,7 +65,23 @@ def main() -> int:
     print("plan USES        :", " ".join(sorted(plan_used)))
     print("UNRESOLVED (plan):", " ".join(plan_missing) if plan_missing else "none")
 
-    # SINGLE-SOURCE: the mutant-to-case mapping lives in the PLAN only.
+    # SPEC-ONLY MUTANT BAN. Read what this checks before trusting it.
+    #
+    # It certifies exactly one property: the SPEC carries no mutant reference
+    # outside a backticked mention. It does NOT certify that the mapping is
+    # single-sourced repository-wide, and diff review round 3 was right to charge
+    # an earlier version of this comment for claiming it did. Mutant names still
+    # appear in plan prose, plan task bodies, plan ACs, a unit-test comment and
+    # this file. Round 3 found one of those actually contradicting the plan's
+    # table (a comment on (h3) crediting M13, which the run says leaves (h3)
+    # passing); it was corrected at the source rather than by widening this scan.
+    #
+    # Widening it to every file would build the recognizer this repo's own round
+    # economy warns against: each round would add one more construct it must
+    # classify, and a wider recognizer is a bigger target for the next round.
+    # The narrow, closable property is the one implemented. Plan §5 remains the
+    # single authority for the mapping, and prose that contradicts it is a review
+    # finding rather than something this checker can see.
     #
     # Diff review round 2 found seven places where a duplicated mapping had
     # drifted from the measurement — the spec's §5.1 table crediting `M3` and
@@ -80,7 +96,10 @@ def main() -> int:
     # removal may name mutants; a table column or a prose claim asserting one
     # may not.
     spec_mutants = sorted(set(re.findall(r"\bM\d+\b", strip_code(spec))))
-    print("spec MUTANT refs :", " ".join(spec_mutants) if spec_mutants else "none (single-sourced)")
+    print(
+        "spec MUTANT refs :",
+        " ".join(spec_mutants) if spec_mutants else "none in the SPEC (this checks the spec only)",
+    )
 
     return 1 if (missing or plan_missing or spec_mutants) else 0
 
