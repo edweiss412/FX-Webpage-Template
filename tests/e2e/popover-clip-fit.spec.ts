@@ -603,6 +603,106 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
     ).toBeLessThanOrEqual(0.5);
   });
 
+  test("the banner is never PAINTED crossing the clip edge, from the very first frame", async ({
+    page,
+  }) => {
+    // The containment case above measures AFTER settle. This one measures from
+    // the FIRST painted frame, which is the property the synchronous mount
+    // measure provides and the only one deferring it to a frame breaks.
+    //
+    // It lives on the BANNER, not the AttentionMenu. The first draft sampled the
+    // menu and did NOT discriminate: planting the deferred-measure mutant killed
+    // 18 unit cases and two e2e cases and left that draft green, because the
+    // menu's natural height at this viewport fits inside the panel anyway, so an
+    // uncapped frame crosses nothing. A fixture that cannot express the
+    // difference reports no difference. The banner genuinely overflows, and the
+    // premise below asserts that rather than assuming it.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 390, height: 560 });
+
+    // ARMED BEFORE THE APPEARANCE, via an init script: `openToggleBanner`
+    // navigates, so a sampler installed after it returns misses the frames under
+    // test. Records a row on EVERY frame INCLUDING absent ones — those are what
+    // prove the recorder preceded the appearance.
+    await page.addInitScript(
+      ([clipSel, bannerSel]) => {
+        const w = window as unknown as {
+          __clipFrames?: {
+            present: boolean;
+            overlayBottom?: number;
+            clipBottom?: number;
+            scrollH?: number;
+            clientH?: number;
+          }[];
+        };
+        w.__clipFrames = [];
+        const tick = () => {
+          const clip = document.querySelector(clipSel as string);
+          const banner = document.querySelector(bannerSel as string);
+          if (clip === null || banner === null) {
+            w.__clipFrames!.push({ present: false });
+          } else {
+            w.__clipFrames!.push({
+              present: true,
+              overlayBottom: banner.getBoundingClientRect().bottom,
+              clipBottom: clip.getBoundingClientRect().bottom,
+              scrollH: banner.scrollHeight,
+              clientH: banner.clientHeight,
+            });
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      },
+      [TOGGLE_CLIP, TOGGLE_BANNER] as const,
+    );
+
+    await openToggleBanner(page);
+
+    const frames = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __clipFrames?: {
+              present: boolean;
+              overlayBottom?: number;
+              clipBottom?: number;
+              scrollH?: number;
+              clientH?: number;
+            }[];
+          }
+        ).__clipFrames ?? [],
+    );
+
+    const firstPresent = frames.findIndex((f) => f.present);
+    // (1) ARMING: an absent row must precede the first present one, or sampling
+    // may have begun after the overlay already corrected itself.
+    expect(firstPresent, "no frame was sampled at all").toBeGreaterThanOrEqual(0);
+    expect(
+      firstPresent,
+      "the sampler was not armed before the banner appeared: no absent frame precedes it",
+    ).toBeGreaterThan(0);
+
+    const present = frames.filter((f) => f.present);
+    // (2) NON-VACUITY.
+    expect(present.length, "no frame with the banner present was sampled").toBeGreaterThan(0);
+
+    // (3) PREMISE: the banner must actually overflow, or an uncapped frame would
+    // cross nothing and this case could not discriminate a deferred measure.
+    const last = present[present.length - 1];
+    expect(
+      (last?.scrollH ?? 0) > (last?.clientH ?? 0),
+      "premise not met: the banner does not overflow, so containment is vacuous here",
+    ).toBe(true);
+
+    // (4) CONTAINMENT on every frame, the first included.
+    const crossed = present.filter((f) => (f.overlayBottom ?? 0) > (f.clipBottom ?? 0) + 0.5);
+    expect(
+      crossed.map((f) => `${f.overlayBottom} > ${f.clipBottom}`),
+      "the banner crossed the clip edge on at least one painted frame",
+    ).toEqual([]);
+  });
+
   test("the capped banner scrolls rather than stranding its tail", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 560 });
     await openToggleBanner(page);
