@@ -37,36 +37,6 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 **Class-sweep exception (c).** The repair is an emit in `lib/admin/**`, which pulls application review
 surface into a PR whose brief scopes it to workflow, scripts and docs.
 
-## BL-SERVER-TIME-GUARD-EXCLUDES-LIB — the server-time guard's population never walks `lib/`
-
-**Status:** IN PROGRESS · **Branch:** fix/screenshots-drift-residue · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** LOW · **Class:** guard fidelity · **Effort:** M · **Incident:** `lib/admin/loadAppEvents.ts:45` calls `new Date(Date.now() - sinceH * 3_600_000)` and is a LIVE UNWAIVED SURVIVOR of `tests/help/_metaServerTimeGuard.test.ts` — `discoverScanRoots()` (`:11`) seeds with `"components"` plus manifest-derived `app/<segment>` roots, so `lib/**` is never walked. The guard reports clean over a population that excludes the survivor. · **Reachability:** PROBED — the survivor is named above and the seeding is read at `:11`.
-
-**Class-sweep exception (c).** Widening to `lib/**` is a redesign of a guard this PR does not otherwise
-touch, and it pulls an unbounded waiver population into a CI-fidelity diff.
-
-## BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY — the marking scanner's ternary arm drops what its if-arm reports
-
-**Status:** IN PROGRESS · **Branch:** fix/screenshots-drift-residue · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** MEDIUM · **Class:** guard fidelity · **Effort:** M · **Incident:** the defect shipped INTO this arc's own registry and was caught pre-merge by its self-review. `tests/help/_metaRenderFaultMarking.test.ts` declared `Dashboard.tsx:ignoredDegraded` and `Dashboard.tsx:dataGapsDegraded` as flag-shaped residue on the stated ground that "the guard site returns no JSX". Both are ternaries whose `whenTrue` IS the JSX (`components/admin/Dashboard.tsx:674`, `:858`), so the recorded justification was false and the two entries were filed under the wrong cause. A registry whose reasons are wrong is worse than one with gaps, because it is read as settled. · **Reachability:** PROBED — see the probe below.
-
-**The asymmetry.** `scanCandidates` (`tests/help/_renderFaultScan.ts`) gives its `IfStatement` arm a
-vocabulary fallback: an unclassifiable guard matching `/error|fail|infra|degrad|unavailable|corrupt/i`
-is pushed as `unknown` and lands in `REPORTED_RESIDUE`. The `ConditionalExpression` arm has no fallback
-and does a bare `continue` at `:754`. A ternary whose `whenTrue` is JSX is exactly the shape layer 1
-claims to reach, so this is a gap INSIDE the claimed coverage, not the documented ceiling at spec §4.2.
-
-**Probe** (ts-morph over `scannedFiles()`, live tree, re-run 2026-08-25): **719** ternaries under the derived
-roots return JSX in `whenTrue`; **79** of those carry a fault-vocabulary guard, 70 of them in `"use client"` files. The classifiable ones are
-enforced; the rest are dropped in silence rather than reported. Reported residue today is 5, every one of
-them from an `IfStatement`.
-
-**Class-sweep exception (c).** Adding the fallback means declaring a reason for every unclassifiable
-ternary it surfaces. Hand-writing that population reduces the registry to boilerplate and destroys the
-signal residue exists to carry, so the repair is a redesign of the recognizer's residue model rather than
-a one-line symmetry fix. Sizing it, and deciding whether the vocabulary probe is even the right filter on
-this arm, is the first scheduled step.
-
----
-
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
 **Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
@@ -395,47 +365,6 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 **Why the entry stays open with one row.** `WrappedTile` is retained by the ratified KEEP at `docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/04-layout-migration-closeout.md:10`. Its dormancy is itself the contract the 2026-07-24 alert-autoresolve family relies on — it keeps `TileServerFallback`'s `TILE_SERVER_RENDER_FAILED` producer dormant and its write-site pin honest — and `tests/crew/_metaTileProducerTopology.test.ts` pins exactly that. Deleting it would not shrink this ledger: it is the sole production importer of BOTH `TileErrorBoundary` and `TileServerFallback`, so the ledger would grow by two and take a registered alert producer with it. There is no mount to wire either — the live crew sections are synchronous and use `WrappedSection`, the deliberate synchronous analog; `WrappedTile` is the async `load()` form. **A future sweep must not read this row as unfinished work.** `tests/components/_metaOrphanedComponents.test.ts` asserts the row's reason names the KEEP and both cascade dependents, so the reason cannot decay back into an observation.
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
-
-## BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED — one `dashboard-overview-light.webp` byte drift, now measured as rasterization variance with the population question still open
-
-**Status:** IN PROGRESS · **Branch:** fix/screenshots-drift-residue · **Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** M (the instrument shipped; the open step is a population comparison) · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, as the surviving half of `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`) · **Facing:** process · **Reachability:** PROBED for the mechanism; the runner-population reading remains unprobed and is what this row now schedules.
-
-**MECHANISM NAMED, and it is NOT the sibling's.** The artifact was replayed inside its retention window
-(`fix/screenshots-drift-instrument`, 2026-08-24). Geometry identical at 1216x1463 both; 45293 of 1779008
-pixels differ; 93% of the differing pixels are delta 0-31; run lengths concentrate at 1-2px on glyph
-edges; best vertical shift alignment is offset 0, so a uniform shift is refuted. Cropped and inspected:
-identical layout, identical text, identical dates and counts. **Sub-pixel text rasterization variance.**
-
-The hard part is that it happened at all: the capture already pins the image tag AND passes
-`--platform linux/amd64`, so the variance survived both pins the byte-comparison discipline prescribes.
-
-**The 0/9 non-reproduction was a MIS-SAMPLE, which is a sharper correction than "uninformative".** Probed
-2026-08-24 against the workflow's own run list. Both failures are `pull_request` runs — occurrence A is
-run 32528532727 on `be5d3d810db2`, this row's is run 31930558546 on `b5aa6ef7`, one run per sha,
-`run_attempt` 1. The nine non-reproducing probes are every one `workflow_dispatch`, and every one on
-`119895a7c756`, a descendant of `b5aa6ef7` whose `public/help/screenshots/` tree is byte-identical to it.
-So the probes never sampled the population either failure came from, and the baseline is not the
-difference — the trigger is. 0/9 was never weak evidence AGAINST a runner-population effect; it is not
-evidence about the failing population at all.
-
-This names no mechanism and must not be read as naming one. Nine dispatches is a small sample and the two
-triggers may well share a runner pool.
-
-**What shipped, and what it deliberately does not do.** The instrument now records, on BOTH outcomes,
-`eventName` from `GITHUB_EVENT_NAME`, the three runner fields, `cpuModel`/`cpuCount`, and a
-`pixelSha256` over DECODED RGB rather than the PNG container — a container hash reports a render change
-whenever only the encoding moved, which is precisely the confusion this row sits in. The upload runs on
-success as well as failure, because a passing run must leave a record or the comparison population can
-never be built.
-
-**The open step is a POPULATION COMPARISON, not a repair.** Collect records across both triggers and
-compare `cpuModel` and `runnerName` between a reproducing and a non-reproducing run. Only then does the
-runner-population reading become testable.
-
-**Do NOT open a screenshots repair on the current evidence.** The two candidate repairs are different
-products with different failure modes — pin the rasterization environment harder, or stop requiring byte
-equality and compare within a perceptual tolerance — and choosing between them needs the population data
-the instrument has only just begun collecting.
 
 ## BL-MUTATION-SHARD-BUDGET-AGGREGATE-OVER — the source-mutation shards are 60% over budget in AGGREGATE, and the four-shard pin's premise no longer holds
 
