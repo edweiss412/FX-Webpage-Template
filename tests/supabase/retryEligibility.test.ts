@@ -259,6 +259,25 @@ describe("describeTransportTarget — one bound, shared by every emit that names
     );
   });
 
+  test("a request OUTSIDE the mount keeps its own path, rather than being sliced by the mount's length", () => {
+    // Every other case here either passes an empty base or a path that starts with the base, so
+    // the guard's two operands were never observed disagreeing. A proxied deployment reaches its
+    // auth endpoint at the root while its PostgREST traffic is mounted, and this is that request:
+    // the base is set, the path does not start with it, and nothing may be stripped. Slicing by
+    // the mount's LENGTH regardless would cut six characters out of the middle of an unrelated
+    // path and record a target that never existed.
+    expect(describeTransportTarget("http://h/auth/v1/token", "/proxy")).toBe("/auth/v1/token");
+  });
+
+  test("a single-character segment is a segment", () => {
+    // Postgres identifiers may be one character, so a table or function can legitimately produce
+    // one. The filter exists to drop the EMPTY strings that splitting on "/" yields at the ends
+    // and between doubled slashes -- length zero, not length one. Raising that threshold silently
+    // deletes a real path component, and the record still looks well formed, which is the worst
+    // way for it to be wrong.
+    expect(describeTransportTarget("http://h/rest/v1/a", BASE)).toBe("/rest/v1/a");
+  });
+
   test("an unparseable URL carries no request data at all", () => {
     expect(describeTransportTarget("::::", BASE)).toBe("unparseable-url");
   });
