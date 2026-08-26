@@ -459,7 +459,7 @@ export function ShowsTable({
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Find"
                 aria-label="Find a show by name"
-                className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-2 text-sm text-text-strong placeholder:text-text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+                className="w-full rounded-md border border-text-faint bg-surface py-1.5 pl-8 pr-2 text-sm text-text-strong placeholder:text-text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
               />
             </label>
           ) : null}

@@ -1,0 +1,71 @@
+# Task 5 STEP 1 red, at the head after Tasks 1-4 (spec §6, plan Task 5)
+
+## Artifact 1 - the suite's own failure output: 29 unregistered KEYS
+$ pnpm vitest run tests/styles/_metaControlOutlineResidue.test.ts
+"unregistered: app/admin/settings/admins/AddAdminForm.tsx <input> live 2, registered 0
+"unregistered: components/admin/ArchiveShowButton.tsx <div> live 1, registered 0
+"unregistered: components/admin/ArchiveShowButton.tsx <p> live 2, registered 0
+"unregistered: components/admin/BellPanel.tsx <input> live 2, registered 0
+"unregistered: components/admin/IgnoredSheetsDisclosure.tsx <span> live 1, registered 0
+"unregistered: components/admin/IgnoredSheetsDisclosure.tsx <span> live 1, registered 0
+"unregistered: components/admin/OnboardingWizard.tsx <span> live 1, registered 0
+"unregistered: components/admin/ReSyncButton.tsx <span> live 1, registered 0
+"unregistered: components/admin/RecentAutoAppliedStrip.tsx <span> live 1, registered 0
+"unregistered: components/admin/ShowRowActions.tsx <span> live 1, registered 0
+"unregistered: components/admin/ShowsTable.tsx <input> live 1, registered 0
+"unregistered: components/admin/ShowsTable.tsx <span> live 1, registered 0
+"unregistered: components/admin/UnarchiveShowButton.tsx <p> live 1, registered 0
+"unregistered: components/admin/dev/MaterializeCard.tsx <input> live 1, registered 0
+"unregistered: components/admin/dev/MaterializeCard.tsx <select> live 2, registered 0
+"unregistered: components/admin/dev/SwitcherControls.tsx <select> live 1, registered 0
+"unregistered: components/admin/nav/AdminNav.tsx <span> live 1, registered 0
+"unregistered: components/admin/settings/DeveloperToggleButton.tsx <span> live 1, registered 0
+"unregistered: components/admin/telemetry/AutoRefreshControl.tsx <span> live 1, registered 0
+"unregistered: components/admin/telemetry/CronRunSummaryCard.tsx <div> live 1, registered 0
+"unregistered: components/admin/telemetry/EventFilters.tsx <input> live 1, registered 0
+"unregistered: components/admin/telemetry/EventFilters.tsx <select> live 1, registered 0
+"unregistered: components/admin/wizard/CrewRowActions.tsx <span> live 1, registered 0
+"unregistered: components/admin/wizard/VenueMapTile.tsx <span> live 1, registered 0
+"unregistered: components/admin/wizard/step3ReviewSections.tsx <img> live 1, registered 0
+"unregistered: components/admin/wizard/step3ReviewSections.tsx <span> live 1, registered 0
+"unregistered: components/admin/wizard/step3ReviewSections.tsx <span> live 3, registered 0
+"unregistered: components/admin/wizard/step3ReviewSections.tsx <textarea> live 1, registered 0
+"unregistered: components/shared/ReportModal.tsx <textarea> live 1, registered 0
+
+## Artifact 2 - the per-ELEMENT enumeration: 35 elements (AC-9 is checked against this)
+elements=45 keys=39 universe=767 NEW elements=35
+app/admin/settings/admins/AddAdminForm.tsx:73 <input> [element]  bg-bg border border-border
+app/admin/settings/admins/AddAdminForm.tsx:84 <input> [element]  bg-bg border border-border
+components/admin/ArchiveShowButton.tsx:232 <div> [painted-child]  bg-warning-bg border border-border-strong
+components/admin/ArchiveShowButton.tsx:243 <p> [painted-child]  bg-warning-bg border border-border-strong
+components/admin/ArchiveShowButton.tsx:253 <p> [painted-child]  bg-warning-bg border border-border-strong
+components/admin/BellPanel.tsx:838 <input> [element]  bg-surface border border-border-strong
+components/admin/BellPanel.tsx:849 <input> [element]  bg-surface border border-border-strong
+components/admin/dev/MaterializeCard.tsx:152 <input> [element]  bg-surface border border-border
+components/admin/dev/MaterializeCard.tsx:164 <select> [element]  bg-surface border border-border
+components/admin/dev/MaterializeCard.tsx:179 <select> [element]  bg-surface border border-border
+components/admin/dev/SwitcherControls.tsx:119 <select> [element]  bg-surface border border-border hover:border-accent
+components/admin/IgnoredSheetsDisclosure.tsx:80 <span> [painted-child]  bg-warning-bg border border-border-strong
+components/admin/IgnoredSheetsDisclosure.tsx:97 <span> [painted-child]  bg-surface-sunken border border-border
+components/admin/nav/AdminNav.tsx:154 <span> [painted-child]  bg-surface-raised border border-border
+components/admin/OnboardingWizard.tsx:258 <span> [painted-child]  bg-accent border border-accent-edge || bg-surface border border-border-strong || bg-surface-sunken border border-transparent || bg-surface-sunken border border-transparent
+components/admin/RecentAutoAppliedStrip.tsx:474 <span> [painted-child]  bg-surface border border-border
+components/admin/ReSyncButton.tsx:213 <span> [painted-child]  border border-border
+components/admin/settings/DeveloperToggleButton.tsx:93 <span> [painted-child]  bg-accent border border-accent-edge || bg-surface-sunken border border-border-strong
+components/admin/ShowRowActions.tsx:647 <span> [painted-child]  bg-surface-sunken border border-border-strong || border border-border
+components/admin/ShowsTable.tsx:288 <span> [painted-child]  border border-border
+components/admin/ShowsTable.tsx:455 <input> [element]  bg-surface border border-border
+components/admin/telemetry/AutoRefreshControl.tsx:105 <span> [painted-child]  bg-accent border border-accent-edge || bg-surface-sunken border border-border-strong
+components/admin/telemetry/CronRunSummaryCard.tsx:26 <div> [painted-child]  bg-surface-sunken border border-border
+components/admin/telemetry/EventFilters.tsx:101 <select> [element]  bg-surface border border-border
+components/admin/telemetry/EventFilters.tsx:40 <input> [element]   || bg-surface border border-border
+components/admin/UnarchiveShowButton.tsx:113 <p> [painted-child]  bg-warning-bg border border-border-strong
+components/admin/wizard/CrewRowActions.tsx:270 <span> [painted-child]  bg-surface-sunken border border-border-strong || border border-border
+components/admin/wizard/step3ReviewSections.tsx:1226 <span> [painted-child]  border border-border
+components/admin/wizard/step3ReviewSections.tsx:1768 <span> [painted-child]  border border-border
+components/admin/wizard/step3ReviewSections.tsx:1779 <span> [painted-child]  border border-border
+components/admin/wizard/step3ReviewSections.tsx:2431 <span> [painted-child]  bg-surface-sunken border border-border
+components/admin/wizard/step3ReviewSections.tsx:3788 <img> [painted-child]  bg-surface-sunken border border-border
+components/admin/wizard/step3ReviewSections.tsx:4195 <textarea> [element]  bg-surface border border-border-strong
+components/admin/wizard/VenueMapTile.tsx:121 <span> [painted-child]  bg-surface border border-border-strong
+components/shared/ReportModal.tsx:705 <textarea> [element]  bg-bg border border-border

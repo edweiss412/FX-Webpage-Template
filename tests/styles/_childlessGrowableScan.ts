@@ -152,8 +152,13 @@ import ts from "typescript";
 export const APPROVED_GROWABLE_COMPONENTS: ReadonlySet<string> = new Set([
   // Renders a painted <div> (animate-pulse bg-surface-sunken), components/layout/Skeleton.tsx:15.
   "Skeleton",
-  // Renders an <input> (painted, interactive), components/admin/telemetry/EventFilters.tsx:20.
-  "FilterTextInput",
+  // `FilterTextInput` stood here until 2026-08-26. The row existed to approve a
+  // call-site className on a component tag, and that call site no longer has
+  // one: the control-outline-cover sweep gave the component its own outline
+  // recipe and replaced the caller's className with a `grow` boolean, so no
+  // caller can paint it at all (spec 2026-08-26-control-outline-cover-widening
+  // §6.4). Removed rather than kept, because the occurrence-liveness assertion
+  // is right that a row with no live occurrence is a row about nothing.
 ]);
 
 /** Family negators (§4.2a) — families with no PAINT_TOKENS member have none. */

@@ -229,7 +229,7 @@ function scratchElement(
 ): { el: ScanElement; paint: Map<string, TokenPaint | null> } {
   const elements = withScratchCorpus(
     (r) => replaceOnce(join(r, file), anchor, replacement),
-    (root) => scanInteractiveElements(root),
+    (root) => scanInteractiveElements(root, WIDENED),
   );
   const el = pick(elements);
   premiseHolds(`the mutated element was found for ${form}`, el !== undefined);
@@ -265,11 +265,14 @@ function scanFixture(source: string): ScanElement[] {
     const path = join(dir, "components/Fx.tsx");
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, source);
-    return scanInteractiveElements(dir);
+    return scanInteractiveElements(dir, WIDENED);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+/** The two axes `residueOf` reads (spec §7.1); every helper here reads the same. */
+const WIDENED = { textEntry: true, paintedChildren: true } as const;
 
 const liveElement = (file: string, line?: number): ScanElement => {
   const el = LIVE.elements.find((e) => e.file === file && (line === undefined || e.line === line));
@@ -382,14 +385,18 @@ describe("the oracle and the version it classifies under", () => {
 
 describe("the residue census (spec §1.4, §5.1)", () => {
   // covers: AC-1
-  it("holds exactly 10 rows", () => {
-    expect(RESIDUE_CENSUS.length).toBe(10);
+  it("holds exactly 22 rows", () => {
+    expect(RESIDUE_CENSUS.length).toBe(22);
   });
 
   // covers: AC-11
-  it("holds 3 / 5 / 2 / 0 / 0 / 0 rows by category", () => {
+  it("holds 5 / 10 / 5 / 2 / 0 / 0 / 0 rows by category", () => {
     const count = (c: ResidueCategory) => RESIDUE_CENSUS.filter((r) => r.category === c).length;
-    expect(count("switch-track")).toBe(3);
+    expect(count("switch-track")).toBe(5);
+    // Ten since 2026-08-26 (spec §8): non-interactive chrome painted INSIDE a
+    // control, which only the widened cover can see and which DESIGN.md §1.2a's
+    // scope paragraph already exempts by name.
+    expect(count("inner-chrome")).toBe(10);
     expect(count("side-divider")).toBe(5);
     expect(count("focus-state-chrome")).toBe(2);
     // Zero since 2026-08-25. ShareHub was this category's only member and its
@@ -597,7 +604,7 @@ describe("acceptance floor: ten source mutations red, two control edits green", 
 function cascadeElement(cls: string) {
   const elements = withScratchCorpus(
     (r) => appendTo(join(r, UNIGNORE), extraControl(cls)),
-    (root) => scanInteractiveElements(root),
+    (root) => scanInteractiveElements(root, WIDENED),
   );
   const el = elements.find(
     (e) => e.file === UNIGNORE && allStrings(e).some((s) => s.includes("rounded-md")),
@@ -1499,7 +1506,7 @@ describe("the grammar the module does not model (AC-13)", () => {
 
 describe("a defect planted in the theme, not in the module (AC-16)", () => {
   // covers: AC-16, W20
-  it("an oracle blind to the weak colour drops the residue to the five border-border elements", async () => {
+  it("an oracle blind to the weak colour drops the residue to the ten border-border elements", async () => {
     const broken = css.replace(/^\s*--color-border-strong:.*$/m, "");
     premise("the declaration was removed", css.length - broken.length, 1);
     const dir = mkdtempSync(join(tmpdir(), "control-outline-residue-theme-"));
@@ -1519,23 +1526,43 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
     expect(classify(blind, ["border-border-strong"]).get("border-border-strong")).toBeNull();
 
     const under = residueOf(ROOT, blind);
+    // Ten since 2026-08-26, not five: the widened cover admits five more
+    // elements whose only weak token is `border-border`, all of them registered
+    // `inner-chrome`. The four the SWEEP moved are absent here for the right
+    // reason - they now carry `border-text-faint`, which this blinded oracle
+    // still classifies perfectly well.
     expect(under.elements.map((e) => `${e.file}:${e.line}`).sort()).toEqual([
       "components/admin/BellPanel.tsx:1221",
+      "components/admin/IgnoredSheetsDisclosure.tsx:97",
       "components/admin/RecentAutoAppliedStrip.tsx:447",
+      "components/admin/RecentAutoAppliedStrip.tsx:474",
+      "components/admin/ShowsTable.tsx:288",
+      "components/admin/nav/AdminNav.tsx:154",
       "components/admin/showpage/AttentionMenu.tsx:189",
-      "components/admin/telemetry/EventFilters.tsx:85",
+      "components/admin/telemetry/EventFilters.tsx:97",
+      "components/admin/wizard/step3ReviewSections.tsx:2431",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 
     const stale = validateCensus(RESIDUE_CENSUS, under, blind, ledger).filter((p) =>
       p.startsWith("stale: "),
     );
+    // Every row whose paint is `border-strong` goes stale, which is the whole
+    // point of blinding the oracle to that colour. Eleven since 2026-08-26:
+    // the original five, plus the two nested switch tracks the widened cover
+    // admitted and the four `warning-bg` alert banners.
     expect(stale.map((p) => p.slice("stale: ".length).split(" ")[0]).sort()).toEqual([
       "app/help/errors/page.tsx",
       "app/help/layout.tsx",
+      "components/admin/ArchiveShowButton.tsx",
+      "components/admin/ArchiveShowButton.tsx",
+      "components/admin/IgnoredSheetsDisclosure.tsx",
       "components/admin/PublishedToggle.tsx",
+      "components/admin/UnarchiveShowButton.tsx",
       "components/admin/settings/AutoPublishToggle.tsx",
+      "components/admin/settings/DeveloperToggleButton.tsx",
       "components/admin/settings/NotifyToggle.tsx",
+      "components/admin/telemetry/AutoRefreshControl.tsx",
     ]);
   });
 });
@@ -1843,7 +1870,7 @@ describe("what the second score found unpinned", () => {
     // painted in that leading run would be dropped and the element would read clean. It is
     // tolerable only while unreachable, so reachability is asserted rather than asserted-once and
     // commented. If a token ever compiles to that shape this reds, and the limit becomes a defect.
-    const reaching = [...new Set(tokensOf(scanInteractiveElements(ROOT)))].filter((t) => {
+    const reaching = [...new Set(tokensOf(scanInteractiveElements(ROOT, WIDENED)))].filter((t) => {
       const compiled = oracle.ds.candidatesToCss([t])[0];
       if (compiled == null) return false;
       const body = compiled.replace(/^[^{]*\{/, "").replace(/\}\s*$/, "");

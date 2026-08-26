@@ -925,7 +925,21 @@ function isInScope(tag: string, attributes: ts.JsxAttributes, options: ScanOptio
  * class string. It reads a VALUE; a component INVOCATION is a different edge,
  * resolved by `importedComponentDeclaration`.
  */
+const jsxDeclarationCache = new WeakMap<ts.SourceFile, Map<string, ts.Node | null>>();
+
 function localJsxDeclaration(name: string, sf: ts.SourceFile): ts.Node | null {
+  // Memoised per source file: the walk below is O(file), and a control's
+  // subtree asks for the same handful of names once per capitalised tag it
+  // contains. Without this the residue suite's scratch-corpus cases, which copy
+  // the whole corpus and rescan it, pay that walk thousands of times over.
+  let perFile = jsxDeclarationCache.get(sf);
+  if (!perFile) {
+    perFile = new Map();
+    jsxDeclarationCache.set(sf, perFile);
+  }
+  const cached = perFile.get(name);
+  if (cached !== undefined) return cached;
+
   let found: ts.Node | null = null;
   const holdsJsx = (n: ts.Node): boolean => {
     if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n)) return true;
@@ -954,6 +968,7 @@ function localJsxDeclaration(name: string, sf: ts.SourceFile): ts.Node | null {
     ts.forEachChild(n, walk);
   };
   walk(sf);
+  perFile.set(name, found);
   return found;
 }
 

@@ -841,7 +841,7 @@ function DevFooter({
             data-testid="bell-config-history"
             value={historyInput}
             onChange={(e) => setHistoryInput(e.target.value)}
-            className="min-h-tap-min w-20 rounded-sm border border-border-strong bg-surface px-2 py-1 tabular-nums text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            className="min-h-tap-min w-20 rounded-sm border border-text-faint bg-surface px-2 py-1 tabular-nums text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -852,7 +852,7 @@ function DevFooter({
             data-testid="bell-config-cap"
             value={capInput}
             onChange={(e) => setCapInput(e.target.value)}
-            className="min-h-tap-min w-20 rounded-sm border border-border-strong bg-surface px-2 py-1 tabular-nums text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            className="min-h-tap-min w-20 rounded-sm border border-text-faint bg-surface px-2 py-1 tabular-nums text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           />
         </label>
         <button

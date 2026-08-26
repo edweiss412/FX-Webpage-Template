@@ -23,7 +23,7 @@ export function CronRunSummaryCard({ event }: { event: AppEventRow }) {
     ? Object.entries(ctx.counts).filter(([, n]) => typeof n === "number")
     : [];
   return (
-    <div className="rounded-md border border-border bg-surface-sunken p-tile-pad">
+    <div className="rounded-md border border-text-faint bg-surface-sunken p-tile-pad">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-medium text-text">{jobLabel(event)}</span>
         <span className="rounded-pill bg-surface px-2 py-0.5 text-xs text-text-subtle">

@@ -259,6 +259,12 @@ The five paths are `components/admin/PublishedToggle.tsx:305`,
 `components/admin/telemetry/AutoRefreshControl.tsx:106` and
 `components/admin/settings/DeveloperToggleButton.tsx:97`; the last two paint the
 track on a nested `<span>`, which is why an element-level census reported three.
+On 2026-08-26 the widened cover reached both, by two DIFFERENT mechanisms:
+`AutoRefreshControl`'s span is a lexical child of its button, and
+`DeveloperToggleButton`'s is inside a component the button renders. Both now
+carry a `switch-track` residue row citing this ruling, and the ruling itself is
+untouched. Becoming visible to a census is a registration duty, not a reopening:
+the tracks are out for the ON/OFF RELATIONSHIP, never for the ratio.
 
 **What did not move with the 21, and now reads lighter beside it** (2026-08-16
 invariant-8 gate). Two elements share a recipe with a swapped control and stayed
@@ -316,17 +322,39 @@ the affordance on the same render path, or rises above the resting weight:
 `--color-accent` itself is decorative-only in light (§1.2) and cannot carry it.
 
 **What the 2026-08-18 sweep actually reached, stated because the rule above is
-wider than the sweep.** It moved the controls the element-level census can SEE —
-`scanInteractiveElements` admits `button`, `a` and `summary`, plus `<input>` at
-`type="checkbox"` or `"radio"`. Text-entry fields and `<select>`s are outside
-that vocabulary in BOTH directions: the census will never flag one and never
-exempt one, so several still rest at `border-border` — a `<textarea>` at
-`components/shared/ReportModal.tsx:715` among them, in the same modal whose
-button the sweep raised. They are tracked on
-`BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER`, family A. **The rule states the
-predicate; the sweep states its reach. Do not read the first as a claim about
-the second** — an earlier revision of this paragraph did, and the invariant-8
-review was right to call it a promise the diff had not kept.
+wider than the sweep.** On 2026-08-18 it moved only the controls the
+element-level census could SEE: `scanInteractiveElements` admitted `button`, `a`
+and `summary`, plus `<input>` at `type="checkbox"` or `"radio"`, so text-entry
+fields and `<select>`s sat outside that vocabulary in BOTH directions and
+several still rested at `border-border`.
+
+**That gap closed on 2026-08-26, and the reach now matches the rule.** The user
+ruled that a text field's border IS a control outline under this section, and
+that an open-state outline painted on a CHILD is a resting boundary rather than
+a state cue. `scanInteractiveElements` gained two declared axes for those two
+families, the outline guards opted in, and the red they produced named the
+population: thirty-five elements, of which twenty-three moved to the token their
+ground requires and twelve are registered in the residue census with a reason.
+The `<textarea>` at `components/shared/ReportModal.tsx:715` this paragraph used
+to name as unreachable is one of the twenty-three.
+
+**Chrome painted inside a control keeps its own treatment**, which is the Family
+B sorting rule and follows from the scope paragraph below rather than from
+anything new. A painted child that IS the control's visual box takes the rule
+the element would have taken; a painted child that is a status chip, a count
+pill, a decorative label or an alert banner keeps the status-emphasis treatment
+this section already preserves for non-interactive chrome by name. Whether a
+given child is one or the other is a RULING, not a property a scanner can
+project, so the residue census checks the FORM of the claim and its author owns
+its truth.
+
+**The rule states the predicate; the sweep states its reach. Do not read the
+first as a claim about the second** — an earlier revision of this paragraph did,
+and the invariant-8 review was right to call it a promise the diff had not kept.
+`BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` is closed; the limits the widened
+cover still has are recorded in
+`docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md`
+§17 rather than as an open row.
 
 **Dividers are OUT, in both directions.** A `border-t`, `border-b` or `border-l`
 rule between stacked content has no resting outline to raise, and §1.2a's

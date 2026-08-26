@@ -212,7 +212,10 @@ const REGISTRY: readonly RegistryRow[] = [
     carries: "onTintedPlate",
     invisibleBecause:
       "the control is a <RescanSheetButton> child, so the plate lives on the enclosing div and the button's own class string never mentions it. This is the site that passes the plate, and it is pinned on the prop for the same reason the link above is pinned on the constant.",
-    neutralFaintCount: 4,
+    // 4 until 2026-08-26; the control-outline-cover sweep added five to this
+    // file (the report textarea and the four painted children), all on neutral
+    // grounds. Counted CODE-ONLY: the raw count is 11, two of them in comments.
+    neutralFaintCount: 9,
   },
 ];
 

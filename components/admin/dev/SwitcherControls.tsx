@@ -119,7 +119,7 @@ export function SwitcherControls({
         <select
           data-testid="attention-switcher-group-select"
           aria-label="Jump to section"
-          className="min-h-tap-min min-w-tap-min max-w-28 shrink rounded-md border border-border bg-surface px-2 text-xs text-text-strong hover:border-accent focus-visible:outline-2 focus-visible:outline-focus-ring"
+          className="min-h-tap-min min-w-tap-min max-w-28 shrink rounded-md border border-text-faint bg-surface px-2 text-xs text-text-strong hover:border-accent-on-bg focus-visible:outline-2 focus-visible:outline-focus-ring"
           value={group}
           onChange={(e) => {
             const g = groups.find((x) => x.id === e.target.value);

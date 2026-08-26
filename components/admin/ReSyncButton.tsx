@@ -212,7 +212,7 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
             swaps, so nothing reflows. */}
         <span
           data-testid="admin-resync-mobile-label"
-          className="hidden max-sm:inline-flex items-center gap-1.5 h-8 px-3 rounded-sm border border-border"
+          className="hidden max-sm:inline-flex items-center gap-1.5 h-8 px-3 rounded-sm border border-text-faint"
         >
           <RefreshCw
             aria-hidden="true"

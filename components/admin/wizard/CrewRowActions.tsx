@@ -270,8 +270,8 @@ export function CrewRowActions({
         <span
           className={
             open
-              ? "grid size-8 place-items-center rounded-sm border border-border-strong bg-surface-sunken text-text-strong transition-colors duration-fast"
-              : "grid size-8 place-items-center rounded-sm border border-border text-text-subtle transition-colors duration-fast"
+              ? "grid size-8 place-items-center rounded-sm border border-text-faint bg-surface-sunken text-text-strong transition-colors duration-fast"
+              : "grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle transition-colors duration-fast"
           }
         >
           <EllipsisVertical aria-hidden="true" className="size-4" />
