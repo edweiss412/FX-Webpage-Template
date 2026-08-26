@@ -5,11 +5,22 @@
 
 ## §-1 RETIRED — the note was removed 2026-08-26
 
-**This document describes a shipped feature that no longer exists.** It is kept because it is the ratification record for both the build and the removal, not because it describes the current UI. Read §2.2's "Amendment, 2026-08-26" first; everything below it that describes a rendered note is history. Retired sections still name symbols the code no longer has, so `pnpm spec:lint` reports two `CITATION_SYMBOL_ABSENT` advisories against them. That is the linter being correct, not a citation to repair: the record of a removed feature necessarily names what was removed. Exit code stays 0.
+**This document describes a shipped feature that no longer exists.** It is kept because it is the ratification record for both the build and the removal, not because it describes the current UI. Read §2.2's "Amendment, 2026-08-26" first; everything below it that describes a rendered note is history. Retired sections still name symbols the code no longer has, so `pnpm spec:lint` reports `CITATION_SYMBOL_ABSENT` advisories against them. That is the linter being correct, not a citation to repair: the record of a removed feature necessarily names what was removed. **Exit code stays 0**, which is the part that is stable and the only part worth asserting. The count is deliberately NOT written down here — it moves with every edit to this document, and a stale number is worse than no number. Derive it when you need it:
+
+```
+pnpm spec:lint docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md 2>&1 \
+  | grep -oE 'ADVISORY [A-Z_]+' | sort | uniq -c
+```
+
+The first draft of this paragraph did write the number down, said "two", and was already wrong when the diff review probed it — that is finding 3 of round 1, and this is the shape that stops it recurring.
 
 **The ruling (Eric, 2026-08-26, via the orchestrator session).** Saving a theme choice is a UX convenience, not a failure mode that needs acknowledging. A device that cannot persist the choice still gets the theme it asked for, for the visit, and is told nothing about it. The note this spec designed, in both controls, is removed.
 
-**What that retires.** The rendered note in both controls, the shared copy const behind it, the persist-failure flag on the theme hook, the avatar menu's screen-reader-only announcer, and the positioning wrapper that existed only to anchor the standalone bubble. AC-1, AC-3, AC-4, AC-5, AC-6, AC-9 and AC-10 are retired with it, and so is §4 limit 5. §2.3's transition inventory collapses to a single state, so it has no pairs left to enumerate. The exhaustive file-by-file removal list, with paths, is in §2.2's amendment.
+**What that retires.** The rendered note in both controls, the shared copy const behind it, the persist-failure flag on the theme hook, the avatar menu's screen-reader-only announcer, and the positioning wrapper that existed only to anchor the standalone bubble. The exhaustive file-by-file removal list, with paths, is in §2.2's amendment.
+
+**Retirement is stated as a COVER, not a list.** EVERY acceptance criterion in §3 and EVERY documented limit in §4 is retired, along with §2.3's whole transition inventory, because each of them describes a rendered note, an announcer, or a failure state that no longer exists. Two survive as satisfied history rather than as live constraints: AC-7, the invariant-8 dual gate, which ran on the original implementation, and AC-8, the ledger graduation, which happened. §4 limit 2 (no telemetry) is true of the current code only because there is nothing left to report.
+
+This is worded as a cover because the first draft of it was a hand-written list, and the diff review's round-1 finding 2 caught that list silently omitting AC-2 and limits 1, 3, 4 and 6 — every one of which still read as a live requirement while the shipped code did the opposite. A list has to be re-audited every time the document moves; a cover does not.
 
 **What survives, and is now the whole contract.** The silent absorb in `setTheme`. A throwing `window.localStorage.setItem` must never stop the theme from applying in-tab. That was §1.1 item 2 before this spec added anything, it is what the entry `BL-THEME-PERSISTENCE-FAILURE-IS-SILENT` originally described as a defect, and it is the behaviour the codebase is back to. The difference from the pre-2026-08-15 state is that the silence is now RATIFIED rather than incidental: `components/layout/useAppliedTheme.ts` carries a comment in the catch saying so and pointing here.
 
@@ -73,6 +84,8 @@ Kept: the try/catch absorb in `setTheme`, with a comment recording that its sile
 
 ### §2.3 Mode boundaries and Transition Inventory
 
+**RETIRED WHOLESALE 2026-08-26 (§2.2 amendment).** Every row below is a transition of a note that no longer renders, including the compound row asserting that the root-level announcer owns the announcement — that announcer is deleted. The control has one visual state now and therefore no pairs to enumerate. Kept as the record of what the note did while it existed.
+
 Two visual states per control: note-absent (default) and note-present. Transition inventory (all pairs):
 
 | Transition | Treatment |
@@ -95,6 +108,8 @@ No change to: the no-FOUC script; `readAppliedTheme`; the OS-change subscription
 
 ## §3 Acceptance criteria
 
+**RETIRED WHOLESALE 2026-08-26 (§2.2 amendment), except AC-7 and AC-8, which are satisfied history.** Every other criterion below asserts a rendered note, a status container, a live region, or the anchoring wrapper, and the shipped code has none of them. AC-2 in particular still says the status containers exist and are empty; they do not exist at all. Read nothing here as a live requirement.
+
 - **AC-1 (signal on failure).** With `localStorage.setItem` throwing, activating either control applies the theme in-tab AND renders the note text in that control's status container. Assert BOTH halves; the theme-apply assertion pins that the guard did not break the absorb. Repeated-failure shape (R1 F1): a second failing activation keeps the note rendered (assert presence after both), and the fail-recover-fail sequence re-empties then re-fills the container (the announceable transition) — derive both from the same fixture.
 - **AC-9 (pre-effect ordering, standalone toggle).** With storage blocked, a click dispatched BEFORE the mount effect runs (the `ThemeToggle` pre-mount window) sets the flag, and the note is still rendered AFTER the mount effect completes — the functional-update preservation in §2.1 is the production line under test (R1 F2).
 - **AC-2 (silent on success).** With working storage, no note text renders anywhere, before or after toggling. The status containers exist (always-mounted) but are empty.
@@ -107,6 +122,8 @@ No change to: the no-FOUC script; `readAppliedTheme`; the OS-change subscription
 - **AC-8 (ledger).** `BL-THEME-PERSISTENCE-FAILURE-IS-SILENT` archives on the implementation PR's merge; markers strip per invariant 12.
 
 ## §4 Documented limits
+
+**RETIRED WHOLESALE 2026-08-26 (§2.2 amendment).** Limits 1, 3, 4 and 6 describe the note's per-instance lifetime, its popover re-render, its re-announcement behaviour and its two-control case; none of that exists. Limit 2 is trivially true because nothing is reported. Limit 5 carries its own retirement note inline. The limits that are actually live for the CURRENT code are in the arc's closeout, `docs/superpowers/plans/2026-08-26-theme-note-removal.md`, not here.
 
 1. **The note is per-control-instance and per-page-session.** It does not survive reload (nothing can persist it — that is the failure being reported) and does not render on load for a PREVIOUS session's failure: the signal fires at interaction time, which is when the user can act on it. A load-time probe write was considered and rejected: probing storage on every load to warn users who never touch the toggle spends a speculative write on everyone for a note almost nobody needs.
 2. **No telemetry.** A blocked client storage write is a device condition, not an operator event (§1.1 item 6).

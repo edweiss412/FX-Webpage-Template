@@ -168,7 +168,21 @@ describe("useAppliedTheme absorbs a blocked write silently", () => {
     container.remove();
   });
 
-  it("leaves the applied theme alone when the OS theme changes after a blocked write", () => {
+  it("lets a later OS change take over, because a blocked write left no stored choice", () => {
+    // REWRITTEN 2026-08-26 (diff review r1 finding 1). The previous version
+    // applied dark, emitted an OS event that ALSO said dark, and asserted dark.
+    // Deleting either production line in the OS-change handler still passed it:
+    // the assertion could not tell the listener from a no-op. It was also
+    // mis-titled — it claimed the applied theme is "left alone", when the real
+    // contract is the opposite. A blocked write stores nothing, so `getItem`
+    // returns null, the handler's stored-choice early return does not fire, and
+    // the OS genuinely takes over. That is the behaviour worth pinning on the
+    // device this whole arc is about.
+    //
+    // The emitted value now DIFFERS from the applied theme, which is what makes
+    // it discriminate, and both observables are asserted: the dataset write and
+    // the state update are separate lines and a test that names only one leaves
+    // the other free to be deleted.
     const media = installMatchMedia(false);
     blockWrites();
     const { result } = renderHook(() => useAppliedTheme());
@@ -176,14 +190,47 @@ describe("useAppliedTheme absorbs a blocked write silently", () => {
     act(() => {
       result.current.setTheme("dark");
     });
+    // PREMISE: dark is genuinely applied, so the OS event below is a real
+    // transition rather than a restatement of the current state.
     expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(result.current.theme).toBe("dark");
 
-    // No stored choice (the write was blocked), so the OS-change listener acts.
     act(() => {
-      media.emit(true);
+      media.emit(false);
     });
 
-    expect(document.documentElement.dataset.theme).toBe("dark");
+    // Pins the dataset write in the OS-change handler.
+    expect(document.documentElement.dataset.theme).toBe("light");
+    // Pins the state update beside it. Without this, deleting the setState
+    // leaves the control rendering a stale `isDark` while the page is light.
+    expect(result.current.theme).toBe("light");
+    expect(result.current.mounted && result.current.isDark).toBe(false);
+
     expect("persistFailed" in result.current).toBe(false);
+  });
+
+  it("does NOT follow the OS once a write has actually landed", () => {
+    // The other side of the same branch, and the reason the early return
+    // exists: a user who successfully picked a theme is not overridden by the
+    // OS. Without this case the stored-choice guard could be deleted and only
+    // the case above would notice, which would read as the listener being
+    // over-eager rather than as a missing guard.
+    const media = installMatchMedia(false);
+    allowWrites();
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => "dark");
+    const { result } = renderHook(() => useAppliedTheme());
+
+    act(() => {
+      result.current.setTheme("dark");
+    });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
+    act(() => {
+      media.emit(false);
+    });
+
+    // The stored choice wins: the OS saying light does not undo the pick.
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(result.current.theme).toBe("dark");
   });
 });
