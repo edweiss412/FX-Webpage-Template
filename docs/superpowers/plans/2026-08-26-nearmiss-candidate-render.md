@@ -65,7 +65,13 @@ RED, three cases, all reading the new shared helper from the appendix below:
 
 Each absence case carries an executable premise: it asserts first that the warning reached the component and rendered a card, so a fixture that silently rendered nothing cannot pass it vacuously.
 
-**A fourth case, because round 2 caught that the first three do not connect the guard to the component.** All three pass if the component renders `w.candidate` directly and `candidateLabel` sits beside it as unused, fully-tested code. So: a warning whose persisted `candidate` is the NUMBER `42` renders no band. That fails on direct rendering, which would put `42` in the DOM, and it is the only assertion tying task 1's guard to this call site. Spec §5's contract is one implementation and two call sites; without this the plan tests the implementation and the call sites separately and never that they meet.
+**Two more cases, added across rounds 2 and 3, each killing a different wrong implementation.**
+
+Round 2: a warning whose persisted `candidate` is the NUMBER `42` renders no band. That fails on a direct `w.candidate` read, which would put `42` in the DOM.
+
+Round 3: a warning whose `candidate` is `"  VENUE ADDRESS  "` renders the band with the value TRIMMED. Round 3 caught that all ten committed candidates are already trimmed, so `42` alone still licenses a local `typeof w.candidate === "string" ? w.candidate : null` at each call site, which passes every other case and renders padding into the DOM. A padded input is the only one that separates the guard's rule from the nearest wrong rule.
+
+**What these two cases can and cannot establish, stated so it is not re-raised.** Together they pin the BEHAVIOR at this call site: no non-string, no padding, no absent key. They cannot prove that `candidateLabel` is the function called, because a byte-identical inline duplicate is observationally identical, and a test that asserted otherwise would be asserting call structure rather than output. That is deliberate. The defect worth catching is divergent behavior between the two surfaces, and pinning both surfaces against the same rule catches it whichever way the code is factored.
 
 GREEN: the band markup at spec §3.2 and the four-state collapse at spec §3.3.
 
@@ -77,7 +83,7 @@ Keep green, do not edit: `pnpm vitest run tests/components/perShowActionableWarn
 
 <!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3CandidateBand.test.tsx` ac=AC-2,AC-3 -->
 
-The same FOUR cases against `wizard-step3-card-${dfid}-warning-${i}-candidate`, reading the same helper, and with the same split of status: case 1 is the red, the rest are regression guards that pass today. The non-string case is not optional here either: round 2 found this gap on BOTH surfaces, and repairing one would leave the class open on the other.
+The same FIVE cases against `wizard-step3-card-${dfid}-warning-${i}-candidate`, reading the same helper, and with the same split of status: case 1 is the red, the rest are regression guards that pass today. Neither the non-string case nor the padded case is optional here: rounds 2 and 3 both found their gaps on BOTH surfaces, and repairing one surface would leave the class open on the other, which is the drip this project's round economy exists to prevent.
 
 GREEN: the prose lead-in line at spec §4.2. No `w.code` gate: the guard is on the field, and the field is set on no other code, so a second predicate could only ever agree with the first.
 
@@ -155,7 +161,7 @@ Regenerate with `node scripts/check-standalone-baseline.mjs --write` and commit 
 
 ## Task 7: invariant-8 dual gate
 
-<!-- task: red=`grep -qE "^impeccable-gate: critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=(0|[1-9][0-9]*) p1=(0|[1-9][0-9]*) dispositions=(recorded|none)$" docs/superpowers/plans/2026-08-26-nearmiss-candidate-render.md` ac=AC-7 -->
+<!-- task: red=`sh -c 'P=docs/superpowers/plans/2026-08-26-nearmiss-candidate-render.md; grep -qE "^impeccable-gate: critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=(0|[1-9][0-9]*) p1=(0|[1-9][0-9]*) dispositions=(recorded|none)$" $P || exit 1; grep -q "^### Findings and dispositions" $P || exit 1; grep -q "^### Pre-code checklist result" $P || exit 1; exit 0'` ac=AC-7 -->
 
 The pre-code mechanical checklist is a PRECONDITION and runs before tasks 2 through 4, not here. See the section above the task region; round 1 caught it placed after the code it was meant to precede.
 
@@ -163,17 +169,21 @@ Run `/impeccable critique` AND `/impeccable audit` on the diff with the canonica
 
 **The red mirrors the repository's ACTUAL grammar**, and round 1 caught two things wrong with an earlier version. The grammar is `RAN_FORM` at `tests/docs/_invariant8Closeout.ts:45`, whose integers reject leading zeros: `p0=(0|[1-9]\d*)`. A `[0-9]+` would accept `p0=00`, making this task green while `_metaInvariant8Closeout` stays red. The line an earlier draft cited, `tests/docs/_metaInvariant8Closeout.test.ts:254`, is a TEMPLATE-form fixture inside a deliberately-failing case, not the executable rule.
 
-**What this red proves, and what it cannot.** It proves the marker is present and well-formed. It CANNOT prove the gate ran, and the guard says so about itself: "this walker and its guard verify that a declaring plan unit CARRIES a well-formed gate claim, not that the impeccable gate actually ran or that its findings are honest" (`tests/docs/_invariant8Closeout.ts:11-16`). A fabricated but valid marker passes it. So the earlier claim that this red catches "a run that executed critique and skipped audit" was false, and it is withdrawn rather than reworded.
+**What this red proves, and what nothing local can.** It proves three artifacts exist: a well-formed marker line, a findings-and-dispositions section, and a pre-code checklist result. Round 3 pushed on the marker alone being forgeable, correctly, so the red now requires the whole record rather than the one line a fabricator would think to write.
 
-What actually establishes that both halves ran is the findings and dispositions recorded in the closeout, read by a human in the diff. The guard's own comment calls a fabricated marker "a deliberate lie in a reviewed diff, reviewer territory", and this plan does not pretend to mechanize it.
+It still CANNOT prove the gates ran, and no command in this repository can. The guard says so about itself: "this walker and its guard verify that a declaring plan unit CARRIES a well-formed gate claim, not that the impeccable gate actually ran or that its findings are honest" (`tests/docs/_invariant8Closeout.ts:11-16`), and it names a fabricated marker "a deliberate lie in a reviewed diff, reviewer territory". That is a ratified boundary, not an oversight in this plan.
+
+So AC-7 splits the way AC-5 already does. Its RECORDING half is mechanical and this red covers it. Its SUBSTANTIVE half, that two interactive gates were actually run by a person, is established by the diff review, exactly as AC-5's "real CI green" is established by CI rather than by a local command that would pass on a stale run. The earlier claim that this red catches "a run that executed critique and skipped audit" was false and is withdrawn rather than reworded.
 
 ## Task 8: graduate the row, last commit
 
-<!-- task: red=`sh -c 'grep -q "^### BL-NEARMISS-CANDIDATE-RENDER" BACKLOG.md && exit 1; awk "/^### BL-NEARMISS-CANDIDATE-RENDER/,/^### /" BACKLOG-archive.md > /tmp/nm-entry.txt; test -s /tmp/nm-entry.txt || exit 1; grep -q "IN PROGRESS" /tmp/nm-entry.txt && exit 1; grep -q "Resolution:" /tmp/nm-entry.txt || exit 1; grep -q "triggerContext" /tmp/nm-entry.txt || exit 1; exit 0'` ac=AC-4 -->
+<!-- task: red=`sh -c 'grep -q "^### BL-NEARMISS-CANDIDATE-RENDER" BACKLOG.md && exit 1; awk "/^### BL-NEARMISS-CANDIDATE-RENDER/{f=1} f&&/^### /&&!/BL-NEARMISS-CANDIDATE-RENDER/{f=0} f" BACKLOG-archive.md > /tmp/nm-entry.txt; test -s /tmp/nm-entry.txt || exit 1; grep -q "IN PROGRESS" /tmp/nm-entry.txt && exit 1; grep -q "Resolution:" /tmp/nm-entry.txt || exit 1; grep -q "triggerContext" /tmp/nm-entry.txt || exit 1; exit 0'` ac=AC-4 -->
 
 **Five conditions now, across two rounds of narrowing.** Round 1 caught that asserting only "the heading left `BACKLOG.md`" passes on a delete, a rename, or a move anywhere at all, including into the archive with the marker intact. Round 2 caught that even those three pass on moving the entry VERBATIM: the task's GREEN requires the entry to record the settled four-field rewrite and the nine-site lockstep, and none of the three conditions observes the entry's content.
 
 So: gone from `BACKLOG.md`; a non-empty entry block PRESENT in `BACKLOG-archive.md`; no `IN PROGRESS` in that block; the block carries a `Resolution:` line; and the block mentions `triggerContext`.
+
+**Round 3 found the extractor itself broken, which would have made the last two conditions unsatisfiable.** The range `awk "/^### BL-NEARMISS-CANDIDATE-RENDER/,/^### /"` uses a pattern for its END that also matches its START, so awk closes the range on the same line and emits the heading alone. Probed: one line out, both body greps failing on a correct entry. The flag form emits the block. A red that CANNOT pass on the correct implementation is the mirror image of one that passes on a wrong implementation, and it is worth naming as the same defect wearing the other face.
 
 `triggerContext` is the discriminator and it was chosen by measurement, not taste. The row's body today mentions neither `triggerContext` nor `dougFacing` (`awk` over the entry returns 0 matches for both), because when it was filed only `helpfulContext` and `longExplanation` were in scope. The four-field rewrite is this arc's finding. So a verbatim move fails the red and a real resolution passes it, which is exactly the distinction round 2 asked for.
 
@@ -247,6 +257,8 @@ Handles only. `docs/superpowers/specs/2026-08-26-nearmiss-candidate-render.md` �
 | AC-8 | A `PULL_SHEET_*` warning on the wizard list renders no row label; an `UNKNOWN_FIELD` keeps its | 4, 6 |
 
 AC-5 has no task marker because no `red=` can express it: it is satisfied by real CI on the pushed branch, not by a local command, and a red that shelled out to `gh` would go green on a stale run.
+
+AC-7 is the same shape, split rather than exempted. Task 7's red covers its recording half, three artifacts that must exist. Its substantive half, that a person ran both interactive gates, is reviewer territory by the guard's own ratified statement (`tests/docs/_invariant8Closeout.ts:11-16`), and this plan says so instead of implying a command settles it.
 
 ## Gates before every push
 
