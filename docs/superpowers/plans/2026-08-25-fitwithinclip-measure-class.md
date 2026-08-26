@@ -478,9 +478,19 @@ invariant-8 closeout guard, which is red until Task 6 writes the marker. Running
 would make Task 6 unreachable under its own prerequisite.
 
 Each as its own command, never chained: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`,
-`pnpm format:check`, `pnpm heavy pnpm test:e2e`, and
+`pnpm format:check`, `pnpm heavy pnpm test:e2e:standalone`, and
 `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts`. Vitest strips types, so a green suite
 proves nothing about `pnpm typecheck`.
+
+**Corrected at execution: the e2e gate is `test:e2e:standalone`, not `test:e2e`.** Earlier drafts of
+this list named `pnpm heavy pnpm test:e2e`, and that command **does not run this arc's spec at all**.
+Measured: a full `pnpm test:e2e` reported 597 passed, 209 failed and 173 not run, and
+`tests/e2e/popover-clip-fit.spec.ts` contributed **zero** results to it, passing or failing. The spec
+is registered in `tests/e2e/standalone.config.ts`, an explicit allow-list that the default playwright
+config does not include, which is also why `tests/e2e/standalone-baseline.json` pins it under the
+`standalone-chromium` project. CI agrees: `.github/workflows/standalone-e2e.yml:71` runs the whole
+standalone config on every PR, and that is the job this arc must be green in. Naming `test:e2e` here
+would have let a green-looking gate certify AC-4 while never executing the case that proves it.
 
 **Not a red-then-green unit.** Its failure condition is any regression Tasks 1-4 introduced elsewhere,
 which cannot be declared in advance. No commit of its own unless a gate forces a fix, in which case
