@@ -8,14 +8,16 @@ import {
   seedLiveShowWithToken,
   sqlClient,
 } from "@/tests/db/_b2Helpers";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 // BL-RPC-RESET-SELECTION-LIFECYCLE-GUARD — DEF-1 lifecycle guard on reset_crew_member_selection.
 // Lifecycle/success/not-found cases use the self-cleaning runPsql + begin/rollback harness (mirrors the
 // existing tests/db/reset_crew_member_selection.test.ts). The R32 TOCTOU race uses the _b2Helpers
 // two-connection harness (the archive COMMITS, so that case has explicit finally-cleanup).
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 function runPsql(sql: string): string {
   return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", databaseUrl], {

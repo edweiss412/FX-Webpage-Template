@@ -14,11 +14,11 @@ import { NextRequest } from "next/server";
 import { closeB2Helpers, seedAutoPublishedShowWithUnpublishToken } from "@/tests/db/_b2Helpers";
 import { mintIdFor, recipientBindingFor } from "@/lib/sync/unpublishBinding";
 import { POST } from "@/app/api/show/[slug]/unpublish/route";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // not-subject-to-meta: test-only fixture connection against the local stack;
 // faults fail the test directly rather than needing a typed infra result.

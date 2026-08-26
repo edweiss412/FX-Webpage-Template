@@ -32,11 +32,11 @@ import { afterAll, describe, expect, it } from "vitest";
 import { makeSyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 
 import { parseResult } from "./_holdAwareTestkit";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // Probe at module top-level so `test.skipIf` (evaluated at collection time) is accurate.
 let sql: Sql | null = null;

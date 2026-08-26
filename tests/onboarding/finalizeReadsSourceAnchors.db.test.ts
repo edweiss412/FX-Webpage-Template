@@ -12,6 +12,7 @@ import postgres from "postgres";
 
 import { PostgresOnboardingScanTx, type PostgresTransaction } from "@/lib/sync/runOnboardingScan";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 // The Step-3 finalize must NOT export XLSX. If a regression re-introduces any export call these
 // throw and the publish fails loudly. fetchDriveFileMetadata (the freshness get) stays real.
@@ -29,8 +30,9 @@ vi.mock("@/lib/drive/fetch", async (importOriginal) => {
   };
 });
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "7c7c7c7c-6666-4666-8666-7c7c7c7c7c7c";
 const FOLDER = "finalize-reads-sa-folder";

@@ -402,9 +402,20 @@ export default defineConfig({
           process.env.SUPABASE_SECRET_KEY ??
           "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
         SUPABASE_URL: process.env.SUPABASE_URL ?? "http://127.0.0.1:54321",
+        // NEVER the ambient TEST_DATABASE_URL. In this repo `.env.local` points that
+        // variable at the REMOTE validation project on purpose (the schema-parity gates
+        // need a validation credential), and lib/sync/_databaseUrl.ts and its ~19 inline
+        // twins resolve `TEST_DATABASE_URL ?? DATABASE_URL ?? loopback` — so forwarding it
+        // pointed the app server under test at validation, where the notify cron then sent
+        // real mail (nine alerts, 2026-08-26 01:10-03:10 CDT).
+        //
+        // The key is PINNED rather than dropped: `next dev` loads `.env.local` itself and
+        // an explicit value in this env wins, where an absent one would let the remote
+        // value straight back in. Both names carry the same LOCAL DSN.
+        DATABASE_URL:
+          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
         TEST_DATABASE_URL:
-          process.env.TEST_DATABASE_URL ??
-          "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
         TEST_AUTH_SECRET: "test-secret-fixture",
       },
       url: "http://localhost:3004",

@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const databaseUrl = process.env.TEST_DATABASE_URL;
+const databaseUrl = process.env.DATABASE_URL;
 const migrationPath = "supabase/migrations/20260602000005_b3_schedule_notify_cron.sql";
 
 const existingFxavJobs = [
@@ -33,30 +34,42 @@ function sqlLiteral(value: string): string {
 }
 
 function runPsql(sql: string): string {
-  if (!databaseUrl) throw new Error("TEST_DATABASE_URL is required for this test");
-  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", databaseUrl], {
-    cwd: process.cwd(),
-    input: sql,
-    encoding: "utf8",
-  }).trim();
+  if (!databaseUrl) throw new Error("DATABASE_URL is required for this test");
+  return execFileSync(
+    "psql",
+    ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", assertLocalDbUrl(databaseUrl)],
+    {
+      cwd: process.cwd(),
+      input: sql,
+      encoding: "utf8",
+    },
+  ).trim();
 }
 
 function applyMigration(): void {
-  if (!databaseUrl) throw new Error("TEST_DATABASE_URL is required for this test");
-  execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-q", "-f", migrationPath, databaseUrl], {
-    cwd: process.cwd(),
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  if (!databaseUrl) throw new Error("DATABASE_URL is required for this test");
+  execFileSync(
+    "psql",
+    ["-X", "-v", "ON_ERROR_STOP=1", "-q", "-f", migrationPath, assertLocalDbUrl(databaseUrl)],
+    {
+      cwd: process.cwd(),
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 }
 
 const livePsqlReachable = ((): boolean => {
   if (!databaseUrl) return false;
   try {
-    execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-c", "select 1", databaseUrl], {
-      cwd: process.cwd(),
-      stdio: ["ignore", "ignore", "ignore"],
-      timeout: 3000,
-    });
+    execFileSync(
+      "psql",
+      ["-X", "-v", "ON_ERROR_STOP=1", "-c", "select 1", assertLocalDbUrl(databaseUrl)],
+      {
+        cwd: process.cwd(),
+        stdio: ["ignore", "ignore", "ignore"],
+        timeout: 3000,
+      },
+    );
     return true;
   } catch {
     return false;
@@ -65,7 +78,7 @@ const livePsqlReachable = ((): boolean => {
 
 if (!livePsqlReachable) {
   console.warn(
-    "[b3-notify-cron-idempotency] Skipping live-DB apply-twice test — set TEST_DATABASE_URL to a reachable Postgres with pg_cron, pg_net, and Vault.",
+    "[b3-notify-cron-idempotency] Skipping live-DB apply-twice test — set DATABASE_URL to a reachable LOCAL Postgres with pg_cron, pg_net, and Vault.",
   );
 }
 
