@@ -264,6 +264,172 @@ describe("ScanOptions.paintedChildren (spec §5 D2, §5.3)", () => {
   });
 });
 
+/**
+ * The two resolution edges beyond ancestry (spec §5.1).
+ *
+ * Both exist because a live site needed them, and each fixture below is shaped
+ * like the site that forced it. The refusals are documented limit L1 and L2
+ * asserted rather than described.
+ */
+describe("ScanOptions.paintedChildren resolution edges (spec §5.1)", () => {
+  const ON = { paintedChildren: true } as const;
+  const painted = (els: ScanElement[]) => els.filter((e) => e.admittedAs === "painted-child");
+
+  it("edge 1: follows a JSX child that is a bare local identifier (VenueMapTile shape)", () => {
+    const els = scanFixture(
+      `export function Fx({ href }: { href: string }) {
+        const inner = (
+          <>
+            <span className="directions" />
+          </>
+        );
+        return <a href={href} className="tile">{inner}</a>;
+      }`,
+      ON,
+    );
+    expect(painted(els).map((e) => allStrings(e).join(" "))).toEqual(["directions"]);
+  });
+
+  it("edge 2: follows a NAMED import one hop, reporting against the callee (CronRunSummaryCard shape)", () => {
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { Card } from "./Card";
+          export function Fx() {
+            return <div role="button" className="row"><Card /></div>;
+          }`,
+        "components/Card.tsx": `export function Card() {
+            return <div className="card-edge" />;
+          }`,
+      },
+      ON,
+    );
+    const child = painted(els)[0];
+    expect(child).toBeDefined();
+    expect(allStrings(child!)).toEqual(["card-edge"]);
+    // Against the CALLEE's file, so the row names the file a reader must edit.
+    expect(child!.file).toBe("components/Card.tsx");
+  });
+
+  it("edge 2: follows a DEFAULT import one hop too", () => {
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import Card from "./Card";
+          export function Fx() {
+            return <button className="outer"><Card /></button>;
+          }`,
+        "components/Card.tsx": `export default function Card() {
+            return <span className="card-edge" />;
+          }`,
+      },
+      ON,
+    );
+    expect(painted(els).map((e) => allStrings(e).join(" "))).toEqual(["card-edge"]);
+  });
+
+  it("L1: does NOT follow a tag the resolver cannot name", () => {
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { withThing } from "./hoc";
+          import { Base } from "./Base";
+          const Wrapped = withThing(Base);
+          export function Fx() {
+            return <button className="outer"><Wrapped /></button>;
+          }`,
+        "components/hoc.tsx": `export const withThing = (C: unknown) => C;`,
+        "components/Base.tsx": `export function Base() {
+            return <span className="hoc-painted" />;
+          }`,
+      },
+      ON,
+    );
+    expect(painted(els).map((e) => allStrings(e).join(" "))).not.toContain("hoc-painted");
+  });
+
+  it("does NOT follow a component that is NOT inside an in-scope ancestor", () => {
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { Card } from "./Card";
+          export function Fx() {
+            return <div className="plain"><Card /></div>;
+          }`,
+        "components/Card.tsx": `export function Card() {
+            return <div className="card-edge" />;
+          }`,
+      },
+      ON,
+    );
+    expect(painted(els)).toEqual([]);
+  });
+
+  it("terminates on a cyclic pair of JSX-valued consts", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        const a = <span className="a">{b}</span>;
+        const b = <span className="b">{a}</span>;
+        return <button className="outer">{a}</button>;
+      }`,
+      ON,
+    );
+    expect(
+      painted(els)
+        .map((e) => allStrings(e).join(" "))
+        .sort(),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("terminates on a component that renders itself", () => {
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { Card } from "./Card";
+          export function Fx() {
+            return <button className="outer"><Card /></button>;
+          }`,
+        "components/Card.tsx": `export function Card() {
+            return <span className="card-edge"><Card /></span>;
+          }`,
+      },
+      ON,
+    );
+    expect(painted(els).map((e) => allStrings(e).join(" "))).toEqual(["card-edge"]);
+  });
+
+  it("AC-4b: a component invoked from TWO in-scope ancestors contributes its elements once", () => {
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { Card } from "./Card";
+          export function Fx() {
+            return (
+              <div>
+                <button className="one"><Card /></button>
+                <button className="two"><Card /></button>
+              </div>
+            );
+          }`,
+        "components/Card.tsx": `export function Card() {
+            return <span className="card-edge" />;
+          }`,
+      },
+      ON,
+    );
+    expect(painted(els).filter((e) => allStrings(e).includes("card-edge"))).toHaveLength(1);
+  });
+
+  it("follows neither edge at the default", () => {
+    const files = {
+      "components/Fx.tsx": `import { Card } from "./Card";
+        export function Fx() {
+          const inner = <span className="directions" />;
+          return <button className="outer">{inner}<Card /></button>;
+        }`,
+      "components/Card.tsx": `export function Card() {
+          return <span className="card-edge" />;
+        }`,
+    };
+    expect(painted(scanFixtureFiles(files))).toEqual([]);
+    expect(scanFixtureFiles(files).map((e) => e.tag)).toEqual(["button"]);
+  });
+});
+
 describe("resolver corpus walk", () => {
   const all = scanInteractiveElements(process.cwd());
   it("covers the live corpus (premise: non-trivial)", () => {

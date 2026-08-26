@@ -915,14 +915,96 @@ function isInScope(tag: string, attributes: ts.JsxAttributes, options: ScanOptio
  * resolver's own end-to-end tests, so the walk, the `@/` alias base and the
  * reported paths all derive from ONE argument.
  */
+
+/**
+ * A file-local declaration whose value holds JSX: `const x = <jsx/>` or
+ * `function X() { return <jsx/> }`. `null` when there is none.
+ *
+ * This is the binding resolution the module already performs for classNames
+ * (`resolveExpression`'s variable arm), applied to a JSX child rather than to a
+ * class string. It reads a VALUE; a component INVOCATION is a different edge,
+ * resolved by `importedComponentDeclaration`.
+ */
+function localJsxDeclaration(name: string, sf: ts.SourceFile): ts.Node | null {
+  let found: ts.Node | null = null;
+  const holdsJsx = (n: ts.Node): boolean => {
+    if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n)) return true;
+    let hit = false;
+    ts.forEachChild(n, (c) => {
+      if (!hit) hit = holdsJsx(c);
+    });
+    return hit;
+  };
+  const walk = (n: ts.Node): void => {
+    if (found !== null) return;
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === name &&
+      n.initializer &&
+      holdsJsx(n.initializer)
+    ) {
+      found = n.initializer;
+      return;
+    }
+    if (ts.isFunctionDeclaration(n) && n.name?.text === name && n.body && holdsJsx(n.body)) {
+      found = n.body;
+      return;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  return found;
+}
+
+/**
+ * A component tag imported by NAME or by DEFAULT, resolved to its declaration
+ * in that module (spec §5.1, edge 2). ONE hop: the corpus makes no deeper
+ * component call inside a control, and a second hop is a widening nobody has a
+ * site for (limit L1).
+ *
+ * A default export is looked up under its LOCAL binding name first, then under
+ * `default`, because `export default function Card()` names the function and
+ * `export default X` does not.
+ */
+function importedComponentDeclaration(
+  name: string,
+  ctx: Ctx,
+): { node: ts.Node; sf: ts.SourceFile; file: string } | null {
+  let specifier: string | null = findImportSpecifier(name, ctx.sf);
+  if (specifier === null) {
+    for (const statement of ctx.sf.statements) {
+      if (!ts.isImportDeclaration(statement)) continue;
+      if (
+        statement.importClause?.name?.text === name &&
+        ts.isStringLiteral(statement.moduleSpecifier)
+      ) {
+        specifier = statement.moduleSpecifier.text;
+        break;
+      }
+    }
+  }
+  if (specifier === null) return null;
+  const target = resolveModulePath(specifier, ctx);
+  if (target === null) return null;
+  const sf = parse(target);
+  if (!sf) return null;
+  const node = localJsxDeclaration(name, sf) ?? localJsxDeclaration("default", sf);
+  return node ? { node, sf, file: target } : null;
+}
+
 export function scanInteractiveElements(rootDir: string, options: ScanOptions = {}): ScanElement[] {
   const elements: ScanElement[] = [];
   const files = CORPUS_DIRS.flatMap((dir) => walkTsx(join(rootDir, dir)));
 
   for (const file of files) {
-    const sf = parse(file);
-    if (!sf) continue;
-    const ctx: Ctx = { root: rootDir, file, sf, depth: 0, hops: 0 };
+    const sf0 = parse(file);
+    if (!sf0) continue;
+    let sf = sf0;
+    let ctx: Ctx = { root: rootDir, file, sf, depth: 0, hops: 0 };
+
+    /** Names already being followed in this file, so a cycle terminates. */
+    const followed = new Set<string>();
 
     /**
      * How many in-scope elements enclose the node being visited.
@@ -945,6 +1027,34 @@ export function scanInteractiveElements(rootDir: string, options: ScanOptions = 
           options.paintedChildren === true &&
           insideInScope > 0 &&
           attributeNamed(node.attributes, "className") !== null;
+        if (options.paintedChildren === true && insideInScope > 0 && /^[A-Z]/.test(tag)) {
+          const key = `${ctx.file}#${tag}`;
+          if (!followed.has(key)) {
+            const local = localJsxDeclaration(tag, sf);
+            const imported = local === null ? importedComponentDeclaration(tag, ctx) : null;
+            if (local !== null) {
+              followed.add(key);
+              visit(local);
+              followed.delete(key);
+            } else if (imported !== null) {
+              followed.add(key);
+              const heldSf = sf;
+              const heldCtx = ctx;
+              sf = imported.sf;
+              ctx = {
+                root: rootDir,
+                file: imported.file,
+                sf: imported.sf,
+                depth: 0,
+                hops: ctx.hops + 1,
+              };
+              visit(imported.node);
+              sf = heldSf;
+              ctx = heldCtx;
+              followed.delete(key);
+            }
+          }
+        }
         if (own || asChild) {
           const className = attributeNamed(node.attributes, "className");
           // A spread can carry OR override className, so an unreadable one
@@ -966,7 +1076,7 @@ export function scanInteractiveElements(rootDir: string, options: ScanOptions = 
             }
           }
           elements.push({
-            file: relative(rootDir, file),
+            file: relative(rootDir, ctx.file),
             line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
             tag,
             paths: resolution.paths,
@@ -990,10 +1100,39 @@ export function scanInteractiveElements(rootDir: string, options: ScanOptions = 
         visit(node.closingElement);
         return;
       }
+      if (
+        options.paintedChildren === true &&
+        insideInScope > 0 &&
+        ts.isJsxExpression(node) &&
+        node.expression &&
+        ts.isIdentifier(node.expression)
+      ) {
+        const key = `${ctx.file}#${node.expression.text}`;
+        if (!followed.has(key)) {
+          const binding = localJsxDeclaration(node.expression.text, sf);
+          if (binding) {
+            followed.add(key);
+            visit(binding);
+            followed.delete(key);
+          }
+        }
+      }
       ts.forEachChild(node, visit);
     };
-    visit(sf);
+    visit(sf0);
   }
 
-  return elements;
+  /**
+   * A component invoked from several in-scope ancestors would report its
+   * elements once per call site, so the result is de-duplicated by identity
+   * (AC-4b). With both flags off no element can be reached twice, so this is
+   * inert on the default path and AC-1 still holds byte-for-byte.
+   */
+  const seen = new Set<string>();
+  return elements.filter((el) => {
+    const key = `${el.file}:${el.line}:${el.tag}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
