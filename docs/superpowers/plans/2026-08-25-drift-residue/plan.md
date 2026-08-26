@@ -22,6 +22,15 @@ The spec closed at the round cap with 11 findings repaired across four counted r
 - No file under `components/` or `app/` outside `app/api/**` is edited, so `impeccable-gate: N/A — no UI surface`.
 - `scripts/capture-render-fault.ts` is not touched, so the enrolled mutation score at `tests/mutation/source/registry.ts:177-191` is untouched and needs no re-run.
 
+## Task order, and which orderings are forced
+
+Stated because two of the five are load-bearing and a plan that leaves them implicit invites the wrong sequence.
+
+- **Task 2 before task 3 — FORCED.** They share a red command. Task 2 greens `tests/help/_metaRenderFaultMarking.test.ts`; task 3's missing `cause` field re-reddens it. Reversed, task 3's GREEN would leave task 2 with no observable red on that command.
+- **Task 5 before the whole-diff review — FORCED**, for the reason argued at task 5.
+- **Task 1 before task 3 — NOT forced, but preferred.** Task 3's derivation uses `scanCandidates()`, which does not depend on task 1's export; the numbering follows the spec's section order rather than a dependency. Task 1 does extend `resolveSpecifier`, and AC-1.3b asserts that extension leaves the scanner's candidate set unmoved, so running task 1 first means task 3 derives against a candidate set already proven stable.
+- **Task 4 is independent** of all four others and may land anywhere before the review.
+
 <!-- tasks: depth=2 red-contract -->
 
 ## Task 1 — widen the server-time guard by direct render import, repair the survivor, waive the twelve
