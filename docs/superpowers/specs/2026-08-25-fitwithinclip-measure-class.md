@@ -41,6 +41,23 @@ So the always-present shape — the one the first draft measured and the second 
 route — **is** a shipped surface. It is `AttentionMenuPanel`. The second draft's "all five use a late
 conditional host" and "all five currently measure once" were both false.
 
+**And there is a fourth runtime path that attaches nothing at all**, found by sweeping the call sites
+from source rather than by a review round. `PublishedToggle`'s `variant` defaults to `"card"`
+(`components/admin/PublishedToggle.tsx:98`); the arm carrying `ref={fitRef}` sits behind
+`if (variant === "inline" || variant === "settings")`
+(`components/admin/PublishedToggle.tsx:134`) and returns at
+`components/admin/PublishedToggle.tsx:151`, while the card arm returns at
+`components/admin/PublishedToggle.tsx:232` having never attached it — the file contains exactly one
+`ref={fitRef}`. The hook is called unconditionally for rules-of-hooks reasons, and the component says
+so in place (`components/admin/PublishedToggle.tsx:128-131`). So the DEFAULT variant of one consumer
+calls the hook and never attaches its ref.
+
+It carries no row in the table below because it measures nothing in either shape: zero applies, zero
+walks. The difference is invisible to those columns and real anyway — today the layout effect still
+RUNS on every dependency change and returns early on the null node, whereas after the refactor
+nothing runs at all. It is the one path where this arc removes work with no number to show for it,
+and (h18) pins that it stays silent rather than becoming a throw.
+
 **Strict Mode is on and its replay is development-only.** `next.config.ts` never sets
 `reactStrictMode`, and Next enables it for the App Router when unset, per its own inline build
 comment. React 19 replays a callback ref that returns a cleanup, which is what §2 introduces.
@@ -54,7 +71,12 @@ overlay appearance, once bare and once inside `<StrictMode>`, counting owner ren
 `getComputedStyle` calls each in this two-deep chain). Run 2026-08-25 against `origin/main` at
 `449f29faba03` and against the §2 shape.
 
-**Per overlay appearance — renders / `apply()` / ancestor walks:**
+**What the table measures, stated because round 5 caught the label overreaching:** the ATTACH — every
+render, measure and walk from the commit that mounts the node up to and including the first measure.
+For `ReSyncButton` and `PublishedToggle` that IS the whole appearance; neither does anything after it
+until a real signal arrives. `AttentionMenu` is different, and §0.1a carries it.
+
+**Per attach — renders / `apply()` / ancestor walks:**
 
 | Consumer | Production before | Production after | Strict Mode before | Strict Mode after |
 | --- | --- | --- | --- | --- |
@@ -62,7 +84,29 @@ overlay appearance, once bare and once inside `<StrictMode>`, counting owner ren
 | `PublishedToggle` | 2 / 2 / 4 | **1 / 1 / 1** | 4 / 2 / 4 | **2 / 2 / 2** |
 | `AttentionMenu` | 2 / 2 / 4 | **1 / 1 / 1** | 4 / 3 / 6 | **2 / 2 / 2** |
 
-**What the table says, stated plainly and including the one cell that moves the wrong way.**
+#### §0.1a — `AttentionMenu`'s appearance continues past the attach
+
+Its `reapplyKey` is an entrance flag flipped from a mount-scoped `requestAnimationFrame`
+(`components/admin/showpage/AttentionMenu.tsx:82-84`), so one menu opening is an attach AND a key
+change, and the key change re-attaches. Round-5 finding 1: the attach row alone cannot describe that,
+and a case asserting the attach row while driving the flip would be asserting the wrong total. Same
+probe, with the entrance frame flushed:
+
+| `AttentionMenu` | before | after |
+| --- | --- | --- |
+| bare, at attach | 2 / 2 / 4 | **1 / 1 / 1** |
+| bare, after the entrance flip | 3 / 3 / 6 | **2 / 2 / 2** |
+| Strict Mode, at attach | 4 / 3 / 6 | **2 / 2 / 2** |
+| Strict Mode, after the entrance flip | 6 / 4 / 8 | **4 / 3 / 3** |
+
+Every stage improves on every metric. The re-attach on the key flip is **load-bearing and must not be
+suppressed to flatter a count**: the `scale-95` entrance distorts the measured rect, and the settled
+cap is what the second pass exists to compute (`components/admin/showpage/AttentionMenu.tsx:69-72`).
+An implementation that skipped it would leave the transformed geometry stale without tripping the
+floor-clamp diagnostic — silently wrong, which the §6 bound forbids. (h17) therefore asserts BOTH
+snapshots, separately, rather than one cumulative number.
+
+**What the tables say, stated plainly and including the one cell that moves the wrong way.**
 
 - **In production every consumer improves or holds on every metric.** Render passes halve 2 → 1
   across all three. `apply()` halves for `PublishedToggle` and `AttentionMenu` and holds at 1 for
@@ -190,6 +234,7 @@ The hook has one parameter and one runtime input.
 | `reapplyKey` | unchanged between renders (any type) | Nothing happens. `Object.is` identity is React's own dependency comparison, not ours. | §0.1's no-op row; case (h9) |
 | `reapplyKey` | an unstable object or array literal | Re-attach on every render — one measure and one walk per render. Same exposure as today, where it was an effect dependency with the same comparison. No consumer does this. The hook is exported from one module, so its call sites are enumerable by import: `rg -n 'useFitWithinClip\(' components app lib` returns five, three passing nothing and two passing a boolean. | the five call sites, enumerated below |
 | ref `node` | an `HTMLElement` | Measure, wire, return teardown. | every case |
+| the hook is called, ref NEVER attached | — | Nothing happens at all: no measure, no wiring, no teardown, and after this arc no effect invocation either. The DEFAULT `card` variant of `PublishedToggle` (`components/admin/PublishedToggle.tsx:98`, `components/admin/PublishedToggle.tsx:134`). | §5.1 case (h18) |
 | ref `node` | `null` | Return without measuring or wiring. Unreachable under React 19 cleanup refs (fact 1) but retained: the `RefCallback` type admits it, and returning `undefined` there is what React expects. | §5.1 case (h2) |
 | clip ancestor | none found | `max-height` is removed rather than left stale, and no `ResizeObserver.observe` is issued for it. | case (b) `tests/components/admin/useFitWithinClip.test.tsx:188`, family A `tests/components/admin/useFitWithinClip.test.tsx:368` |
 
@@ -372,9 +417,9 @@ That is the same consequence as this arc's rows and a **different mechanism**. R
 `tests/components/admin/useFitWithinClip.test.tsx`. Every existing case stays.
 
 **Two harnesses, and every case below says which one it uses.** Round 3's finding turned on the
-difference: the existing `Harness` attaches its ref at the owner's first render, and no consumer does
-that. It stays, because the cases built on it are still valid statements about that shape and
-rewriting them would be churn. A second harness — the same tree with the overlay behind a flag — is
+difference: the existing `Harness` attaches its ref at its owner's first render, which is the
+`AttentionMenuPanel` shape and NOT the `ReSyncButton` or `PublishedToggle` one. It stays, and it is
+not the vestigial fixture two earlier drafts of this spec called it. A second harness — the same tree with the overlay behind a flag — is
 added for the cases that must speak about the LIVE shape, and (h13) drives that one inside
 `<StrictMode>`. Reading a count without knowing its harness is how the first two drafts of §0.1 went
 wrong; naming it per case is the repair. The spike ran all 15 against the §2 shape: **14 pass unchanged**, and the one failure is the assertion this arc exists to move.
@@ -382,6 +427,7 @@ wrong; naming it per case is the repair. The spike ran all 15 against the §2 sh
 - **(g) mount count.** `expect(afterMount).toBe(2)` at `tests/components/admin/useFitWithinClip.test.tsx:281` becomes `toBe(1)`, and the comment above it (`tests/components/admin/useFitWithinClip.test.tsx:276-279`) stops citing a row that no longer exists — it explains instead that one attach is one measure, and that the count is pinned so a regression to two is visible rather than absorbed into the coalescing delta below it. The coalescing deltas in the rest of (g) (`tests/components/admin/useFitWithinClip.test.tsx:288`, `tests/components/admin/useFitWithinClip.test.tsx:292`) are unchanged and stay green.
 - **(g2) synchronous mount.** Unchanged, stays green. This is the pin that stops the refactor drifting the measure into a frame.
 - **New (h) walk control.** On the existing always-present harness. Counts `getComputedStyle` calls on **ancestors only** across one mount — the fitted node's own declared-cap read is excluded, so the number is the walk and nothing else. The assertion is stated in ancestor-call units and its expected value is **derived from the harness's own chain**: the walk visits every ancestor up to and including the first non-`visible` overflow, which in this fixture is `inner` then `outer`, so one walk is `ANCESTORS_TO_CLIP.length` calls. Never hardcoded, so deepening the fixture cannot silently satisfy it. Concrete failure modes caught, in the same units: restoring the effect body's second walk doubles it; regressing the attach mechanism to two measures doubles it again.
+- **New (h18) the hook is called and its ref is never attached.** The fourth runtime path (§0.1), and the DEFAULT variant of `PublishedToggle`. Renders a component that calls the hook and never uses the returned callback; asserts zero applies, zero walks, and no throw across several re-renders. Concrete failure mode: any implementation that measures or wires from the hook BODY rather than from the attach, which would make the card variant do layout work for an overlay it never renders.
 - **New (h2) null-node arm.** Calls the returned ref callback with `null` directly and asserts it neither measures nor throws. Concrete failure mode: a teardown-only implementation that assumes a non-null node crashes on any consumer still passing `null`.
 - **New (h3) teardown nulls the node.** After unmount, a stale `apply()` must not measure. Concrete failure mode: fact 1 above — React never calls `ref(null)` any more, so an implementation that relies on it leaves `nodeRef.current` pointing at a detached node.
 - **New (h12) the `ResizeObserver` callback actually re-measures, on BOTH observed targets.** Round-2 finding 1, and it exposes a hole that predates this arc. Case (d) (`tests/components/admin/useFitWithinClip.test.tsx:204`) records which elements are observed and then **throws the constructor callback away** — its stub declares `observe`, `unobserve` and `disconnect` and never stores the function it was constructed with. Nothing in the repo ever invokes that callback. Proven by planting the mutant rather than by argument: with the hook's `new ResizeObserver(coalescer.schedule)` replaced by `new ResizeObserver(() => {})`, all four suites that touch this hook stay green.
@@ -394,9 +440,9 @@ wrong; naming it per case is the repair. The spike ran all 15 against the §2 sh
   ```
 
   Three of the hook's four re-measure signals have behavioural cases — `window` resize by (f), `transitionend` by (e)/(e2)/(g4), a `reapplyKey` change by (c). The fourth, the one covering a resizing panel and a growing band, has none. **This arc must not inherit that hole**, because the observer wiring is exactly what moves from the layout effect into the ref callback: a mis-wire there would be invisible to every case above. (h12) captures the callback the hook hands the constructor, invokes it once for the clip ancestor and once for the positioned ancestor, and asserts the cap re-derives from the NEW geometry each time. Concrete failure mode: mutant M11, `new ResizeObserver(() => {})`, which today kills nothing.
-- **New (h15), (h16), (h17) — one case per shipped lifecycle, both modes.** Round-4 finding 1. §0.1 has three rows because there are three consumer shapes, and a table with three rows pinned by cases modelling one of them is the same defect the round charged. (h15) drives the `ReSyncButton` shape (no key, node behind a flag on the same owner), (h16) the `PublishedToggle` shape (the key IS the mounting condition, so both change in one commit), and (h17) the `AttentionMenuPanel` shape (node present at the panel's first render, key flips after mount). Each asserts renders, applies and walks for its row, bare and under `<StrictMode>`, against the exact numbers in §0.1 — including the one cell that regresses, which (h15) pins at 2 rather than pretending it is 1. Concrete failure mode: any implementation that improves one lifecycle by pessimising another, which every previous version of this suite would have reported as success.
+- **New (h15), (h16), (h17) — one case per shipped lifecycle, both modes.** (h17) asserts TWO snapshots, not one: the attach, and then the totals after flushing the entrance frame, against §0.1 and §0.1a respectively. Round-5 finding 1 was that a single cumulative assertion there is unsatisfiable without suppressing the entrance re-attach, which is load-bearing. Round-4 finding 1. §0.1 has three rows because there are three consumer shapes, and a table with three rows pinned by cases modelling one of them is the same defect the round charged. (h15) drives the `ReSyncButton` shape (no key, node behind a flag on the same owner), (h16) the `PublishedToggle` shape (the key IS the mounting condition, so both change in one commit), and (h17) the `AttentionMenuPanel` shape (node present at the panel's first render, key flips after mount). Each asserts renders, applies and walks for its row, bare and under `<StrictMode>`, against the exact numbers in §0.1 — including the one cell that regresses, which (h15) pins at 2 rather than pretending it is 1. Concrete failure mode: any implementation that improves one lifecycle by pessimising another, which every previous version of this suite would have reported as success.
 - **New (h13) the Strict Mode replay is measured, not discovered later.** Round-3 finding 1. The suite renders its harness bare, so nothing in it would have shown that a cleanup-returning ref opts into React 19's replay and doubles `apply()` in development. (h13) mounts the conditional-host harness inside `<StrictMode>` and asserts the replay's counts EXACTLY — two applies per appearance, and two owner renders where the current code takes four. It pins the cost in the direction it actually moves rather than asserting it away, so a future change that makes the replay worse is visible. Concrete failure mode: any implementation that measures a third time under replay, or that regresses the render halving this arc's main win depends on.
-- **New (h14) the conditional-host shape, bare.** Retained as the minimal statement of the arc's headline, and deliberately narrower than (h15)-(h17): it asserts one render per appearance on the plainest shape, which is the assertion mutant M12 exists to break. The existing harness attaches its ref at the owner's first render, which no consumer does. (h14) is the same harness with the overlay behind a flag, asserting one apply and one walk per appearance and — the load-bearing one — ONE owner render pass where the counter takes two. Concrete failure mode: reintroducing any state update on the attach path, which is the defect `BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE` actually names once its premise is corrected.
+- **New (h14) the conditional-host shape, bare.** Retained as the minimal statement of the arc's headline, and deliberately narrower than (h15)-(h17): it asserts one render per appearance on the plainest shape, which is the assertion mutant M12 exists to break. (h14) is the existing harness with the overlay behind a flag, asserting one apply and one walk per appearance and — the load-bearing one — ONE owner render pass where the counter takes two. Concrete failure mode: reintroducing any state update on the attach path, which is the defect `BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE` actually names once its premise is corrected.
 - **New (h8) `reapplyKey`-change counts, and (h9) unchanged-key counts.** Round-1 finding 1, and the sharpest of the round: §0.1's table is the acceptance condition and only its MOUNT row had a pin. Case (c) (`tests/components/admin/useFitWithinClip.test.tsx:193`) checks the cap after a key change and counts nothing, and no case re-rendered with an UNCHANGED key at all. (h8) asserts one apply and one walk across a key change; (h9) asserts zero of each across a re-render that changes nothing. Concrete failure mode, and it is not hypothetical: a ref callback whose identity churns every render — the exposure §7 documents — re-attaches and re-measures on every render while satisfying every other assertion in this suite, because every other assertion is about a single mount. Four cells of the acceptance table were unfalsifiable; these two cases close all four. Both run on the existing always-present harness, which is why (h14) exists alongside them.
 
 A test that only proves `apply` was called is worthless here: the whole subject is **how many times**. Every new case asserts a count or an absence, and each names the mutant it kills.
