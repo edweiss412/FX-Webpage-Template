@@ -1,3 +1,40 @@
+## BL-THEME-NOTE-BUBBLE-TEXT-ALIGN — the note bubble right-aligned copy the width math wrapped to three lines — CLOSED 2026-08-26
+
+**Status:** CLOSED BY REMOVAL 2026-08-26 · **Effort (as shipped):** XS · **Shipped by:** `fix/theme-note-polish`
+
+**Resolution — the defect was real and measured; the surface it lived on is gone.** The row said the bubble carried `text-right` on copy that spec §2.2's own width derivation wraps to three lines, giving every line a different starting x at exactly the width engineered tightest. That was measured on the live tree at merge base `b30413cf5`, before the ruling that closed it: one `page.evaluate` per reading collecting `Range.getClientRects()` line boxes, across the help header and the admin nav at 320px and 390px in both palettes.
+
+|                         | line-start spread  | line boxes         | computed alignment |
+| ----------------------- | ------------------ | ------------------ | ------------------ |
+| as shipped              | 57.68px to 57.69px | 3 at every reading | `right`            |
+| alignment class dropped | 0.00px             | 3 at every reading | `start`            |
+
+Eight readings, every one wrapping to three lines, so the measurement discriminated rather than passing trivially on a single line. Light and dark geometry were byte-identical.
+
+**It closes by removal, not by refutation.** Eric ruled on 2026-08-26 that the persist-failure note should not exist at all: saving a theme choice is a convenience, not a failure mode that needs acknowledging. The alignment repair was drafted and then discarded because the node it applied to was deleted in the same PR. What shipped instead is the removal amendment at `docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` §2.2, which retires the whole class list this row quoted:
+
+> **Amendment, 2026-08-26 (branch `fix/theme-note-polish`, product ruling by Eric via the orchestrator session).** Everything this section ratifies above is RETIRED. There is no note, in either control, in any state.
+
+**The class was not one, and the peers were repaired here rather than filed.** Sweeping `text-right` across `components/` and `app/` returned eight hits. Five were column and value-cell alignment (`step3ReviewSections.tsx`, `CronHealthList.tsx`, `FactRows.tsx`, plus two comment lines) and are not this shape. Two were the same shape on surfaces this row never named: the self-last revoke hint (`app/admin/settings/admins/RevokeRowButton.tsx`) and the developer-toggle error (`components/admin/settings/DeveloperToggleButton.tsx`), neither spec-ratified. Both are right-positioned by their column's `items-end`, so the alignment class was a no-op on one line and the ragged-start defect on a wrapped one, with no third case. Both dropped it here, each with a unit assertion pinning the absent class against a rendered element carrying its real chrome. The repo had already taken this exact repair once, on the sibling of the first: `RevokeRowButton`'s lockout error carried the same trio until M9 commit `4e438b0`.
+
+---
+
+## BL-THEME-NOTE-NO-DISMISS-AFFORDANCE — the persist-failure note could not be dismissed, so a permanently blocked device kept it up all visit — CLOSED 2026-08-26
+
+**Status:** CLOSED BY REMOVAL 2026-08-26 · **Effort (as shipped):** S · **Shipped by:** `fix/theme-note-polish`
+
+**Resolution — the question the row asked was answered by deleting its subject.** The row was filed because a dismiss control is a product decision, not an implementation detail: it needed its own copy, a 44px tap target inside a 144px-wide bubble, an a11y contract for a button inside a `role="status"` region, and a rule for whether a dismissal survives a later failure. That decision went to Eric on 2026-08-26 and came back as a different answer than either branch the row anticipated: **no note at all.** Saving a theme choice is a UX convenience, not a failure mode that needs acknowledging. Nothing to dismiss, so nothing to design.
+
+**What shipped.** The rendered note in both controls, the shared copy const, the persist-failure field on the theme hook, the avatar menu's screen-reader-only announcer, and the positioning wrapper in `ThemeToggle` that existed only to anchor the bubble. The silent absorb in `setTheme` stays, and is now silent by ruling rather than by omission, with a comment in the catch pointing at the amendment.
+
+**§4 limit 5 is retired with it.** That limit ratified the overlay this row was filed against. It is kept in the spec as the record of what was accepted while the note existed.
+
+**The removal is pinned by inverted suites, not by deletion**, so the note cannot come back unnoticed: `tests/components/layout/themeToggleNote.test.ts`, the `no persist-failure note (removed 2026-08-26)` block in `tests/components/auth/avatarMenu.test.tsx`, and `tests/components/layout/useAppliedThemePersistFailure.test.ts`, which asserts the flag's absence with an `in` check rather than `toBeUndefined()` because an absent key and a key set to `undefined` are indistinguishable to the latter. Every case carries a premise only a working control satisfies, so "nothing rendered" cannot pass as "the note is gone". `tests/e2e/theme-persistence-note.spec.ts` keeps the real-browser half, which jsdom cannot cover: removing the wrapper changed layout in three consumer rows, two of them width-engineered.
+
+**Paired deferral `THEMENOTE-BUBBLE-DISMISS-1` graduates with this row** (`DEFERRED-archive.md`). Its stated un-defer trigger was "a product decision on whether the note is dismissible"; the decision arrived.
+
+---
+
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount — CLOSED 2026-08-26
 
 **Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** S · **Shipped by:** `feat/fitwithinclip-measure-class`
