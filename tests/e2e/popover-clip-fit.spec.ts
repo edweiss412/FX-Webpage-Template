@@ -124,6 +124,15 @@ const HUB_PRIMARY = '[data-testid="share-hub-primary"]';
 const HUB_KEBAB = '[data-testid="share-hub-kebab"]';
 const HUB_POPOVER = '[data-testid="share-hub-popover"]';
 const TOGGLE_BANNER = '[data-testid="published-toggle-popover"]';
+
+/** A header title long enough that it MUST wrap past two lines at 375px, so the
+ *  clamp case has something to clamp. Same string the shared harness ships as
+ *  its `saturatedTitle` fixture (`_publishedReviewModalHarness.tsx`); duplicated
+ *  as a literal rather than imported because that module is a browser entry the
+ *  Playwright transform rewrites. Diff round 4 (P1): the clamp case previously
+ *  measured the default title, which fits in two lines unclamped. */
+const SATURATED_TITLE =
+  "II - Northeast Regional Partner Kickoff and Extended Production Rehearsal Marathon Week Whole-Campus Load-In";
 const TOGGLE_CLIP = '[data-testid="toggle-clip-panel"]';
 /** The scroller inside the menu panel — the node this cluster gives a role. */
 const SCROLLER = 'div[role="group"][aria-label="Attention items"]';
@@ -1167,6 +1176,22 @@ async function bootModal(page: Page, a: number, n: number, s: number) {
   await setItems(page, a, n, s);
 }
 
+/** The header's rendered attention state, as text. Diff round 4 (P1): the
+ *  12-cell sweep asserted the header did not GROW with load without ever
+ *  proving which load rendered, so a production mutant that always renders a
+ *  small composite satisfied every cell. This is the executable premise. */
+async function renderedAttentionSignature(page: Page): Promise<string | null> {
+  return page.evaluate(
+    ([panelSel]) => {
+      const pill = document
+        .querySelector(panelSel as string)
+        ?.querySelector<HTMLElement>('[data-testid$="-alert-pill"]');
+      return pill === null || pill === undefined ? null : (pill.textContent ?? "").trim();
+    },
+    [PANEL] as const,
+  );
+}
+
 /** Header, strip, switch and panel rects in one pass. */
 async function headerGeometry(page: Page) {
   return page.evaluate(
@@ -1237,10 +1262,25 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
       const base = await headerGeometry(page);
       expect(base.headerHeight, "PREMISE: the header must render at load 0").not.toBeNull();
 
+      const signatures: (string | null)[] = [];
       for (const load of LOADS) {
         await bootModal(page, load.a, load.n, load.s);
         const m = await headerGeometry(page);
         expect(m.headerHeight, `header missing at load ${load.label}`).not.toBeNull();
+
+        // PREMISE (diff round 4, P1): prove WHICH load rendered. Without this
+        // the whole sweep is satisfied by a header that never varies because
+        // the attention state never varies, which is the opposite of the thing
+        // under test.
+        const signature = await renderedAttentionSignature(page);
+        signatures.push(signature);
+        if (load.label === "30") {
+          const numbers = (signature ?? "").match(/\d+/g)?.map(Number) ?? [];
+          expect(
+            Math.max(0, ...numbers),
+            `PREMISE: load 30 must render a saturated attention state; pill reads ${JSON.stringify(signature)}`,
+          ).toBeGreaterThanOrEqual(10);
+        }
         expect(
           Math.abs(m.headerHeight! - base.headerHeight!),
           `header grew at load ${load.label}: ${m.headerHeight} vs the ${vp.w}px baseline ${base.headerHeight}`,
@@ -1290,6 +1330,13 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
         // a body COLLAPSE passes the sweep — which the nonzero checks above
         // catch in all twelve cells, at viewports T-LAYOUT does not visit.
       }
+
+      // The loads must be DISTINGUISHABLE from one another, or "the header did
+      // not grow" is a statement about one state measured three times.
+      expect(
+        new Set(signatures.map((x) => x ?? "<none>")).size,
+        `PREMISE: the three loads rendered indistinguishable states: ${JSON.stringify(signatures)}`,
+      ).toBeGreaterThan(1);
     });
   }
 
@@ -1334,6 +1381,17 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
     expect(m!.pillText, `pill reads "${m!.pillText}", expected two segments`).toMatch(
       /\d+.*·.*\d+/,
     );
+    // ...and the segments must carry the SATURATED numbers. Diff round 4 (P1):
+    // the shape check above accepts "1 issue · 1 monitoring", so a mutant that
+    // always renders a small composite passed while the containment below
+    // measured the easy case this test was written to avoid.
+    {
+      const numbers = m!.pillText.match(/\d+/g)?.map(Number) ?? [];
+      expect(
+        Math.max(0, ...numbers),
+        `PREMISE: this case needs the saturated pill; it reads ${JSON.stringify(m!.pillText)}`,
+      ).toBeGreaterThanOrEqual(10);
+    }
 
     // CONTAINMENT CHAIN: pill inside the cluster, cluster inside the cap.
     expect(m!.pill.left, "pill starts inside the cluster").toBeGreaterThanOrEqual(
@@ -1365,81 +1423,104 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
     );
   });
 
-  test("the DEGRADED static pill also stays inside the cap", async ({ page }) => {
-    // Round 3 (P1): round 2 gave both static pills `min-w-0` and left them
-    // `shrink-0`, which cannot work — `min-w-0` lowers the automatic minimum
-    // while `flex-shrink: 0` refuses to contract at all, so the cap was
-    // unenforceable on exactly the branches nothing measured. The reviewer got
-    // there by arithmetic (~104px of label, plus padding, the 8px gap and the
-    // 44px close target, against a 160px cap); this is the measurement that
-    // would have caught it, at the load and state that reach it.
-    await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto(baseUrl);
-    await page.evaluate(() => document.fonts.ready);
-    await page.waitForFunction(
-      () => (window as unknown as { __hydrated?: boolean }).__hydrated === true,
-    );
-    await page.evaluate(() => {
-      (
-        window as unknown as {
-          __setItems: (a: number, n: number, s: number, d: boolean) => void;
-        }
-      ).__setItems(0, 0, 0, true);
+  // BOTH static branches, not just the degraded one. Diff round 4 (P2): round
+  // 3 repaired `shrink-0` on both static pills and this case only ever measured
+  // one of them, so the other shipped with no geometric containment at all
+  // while the comment above claimed both were covered.
+  const STATIC_BRANCHES = [
+    { label: "DEGRADED", degraded: true, match: /unavailable/i },
+    { label: "In sync", degraded: false, match: /in sync/i },
+  ] as const;
+
+  for (const branch of STATIC_BRANCHES) {
+    test(`the ${branch.label} static pill also stays inside the cap`, async ({ page }) => {
+      // Round 3 (P1): round 2 gave both static pills `min-w-0` and left them
+      // `shrink-0`, which cannot work — `min-w-0` lowers the automatic minimum
+      // while `flex-shrink: 0` refuses to contract at all, so the cap was
+      // unenforceable on exactly the branches nothing measured. The reviewer got
+      // there by arithmetic (~104px of label, plus padding, the 8px gap and the
+      // 44px close target, against a 160px cap); this is the measurement that
+      // would have caught it, at the load and state that reach it.
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto(baseUrl);
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForFunction(
+        () => (window as unknown as { __hydrated?: boolean }).__hydrated === true,
+      );
+      await page.evaluate((degraded) => {
+        (
+          window as unknown as {
+            __setItems: (a: number, n: number, s: number, d: boolean) => void;
+          }
+        ).__setItems(0, 0, 0, degraded);
+      }, branch.degraded);
+
+      const m = await page.evaluate(
+        ([panelSel]) => {
+          const header = document.querySelector(panelSel as string)!.querySelector("header")!;
+          const cluster = header.querySelector<HTMLElement>(".shrink-0.items-center");
+          const pill = header.querySelector<HTMLElement>('[data-testid$="-alert-pill"]');
+          const close = header.querySelector<HTMLElement>('[data-testid$="-close"]');
+          if (cluster === null || pill === null || close === null) return null;
+          const c = cluster.getBoundingClientRect();
+          const pl = pill.getBoundingClientRect();
+          const cl = close.getBoundingClientRect();
+          return {
+            text: (pill.textContent ?? "").trim(),
+            clusterWidth: c.width,
+            clusterLeft: c.left,
+            clusterRight: c.right,
+            pillLeft: pl.left,
+            pillRight: pl.right,
+            closeRight: cl.right,
+            closeWidth: cl.width,
+            headerRight: header.getBoundingClientRect().right,
+          };
+        },
+        [PANEL] as const,
+      );
+      expect(m, `PREMISE: the ${branch.label} pill and close control must render`).not.toBeNull();
+      // PREMISE: this is genuinely the static branch under test, not the
+      // composite pill wearing a different label.
+      expect(m!.text, `pill reads "${m!.text}", expected the ${branch.label} branch`).toMatch(
+        branch.match,
+      );
+
+      expect(m!.clusterWidth, "the cluster honours its 160px cap below sm").toBeLessThanOrEqual(
+        160.5,
+      );
+      // The close control is the thing an overflowing pill pushes out, so its
+      // containment is the consequence worth asserting, not just the cluster's.
+      // The PILL is what must stay inside the cluster — it is the growing element
+      // and the one the cap exists to contain.
+      expect(
+        m!.pillRight,
+        `pill right ${m!.pillRight} vs cluster right ${m!.clusterRight}`,
+      ).toBeLessThanOrEqual(m!.clusterRight + 0.5);
+      // BOTH edges. Diff round 4 (P2): asserting only the right edge leaves a
+      // pill that escapes to the LEFT green, and a capped flex cluster is exactly
+      // the place an over-wide child escapes leftward.
+      expect(
+        m!.pillLeft,
+        `pill left ${m!.pillLeft} escapes the cluster at ${m!.clusterLeft}`,
+      ).toBeGreaterThanOrEqual(m!.clusterLeft - 0.5);
+
+      // The CLOSE control is measured against the HEADER, not the cluster, and
+      // that is deliberate: `ModalCloseButton` carries `-mr-1`, a 4px optical
+      // outdent, so its border box legitimately sits 4px past the cluster's
+      // content edge. The first draft of this case asserted containment in the
+      // cluster and failed by exactly that 4px — the assertion was wrong, not the
+      // layout. What actually matters is that an overflowing pill cannot push the
+      // close control out of the header or shrink its tap target.
+      expect(
+        m!.closeRight,
+        `close right ${m!.closeRight} escapes the header at ${m!.headerRight}`,
+      ).toBeLessThanOrEqual(m!.headerRight + 0.5);
+      expect(m!.closeWidth, "the close control keeps its 44px tap width").toBeGreaterThanOrEqual(
+        43.5,
+      );
     });
-
-    const m = await page.evaluate(
-      ([panelSel]) => {
-        const header = document.querySelector(panelSel as string)!.querySelector("header")!;
-        const cluster = header.querySelector<HTMLElement>(".shrink-0.items-center");
-        const pill = header.querySelector<HTMLElement>('[data-testid$="-alert-pill"]');
-        const close = header.querySelector<HTMLElement>('[data-testid$="-close"]');
-        if (cluster === null || pill === null || close === null) return null;
-        const c = cluster.getBoundingClientRect();
-        const pl = pill.getBoundingClientRect();
-        const cl = close.getBoundingClientRect();
-        return {
-          text: (pill.textContent ?? "").trim(),
-          clusterWidth: c.width,
-          clusterRight: c.right,
-          pillRight: pl.right,
-          closeRight: cl.right,
-          closeWidth: cl.width,
-          headerRight: header.getBoundingClientRect().right,
-        };
-      },
-      [PANEL] as const,
-    );
-    expect(m, "PREMISE: the degraded pill and close control must render").not.toBeNull();
-    // PREMISE: this is genuinely the degraded branch, not the composite pill.
-    expect(m!.text, `pill reads "${m!.text}"`).toMatch(/unavailable/i);
-
-    expect(m!.clusterWidth, "the cluster honours its 160px cap below sm").toBeLessThanOrEqual(
-      160.5,
-    );
-    // The close control is the thing an overflowing pill pushes out, so its
-    // containment is the consequence worth asserting, not just the cluster's.
-    // The PILL is what must stay inside the cluster — it is the growing element
-    // and the one the cap exists to contain.
-    expect(
-      m!.pillRight,
-      `pill right ${m!.pillRight} vs cluster right ${m!.clusterRight}`,
-    ).toBeLessThanOrEqual(m!.clusterRight + 0.5);
-
-    // The CLOSE control is measured against the HEADER, not the cluster, and
-    // that is deliberate: `ModalCloseButton` carries `-mr-1`, a 4px optical
-    // outdent, so its border box legitimately sits 4px past the cluster's
-    // content edge. The first draft of this case asserted containment in the
-    // cluster and failed by exactly that 4px — the assertion was wrong, not the
-    // layout. What actually matters is that an overflowing pill cannot push the
-    // close control out of the header or shrink its tap target.
-    expect(
-      m!.closeRight,
-      `close right ${m!.closeRight} escapes the header at ${m!.headerRight}`,
-    ).toBeLessThanOrEqual(m!.headerRight + 0.5);
-    expect(m!.closeWidth, "the close control keeps its 44px tap width").toBeGreaterThanOrEqual(
-      43.5,
-    );
-  });
+  }
 
   test("the title clamps to two lines below sm — asserted on the EMITTED style", async ({
     page,
@@ -1450,43 +1531,73 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
     // proves nothing about whether Tailwind emitted a rule for it. An
     // un-emitted utility is a silent no-op — the exact failure class this arc
     // exists to remove — so the computed value is what gets asserted.
+    //
+    // THE CASE CARRIES ITS OWN CONTEST, and did not before. Diff round 4 (P1)
+    // found this measured the harness's DEFAULT title, which renders inside two
+    // lines with the clamp fully disabled: `renderedLines <= 2` held for a
+    // reason that had nothing to do with clamping, so a production override to
+    // horizontal box orientation left every assertion green. The title is now
+    // saturated past two lines, and the unclamped count is measured on a CLONE
+    // with the clamp stripped. That clone is the negative control — if it does
+    // not exceed two lines the fixture cannot discriminate, and the premise
+    // fails loudly instead of the case passing quietly.
     const clamp = await page.evaluate(
-      ([panelSel]) => {
+      ([panelSel, longTitle]) => {
         const span = document
           .querySelector(panelSel as string)
           ?.querySelector("h2 span") as HTMLElement | null;
         if (span === null || span === undefined) return null;
+        span.textContent = longTitle as string;
+        const width = span.getBoundingClientRect().width;
         const cs = getComputedStyle(span);
+        const lineHeight = parseFloat(cs.lineHeight || "1") || 1;
+        const lines = (el: HTMLElement) =>
+          Math.round(el.getBoundingClientRect().height / lineHeight);
+        // NEGATIVE CONTROL: same text, same width, same typography, clamp off.
+        // Appended to the span's own parent so it inherits the font stack it is
+        // being compared against.
+        const clone = span.cloneNode(true) as HTMLElement;
+        clone.style.webkitLineClamp = "unset";
+        clone.style.display = "block";
+        clone.style.overflow = "visible";
+        clone.style.position = "absolute";
+        clone.style.visibility = "hidden";
+        clone.style.width = `${width}px`;
+        span.parentElement?.appendChild(clone);
+        const unclampedLines = lines(clone);
+        clone.remove();
         return {
           lineClamp: cs.webkitLineClamp,
           display: cs.display,
-          boxOrient: cs.webkitBoxOrient,
           overflow: cs.overflow,
-          // Rendered line count from the box's own metrics: total height over
-          // one line's height. This is the thing a clamp is FOR, and it is what
-          // a display override silently breaks while the property still reads 2.
-          renderedLines: Math.round(
-            span.getBoundingClientRect().height / parseFloat(cs.lineHeight || "1"),
-          ),
+          // Rendered line count from the box's own metrics. This is the thing a
+          // clamp is FOR, and it is what a display or orientation override
+          // silently breaks while the property still reads 2.
+          renderedLines: lines(span),
+          unclampedLines,
         };
       },
-      [PANEL] as const,
+      [PANEL, SATURATED_TITLE] as const,
     );
     expect(clamp, "PREMISE: the h2 inner span must render").not.toBeNull();
+    // THE PREMISE diff round 4 (P1) demanded. Without it every assertion below
+    // is satisfiable by a title that simply fits.
+    expect(
+      clamp!.unclampedLines,
+      `PREMISE: unclamped, the title renders ${clamp!.unclampedLines} lines — a fixture that fits in 2 cannot test a 2-line clamp`,
+    ).toBeGreaterThan(2);
     expect(clamp!.lineClamp, "the clamp must be EMITTED, not merely classed").toBe("2");
-    // ...and FUNCTIONAL, which the property alone does not establish. Round 2
-    // (P2): `-webkit-line-clamp` keeps reporting "2" while an overriding
-    // `display` disables clamping entirely, so the property is a necessary and
-    // insufficient condition. The clamp only takes effect inside a
-    // `-webkit-box` with vertical orientation and hidden overflow, and the
-    // rendered line count is what a reader actually sees — all four are
-    // asserted so no single override can leave this green.
     expect(clamp!.overflow, "an unclipped box shows every line regardless").toBe("hidden");
-    // THE FUNCTIONAL ASSERTION, and the one round 2 (P2) actually asked for: the
-    // property alone is necessary and insufficient, because an overriding
-    // `display` leaves `-webkit-line-clamp` reporting "2" while clamping
-    // nothing. Rendered line count is what a reader sees and cannot be faked by
-    // a property value.
+    // THE FUNCTIONAL ASSERTION. With the contest above it now discriminates:
+    // any override that disables clamping — display, box orientation, an
+    // un-emitted utility — renders this saturated title past two lines and
+    // fails here. `-webkit-box-orient` was previously COLLECTED and never
+    // asserted, which diff round 4 (P1) correctly called out; it is not
+    // asserted now either, and this is why. Orientation is one of several
+    // mechanisms that can disable the clamp, and the line count catches all of
+    // them, including the ones nobody enumerated. Pinning one mechanism while
+    // the behaviour is already pinned adds a way to fail on a legitimate
+    // mechanism change without adding a way to catch a regression.
     expect(
       clamp!.renderedLines,
       `title renders ${clamp!.renderedLines} lines, cap is 2`,
@@ -1494,14 +1605,13 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
 
     // NOT asserted, and deliberately so: computed `display` reads `flow-root`
     // here, not the `-webkit-box` that Tailwind's line-clamp utility is
-    // documented to emit, yet the clamp measurably WORKS (the line count above
-    // holds and the title is visibly capped). I could not explain that
-    // discrepancy from the class list — no custom `@utility` overrides display,
-    // and nothing in the span's classes should. Asserting a mechanism I cannot
-    // account for would pin a belief rather than a behaviour, and would fail the
-    // day the mechanism legitimately changes. Recorded as an open question
-    // instead: if the clamp ever regresses, the display value is the first
-    // thing to inspect. See the ship marker's TEST_5 note.
+    // documented to emit, yet the clamp measurably WORKS (the contested line
+    // count above holds). I could not explain that discrepancy from the class
+    // list — no custom `@utility` overrides display, and nothing in the span's
+    // classes should. Asserting a mechanism I cannot account for would pin a
+    // belief rather than a behaviour. Recorded as an open question in the
+    // closeout instead: if the clamp ever regresses, `display` is the first
+    // thing to inspect.
   });
 });
 
@@ -1570,6 +1680,25 @@ test.describe("the row's obligation — real-surface anchor room (spec §7)", ()
       m.spaceAbove,
       "PREMISE: above it there is more, which is what makes TOP the correct answer",
     ).toBeGreaterThan(m.spaceBelow);
+
+    // Diff round 4 (P1): "more room above than below" makes top the BETTER
+    // side, not a FITTING one. Both sides can be short at a taller banner, and
+    // the module still chooses top and caps — at which point this case is
+    // silently measuring a both-sides-clipped surface it does not describe,
+    // with every assertion green. The module's contract closes it exactly: an
+    // UNCAPPED banner means top genuinely fit, and a capped one must be capped
+    // to the room actually available above.
+    if (m.inlineMaxHeight === "") {
+      expect(
+        m.spaceAbove,
+        `nothing capped the banner, so top must fit its natural ${m.naturalHeight}px`,
+      ).toBeGreaterThanOrEqual(m.naturalHeight);
+    } else {
+      expect(
+        Number.parseFloat(m.inlineMaxHeight),
+        `capped to ${m.inlineMaxHeight} but only ${m.spaceAbove}px is available above`,
+      ).toBeLessThanOrEqual(m.spaceAbove + 0.5);
+    }
 
     expect(m.side, "the module placed it above the strip").toBe("top");
     // Placed GAP above the trigger, which pins the geometry rather than just

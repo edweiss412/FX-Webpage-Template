@@ -859,6 +859,8 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
             bottom: r.bottom,
             boundsLeft: host.left + (inset as number),
             boundsRight: host.right - (inset as number),
+            boundsTop: host.top + (inset as number),
+            boundsBottom: host.bottom - (inset as number),
             triggerTop: trig.top,
             triggerBottom: trig.bottom,
             gap: gap as number,
@@ -873,6 +875,29 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         box.clientHeight,
         `panel height ${box.clientHeight} <= cap ${cap}`,
       ).toBeLessThanOrEqual(cap + TOL);
+
+      // THE FITTED bound, which the static cap above does not imply. Diff round
+      // 4 (P1): `min(50vh, 320px)` is a CSS ceiling, not the room this overlay
+      // actually has, so a placement mutant that ignores `maxHeight` while
+      // keeping side, gap, width and overflow left all three branches green and
+      // still clipped on a short phone. Asserted against the room on the side
+      // the module itself chose, plus plain vertical containment.
+      const spaceOnSide =
+        box.side === "top"
+          ? box.triggerTop - box.boundsTop - box.gap
+          : box.boundsBottom - box.triggerBottom - box.gap;
+      expect(
+        box.clientHeight,
+        `${branch}: panel is ${box.clientHeight} tall but only ${spaceOnSide} is available on the ${box.side} side`,
+      ).toBeLessThanOrEqual(spaceOnSide + TOL);
+      expect(
+        box.top,
+        `${branch}: panel top ${box.top} rides above the modal bounds at ${box.boundsTop}`,
+      ).toBeGreaterThanOrEqual(box.boundsTop - TOL);
+      expect(
+        box.bottom,
+        `${branch}: panel bottom ${box.bottom} falls past the modal bounds at ${box.boundsBottom}`,
+      ).toBeLessThanOrEqual(box.boundsBottom + TOL);
 
       // PER BRANCH, closing round 2's TEST_1 and TEST_2 together. Both findings
       // were that this loop's guarantees were weaker than its name: it checked
