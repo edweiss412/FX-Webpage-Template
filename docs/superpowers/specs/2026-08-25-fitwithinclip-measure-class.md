@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-25 · **Branch:** `feat/fitwithinclip-measure-class` · **Implementer:** Opus / Claude Code (AGENTS.md hard rule: everything in scope is under `components/`)
 
-Closes `BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE` (`BACKLOG.md:1271`) and `BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK` (`BACKLOG.md:1294`). Both rows name the same trigger — a refactor of the hook's attach mechanism — on the same effect body, so they are one arc.
+Closes `BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE` (`BACKLOG.md:659`) and `BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK` (`BACKLOG.md:682`). Both rows name the same trigger — a refactor of the hook's attach mechanism — on the same effect body, so they are one arc.
 
 Parent spec for the hook itself: `docs/superpowers/specs/2026-08-01-admin-popover-overlay-cluster.md` §4.1/§4.2.
 
@@ -139,10 +139,10 @@ Each of these is settled. A reviewer verifies the citation rather than re-derivi
 | Decision | Ratified at | Note |
 | --- | --- | --- |
 | The mount measure is **synchronous** and deliberately bypasses the raf coalescer | `useFitWithinClip.ts:140-144`; pinned by case (g2), `tests/components/admin/useFitWithinClip.test.tsx:296-303` | Deferring it to a frame reintroduces the uncapped painted frame the layout effect exists to prevent. Removing a redundant measure is in scope. Making the surviving one async is not. |
-| `apply()` re-walks on **every** invocation | `BACKLOG.md:1294` | The ancestor chain can change between measures. Only the effect body's own second walk is redundant, and only for the run that just called `apply()`. §2 hoists that one walk and nothing else. |
+| `apply()` re-walks on **every** invocation | `BACKLOG.md:682` | The ancestor chain can change between measures. Only the effect body's own second walk is redundant, and only for the run that just called `apply()`. §2 hoists that one walk and nothing else. |
 | `transitionend` is scoped to the positioned ancestor **and** to `propertyName === "transform"` | `useFitWithinClip.ts:171-188`; pinned by (e2) `tests/components/admin/useFitWithinClip.test.tsx:236` and (g4) `tests/components/admin/useFitWithinClip.test.tsx:342` | Both narrowings are deliberate and documented in place. Unchanged by this arc. |
 | `MIN_FITTED_HEIGHT = 48` wins over available room | `lib/layout/fitWithinClip.ts:51`, rationale at `lib/layout/fitWithinClip.ts:29` | Not this arc. |
-| The `PublishedToggle` anchor room is **unmeasured on purpose** | `lib/layout/fitWithinClip.ts:38-43` | A documented limit with an open row (`BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED`, `BACKLOG.md:1450`), not a finding. The docblock recording it is not edited by this arc. |
+| The `PublishedToggle` anchor room is **unmeasured on purpose** | `lib/layout/fitWithinClip.ts:38-43` | A documented limit with an open row (`BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED`, `BACKLOG.md:808`), not a finding. The docblock recording it is not edited by this arc. |
 | `ResizeObserver` is feature-detected, never assumed | `useFitWithinClip.ts:165-166`; pinned by (f) `tests/components/admin/useFitWithinClip.test.tsx:259` | jsdom has none. An unguarded construction takes down the component it is sizing. |
 | Non-finite geometry falls back to `cap` | `lib/layout/fitWithinClip.ts:78-79` | Ratified fail-open. Out of scope; `lib/layout/fitWithinClip.ts` arithmetic is untouched by this arc. |
 | The dev diagnostic stays `clientLog("debug", …)`, console-only | `useFitWithinClip.ts:118-131` | Invariant 5. A `warn`/`error` would mirror to `app_events`; a developer diagnostic that only fires outside production has no business writing telemetry rows. The call moves with `apply()`'s body and its level, message and once-per-element guard are byte-identical. |
@@ -171,7 +171,7 @@ Two changes, one each for the two rows.
 
 **Row 1, the counter.** `useState` leaves the hook entirely, and so does `useLayoutEffect`. The whole hook becomes two `useCallback`s. React attaches the ref during the commit's layout phase, before the owning component's own layout effect and before paint, so the synchronous-mount guarantee is preserved by construction rather than by a comment.
 
-**Row 2, the walk.** `apply()` returns the clip ancestor it already resolved, and the ref callback observes that value instead of walking again. `apply()` still walks on every invocation — it must, per §1.1 — and the returned value is only ever used by the caller that just triggered that walk, which is exactly the redundancy `BACKLOG.md:1294` describes.
+**Row 2, the walk.** `apply()` returns the clip ancestor it already resolved, and the ref callback observes that value instead of walking again. `apply()` still walks on every invocation — it must, per §1.1 — and the returned value is only ever used by the caller that just triggered that walk, which is exactly the redundancy `BACKLOG.md:682` describes.
 
 `apply()` returns `HTMLElement | null`, where `null` carries two meanings: no node, or no clipping ancestor. The ref callback has just written a non-null node, so at that one call site `null` means "nothing clips", which is the same condition the `if (clip !== null)` guard already tested. Stated here because it is the one narrowing in the diff that is not locally obvious, and the implementation comments it at the call site.
 
