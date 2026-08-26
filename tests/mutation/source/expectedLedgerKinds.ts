@@ -402,7 +402,7 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // under a symmetric `min`. Across two rounds SIXTY-SEVEN other survivors were
   // repaid with fixtures rather than rows, so a TWELFTH row here is a gap to
   // repay rather than a number to bump.
-  interactiveScanCore: { equivalent: 11 },
+  interactiveScanCore: { equivalent: 18 },
   // feat/mutation-playwright-component-mode (2026-08-15): the browser mode's own
   // two modules, enrolled before the arc's first review dispatch. Both declare an
   // EMPTY ledger and a floor of 1 — a row appearing here later is a coverage

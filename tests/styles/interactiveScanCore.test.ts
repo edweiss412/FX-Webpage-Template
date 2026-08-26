@@ -571,6 +571,35 @@ describe("what the first score of this surface found unpinned", () => {
     expect(allStrings(child as ScanElement)).toContain("chain-end");
   });
 
+  it("restores the SOURCE FILE after following into another module (kills `sf = heldSf` removal)", () => {
+    // `ctx` and `sf` are restored by two separate statements, and dropping only
+    // the `sf` one leaves the walk reading the FOLLOWED module's text while it
+    // is still walking this one. Every tag name after that point comes from
+    // `tagName.getText(sf)`, so it is read out of the wrong file's character
+    // offsets: the second control below stops being recognised as a button at
+    // all. The first control has to come FIRST for the follow to have happened
+    // by the time the second is reached, which is the whole shape of the bug.
+    const els = scanFixtureFiles(
+      {
+        "components/Host.tsx": `import Card from "../lib/Card";
+          export function Host() {
+            return (
+              <div>
+                <button className="first-control"><Card /></button>
+                <button className="second-control-after-the-follow" />
+              </div>
+            );
+          }`,
+        "lib/Card.tsx": `export default function Card() {
+            return <span className="followed-paint" />;
+          }`,
+      },
+      ON,
+    );
+    const seen = els.map((e) => allStrings(e).join(" ")).sort();
+    expect(seen).toEqual(["first-control", "followed-paint", "second-control-after-the-follow"]);
+  });
+
   it("terminates on a MUTUAL import cycle (kills followed.add removal on the import path)", () => {
     // A renders B, B renders A. The local-declaration guard cannot catch this:
     // the two names live in different files, so only the import path's own
