@@ -73,6 +73,7 @@ the root of this directory alongside the dated product specs.
 | [`2026-08-21-control-outline-forward-guard-design.md`](./2026-08-21-control-outline-forward-guard-design.md) | `BL-CONTROL-OUTLINE-FORWARD-GUARD`'s signal decision: rendered-signal rejected (fails open on an unmounted control), documented-limit close taken for measured paint, and a content-keyed reasons-required residue census ships, with the five closed escapes executed red as its acceptance floor. |
 | [`2026-08-21-pane-compaction-send-authorization.md`](./2026-08-21-pane-compaction-send-authorization.md) | Unfences `--checkpoint`/`--compact`/`--resume`: one read-once pass per authorization (a literally atomic snapshot is unobtainable, and the spec says so), addressed payloads, the six probe chains as the acceptance floor. |
 | [`2026-08-24-replacement-string-class-sweep.md`](./2026-08-24-replacement-string-class-sweep.md) | A repo-wide AST judge for `String.replace`'s second argument: a runtime value there is parsed as a substitution grammar, not inserted. 56 offender sites swept, the gate ships `fail`. |
+| [`2026-08-25-review-modal-strip-dock.md`](./2026-08-25-review-modal-strip-dock.md) | Docks the review-modal StatusStrip to the panel bottom so the Published switch is reachable at 375x667, gives the refusal banner a measured upward arm, and closes `BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED` with the first real-surface number for that anchor. |
 
 ## Conventions
 
