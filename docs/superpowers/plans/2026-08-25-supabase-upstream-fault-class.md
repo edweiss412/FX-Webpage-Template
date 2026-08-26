@@ -9,12 +9,31 @@ Two tasks are already committed, ahead of this plan, because the spec's own firs
 
 ## 1. Meta-test inventory
 
+- **ALREADY LANDED, ahead of this plan:** the two harnesses `tests/supabase/observeTransport.plantFour.test.ts` and `tests/supabase/observeTransport.recursionFence.test.ts` (new), and `tests/supabase/retryEligibility.test.ts` (extended with the shared describer's cases).
 - **CREATES** a walked guard at tests/supabase/_metaServerClientObserverCoverage.test.ts (new in Task 2) — a walked guard making a NEW directly-constructed server-side Supabase client fail by default.
 - **EXTENDS** `tests/supabase/serverClientWiring.test.ts` — the observer's install site and the REQUIRED composition order.
 - **EXTENDS** `tests/ci/_metaE2eWorkflowCoverage.test.ts` — the capture chain's workflow half.
-- **EXTENDS** `tests/mutation/source/registry.ts` and its `EXPECTED_ENV_TOUCHING` companion.
+- **EXTENDS** `tests/mutation/source/registry.ts`, and `tests/mutation/_metaPremiseContract.test.ts` through its `EXPECTED_ENV_TOUCHING` table.
 - **EXTENDS** `tests/mutation/enrolmentPresence.test.ts` — its `REQUIRED_ENROLMENTS` list. This is not bookkeeping: that list currently holds only `supabaseRetryingFetch`, `supabaseRetryEligibility` and `retryableRpcVolatilityScan`, so **without adding `observeTransport` to it FIRST, adding the registry row produces no red at all** and Task 5's whole red-then-green cycle is vacuous. The requirement is authored before the row.
 - **EXTENDS** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — archive membership, documented-limit provenance, and the no-new-id arm (Task 6).
+### 1a. Collection and CI wiring, for every file this arc touches
+
+No file below needs a NEW `testMatch` entry, a path-filter change or a new job. This table records the contract each already resolves under, so the absence of wiring work is a finding rather than an oversight.
+
+| File | New or extended | Project | Job |
+|---|---|---|---|
+| `tests/supabase/observeTransport.plantFour.test.ts` | new (landed) | serial, via `BASE_INCLUDE` | `unit-suite-db` |
+| `tests/supabase/observeTransport.recursionFence.test.ts` | new (landed) | serial, via `BASE_INCLUDE` | `unit-suite-db` |
+| the new walked server-client guard (Task 2) | new | serial, via `BASE_INCLUDE` | `unit-suite-db` |
+| `tests/supabase/retryEligibility.test.ts` | extended (landed) | serial, via `BASE_INCLUDE` | `unit-suite-db` |
+| `tests/supabase/serverClientWiring.test.ts` | extended (Task 1) | serial, via `BASE_INCLUDE` | `unit-suite-db` |
+| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | extended (Task 3) | serial, via `BASE_INCLUDE` | `unit-suite-db` |
+| `tests/mutation/enrolmentPresence.test.ts` | extended (Task 5) | parallel | `unit-suite-nodb` |
+| `tests/mutation/_metaPremiseContract.test.ts` | extended via `EXPECTED_ENV_TOUCHING` (Task 5) | parallel | `unit-suite-nodb` |
+| `tests/docs/_metaDeferralLedgerGraduation.test.ts` | extended (Task 6) | parallel | `unit-suite-nodb` |
+
+The split matters beyond bookkeeping for one reason: the parallel-project suites run in a depth-one checkout, which is what makes Task 6's no-new-id arm compare against `origin/main`'s tip rather than a merge base.
+
 - **NOT extended:** the five `_metaInfraContract` siblings. `observeTransport.ts` carries `// not-subject-to-meta:` with its ground — it never sees a `{ data, error }` pair, only the HTTP exchange underneath one — the same disposition `lib/supabase/retryingFetch.ts` already holds. No `lib/admin/**` loader is touched.
 - **NOT extended:** `tests/auth/advisoryLockRpcDeadlock.test.ts`. No `pg_advisory*` surface is touched.
 - **NOT extended:** `tests/log/_metaMutationSurfaceObservability.test.ts`. No mutation surface is added; verified green against the current diff.
@@ -100,9 +119,23 @@ Every task's `ac=` resolves here. The spec states the criteria; this table names
 | **AC-2** | Already green at `29e30584e` and tightened at `e1c75e7bc`: fourteen plants plus four fence cases, with the clone-and-discard and rebuild-the-Request mutants each killing a case. |
 | **AC-3** | Task 2's walked guard, proven fail-by-default against a synthetic fourth construction and silent against the two live comment mentions. |
 | **AC-4** | Task 3, all three layers: a structural assertion that the baseline `webServer` sets `stdout: "pipe"`; structural assertions pinning the workflow's redirect, the absence of any `shell:` key, and the replay/extract/dump COMMANDS and conditions rather than merely their presence; and a one-time LOCAL run driving an injected fault through Playwright into the redirected log, pasted into the closeout, because no CI assertion can distinguish an injected record from the ambient ones §2 measures. Regression gate: `_metaE2eWorkflowCoverage` still reports all twenty specs covered. |
-| **AC-5** | `describeTransportTarget` as the single describer for both emits, already landed at `567314667`, with the Storage path probed rather than argued. |
+| **AC-5** | Two halves, because only one is behavioural. **Observer:** the Storage-path plants, which fail if its target carries an identifier. **Retry wrapper:** a STRUCTURAL assertion that `lib/supabase/retryingFetch.ts` imports `describeTransportTarget` and declares no local describer. §4b says why the second cannot be behavioural. |
 | **AC-6** | Task 5's registry row, red-then-green on `tests/mutation/enrolmentPresence.test.ts` (the only suite that fails for ABSENCE), plus the re-measured `EXPECTED_ENV_TOUCHING` rows and a measured `pnpm heavy:mutation pnpm mutation:guards` score with zero unaccepted survivors. |
 | **AC-7** | Task 6's extension to `_metaDeferralLedgerGraduation`: both ids resolve in the archive and in neither open ledger, each archived body carries its documented limits, and the diff introduces no new `BL-`/`DEF-` id. `_metaLedgerInProgress` alone cannot prove any of the three — it is green when both rows simply stay open. |
+
+## 4b. Why AC-5's retry-wrapper half is structural, not behavioural
+
+Round 4 probed the gap and it is real: restoring a private `?? path` describer inside `lib/supabase/retryingFetch.ts` violates AC-5 while every cited test stays green. Worth stating exactly why, because the structural check is not a weaker stand-in for a behavioural one that exists.
+
+**The retry wrapper's emit population cannot distinguish the two describers.** It emits only for requests it OWNS, and ownership is `isRetryEligible`, which admits exactly two shapes: `<base>/rest/v1/rpc/<fn>`, where both describers return the bare function name, and `<base>/rest/v1/<table>` on an idempotent method, which is three segments and therefore identical under the shared describer's bound. No eligible request has a target the two spell differently. A behavioural test would have to construct an input the wrapper refuses to own, which proves nothing about the wrapper.
+
+**That is the same coincidence spec §5.4 gives as the reason to share the describer at all.** The old copy leaked nothing only because `isRetryEligible` happened to admit nothing deeper — a property of a neighbouring function rather than a guarantee of this one, which would break silently the day eligibility widened. So the thing worth pinning is the STRUCTURE: that this module has no describer of its own to drift. A source-level assertion is the right instrument for a source-level claim.
+
+**The assertion is on the ASSIGNMENT, not on the absence of a name.** `retryingFetch.ts` legitimately keeps `describeRequest` (`lib/supabase/retryingFetch.ts:78`), which parses url, method and schema and is unrelated; a check for "no local function whose name starts with describe" would trip on it and get loosened until it meant nothing. The check is that the module imports `describeTransportTarget` from `./retryEligibility` AND that the `RetryEmit`'s `fn:` is assigned directly from a call to it, which is exactly the property a restored private describer breaks.
+
+The observer's half stays behavioural, because its population is every request and the Storage case is inside it.
+
+**Documented limit, so nobody re-derives it:** widen `isRetryEligible` past three path segments and a behavioural parity case becomes constructible and should replace this. Re-file trigger: any change to `RETRYABLE_RPCS`' shape or to the PostgREST prefix rule that admits a deeper path.
 
 ## 5. Tasks
 
@@ -137,7 +170,7 @@ Premise, via `tests/_shared/premise.ts`: assert the walk found the three known f
 
 The four controls of §3.2 ship in the same commit as the scanner.
 
-**Collection and CI wiring, stated because the project rules require every new test file to name them.** The new guard is collected by `BASE_INCLUDE` in the SERIAL project of `vitest.projects.ts` and runs in the `unit-suite-db` job; no `testMatch` entry, workflow path-filter or new job is added, because `tests/supabase/**` is already inside that project's include. This is a recording of an existing contract rather than a change to one, and it is here so nobody has to re-derive it from the config.
+**Collection and CI wiring for the new guard:** `BASE_INCLUDE`, serial project, `unit-suite-db`. The full table for every file this arc creates or extends is in §1a — round 4 was right that stating it for one file and not the other eight is worse than not stating it at all, because it reads as though the others were considered.
 
 ### Task 3 — the capture chain, BOTH halves
 <!-- task: red=`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`.github/workflows/app-e2e.yml:188` why=`this run step redirects nowhere and no following step extracts anything, so a record that reached the job output would still not be surfaced` ac=AC-4 -->
