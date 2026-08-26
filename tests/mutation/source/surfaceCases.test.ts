@@ -75,6 +75,7 @@ const fixture = (id: string) => ({
   suitePaths: ["a.test.ts"],
   operators: [...OPERATOR_NAMES],
   scoreFloor: 0.5,
+  millisPerBoot: 1000,
   control: { from: 'if (kind !== "plan") return [];', to: 'if (kind === "plan") return [];' },
   accepted: [],
 });
