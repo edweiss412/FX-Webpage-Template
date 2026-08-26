@@ -3831,6 +3831,28 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [],
   },
   {
+    id: "observeTransport",
+    sourcePath: "lib/supabase/observeTransport.ts",
+    // Both harnesses, because they pin different properties of the same module: the plants pin
+    // the four transport states and the transparency of request, response and rejection; the
+    // fence suite pins the LEVEL, which is the only thing making the service-role install safe.
+    suitePaths: [
+      "tests/supabase/observeTransport.plantFour.test.ts",
+      "tests/supabase/observeTransport.recursionFence.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // MEASURED with scripts/mutation-score-surfaces.ts, not estimated: 10s of child wall clock
+    // over 10 modelled boots. The shard partition is priced in this number, so an enrolment
+    // carrying a guessed one would weight the partition by something nobody measured.
+    millisPerBoot: 969,
+    // Narrows the fault set by one status. The plants iterate 500 through 599 and assert each
+    // records, so 500 stops recording and the suite notices — a live behaviour change rather than
+    // a formatting one.
+    control: { from: "return status >= 500;", to: "return status > 500;" },
+    accepted: [],
+  },
+  {
     id: "retryableRpcVolatilityScan",
     millisPerBoot: 1073,
     sourcePath: "tests/supabase/retryableRpcVolatilityScan.ts",
