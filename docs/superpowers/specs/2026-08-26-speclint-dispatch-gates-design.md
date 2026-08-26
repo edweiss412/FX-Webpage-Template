@@ -195,38 +195,56 @@ uses — was run against all 100:
 | measure | count |
 | --- | --- |
 | enrolled plans walked | 101 |
-| plans declaring at least one id under the body grammar | 59 |
-| plans flagged UNCLAIMED (declared, cited by no marker) | 19, 33 ids |
-| plans flagged UNDECLARED (marker cites an id the grammar does not declare) | 62 |
-| ... restricted to plans that declare at least one id | 20 |
+| plans with at least one CERTAIN declaration | 57 |
+| AMBIGUOUS declaring lines the arm declines to classify | 14, across 12 plans |
+| plans flagged UNCLAIMED | 19, 31 ids |
 
-**These are v3, measured 2026-08-26**, and the corpus count is 101 because this
-arc's own plan is in it. Two earlier grammars were refuted by review, both on live
-corpus inputs, and the repairs went one direction only — narrower:
+**These are v4, measured 2026-08-26**, and the corpus count is 101 because this
+arc's own plan is in it — an arm that flags its author's plan is working.
 
-- v1 accepted only dot-separated id segments, so the live hyphenated
+**Four grammar generations, three of them refuted by review on live corpus inputs,
+and the last change is not a grammar change at all.** The history matters because
+it is the argument for where this stopped:
+
+- **v1** accepted only dot-separated id segments, so the live hyphenated
   `AC-2b-pattern` split
-  (`docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md:24`),
-  against `lib/specLint/taskContract.ts:38` which accepts `[.-]`.
-- v2 collected secondary ids up to the first sentence end. That does not help when
-  the line IS one sentence, so `AC-11.11` — a criterion belonging to another
-  document — was still counted as declared by
-  `docs/superpowers/plans/2026-08-09-help-report-surface.md:61`. **v3 drops
-  secondary collection entirely**: a bullet declares its LEADING id and nothing
-  else. All four foreign ids disappear, because every one was secondary.
-- v2's declaration regex had no token-end boundary, so `AC-1` matched inside
-  `AC-1..AC-7` at
-  `docs/superpowers/plans/2026-08-17-speclint-prose-consistency-arms.md:175`.
-  Copying the id text from the production grammar did not copy the delimiter the
-  marker grammar supplies around it. v3 anchors the end.
+  (`docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md:24`).
+- **v2** collected secondary ids to the first sentence end, which does not help
+  when the line IS one sentence: `AC-11.11`, a criterion owned by another
+  document, still counted as declared by
+  `docs/superpowers/plans/2026-08-09-help-report-surface.md:61`.
+- **v3** dropped secondary collection outright. That removed the four foreign ids
+  and three REAL ones with them — `AC-2b`, `AC-10b` and a third that turned out
+  not to be a declaration at all. Silently, which is the one outcome the
+  consequence bound forbids. v3's token boundary was also still wrong: it passed
+  on `AC-1..AC-7`, because the character after `AC-1` is a dot followed by another
+  dot rather than by an alphanumeric.
+- **v4** fixes the boundary against the range form, elides fenced blocks (a shell
+  comment in a fence at
+  `docs/superpowers/plans/2026-08-21-control-outline-forward-guard.md:326` was
+  migrating as a real criterion), and then **stops refining the grammar**.
 
-25 plans / 40 ids became 19 / 33, and one whole false-positive class went with it.
-Each repair removed inputs rather than adding them, which is the direction a
-recognizer under review pressure has to move.
+**Why it stops.** Three consecutive review rounds each found a NEW class on this
+one axis. That is the same-axis recurrence trigger, and the prescribed repair is
+to decline to classify what the recognizer cannot rather than to grow it again. So
+a declaring line yields a CERTAIN id only when it carries **exactly one id**. A
+line carrying more is AMBIGUOUS: the arm does not fire on it, and every such line
+is recorded by name in the documented limits. That boundary is a COUNT OF IDS ON A
+LINE — structural, not lexical — so unlike every previous cut it has no next
+grammar corner to be refuted on.
 
-The 62 is the decisive number, and it is not measuring drift. It is measuring the
-grammar. In 42 of the 101 plans the acceptance criteria are **not declared in the
-plan at all** — they live in the sibling spec, and the plan carries only a
+The three ids v3 dropped are the test of this. Under v4 they are not dropped and
+not silently exempted: `docs/superpowers/plans/2026-08-15-diagram-demote-notice/plan.md:39`
+and `docs/superpowers/plans/2026-08-15-theme-persistence-note/plan.md:51` appear
+in the ambiguous record with both of their ids. The third,
+`docs/superpowers/plans/2026-08-17-speclint-prose-consistency-arms.md:175`, is
+`- AC-1..AC-7 all covered: AC-1/AC-3 (Task 1), …` — a coverage MAP, not a
+declaration, and v4's boundary correctly declines the whole line.
+
+The UNDECLARED direction is what rules out a corpus-wide declaration
+requirement, and it is not measuring drift — it is measuring the corpus's own
+conventions. In 42 of the 101 plans the acceptance criteria are **not declared in
+the plan at all**: they live in the sibling spec, and the plan carries only a
 coverage map. Four live shapes, all sampled:
 
 - a table row: `| AC-1 numeric half, sentence scope | Task 1 | … |`
@@ -238,14 +256,15 @@ coverage map. Four live shapes, all sampled:
 - a task heading: `### Task 1: Un-gate the fetch, gate the return (AC-1..AC-7)`
   (`docs/superpowers/plans/2026-08-07-projection-financials-viewer-independent.md:31`)
 
-**The 42 held across all three grammars**, which is worth stating because an
+**The 42 held across all four grammars**, which is worth stating because an
 unchanged number under a changed instrument is usually a dead measurement. Here it
-is not: v1 to v3 changed which ids a DECLARING line yields, and these 42 plans
+is not: v1 to v4 changed which ids a DECLARING line yields, and these 42 plans
 carry no declaring line at all, so no repair to that rule can move them.
 
-A definition that reds 62 of 101 plans is a definition, not a finding. No body
-grammar can be right here, because the corpus genuinely holds four conventions
-and one of them puts the declaration in another file.
+So `TASK_AC_UNDECLARED` is opt-in by shape and never fires in a plan that declares
+nothing. Requiring a plan-body declaration for every cited id would red the
+majority of the corpus, and that is a statement about the corpus's conventions
+rather than a finding about its plans.
 
 ### 4.2 The design decision, and how it was taken
 
@@ -334,6 +353,8 @@ the supplied syntax" is the same fence:
 | a disposition on a line that declares two ids | disposes BOTH, matching how the line declares both (`- AC-10 … + AC-10b …`). A plan needing to dispose one and not the other splits the line. |
 | a disposition on a line declaring nothing | inert, and not an error: an ordinary sentence may contain the word. |
 | an id declared twice, disposed once | disposed. The id is one criterion; the plan mentioning it twice is not two criteria. |
+| **a declaring line carrying more than one id** | **AMBIGUOUS. The arm does not fire on it in either direction, and the line is recorded by name in the documented limits.** The recognizer cannot tell this plan's sibling criterion (`- AC-10 … + AC-10b …`) from a cross-reference to another document's (`- AC-6 … ; AC-11.11 carries r12`), and three review rounds each found a new lexical class trying. Declining on a COUNT of ids is structural rather than lexical, so it has no next grammar corner. |
+| a declaration inside a fenced block | inert. Fences are elided before the walk. |
 | a cited id that is also declared and disposed | claimed, and the disposition is redundant but not an error. A task claiming it is stronger evidence than a line saying someone else will. |
 
 The accept-set direction is what matters here: an unrecognised disposition
@@ -559,11 +580,21 @@ the first `###` sub-row.
    enrols no tasks is unchecked. Conservative (silence, not a wrong answer), and
    consistent with the arm's scope, but an author cannot distinguish it from
    clean.
-7. **The count extractor refuses rather than defaults.** A `summary:` line that
+7. **Ambiguous declaring lines are not classified, by design.** 14 lines across
+   12 plans carry more than one id; the arm declines both directions on them and
+   they are recorded by name (§4.1). This is a deliberate stop, taken after three
+   rounds each refuted a new lexical rule on that axis, and it is the reason the
+   grammar has a terminating condition at all. Reversing it means re-opening the
+   axis, and the record is the place to argue that from.
+8. **The residue list is the documented-limits record for the unclaimed arm.**
+   It is not a ledger row and nothing is filed for it. It holds the UNSETTLED
+   pairs with their negative evidence, and it may shrink as owning arcs resolve
+   their own plans.
+9. **The count extractor refuses rather than defaults.** A `summary:` line that
    does not match the exact count grammar is an infra fault, not a zero (§3.1).
    A renderer change to that line therefore blocks dispatches until the grammar
    is updated — loud, and deliberately so.
-8. **The guard-surface separator grammar stays closed.** A brief writing "plus"
+10. **The guard-surface separator grammar stays closed.** A brief writing "plus"
    is refused; the message and the docs now show a conforming line. Widening the
    grammar to accept English conjunctions is declined in both directions.
 

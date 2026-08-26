@@ -29,7 +29,7 @@ restate an approved criterion more weakly than the spec makes it.
 Spec §4.2 escalated the AC arm's live reach; **ruled 2026-08-26: branch (A),
 migrate.** The body grammar declares, an unclaimed id needs an explicit
 disposition on its declaring line, and the flagged plans are migrated in Task 11.
-Four constraints ship with the ruling and bind tasks 8 through 12:
+Four constraints ship with the ruling and bind tasks 7 through 11:
 
 1. Each migration edit states ONLY what that plan's prose already says, cited
    from the plan's own line. Never a reinterpretation.
@@ -160,23 +160,6 @@ The message prints one conforming line verbatim; the AGENTS.md bullet shows the 
 separator grammar is NOT widened — a "plus" line is still refused, still exit 2, still no result
 artifact, and the test asserts all three.
 
-## Task 7: archive both bookkeeping rows
-
-<!-- task: red=`pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:99` why=`both rows are still in the open ledger, so a BACKLOG_GRADUATED row added to the registry at :99 fails the archive-only assertion at :704-737 until the sections move` ac=AC-8 -->
-
-Cut heading-to-any-NEXT-heading. **The next heading after the nullcode container at `BACKLOG.md:220`
-is a `###`, not a `##`.** Proof is set arithmetic, run before and after: `^## BL-` 21 to 19 and
-`^### BL-` 14 to 14 in `BACKLOG.md`; 385 to 387 and 109 to 109 in the archive; no id both open and
-archived; and all seven sub-row ids still present in `BACKLOG.md`, **named individually in the
-assertion**: `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE`, `BL-THEME-NOTE-BUBBLE-TEXT-ALIGN`,
-`BL-AGENDA-PROSE-SECOND-DAY`, `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK`,
-`BL-HEALTH-RESOLVE-DB-LOCKDOWN`, `BL-PARSER-FIELD-PROVENANCE-MODEL`,
-`BL-EXPORT-BLANK-ROW-SEGMENTATION`. Two of those are claimed by `fix/theme-note-polish`, so moving
-one would also steal a live claim.
-
-`tests/components/_orphanedComponents.ts` is NOT touched: its `backlog:` citation resolves against
-both ledgers via `ledgerFiles()` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:67`).
-
 <!-- tasks: end -->
 
 The region reopens here — sequential regions are legal, each with its own depth
@@ -185,7 +168,7 @@ these are TDD units like the rest.
 
 <!-- tasks: depth=2 red-contract -->
 
-## Task 8: TASK_AC_UNCLAIMED and the disposition grammar
+## Task 7: TASK_AC_UNCLAIMED and the disposition grammar
 
 <!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts -t unclaimed` red-state=authored red-target=`lib/specLint/taskContract.ts:373` why=`the loop at :373-377 walks marker-cited ids only and there is no traversal in the other direction anywhere in the file, so a declared id nothing cites draws nothing; the new case asserting TASK_AC_UNCLAIMED on such a plan fails` ac=AC-4 -->
 
@@ -212,7 +195,7 @@ afford: to a plan author, silence and clean are indistinguishable.
 (`lib/specLint/taskContract.ts:313`), so this is self-contained in a file the
 mutation registry already covers (`tests/mutation/source/registry.ts:805`).
 
-## Task 9: TASK_AC_UNDECLARED, and the three-code partition
+## Task 8: TASK_AC_UNDECLARED, and the three-code partition
 
 <!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts -t undeclared` red-state=authored red-target=`lib/specLint/taskContract.ts:118` why=`resolvesId at :118-126 is a word-boundaried regex over every non-marker line, so any prose occurrence satisfies a citation and a merely-mentioned id draws nothing; the new case asserting TASK_AC_UNDECLARED against a plan that mentions but does not declare the id fails` ac=AC-5 -->
 
@@ -223,7 +206,7 @@ one id never draws two of the three codes. `UNRESOLVED` needs no occurrence,
 declaration. The fixture that proves it declares one id, mentions a second in
 prose, and cites both.
 
-## Task 10: wire the codes
+## Task 9: wire the codes
 
 <!-- task: red=`pnpm vitest run tests/specLint/taskContractWiring.test.ts` red-state=authored red-target=`tests/specLint/taskContractWiring.test.ts:180` why=`the title at :180 asserts ALL TEN codes and the table iterates CODE_FIXTURES; adding two rows without moving the count leaves the title stating ten while twelve run, and the new rows have no fixtures yet so the per-code exit/FAIL assertions fail` ac=AC-4,AC-5 -->
 
@@ -238,7 +221,7 @@ produced this spec's own withdrawn "nine sites, ten codes" claim
 formatted across four lines), and unioning a grep with the fixture keys is
 circular — the registry would supply the very member the census failed to find.
 
-## Task 11: the corpus migration
+## Task 10: the corpus migration
 
 <!-- task: red=`pnpm vitest run tests/specLint/acUnclaimedCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28` why=`AC-3 is declared at :28 with no disposition on the line and no marker cites it, so the corpus test this task writes reports a non-empty unclaimed set and fails; it passes only once every such line carries its plan own disposition` ac=AC-6 -->
 
@@ -247,9 +230,12 @@ equals the committed residue list EXACTLY, with a `premise()` guard so an empty
 walk cannot satisfy it vacuously (`tests/_shared/premise.ts`, and
 `tests/specLint/acCoverageCorpus.test.ts` is the shape).
 
-**The unit is a declaring LINE, not a plan.** Measured at plan time under the v3
-grammar: 19 plans, 33 ids, and eight plans need more than one line
-(`app-e2e-batch2` needs five). Per spec §4.2 constraint 1 each edit states ONLY
+**The unit is a declaring LINE, not a plan**, and under v4 one line disposes
+exactly one id, because a line carrying more than one is AMBIGUOUS and the arm
+declines it (spec §4.2.1). So the count is one line per id. Measured at plan time:
+19 plans, **31 ids**, hence 31 declaring lines. `app-e2e-batch2` alone needs six,
+at `docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28-34` — plan review R1
+finding 4 measured that against the earlier "five" and was right. Per spec §4.2 constraint 1 each edit states ONLY
 what that plan's prose already says, cited from its own line; per constraint 2 a
 plan whose prose settles nothing gets NO disposition and goes on the residue list
 instead, with what was searched. The per-plan classification with quoted evidence
@@ -259,13 +245,41 @@ and is this task input.
 The residue is fail-closed and is a number that may go DOWN as owning arcs resolve
 their own plans, never up.
 
-## Task 12: the convention paragraph
+## Task 11: the convention paragraph
 
 <!-- task: red=`pnpm vitest run tests/docs/_metaSpecLintDocs.test.ts` red-state=authored red-target=`docs/agents/writing-plans.md:26` why=`writing-plans.md documents the red= and gate-command contract at :26 and says nothing about acceptance-criterion dispositions, so a plan author has no statement of the convention the arm now enforces; the docs assertion this task writes fails against the current file` ac=AC-6 -->
 
 ONE paragraph in `docs/agents/writing-plans.md` per spec §4.2 constraint 3 — NOT
 `AGENTS.md`. It states the convention, the accept-set direction, and that a
 disposition may only say what the plan already says.
+
+## Task 12: archive both bookkeeping rows — LAST, and it must be last
+
+**Ordering is a correctness constraint here, not a preference** (plan review R1
+finding 1). An archive categorically rejects an in-flight entry
+(`tests/docs/_metaLedgerInProgress.test.ts:77-81`), so this task's test can only
+go green once both IN PROGRESS markers are gone — and invariant 12 puts marker
+removal in the PR's LAST commit. At position 7 the markers would come off with
+five task commits still to land, and `origin` would advertise both rows as
+unclaimed for that whole window, which is exactly the signal invariant 12 exists
+to keep honest. So the archive is the last commit, and it carries the marker
+removal with it.
+
+<!-- task: red=`pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:99` why=`both rows are still in the open ledger, so a BACKLOG_GRADUATED row added to the registry at :99 fails the archive-only assertion at :704-737 until the sections move` ac=AC-8 -->
+
+Cut heading-to-any-NEXT-heading. **The next heading after the nullcode container at `BACKLOG.md:220`
+is a `###`, not a `##`.** Proof is set arithmetic, run before and after: `^## BL-` 21 to 19 and
+`^### BL-` 14 to 14 in `BACKLOG.md`; 385 to 387 and 109 to 109 in the archive; no id both open and
+archived; and all seven sub-row ids still present in `BACKLOG.md`, **named individually in the
+assertion**: `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE`, `BL-THEME-NOTE-BUBBLE-TEXT-ALIGN`,
+`BL-AGENDA-PROSE-SECOND-DAY`, `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK`,
+`BL-HEALTH-RESOLVE-DB-LOCKDOWN`, `BL-PARSER-FIELD-PROVENANCE-MODEL`,
+`BL-EXPORT-BLANK-ROW-SEGMENTATION`. Two of those are claimed by `fix/theme-note-polish`, so moving
+one would also steal a live claim.
+
+`tests/components/_orphanedComponents.ts` is NOT touched: its `backlog:` citation resolves against
+both ledgers via `ledgerFiles()` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:67`).
+
 
 <!-- tasks: end -->
 

@@ -1,9 +1,7 @@
 plans: 101
-plans declaring >=1 AC under the body grammar: 59
-plans whose markers cite >=1 AC: 101
-plans flagged UNCLAIMED (declared, no marker cites it): 19
-plans flagged UNDECLARED (marker cites an id the grammar does not declare): 62
-  ... restricted to plans that declare at least one id: 20
+plans with >=1 CERTAIN declaration: 57
+AMBIGUOUS declaring lines (arm declines, recorded): 14 across 12 plans
+plans flagged UNCLAIMED: 19, ids 31
 
 === UNCLAIMED detail ===
 docs/superpowers/plans/2026-08-07-ops-log-code-emits.md
@@ -13,11 +11,13 @@ docs/superpowers/plans/2026-08-17-rowactions-submenu-reveal-scroll-clamp.md
 docs/superpowers/plans/2026-08-19-premisescan-nested-hook-sibling-leak.md
     unclaimed: AC-7
 docs/superpowers/plans/ci/2026-08-24-mutation-scratch-fs-event-storm.md
-    unclaimed: AC-1, AC-3, AC-6
+    unclaimed: AC-3
 docs/superpowers/plans/ci/2026-08-15-changes-feed-modal-batch-flake.md
     unclaimed: AC-5
 docs/superpowers/plans/ci/2026-08-21-shell-attached-redirection-target.md
     unclaimed: AC-7
+docs/superpowers/plans/ci/2026-08-26-speclint-dispatch-gates.md
+    unclaimed: AC-9
 docs/superpowers/plans/2026-08-20-shell-lexer-quoted-value-recall.md
     unclaimed: AC-6
 docs/superpowers/plans/2026-08-22-mutation-score-jurisdiction-gap.md
@@ -32,8 +32,6 @@ docs/superpowers/plans/2026-08-22-workflow-run-scalar-yaml-decode.md
     unclaimed: AC-8
 docs/superpowers/plans/2026-08-16-server-action-origin-sweep.md
     unclaimed: AC-8
-docs/superpowers/plans/2026-08-21-control-outline-forward-guard.md
-    unclaimed: AC-10
 docs/superpowers/plans/2026-08-10-help-tour-hydration-fix.md
     unclaimed: AC-4
 docs/superpowers/plans/2026-08-17-shell-binding-mixed-quoted-value.md
@@ -45,44 +43,18 @@ docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md
 docs/superpowers/plans/2026-08-22-shell-brace-cross-construct.md
     unclaimed: AC-5, AC-6
 
-=== UNDECLARED detail (plans that DO declare) ===
-docs/superpowers/plans/2026-08-22-validation-prune-db-side-gate.md
-    undeclared: AC-8
-docs/superpowers/plans/2026-08-17-speclint-prose-consistency-arms.md
-    undeclared: AC-2, AC-3, AC-4, AC-5, AC-7
-docs/superpowers/plans/2026-08-18-planlint-fixture-satisfiability.md
-    undeclared: AC-1, AC-3, AC-4, AC-5
-docs/superpowers/plans/ci/2026-08-25-mutation-shard-weight-seconds.md
-    undeclared: AC-2, AC-3, AC-4, AC-5, AC-6
-docs/superpowers/plans/ci/2026-08-21-destructive-guard-discovery-by-connection.md
-    undeclared: AC-C5, AC-C6, AC-C7, AC-C8
-docs/superpowers/plans/ci/2026-08-21-shell-attached-redirection-target.md
-    undeclared: AC-1, AC-2, AC-3, AC-4, AC-6
-docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md
-    undeclared: AC-1, AC-2b, AC-2b-pattern, AC-3, AC-4, AC-5
-docs/superpowers/plans/ci/2026-08-26-speclint-dispatch-gates.md
-    undeclared: AC-4, AC-5, AC-6
-docs/superpowers/plans/ci/2026-08-20-browser-child-lifetime.md
-    undeclared: AC-2, AC-6, AC-8, AC-9
-docs/superpowers/plans/2026-08-20-shell-lexer-quoted-value-recall.md
-    undeclared: AC-1, AC-2, AC-3, AC-5, AC-8
-docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md
-    undeclared: AC-1, AC-10, AC-11, AC-12, AC-2, AC-3, AC-4, AC-5, AC-7, AC-8, AC-9
-docs/superpowers/plans/step3-onboarding/2026-08-15-step3-crew-preview.md
-    undeclared: AC-4, AC-5, AC-6, AC-7
-docs/superpowers/plans/2026-08-22-derived-number-provenance-convention.md
-    undeclared: AC-1, AC-2, AC-3, AC-4, AC-5, AC-6
-docs/superpowers/plans/2026-08-03-pre-review-gate-arms.md
-    undeclared: AC-10, AC-11, AC-12, AC-13, AC-14, AC-15, AC-16, AC-17, AC-18, AC-19, AC-20, AC-21, AC-22, AC-23, AC-24, AC-25, AC-26, AC-27, AC-28, AC-29, AC-30, AC-31, AC-32, AC-33, AC-34, AC-35, AC-36, AC-37, AC-38, AC-39, AC-40, AC-41, AC-42, AC-43, AC-44, AC-45, AC-46, AC-47, AC-6, AC-7, AC-8, AC-9
-docs/superpowers/plans/2026-08-25-drift-residue/plan.md
-    undeclared: AC-4.1, AC-5.1
-docs/superpowers/plans/2026-08-21-premisescan-hook-attachment.md
-    undeclared: AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7
-docs/superpowers/plans/2026-08-22-workflow-run-scalar-yaml-decode.md
-    undeclared: AC-10, AC-9
-docs/superpowers/plans/2026-08-21-control-outline-forward-guard.md
-    undeclared: AC-1, AC-11, AC-12, AC-13, AC-14, AC-15, AC-16, AC-17, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8
-docs/superpowers/plans/2026-08-15-sync-log-emit-guard/plan.md
-    undeclared: AC-1b
-docs/superpowers/plans/2026-08-22-shell-brace-cross-construct.md
-    undeclared: AC-1, AC-2, AC-3, AC-4, AC-7, AC-8
+=== AMBIGUOUS declaring lines (documented limit) ===
+docs/superpowers/plans/2026-08-15-diagram-demote-notice/plan.md:39  AC-2 AC-2b
+docs/superpowers/plans/2026-08-19-premisescan-nested-hook-sibling-leak.md:21  AC-3 AC-12b
+docs/superpowers/plans/ci/2026-08-24-mutation-scratch-fs-event-storm.md:84  AC-1 AC-1b AC-1c
+docs/superpowers/plans/ci/2026-08-24-mutation-scratch-fs-event-storm.md:93  AC-6 AC-4
+docs/superpowers/plans/ci/2026-08-15-changes-feed-modal-batch-flake.md:495  AC-5 AC-6
+docs/superpowers/plans/2026-08-09-help-report-surface.md:61  AC-6 AC-11.11
+docs/superpowers/plans/2026-08-09-watch-promotion-activation-race-fix.md:32  AC-7 AC-6.18
+docs/superpowers/plans/2026-08-03-pre-review-gate-arms.md:238  AC-1 AC-20 AC-21
+docs/superpowers/plans/2026-08-03-pre-review-gate-arms.md:240  AC-3 AC-19
+docs/superpowers/plans/2026-08-25-drift-residue/plan.md:54  AC-1.4 AC-1.2
+docs/superpowers/plans/2026-08-15-sync-log-emit-guard/plan.md:56  AC-6 AC-1 AC-2 AC-3
+docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:29  AC-4 AC-3
+docs/superpowers/plans/2026-08-15-scanner-scope-totality/plan.md:91  AC-2 AC-10b
+docs/superpowers/plans/2026-08-15-theme-persistence-note/plan.md:51  AC-10 AC-10b
