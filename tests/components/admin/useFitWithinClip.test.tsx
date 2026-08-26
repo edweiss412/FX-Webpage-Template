@@ -339,6 +339,46 @@ describe("useFitWithinClip", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  test("(h) one attach walks the ancestor chain exactly once", () => {
+    // Counts `getComputedStyle` on ANCESTORS only; the fitted node's own
+    // declared-cap read is excluded, so the number is the walk and nothing else.
+    const seen: string[] = [];
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
+      const data = (el as HTMLElement).dataset;
+      const id = data?.["testid"] ?? "";
+      if (id !== "fitted") seen.push(id);
+      const clips = data?.["clips"] === "true";
+      return {
+        overflowX: clips ? "clip" : "visible",
+        overflowY: clips ? "clip" : "visible",
+        maxHeight: id === "fitted" ? `${DECLARED_CAP}px` : "none",
+      } as unknown as CSSStyleDeclaration;
+    });
+
+    const { fitted } = mount();
+
+    // DERIVED from the rendered fixture, never typed: walk the real ancestor
+    // chain the way the hook does, up to and INCLUDING the first non-visible
+    // overflow, and take that as the expectation. A hardcoded ["inner","outer"]
+    // would drift silently the moment the fixture's nesting changed.
+    const expected: string[] = [];
+    for (let el = fitted.parentElement; el !== null; el = el.parentElement) {
+      const id = el.dataset["testid"];
+      if (id === undefined) break;
+      expected.push(id);
+      if (el.dataset["clips"] === "true") break;
+    }
+
+    // PREMISE (this case's own inputs): the chain must be at least two deep and
+    // must actually clip, or one walk and two walks are the same number and the
+    // assertion below cannot discriminate.
+    premiseHolds(
+      `the fixture walks ${expected.length} ancestors and clips at the last of them`,
+      expected.length >= 2 && fitted.closest('[data-clips="true"]') !== null,
+    );
+    expect(seen, "one attach must walk the ancestor chain once").toEqual(expected);
+  });
+
   test("(h2) the ref callback with a null node: no measure, no throw", () => {
     // Unreachable under React 19 cleanup refs — React calls the returned
     // teardown instead of re-invoking with null — but `RefCallback` admits it,

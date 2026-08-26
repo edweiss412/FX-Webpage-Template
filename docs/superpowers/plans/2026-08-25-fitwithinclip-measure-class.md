@@ -333,6 +333,18 @@ the result. **M11 is the one to read twice**: it must go from killing NOTHING to
 
 ## Task 2 — `apply()` returns the clip it already resolved
 
+> **EXECUTION NOTE (recorded during the run, not planned).** This task's PRODUCTION change was
+> subsumed by Task 1 and its RED was therefore never observed separately. Task 1's ref callback needs
+> a clip ancestor to observe, and the only honest way to supply one without a second walk is to have
+> `apply()` return it — so the two changes are one edit, and after Task 1 there was no second walk
+> left to fail on. Measured: `findClippingAncestor` has ONE call site
+> (`components/admin/useFitWithinClip.ts:93`) and one attach reads two ancestors, `[inner,outer]`.
+>
+> Rather than stage a red that did not exist, case (h) ships as a PIN and its discriminating power is
+> proved by mutant instead: **M2 (restore the second walk) turns (h) red**, run and recorded below.
+> This is written down because a task whose red was never observed is exactly the thing a reader
+> would otherwise assume happened.
+
 <!-- task: red=`pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx` red-state=authored red-target=`components/admin/useFitWithinClip.ts:203` why=`the returned ref callback is where the second ancestor walk lives once Task 1 has moved it, so the new ancestor-getComputedStyle counter reads two walks where the assertion derives one; this cites the SURVIVING surface, not the line Task 1 deletes (5b)` ac=AC-2 -->
 
 **What is red and why.** After Task 1 the mount still walks twice: once inside `apply()` and once in the wiring, at what is `components/admin/useFitWithinClip.ts:161` on the pre-Task-1 tree. Case (h) is authored in this task and fails on that second walk. It cannot pass by accident: it counts `getComputedStyle` calls on ANCESTORS only, and its expected value is derived, not typed.
