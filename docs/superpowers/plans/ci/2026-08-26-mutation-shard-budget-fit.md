@@ -83,12 +83,13 @@ hardcoded literal that silently contradicts the constant the moment the constant
 
 ## Meta-test inventory (mandatory declaration)
 
-**EXTENDS** `tests/mutation/_metaSourceShardIntegrity.test.ts` (one new case; its existing
+**EXTENDS** `tests/mutation/_metaSourceShardIntegrity.test.ts` (nothing added; its existing
 byte-identical-template and env-pin cases are exercised over eight files rather than four without
 being edited). **EXTENDS**
 `tests/mutation/source/shardPartition.test.ts` (one case DELETED, one added). **EXTENDS**
 `tests/ci/_workflowCoverageScan.ts` (one pinned value text). **EXTENDS** `tests/mutation/_metaSpawnDisposition.test.ts` (one
-`DISPOSITIONS` row). **CREATES** **tests/mutation/_metaShardRangeTracked.test.ts**, and only because
+`DISPOSITIONS` row). **EXTENDS** `tests/mutation/source/shardBalance.test.ts` (the held-out
+comparison's shard count, derived from each fixture instead of read from the live constant). **CREATES** **tests/mutation/_metaShardRangeTracked.test.ts**, and only because
 the spawn-disposition contract forces it: the guard shells out to git, and the file that would
 otherwise have hosted it already carries a blanket `member: false` row that a real spawn would
 contradict. The task says so at the point of the decision.
@@ -172,7 +173,7 @@ task region records why the task that would have added it was deleted.
 
 ## Task 1 — eight shards, the partition fits, and the tracked range follows the count
 
-<!-- task: red=`pnpm vitest run tests/mutation/source/shardPartition.test.ts tests/mutation/_metaSourceShardIntegrity.test.ts tests/mutation/_metaShardRangeTracked.test.ts tests/mutation/_metaSpawnDisposition.test.ts` red-state=authored red-target=`tests/mutation/source/shardPartition.ts:26` why=`this line holds 4, so the modelled binding leg is 4666275ms against a 3600s budget and the budget assertion written in place of the breach-recording case fails, and the scratch ignore rule keyed to the same count has no relation to it so raising the line makes every added shard file unstageable` ac=AC-1,AC-2,AC-3,AC-4,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/mutation/source/shardPartition.test.ts tests/mutation/_metaSourceShardIntegrity.test.ts tests/mutation/_metaShardRangeTracked.test.ts tests/mutation/_metaSpawnDisposition.test.ts tests/mutation/source/shardBalance.test.ts` red-state=authored red-target=`tests/mutation/source/shardPartition.ts:26` why=`this line holds 4, so the modelled binding leg is 4666275ms against a 3600s budget and the budget assertion written in place of the breach-recording case fails, and the scratch ignore rule keyed to the same count has no relation to it so raising the line makes every added shard file unstageable` ac=AC-1,AC-2,AC-3,AC-4,AC-7 -->
 
 **RED, in two recorded steps. Both fail before anything is made to pass, and both go in the
 commit message.**
@@ -183,8 +184,8 @@ budget. The marker is `red-state=authored` rather than `live` because the comman
 tree as it stands and only fails once this case exists; `spec:lint --exec-red` rejected the `live`
 form on exactly that ground, which is the check working.
 
-Step B. Add the shard-range guard (below) to `tests/mutation/_metaSourceShardIntegrity.test.ts`.
-It PASSES on today's tree, which proves nothing yet. Then raise `SOURCE_SHARD_COUNT` to 8 and
+Step B. Create the shard-range guard (below) in its own file, **tests/mutation/_metaShardRangeTracked.test.ts**,
+for the reason that section gives. It PASSES on today's tree, which proves nothing yet. Then raise `SOURCE_SHARD_COUNT` to 8 and
 change NOTHING else, and run both suites. Record every red: `_metaSourceShardIntegrity` fails on
 the workflow matrix, on the budget-step env, on the shard-file count, and on the new guard, which
 now reports shard4 through shard7 as ignored. That last one is the guard failing on the real
@@ -237,7 +238,7 @@ other non-zero as a fault.
 **Guard premise.** The guard asserts over a path set derived from a constant, so it must prove it
 looked at a non-empty set before concluding anything, or a `SOURCE_SHARD_COUNT` of 0 makes both
 halves vacuously true. `premiseHolds(description, condition)` from `tests/_shared/premise.ts`,
-which this file already imports.
+imported by the new file the way `_metaSourceShardIntegrity.test.ts` imports it today.
 
 **Where the guard lives, which the spawn-disposition contract decides rather than taste.**
 `tests/mutation/_metaSpawnDisposition.test.ts` walks `tests/mutation/` for child-process call
@@ -257,8 +258,30 @@ planned a row for it there. That cannot work, and plan review probed why:
   two spawn hits, one `timeout`.
 
 So the guard goes in a NEW file, **tests/mutation/_metaShardRangeTracked.test.ts**, with its own
-`{ kind: "file", member: true, reason: … }` row in `DISPOSITIONS` and an explicit `timeout` on
-every `execFileSync` call it makes. That is participating in the walker rather than dodging it:
+`{ kind: "file", member: true, reason: … }` row in `DISPOSITIONS`. A `member: true` row carries no
+`hits` and no `digest` (those belong to file-level non-members), and two constraints bind that
+"an explicit timeout" does not state precisely enough:
+
+- **`ceilingCount` accepts a positive integer literal or one of four allowlisted names, nothing
+  else.** `{ timeout: 10_000 }` counts; `{ timeout: RANGE_GIT_TIMEOUT_MS }` does not unless that
+  name is allowlisted and satisfies `CEILING_HOME`. The guard uses the literal form.
+- **`reason.trim().length` must be at least 20.**
+
+The count is per file and must be at least the spawn hits in it, so the guard makes exactly ONE
+`execFileSync` call: `git check-ignore --no-index` accepts every path at once and prints only the
+ignored ones, which yields the whole ignored SET from one invocation and is a stronger assertion
+than a per-path exit code. Probed in a clean repository:
+
+```
+$ printf 'g.shard[8-9].ts\n' > .gitignore
+$ git -c core.excludesFile=/dev/null check-ignore --no-index g.shard0.ts g.shard7.ts g.shard8.ts g.shard9.ts
+g.shard8.ts
+g.shard9.ts
+exit=0
+```
+
+One hit, one ceiling, and the assertion compares that printed set against the set derived from
+`SOURCE_SHARD_COUNT`. That is participating in the walker rather than dodging it:
 the new file is walked like any other, and its one row makes exactly one claim about exactly one
 file. It also overrides this plan's earlier "creates no new meta-test file" line, which was a
 preference and loses to a contract.
@@ -292,6 +315,39 @@ preference and loses to a contract.
    now false. Rewrite it: the makespan is pinned by the heaviest surface from eight on.
 8. The stale comment at `shardPartition.test.ts:203-211` describes the four-shard regime. Rewrite
    it to describe the regime the count now sits in.
+
+**The held-out margin fixtures are FOUR-LEG data, and the count change breaks them.** Plan review
+found this and the plan had missed it entirely. `tests/mutation/source/shardBalance.test.ts:84`
+passes the live `SOURCE_SHARD_COUNT` into `heldOutMargin`, and each committed pair fixture's
+`observed` block records a partition at the count it was measured at:
+
+```
+$ python3 -c "import json;print(json.load(open('tests/mutation/source/fixtures/heldout/pair-1.json'))['observed'])"
+{'secondsLegs': [5174, 3394, 3979, 5136], 'bootsLegs': [2247, 6138, 3827, 5471],
+ 'secondsBinding': 5174, 'bootsBinding': 6138, 'marginSeconds': 965}
+```
+
+`secondsLegs` has FOUR entries. Run at eight, the same fixture produces eight legs and a different
+binding, so all three pairs fail: 5174/6138/965 becomes 2875/3283/408, and pairs 2 and 3 move
+likewise. These are the predecessor arc's ratified AC-3 measurements.
+
+**The repair is to decouple, and NOT to recompute the observations.** Recomputing `observed` at
+eight would derive the expectation from the code under test, which is exactly the tautology that
+test's own comment forbids: "an expectation derived from `weightOf` could not notice a rate mutant,
+because both sides would move together." The observations are measurements and must stay
+measurements.
+
+So the held-out comparison runs at the shard count ITS OWN FIXTURE was measured at, derived from
+the fixture rather than pinned to a literal: `fx.observed.secondsLegs.length`. Each pair then
+declares its own leg count by construction, a future pair measured at a different count works with
+no edit, and the assertion is unchanged in strength. The claim under test is whether the
+seconds-calibrated weight beats the boot-count weight on held-out data, which is a question about
+WEIGHTS; reading the shipped shard count there was a coupling to a constant the claim does not
+depend on. This is a decoupling, not a weakening: same fixtures, same assertions, same recorded
+numbers, one fewer irrelevant input.
+
+It touches the predecessor arc's surface, so it is reported to bl-orch rather than done quietly,
+and `tests/mutation/source/shardBalance.test.ts` joins the task's command set.
 
 **Prose class sweep, swept to a derivation and not to a list.** Spec §2.1 calls this class B:
 prose that spells the source shard count as a word or a digit, which compiles and asserts exactly
@@ -358,14 +414,33 @@ a manual dispatch.
 
 AC-5 reads its per-leg `elapsed.txt` values, and a breach is CLASSIFIED before it is answered,
 because the spec's AC-5 has two branches and only one of them is "raise N". A first draft of this
-closeout said to raise N unconditionally, which contradicts the spec it implements:
+closeout said to raise N unconditionally, which contradicts the spec it implements.
 
-- **Divisible.** No single surface on the breaching leg, plus the per-leg overhead, exceeds the
-  budget alone. Raise N in this same PR and re-run.
+Classifying needs more than `elapsed.txt`, which carries only the leg total. It needs each
+surface's own child seconds and the per-leg overhead, both of which come from the
+`mutation-records-source-shards-*` artifacts:
+
+```
+gh run download <id> -D <dir>/meas-<id> \
+  -p "mutation-records-source-shards-*" -p "elapsed-source-shards-*"
+```
+
+overhead for a leg is that leg's `elapsed.txt` minus the sum of its records' child durations; a
+surface's own total is the sum of its record's child durations. Then:
+
+- **Divisible.** No single surface on the breaching leg, plus that overhead, exceeds the budget
+  alone. Raise N in this same PR and re-run.
 - **Indivisible.** Some single surface on that leg does exceed it alone. No N helps, so the
   response is the spec's L-1 remedies (split the surface, or move the budget with the ceiling
   relation in lockstep) plus a message to bl-orch, because that is a scope decision this arc does
   not take alone. Never a filed ledger row.
+- **Undecidable, and it is a real branch rather than a formality.** The records upload is
+  `continue-on-error: true` (`.github/workflows/mutation-harness.yml:210`), so a run can report an
+  over-budget `elapsed.txt` and carry no per-surface records at all. Neither branch above is then
+  decidable. Do NOT guess and do NOT default to raising N: re-run the workflow once to try for the
+  artifacts, and if they are absent again, report the breach to bl-orch as unclassified with the
+  leg totals that do exist. An unclassified breach answered by raising N is the same wrong answer
+  the unconditional draft gave, arrived at more slowly.
 
 Before the whole-diff review's `GUARD SURFACE:` line, derive the touched-surface set rather than
 asserting it, with two EXPLICIT SHAS, the merge base and this worktree's local head:
