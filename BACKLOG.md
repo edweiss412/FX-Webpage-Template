@@ -654,19 +654,9 @@ docblock states the gap rather than papering over it.
 
 ---
 
-### BL-NEARMISS-CANDIDATE-RENDER — the near-miss card asks Doug to judge a suggestion no surface displays
-
-**Severity:** MEDIUM (the card functions; the arc's whole point is unrealized in UI) · **Class:** UI / warning-card copy-behavior mismatch · **Filed:** 2026-08-15 (`feat/mutation-section-order`, impeccable dual-gate finding F1, deferred half) · **Effort:** S · **Status:** IN PROGRESS · **Branch:** feat/nearmiss-surface
-
-**Probed, not theorized.** The detector computes the matched candidate and attaches it structurally — `lib/parser/warnings.ts:427`, `if (opts.candidate !== undefined) warning.candidate = opts.candidate;` — and the emitted message carries it as `; looks like '<candidate>'`. But `rg -n '\.candidate\b' components/ app/` returns only `NeedsAttentionInbox.tsx:92,105,106` `item.candidateTitle`, an unrelated show-title field. **Zero render sites for `ParseWarning.candidate`.** The card's only concrete example is the hard-coded `'Stage'` / `'Stage Size'` pair in `helpfulContext`, which is the wrong pair for nearly every one of the 65 live emissions.
-
-**Why it is filed rather than fixed in the filing branch.** Rendering the candidate is a change to `components/` — a surface `feat/mutation-section-order` does not otherwise touch, so it would pull the invariant-8 dual gate onto a new rendered component and a fresh design pass. That is class-sweep disposition exception **(c)**: the repair is a redesign of a surface the PR does not otherwise touch. The copy half WAS repaired in that branch — every clause inviting Doug to Report "if our suggestion is wrong" is gone, so the shipped card names only what is on screen and is honest as it stands. That is what makes this schedulable rather than urgent.
-
-**Work:** render `ParseWarning.candidate` on the near-miss card (and the wizard's step-3 row, which already derives its own per-row label from `rawSnippet` at `components/admin/wizard/step3ReviewSections.tsx:3067`), then re-edit `helpfulContext`/`longExplanation` to point at the shown suggestion instead of the invented `'Stage'` example — which also closes gate finding F2's residue, since the worked example exists only because there is nothing real to point at. Guard the render, or it regresses to the same silent mismatch.
-
 ### BL-TYPO-NORMALIZED-V4-VENUE-SHAPE — the re-keyed venue gate is unreachable on the current template, and the miss is silent
 
-**Severity:** MEDIUM (a SILENT miss, not a conservative demote — nothing at all is emitted, so the operator gets no signal to act on) · **Class:** parser signal reachability · **Filed:** 2026-08-15 (`feat/mutation-section-order`, found by the implementer during the field-near-miss detector task and confirmed by its reviewer) · **Effort:** S (the code is one predicate; the DECISION is the work) · **Status:** IN PROGRESS · **Branch:** feat/nearmiss-surface
+**Severity:** MEDIUM (a SILENT miss, not a conservative demote — nothing at all is emitted, so the operator gets no signal to act on) · **Class:** parser signal reachability · **Filed:** 2026-08-15 (`feat/mutation-section-order`, found by the implementer during the field-near-miss detector task and confirmed by its reviewer) · **Effort:** S (the code is one predicate; the DECISION is the work)
 
 **Probed, not theorized.** Same typo-alias row, same parser, differing only in the shape of the table that holds it:
 
