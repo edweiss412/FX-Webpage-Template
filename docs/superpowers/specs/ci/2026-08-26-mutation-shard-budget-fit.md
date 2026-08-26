@@ -100,10 +100,18 @@ On this table alone the answer is six, and that is what the predecessor arc's ha
 
 It is wrong for two independent reasons, both of which §1.3 corrects rather than argues around.
 
-**The rates under-price.** The shipped drift instrument (`scripts/check-rate-drift.ts`) reports
-per surface on main's latest nightly that EVERY ONE of the 48 surfaces it measured observes at
-or above its declared rate, spanning 1.02x to 2.19x, 1.1952x in aggregate. No surface anywhere
-in that report runs faster than its declared rate, so this is a systematic bias and not noise.
+**The rates under-price.** The shipped drift instrument (`scripts/check-rate-drift.ts`) over the
+48 surfaces measured on run `32920754274` reports observed-over-declared ratios spanning 0.99x to
+2.19x, **1.1952x in aggregate**. The aggregate is the load-bearing figure and it is what §1.3
+acts on.
+
+An earlier draft claimed every surface observes at or above its declared rate. That is false, and
+how it got written is worth one sentence because the same mistake is available to anyone reading
+this: the report sorts descending, the draft was written from the first forty lines, and the
+counter-example is near the bottom. `acCoverage` declares 5006 ms per boot and observed 4974, a
+ratio of 0.9936. One surface of 48 runs faster than its declaration. The bias is systematic in
+aggregate and heavily one-sided, which is all §1.3 needs; it is not universal, and the spec does
+not claim it is.
 
 **The model prices child work; the budget measures the job.** `SHARD_BUDGET_SECONDS` is checked
 against each leg's `elapsed.txt`, whose timer is stamped before checkout, the setup action, and
@@ -329,10 +337,11 @@ describes the four-shard regime and is rewritten to describe the one the count n
   budget with the ceiling relation at `tests/mutation/_metaSourceShardIntegrity.test.ts:503-554`
   moved in lockstep. Neither is a shard-count change, which is why this is recorded here rather
   than deferred to a future N.
-- **L-2. The declared rates systematically under-price.** §1.2 owns that measurement and the
-  command that prints it; the drift report finds no surface anywhere below its declared rate.
-  This is the predecessor arc's surface, its own `check-rate-drift` instrument reports it by
-  design, and that report never fails a job because drift is information for whoever re-measures.
+- **L-2. The declared rates under-price in aggregate, by 1.1952x, and not universally.** §1.2
+  owns that measurement, the command that prints it, and the single counter-example (`acCoverage`
+  at 0.9936). This is the predecessor arc's surface, its own `check-rate-drift` instrument reports
+  it by design, and that report never fails a job because drift is information for whoever
+  re-measures.
   The consequence for this spec is bounded and handled: it is why §1.2's table cannot be the
   basis for N, and why §1.3 scores against measured seconds instead.
 - **L-3. Run-to-run variance reaches 1.29x on identical work, and its effect on the floor is an
@@ -344,15 +353,21 @@ describes the four-shard regime and is rewritten to describe the one the count n
   floor scales by 1.29x. It says 42 OTHER surfaces did. If the floor scales similarly, a run that
   slow breaches at every N; that conditional is the honest form, and the run that settles it has
   not happened yet.
-- **L-5. AC-5's divisible/indivisible test is approximate near the boundary.** It compares a
-  surface's own mutant-child seconds against the budget, and those are the only per-surface
-  figures a record carries: the fields are `outcomes`, `passed`, `runId`, `score`, `startedAt`
-  and `surfaceId`, `runSurface` discards the baseline child's timing, and generation and
-  orchestration time are attributed to no surface. `elapsed.txt` gives only the whole-leg total.
-  So a surface whose own children come in just under the budget while its unattributed share
-  pushes it over is classified divisible when it is not. The consequence is bounded and
-  conservative in the right direction: the run is re-run at a higher N, which fails again and
-  reaches the same answer one iteration later. It is not silent.
+- **L-5. AC-5's divisible/indivisible test is approximate, and it errs toward INDIVISIBLE.** The
+  test asks whether a surface could fit a leg alone, so it adds the whole per-leg overhead to
+  that surface's own child seconds, which is right for a surface that would BE alone. What makes
+  it approximate is that the overhead figure is measured as a leg's `elapsed.txt` minus the sum
+  of its children, so on a leg holding eight surfaces it contains the generation, baseline and
+  orchestration time of all eight. Records carry no per-surface share of it: the fields are
+  `outcomes`, `passed`, `runId`, `score`, `startedAt` and `surfaceId`, `runSurface` discards the
+  baseline child's timing, and `elapsed.txt` gives only the whole-leg total.
+
+  Attributing all of it to one candidate therefore OVERSTATES what that surface would cost alone,
+  so the test can call a surface indivisible when a higher N would in fact have fitted it. The
+  consequence is an escalation to bl-orch on a breach that raising N might have resolved: a human
+  looking at a decision they would otherwise not have seen, which is a cost but not a wrong
+  answer, and never a silent one. An earlier draft of this limit described a different test from
+  the one AC-5 states and claimed the opposite error direction.
 - **L-4. Measured seconds carry two kinds of staleness, and only one was checkable.** The runs
   scored are at shas before the predecessor arc merged. Per-surface seconds are
   partition-independent, which is the only property §1.3 uses, and OUTCOME-count staleness was
