@@ -3630,7 +3630,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     control: { from: "const leg = Number(rec[1]);", to: "const leg = 0;" },
     accepted: [
       {
-        siteId: "statement-removal:86:7:continue;>(removed)",
+        siteId: "statement-removal:130:7:continue;>(removed)",
         kind: "equivalent",
         reason:
           "The early exit after a records directory is consumed. Removing it falls through " +
@@ -3711,7 +3711,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "best rather than the load.",
       },
       {
-        siteId: "integer-literal:431:62:0>1",
+        siteId: "integer-literal:477:62:0>1",
         kind: "equivalent",
         reason:
           "`scored` is `laterSurfaces.filter((m) => seed.has(m.surfaceId))`, so every surface " +
