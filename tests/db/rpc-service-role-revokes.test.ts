@@ -1,7 +1,8 @@
 import postgres from "postgres";
 import { describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 
 // 2026-06-11 bug-audit: 20260608000003_undo_change_rpc.sql revoked its three
 // functions from public/anon/authenticated but — unlike the sibling MI-11 gate
@@ -24,7 +25,7 @@ const NO_SERVICE_ROLE_EXECUTE = [
 
 describe("service_role EXECUTE revokes on admin-gated / lock-interior RPCs", () => {
   test.skipIf(!DB_URL)("service_role cannot execute any registered function", async () => {
-    const sql = postgres(DB_URL!, { max: 1, prepare: false });
+    const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
     try {
       const grants: string[] = [];
       for (const signature of NO_SERVICE_ROLE_EXECUTE) {

@@ -14,6 +14,7 @@ import { join } from "node:path";
 
 import { canonicalize } from "@/lib/email/canonicalize";
 import { type CliRun, runValidationCli } from "./_cli-helpers";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 export const REPO_ROOT = process.cwd();
 export const TSCONFIG_PATH = join(REPO_ROOT, "tsconfig.json");
@@ -23,8 +24,9 @@ export const REPORT_FIXTURES_SCRIPT = join(REPO_ROOT, "scripts/validation-report
 // Absolute so it resolves from the harness's hermetic temp cwd (no node_modules).
 export const TSX_BIN = join(REPO_ROOT, "node_modules", ".bin", "tsx");
 
-export const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+export const DATABASE_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 export const LOCAL_SUPABASE_URL = "http://127.0.0.1:54321";
 export const LOCAL_SERVICE_ROLE_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";

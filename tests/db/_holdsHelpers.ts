@@ -31,11 +31,11 @@ import {
   parseResult as buildParseResult,
   phase2Tx,
 } from "@/tests/sync/_holdAwareTestkit";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // is_admin() reads app_metadata.role from auth.jwt(); auth_email_canonical() reads `email`.
 const ADMIN_CLAIMS = JSON.stringify({

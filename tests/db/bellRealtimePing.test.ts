@@ -10,7 +10,7 @@
  * (viewer_kind='admin') on the private 'admin:alerts' channel.
  *
  * Connection pattern mirrors tests/db/bellFeedRpc.test.ts (postgres.js
- * against TEST_DATABASE_URL ?? DATABASE_URL ?? local stack).
+ * against DATABASE_URL ?? the local stack).
  *
  * Precedent: supabase/migrations/20260504000000_realtime_private_channel_authorization.sql
  * (fxav_show_invalidation_subscriber_select is the sibling policy on the
@@ -18,11 +18,11 @@
  */
 import postgres, { type Sql } from "postgres";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const sql: Sql = postgres(DB_URL, { max: 4, prepare: false });
 

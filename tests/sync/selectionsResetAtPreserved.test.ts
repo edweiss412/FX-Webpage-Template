@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 // Regression pin (Task 7): a sync crew UPSERT of the SAME-named member must NOT clobber
 // crew_members.selections_reset_at — exactly as it preserves claimed_via_oauth_at. The sync
@@ -13,8 +14,9 @@ import { describe, expect, test } from "vitest";
 // delete+insert and loses the marker, identical to claimed_via_oauth_at; an identity-link rename,
 // cron or a staged rename choice per spec 2026-08-03, updates in place and preserves it.)
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 function runPsql(sql: string): string {
   return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", databaseUrl], {

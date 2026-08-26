@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const url = process.env.TEST_DATABASE_URL;
+const url = process.env.DATABASE_URL;
 describe.skipIf(!url)("set_pull_sheet_override grant lockdown", () => {
   let sql: ReturnType<typeof postgres>;
   beforeAll(() => {
-    sql = postgres(url!, { max: 1 });
+    sql = postgres(assertLocalDbUrl(url!), { max: 1 });
   });
   afterAll(async () => {
     await sql.end();

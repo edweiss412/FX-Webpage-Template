@@ -4,7 +4,7 @@
 // SERIALIZE against a concurrent revocation UPDATE: a revocation that commits
 // before the consume means the recipient NEVER consumes (neutral outcome,
 // token intact). Runs against the local Supabase stack like the repo's other
-// real-DB tests (tests/db/_b2Helpers.ts idiom: TEST_DATABASE_URL ??
+// real-DB tests (tests/db/_b2Helpers.ts idiom: DATABASE_URL ??
 // DATABASE_URL ?? local 127.0.0.1:54322).
 import { afterAll, describe, expect, it } from "vitest";
 import postgres, { type Sql } from "postgres";
@@ -12,11 +12,11 @@ import { randomUUID } from "node:crypto";
 import { closeB2Helpers, seedAutoPublishedShowWithUnpublishToken } from "@/tests/db/_b2Helpers";
 import { unpublishShowViaEmailedLink } from "@/lib/sync/unpublishShow";
 import { mintIdFor, recipientBindingFor } from "@/lib/sync/unpublishBinding";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // not-subject-to-meta: test-only fixture connection against the local stack;
 // faults fail the test directly rather than needing a typed infra result.

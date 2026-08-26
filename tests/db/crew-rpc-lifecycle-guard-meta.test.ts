@@ -6,17 +6,17 @@
  * client-reachable entry point that legitimately need not guard), TRIGGER_MUTATORS (a trigger function), or
  * PRIVATE_HELPERS (a private target-mutator reached only via a definer call chain). A NEW unclassified
  * surface fails the parity checks — the prompt to classify (GUARD / EXEMPT / register helper / register
- * trigger). Enumerated against TEST_DATABASE_URL (validation) in CI; the local dev DB is a partial catalog.
+ * trigger). Enumerated against the local stack (DATABASE_URL); the local dev DB is a partial catalog.
  *
  * Spec: docs/superpowers/specs/crew/2026-07-17-rpc-crew-lifecycle-guard-design.md §4/§5.
  */
 import { execFileSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 function q(sql: string): string[] {
   return execFileSync("psql", ["-v", "ON_ERROR_STOP=1", "-qAtX", databaseUrl], {
