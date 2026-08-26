@@ -4,7 +4,7 @@
 **Branch:** `fix/e2e-proof-retired-route-subpixel`
 **Closes:** `BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE` (BACKLOG.md:752), `BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE` (BACKLOG.md:701)
 **Facing:** product
-<!-- spec-lint: not-ui — this spec CHANGES no UI file. Its diff is tests/**, .github/workflows/**, playwright.config.ts and docs/**; every components/ and app/ path it cites is a READ-ONLY reference to the surface a test asserts against. Section 4 of the plan records the one product-code edit that was considered and declined, and the reason. -->
+<!-- spec-lint: not-ui — this spec CHANGES no UI file. Its diff is tests/**, .github/workflows/**, scripts/**, playwright.config.ts, BACKLOG.md and docs/**; every components/ and app/ path it cites is a READ-ONLY reference to the surface a test asserts against. Section 4 of the plan records the one product-code edit that was considered and declined, and the reason. -->
 
 **Files no new ledger row.** Eric's directive of 2026-08-25 binds this arc: findings are repaired in this PR under the class-sweep default, or recorded as documented limits on the owning surface. No `BL-`/`DEF-` row of any facing is minted here.
 
@@ -119,7 +119,7 @@ The row's font-rasterisation hypothesis predicts a value that varies continuousl
 
 **Placement is the point.** The barrier goes in the helper that opens the animated panel, not at the call sites, so it is a derived cover in the sense AGENTS.md requires: every present and future caller of `openStep3Modal` inherits it, and a new measurement added to any of those specs cannot forget it. This mirrors `rectOf` in `tests/e2e/crew-page.spec.ts:225-244`, whose header states the same reasoning ("placed on `rectOf` itself rather than on the call sites so the gate is a DERIVED cover").
 
-`openStep3Modal`'s other caller is `tests/e2e/dev-capture.spec.ts` (probed: `rg -n 'openStep3Modal\(' tests/e2e` returns that file and this one, and nothing else). It gains the same barrier. The change can only make them later by at most one animation duration and cannot make them fail: a settled read is the read they already expect on 98% of runs.
+`openStep3Modal`'s other caller is `tests/e2e/dev-capture.spec.ts` (probed: `rg -n 'openStep3Modal\(' tests/e2e` returns that file and this one, and nothing else). It gains the same barrier. The change makes them later by at most one animation duration plus whatever `document.fonts.ready` still owes, and it introduces exactly one new way to fail: the 5s ceiling, which throws by name rather than shrugging. A settled read is otherwise the read they already expect on 98% of runs.
 
 ### 4.2 Guarding the barrier so it cannot be silently removed
 
@@ -192,7 +192,7 @@ This removes every write to the shared seed, so the suite stops being a contende
 
 `tests/help/walker-routes.test.ts` is the guard normally cited for locked-table fixture writes, and it cannot prove this one. It recognizes PostgREST mutation syntax, so it is equally green whether the SQL the helper emits holds the advisory lock or not. Probed by deleting the lock line: `currentWalkerHits: 0`, `mutantWalkerHits: 0`, `lockPresentCurrent: true`, `lockPresentMutant: false`. Same verdict, opposite safety.
 
-Invariant 2 requires tests to assert the lock is HELD, so the transaction shape is exported (`lockedStatement`, `copyShowBody`, `deleteShowBody`) and proved without a database in `tests/e2e/helpers/lockedShowCopy.unit.test.ts`. The analyzer there classifies statement ORDER rather than containment, because containment is satisfied by a lock placed after the write. It carries four positive controls, one per known failure of this shape: the lock deleted, the lock after the write, a commit between the lock and the write, and a nested second acquisition. The first three are the three that cost arc C review rounds 4, 5 and 6 one at a time while a lexical guard stayed green (`tests/e2e/helpers/lockedCrewRestriction.ts` header).
+Invariant 2 requires tests to assert the lock is HELD, so the transaction shape is exported (`lockedStatement`, `copyShowBody`, `deleteShowBody`) and proved without a database in `tests/e2e/helpers/lockedShowCopy.unit.test.ts`. The analyzer there classifies statement ORDER rather than containment, because containment is satisfied by a lock placed after the write. It compares the emitted transaction character-for-character against the text this proof declares, so every escape changes that text and fails, including the ten a recognizer-shaped version was walked through over two rounds. The first three are the three that cost arc C review rounds 4, 5 and 6 one at a time while a lexical guard stayed green (`tests/e2e/helpers/lockedCrewRestriction.ts` header).
 
 ### 6.2 Route and auth
 
@@ -204,7 +204,7 @@ None of the four §8.3 contracts is viewer-scoped. Dates, the venue power row, t
 
 ### 6.3 Case-by-case re-expression against live identities
 
-Each case navigates to the section that renders its field, asserts the section root, and then asserts the §8.3 contract on an identity the product actually emits. `beforeAll` reads the template and `beforeEach` signs in; neither writes the seed, because every mutation lands on a copy made under a fresh id (§6.1).
+Each case navigates to the section that renders its field, asserts the section root, and then asserts the §8.3 contract on an identity the product actually emits. `beforeAll` reads the template and `beforeEach` signs in; neither writes anything, because every mutation lands on a copy made under a fresh id (§6.1).
 
 **Category 1, required-field-missing.** `shows.dates` emptied. Section `schedule`. `components/crew/sections/ScheduleSection.tsx:315-317` renders `<EmptyState label="Show dates haven't been confirmed yet." />` when `visibleDays.length === 0`, inside the still-rendered section, which is exactly the §8.3 category-1 idiom: a required field missing inside a rendered surface.
 
@@ -309,7 +309,7 @@ Because that is a scope-and-copy decision an e2e arc cannot settle, it was put t
 
 **`waitForTimeout(250)` after opening the modal.** Rejected: a sleep is a guess that is simultaneously too long on every healthy run and too short on a loaded runner. `getAnimations().finished` waits for the named thing and returns immediately when it is already done.
 
-**Sample the animation registry inside `openStep3Modal` and expose it for the premise test.** Rejected as the primary mechanism because it puts test-only observability into a shared helper. The premise assertion in section 4.2 instead reads `getAnimations()` from the page in a test-local probe path before invoking the settled helper, so the helper stays free of test scaffolding.
+**Sample the animation registry inside `openStep3Modal` and expose it for the premise test.** Rejected as the primary mechanism because it puts test-only observability into a shared helper, and because a sample taken mid-open is a race. The premise in section 4.2 instead runs AFTER the settled helper returns and reads the DECLARED `animationName` from computed style, which survives the animation finishing and so needs no racing read.
 
 **Move `empty-state-reachability.spec.ts` to the pinned-Docker screenshots job.** Rejected in section 6.4.
 
@@ -319,7 +319,7 @@ Because that is a scope-and-copy decision an e2e arc cannot settle, it was put t
 
 ## 9. Test plan
 
-Every assertion this PR writes or edits runs in a real browser against the compiled app. No jsdom, since jsdom computes no layout. Every expected value derives from a token, a component-owned constant, or the fixture, never a hardcoded literal transcribed from a render.
+Every assertion about RENDERED behaviour runs in a real browser against the compiled app; none uses jsdom, which computes no layout. The one exception is deliberate and is not a rendering claim: the locked-transaction proof (T1b) is a Vitest unit test, because what it asserts is the SQL text a helper emits, and a browser is the wrong instrument for that. Every expected value derives from a token, a component-owned constant, or the fixture, never a hardcoded literal transcribed from a render.
 
 | Task | Assertion | Concrete failure mode it catches |
 |---|---|---|

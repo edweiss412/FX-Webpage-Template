@@ -10,7 +10,9 @@ The diff touches `tests/**`, `.github/workflows/**`, `playwright.config.ts` and 
 
 ## 1. Shape of the work, and how the order actually went
 
-Twelve implementation commits plus the docs. Every task is test-first against a real browser where a browser is the instrument, and every e2e command runs through `pnpm heavy` wrapping the outermost invocation. No task edits product code, so invariant 8 does not arm; invariant 6 (one conventional commit per task) holds throughout.
+The task list below is written FROM `git log`, not from intention, and it is regenerated whenever a review round adds a commit. Every e2e command runs through `pnpm heavy` wrapping the outermost invocation. No task edits product code, so invariant 8 does not arm; invariant 6 (one conventional commit per task) holds throughout.
+
+**Invariant 1 is NOT claimed clean.** §1.1 records where TDD was violated, and an earlier draft of this paragraph claimed test-first for every task while §1.1 admitted otherwise. Recording the history rather than rewriting it is the disposition; claiming compliance on top of the record is not, so the claim is gone.
 
 The evidence each task rests on was gathered before the spec was written, because the alternative is a spec whose test section asserts oracles nobody ran. Four tasks exist only because a run disproved the obvious design: the identity §8.3's category 1 lives on, the viewer the route accepts, the cache that swallows a direct DB write, and the shape of "no dates" the shell survives. Each is recorded at its task.
 
@@ -21,6 +23,8 @@ Plan review round 1 was right about the commit order, and this section says so i
 **Defect one: the locked path landed after the writes it protects.** Task 1 (`ddf0d83fb`) shipped the rewritten spec with unlocked service-role `shows` writes. `tests/help/walker-routes.test.ts` was RED at that commit, because the file's frozen locked-table count no longer matched. Task 3b (`d6602335c`) then moved those writes onto the per-show lock and removed the frozen row. The correct order was Task 3b first, and the branch passed through a state that violated invariant 2.
 
 **Defect two: the lock proof landed after the lock.** `d6602335c` added `lockedShowCopy.ts`; its executable proof did not arrive until `95d69f052`, one review round later, and only because the reviewer showed that `walker-routes` is green with the lock deleted. That is a TDD-per-task violation on the one task where the invariant is strictest.
+
+**Defect three, the same shape one layer down.** `86738ee32` added both cleanup success checks with no failing test and no mutant, so either could have been deleted with every green test staying green. Plan review round 2 caught it. The repair (Task 15) gives the delete predicate negative proofs and removes the second check entirely rather than proving it.
 
 Both are recorded, not rewritten. The final tree satisfies invariants 1, 2, 6 and 9, every gate below is green on it, and rewriting twelve commits across a merge to manufacture a tidier history would trade a real record for a fictional one. **The lesson, stated so it is reusable: when a task's first action is a write to an invariant-2 table, the locked path is task zero, and its structural proof is written before the helper it proves.** A guard that already exists is not evidence the invariant is covered; check what that guard actually discriminates first.
 
@@ -36,7 +40,9 @@ Both are recorded, not rewritten. The final tree satisfies invariants 1, 2, 6 an
 | `tests/cross-cutting/app-e2e-ci-wiring.test.ts` | it, NOT the coverage meta-test, owns `REQUIRED` parity for `scripts/check-app-e2e-executed.mjs` | green once the spec's `REQUIRED` row lands at 4 |
 | `tests/docs/_metaDeferralLedgerGraduation.test.ts` | Task 12 graduates two rows, and each owes a `BACKLOG_GRADUATED` registry row with this branch as provenance | two new registry rows |
 | `tests/docs/_metaInvariant8Closeout.test.ts` | the plan carries the `impeccable-gate` marker | green with the marker on its own line |
-| `tests/docs/_metaLedgerInProgress.test.ts` | Task 0 marks both rows in progress; Task 7 removes the markers and archives | green throughout: markers name a branch that exists on origin until the last commit removes them |
+| `tests/cross-cutting/lifecycle-layout-e2e-ci-wiring.test.ts` | Task 2 adds a case to the tap-target spec, so its executed floor moves | red until `check-lifecycle-layout-executed.mjs` goes 5 → 6 |
+| `tests/cross-cutting/replacementString.test.ts` | the lock proof builds mutants with `.replace` | red on an interpolated replacement string; green on a replacer function |
+| `tests/docs/_metaLedgerInProgress.test.ts` | Task 0 marks both rows in progress; Task 16 removes the markers and archives | green throughout: markers name a branch that exists on origin until the last commit removes them |
 | `tests/docs/_metaLedgerMintBar.test.ts` | This arc files NO new row, so nothing new is subject to the bar | unchanged |
 
 **Advisory-lock holder topology (Task 3b).** The branch DOES touch a lock surface: `tests/e2e/helpers/lockedShowCopy.ts` acquires `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` for each fixture `shows` write. Single holder, at exactly one layer: the psql transaction itself. No JS-side wrapper, no RPC, and no nesting — one acquisition per transaction, asserted as such. Cleanup takes one transaction per show rather than one lock standing in for several.
@@ -122,21 +128,53 @@ Verification: `pnpm exec vitest run tests/e2e/helpers/lockedShowCopy.unit.test.t
 
 Verification: `pnpm exec vitest run tests/cross-cutting/app-e2e-ci-wiring.test.ts tests/ci/appE2eAnnotationPrint.test.ts` — 8 passed. That wiring test, not the coverage meta-test, is what owns `REQUIRED` parity.
 
-### Task 11 — derive the schedule placeholder copy from its owning component
+### Task 11 — derive the schedule placeholder copy from its owning component (`02ccedd03`)
 
 `NO_DATES_COPY` was a transcribed literal, which makes the assertion "the page renders the string this test remembers": green after the component's copy changes, red on a copy edit that is not a defect. It is now extracted from `components/crew/sections/ScheduleSection.tsx` at test start, with a premise that throws by name if no `<EmptyState label="…"/>` is found. The contract becomes what the component DECLARES is what the page RENDERS.
 
-Verification: the spec re-run under CI posture.
+Verification: the spec re-run under CI posture — 4 passed.
 
-### Task 12 — graduate both rows (LAST commit of the PR)
+### Task 12 — rebuild the lock analyzer as a whitelist (`e33b76d78`, superseded by Task 14)
+
+Spec review round 3 walked four unsafe transactions through the index-based analyzer. This replaced it with a statement whitelist and eight mutant controls. Round 4 then walked six MORE through the whitelist, which is what made Task 14 a redesign rather than a seventh pattern.
+
+Same commit converted every interpolated replacement string in the proof to a replacer function, which `tests/cross-cutting/replacementString.test.ts` had flagged: `$1` inside an interpolated template is re-interpreted by `String.replace`.
+
+Verification: `pnpm exec vitest run tests/e2e/helpers/lockedShowCopy.unit.test.ts tests/cross-cutting/replacementString.test.ts` — 54 passed.
+
+### Task 13 — check that both cleanup layers removed rows (`86738ee32`, partly superseded by Task 15)
+
+`deleteShowsLocked` read its `RETURNING id` output; the reservation cleanup compared a removed count against a derived total. **Both landed without a negative proof**, which §1.1 records as defect three.
+
+### Task 14 — raise the lifecycle oracle floor (`2cd730dde`)
+
+The tap-target spec gained a case and its executed floor did not, so `tests/cross-cutting/lifecycle-layout-e2e-ci-wiring.test.ts` failed exactly as designed: an oracle below the live count is calibrated to a partially dark run. 5 → 6.
+
+Verification: `pnpm exec vitest run tests/cross-cutting/lifecycle-layout-e2e-ci-wiring.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts` — 15 passed.
+
+### Task 15 — replace the recognizer with an exact-SQL proof, and prove the joins
+
+Spec review round 4 found six more escapes in the whitelist (`where false` and `limit 0` run the lock zero times; `generate_series` and two calls in one select run it twice; a lock on another show's key; a delete broad enough to touch other shows). Widening again was the ratchet AGENTS.md tells arcs to refuse, so **the recognizer is gone**.
+
+`copyShowLocked` and `deleteShowsLocked` now take an injectable executor. The proof drives the REAL functions, captures the SQL they emit, and compares it character-for-character with the text it declares. Every escape found so far, and every one not yet imagined, changes that text. It also closes the three production joins a hand-composed assertion never touched (plan review R2 F3): that the copy locks the NEW show rather than the template, that the delete locks each show it removes, and that `runLocked` forwards the key it was given.
+
+Same task fixes the vacuous cleanup check (spec R4 F2): `psql -At` still prints the command status, so a zero-row delete returned the non-empty string `DELETE 0` and the check reported success. The executor gains `-q`, and `assertDeletedRows` is a pure predicate requiring an actual id line — with eight negative proofs, including `DELETE 0`, `DELETE 1`, a bare NOTICE and whitespace.
+
+And the reservation cleanup is DELETED rather than proved: `hotel_reservations_show_id_fkey` and `show_share_tokens_show_id_fkey` are both `ON DELETE CASCADE`, so removing the show removes both. One cleanup signal, already proved, instead of three to keep right.
+
+Verification: `pnpm exec vitest run tests/e2e/helpers/lockedShowCopy.unit.test.ts` — 16 passed; the spec re-run, plus a post-run `select count(*) from shows where drive_file_id like 'empty-state-spec:%'` to confirm the cascade leaves no residue.
+
+### Task 16 — graduate both rows (LAST commit of the PR, not yet made)
 
 Archive both entries with their measured outcomes, and remove both in-progress markers in the same commit, before the merge (invariant 12). A graduation also owes a `BACKLOG_GRADUATED` row in `tests/docs/_metaDeferralLedgerGraduation.test.ts:99`, one per id, each carrying `provenance: "fix/e2e-proof-retired-route-subpixel"`.
+
+At the time of writing both entries are still `**Status:** IN PROGRESS` in `BACKLOG.md` and appear in neither the archive nor the registry, which is correct: this task is the PR's last commit by design.
 
 Verification: `pnpm heavy pnpm exec vitest run tests/docs` — the graduation, in-progress and mint-bar meta-tests all green.
 
 ## 4. The product-code edit that was considered and declined
 
-Category 2 locates the Power row by a `dt` whose text is exactly `Power`, scoped inside `section-venue`. A `testId: "venue-power"` on the fact row (`VenueSection.tsx:290`) would be marginally more robust, and `KeyValueRows` already supports per-row test ids — `venue-room`, `venue-wifi-ssid` and `venue-wifi-notes` use them.
+Category 2 locates the Power row by a `dt` whose text is exactly `Power`, scoped inside `section-venue`. A `testId: "venue-power"` on the fact row (`VenueSection.tsx:290`) would be marginally more robust, and the primitive that owns the row, `components/crew/primitives/FactRows.tsx:41`, already supports a per-row `data-testid` (`components/crew/primitives/FactRows.tsx:97`) — `venue-room`, `venue-wifi-ssid` and `venue-wifi-notes` use it. (An earlier draft credited `KeyValueRows`; `VenueSection.tsx:52` imports `FactRows` for these rows.)
 
 Declined. It is a change under `components/`, so it arms invariant 8 and buys a full impeccable dual-gate cycle for a locator that is already scoped and non-tautological. Recorded here so the review does not read its absence as an oversight, and so a future need can add it knowing the cost.
 
@@ -146,3 +184,4 @@ Any fix round re-runs the affected task's own verification command, named in §3
 
 - A change to the barrier re-runs the **240-repeat whole-file sweep**, not the single case, because the defect it repairs is a RATE rather than an outcome.
 - A change to the locked helper re-runs **both** `walker-routes.test.ts` and `lockedShowCopy.unit.test.ts`. The first alone is insufficient by measurement: it is green with the lock deleted.
+- **A change to the tap-target spec's CASE COUNT re-runs `lifecycle-layout-e2e-ci-wiring.test.ts`**, which the 240-repeat sweep cannot substitute for. The sweep is the right instrument for a rate; it says nothing about an execution oracle calibrated below the live count, and that oracle is what stands between a runtime skip and a green job.
