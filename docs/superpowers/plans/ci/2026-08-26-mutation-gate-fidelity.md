@@ -50,7 +50,8 @@ $ pnpm exec vitest run tests/docs/_metaReviewRoundEconomy.test.ts
 | registry | exposure | disposition |
 | --- | --- | --- |
 | `guardSurfaces.gates.test.ts` case (c), 7 `it(` literals | Task 3 edits the registrar | branch INSIDE the seven bodies; the literal count is unchanged and asserted by Task 3's own green step |
-| `_metaPremiseContract` `EXPECTED_ENV_TOUCHING` | Task 6 adds a case to `connectionCensus.test.ts`, declared 0 | Task 6 re-runs the guard; if the count moves, state the case's premise or carry a `no-premise:` exemption. Baseline recorded above |
+| `_metaPremiseContract` `EXPECTED_ENV_TOUCHING` for `tests/db/connectionCensus.test.ts`, declared 0 | Task 6 adds a case to it | Task 6 re-runs the guard; if the count moves, state the case's premise or carry a `no-premise:` exemption. Baseline recorded above |
+| `_metaPremiseContract` `EXPECTED_ENV_TOUCHING` for `tests/mutation/_metaSourceShardIntegrity.test.ts`, **also declared 0** | Tasks 4 and 5 add cases to it | Each re-runs the guard, with the same two dispositions. Named separately rather than folded into the row above: Task 6's later re-run would cover the final tree only by accident, and an exposure covered by accident is not covered |
 | `_metaSourceShardIntegrity` | Tasks 4 and 5 edit the workflow | step 0 unchanged, no new `$GITHUB_ENV` writer, no upload name change, and its `if:` assertions target steps inside `budget`, not job heads |
 | `_metaSpawnDisposition` `CEILING_NAMES` / `CEILING_HOME` | Step A edits `spawnBounded.ts` | comment only; no constant renamed, no value moved |
 | `EXPECTED_LEDGER_KINDS` | Task 6 kills a survivor | killing adds no accepted row, so no declaration changes |
@@ -71,7 +72,7 @@ Restated from the spec's §6 so each id resolves in this document; the spec rema
 | **AC-4** | `reconcileValidationEnv` reports `stale: []` for an allow row whose file still holds a `validation-env` site, and `connectionCensus` has zero unaccepted survivors. | Task 6 |
 | **AC-5** | A harness-touching pull request sends exactly 2 jobs to runners, down from 19, and this branch's own dispatch sends 19. **The schedule clause (20) is NOT dischargeable here** — a scheduled run happens on `main` after a merge this arc does not perform, and the 20 is matrix arithmetic rather than an observation. | Task 5 writes the conditions; **Step B measures** the two obtainable counts; the schedule count joins AC-8 as an orchestrator observation. |
 | **AC-6** | `steps[0]` of every shard job is still `stamp-start`, exactly one step writes `$GITHUB_ENV`, and the two shell bring-up steps are `run:`. | Task 4 |
-| **AC-7** | Every enrolled surface this diff touches carries a stated `GUARD SURFACE:` score with zero unaccepted survivors. | Scoring duty, below |
+| **AC-7** | Every enrolled surface this diff touches carries a stated `GUARD SURFACE:` score with zero unaccepted survivors. **Four surfaces, not three** — Tasks 4 and 5 edit a deciding suite of `sourceShardPartition`. | Scoring duty, below |
 | **AC-8** | The next scheduled nightly on `main` after the merge is green. | Not dischargeable here: it lands after a merge this arc does not perform, and the orchestrator owns the observation. |
 
 ---
@@ -274,11 +275,28 @@ The budget row's entry carries the subsumption arithmetic and its warn-band resi
 
 ## Scoring duty
 
-`surfaceCases.ts` and `oracle.ts` are not enrolled, so Tasks 1 to 3 owe no score. Scored under `pnpm heavy:mutation` with the orchestrator's class-lock take, started detached:
+**Derived from the registry, not enumerated.** Round-3 review found a surface missing from a hand-written list, so the list is replaced by the derivation that produces it: for every file this plan edits, which registry rows name that file as a `sourcePath` or a `suitePath`. Re-run it if the file set changes.
+
+```
+$ pnpm tsx .scratch/editsweep.ts
+surfaces this diff obliges a score for, DERIVED from the registry:
+  connectionCensus       tests/db/connectionCensus.test.ts (suitePath)
+  sourceShardPartition   tests/mutation/_metaSourceShardIntegrity.test.ts (suitePath)
+  spawnBounded           tests/mutation/source/spawnBounded.ts (sourcePath)
+
+files edited that no registry row names:
+  tests/mutation/source/oracle.ts, oracle.test.ts, runner.ts, records.ts,
+  records.test.ts, surfaceCases.ts, surfaceCases.test.ts,
+  .github/workflows/mutation-harness.yml, BACKLOG.md, BACKLOG-archive.md
+```
+
+**Four surfaces are scored, for two different reasons, and conflating them is how the fourth went missing.** Three are obliged by a FILE EDIT, above. The fourth, `retryableRpcVolatilityScan`, is obliged by AC-3: this arc makes it scorable at all, and a surface that has never produced a score is the thing the arc is repairing. No file edit names it, which is exactly why a file-edit sweep alone would not have found it — and why the derivation is stated with its blind spot rather than as a complete answer.
+
+The output above also settles the ten files nothing owes a score for, which is the half of a sweep that usually goes unwritten: `surfaceCases.ts` and `oracle.ts` carry the class cover and are not enrolled, so Tasks 1 to 3 owe nothing.
 
 ```
 VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx \
-  scripts/mutation-score-surfaces.ts connectionCensus retryableRpcVolatilityScan spawnBounded
+  scripts/mutation-score-surfaces.ts connectionCensus retryableRpcVolatilityScan spawnBounded sourceShardPartition
 ```
 
 | surface | why | estimate |
@@ -286,6 +304,11 @@ VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx \
 | `connectionCensus` | Task 6 edits its deciding suite, and its marker's red and green are the SAME command | **TWO runs in one contiguous take** (red, edit, green). 8 of its mutants time out at the 180 s ceiling, which is 1440 s of any single run. |
 | `retryableRpcVolatilityScan` | Task 4 makes it scorable at all; first score ever | ~30 min |
 | `spawnBounded` | Step A edits its source file | 12 mutants, minutes |
+| `sourceShardPartition` | **Tasks 4 and 5 edit `tests/mutation/_metaSourceShardIntegrity.test.ts`, which is one of this surface's two deciding suites** (`tests/mutation/source/registry.ts`) | the second-cheapest of the four |
+
+**Why `sourceShardPartition` is here, and the risk that goes with it.** Its registry row carries two deciding suites deliberately, and the comment beside them says why: the unit suite reads `SOURCE_SHARD_COUNT` and `SHARD_BUDGET_SECONDS` to build its own expectations, so a mutant of either constant is self-consistent and SURVIVES there. The integrity meta-test is what kills them, because it compares those constants against the workflow's hard-coded shard matrix and budget text, which no mutant of `shardPartition.ts` can move.
+
+So Tasks 4 and 5 are editing the file that carries this surface's only killing power over its constants. Two consequences, both binding on the implementation: the new cases must be ADDITIVE — no existing workflow-comparison assertion is weakened, reordered out of effect, or made conditional — and the score is compared against the surface's floor with the survivor set read, not just the pass/fail. A score that stays green while `integer-literal` mutants of the shard count start surviving is precisely the regression this arrangement exists to prevent.
 
 The `connectionCensus` red-then-green pair is why the take must be CONTIGUOUS rather than two bookings: the edit between the two runs takes seconds, and releasing the lock in between would put a queue behind a change that is already made.
 
