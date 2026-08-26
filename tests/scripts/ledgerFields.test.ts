@@ -79,9 +79,28 @@ describe("ledgerItems", () => {
   });
 
   it("resolves the entries whose heading shapes broke the retired recognizer", () => {
-    expect(ledgerItems("BACKLOG.md", read("BACKLOG.md")).map((i) => i.id)).toContain(
-      "BL-NULLCODE-STAMP-BATCH-2",
-    ); // no em dash
+    // DERIVED, not pinned to one id. This assertion used to name
+    // BL-NULLCODE-STAMP-BATCH-2 as its no-em-dash example, and archiving that
+    // entry in #904 broke it — the SHAPE was still present in the corpus, but
+    // the one row standing in for it had graduated. A guard over a shape should
+    // fail when the shape stops resolving, not when a particular row moves.
+    //
+    // The premise makes it non-vacuous: if the corpus ever contains no
+    // em-dash-free entry heading at all, this reports that rather than passing
+    // on an empty set.
+    const emDashFree = ledgerFiles().flatMap((f) => {
+      const lines = read(f).split("\n");
+      return ledgerItems(f, read(f))
+        .filter((i) => !(lines[i.line - 1] ?? "").includes("\u2014"))
+        .map((i) => `${f}:${i.id}`);
+    });
+    expect(
+      emDashFree.length,
+      "no em-dash-free entry heading anywhere in the ledgers — this guard now proves nothing",
+    ).toBeGreaterThan(0);
+
+    // The struck-id shape, still pinned by id because DEFERRED-archive.md is a
+    // frozen historical file: nothing graduates out of it.
     expect(
       ledgerItems("DEFERRED-archive.md", read("DEFERRED-archive.md")).map((i) => i.id),
     ).toContain("MODAL-CLOSE-EXIT-ANIM-1"); // struck id
