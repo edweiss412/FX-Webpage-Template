@@ -107,12 +107,16 @@ export type ScanOptions = {
 export function scanInteractiveElements(rootDir: string, options: ScanOptions = {}): ScanElement[]
 ```
 
-**Why not one shared vocabulary.** The tap-target census would absorb 59 more elements into a
-44px height floor that neither ruling mentions. `components/admin/wizard/step3ReviewSections.tsx:4195`
-carries `rows={3}` and no `min-h-tap-min`; `components/shared/ReportModal.tsx:705` carries `rows={6}`
-and none either. Every one of them would land in `TAP_TARGET_CENSUS` needing a reason
-(`tests/styles/_metaTapTargetFloor.test.ts:59`). That is a different arc with a different ruling, and
-absorbing it silently is the scope explosion the row exists to avoid.
+**Why not one shared vocabulary.** The tap-target census would absorb 59 more elements into a 44px
+height floor that neither ruling mentions. Running the widened text-entry predicate through the live
+`heightFloorSatisfied` gives 9 clear and **50 unclassified**, so fifty of them would land in
+`TAP_TARGET_CENSUS` each needing a reason (`tests/styles/_metaTapTargetFloor.test.ts:59`).
+`components/admin/wizard/step3ReviewSections.tsx:4195` carries `rows={3}` and no `min-h-tap-min`, and
+`components/shared/ReportModal.tsx:705` carries `rows={6}` and none either. The nine that clear already
+carry it: both `BellPanel` inputs, all three `MaterializeCard` fields through their shared `CONTROL`
+constant, the `SwitcherControls` and `EventFilters` selects, `MaintenanceResetButtons`, and the
+`Step2Verify` input. Fifty reason rows is a different arc with a different ruling, and absorbing it
+silently is the scope explosion the row exists to avoid.
 
 The subtle-policy guard says the same thing about the other axis in its own docstring, and it says it
 as a decision rather than as a gap (`tests/styles/subtleInteractiveScan.ts:15-23`): widening to
@@ -394,15 +398,32 @@ bg-surface` recipe, so the fallback is dead. Repairing only the fallback removes
 token, `isResidue` goes false, and both rendered controls stay at 1.27:1. That is precisely the silent
 wrong clear the consequence bound forbids, reached through a guard that would report green.
 
-**The repair is to move the paint to where it renders, not to chase the strings.** `FilterTextInput`
-takes the outline recipe as its own unconditional base and merges the caller's className:
-`className={cn("min-h-tap-min rounded border border-text-faint bg-surface px-2", className)}` with
-`cn` from `lib/ui/cn.ts:45`. The call site at
-`components/admin/telemetry/EventFilters.tsx:80` then passes only its `flex-1`, and the one at
-`components/admin/telemetry/EventFilters.tsx:130` passes nothing. Afterwards the element has ONE
-alternative whose literal the resolver reads, `unresolved` stays true because the prop is still
-unreadable, and the token the guard reads is the token that paints. It also deletes a dead branch and a
-recipe duplicated three times, which is why this is a repair rather than a workaround.
+**The repair removes the caller's ability to paint this border at all.** Merging the caller's
+className into a strong base is NOT sufficient, and the reason is worth stating because it is the same
+mistake one level further on: `cn` is exactly `filter(Boolean).join(" ")` and merges nothing
+(`lib/ui/cn.ts:45`, where `tailwind-merge` was rejected by ratified decision), and `isResidue` reads
+only `weakSides`, which reads only READABLE tokens (`tests/styles/controlOutlineResidue.ts:391`). So a
+caller passing `className="!border-border"` would override the base at runtime and the guard would see
+nothing at all. A merged prop moves the hole, it does not close it.
+
+So `FilterTextInput` loses its `className` prop and takes the one variation its two call sites actually
+differ by:
+
+```tsx
+function FilterTextInput({ name, committed, placeholder, onCommit, grow = false }: {
+  …
+  grow?: boolean;
+}) {
+  …
+  className={cn("min-h-tap-min rounded border border-text-faint bg-surface px-2", grow && "flex-1")}
+```
+
+`components/admin/telemetry/EventFilters.tsx:80` passes `grow`; `components/admin/telemetry/EventFilters.tsx:130`
+passes nothing. Afterwards every token on the element is a literal the resolver reads, no caller can
+contribute a `border-*` token, and the token the guard reads is the token that paints. It also deletes
+a dead branch and a recipe duplicated three times, which is why this is a repair rather than a
+workaround, and it is a subtraction rather than an addition: a general-purpose className escape hatch
+on a component that needed one boolean.
 
 **The class, swept rather than patched.** The shape is "a multi-alternative element whose weak
 alternative is not the one that renders". Six of the 35 reddened elements carry more than one
@@ -420,12 +441,12 @@ repairing it touches three source spans that feed one className expression. Edit
 repairing the named element; it is not a hand-extension, which would be repairing an element the red
 never named.
 
-**What stays uncovered, and it is smaller than before.** A future call site could still pass a weak
-`border-*` that overrides the base, and the scanner would report `unresolved` without seeing the token.
-That is the same prop-flow limit the module already declares
-(`tests/styles/interactiveScanCore.ts:27-30`, and the `ClaimedRowButton` case in its own suite): the
-element stays in the census as unresolved rather than clearing, so the direction is conservative.
-Recorded as L7.
+**What stays uncovered, repo-wide rather than here.** After this repair nothing about THIS element is
+uncovered: it has no className prop to override. The general shape remains, and L7 states it correctly
+now that it has been measured: an element whose only weak paint arrives through an unreadable prop is
+NOT residue and does NOT appear in the census, because `isResidue` reads readable paint only. The
+residue guard is SILENT on that shape, not conservative, and an earlier revision of this section said
+the opposite. That is exactly why the repair above removes the prop instead of merging it.
 
 ## 7. Consumer-by-consumer population accounting
 
@@ -476,8 +497,9 @@ Intended: the plate cover reaching a text field is exactly what ruling (a) makes
 
 **7.3 `tests/styles/tapTargetScan.ts:33` reads the DEFAULT.** Population unchanged at 362.
 `TAP_TARGET_CENSUS` unchanged. Intended, and argued rather than absorbed: neither ruling says anything
-about the height of a text field, and admitting the 59 elements `textEntry` adds to a 44px floor census would
-oblige a reason row for each of the 59 elements `textEntry` admits, for a question nobody has asked. A future arc that wants that census
+about the height of a text field, and admitting the 59 elements `textEntry` adds to a 44px floor census
+would oblige a reason row for the 50 of them that do not already clear it, for a question nobody has
+asked. A future arc that wants that census
 widened opts this consumer in and takes the rows; the axis is declared and one line away, which is the
 point of D1.
 
@@ -703,9 +725,10 @@ here, so nothing about that record moves. A vacuous row would be worse than an h
 - **AC-9** The count of ELEMENTS repaired that do not appear in the §6 red transcript is **zero**.
   Repairing one element may touch several source spans that feed its className (§6.4); the unit is the
   element the red named, never the line.
-- **AC-9b** After the repair, `components/admin/telemetry/EventFilters.tsx:40` has ONE alternative, its
-  literal carries `border-text-faint`, and neither call site supplies a `border-*` token. Asserted, so
-  a repair that clears the guard while the pixels stay weak cannot pass.
+- **AC-9b** After the repair, every token on `components/admin/telemetry/EventFilters.tsx:40` is a
+  literal the resolver reads, `FilterTextInput` exposes no `className` prop, and neither call site can
+  supply a `border-*` token. Asserted with a planted caller override, so a repair that clears the guard
+  while the pixels stay weak cannot pass.
 - **AC-10** `--color-control-outline-tinted` vs `--color-bg` is pinned in `DESIGN.md` §1.2 and asserted
   in `tests/styles/secondary-action-contrast.test.ts`, in the same commit.
 - **AC-11** `components/admin/dev/SwitcherControls.tsx:122` carries `hover:border-accent-on-bg`, and
@@ -822,11 +845,16 @@ finding.
 - **L5. An unresolved className is admitted and never cleared.** Unchanged behaviour
   (`tests/styles/interactiveScanCore.ts:27-30`). A painted child whose class string the resolver cannot
   read is reported `unresolved` and stays in the census, which is the conservative direction.
-- **L7. A className arriving through a prop is unreadable, so a caller can override a base recipe
-  unseen.** §6.4. Unchanged from today and conservative: the element reports `unresolved` and never
-  clears, so it stays in the census rather than passing. Reading it means prop-flow resolution, which
-  the module declines by name (`tests/styles/interactiveScanCore.ts:27-30`). RE-FILE TRIGGER: a control
-  whose only resting outline arrives through a caller's className reaching `main` at `border-border` or
-  `border-border-strong`.
+- **L7. The residue guard is SILENT, not conservative, on an element whose only weak paint arrives
+  through an unreadable prop.** `isResidue` is `weakSides(...).length > 0`
+  (`tests/styles/controlOutlineResidue.ts:391`) and `weakSides` reads only tokens the resolver could
+  read, so `unresolved` does not preserve an element that carries no readable weak token: it simply is
+  not residue. Measured at spec round 4, and the correction matters because an earlier revision of §6.4
+  claimed the opposite. This is why the one live instance is repaired by REMOVING the prop (§6.4)
+  rather than by documenting it. Closing the general shape means either prop-flow resolution, which the
+  module declines by name (`tests/styles/interactiveScanCore.ts:27-30`), or an `unresolved` arm on the
+  residue census, which would put every element with an unreadable className into the register and is a
+  different guard with a different census. RE-FILE TRIGGER: a control whose only resting outline
+  arrives through a caller's className reaching `main` at `border-border` or `border-border-strong`.
 - **L6. The `inner-chrome` bar cannot verify that a registered element really is chrome.** §8. Same
   posture as `switch-track`, and for the same reason: it is a ruling, not a projection.
