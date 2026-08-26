@@ -255,46 +255,81 @@ jsdom computes no layout, so none of the first three is settled by the unit suit
 
 ## §3.1 — Transition Inventory
 
-The hook is a four-state machine over one node. States: **U** unattached, **F** attached and fitted, **N** attached with no clipping ancestor, **D** detached.
+**Rewritten in full after round-7 finding 1, which showed the previous model wrong about MECHANISM
+rather than about coverage.** Rounds 5, 6 and 7 all landed here, so this is the comprehensive
+re-analysis the same-vector rule requires: the machine is modelled by what CAUSES each edge, and
+every row's pin is derived from what its case actually does rather than from which case sits nearby.
 
-Twelve ordered pairs exist and **eight are reachable**, each a row below, followed by the compound rows. Round-1 finding 3 corrected an earlier count of six: it called **D** terminal and routed a re-attach through **U**, which both understated the machine and contradicted itself — if a re-attach really passed through **U** then `D → U` was reachable, and if it did not then `D → F` and `D → N` were. The probe settles it in the first direction's favour: §2.1's transcript reads `ref-cleanup k=1` immediately followed by `ref-attach k=2`, with no intervening state, and the conditional-host transcript reads `cleanup` then `attach` the same way. **D → F and D → N are ordinary transitions**, and they are the ones a `reapplyKey` change and a hide/show cycle actually take.
+States over one node: **U** unattached, **F** attached and capped against a clip, **N** attached with
+nothing clipping, **D** detached.
 
-The four that remain unreachable, named rather than elided: `F → U`, `N → U` and `D → U` — nothing ever returns to unattached, because **U** is the initial state of a hook instance and no later event restores it; and `U → D`, because a detach can only follow an attach.
+**The fact the earlier model lacked.** With a stable ref callback and an unchanged `reapplyKey`, a
+re-render does **nothing at all** — not even when the DOM's clip status changes underneath it. The
+node stays attached, the wiring persists, and no measure runs. Probed on the §2 shape:
 
-| Pair | Treatment |
+```
+TR  initial             clips=false  cap=""       applies=0
+TR  stable-key rerender clips=true   cap=""       applies=0
+TR  resize, pre-frame                cap=""       applies=0  queued=1
+TR  resize, post-frame               cap="322px"  applies=1
+
+TR2 initial             clips=true   cap="322px"
+TR2 stable-key rerender clips=false  cap="322px"
+TR2 after resize+frame               cap=""
+```
+
+So **F ↔ N happens only on a re-measure SIGNAL** — a `window` resize, a `transitionend` on the
+positioned ancestor, or the `ResizeObserver` callback — and never on a re-render. And a `reapplyKey`
+change is not a direct edge either: React runs cleanup then attach, so it is **X → D → Y**.
+
+That corrects two claims the previous table made. Family A is `F → D → N`, not a direct `F → N`;
+family B is `F → D → F`, not `F → F`. Both change `reapplyKey`
+(`tests/components/admin/useFitWithinClip.test.tsx:369`,
+`tests/components/admin/useFitWithinClip.test.tsx:395`), so both route through D by construction.
+
+| Edge | Mechanism | Pinned by |
+| --- | --- | --- |
+| U → F | The attach, on a clipping chain | (g), (g2), (h) |
+| U → N | The attach, with nothing clipping | (b) |
+| F → D | Detach: host unmount, or the cleanup half of a re-attach | (g3), (h3) |
+| N → D | Same, with no observer to disconnect | (h4) |
+| D → F | Attach half of a re-attach, clipping | (c) — a `reapplyKey` flip with `clips` true throughout |
+| D → N | Attach half of a re-attach, nothing clipping | (h10) |
+| **F → N** | **A re-measure signal**, after the ancestor stops clipping. The stale cap is REMOVED | **(h20), new** |
+| **N → F** | **A re-measure signal**, after an ancestor starts clipping. A cap is WRITTEN where none existed | **(h19), new** |
+
+**The two composites the old table mislabelled as direct edges**, kept because the cases exist and
+are worth having under their true names:
+
+| Composite | Pinned by |
 | --- | --- |
-| U → F | Instant, synchronous, pre-paint. One `apply()`, one walk. The whole point: no animation, no frame. Case (g2) pins that no frame is scheduled |
-| U → N | Instant. `apply()` finds no clip and removes `max-height` rather than writing one. Case (b) |
-| F → N | Instant. The stale fit is **removed**, not retained. Family A pin `tests/components/admin/useFitWithinClip.test.tsx:368` |
-| N → F | Instant. A cap is WRITTEN where none existed. **(h19), new here** — round-6 finding 1 established this row had no pin at all: it cited family B, which is clipped → clipped (`tests/components/admin/useFitWithinClip.test.tsx:380`), not unclipped → clipped |
-| F → D | Teardown: disconnect observer, remove both listeners, cancel any pending frame, null the node ref. Case (g3) `tests/components/admin/useFitWithinClip.test.tsx:305` |
-| N → D | Same teardown. No observer was created for the clip, so `disconnect()` on the (possibly null) observer is the only difference, already guarded by `observer?.` |
-| **Compound:** `reapplyKey` changes while a coalesced frame is pending | The detach cancels the pending frame (`coalescer.cancel()`), the re-attach measures synchronously. The stale frame can never land on the new wiring, because each attach owns its own coalescer instance |
-| **Compound:** unmount while a coalesced frame is pending | Case (g3). The frame is cancelled, so `apply()` never runs against a detached node |
-| **Compound:** `reapplyKey` changes in the same commit that attaches the node | The ref callback runs once with the new key's identity — there is no second pass, because the identity change and the first attach are one attach. Costs one measure, where today it costs two |
-| D → F | The re-attach after a `reapplyKey` change, or after a conditional host reappears clipped. Measures synchronously and re-wires; the previous cycle's teardown has already run |
-| D → N | Same, where nothing clips on the new attach: `max-height` is removed rather than written, and no clip is observed |
-| **Compound:** a `transitionend` arrives mid-teardown | The listener is removed before `coalescer.cancel()`, so a late event cannot schedule after the cancel |
-| **Compound:** the conditional host disappears and reappears while the owner stays mounted | The live shape at `ReSyncButton` and `PublishedToggle`. F → D → F, with the teardown's `nodeRef.current = null` in between so a stale `apply()` cannot measure a removed node |
+| F → D → N — re-attach onto a chain that no longer clips; the stale fit must not survive the D | family A (`tests/components/admin/useFitWithinClip.test.tsx:368`) |
+| F → D → F — re-attach onto a still-clipping chain; the re-fit must derive from the DECLARED cap, not the stale inline one | family B (`tests/components/admin/useFitWithinClip.test.tsx:380`) |
 
-**Every row's cited pin was re-verified against what the case actually transitions**, because round 6
-found one that did not. The three pre-existing clip-state cases are `mount({clips: false})` with no
-re-render (U → N, case (b)), `clips: true` then `clips={false}` (F → N, family A) and `clips: true`
-then `clips` (F → F, family B). **None of them is unclipped → clipped**, which is why `N → F` needed
-a case rather than a citation. The remaining rows check out: `U → F` by (g)/(g2)/(h), `F → D` by
-(g3)/(h3), and `D → F` by (c), whose `reapplyKey` flip with `clips` true throughout is a detach and
-re-attach.
+**Unreachable, four of them, unchanged from round 5:** `F → U`, `N → U`, `D → U` (nothing restores
+the unattached state; **U** is a hook instance's initial state only) and `U → D` (a detach can only
+follow an attach).
 
-**Why this row is worth a case and not a shrug.** On `N → F` the hook must WRITE a cap where none
-existed, rather than update one. An implementation that only ever updated an existing inline value
-would leave the overlay uncapped — and `isFloorClamped` is FALSE at this fixture's geometry
-(`available` 322 against a 384 cap and a 48 floor), so the diagnostic would not fire. Uncapped and
-silent is precisely the outcome §6's bound forbids, and every case the row used to cite would have
-stayed green through it.
+**Why the two signal-driven rows are worth their cases rather than a shrug.** On `N → F` the hook
+must WRITE a cap where none existed rather than update one, and `isFloorClamped` is FALSE at this
+fixture's geometry (available 322 against a 384 cap and a 48 floor) — so an implementation that only
+updated an existing inline value would leave the overlay uncapped with the diagnostic silent.
+Uncapped and silent is exactly what §6's bound forbids. `F → N` is the mirror: a stale cap that
+survives after the clip disappears is a wrongly-constrained overlay, also silent. Neither path had
+any case at all before round 7.
 
-Nothing here animates. Every transition is instant by design: this hook exists to write a cap **before** the browser paints, and any easing on the cap itself would be a visible resize of a panel the user is already reading.
+| Compound | Treatment |
+| --- | --- |
+| `reapplyKey` changes with a coalesced frame pending | The detach cancels the frame; the re-attach measures synchronously. Each attach owns its own coalescer, so a stale frame can never land on new wiring |
+| Unmount with a coalesced frame pending | Frame cancelled; `apply()` never runs on a detached node — (g3) |
+| `reapplyKey` changes in the same commit that attaches the node | One attach, one measure. This is `PublishedToggle`'s shipped shape (§0.1) |
+| A `transitionend` arrives mid-teardown | The listener is removed BEFORE `coalescer.cancel()`, so a late event cannot schedule after the cancel |
+| The conditional host hides and reappears, owner mounted throughout | F → D → F, with `nodeRef.current = null` in between so a stale `apply()` cannot measure a removed node |
+| A re-render with a stable ref while the DOM's clip status changes | **Nothing happens**, deliberately — the probe above. The cap corrects on the next signal. This is a documented limit, §7, not a defect |
 
----
+Nothing here animates. Every transition is instant by design: this hook exists to write a cap
+**before** the browser paints, and easing the cap itself would be a visible resize of a panel the
+user is already reading.
 
 ## §4 — Class sweep
 
@@ -442,7 +477,7 @@ wrong; naming it per case is the repair. The spike ran all 15 against the §2 sh
 - **(g) mount count.** `expect(afterMount).toBe(2)` at `tests/components/admin/useFitWithinClip.test.tsx:281` becomes `toBe(1)`, and the comment above it (`tests/components/admin/useFitWithinClip.test.tsx:276-279`) stops citing a row that no longer exists — it explains instead that one attach is one measure, and that the count is pinned so a regression to two is visible rather than absorbed into the coalescing delta below it. The coalescing deltas in the rest of (g) (`tests/components/admin/useFitWithinClip.test.tsx:288`, `tests/components/admin/useFitWithinClip.test.tsx:292`) are unchanged and stay green.
 - **(g2) synchronous mount.** Unchanged, stays green. This is the pin that stops the refactor drifting the measure into a frame.
 - **New (h) walk control.** On the existing always-present harness. Counts `getComputedStyle` calls on **ancestors only** across one mount — the fitted node's own declared-cap read is excluded, so the number is the walk and nothing else. The assertion is stated in ancestor-call units and its expected value is **derived from the harness's own chain**: the walk visits every ancestor up to and including the first non-`visible` overflow, which in this fixture is `inner` then `outer`, so one walk is `ANCESTORS_TO_CLIP.length` calls. Never hardcoded, so deepening the fixture cannot silently satisfy it. Concrete failure modes caught, in the same units: restoring the effect body's second walk doubles it; regressing the attach mechanism to two measures doubles it again.
-- **New (h19) unclipped → clipped writes a cap where none existed.** Round-6 finding 1: §3.1's `N → F` row cited family B, which is clipped → clipped. No case in the suite goes unclipped → clipped, so a defect confined to that path leaves the overlay uncapped with the floor-clamp diagnostic silent — `isFloorClamped` is false at this geometry. (h19) mounts with `clips: false`, asserts `style.maxHeight === ""`, re-renders with `clips` true, and asserts the derived value (322px at the fixture's geometry, computed from `computeFittedMaxHeight` rather than typed). Concrete failure mode: an `apply()` that updates an existing cap but does not create one.
+- **New (h19) `N → F`, and (h20) `F → N` — the two signal-driven edges, neither of which had any case.** Round 6 found `N → F` citing a clipped-to-clipped test; round 7 found the deeper error, that neither edge is reachable by a re-render at all. Both are driven by a re-measure SIGNAL. (h19): mount `clips: false`, assert `maxHeight === ""`, re-render with `clips` true and assert **nothing changed** (the fact round 7 established), then fire a `window` resize, flush the frame, and assert the derived value — computed from `computeFittedMaxHeight` against the fixture geometry, never typed. (h20) is the mirror: mount clipped, stop clipping, assert the cap survives the re-render, then signal and assert it is REMOVED. Concrete failure modes: an `apply()` that updates an existing cap but never creates one (h19), and one that never removes a stale cap when the clip disappears (h20). `isFloorClamped` is false at this geometry, so both failures are silent.
 - **New (h18) the hook is called and its ref is never attached.** The fourth runtime path (§0.1), and the DEFAULT variant of `PublishedToggle`. Renders a component that calls the hook and never uses the returned callback; asserts zero applies, zero walks, and no throw across several re-renders. Concrete failure mode: any implementation that measures or wires from the hook BODY rather than from the attach, which would make the card variant do layout work for an overlay it never renders.
 - **New (h2) null-node arm.** Calls the returned ref callback with `null` directly and asserts it neither measures nor throws. Concrete failure mode: a teardown-only implementation that assumes a non-null node crashes on any consumer still passing `null`.
 - **New (h3) teardown nulls the node.** After unmount, a stale `apply()` must not measure. Concrete failure mode: fact 1 above — React never calls `ref(null)` any more, so an implementation that relies on it leaves `nodeRef.current` pointing at a detached node.
@@ -515,6 +550,7 @@ Carried verbatim into every review brief for this arc.
 - **The `PublishedToggle` anchor room is unmeasured**, recorded at `lib/layout/fitWithinClip.ts:38-43` with an open row. Untouched.
 - **`AnchoredPortal` measures three times per open**, §4.2, filed as `BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN`.
 - **`ReSyncButton`'s development `apply()` count goes 1 to 2.** ONE consumer of three, in ONE mode: it is the only shape that measures once today, and the cleanup-returning ref opts it into Strict Mode's replay. `PublishedToggle` holds at 2 and `AttentionMenu` improves 3 to 2 (§0.1). Production is unaffected on all three — the replay is absent from React's production client build entirely (§0.1's grep over the two installed `react-dom` bundles, which are untracked `node_modules` artifacts rather than repo files) — so no admin ever pays it, but a developer profiling a Re-sync overlay in `next dev` sees two forced reflows where they saw one. Accepted deliberately against render passes halving on all three consumers in both modes. Pinned exactly by (h15) so it cannot drift further. Re-file trigger: a third apply under replay on any consumer, or React changing the replay's scope.
+- **A clip-status change with no signal is stale until the next signal.** With a stable ref and an unchanged `reapplyKey`, a re-render does not re-measure, even if an ancestor's `overflow` changed in that same commit (§3.1's probe). The cap corrects on the next `window` resize, `transitionend` or `ResizeObserver` callback. This is today's behaviour, unchanged by this arc — the current layout effect is keyed the same way — and it is bounded by the fact that an ancestor's overflow changing is itself almost always a resize or a class change that trips one of those signals. Re-file trigger: a consumer that toggles an ancestor's `overflow` from state without any accompanying geometry change.
 - **Shape 2 is bounded to its named resolver.** §4.1's scope derivation excludes a second call site of `findClippingAncestor`, and the manual sweep covers the two sibling measure surfaces the popover registry names. A module that resolves some OTHER value inside a measure function and re-resolves it in the same run is not excluded by any command here; settling that repo-wide is dataflow analysis, which `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:30-33` already rules out for a structural cover. Re-file trigger: a second measure surface adopting the resolve-then-re-resolve pattern, which the popover registry would name as it is added.
 - **The measure now precedes the owner's layout effects.** Moving it from the owner's layout effect to the ref attach makes it EARLIER in the same commit. What it now precedes is empty today on both counts: no consumer declares a `useLayoutEffect` (`rg -n 'useLayoutEffect' components/admin/ReSyncButton.tsx components/admin/PublishedToggle.tsx components/admin/showpage/AttentionMenu.tsx` returns nothing), and all five refs sit on a plain `<div>` in their hook-owner's own JSX with no intervening component boundary, read at each site — where for `AttentionMenu` that owner is `AttentionMenuPanel`, not `AttentionMenu` (§0.1). A future consumer adding a geometry-mutating layout effect in the same commit would have it run AFTER the measure rather than before. Re-file trigger: any `useLayoutEffect` appearing in a file that calls `useFitWithinClip`.
 - **The coalescer's `.cancel()` is a registered obligation, not just good hygiene.** `components/admin/useFitWithinClip.ts` is registered as a consumer of `createRafCoalescer` with `requiresCancelAdoption: true` (`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:120-125`), whose comment states the reason: so a future local `requestAnimationFrame` plus frame-id bookkeeping inside the hook fails there rather than quietly reintroducing the per-event forced reflow. The coalescer moves into the ref callback and its `.cancel()` moves with it.
