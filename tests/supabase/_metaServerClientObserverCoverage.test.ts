@@ -57,6 +57,10 @@ const FACTORIES: Record<string, number> = {
 const EXEMPT: Record<string, { count: number; ground: string }> = {
   "app/api/test-auth/set-session/route.ts": {
     count: 2,
+    // VERIFIED 2026-08-26, not assumed. Round 4 showed the sibling exemption's ground was simply
+    // false, so this one was re-read rather than trusted: gate 1 of the route returns 404 unless
+    // ENABLE_TEST_AUTH is the literal string "true", and production builds never set it. An
+    // exemption is only ever as good as the sentence justifying it.
     ground: "test-auth gated (ENABLE_TEST_AUTH + bearer); never a production request path",
   },
 };
