@@ -1,9 +1,10 @@
 import postgres from "postgres";
 import { afterAll, describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 /**
  * Validation-backed proof of the §6 upsert_admin_alert failedKeys-union-merge
- * semantics (migration 20260618000000). Runs against TEST_DATABASE_URL (the
+ * semantics (migration 20260618000000). Runs against DATABASE_URL (the
  * validation project in x-audits.yml; locally, the dev DB). `gen:schema-manifest`
  * DOES now capture function signatures and `validation-schema-parity` compares
  * them (BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED), but that covers EXISTENCE and
@@ -13,13 +14,13 @@ import { afterAll, describe, expect, test } from "vitest";
  *
  * Connection pattern mirrors tests/notify/deliver-real-db.test.ts.
  */
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 const CODE = "TILE_PROJECTION_FETCH_FAILED";
 // The viewer-independent constant message the CrewShell producer sends (R3-HIGH-1).
 const MESSAGE =
   "One or more crew-page data sources failed to load; the affected domains are listed in the alert detail.";
 
-const sql = DB_URL ? postgres(DB_URL, { max: 2, prepare: false }) : null;
+const sql = DB_URL ? postgres(assertLocalDbUrl(DB_URL), { max: 2, prepare: false }) : null;
 
 afterAll(async () => {
   if (sql) await sql.end({ timeout: 5 });

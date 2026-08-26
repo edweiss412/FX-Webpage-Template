@@ -4,7 +4,7 @@
  * Integration tests for validation_finalize_all_atomic, including the R53
  * commit 93 F47 TOCTOU compare-and-swap (CAS) defense.
  *
- * Runs against local Supabase pg at TEST_DATABASE_URL. CAS is exercised
+ * Runs against local Supabase pg at DATABASE_URL. CAS is exercised
  * deterministically by manually mutating combos_seeded_dates between the
  * finalizer's SELECT and UPDATE phases — done by mutating it ourselves
  * via a separate psql session, since PL/pgSQL doesn't expose a pause hook.
@@ -28,9 +28,11 @@ import { execFileSync } from "node:child_process";
 import { afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { safeValidationCleanup } from "./_validation-cleanup-helpers";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DATABASE_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 function runPsql(sql: string): string {
   return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t", DATABASE_URL], {

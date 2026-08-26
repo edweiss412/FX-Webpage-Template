@@ -8,7 +8,7 @@
  * the toggle through the REAL `getAlertOnAutoPublish` service-role getter)
  * drops it as a deliberate skip — no toggleFaults, no delivery attempt.
  *
- * Requires the LOCAL stack: the postgres seed path (TEST_DATABASE_URL) and the
+ * Requires the LOCAL stack: the postgres seed path (DATABASE_URL) and the
  * getter's REST path (SUPABASE_URL, defaulting to http://127.0.0.1:54321) must
  * target the SAME database, which only holds for the local 127.0.0.1 stack.
  */
@@ -17,8 +17,9 @@ import { describe, expect, test, vi } from "vitest";
 
 import { listRealtimeCandidates, type CandidateSql } from "@/lib/notify/detect/candidates";
 import { runRealtimeNotify } from "@/lib/notify/runNotify";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 const REST_URL = process.env.SUPABASE_URL ?? "http://127.0.0.1:54321";
 const LOCAL_STACK =
   !!DB_URL && /127\.0\.0\.1|localhost/.test(DB_URL) && /127\.0\.0\.1|localhost/.test(REST_URL);
@@ -27,7 +28,7 @@ describe("alert_on_auto_publish OFF suppresses undo delivery end-to-end (real pe
   test.skipIf(!LOCAL_STACK)(
     "persisted false toggle → detector still finds the candidate → runRealtimeNotify drops it deliberately",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `undo-toggle-off-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const driveFileId = `drive-${suffix}`;
       const token = "78787878-7878-4878-8878-787878787878";

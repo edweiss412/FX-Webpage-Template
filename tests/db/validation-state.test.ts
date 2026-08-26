@@ -6,7 +6,7 @@
  * FAILs because the relation does not exist; post-migration both
  * tests PASS.
  *
- * Pattern (R17 commit 40 F17 amendment): psql against TEST_DATABASE_URL
+ * Pattern (R17 commit 40 F17 amendment): psql against DATABASE_URL
  * via execFileSync. supabase-js cannot query `information_schema`
  * because PostgREST only exposes `public` / `graphql_public` / `dev`
  * schemas. Mirrors the canonical harness at
@@ -16,9 +16,11 @@ import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 function runPsql(sql: string): string {
   return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", "-F\t", databaseUrl], {
