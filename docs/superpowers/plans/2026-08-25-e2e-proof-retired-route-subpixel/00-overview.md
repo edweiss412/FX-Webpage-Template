@@ -164,6 +164,14 @@ And the reservation cleanup is DELETED rather than proved: `hotel_reservations_s
 
 Verification, both halves of §5's locked-helper budget: `pnpm exec vitest run tests/help/walker-routes.test.ts tests/e2e/helpers/lockedShowCopy.unit.test.ts` — 23 passed (7 + 16); the spec re-run — 4 passed; plus a post-run `select count(*) from shows where drive_file_id like 'empty-state-spec:%'` returning 0, which is what confirms the cascade leaves no residue.
 
+### Task 15b — stop the seam where the repo stops it
+
+Diff review rounds 3, 4 and 5 walked the test seam down: `SqlExecutor`, a `Spawn` closure, then Node's own `execFileSync`. The last shape is the one `tests/cross-cutting/psqlStartupFileSuppression.test.ts` forbids — it requires psql to reach a literal `execFileSync` as a literal argv[0] so its scanner can read the flags, reports zero indirections tree-wide, and fails a new one by default. It went red on the branch, along with 15 sibling cases, which is how the collision surfaced.
+
+The seam is back at `SqlExecutor`, which is what proves the SQL, the per-show keys and the caller joins. `psqlExecutor` is covered by the live e2e run instead, and the helper's header states what no unit test there proves. **This is the repo's boundary, not the arc's**, and recording that distinction is the point: the reviewer's direction was sound and a shipped guard rules it out.
+
+Verification: `pnpm exec vitest run tests/e2e/helpers/lockedShowCopy.unit.test.ts tests/cross-cutting/psqlStartupFileSuppression.test.ts` — 1063 passed; both halves of §5's locked-helper budget re-run.
+
 ### Task 16 — graduate both rows (LAST commit of the PR, not yet made)
 
 Archive both entries with their measured outcomes, and remove both in-progress markers in the same commit, before the merge (invariant 12). A graduation also owes a `BACKLOG_GRADUATED` row in `tests/docs/_metaDeferralLedgerGraduation.test.ts:99`, one per id, each carrying `provenance: "fix/e2e-proof-retired-route-subpixel"`.

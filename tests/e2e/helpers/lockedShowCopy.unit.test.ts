@@ -44,8 +44,6 @@ import {
   assertDeletedRows,
   copyShowLocked,
   deleteShowsLocked,
-  psqlExecutor,
-  type ExecFile,
   type SqlExecutor,
 } from "./lockedShowCopy";
 
@@ -59,27 +57,23 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 /**
  * An executor that records what it was asked to run and returns `rows`.
  *
- * It routes through the REAL `psqlExecutor` and captures at Node's own
- * `execFileSync`. Two shallower seams were tried and each left a project-owned
- * closure below it that a reviewer probe mutated while every assertion here
- * stayed green. There is nothing of ours below this one.
+ * The seam is `SqlExecutor` and it stops there, because
+ * `tests/cross-cutting/psqlStartupFileSuppression.test.ts` forbids reaching psql
+ * through an identifier — it must read the flags off a literal call. Three
+ * review rounds pushed this boundary lower and the last shape they arrived at is
+ * the one that guard rejects, so `psqlExecutor` is covered by the live e2e run
+ * instead. The helper's header records that as a limit, with what it leaves
+ * unproved spelled out.
  */
-function recorder(rows: string[]): {
-  exec: SqlExecutor;
-  seen: string[];
-  args: string[][];
-  files: string[];
-} {
+function recorder(rows: string[]): { exec: SqlExecutor; seen: string[] } {
   const seen: string[] = [];
-  const args: string[][] = [];
-  const files: string[] = [];
-  const fake = ((file: string, a: readonly string[], opts: { input: string }) => {
-    files.push(file);
-    args.push([...a]);
-    seen.push(opts.input);
-    return rows.join("\n");
-  }) as unknown as ExecFile;
-  return { seen, args, files, exec: (sql: string) => psqlExecutor(sql, fake) };
+  return {
+    seen,
+    exec: (sql: string) => {
+      seen.push(sql);
+      return rows.join("\n");
+    },
+  };
 }
 
 describe("copyShowLocked emits exactly one locked transaction, keyed on the new show", () => {
@@ -182,38 +176,6 @@ describe("deleteShowsLocked takes one lock per show, on that show's own key", ()
     // A cleanup that stops at the first failure leaves more residue than it
     // removes, so all three must have been attempted.
     expect(seen).toHaveLength(3);
-  });
-});
-
-describe("the real executor forwards the transaction and asks psql for bare rows", () => {
-  test("the SQL reaching the child is the SQL the caller built, byte for byte", () => {
-    const { exec, seen, files } = recorder([NEW_ID]);
-    copyShowLocked(TEMPLATE, { id: NEW_ID, drive_file_id: NEW_DFID }, exec);
-    // The lock survives the whole path, spawn included. This is the assertion
-    // an injected SqlExecutor could not make: with the seam one level up, an
-    // edit inside psqlExecutor was invisible.
-    expect(seen[0]).toContain(`pg_advisory_xact_lock(hashtext('show:' || '${NEW_DFID}'))`);
-    expect(seen[0]).toContain("insert into public.shows");
-    // The executable is psql, not something else the executor chose.
-    expect(files[0]).toBe("psql");
-  });
-
-  test("`-q` is passed, because the delete check depends on it", () => {
-    const { exec, args } = recorder([NEW_ID]);
-    deleteShowsLocked(["empty-state-spec:aaaaaaaa"], exec);
-    // Without -q psql prints the command status, `DELETE 0` becomes non-empty
-    // output, and assertDeletedRows' predicate is asked to tell a status line
-    // from a row id. It can, but only because this flag keeps them apart.
-    expect(args[0]).toContain("-q");
-    expect(args[0]).toContain("-At");
-    expect(args[0]).toContain("ON_ERROR_STOP=1");
-  });
-
-  test("the resolved DSN is the loopback target, never an ambient remote", () => {
-    const { exec, args } = recorder([NEW_ID]);
-    deleteShowsLocked(["empty-state-spec:aaaaaaaa"], exec);
-    const dsn = args[0]!.at(-1)!;
-    expect(dsn, `psql was pointed at ${dsn}`).toMatch(/@(127\.0\.0\.1|localhost|\[::1\]):/);
   });
 });
 

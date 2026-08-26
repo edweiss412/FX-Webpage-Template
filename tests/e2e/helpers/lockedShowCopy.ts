@@ -100,34 +100,36 @@ export function deleteShowBody(driveFileId: string): string {
 export type SqlExecutor = (sql: string) => string;
 
 /**
- * The child-process call itself, injectable. `typeof execFileSync` deliberately:
- * the seam IS Node's own function, so there is no project-owned code left
- * between this parameter and the operating system.
+ * The real executor. `-q` is load-bearing: see `assertDeletedRows`.
  *
- * THAT IS THE POINT, and it took three review rounds to reach. The seam started
- * at an `SqlExecutor` and a reviewer mutated `psqlExecutor` beneath it; it moved
- * to a `Spawn` and a reviewer mutated the `execFileSpawn` closure beneath THAT.
- * Every intermediate wrapper is one more untested bottom, so the wrappers are
- * gone: `psqlExecutor` hands its arguments straight to the injected function and
- * transforms nothing.
+ * NOT INJECTABLE, and the reason is a repo guard rather than a preference.
+ * `tests/cross-cutting/psqlStartupFileSuppression.test.ts` requires psql to be
+ * passed as a LITERAL argv[0] to a literal `execFileSync`, so its scanner can
+ * read the flags on the call and prove `-X` is there; it reports zero
+ * indirections across the tree and a new one fails by default. Handing the call
+ * through a parameter hides the flags from that scanner, which is the same
+ * concern that motivated wanting the seam here in the first place.
  *
- * DOCUMENTED LIMIT, so this axis has an end rather than a next round. What is
- * still unproved by any unit test is Node's `execFileSync` and what Postgres
- * does with the text it receives. Neither is ours, and both belong to the live
- * e2e run, which drives this default path against a real database.
+ * DOCUMENTED LIMIT, and it is the repo's, not a choice made to avoid work.
+ * Three review rounds pushed the test seam down — `SqlExecutor`, then a
+ * `Spawn`, then Node's own `execFileSync` — each time because a reviewer
+ * mutated the project-owned code below it. The last of those is exactly the
+ * shape this guard forbids. So the seam stops at `SqlExecutor` (above), which
+ * is what proves the SQL, the per-show keys and the caller joins, and THESE
+ * eight lines are covered by the live e2e run that drives them against a real
+ * database rather than by a unit test. What is unproved by any unit test here:
+ * that this function forwards its arguments unaltered, that Node's
+ * `execFileSync` does what it says, and what Postgres does with the text.
  */
-export type ExecFile = typeof execFileSync;
-
-/** The real executor. `-q` is load-bearing: see `assertDeletedRows`. */
-export function psqlExecutor(sql: string, exec: ExecFile = execFileSync): string {
+function psqlExecutor(sql: string): string {
   // Resolved HERE, at the spawn, not at import: a mistargeted DSN must be
   // refused before it reaches a database. See lockedCrewRestriction's header.
   const dsn = psqlTarget();
-  return exec("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-At", dsn], {
+  return execFileSync("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-At", dsn], {
     input: sql,
     encoding: "utf8",
     env: psqlChildEnv({ honorRemoteOptIn: true }),
-  }) as string;
+  });
 }
 
 /** A row id line, which is the only output a `RETURNING id` under `-Atq` emits. */
