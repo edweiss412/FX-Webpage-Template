@@ -1,0 +1,66 @@
+POSITIVE CONTROL (flags off == today): true
+universe base: 362 A: 421 B: 636 AB: 695
+
+--- residue base: elements=10 keys=10 universe=362
+
+--- residue A(textEntry): elements=23 keys=20 universe=421
+   NEW app/admin/settings/admins/AddAdminForm.tsx:73 <input>  bg-bg border border-border
+   NEW app/admin/settings/admins/AddAdminForm.tsx:84 <input>  bg-bg border border-border
+   NEW components/admin/BellPanel.tsx:838 <input>  bg-surface border border-border-strong
+   NEW components/admin/BellPanel.tsx:849 <input>  bg-surface border border-border-strong
+   NEW components/admin/ShowsTable.tsx:455 <input>  bg-surface border border-border
+   NEW components/admin/dev/MaterializeCard.tsx:152 <input>  bg-surface border border-border
+   NEW components/admin/dev/MaterializeCard.tsx:164 <select>  bg-surface border border-border
+   NEW components/admin/dev/MaterializeCard.tsx:179 <select>  bg-surface border border-border
+   NEW components/admin/dev/SwitcherControls.tsx:119 <select>  bg-surface border border-border hover:border-accent
+   NEW components/admin/telemetry/EventFilters.tsx:40 <input>   || bg-surface border border-border
+   NEW components/admin/telemetry/EventFilters.tsx:101 <select>  bg-surface border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:4195 <textarea>  bg-surface border border-border-strong
+   NEW components/shared/ReportModal.tsx:705 <textarea>  bg-bg border border-border
+
+--- residue B(paintedChildren): elements=24 keys=22 universe=636
+   NEW components/admin/IgnoredSheetsDisclosure.tsx:80 <span>  bg-warning-bg border border-border-strong
+   NEW components/admin/IgnoredSheetsDisclosure.tsx:97 <span>  bg-surface-sunken border border-border
+   NEW components/admin/OnboardingWizard.tsx:258 <span>  bg-accent border border-accent-edge || bg-surface border border-border-strong || bg-surface-sunken border border-transparent || bg-surface-sunken border border-transparent
+   NEW components/admin/ReSyncButton.tsx:213 <span>  border border-border
+   NEW components/admin/RecentAutoAppliedStrip.tsx:474 <span>  bg-surface border border-border
+   NEW components/admin/ShowRowActions.tsx:647 <span>  bg-surface-sunken border border-border-strong || border border-border
+   NEW components/admin/nav/AdminNav.tsx:154 <span>  bg-surface-raised border border-border
+   NEW components/admin/telemetry/AutoRefreshControl.tsx:105 <span>  bg-accent border border-accent-edge || bg-surface-sunken border border-border-strong
+   NEW components/admin/wizard/CrewRowActions.tsx:270 <span>  bg-surface-sunken border border-border-strong || border border-border
+   NEW components/admin/wizard/VenueMapTile.tsx:121 <span>  bg-surface border border-border-strong
+   NEW components/admin/wizard/step3ReviewSections.tsx:1226 <span>  border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:1768 <span>  border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:1779 <span>  border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:3788 <img>  bg-surface-sunken border border-border
+
+--- residue AB: elements=37 keys=32 universe=695
+   NEW app/admin/settings/admins/AddAdminForm.tsx:73 <input>  bg-bg border border-border
+   NEW app/admin/settings/admins/AddAdminForm.tsx:84 <input>  bg-bg border border-border
+   NEW components/admin/BellPanel.tsx:838 <input>  bg-surface border border-border-strong
+   NEW components/admin/BellPanel.tsx:849 <input>  bg-surface border border-border-strong
+   NEW components/admin/IgnoredSheetsDisclosure.tsx:80 <span>  bg-warning-bg border border-border-strong
+   NEW components/admin/IgnoredSheetsDisclosure.tsx:97 <span>  bg-surface-sunken border border-border
+   NEW components/admin/OnboardingWizard.tsx:258 <span>  bg-accent border border-accent-edge || bg-surface border border-border-strong || bg-surface-sunken border border-transparent || bg-surface-sunken border border-transparent
+   NEW components/admin/ReSyncButton.tsx:213 <span>  border border-border
+   NEW components/admin/RecentAutoAppliedStrip.tsx:474 <span>  bg-surface border border-border
+   NEW components/admin/ShowRowActions.tsx:647 <span>  bg-surface-sunken border border-border-strong || border border-border
+   NEW components/admin/ShowsTable.tsx:455 <input>  bg-surface border border-border
+   NEW components/admin/dev/MaterializeCard.tsx:152 <input>  bg-surface border border-border
+   NEW components/admin/dev/MaterializeCard.tsx:164 <select>  bg-surface border border-border
+   NEW components/admin/dev/MaterializeCard.tsx:179 <select>  bg-surface border border-border
+   NEW components/admin/dev/SwitcherControls.tsx:119 <select>  bg-surface border border-border hover:border-accent
+   NEW components/admin/nav/AdminNav.tsx:154 <span>  bg-surface-raised border border-border
+   NEW components/admin/telemetry/AutoRefreshControl.tsx:105 <span>  bg-accent border border-accent-edge || bg-surface-sunken border border-border-strong
+   NEW components/admin/telemetry/EventFilters.tsx:40 <input>   || bg-surface border border-border
+   NEW components/admin/telemetry/EventFilters.tsx:101 <select>  bg-surface border border-border
+   NEW components/admin/wizard/CrewRowActions.tsx:270 <span>  bg-surface-sunken border border-border-strong || border border-border
+   NEW components/admin/wizard/VenueMapTile.tsx:121 <span>  bg-surface border border-border-strong
+   NEW components/admin/wizard/step3ReviewSections.tsx:1226 <span>  border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:1768 <span>  border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:1779 <span>  border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:3788 <img>  bg-surface-sunken border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:4195 <textarea>  bg-surface border border-border-strong
+   NEW components/shared/ReportModal.tsx:705 <textarea>  bg-bg border border-border
+tintedPlate DERIVED base: 8 wide: 9
+   NEW components/admin/MaintenanceResetButtons.tsx:300 <input> tinted=false :: min-h-tap-min rounded-sm border border-text-faint bg-bg px-3 text-sm text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-vi
