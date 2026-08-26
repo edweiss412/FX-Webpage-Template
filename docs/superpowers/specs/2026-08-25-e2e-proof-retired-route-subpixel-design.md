@@ -281,13 +281,19 @@ Peers on mobile-safari with the same read-timing exposure were checked against t
 
 **This PR does not add `tap-target-inline-controls.layout` to `CALLERS`.** Doing so would enrol a file the analyzer cannot see a navigation in, producing a row that passes unconditionally forever. That is the tautological-guard failure the AGENTS.md guard-premise rule names. The spec gets a real barrier and a real premise test (section 4.2) instead, and the guard header records why the row is absent.
 
-### 7.4 §8.3 category 1 is reachable on one crew surface, not on the venue surface
+### 7.4 The venue surface no longer honours §8.3's required-field rule, and that is a recorded limit, not a resolved question
 
-Probed 2026-08-25 across `components/crew/**`: every `<EmptyState>` is section-level (gated on that section's `allHidden`) except `ScheduleSection.tsx:316`, which is a genuine per-field required-field placeholder. On the venue surface a missing required field reflows out like an optional one.
+**State it plainly, because an earlier draft of this section did not.** Master spec §8.3 says: "Required fields missing (e.g., venue name): the section renders a ... placeholder, not an empty card." Venue name is §8.3's own example. The redesigned crew page does not do this. A missing `venue.name` reflows out through `KeyValueRows`' sentinel-hiding (`components/crew/primitives/KeyValueRows.tsx:67`), which is the treatment §8.3 reserves for OPTIONAL fields, and the only `EmptyState` in `components/crew/sections/VenueSection.tsx` is the section-level one at `components/crew/sections/VenueSection.tsx:471-475` gated on `allHidden` (`components/crew/sections/VenueSection.tsx:319`). With any other venue content present, the seed's seven diagram objects included, `allHidden` is false, so a crew member sees a Venue section carrying diagrams, no venue name, no address, and no signal that anything is missing.
 
-Whether that is the right product behaviour is a product question, not a test question, and this arc files no row for it. It is recorded here and in the e2e spec's header so the next reader of the catalog knows which surface carries the idiom and why the proof moved there. **Re-file trigger:** if §8.3 is amended to require a per-field placeholder on venue, this note is the pointer to the case that would then move back.
+That is a §8.3 violation on a shipped, crew-facing surface. It is NOT permitted by §8.3, no amendment covers it, and this spec does not claim otherwise. An earlier draft said to revisit "if §8.3 is amended", which had the direction backwards: §8.3 already requires the behaviour and the product is the side that drifted.
 
----
+**Disposition, and whose call it was.** Repairing it is a change under `components/`, which arms invariant 8's impeccable dual gate, and the placeholder's wording is itself an open product question: §8.3's literal copy is "Doug hasn't filled this in yet", and that exact sentence was rejected during a design review for naming Doug to the crew, with `components/atoms/EmptyState.tsx` now defaulting to `Information missing.` and every surface passing its own override. So the rule is live and its wording was overtaken, and nothing on record says which the venue case owes.
+
+Because that is a scope-and-copy decision an e2e arc cannot settle, it was put to the owner rather than decided here. **Eric ruled on 2026-08-25: record it as a documented limit and ship this branch as tests and CI configuration only.** Per the same directive this arc mints no ledger row, so this section and the header of `tests/e2e/empty-state-reachability.spec.ts` are where the gap lives.
+
+**Why category 1 still has a real proof.** Probed across `components/crew/**`: every `<EmptyState>` is section-level except `ScheduleSection.tsx:316`, which is a genuine per-field required-field placeholder. §8.3's idiom survives on exactly one crew surface, and category 1 is proven there. The catalog therefore has a live proof of the required-field contract; what it does not have, and this section says so, is a venue-specific one.
+
+**Re-file trigger:** any decision to restore the venue placeholder, or an amendment to §8.3 that retires the venue example. Either way this section is the pointer to the case that moves.
 
 ## 8. Alternatives considered and rejected
 

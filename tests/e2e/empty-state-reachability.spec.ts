@@ -20,15 +20,27 @@
  *      renders the canonical placeholder INSIDE the still-rendered section
  *      (components/crew/sections/ScheduleSection.tsx:315-317).
  *
- *      Documented limit, recorded here because it is a fact about the
- *      catalog and not about this file: the venue surface no longer has a
- *      per-field required-field placeholder. A null `venue.name` reflows the
- *      row out through KeyValueRows' sentinel-hiding
- *      (components/crew/primitives/KeyValueRows.tsx:67), which is
- *      category-2 behaviour, and the only EmptyState in VenueSection is the
- *      SECTION-level one at :471-475 gated on `allHidden` (:319), which the
- *      seed's diagrams keep false. Category 1 is therefore proven on the
- *      schedule surface, which is where the idiom still lives.
+ *      DOCUMENTED LIMIT, recorded here because it is a fact about the catalog
+ *      and not about this file. Master spec §8.3 says a missing REQUIRED field
+ *      renders a placeholder rather than an empty card, and names the venue
+ *      name as its example. The redesigned venue surface does not do that: a
+ *      null `venue.name` reflows the row out through KeyValueRows' sentinel-
+ *      hiding (components/crew/primitives/KeyValueRows.tsx:67), which is the
+ *      OPTIONAL-field treatment, and the only EmptyState in VenueSection.tsx
+ *      is the SECTION-level one at :471-475 gated on `allHidden` (:319), which
+ *      any other venue content keeps false. So a crew member can see a Venue
+ *      section with diagrams, no venue name, and no signal.
+ *
+ *      That is a §8.3 violation, not something §8.3 permits. Repairing it is a
+ *      components/ change that arms invariant 8, and the placeholder's WORDING
+ *      is itself unsettled — §8.3's literal copy was rejected in design review
+ *      for naming Doug to the crew (components/atoms/EmptyState.tsx). Eric
+ *      ruled on 2026-08-25 that this arc records the gap and ships as tests +
+ *      CI config only; per the same directive it mints no ledger row. Full
+ *      disposition and re-file trigger: the 2026-08-25 spec §7.4.
+ *
+ *      Category 1 is therefore proven on the schedule surface, which is the one
+ *      crew surface where §8.3's per-field idiom still lives.
  *
  *   2. Optional-field-missing — `event_details.power` set to `TBD`. The
  *      generic-optional dispatch (lib/visibility/emptyState.ts, applied at
