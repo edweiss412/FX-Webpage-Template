@@ -12470,3 +12470,68 @@ just the clock: a deleted loop advance, a removed `break`, or a flipped terminat
 is non-termination and is honestly killed. Anything else is a genuine candidate for a re-run
 with its surface alone on a leg, which is how any mover in the untouched population is treated
 before it is attributed to the repricing.
+
+## BL-MUTATION-SHARD-BUDGET-AGGREGATE-OVER — the source-mutation shards are 60% over budget in AGGREGATE, and the four-shard pin's premise no longer holds
+
+**Status:** SHIPPED via PR #902 (`fix/mutation-shard-budget-six`) · **Filed:** 2026-08-22 (queued by `bl-orch` onto `ci/app-e2e-batch2`'s closeout commit, from `dbconn`'s arithmetic) · **Facing:** process · **Severity:** MEDIUM (the budget gate is FAILURE on main itself, so every arc reads its own leg against a red baseline and cannot tell a regression from the inherited state) · **Class:** CI capacity · **Effort:** M · **Reachability:** PROBED — the main-red runs linked in the incident are this row's own evidence; the shard wall-clocks below were measured by `dbconn` on its own legs and are recorded here as ROUTED figures, attributed rather than re-derived, because the arc that measured them holds the artifacts. · **Incident:** the `mutation-harness` workflow is red on MAIN, not on a branch, and has been for days — the last five scheduled runs on `main` all failed: [32559529251](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32559529251) (2026-08-22), [32459382957](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32459382957), [32344648722](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32344648722), [32228276600](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32228276600) and [32111856491](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32111856491), listed by `gh run list --workflow=mutation-harness.yml --branch main`. Those are cost events that already happened, not a constructed hypothetical.
+
+Shard wall-clocks, measured by `dbconn` and routed here by the orchestrator (that arc holds the run
+artifacts; this row does not re-derive them): **4669 s, 6958 s, 4667 s, 6786 s = 23080 s** of work
+against a budget of `4 x 3600 s`. That is 60% over IN AGGREGATE, and — the part that matters for the fix — **all four
+legs are over**, with no single surface dominating any of them. The spec's §2.4 premise for pinning
+`SOURCE_SHARD_COUNT = 4` was that a small number of expensive surfaces set the ceiling; that premise
+is now false, so the pin cannot be defended on its original grounds.
+
+Fix candidate, by the same arithmetic: **n = 8 fits** at roughly 2885 s for the longest leg. `n = 5`
+and `n = 6` are both still over, so a one-notch bump buys nothing.
+
+**Per-leg ceiling proximity is trending, not just the aggregate.** One shard measured 111 minutes and
+then 118 minutes on consecutive runs against a 125-minute ceiling (`panecompact`, 2026-08-22). The
+aggregate says the budget is wrong; that pair says a single leg is now close enough to the ceiling
+that ordinary variance reaches it, and a leg that CANCELS at the ceiling reports nothing — the silent
+form this row exists to prevent.
+
+**The first scheduled step is the shard-count decision as a FLEET item, not a unilateral edit.**
+`shardPartition` is a shared surface and the LPT partition re-packs whenever the surface set changes,
+so a shard-count change moves which shard every enrolled surface lands in, and every arc holding a
+stamped score is affected at once. Note also that `arc-ctloutline`'s incoming **231 sites** land on
+this same partition and make every number above worse before any repair lands.
+
+---
+
+**GRADUATED 2026-08-26 via PR #902.** The decision this row asked for was taken as a fleet item by
+`bl-orch` and executed by `arc-shardbudget`: **`SOURCE_SHARD_COUNT` = 8.**
+
+**The arithmetic, and why it is not this row's.** This row's `n = 8` came from measured leg wall
+clock under the boot-count weight. The predecessor arc (#896) then replaced that weight model, and
+its handoff predicted `n = 6` from the priced model. Both were valid on their own inputs. The
+shipped figure was re-derived from neither: the partition is packed by modelled weight and then
+scored against the seconds surfaces ACTUALLY took on two of main's nightlies, plus the worst
+observed per-leg overhead, because `SHARD_BUDGET_SECONDS` is checked against a leg's whole
+`elapsed.txt` and the model prices only child work. On that scoring six overruns by 17.6% and seven
+by 6.8%; eight fits at 3,284.5 s with 315.5 s of margin, 8.8%. This row's `n = 8` was right, by a
+route it did not take. Full derivation, with the command that reproduces it:
+`docs/superpowers/specs/ci/2026-08-26-mutation-shard-budget-fit.md` §1.
+
+**The residual this row warned about has LANDED, and it is now the binding constraint.**
+`arc-ctloutline`'s 231 sites are enrolled as `controlOutlineResidue`, which measures 3,056.9 s and,
+with per-leg overhead, **3,273.7 s — 90.9% of a single leg, alone.** A surface is atomic in this
+partition, so from N = 8 on the makespan IS that surface and no shard count can go below it: nine
+and above buy 10.8 s. The premise this row correctly said was false at four ("a small number of
+expensive surfaces set the ceiling") is true again at eight, for one surface.
+
+**So the shard count has stopped being the variable, and that is the successor condition rather
+than a new row.** If `controlOutlineResidue` grows about 10%, or a run is about 10% slower, it
+breaches the budget on its own at any N. The remedies are then splitting that surface into
+separately-enrolled parts, or moving the budget with the ceiling relation at
+`tests/mutation/_metaSourceShardIntegrity.test.ts` moved in lockstep. Re-rating it is NOT one:
+`millisPerBoot` decides placement, never execution time, and the surface is already alone on its
+leg. Recorded as documented limits in the spec's §4 (L-1, and L-3's measured 1.29x slow-run event,
+which breaches at every N) rather than filed forward, per the arc's directive.
+
+**Also closed by the same PR, because the count reached further than this row knew:** the
+`.gitignore` scratch rule ignored `guardSurfaces.shard[4-9].test.ts`, so every shard file a raised
+count adds was silently unstageable; `shardBalance`'s held-out pairs are four-leg measurements that
+were reading the live constant; and `vitest-projects-partition` hardcoded a nightly-file count that
+tracked the constant. The first is now guarded by a derivation
+(`tests/mutation/_metaShardRangeTracked.test.ts`) so it cannot recur at the next change.
