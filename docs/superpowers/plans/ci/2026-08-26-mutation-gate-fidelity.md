@@ -67,9 +67,9 @@ Restated from the spec's §6 so each id resolves in this document; the spec rema
 | --- | --- | --- |
 | **AC-1** | A faulted surface registers exactly seven cases with the same titles and order as an evaluated one, each body throws, a fault notice reaches the `write` sink, and its run record carries a `fault` naming the cause; the healthy surface on the same leg still reports. | Tasks 2, 3 |
 | **AC-2** | `BaselineNotGreenError` names the surface, not only the suite paths. | Task 1 |
-| **AC-3** | `retryableRpcVolatilityScan` scores on a `source-shards` leg with no `BaselineNotGreenError` in any annotation. | Task 4 writes the steps; **Step C observes the run**. A parsed-YAML assertion cannot establish that a bootstrap SUCCEEDS on a runner, only that it is declared, which is the same gap finding 3 identified for AC-5. |
+| **AC-3** | `retryableRpcVolatilityScan` scores on a `source-shards` leg with no `BaselineNotGreenError` in any annotation. | Task 4 writes the steps; **Step B observes the run**. A parsed-YAML assertion cannot establish that a bootstrap SUCCEEDS on a runner, only that it is declared, which is the same gap finding 3 identified for AC-5. |
 | **AC-4** | `reconcileValidationEnv` reports `stale: []` for an allow row whose file still holds a `validation-env` site, and `connectionCensus` has zero unaccepted survivors. | Task 6 |
-| **AC-5** | A harness-touching pull request sends exactly 2 jobs to runners, down from 19; a schedule run still sends 20 and this branch's own dispatch sends 19. | Task 5 |
+| **AC-5** | A harness-touching pull request sends exactly 2 jobs to runners, down from 19, and this branch's own dispatch sends 19. **The schedule clause (20) is NOT dischargeable here** — a scheduled run happens on `main` after a merge this arc does not perform, and the 20 is matrix arithmetic rather than an observation. | Task 5 writes the conditions; **Step B measures** the two obtainable counts; the schedule count joins AC-8 as an orchestrator observation. |
 | **AC-6** | `steps[0]` of every shard job is still `stamp-start`, exactly one step writes `$GITHUB_ENV`, and the two shell bring-up steps are `run:`. | Task 4 |
 | **AC-7** | Every enrolled surface this diff touches carries a stated `GUARD SURFACE:` score with zero unaccepted survivors. | Scoring duty, below |
 | **AC-8** | The next scheduled nightly on `main` after the merge is green. | Not dischargeable here: it lands after a merge this arc does not perform, and the orchestrator owns the observation. |
@@ -78,9 +78,12 @@ Restated from the spec's §6 so each id resolves in this document; the spec rema
 
 ## Meta-test inventory
 
-- **CREATES:** the per-surface fault-isolation cover in `tests/mutation/source/surfaceCases.test.ts` (Task 3), and a workflow-shape guard for the bring-up and the PR narrowing (Tasks 4 and 5).
-- **EXTENDS:** `tests/mutation/source/oracle.test.ts` (Task 1), `tests/mutation/source/records.test.ts` (Task 2), `tests/db/connectionCensus.test.ts` (Task 6).
-- **UNTOUCHED, declared:** every row of the sweep table above.
+- **CREATES:** nothing. Every guard this plan touches already exists.
+- **EXTENDS:** `tests/mutation/source/surfaceCases.test.ts` (Task 3), `tests/mutation/_metaSourceShardIntegrity.test.ts` (Tasks 4 and 5).
+- **EXTENDS, continued:** `tests/mutation/source/oracle.test.ts` (Task 1), `tests/mutation/source/records.test.ts` (Task 2), `tests/db/connectionCensus.test.ts` (Task 6).
+- **UNTOUCHED, declared:** every row of the sweep table above EXCEPT `_metaSourceShardIntegrity`, whose row records that its existing assertions are unaffected — a different claim from the file being unedited.
+
+**Discrepancy with the approved spec, named rather than silently departed from.** The spec's §8 lists `_metaSourceShardIntegrity.test.ts` under "UNTOUCHED, declared", which was true of the design as specified and is NOT true of this plan: Tasks 4 and 5 add cases to it, because a workflow change with no assertion is not TDD. The spec is corrected in the same commit as this plan rather than left to disagree, since two documents that contradict each other about which file is edited is exactly the drift the inventory exists to prevent.
 
 ---
 
@@ -131,7 +134,15 @@ RED, in `surfaceCases.test.ts`:
 
 GREEN, in `surfaceCases.ts`:
 
-- `options.register?: { describe: typeof describe; it: typeof it }`, defaulting to the module's vitest imports. Production path unchanged.
+- `options.register?: { describe: typeof describe; it: typeof it }`, resolved ONCE at the top of the `describe.each` callback by **destructuring into identifiers that shadow the module's imports**:
+
+  ```ts
+  const { describe: _d, it } = options.register ?? VITEST_REGISTRAR;
+  ```
+
+  written so the seven registrations still read `it("…", …)` at line start.
+
+  **Two properties this buys, and F1 of the round-1 plan review is why both are stated.** First, there is exactly ONE resolution point and no second code path, so an implementation cannot have an injected-registrar branch that registers seven cases and a default-registrar branch that returns early — the branch that would carry that divergence does not exist. Observing the injected path therefore observes the production path, because after the `??` they are the same code. Second, the identifier stays `it`, so `guardSurfaces.gates.test.ts` case (c), which counts `/^\s*it\(/gm` literals in this file and expects exactly 7, keeps matching. Renaming to `reg.it(` would zero that count and red the corpus-wide gates file — which after Task 5 is one half of the PR smoke leg.
 - `evaluateSurfaceOutcome(surface, options)` wraps the `readFileSync` + `evaluateSurface` pair and returns `{kind:"evaluated",…}` or `{kind:"faulted", error}`.
 - On `faulted`: write the fault notice through the same `write` sink (**directly, not via `result.notices`** — `GateNotice` is a closed union built inside `evaluateGate`, which never ran for this surface), and `emitRunRecord` with `passed:false, score:0, outcomes:[], fault`.
 - Register the same seven `it(` calls unconditionally; each body checks the outcome first and fails with the fault when faulted. **No branch between entering the describe callback and the seven registrations**, so a shortened list is not a reachable state.
@@ -188,7 +199,15 @@ clean  unallowed n = 0   mutant unallowed n = 0
 
 RED then GREEN: this task adds no production code — the production behavior is already correct. The RED step is the mutation probe showing the mutant survives; the GREEN step is the same probe showing it killed, plus the new case passing. Sequence:
 
-1. The RED is **already observed on CI** and is not re-run: run 32958581720, leg `source-shards (1)`, annotated `unaccepted-survivor: 1 survivor(s) with no ledger row: statement-removal:1641:7:withSites.add(record.file);>(removed)` against this exact content. Re-scoring to watch it fail again would cost a second ~107-minute hold of the mutation class lock to reproduce an annotation already in hand. Record the annotation as the red; the marker's command is what turns green.
+1. **The red is OBSERVED under the marker's own command, in the same lock hold as the green.** An earlier draft cited the CI annotation from run 32958581720 leg `source-shards (1)` as the red and declared the marker command never run. That is not the contract: the shard leg runs `vitest run --project mutation tests/mutation/guardSurfaces.shard<N>.test.ts`, a different outer command, and a leg number is not even a stable name for a surface (the partition recomputes every run). The annotation establishes that the survivor EXISTS; it does not establish that this marker's command returns non-zero.
+
+So the sequence is red, edit, green inside ONE contiguous class-lock take — the edit between them takes seconds, so a second hold buys nothing:
+
+1. `VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx scripts/mutation-score-surfaces.ts connectionCensus` — observe non-zero, with `statement-removal:1641:7` in its unaccepted-survivor set. Record the wall clock.
+2. Add the case.
+3. Re-run the SAME command — zero, no unaccepted survivors.
+
+The CI annotation stays in this plan as corroboration that the survivor is real on a runner and not a local artefact, which is a different claim and a useful one.
 2. Add the case: records carrying a `validation-env` site in file F, allow naming F with a non-empty reason, assert `stale` is `[]`, with a `premiseHolds` that the fixture really does classify as `validation-env` (else the case is vacuous — it would pass on a fixture with no sites at all).
 3. Re-score; the survivor is gone.
 4. **Re-run `_metaPremiseContract`** (baseline 11 passed). If this suite's declared `EXPECTED_ENV_TOUCHING` count moves off 0, state the case's premise or carry a `no-premise:` exemption.
@@ -209,36 +228,49 @@ Replace the derivation comment at `spawnBounded.ts:55-66` with one that states: 
 
 **Do not** let this travel into `_metaGuardSurfaceRegistry.test.ts:130-140`, whose case deliberately accepts `millisPerBoot: 200_000` because that bound is the BUDGET, not the mutant ceiling.
 
-### Step B — archive the three rows and remove the markers
+### Step B — the Actions observations, which no local command can provide
 
-**No red exists either.** `pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaReviewRoundEconomy.test.ts` is green today and must stay green through the archival; it reds if a row lands in the archive still marked in flight, which is the failure this step must not cause.
+**This runs BEFORE Step C.** An earlier draft had the archival first and then claimed its evidence was gathered "before archival", which cannot both be true. Two acceptance criteria turn on what a real runner does, and round-1 finding 3 established that parsed-YAML assertions do not reach them.
+
+1. **`gh workflow run mutation-harness.yml --ref fix/mutation-gate-fidelity`.** Mandatory, not advisory: this arc removes the pull-request trigger, and a change to a workflow's own trigger cannot be validated by the trigger it removes. Expect **19** runner jobs (`notify` is gated to `schedule` or a default-branch dispatch).
+2. **Read that run PER-ANNOTATION, PAGINATED**, never per-job status and never the first page alone:
+
+   ```
+   gh api repos/edweiss412/FX-Webpage-Template/actions/runs/<id>/jobs --paginate \
+     --jq '.jobs[] | [.id,.name,.conclusion] | @tsv'
+   gh api --paginate 'repos/edweiss412/FX-Webpage-Template/check-runs/<job_id>/annotations?per_page=100'
+   ```
+
+   `--paginate` and `per_page=100` are load-bearing: an unpaginated request certifies absence from the first page only, and the claim being made is that **no `BaselineNotGreenError` appears on ANY leg**. The repo's own annotation probe at `docs/superpowers/specs/ci/probes/2026-08-21-attribution-scripts/p4-annotations.py` uses the same form.
+
+   AC-3 is met when `retryableRpcVolatilityScan` appears with a score and no baseline error appears anywhere. A leg that hits `timeout-minutes` reports NOTHING and is not a green leg.
+
+3. **Count the pull request's runner jobs by CONCLUSION, not by row:**
+
+   ```
+   gh api repos/edweiss412/FX-Webpage-Template/actions/runs/<id>/jobs --paginate \
+     --jq '[.jobs[] | select(.conclusion != "skipped")] | length'
+   ```
+
+   AC-5's pull-request clause is met at **2**, against the **19** measured by the identical command on run 32958581720.
+
+**AC-5's schedule clause is NOT dischargeable by this arc, and saying otherwise would be the same error round-1 finding 4 caught on the merge sha.** A scheduled run happens on `main`, after a merge this arc does not perform. The 20 is arithmetic over the matrix, not an observation: the most recent scheduled run predates `SOURCE_SHARD_COUNT = 8` and sent 16. So the schedule clause joins AC-8 as an orchestrator observation on the first nightly after the merge, and the archived row says so rather than implying someone measured it.
+
+### Step C — archive the three rows and remove the markers
+
+**No red exists.** `pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaReviewRoundEconomy.test.ts` is green today and must stay green through the archival; it reds if a row lands in the archive still marked in flight, which is the failure this step must not cause.
 
 Archive all three rows into `BACKLOG-archive.md` with their evidence, and remove the `IN PROGRESS` markers **in the PR's last commit, before any merge** (invariant 12: a marker that merges into main names a branch the merge just deleted).
 
-**The AC-5 "after" number is MEASURED before archival, and this step is where it comes from.** The parsed-YAML assertions in Task 5 establish the workflow's shape, not its behavior; only a real pull request establishes the count. So, in order:
+The fan-out row's entry carries the ruling, its date, and the before/after runner-job counts **measured in Step B** — 19 to 2, both by the same command.
 
-1. Push the branch and open the PR. The harness fires on it, because `tests/mutation/**` is in the path filter.
-2. Count runner jobs by CONCLUSION, not by row: `gh api repos/edweiss412/FX-Webpage-Template/actions/runs/<id>/jobs --paginate --jq '[.jobs[] | select(.conclusion != "skipped")] | length'`. Expect **2**.
-3. Only then write the fan-out row's archive entry, carrying that measured 2 against the 19 measured on run 32958581720 by the same command.
-
-**The merge sha cannot be in this entry, and an earlier draft of this step wrongly asked for it.** The markers come off in the PR's last commit, before the merge, so the merge commit does not exist yet — nothing written here can name it. `BL-MUTATION-HARNESS-MAIN-RED`'s entry therefore records: the repair, **this branch's head sha and the PR number**, that the verification is the first scheduled `mutation-harness` run on `main` after the merge, and that the orchestrator owns observing it and writing both the merge sha and the outcome into the entry's own text. That is consistent with §6.1 assigning the observation to the orchestrator: the entry is authored with a hole its owner fills, not with a fact its author cannot have.
+**The merge sha cannot be in any entry written here.** The markers come off in the PR's last commit, before the merge, so the merge commit does not exist yet. `BL-MUTATION-HARNESS-MAIN-RED`'s entry records the repair, **this branch's head sha and the PR number**, that the verification is the first scheduled `mutation-harness` run on `main` after the merge, and that the orchestrator owns observing it and writing both the merge sha and the outcome into the entry's own text. Per §6.1 that observation is already assigned to the orchestrator; the entry is authored with a hole its owner fills, not with a fact its author cannot have. The same entry carries AC-5's schedule clause for the same reason.
 
 The budget row's entry carries the subsumption arithmetic and its warn-band residue with the re-file trigger.
 
 **BACKLOG.md conflict rule if main moves under this:** a conflict here is a row archived by one side and still open on the other. Resolve by set arithmetic with one extractor on both parents; never keep-both, which resurrects the row.
 
-
 ---
-
-### Step C — the Actions observations, which no local command can provide
-
-Two acceptance criteria turn on what a real runner does, and finding 3 of the plan's round-1 review established that parsed-YAML assertions do not reach them. Both are obtained here, before archival.
-
-1. **`gh workflow run mutation-harness.yml --ref fix/mutation-gate-fidelity`.** Mandatory, not advisory: this arc removes the pull-request trigger, and a change to a workflow's own trigger cannot be validated by the trigger it removes. Expect **19** runner jobs (`notify` is gated to `schedule` or a default-branch dispatch).
-2. **Read that run PER-ANNOTATION**, never per-job status: `gh api repos/edweiss412/FX-Webpage-Template/check-runs/<job_id>/annotations`. AC-3 is met when `retryableRpcVolatilityScan` appears with a score and **no `BaselineNotGreenError` appears on any leg**. A leg that hits `timeout-minutes` reports NOTHING and is not a green leg.
-3. **Count the PR's runner jobs by conclusion** as Step B describes. AC-5 is met at 2.
-
-Report all three in the readiness message with the run URL and its per-leg `elapsed.txt` seconds.
 
 ## Scoring duty
 
@@ -251,9 +283,11 @@ VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx \
 
 | surface | why | estimate |
 | --- | --- | --- |
-| `connectionCensus` | Task 6 edits its deciding suite | ~107 min measured, 8 timeouts at the ceiling |
+| `connectionCensus` | Task 6 edits its deciding suite, and its marker's red and green are the SAME command | **TWO runs in one contiguous take** (red, edit, green). 8 of its mutants time out at the 180 s ceiling, which is 1440 s of any single run. |
 | `retryableRpcVolatilityScan` | Task 4 makes it scorable at all; first score ever | ~30 min |
 | `spawnBounded` | Step A edits its source file | 12 mutants, minutes |
+
+The `connectionCensus` red-then-green pair is why the take must be CONTIGUOUS rather than two bookings: the edit between the two runs takes seconds, and releasing the lock in between would put a queue behind a change that is already made.
 
 Each score goes on the round-1 diff brief's `GUARD SURFACE:` line in the comma form the validator accepts: `GUARD SURFACE: <surface>, MUTATION SCORE: k/n, 0 unaccepted survivors, OPERATORS: all`.
 
