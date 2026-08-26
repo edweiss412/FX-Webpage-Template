@@ -305,7 +305,7 @@ export function MaintenanceResetButtons() {
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
               aria-label="Type RESET to confirm"
-              className="min-h-tap-min rounded-sm border border-text-faint bg-bg px-3 text-sm text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg"
+              className="min-h-tap-min rounded-sm border border-control-outline-tinted bg-bg px-3 text-sm text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg"
             />
           </label>
           <div className="flex flex-wrap gap-2">

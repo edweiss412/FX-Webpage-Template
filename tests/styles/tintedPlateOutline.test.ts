@@ -30,14 +30,18 @@
  * reports the class string unresolved), a control whose file simply never
  * declared a ring-offset, and an element kind the scanner does not admit at all.
  *
- * DOCUMENTED LIMIT (L1 in the design doc). Asking "is this control inside a
- * tinted plate?" in general needs ancestor resolution, which
- * `tests/styles/interactiveScanCore.ts` does not have and is not getting here:
- * widening it is recognizer growth of exactly the shape AGENTS.md "Repair
- * direction under same-axis recurrence" declines, and it is why
- * `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` was left untouched by this arc.
+ * DOCUMENTED LIMIT (L1 in the design doc), and it STANDS. Asking "is this
+ * control inside a tinted plate?" in general needs ancestor RESOLUTION, and a
+ * `focus-visible:ring-offset-*` on the element is still the only element-level
+ * signal for it.
+ *
+ * The scanner did gain declared widening axes on 2026-08-26, and this scan opts
+ * into both, so `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` is closed rather than
+ * left untouched. That does not weaken the limit above: those axes answer "what
+ * paints inside this control", which is a different question from "what plate is
+ * this control standing on". The registry arm below is still the honest half.
  * RE-FILE TRIGGER: a control on a tinted plate reaching `main` at
- * `border-text-faint`, or the scanner gaining ancestor resolution for some
+ * `border-text-faint`, or the scanner gaining ANCESTOR resolution for some
  * other reason.
  */
 import { readFileSync } from "node:fs";
@@ -53,7 +57,9 @@ import { allStrings, scanInteractiveElements, type ScanElement } from "./interac
 import { SECONDARY_ACTION_CLASS, SECONDARY_ACTION_ON_TINTED_CLASS } from "@/lib/ui/actionClass";
 
 const ROOT = process.cwd();
-const UNIVERSE = scanInteractiveElements(ROOT);
+// Spec §7.2: this guard reads BOTH declared axes, because the plate question
+// reaches a text field exactly as the user's 2026-08-26 ruling says it does.
+const UNIVERSE = scanInteractiveElements(ROOT, { textEntry: true, paintedChildren: true });
 
 /** The token this arc added. Named once; every assertion below reads it. */
 const TINTED = "border-control-outline-tinted";
@@ -239,27 +245,33 @@ describe("tinted-plate sites the derived arm cannot see", () => {
 });
 
 /**
- * The one control on a tinted plate this arc deliberately did NOT move.
+ * The one control on a tinted plate the 2026-08-25 arc deliberately did NOT
+ * move, and which moved on 2026-08-26 when its fence was spent.
  *
- * `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` family A asks an open design
- * question: is a text field's border a control outline at all, or a field
- * affordance? The user's 2026-08-16 ruling was taken against a mockup of
- * BUTTONS resting on cards and did not reach it. That row is deliberately left
- * open and unmarked by this arc, so moving one of its members here would answer
- * its question in passing, which is precisely what the ledger exists to stop.
+ * This case is INVERTED rather than deleted, which is the shape
+ * `DESIGN.md:337-352` records for the ShareHub skin: same case, asserting the
+ * new token, with the ratification and its date in the docstring. Deleting it
+ * would lose the fact that the field was ever fenced, and the next reader would
+ * have no way to tell a decision from an oversight in either direction.
  *
- * Pinned rather than merely omitted: an unremarked absence reads as an
- * oversight, and the next sweep would "fix" it without noticing it was a
- * decision.
+ * The fence was `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` family A's open
+ * question: is a text field's border a control outline at all? The user ruled
+ * on 2026-08-26 that it is, against a rendered mockup carrying the measured
+ * ratios, so the question the fence protected no longer exists. The field is a
+ * control on a `warning-bg` plate and takes the plate token like every other.
+ *
+ * Its own `bg-bg` fill makes the INNER edge a pair nothing pinned before, so
+ * that row landed in `DESIGN.md` §1.2 with an assertion in
+ * `tests/styles/secondary-action-contrast.test.ts` in the same commit.
  */
-describe("the text input inside the validation reset plate is left alone", () => {
-  it("keeps border-text-faint, fenced by BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER family A", () => {
+describe("the text input inside the validation reset plate carries the plate token", () => {
+  it("moved to the tinted outline when the 2026-08-26 ruling spent its fence", () => {
     const src = readFileSync(join(ROOT, "components/admin/MaintenanceResetButtons.tsx"), "utf8");
     const at = src.indexOf('data-testid="validation-reset-input"');
     premise("the validation reset input is still in the file", at + 1, 0);
     const window = src.slice(at, at + 900);
-    expect(window).toContain("border-text-faint");
-    expect(window).not.toContain(TINTED);
+    expect(window).toContain(TINTED);
+    expect(window).not.toContain("border-text-faint");
   });
 });
 
