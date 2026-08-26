@@ -731,3 +731,34 @@ by a green test, and none is settled here.
 **Recommendation:** re-run `/impeccable critique` and `/impeccable audit` on this diff from
 a session whose sub-agents deliver, before this merges. The mechanical floor is clean; the
 judgment half is owed.
+
+### Documented limits carried out of this arc
+
+**The 390x560 AttentionMenu ordering flake in `popover-clip-fit.spec.ts`.** Two whole-file runs
+failed on it; two solo runs of the same case passed. It is order-dependent, not a placement
+defect, and it sits in a menu this arc does not modify. Ratified as a documented limit rather
+than a backlog row: a process-facing row for a test-ordering artifact is exactly what the
+2026-08-25 mint freeze declines, and nothing a crew member or Doug sees depends on it. The
+re-file trigger is the case failing SOLO, which would make it a real defect rather than an
+ordering artifact.
+
+**The clamp works while `display` computes `flow-root`.** Tailwind's `line-clamp-2` is documented
+to emit `-webkit-box`, and the computed value here is `flow-root`, yet the clamp measurably works:
+the title is capped at two lines against a saturated fixture that renders more than two lines
+unclamped. No custom `@utility` overrides display and nothing in the span's class list should.
+The behaviour is asserted; the mechanism is not, because asserting a mechanism I cannot account
+for pins a belief rather than a behaviour and fails the day the mechanism legitimately changes.
+Recorded as an open question: if the clamp ever regresses, `display` is the first thing to inspect.
+
+**Round-economy filing.** The diff stage reached four rounds across three bases, so the arc-sum
+rule applies even though no single base tripped the per-file threshold. Filed at
+`docs/review-rounds/feat/review-modal-strip-dock/75b8f7a3ec76.md`. Its mechanizable gap — a
+structural guard failing any case whose fixture cannot discriminate — is declined rather than
+filed, under the mint freeze.
+
+**Round 4's five findings were repaired after the round cap, without a fifth round.** All five
+were on tests, all one class, and the production half of the same round returned APPROVE with
+zero findings. The repairs are `e84b98839`, verified locally for the four in `popover-clip-fit`
+and by CI's `published-modal-e2e` job for the fifth, which runs under a config the local
+standalone run does not cover. That asymmetry is stated rather than smoothed over: four fixes
+were watched to green on this machine, one was not.
