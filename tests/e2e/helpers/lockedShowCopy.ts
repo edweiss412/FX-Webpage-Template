@@ -42,14 +42,54 @@ function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-/** Run one locked statement block and return psql's tuple-only stdout. */
-function runLocked(caller: string, driveFileId: string, body: string): string {
-  const sql = `
+/**
+ * Compose the ONE locked-transaction shape: begin, acquire, write, commit.
+ *
+ * EXPORTED so it can be proved without a database. Invariant 2 requires tests
+ * to assert the lock is HELD, and the structural guard in
+ * tests/help/walker-routes.test.ts cannot do that — it recognizes PostgREST
+ * mutation syntax, so deleting the lock line below leaves it green (probed
+ * 2026-08-25: `lockPresentMutant: false`, `mutantWalkerHits: 0`). The proof is
+ * tests/e2e/helpers/lockedShowCopy.unit.test.ts, which pins the ORDER of these
+ * three statements and carries mutants of each way the order can be wrong.
+ *
+ * Written once, here, for the same reason lockedCrewRestriction states: three
+ * of arc C's review rounds went on three different ways a per-caller COPY of
+ * this block can be subtly wrong (lock missing, lock after the write, a commit
+ * between the two) while a lexical guard still passed. There is no second copy
+ * of the shape to get wrong.
+ */
+export function lockedStatement(driveFileId: string, body: string): string {
+  return `
     begin;
     select pg_advisory_xact_lock(hashtext('show:' || ${sqlString(driveFileId)}));
     ${body}
     commit;
   `;
+}
+
+/** The clone body, exported for the same reason as `lockedStatement`. */
+export function copyShowBody(
+  templateDriveFileId: string,
+  overrides: Record<string, unknown>,
+): string {
+  return `insert into public.shows
+       select (jsonb_populate_record(null::public.shows, to_jsonb(s) || ${sqlString(
+         JSON.stringify(overrides),
+       )}::jsonb)).*
+         from public.shows s
+        where s.drive_file_id = ${sqlString(templateDriveFileId)}
+     returning id;`;
+}
+
+/** The cleanup body, exported for the same reason as `lockedStatement`. */
+export function deleteShowBody(driveFileId: string): string {
+  return `delete from public.shows where drive_file_id = ${sqlString(driveFileId)} returning id;`;
+}
+
+/** Run one locked statement block and return psql's tuple-only stdout. */
+function runLocked(caller: string, driveFileId: string, body: string): string {
+  const sql = lockedStatement(driveFileId, body);
   // Resolved HERE, at the spawn, not at import: a mistargeted DSN must be
   // refused before it reaches a database. See lockedCrewRestriction's header.
   const dsn = psqlTarget();
@@ -90,13 +130,7 @@ export function copyShowLocked(
   const stdout = runLocked(
     "copyShowLocked",
     newDriveFileId,
-    `insert into public.shows
-       select (jsonb_populate_record(null::public.shows, to_jsonb(s) || ${sqlString(
-         JSON.stringify(overrides),
-       )}::jsonb)).*
-         from public.shows s
-        where s.drive_file_id = ${sqlString(templateDriveFileId)}
-     returning id;`,
+    copyShowBody(templateDriveFileId, overrides),
   );
   if (!stdout.includes(newId)) {
     throw new Error(
@@ -118,11 +152,7 @@ export function deleteShowsLocked(driveFileIds: readonly string[]): void {
   const failures: string[] = [];
   for (const dfid of driveFileIds) {
     try {
-      runLocked(
-        "deleteShowsLocked",
-        dfid,
-        `delete from public.shows where drive_file_id = ${sqlString(dfid)} returning id;`,
-      );
+      runLocked("deleteShowsLocked", dfid, deleteShowBody(dfid));
     } catch (err) {
       failures.push(err instanceof Error ? err.message : String(err));
     }

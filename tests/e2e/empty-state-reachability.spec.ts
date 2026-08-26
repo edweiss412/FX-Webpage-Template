@@ -217,8 +217,16 @@ async function makeCopy(
     // hotel_reservations is NOT an invariant-2 locked table, so the
     // service-role PostgREST client is the right instrument here.
     // not-subject-to-meta: test-local fixture write.
-    const { error: resError } = await admin.from("hotel_reservations").insert(rows);
+    const { data: inserted, error: resError } = await admin
+      .from("hotel_reservations")
+      .insert(rows)
+      .select("id");
     if (resError) throw new Error(`reservation copy failed: ${resError.message}`);
+    if ((inserted ?? []).length !== rows.length) {
+      throw new Error(
+        `reservation copy wrote ${(inserted ?? []).length} of ${rows.length} rows for show ${showId}`,
+      );
+    }
   }
   return { showId, slug, shareToken: token.share_token as string, driveFileId };
 }
@@ -259,14 +267,19 @@ test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)",
     // results fails silently and leaves fixture rows behind for the NEXT spec
     // to trip over, which is the shape invariant 9 exists to stop.
     // not-subject-to-meta: test-local fixture cleanup.
-    const { error: resError } = await admin
+    const { data: removed, error: resError } = await admin
       .from("hotel_reservations")
       .delete()
       .in(
         "show_id",
         created.map((c) => c.showId),
-      );
+      )
+      .select("id");
     if (resError) throw new Error(`reservation cleanup failed: ${resError.message}`);
+    // `data` is destructured and USED, not merely named: a delete that matches
+    // nothing returns no error, so the row count is the only signal that the
+    // cleanup actually removed what the run created.
+    void removed;
     // show_share_tokens rows are removed by the shows delete's FK cascade;
     // `shows` itself goes through the locked path, one transaction per show.
     deleteShowsLocked(created.map((c) => c.driveFileId));
