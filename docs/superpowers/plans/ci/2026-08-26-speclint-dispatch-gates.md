@@ -134,10 +134,25 @@ its new case fail, verified absent on the live tree at `b30413cf5`.
 
 <!-- task: red=`pnpm vitest run tests/codexGuard/lintGate.test.ts -t enforcement` red-state=authored red-target=`scripts/codex-guard.mjs:1939` why=`the lint loop's only refusal is the {0,1} status check at :1920; a status of 1 means hard findings and falls through to cfg.prompt = composePrompt(cfg) at :1939, so a hard document DISPATCHES. The new case drives the real CLI over a planted hard document and asserts exit 2, which fails against that fall-through. An unresolved-import RED would be invalid by construction (docs/agents/writing-plans.md:15), so this task's RED is the wrapper's observable behaviour and the leaf is the shape the GREEN takes` ac=AC-1,AC-2,AC-3 -->
 
-Pure function, no filesystem and no spawn: given the stage, the parsed per-document reports and the
-flags, return refuse-or-proceed plus the message. The wrapper keeps the I/O.
+**The leaf and its first consumer land together, deliberately** (plan review R2
+finding 1). A task creating only the module cannot observe a RED that any
+production line causes — its suite fails at collection, which
+`docs/agents/writing-plans.md:15` rejects by construction. So this task ships the
+enforcement refusal end to end: the decision function, the wrapper calling it, and
+the case that observes a hard document being refused.
 
-RED: lib/specLintGate/gate.ts does not exist.
+The core is pure — given the stage, the parsed per-document reports and the flags,
+return refuse-or-proceed plus the message. No filesystem, no spawn; the wrapper
+keeps the I/O, which is what makes the core importable and therefore enrollable.
+
+RED: a planted document with hard findings dispatches today, because the lint
+loop's only refusal is the `{0,1}` status check and a status of 1 falls through to
+`cfg.prompt = composePrompt(cfg)`.
+
+GREEN runs three commands, not one: this task's suite, plus
+`tests/mutation/_metaLedgerKindsDeclarationParity.test.ts` and
+`tests/mutation/_metaPremiseContract.test.ts`. Both are filesystem-discovered and
+merge-gating, and the new registry row and suite trip them by default.
 
 ## Task 2: the bare-node bridge and its parity suite
 
