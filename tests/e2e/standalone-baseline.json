@@ -276,6 +276,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-b094ae0f8d13008c6390\",[\"popover-clip-fit.spec.ts\",\"§9 obligation 3 — PublishedToggle refusal banner fits its clip panel\",\"the banner height matches the room on the side the module CHOSE\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-b9d32af7922df9248990\",[\"popover-clip-fit.spec.ts\",\"the shared harness can drive a refusal\",\"the default tree is unchanged: no refusal, no banner (AC-10)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-d6a264de0c4c868eb4ba\",[\"popover-clip-fit.spec.ts\",\"§3.0 — the header is bounded, so the dock can hold\",\"the DEGRADED static pill also stays inside the cap\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-d8144fc84a033fbf52d8\",[\"popover-clip-fit.spec.ts\",\"§3.0 — the header is bounded, so the dock can hold\",\"the In sync static pill also stays inside the cap\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-ddc698cb86be2132e9ca\",[\"popover-clip-fit.spec.ts\",\"§9 obligation 3 — PublishedToggle refusal banner fits its clip panel\",\"the banner is never PAINTED crossing the clip edge, from the very first frame\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-e005c822562687d9e907\",[\"popover-clip-fit.spec.ts\",\"§3.4 — opening one overlay dismisses the other, by keyboard too\",\"hub open, then Enter on the pill: menu opens and the hub closes\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-e44c0c59d314becbafdb\",[\"popover-clip-fit.spec.ts\",\"§9 obligation 1+2 — AttentionMenu scroller fits inside the clipping panel\",\"settled fit at 390x560 (reduced motion)\"]]",
@@ -673,5 +674,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 590
+  "totalTests": 591
 }
