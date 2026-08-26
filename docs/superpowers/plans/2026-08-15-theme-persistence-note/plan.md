@@ -1,5 +1,7 @@
 # Theme persistence-failure note — implementation plan
 
+> **RETIRED 2026-08-26.** The feature this document builds was removed by product ruling; the persist-failure note no longer exists in either theme control. Kept as the build record. Current state is `docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` §2.2, "Amendment, 2026-08-26".
+
 > **For agentic workers:** execute task-by-task per `HANDOFF.md` in this directory (the Opus pane's entry point). The spec is `docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md`; this plan carries its own adversarial-review gate below.
 
 **Goal:** surface a failed theme persist write as a small inline note on both theme controls, with reliable polite announcement, per the spec's §2 design (hook `persistFailed` state with mount-sync preservation; always-mounted `role="status"` containers; shared copy const).

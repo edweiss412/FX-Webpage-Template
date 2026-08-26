@@ -44,32 +44,6 @@ disagree while this sits open.
 follows chrome" statement. Either answer closes both sites; per-site judgment closes neither.
 Queue row: `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 
-### THEMENOTE-BUBBLE-DISMISS-1 — impeccable P1: the persist-failure bubble has no dismiss, so a permanently blocked device keeps it up all visit (2026-08-16)
-
-**Effort:** S
-
-Surfaced by the invariant-8 dual gate on branch `feat/theme-persistence-note` (critique P1).
-Findings and dispositions are in §12 of
-`docs/superpowers/plans/2026-08-15-theme-persistence-note/closeout.md`.
-
-**The finding.** The note clears only when a LATER persist write succeeds
-(`components/layout/useAppliedTheme.ts`, the `setTheme` try/catch). On a device where storage is
-blocked for the whole session — embedded webviews with storage partitioning, which is the
-reachability case the parent ledger entry probed — no later write can succeed, so the anchored
-bubble stays under the toggle until the page unloads, overlaying whatever sits beneath it.
-
-**Why deferred rather than repaired in-branch — reason (a), it needs a product decision.** A dismiss
-control needs its own copy, a 44px tap target inside a `max-w-36` bubble, an a11y contract (a button
-inside a `role="status"` region announces itself), and a rule for whether a dismissal survives a
-later failure. The spec ratified the current behavior as a bounded limit
-(`docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` §4 limit 5) before
-implementation, so shipping without a dismiss is the ratified state, not a regression.
-
-**Un-defer trigger:** a product decision on whether the note is dismissible, or the first report of
-the bubble obscuring a control on a real device. Queue row: `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE`.
-
----
-
 ### HELPTOUR-CARD-GRID-MEASURE-1 — impeccable P1: the tour's card grids inherit the 70ch prose cap and render a 10.5-character measure (2026-08-11)
 
 **Effort:** M

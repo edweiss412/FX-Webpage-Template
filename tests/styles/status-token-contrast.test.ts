@@ -346,15 +346,21 @@ describe("stacked-band state pill contrast (spec 2026-07-24 §3 R0)", () => {
   }
 });
 
-// Theme persist-failure note (spec 2026-08-15-theme-persistence-note §2.2,
-// impeccable audit P2): the bubble renders `text-text-subtle` ON
-// `bg-surface-raised`, a ground DESIGN.md §1.2's subtle rows did not cover
-// (bg / surface / warning-bg / surface-sunken). The note reports a failure, so
-// it is the last copy that should be hard to read; pin it in both themes so a
-// retune of either token fails here rather than in a hallway at 6am.
-describe("theme persist-failure note contrast (theme-persistence-note §2.2)", () => {
+// `text-text-subtle` ON `bg-surface-raised` — a ground DESIGN.md §1.2's subtle
+// rows did not cover (bg / surface / warning-bg / surface-sunken).
+//
+// This pin arrived with the theme persist-failure note (spec
+// 2026-08-15-theme-persistence-note §2.2, impeccable audit P2). That note was
+// REMOVED 2026-08-26, and the pin deliberately stayed: the note was the case
+// that surfaced the pairing, never the only surface using it. Live consumers
+// today are the HoverHelp popover (components/admin/HoverHelp.tsx), the admin
+// nav and onboarding count pills (components/admin/nav/AdminNav.tsx,
+// components/admin/nav/OnboardingTopBar.tsx) and the tile error fallback
+// (components/shared/TileErrorFallback.tsx). Deleting the pin with the note
+// would have dropped AA coverage for all four.
+describe("text-subtle on surface-raised contrast (raised-surface captions)", () => {
   for (const mode of MODES) {
-    it(`${mode.name}: text-subtle clears >=4.5:1 AA on surface-raised (persist-failure bubble)`, () => {
+    it(`${mode.name}: text-subtle clears >=4.5:1 AA on surface-raised`, () => {
       const subtle = tokenIn(mode.src, "--color-text-subtle-runtime");
       const raised = tokenIn(mode.src, "--color-surface-raised-runtime");
       expect(contrast(subtle, raised)).toBeGreaterThanOrEqual(TEXT_FLOOR);

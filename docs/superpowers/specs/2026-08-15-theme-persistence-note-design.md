@@ -3,6 +3,29 @@
 **Date:** 2026-08-15 · **Authoring branch:** `docs/theme-persistence-note-spec` · **Implementation branch:** `feat/theme-persistence-note` · **Status:** spec-APPROVED (codex-guard R4, 2026-08-15; R1 two + R2 one + R3 one findings repaired in-branch)
 **Entry:** `BL-THEME-PERSISTENCE-FAILURE-IS-SILENT` (BACKLOG.md, filed 2026-08-10) · **Effort:** S · **Plan:** authored beside this spec in the plan directory docs/superpowers/plans/2026-08-15-theme-persistence-note/ (same PR)
 
+## §-1 RETIRED — the note was removed 2026-08-26
+
+**This document describes a shipped feature that no longer exists.** It is kept because it is the ratification record for both the build and the removal, not because it describes the current UI. Read §2.2's "Amendment, 2026-08-26" first; everything below it that describes a rendered note is history. Retired sections still name symbols the code no longer has, so `pnpm spec:lint` reports `CITATION_SYMBOL_ABSENT` advisories against them. That is the linter being correct, not a citation to repair: the record of a removed feature necessarily names what was removed. **Exit code stays 0**, which is the part that is stable and the only part worth asserting. The count is deliberately NOT written down here — it moves with every edit to this document, and a stale number is worse than no number. Derive it when you need it:
+
+```
+pnpm spec:lint docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md 2>&1 \
+  | grep -oE 'ADVISORY [A-Z_]+' | sort | uniq -c
+```
+
+The first draft of this paragraph did write the number down, said "two", and was already wrong when the diff review probed it — that is finding 3 of round 1, and this is the shape that stops it recurring.
+
+**The ruling (Eric, 2026-08-26, via the orchestrator session).** Saving a theme choice is a UX convenience, not a failure mode that needs acknowledging. A device that cannot persist the choice still gets the theme it asked for, for the visit, and is told nothing about it. The note this spec designed, in both controls, is removed.
+
+**What that retires.** The rendered note in both controls, the shared copy const behind it, the persist-failure flag on the theme hook, the avatar menu's screen-reader-only announcer, and the positioning wrapper that existed only to anchor the standalone bubble. The exhaustive file-by-file removal list, with paths, is in §2.2's amendment.
+
+**Retirement is stated as a COVER, not a list.** EVERY acceptance criterion in §3 and EVERY documented limit in §4 is retired, along with §2.3's whole transition inventory, because each of them describes a rendered note, an announcer, or a failure state that no longer exists. Two survive as satisfied history rather than as live constraints: AC-7, the invariant-8 dual gate, which ran on the original implementation, and AC-8, the ledger graduation, which happened. §4 limit 2 (no telemetry) is true of the current code only because there is nothing left to report.
+
+This is worded as a cover because the first draft of it was a hand-written list, and the diff review's round-1 finding 2 caught that list silently omitting AC-2 and limits 1, 3, 4 and 6 — every one of which still read as a live requirement while the shipped code did the opposite. A list has to be re-audited every time the document moves; a cover does not.
+
+**What survives, and is now the whole contract.** The silent absorb in `setTheme`. A throwing `window.localStorage.setItem` must never stop the theme from applying in-tab. That was §1.1 item 2 before this spec added anything, it is what the entry `BL-THEME-PERSISTENCE-FAILURE-IS-SILENT` originally described as a defect, and it is the behaviour the codebase is back to. The difference from the pre-2026-08-15 state is that the silence is now RATIFIED rather than incidental: `components/layout/useAppliedTheme.ts` carries a comment in the catch saying so and pointing here.
+
+**Two rows close on this ruling, and one of them closes as a real defect rather than a mistaken one.** `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE` (the note could not be dismissed) and `BL-THEME-NOTE-BUBBLE-TEXT-ALIGN` (the bubble right-aligned copy the width math wrapped to three lines) both close by REMOVAL. The alignment row was measured on the live tree at merge base `b30413cf5` before the ruling landed, across the help header and the admin nav at 320px and 390px in both palettes: every reading wrapped to three line boxes and the three line starts spread 57.68px to 57.69px, against 0.00px with the class dropped. The defect was real. It closes because the surface it was on is gone, which is not the same as it having been wrong.
+
 ## §0 Why
 
 When `localStorage.setItem` throws (restrictive in-app browser, private mode, third-party-storage block), `setTheme` in `components/layout/useAppliedTheme.ts` deliberately absorbs the failure: the in-tab theme still applies, but the choice is gone on the next load and nothing tells the user. The entry probed it: pick dark, page turns dark, next load is light. The absorb is correct (throwing would take the control down over a preference); the missing piece is the SIGNAL. Reachability is real: embedded webviews with storage partitioning are exactly where crew open a link from a group thread.
@@ -20,6 +43,8 @@ When `localStorage.setItem` throws (restrictive in-app browser, private mode, th
 
 ### §2.1 Hook state (the one shared seam)
 
+**RETIRED 2026-08-26 (§2.2 amendment).** The hook carries no persist-failure state at all now; `setTheme` keeps the try/catch absorb and nothing else. Everything in this section is the record of what the flag did while it existed. Original text follows.
+
 `useAppliedTheme` gains `persistFailed: boolean` on its returned object (both variants of `AppliedTheme`; `false` in the unmounted variant). Mechanics in `setTheme`:
 
 - try `setItem` succeeds: state becomes `{ mounted: true, theme: next, persistFailed: false }` — a later successful write CLEARS a previous failure (storage can come back; a stale warning would then lie).
@@ -29,7 +54,7 @@ The state is per hook instance. That matches the surface: the instance lives in 
 
 Guard conditions: pre-mount `persistFailed` is `false` (SSR-stable, no hydration delta — the note region renders empty exactly as it does post-mount pre-failure). `setTheme` called pre-mount already promotes to `mounted: true`; the same shape carries `persistFailed`. The OS-change listener path never touches `persistFailed` (it does not write storage).
 
-**Mount sync preserves the flag (spec R1 F2).** The mount effect currently REPLACES hook state wholesale (`setState({ mounted: true, theme: readAppliedTheme() })`, `components/layout/useAppliedTheme.ts:67`), and the standalone toggle documents a reachable pre-effect interaction window (`components/layout/ThemeToggle.tsx:68`, the read-the-DOM-at-click-time comment). A blocked write in that window would set `persistFailed` and the effect would then silently clear it. The effect therefore becomes a functional update that preserves the flag: `setState((prev) => ({ mounted: true, theme: readAppliedTheme(), persistFailed: prev.persistFailed }))`. AC-9 pins the ordering.
+**RETIRED 2026-08-26 (§2.2 amendment) — there is no flag to preserve, and the mount effect is a plain replace again.** What it re-reads is the DOM, which is what makes the pre-mount click window safe on a device that cannot store. Original text: **Mount sync preserves the flag (spec R1 F2).** The mount effect currently REPLACES hook state wholesale (`setState({ mounted: true, theme: readAppliedTheme() })`, `components/layout/useAppliedTheme.ts:67`), and the standalone toggle documents a reachable pre-effect interaction window (`components/layout/ThemeToggle.tsx:68`, the read-the-DOM-at-click-time comment). A blocked write in that window would set `persistFailed` and the effect would then silently clear it. The effect therefore becomes a functional update that preserves the flag: `setState((prev) => ({ mounted: true, theme: readAppliedTheme(), persistFailed: prev.persistFailed }))`. AC-9 pins the ordering.
 
 ### §2.2 Rendered note, both controls (rendered element, not a description)
 
@@ -41,7 +66,25 @@ Guard conditions: pre-mount `persistFailed` is `false` (SSR-stable, no hydration
 
 **Placement, standalone toggle (redesigned per spec R2 F1 — the earlier in-flow side-text would displace the admin nav's width-engineered 320px action cluster and the help header's brand/toggle row):** `ThemeToggle` returns a `relative inline-flex` wrapper around the button; the note is an ANCHORED BUBBLE, out of the layout flow entirely: `absolute right-0 top-full mt-1 w-max max-w-36 z-dropdown` (semantic band `--z-index-dropdown`, `app/globals.css` z-scale block), so no consumer's row grows, wraps, or overflows — the wrapper's in-flow box stays exactly the button's box in all three consumers. **Width is derived from the tightest consumer, not chosen for looks (spec R3 F1):** in the help header at a 320px viewport the toggle is NOT the rightmost element — a trailing "Back to admin" link (~111px) plus a 16px gap sit to its right (`app/help/_components/Header.tsx:14`, layout padding `app/help/layout.tsx:47`), putting the toggle's right edge at roughly 177px from the viewport's left; a right-anchored bubble must therefore be at most ~161px wide to keep its left edge inside the 16px padding. `max-w-36` (144px) leaves a ~33px margin and wraps the copy to three short lines; `break-words` guards degenerate wrapping. The always-mounted status container is the anchored node itself (positioning classes only, zero visual chrome); when `persistFailed`, an inner span renders the text with the bubble chrome: `rounded-sm border border-border bg-surface-raised px-2.5 py-1.5 text-xs/relaxed text-text-subtle shadow-tile text-right break-words`. Right-anchored under the button in all three consumers The button's own markup, classes, and handshake comments are unchanged.
 
+**Amendment, 2026-08-26 (branch `fix/theme-note-polish`, product ruling by Eric via the orchestrator session).** Everything this section ratifies above is RETIRED. There is no note, in either control, in any state.
+
+Removed, and the list is exhaustive so a later reader can tell a leftover from a deliberate keep:
+
+1. `components/layout/ThemeToggle.tsx` — the always-mounted status container, the bubble inside it, and the positioning wrapper this section introduced to anchor that bubble. The component returns its button directly. Removing the wrapper is layout-neutral by this arc's own prior evidence, not by assumption: AC-10b had already pinned the wrapper's box equal to the button's within 0.5px, and `tests/e2e/appHealthIndicator.layout.spec.ts` keeps measuring the admin cluster row unmodified.
+2. `components/auth/AvatarMenu.tsx` — BOTH nodes of the split shape this section's 2026-08-16 amendment created: the `aria-hidden` visible paragraph inside the popover and the root-level `sr-only` `role="status"` announcer. The menu's OTHER announcer, `avatar-menu-switch-announcer`, is a different region for the switch-person flow and stays.
+3. `components/layout/useAppliedTheme.ts` — the shared copy const and the persist-failure field, off the hook's public shape and off its internal state.
+
+Kept: the try/catch absorb in `setTheme`, with a comment recording that its silence is now this ruling rather than an oversight.
+
+**The `break-words` / `wrap-break-word` drift is resolved by retirement, not reconciled.** This section's class list named the Tailwind v3 spelling `break-words` while the shipped container carried the v4 name `wrap-break-word`, on a different node. That was a real inconsistency and it had a repair drafted. It is moot now: the container and the inner span are both deleted, so there is no class list left for the two names to disagree about. Recorded rather than silently dropped, because the drift was raised as work this arc owed and a reader should be able to see how it was discharged.
+
+**Why the width derivation and the anchored-bubble design are not being re-argued.** They were correct for the feature they served, and the feature is gone. A future note, if one is ever ratified again, does not inherit them: it re-derives from the consumers as they stand then. Nothing in this section is a live constraint on anything.
+
+**The guard against silent return.** The removal is pinned by inverted suites rather than by deletion, because deleting the tests would let the note come back unnoticed. `tests/components/layout/themeToggleNote.test.ts` and the `no persist-failure note (removed 2026-08-26)` block in `tests/components/auth/avatarMenu.test.tsx` assert the nodes are absent; `tests/components/layout/useAppliedThemePersistFailure.test.ts` asserts `persistFailed` is absent from the hook's return value with an `in` check, not `toBeUndefined()`, since an absent key and a key set to `undefined` are indistinguishable to the latter. Every one of those cases carries a premise that only a working control satisfies — the applied theme actually changes — so "nothing rendered" can never pass as "the note is gone".
+
 ### §2.3 Mode boundaries and Transition Inventory
+
+**RETIRED WHOLESALE 2026-08-26 (§2.2 amendment).** Every row below is a transition of a note that no longer renders, including the compound row asserting that the root-level announcer owns the announcement — that announcer is deleted. The control has one visual state now and therefore no pairs to enumerate. Kept as the record of what the note did while it existed.
 
 Two visual states per control: note-absent (default) and note-present. Transition inventory (all pairs):
 
@@ -65,6 +108,8 @@ No change to: the no-FOUC script; `readAppliedTheme`; the OS-change subscription
 
 ## §3 Acceptance criteria
 
+**RETIRED WHOLESALE 2026-08-26 (§2.2 amendment), except AC-7 and AC-8, which are satisfied history.** Every other criterion below asserts a rendered note, a status container, a live region, or the anchoring wrapper, and the shipped code has none of them. AC-2 in particular still says the status containers exist and are empty; they do not exist at all. Read nothing here as a live requirement.
+
 - **AC-1 (signal on failure).** With `localStorage.setItem` throwing, activating either control applies the theme in-tab AND renders the note text in that control's status container. Assert BOTH halves; the theme-apply assertion pins that the guard did not break the absorb. Repeated-failure shape (R1 F1): a second failing activation keeps the note rendered (assert presence after both), and the fail-recover-fail sequence re-empties then re-fills the container (the announceable transition) — derive both from the same fixture.
 - **AC-9 (pre-effect ordering, standalone toggle).** With storage blocked, a click dispatched BEFORE the mount effect runs (the `ThemeToggle` pre-mount window) sets the flag, and the note is still rendered AFTER the mount effect completes — the functional-update preservation in §2.1 is the production line under test (R1 F2).
 - **AC-2 (silent on success).** With working storage, no note text renders anywhere, before or after toggling. The status containers exist (always-mounted) but are empty.
@@ -78,11 +123,13 @@ No change to: the no-FOUC script; `readAppliedTheme`; the OS-change subscription
 
 ## §4 Documented limits
 
+**RETIRED WHOLESALE 2026-08-26 (§2.2 amendment).** Limits 1, 3, 4 and 6 describe the note's per-instance lifetime, its popover re-render, its re-announcement behaviour and its two-control case; none of that exists. Limit 2 is trivially true because nothing is reported. Limit 5 carries its own retirement note inline. The limits that are actually live for the CURRENT code are in the arc's closeout, `docs/superpowers/plans/2026-08-26-theme-note-removal.md`, not here.
+
 1. **The note is per-control-instance and per-page-session.** It does not survive reload (nothing can persist it — that is the failure being reported) and does not render on load for a PREVIOUS session's failure: the signal fires at interaction time, which is when the user can act on it. A load-time probe write was considered and rejected: probing storage on every load to warn users who never touch the toggle spends a speculative write on everyone for a note almost nobody needs.
 2. **No telemetry.** A blocked client storage write is a device condition, not an operator event (§1.1 item 6).
 3. **Popover re-open renders the note without re-announcing** (§2.3) — sighted parity holds (the text is visible); a screen-reader user re-opening the menu reads the menu contents anyway. Per the §2.2 amendment the FAILURE itself is announced from the root-level region whether the popover is open or closed; what re-open does not do is repeat it.
 4. **Repeated failures while the note is shown do not re-announce** (§2.3, R1 F1). The announcement fires on every transition INTO the failed state; a steady failed state keeps the visible note and stays quiet in the live region. The alternative — one announcement per failed write — reads as spam under repeated toggling with permanently blocked storage, the entry's own probe scenario.
-5. **The standalone bubble overlays whatever sits directly beneath the toggle while the failed state persists** (an out-of-flow anchored note is the price of not displacing three differently-engineered consumer rows, R2 F1). Bounded: it appears only after the user interacts with the toggle directly above it, is up to three short lines of `max-w-36` text (width derived from the tightest consumer, R3 F1), and clears on recovery. The impeccable audit half judges the visual result per consumer.
+5. **RETIRED 2026-08-26 (§2.2 amendment) — there is no bubble to overlay anything.** Kept as the record of what was accepted while the note existed, and it is what `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE` was filed against. Original text: **The standalone bubble overlays whatever sits directly beneath the toggle while the failed state persists** (an out-of-flow anchored note is the price of not displacing three differently-engineered consumer rows, R2 F1). Bounded: it appears only after the user interacts with the toggle directly above it, is up to three short lines of `max-w-36` text (width derived from the tightest consumer, R3 F1), and clears on recovery. The impeccable audit half judges the visual result per consumer.
 6. **If BOTH controls could ever render at once** (today they cannot, `components/layout/Header.tsx:123`), each instance would track failure independently and only the touched control would show the note. Accepted: the note describes the interaction the user just had, not global device state.
 
 ## §5 Test surface (plan owns the details)

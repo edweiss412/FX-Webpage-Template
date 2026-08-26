@@ -28,6 +28,7 @@ vi.mock("@/app/admin/settings/admins/actions", () => ({
 }));
 
 import { RevokeRowButton } from "@/app/admin/settings/admins/RevokeRowButton";
+import { isTextAlignToken, tailwindTextAlignUtilities } from "@/tests/_shared/textAlignUtilities";
 
 beforeEach(() => {
   mockState.nextResult = { kind: "ok" };
@@ -293,5 +294,46 @@ describe("arm-expiry announcement — RevokeRowButton", () => {
       vi.advanceTimersByTime(4_001);
     });
     expect(getByTestId("arm-expiry-announce").textContent).toBe(EXPIRY);
+  });
+});
+
+describe("RevokeRowButton — the self-last hint starts every line at the same x", () => {
+  // Class sweep off BL-THEME-NOTE-BUBBLE-TEXT-ALIGN (2026-08-26). This hint is
+  // the same shape the repo already repaired once on its own sibling: the
+  // lockout error two elements below carried `max-w-xs text-right text-xs`
+  // until M9 commit 4e438b0 moved it to full-width and left-aligned, "easy to
+  // miss after refusal on Doug's phone" — see the comment still sitting on it.
+  //
+  // The hint's BOX is right-positioned by the column's `items-end`, not by
+  // `text-right`. So on a single line `text-right` is a no-op (the box shrinks
+  // to the text), and the only case where it does anything is the wrapped one,
+  // where it gives each line a different starting x. There is no third case,
+  // which is why dropping it cannot move the single-line rendering.
+  //
+  // jsdom does not lay out, so this pins the CLASS rather than claiming a
+  // measured line box. The measured evidence for the shape is in the theme-note
+  // arc: 57.68px of line-start spread across 8 readings.
+  it("carries no alignment class on the wrapping hint copy", () => {
+    const { getByTestId } = render(<RevokeRowButton email="only@example.com" disabled={true} />);
+
+    const hint = getByTestId("admin-allowlist-self-last-hint");
+    const tokens = hint.className.split(/\s+/).filter(Boolean);
+
+    // PREMISE: this is the real hint with its real chrome, not an empty node
+    // that would satisfy any absence assertion.
+    expect(hint.textContent ?? "").toContain("revoke your own admin access");
+    expect(tokens).toContain("max-w-xs");
+
+    // DERIVED, not enumerated (diff review r2 finding 2). The first version
+    // excluded only `text-right` and `text-center`, so adding `text-end` — which
+    // resolves to the same visual result in this app's LTR direction — passed it
+    // and recreated the exact defect. The set now comes out of the installed
+    // Tailwind's own utility table, so a future alignment utility is covered
+    // without anyone remembering to widen a literal.
+    // Variant-aware (diff review r3 finding 2): comparing whole tokens let
+    // `max-sm:text-right` through, which right-aligns at both measured widths.
+    const utilities = tailwindTextAlignUtilities();
+    const aligning = tokens.filter((t) => isTextAlignToken(t, utilities));
+    expect(aligning, "no alignment utility, under any variant prefix").toEqual([]);
   });
 });

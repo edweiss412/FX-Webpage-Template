@@ -57,7 +57,7 @@ import { Check, Moon, UserRoundCog } from "lucide-react";
 import { deriveInitials } from "@/components/atoms/Avatar";
 import { avatarColor } from "@/lib/crew/avatarColor";
 import { cn } from "@/lib/ui/cn";
-import { THEME_PERSIST_FAILED_NOTE, useAppliedTheme } from "@/components/layout/useAppliedTheme";
+import { useAppliedTheme } from "@/components/layout/useAppliedTheme";
 import { messageFor } from "@/lib/messages/lookup";
 import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 
@@ -96,7 +96,7 @@ const ITEM_COUNT = 2;
 export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }: AvatarMenuProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const { mounted, isDark, persistFailed, setTheme } = useAppliedTheme();
+  const { mounted, isDark, setTheme } = useAppliedTheme();
 
   // THE FAILURE STATE IS LOCAL `useState`, NOT `useActionState`. React 19 gives
   // `useActionState` no reset API, and `open=false` only HIDES the popover —
@@ -332,34 +332,6 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
             </div>
           ) : null}
 
-          {/*
-            The VISIBLE note. It is deliberately NOT a live region: the
-            announcement is owned by the always-mounted announcer at the
-            component root below, which survives the popover's open/close so a
-            failure that happens with the menu open is announced once, from a
-            node that was already in the tree.
-
-            ABOVE the menu rather than below it: the switch-person alert holds
-            the slot immediately after the menu, pinned executably as the
-            popover's last child (its §4.3 placement contract). Two regions
-            cannot both be last, and that one is an ALERT about an action the
-            user just took, so it keeps the position closest to the control;
-            this is a quiet status about the device.
-          */}
-          {persistFailed ? (
-            <p
-              // The VISIBLE copy only. The root announcer below already carries
-              // this exact string in the accessibility tree, so leaving both
-              // exposed makes a browse-mode cursor read the same sentence twice
-              // (impeccable audit P2 on the hoist delta).
-              aria-hidden="true"
-              data-testid="theme-persist-note"
-              className="px-3 pb-1 text-xs/relaxed text-text-subtle"
-            >
-              {THEME_PERSIST_FAILED_NOTE}
-            </p>
-          ) : null}
-
           <div role="menu" data-testid="avatar-menu-items" {...menuNameProps}>
             <button
               // FOCUS IS THE SOURCE OF TRUTH for the roving index, not the
@@ -471,22 +443,17 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
       ) : null}
 
       {/*
-        ALWAYS MOUNTED, text conditional — the shape the repo's own
-        BL-ANNOUNCE-REGION-UNMOUNT-CLASS guard requires and the reason
-        ReSyncButton's inserted status card announced nothing. It lives outside
-        the popover's conditional render because the popover is exactly what
-        unmounts: a region that arrives with its message already in it is never
-        announced, so a failure that happened while the menu was open would be
-        silent for anyone listening.
-      */}
-      <span role="status" data-testid="theme-persist-announcer" className="sr-only">
-        {persistFailed ? THEME_PERSIST_FAILED_NOTE : ""}
-      </span>
-      {/*
-        Same shape for the switch-person pending state: mounted always, text
-        only while the clear is in flight. Outside the popover AND outside the
-        aria-busy item, because AT may ignore descendant changes under an
-        aria-busy ancestor (the _ClaimedRowButton precedent).
+        ALWAYS MOUNTED, text only while the clear is in flight. A `role="status"`
+        node inserted WITH its message announces nothing, which this repo
+        measured on an inserted status card (components/admin/ReSyncButton.tsx).
+        It sits outside the popover AND outside the aria-busy item, because AT
+        may ignore descendant changes under an aria-busy ancestor (the
+        _ClaimedRowButton precedent).
+
+        This used to read "Same shape for the switch-person pending state",
+        pointing at a theme persist-failure announcer directly above it. That
+        one was removed 2026-08-26 by product ruling, so the reasoning is
+        restated here rather than left pointing at nothing.
       */}
       <span role="status" data-testid="avatar-menu-switch-announcer" className="sr-only">
         {switchPending ? "Switching person" : ""}
