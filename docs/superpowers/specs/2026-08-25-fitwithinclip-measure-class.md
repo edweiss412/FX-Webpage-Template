@@ -263,38 +263,54 @@ every row's pin is derived from what its case actually does rather than from whi
 States over one node: **U** unattached, **F** attached and capped against a clip, **N** attached with
 nothing clipping, **D** detached.
 
-**The fact the earlier model lacked.** With a stable ref callback and an unchanged `reapplyKey`, a
-re-render does **nothing at all** — not even when the DOM's clip status changes underneath it. The
-node stays attached, the wiring persists, and no measure runs. Probed on the §2 shape:
+**Every row below is measured, not reasoned.** §3.1 took four rounds (5, 6, 7, 8) and each was a
+different way of being wrong about the same table: reachability, then a miscited pin, then mechanism,
+then a false teardown claim plus two pins naming cases the spec never defined. Past three rounds the
+prose cap says stop patching and probe, so this transcript walks every edge and the table is written
+FROM it.
+
+**The counter matters, and round-8 finding 2 is why.** Earlier drafts counted `apply()` by counting
+`getBoundingClientRect` on the fitted node. That proxy is sound only on a CLIPPING chain: `apply()`
+returns before reading the fitted rect when nothing clips
+(`components/admin/useFitWithinClip.ts:91-96`), so on the no-clip path it reports zero for a run that
+happened. The probe below counts walk entries instead, and reports both so the divergence is visible:
 
 ```
-TR  initial             clips=false  cap=""       applies=0
-TR  stable-key rerender clips=true   cap=""       applies=0
-TR  resize, pre-frame                cap=""       applies=0  queued=1
-TR  resize, post-frame               cap="322px"  applies=1
-
-TR2 initial             clips=true   cap="322px"
-TR2 stable-key rerender clips=false  cap="322px"
-TR2 after resize+frame               cap=""
+EDGE U->N_attach            realApplies=1 fittedRectReads=0 constructed=1 observed=[["inner"]]           disconnected=0 cap=""
+EDGE N->D_unmount           realApplies=1 fittedRectReads=0 constructed=1 observed=[["inner"]]           disconnected=1 cap="<gone>"
+EDGE U->F_attach            realApplies=1 fittedRectReads=1 constructed=1 observed=[["outer","inner"]]   disconnected=0 cap="322px"
+EDGE F->N_rerender_only     realApplies=1 fittedRectReads=1 constructed=1 observed=[["outer","inner"]]   disconnected=0 cap="322px"
+EDGE F->N_after_signal      realApplies=2 fittedRectReads=1 constructed=1 observed=[["outer","inner"]]   disconnected=0 cap=""
+EDGE N->F_after_signal      realApplies=3 fittedRectReads=2 constructed=1 observed=[["outer","inner"]]   disconnected=0 cap="322px"
+EDGE D->N_before            realApplies=1 fittedRectReads=1 constructed=1 observed=[["outer","inner"]]   disconnected=0 cap="322px"
+EDGE D->N_after_key_change  realApplies=2 fittedRectReads=1 constructed=2 observed=[["outer","inner"],["inner"]] disconnected=1 cap=""
 ```
 
-So **F ↔ N happens only on a re-measure SIGNAL** — a `window` resize, a `transitionend` on the
-positioned ancestor, or the `ResizeObserver` callback — and never on a re-render. And a `reapplyKey`
-change is not a direct edge either: React runs cleanup then attach, so it is **X → D → Y**.
+Four facts the table rests on, each read off that transcript:
 
-That corrects two claims the previous table made. Family A is `F → D → N`, not a direct `F → N`;
-family B is `F → D → F`, not `F → F`. Both change `reapplyKey`
-(`tests/components/admin/useFitWithinClip.test.tsx:369`,
-`tests/components/admin/useFitWithinClip.test.tsx:395`), so both route through D by construction.
+1. **A stable-ref re-render changes nothing.** `F->N_rerender_only` holds `realApplies` at 1 and keeps
+   the cap at `322px` even though the chain stopped clipping. So `F ↔ N` is driven ONLY by a
+   re-measure signal — a `window` resize, a `transitionend` on the positioned ancestor, or the
+   `ResizeObserver` callback.
+2. **Those signal-driven edges do fire and do the right thing.** `F->N_after_signal` removes the cap;
+   `N->F_after_signal` writes it back.
+3. **State N still holds an observer**, contrary to what this table claimed for four rounds.
+   `U->N_attach` reads `constructed=1 observed=[["inner"]]`: with nothing clipping there is no clip to
+   observe, but the POSITIONED ancestor is observed regardless
+   (`components/admin/useFitWithinClip.ts:167-170`). `N->D_unmount` then reads `disconnected=1`, so the
+   teardown does disconnect it. Round-8 finding 1 was that the row said the opposite on both halves.
+4. **A `reapplyKey` change is `X → D → Y`, never a direct edge.** `D->N_after_key_change` reads
+   `constructed=2` with `disconnected=1` and two distinct observed sets — the old instance torn down,
+   a fresh one wired for the new clip state.
 
 | Edge | Mechanism | Pinned by |
 | --- | --- | --- |
 | U → F | The attach, on a clipping chain | (g), (g2), (h) |
 | U → N | The attach, with nothing clipping | (b) |
 | F → D | Detach: host unmount, or the cleanup half of a re-attach | (g3), (h3) |
-| N → D | Same, with no observer to disconnect | (h4) |
+| N → D | Detach from the unclipped state. An observer DOES exist here — it watches the positioned ancestor even with no clip — and the teardown disconnects it | (h21) |
 | D → F | Attach half of a re-attach, clipping | (c) — a `reapplyKey` flip with `clips` true throughout |
-| D → N | Attach half of a re-attach, nothing clipping | (h10) |
+| D → N | Attach half of a re-attach onto a chain that no longer clips: a fresh observer watching the positioned ancestor only, and the stale cap removed | (h22) |
 | **F → N** | **A re-measure signal**, after the ancestor stops clipping. The stale cap is REMOVED | **(h20), new** |
 | **N → F** | **A re-measure signal**, after an ancestor starts clipping. A cap is WRITTEN where none existed | **(h19), new** |
 
@@ -478,6 +494,7 @@ wrong; naming it per case is the repair. The spike ran all 15 against the §2 sh
 - **(g2) synchronous mount.** Unchanged, stays green. This is the pin that stops the refactor drifting the measure into a frame.
 - **New (h) walk control.** On the existing always-present harness. Counts `getComputedStyle` calls on **ancestors only** across one mount — the fitted node's own declared-cap read is excluded, so the number is the walk and nothing else. The assertion is stated in ancestor-call units and its expected value is **derived from the harness's own chain**: the walk visits every ancestor up to and including the first non-`visible` overflow, which in this fixture is `inner` then `outer`, so one walk is `ANCESTORS_TO_CLIP.length` calls. Never hardcoded, so deepening the fixture cannot silently satisfy it. Concrete failure modes caught, in the same units: restoring the effect body's second walk doubles it; regressing the attach mechanism to two measures doubles it again.
 - **New (h19) `N → F`, and (h20) `F → N` — the two signal-driven edges, neither of which had any case.** Round 6 found `N → F` citing a clipped-to-clipped test; round 7 found the deeper error, that neither edge is reachable by a re-render at all. Both are driven by a re-measure SIGNAL. (h19): mount `clips: false`, assert `maxHeight === ""`, re-render with `clips` true and assert **nothing changed** (the fact round 7 established), then fire a `window` resize, flush the frame, and assert the derived value — computed from `computeFittedMaxHeight` against the fixture geometry, never typed. (h20) is the mirror: mount clipped, stop clipping, assert the cap survives the re-render, then signal and assert it is REMOVED. Concrete failure modes: an `apply()` that updates an existing cap but never creates one (h19), and one that never removes a stale cap when the clip disappears (h20). `isFloorClamped` is false at this geometry, so both failures are silent.
+- **New (h21) `N → D`, and (h22) `D → N` — the two rows round 8 found citing cases this spec never defined.** Both are about the observer in the unclipped state, which §3.1 wrongly claimed did not exist. (h21) mounts unclipped, asserts exactly one observer was constructed watching exactly the positioned ancestor, unmounts, and asserts it was disconnected. (h22) re-attaches via a `reapplyKey` change onto a chain that stopped clipping, and asserts a fresh observer with the positioned ancestor alone, the previous one disconnected, and the stale cap removed. Concrete failure mode for both: a teardown that skips `observer?.disconnect()` when no clip was found, which leaves a live observer on a live ancestor scheduling measurements against a node that is gone.
 - **New (h18) the hook is called and its ref is never attached.** The fourth runtime path (§0.1), and the DEFAULT variant of `PublishedToggle`. Renders a component that calls the hook and never uses the returned callback; asserts zero applies, zero walks, and no throw across several re-renders. Concrete failure mode: any implementation that measures or wires from the hook BODY rather than from the attach, which would make the card variant do layout work for an overlay it never renders.
 - **New (h2) null-node arm.** Calls the returned ref callback with `null` directly and asserts it neither measures nor throws. Concrete failure mode: a teardown-only implementation that assumes a non-null node crashes on any consumer still passing `null`.
 - **New (h3) teardown nulls the node.** After unmount, a stale `apply()` must not measure. Concrete failure mode: fact 1 above — React never calls `ref(null)` any more, so an implementation that relies on it leaves `nodeRef.current` pointing at a detached node.
@@ -495,6 +512,19 @@ wrong; naming it per case is the repair. The spike ran all 15 against the §2 sh
 - **New (h13) the Strict Mode replay is measured, not discovered later.** Round-3 finding 1. The suite renders its harness bare, so nothing in it would have shown that a cleanup-returning ref opts into React 19's replay and doubles `apply()` in development. (h13) mounts the conditional-host harness inside `<StrictMode>` and asserts the replay's counts EXACTLY — two applies per appearance, and two owner renders where the current code takes four. It pins the cost in the direction it actually moves rather than asserting it away, so a future change that makes the replay worse is visible. Concrete failure mode: any implementation that measures a third time under replay, or that regresses the render halving this arc's main win depends on.
 - **New (h14) the conditional-host shape, bare.** Retained as the minimal statement of the arc's headline, and deliberately narrower than (h15)-(h17): it asserts one render per appearance on the plainest shape, which is the assertion mutant M12 exists to break. (h14) is the existing harness with the overlay behind a flag, asserting one apply and one walk per appearance and — the load-bearing one — ONE owner render pass where the counter takes two. Concrete failure mode: reintroducing any state update on the attach path, which is the defect `BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE` actually names once its premise is corrected.
 - **New (h8) `reapplyKey`-change counts, and (h9) unchanged-key counts.** Round-1 finding 1, and the sharpest of the round: §0.1's table is the acceptance condition and only its MOUNT row had a pin. Case (c) (`tests/components/admin/useFitWithinClip.test.tsx:193`) checks the cap after a key change and counts nothing, and no case re-rendered with an UNCHANGED key at all. (h8) asserts one apply and one walk across a key change; (h9) asserts zero of each across a re-render that changes nothing. Concrete failure mode, and it is not hypothetical: a ref callback whose identity churns every render — the exposure §7 documents — re-attaches and re-measures on every render while satisfying every other assertion in this suite, because every other assertion is about a single mount. Four cells of the acceptance table were unfalsifiable; these two cases close all four. Both run on the existing always-present harness, which is why (h14) exists alongside them.
+
+**Every case id named in §3.1 is defined here, and that is checkable rather than promised.** Round-8 finding 1's second half was two rows citing `(h4)` and `(h10)`, which appeared nowhere else in this document — a coverage table pointing at cases that did not exist. Every numbered id USED in §3.1's tables must be DEFINED here, and a committed checker settles it rather than a promise:
+
+```
+$ python3 docs/superpowers/specs/2026-08-25-fitwithinclip-case-id-parity.py
+§3.1 table USES : (h19) (h20) (h21) (h22) (h3)
+§5.1 DEFINES    : (h12) (h13) (h14) (h15) (h16) (h17) (h18) (h19) (h2) (h20) (h21) (h22) (h3) (h8) (h9)
+USED BUT UNDEFINED: none
+```
+
+It exits non-zero on any dangling id. **Use, not mention**: it reads only table rows in §3.1, and strips backticked spans, so the sentence you are reading — which names `(h4)` and `(h10)` in order to reject them — does not trigger it. That distinction is not decoration; without it the checker would flag the paragraph explaining the defect, which is how a guard teaches people to ignore it. §5.1 legitimately defines MORE than §3.1 uses, because the count and lifecycle cases are not transition rows.
+
+**And the counting proxy has a stated domain.** Counting `apply()` by counting `getBoundingClientRect` on the fitted node is valid ONLY where the chain clips; on the no-clip path `apply()` returns before reading that rect (`components/admin/useFitWithinClip.ts:91-96`) and the proxy reports zero for a run that happened (round-8 finding 2). §0.1 and §0.1a are unaffected — every shape they measure uses a clipping chain — but any case asserting a count on an UNCLIPPED path counts walk entries instead, and says so.
 
 A test that only proves `apply` was called is worthless here: the whole subject is **how many times**. Every new case asserts a count or an absence, and each names the mutant it kills.
 
