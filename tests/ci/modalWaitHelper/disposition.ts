@@ -472,7 +472,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 17 since batch 2 (2026-08-22): no-raw-codes' route walk now navigates
     // through crawlTargetFor(routePath), which moves that site to the
     // route-census-loops rule below, where it always belonged.
-    expectedCount: 17,
+    // 18 since 2026-08-25: empty-state-reachability's gotoSection navigates the
+    // crew route through a `url` variable. Same disposition as its neighbours —
+    // it is a crew page, and the /admin?show= snapshot loader is not on its path.
+    expectedCount: 18,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
