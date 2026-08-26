@@ -511,49 +511,6 @@ review round:
 the plant-four harness BEFORE the spec, since three prose designs in a row each introduced the next
 round's defect.
 
-## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
-
-**Status:** IN PROGRESS · **Branch:** feat/fitwithinclip-measure-class · **Effort:** S
-
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02), and pinned by
-`tests/components/admin/useFitWithinClip.test.tsx` case (g), which asserts the count is 2 so a
-change to the mount path is visible rather than silently absorbed.
-
-`useFitWithinClip` measures once when the layout effect runs, then the ref callback's
-`setAttachCount` bump re-runs the effect and it measures again. Both passes see a valid node
-and compute the same number, so the second is pure cost: one extra forced synchronous reflow
-(write, read, read, read, write) per mount, on every overlay the hook serves.
-
-The bump exists for a real reason — these overlays mount long after their owner, so an effect
-keyed on the ref alone would run once with `null` and never wire the observers up. The fix is
-not to remove it but to stop needing it: React 19 lets a ref callback return a cleanup, so the
-callback itself could own the observer wiring and the state counter could go away entirely.
-
-**Trigger:** a refactor of the hook's attach mechanism, or evidence that mount cost matters on
-a surface with many simultaneous overlays. Not worth a standalone change at two reflows.
-
----
-
-## BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK — `findClippingAncestor` walks the tree twice per effect run
-
-**Status:** IN PROGRESS · **Branch:** feat/fitwithinclip-measure-class · **Effort:** S
-
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
-
-`apply()` walks up from the node to resolve the clip ancestor, and the layout effect walks
-again immediately afterwards to decide what to observe. Each walk calls `getComputedStyle` on
-every ancestor until it finds a non-`visible` overflow.
-
-Hoisting the result is not free: `apply()` must re-walk on every invocation, because the
-ancestor chain can change between measures (an overlay can be reparented, and an ancestor's
-overflow can change). Only the effect's own second walk is redundant, and only for the run
-that just called `apply()`.
-
-**Trigger:** profiling that shows ancestor-walk cost is material, or a refactor that already
-restructures the effect body. Micro-optimisation otherwise.
-
----
-
 ## Merged from the plans backlog (2026-08-02)
 
 `docs/superpowers/plans/BACKLOG.md` was a second, disjoint `BL-` registry: 53 entries under

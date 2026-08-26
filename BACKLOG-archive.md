@@ -1,3 +1,33 @@
+## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** S · **Shipped by:** `feat/fitwithinclip-measure-class`
+
+**Resolution — the second measure went, and the re-render that caused it went with it.** The row named the doubled measure; the measurement found the re-render underneath it was the larger cost. `useFitWithinClip` held the node in a ref and an `attachCount` counter in state, and the counter was a layout-effect dependency, so the ref callback's bump re-ran the effect and measured a second time. The counter now leaves the hook entirely: a React 19 cleanup-returning callback ref owns the observer wiring and returns its own teardown, which is the mechanism the counter was standing in for. The owning component no longer re-renders on every attach **and every detach**.
+
+**Measured per consumer, renders / `apply()` / ancestor walks per attach** (spec §0.1). Production improves or holds on every metric for every consumer, and the shape converges all three onto 1/1/1:
+
+| Consumer          | Production before | Production after | Strict Mode before | Strict Mode after |
+| ----------------- | ----------------- | ---------------- | ------------------ | ----------------- |
+| `ReSyncButton` ×3 | 2 / 1 / 2         | **1 / 1 / 1**    | 4 / 1 / 2          | **2 / 2 / 2**     |
+| `PublishedToggle` | 2 / 2 / 4         | **1 / 1 / 1**    | 4 / 2 / 4          | **2 / 2 / 2**     |
+| `AttentionMenu`   | 2 / 2 / 4         | **1 / 1 / 1**    | 4 / 3 / 6          | **2 / 2 / 2**     |
+
+**Measures per attach do NOT fall uniformly, and saying they did was the arc's own overreach**, caught at diff review round 2: `ReSyncButton` was already at 1 and stays at 1, and under Strict Mode it goes 1 to 2, because a cleanup-returning ref opts into the replay. That replay is DEVELOPMENT-ONLY, verified against the shipped bundles rather than the docs — the double-invoke symbols appear 101 times in the installed `react-dom` development client and **zero** times in its production build. Unit case (h13) pins the dev cost exactly rather than wishing it down.
+
+Case (g)'s assertion moved from 2 to 1, which is the row made executable. Mutant M1 turns it red.
+
+## BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK — `findClippingAncestor` walks the tree twice per effect run — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** S · **Shipped by:** `feat/fitwithinclip-measure-class`
+
+**Resolution — `apply()` now returns the clip ancestor it already resolved, so the caller stops re-walking.** The row was explicit that hoisting the result would be wrong, and it was right: `apply()` still walks on EVERY invocation, because the ancestor chain can change between measures. Only the wiring's second walk was redundant, and only for the run that had just called `apply()`. Ancestor walks per measure go 2 to 1, and that one does hold for every consumer.
+
+Unit case (h) pins it with an expectation DERIVED from the harness's own chain rather than typed, counting `getComputedStyle` calls on ancestors only. Mutants M2 and M7 each turn it red.
+
+**The two rows were one arc** because they named the same trigger — a refactor of the hook's attach mechanism — on the same effect body. Both rows' own trigger conditions said as much, and neither was worth a standalone change.
+
+**Not repaired here, filed instead:** the clip SUBSCRIPTION is still resolved once per attach and never updated, so an ancestor that starts clipping later is never observed (`BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION`, with a committed probe). That is the subscription path, not the measure path this arc closed. Also filed: `BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN`.
+
 ## BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE — the empty-state catalog's only real-browser proof navigates a route the picker pivot retired — CLOSED 2026-08-25
 
 **Status:** SHIPPED 2026-08-25 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM · **Class:** e2e coverage · **Facing:** product · **Shipped by:** `fix/e2e-proof-retired-route-subpixel`
