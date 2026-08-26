@@ -10,7 +10,7 @@ The diff touches `tests/**`, `.github/workflows/**`, `playwright.config.ts` and 
 
 ## 1. Shape of the work
 
-Seven tasks. Every task is test-first against a real browser, and every e2e command runs through `pnpm heavy` wrapping the outermost invocation. No task edits product code, so invariant 8 does not arm; invariants 1 (TDD) and 6 (one conventional commit per task) apply throughout.
+Eight tasks. Every task is test-first against a real browser, and every e2e command runs through `pnpm heavy` wrapping the outermost invocation. No task edits product code, so invariant 8 does not arm; invariants 1 (TDD) and 6 (one conventional commit per task) apply throughout.
 
 The evidence each task rests on was gathered before the spec was written, because the alternative is a spec whose test section asserts oracles nobody ran. Four of the seven tasks exist only because a run disproved the obvious design: the identity the catalog's category 1 lives on, the viewer the route accepts, the cache that swallows a direct DB write, and the shape of "no dates" the shell survives. Each is recorded at its task.
 
@@ -18,7 +18,7 @@ The evidence each task rests on was gathered before the spec was written, becaus
 
 | Meta-test | Why it is in scope | Expected movement |
 |---|---|---|
-| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | Task 5 wires the spec into `app-e2e.yml`; its shadowing assertion (`:296`) then FORCES the `UNSEEN` row out | red between wiring and row removal, green after; that coupling is the point |
+| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | Task 5 wires the spec into `app-e2e.yml`; its shadowing assertion (`tests/ci/_metaE2eWorkflowCoverage.test.ts:296`) then FORCES the `UNSEEN` row out | red between wiring and row removal, green after; that coupling is the point |
 | `tests/e2e/_metaFontWaitCoverage.test.ts` | Task 6 adds documented limits to its header; `CALLERS` is deliberately NOT extended | unchanged and green — a row for a file this analyzer cannot see a navigation in would pass vacuously |
 | `tests/docs/_metaLedgerInProgress.test.ts` | Task 0 marks both rows in progress; Task 7 removes the markers and archives | green throughout: markers name a branch that exists on origin until the last commit removes them |
 | `tests/docs/_metaLedgerMintBar.test.ts` | This arc files NO new row, so nothing new is subject to the bar | unchanged |
@@ -70,11 +70,23 @@ Placed on the helper, not the call sites, so every caller inherits it (spec §4.
 
 Commit: `fix(admin): settle the step-3 panel entrance before any measurement`
 
+### Task 3b — route the fixture `shows` writes through the per-show advisory lock
+
+Invariant 2 covers e2e fixture writes, and `tests/help/walker-routes.test.ts` enforces it: no file under `tests/e2e/` may reach a locked table through the service-role PostgREST client. The rewrite's show copy and its cleanup are `shows` DML, so they move into `tests/e2e/helpers/lockedShowCopy.ts`, the `shows` sibling of `lockedCrewRestriction.ts`: one psql transaction per show, `begin` → `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` → the write → `returning id` → `commit`.
+
+Single-holder rule: that transaction is the only lock holder on this path. No JS wrapper and no RPC wraps the call, so nothing nests.
+
+The clone is generic over the column list (`to_jsonb(s) || overrides` then `jsonb_populate_record`), so a column added to `shows` tomorrow is copied without touching the helper — an enumerated INSERT would silently start dropping it.
+
+Verification: `pnpm exec vitest run tests/help/walker-routes.test.ts`. The file's frozen `EXEMPT_PREEXISTING` count went 7 → 0, so the exemption row is REMOVED rather than shrunk, in the same commit, per the guard's shrink-only contract.
+
+Commit: `test(crew-page): route the empty-state fixture show writes through the per-show lock`
+
 ### Task 4 — delete the dead layout helper
 
-`tests/e2e/helpers/layout.ts` has no importers anywhere in the repo and all three exports are unreferenced; two encode retired identities (`tile-grid`, and `/show/${slug}?crew=${crewId}`). Deleted whole (spec §7.1).
+The e2e layout helper had no importers anywhere in the repo and all three of its exports were unreferenced; two encoded retired identities (`tile-grid`, and `/show/${slug}?crew=${crewId}`). Deleted whole (spec §7.1).
 
-Verification: `rg 'helpers/layout'` returns only the file's own header before deletion and nothing after; `pnpm typecheck` clean.
+Verification: a repo-wide search for that helper path returned only the file's own header before deletion and nothing after; `pnpm typecheck` clean.
 
 Commit: `test(crew-page): delete the unreferenced layout helper and its retired identities`
 

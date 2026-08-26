@@ -4,6 +4,8 @@
 **Branch:** `fix/e2e-proof-retired-route-subpixel`
 **Closes:** `BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE` (BACKLOG.md:752), `BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE` (BACKLOG.md:701)
 **Facing:** product
+<!-- spec-lint: not-ui — this spec CHANGES no UI file. Its diff is tests/**, .github/workflows/**, playwright.config.ts and docs/**; every components/ and app/ path it cites is a READ-ONLY reference to the surface a test asserts against. Section 4 of the plan records the one product-code edit that was considered and declined, and the reason. -->
+
 **Files no new ledger row.** Eric's directive of 2026-08-25 binds this arc: findings are repaired in this PR under the class-sweep default, or recorded as documented limits on the owning surface. No `BL-`/`DEF-` row of any facing is minted here.
 
 ---
@@ -27,18 +29,18 @@ The row says the defect is the retired route. Verified against the live tree on 
 | Identity | Referenced at | Defined in product code |
 |---|---|---|
 | `venue-tile` | `tests/e2e/empty-state-reachability.spec.ts:155` | nowhere |
-| `show-status-tile` | `:173` | nowhere |
-| `tile-grid` | `:198`, `:206` | nowhere |
-| `lodging-tile` | `:199` | nowhere |
-| `stale-footer` | `:221` | `components/shared/StaleFooter.tsx:98`, `:114` (alive) |
+| `show-status-tile` | `tests/e2e/empty-state-reachability.spec.ts:173` | nowhere |
+| `tile-grid` | `tests/e2e/empty-state-reachability.spec.ts:198`, `tests/e2e/empty-state-reachability.spec.ts:206` | nowhere |
+| `lodging-tile` | `tests/e2e/empty-state-reachability.spec.ts:199` | nowhere |
+| `stale-footer` | `tests/e2e/empty-state-reachability.spec.ts:221` | `components/shared/StaleFooter.tsx:98`, `components/shared/StaleFooter.tsx:114` (alive) |
 
-The spec's own comment at `:159-161` cites `components/tiles/VenueTile.tsx:70`. That directory now holds one file, `OpeningReelVideo.tsx`, so the citation is dead too. `tests/e2e/crew-page.spec.ts:147-148` names those testids as retired by the six-section redesign, and `:1602` calls out "the retired flat `tile-grid` body".
+The spec's own comment at `tests/e2e/empty-state-reachability.spec.ts:159-161` cited a VenueTile module that no longer exists; the `components/crew/` tree replaced it and the old `components/tiles/` directory now holds one file, `OpeningReelVideo.tsx`, so that citation was dead too. `tests/e2e/crew-page.spec.ts:147-148` names those testids as retired by the six-section redesign, and `tests/e2e/crew-page.spec.ts:1602` calls out "the retired flat `tile-grid` body".
 
 Re-targeting the route is therefore necessary and not sufficient. Three of the four cases must be re-expressed against the redesigned CrewShell.
 
 ### 2.2 Row 1 states a false mechanism for its second half (dark-on-main)
 
-The row says "`lifecycle-layout-e2e` is path-filtered". It is not. `.github/workflows/lifecycle-layout-e2e.yml:14-16` is `on: pull_request:` with no `paths`, plus `workflow_dispatch:`, and the header comment at `:4-6` records that the absence of a filter is deliberate, ratified over four spec-review rounds. The job is dark on `main` because it carries **no `push:` trigger at all**, so it never runs there under any circumstance. Only `quality.yml:3-4`, `unit-suite.yml:3-4` and `x-audits.yml:3-4` carry `push: branches: [main]`.
+The row says "`lifecycle-layout-e2e` is path-filtered". It is not. `.github/workflows/lifecycle-layout-e2e.yml:14-16` is `on: pull_request:` with no `paths`, plus `workflow_dispatch:`, and the header comment at `.github/workflows/lifecycle-layout-e2e.yml:4-6` records that the absence of a filter is deliberate, ratified over four spec-review rounds. The job is dark on `main` because it carries **no `push:` trigger at all**, so it never runs there under any circumstance. Only `quality.yml:3-4`, `unit-suite.yml:3-4` and `x-audits.yml:3-4` carry `push: branches: [main]`.
 
 Section 5 records the decision this correction leads to, which is not the one the row's wording implies.
 
@@ -70,7 +72,7 @@ The measurement helper was temporarily instrumented to take 14 reads at 40ms spa
 
 - **537 of 546 reads are exactly `8.000 / 8.000 / 34.000`.** Not close to canonical. Identical.
 - **9 reads are non-canonical, and every one is at read index 0, 1, 2 or 3**, that is within 120ms of `[data-step3-review-panel]` appearing. Indices 4 through 13 are canonical in all 39 runs.
-- **The dead-space total is `34.000` in 546 of 546 reads.** The `:429` aggregate never moved. Only the split between top and bottom padding did.
+- **The dead-space total is `34.000` in 546 of 546 reads.** The `tests/e2e/tap-target-inline-controls.layout.spec.ts:429` aggregate never moved. Only the split between top and bottom padding did.
 - 3 of 39 runs had a non-canonical FIRST read, a **7.7%** first-read flake rate, consistent with the 1-in-20 sizing run.
 
 The nine non-canonical values:
@@ -80,7 +82,7 @@ The nine non-canonical values:
 6.450/9.550   7.865/8.135    7.114/8.886     7.140/8.860
 ```
 
-Four sum to exactly 16.000, which is two edges of `py-2`: the cell box is right and the content is displaced within it. `8.000/9.027` reproduces the CI signature the row recorded (`9.5096435546875` against an expected `8`, top passing, bottom failing).
+Six of the nine sum to exactly 16.000, which is two edges of `py-2`: the cell box is right and the content is displaced within it. The three that do not (`16.222`, `17.027`, `24.018`) are the other shape, where the top padding reads a clean `8.000` and the bottom absorbs the whole discrepancy. The `8.000 / 9.027` pair reproduces the CI signature the row recorded (`9.5096435546875` against an expected `8`, top passing, bottom failing).
 
 ### 3.3 The mechanism
 
@@ -134,19 +136,20 @@ expect(running, "openStep3Modal must not return mid-entrance").toBe(0);
 
 **Failure mode this catches:** someone deletes the settle from the helper, or the panel gains a second entrance animation on a descendant that the settle's subtree walk does not reach. Before the barrier lands this assertion fails; after it, it passes. It is not a "the function was called" test: it reads the browser's own animation registry after the helper has returned.
 
-**The premise must be live.** Per the AGENTS.md guard-premise rule and `tests/_shared/premise.ts`, the test first asserts that the panel has at least one entrance animation **defined** at this viewport, so that a future CSS change that removes the animation turns the test red rather than letting it pass vacuously forever:
+**The premise must be live.** A barrier test whose premise is false where it runs passes unconditionally forever, which is the guard-premise failure AGENTS.md names. So before the barrier assertion the test reads the panel's own computed style and requires that an entrance animation is DECLARED at this viewport:
 
 ```
-expect(totalAnimationsSeenDuringOpen, "premise: the panel animates on entry").toBeGreaterThan(0);
+const animationName = await panel.evaluate((el) => getComputedStyle(el).animationName);
+expect(animationName, "premise: the panel must declare an entrance animation, ...").not.toBe("none");
 ```
 
-captured by sampling `getAnimations()` once immediately after `waitForSelector` inside a test-only probe path, before the settle. Section 8 records the alternative considered and rejected.
+Reading the declaration from CSS rather than sampling a `getAnimations()` count mid-open is deliberate: the computed style still reports the declaration after the animation has finished, so the premise is observable at the same moment as the barrier and needs no racing sample. A future CSS change that drops the entrance, or a runner forcing `prefers-reduced-motion` where `app/globals.css:993-997` sets `animation: none`, turns this red and says the barrier guards nothing, instead of leaving a green test that proves nothing.
 
 ### 4.3 What is deliberately not changed
 
 - No tolerance, on any assertion, in any file.
-- No change to `--retries=0` (`.github/workflows/lifecycle-layout-e2e.yml:177-179`) or its execution oracle (`:195-200`).
-- No change to `CONTACT_CELL_DEAD_SPACE_PX = 34` (`:61-62` region), which the measurement shows was never wrong.
+- No change to `--retries=0` (`.github/workflows/lifecycle-layout-e2e.yml:177-179`) or its execution oracle (`.github/workflows/lifecycle-layout-e2e.yml:195-200`).
+- No change to `CONTACT_CELL_DEAD_SPACE_PX = 34` (`tests/e2e/tap-target-inline-controls.layout.spec.ts:61-62`), which the measurement shows was never wrong.
 
 ---
 
@@ -172,7 +175,7 @@ The residual gap is genuine but narrow: `main` after a merge is not byte-identic
 
 The retired spec mutated the shared Waldorf seed and then navigated. That shape is dead, and not because of the route.
 
-`getShowForViewer` reads through `cachedShowData` (`lib/data/getShowForViewer.ts:961`), an `unstable_cache` entry tagged per show with `revalidate: 300` (`lib/data/showCacheTag.ts:6`, tag at `:16`). Only the app's own write paths bust that tag (`revalidateShow`, `:34`). A test that writes to Postgres directly leaves the cache untouched, so the next render serves the pre-write projection for up to five minutes.
+`getShowForViewer` reads through `cachedShowData` (`lib/data/getShowForViewer.ts:961`), an `unstable_cache` entry tagged per show with `revalidate: 300` (`lib/data/showCacheTag.ts:6`, tag at `lib/data/showCacheTag.ts:16`). Only the app's own write paths bust that tag (`revalidateShow`, `lib/data/showCacheTag.ts:34`). A test that writes to Postgres directly leaves the cache untouched, so the next render serves the pre-write projection for up to five minutes.
 
 **Measured on run 2 of this rewrite,** after the route and identity were both correct: emptying `shows.dates` left the schedule section still rendering its day cards, and deleting the show's reservations left the hotels card in place. Nothing about those assertions was wrong. The page had simply not read the database.
 
@@ -187,7 +190,7 @@ This removes every write to the shared seed, so the suite stops being a contende
 
 ### 6.2 Route and auth
 
-`:154` becomes the crew route with a resolved share token, copying the working pattern in `tests/e2e/crew-page.spec.ts`: share-token lookup from `show_share_tokens` (`:248-263`), goto of the form `/show/${slug}/${shareToken}?s=${section}` with a status assertion (`:364-367`). `shareToken` is a required path segment (`tests/e2e/crew-page.spec.ts:152-153`).
+`tests/e2e/empty-state-reachability.spec.ts:154` becomes the crew route with a resolved share token, copying the working pattern in `tests/e2e/crew-page.spec.ts`: share-token lookup from `show_share_tokens` (`tests/e2e/crew-page.spec.ts:248-263`), goto of the form `/show/${slug}/${shareToken}?s=${section}` with a status assertion (`tests/e2e/crew-page.spec.ts:364-367`). `shareToken` is a required path segment (`tests/e2e/crew-page.spec.ts:152-153`).
 
 **The viewer becomes `ADMIN_FIXTURE`, and this is measured rather than chosen.** The first run of the rewrite kept the old spec's `NON_ADMIN_CREW_FIXTURE` plus its per-suite `crew_members` LEAD row. All four cases failed at `crew-shell` after a bounce through `/api/auth/picker-bootstrap`. The cause is recorded in `playwright.config.ts:65-73`: over plain http WebKit refuses to STORE the server's `__Host-`-prefixed Secure picker envelope, so a crew identity never persists on the mobile-safari project and the shell never mounts. `crew-page.spec.ts:1347-1349` records the working alternative: the `admin` arm of `resolveShowPageAccess` renders the full CrewShell for the seeded crew route regardless of the picker cookie.
 
@@ -203,23 +206,23 @@ Assertions: with the template's own dates the placeholder is absent and `day-car
 
 **"Emptied" is a measured shape, not an obvious one.** Two candidates were run and rejected. `dates: {}` renders HTTP 200 with no `crew-shell` at all, because `getShowForViewer` casts that jsonb rather than validating it and the shell faults above the section's own try/catch. `showDays: []` alone still renders four day cards, because `aggregateDays` reads `travelIn`, `set`, `showDays` and `travelOut` (`lib/crew/agendaDisplay.ts:120-123`) and travel and set days are days too. The patch therefore keeps the template's dates object and empties exactly those four fields, which is the field list the function itself defines.
 
-**This is a change of surface from the row's own description, and the reason is a finding.** The row and the old spec put category 1 on the venue tile. Probed against the live tree on 2026-08-25, that idiom no longer exists there: a null `venue.name` reflows the row out through `KeyValueRows`' sentinel-hiding (`components/crew/primitives/KeyValueRows.tsx:67`), which is category-2 behaviour, and the only `EmptyState` in `VenueSection.tsx` is the SECTION-level one at `:471-475` gated on `allHidden` (`:319`), which the seed's seven diagram objects keep false. Every `<EmptyState>` under `components/crew/**` is section-level except `ScheduleSection.tsx:316`.
+**This is a change of surface from the row's own description, and the reason is a finding.** The row and the old spec put category 1 on the venue tile. Probed against the live tree on 2026-08-25, that idiom no longer exists there: a null `venue.name` reflows the row out through `KeyValueRows`' sentinel-hiding (`components/crew/primitives/KeyValueRows.tsx:67`), which is category-2 behaviour, and the only `EmptyState` in `VenueSection.tsx` is the SECTION-level one at `VenueSection.tsx:471-475` gated on `allHidden` (`VenueSection.tsx:319`), which the seed's seven diagram objects keep false. Every `<EmptyState>` under `components/crew/**` is section-level except `ScheduleSection.tsx:316`.
 
 So the redesign left §8.3's per-field placeholder reachable on exactly one crew surface. That is recorded as a **documented limit** in section 7.4 and in the e2e spec's own header, and category 1 is proven where the idiom lives. Per Eric's directive it files no ledger row.
 
-**Category 2, optional-field-missing.** `event_details.power = 'TBD'`. Section `venue`. `VenueSection.tsx:189-190` routes the raw value through `shouldHideGenericOptional` (`lib/visibility/emptyState.ts`), and `:290` pushes the `Power` fact row only when the result is non-null.
+**Category 2, optional-field-missing.** `event_details.power = 'TBD'`. Section `venue`. `components/crew/sections/VenueSection.tsx:189-190` routes the raw value through `shouldHideGenericOptional` (`lib/visibility/emptyState.ts`), and `components/crew/sections/VenueSection.tsx:290` pushes the `Power` fact row only when the result is non-null.
 
 The current assertion is that the string `TBD` is absent from the tile's text. That is weak: it passes if the whole section fails to render. The replacement asserts the **row identity**, not the sentinel: with `power='TBD'` the fact row keyed `Power` is absent, and with `power` set to a real value in the same test the row is present and carries that value. That is the null case and the boundary in one, and it fails if the section is blank.
 
-**Category 3, whole-tile-missing.** The show's `hotel_reservations` rows are deleted, then restored. Section `travel`. `hasHotels` (`components/crew/sections/TravelSection.tsx:390`) goes false and the hotels card at `:606` returns nothing.
+**Category 3, whole-tile-missing.** The show's `hotel_reservations` rows are deleted, then restored. Section `travel`. `hasHotels` (`components/crew/sections/TravelSection.tsx:390`) goes false and the hotels card at `components/crew/sections/TravelSection.tsx:606` returns nothing.
 
-**Not by viewer identity, which is what the old spec did.** Probed against the live tree: the redesign's Travel section renders EVERY `hotelReservations[]` entry (`TravelSection.tsx:15`, `:387`), not the viewer's own. "The viewer is not named on a reservation" therefore changes nothing about what renders, and a case built on it would have passed for the wrong reason under any viewer. Deleting the rows is deterministic and, unlike an identity trick, lets the case assert both directions.
+**Not by viewer identity, which is what the old spec did.** Probed against the live tree: the redesign's Travel section renders EVERY `hotelReservations[]` entry (`TravelSection.tsx:15`, `TravelSection.tsx:387`), not the viewer's own. "The viewer is not named on a reservation" therefore changes nothing about what renders, and a case built on it would have passed for the wrong reason under any viewer. Deleting the rows is deterministic and, unlike an identity trick, lets the case assert both directions.
 
-Assertions: with the seed's reservation, `travel-hotels` is visible; with the rows deleted, `travel-hotels` count is 0 and the section is still alive, that is `travel-getting-there` or the section-level `section-empty` (`:827`) is present. Without that last clause the case passes on a section that threw. A fixture premise asserts the seed carries a reservation at all. `restore` re-inserts the snapshot rows by upsert, so a case that did not delete them is a no-op rather than a duplicate-key failure.
+Assertions: with the seed's reservation, `travel-hotels` is visible; with the rows deleted, `travel-hotels` count is 0 and the section is still alive, that is `travel-getting-there` or the section-level `section-empty` (`components/crew/sections/TravelSection.tsx:827`) is present. Without that last clause the case passes on a section that threw. A fixture premise asserts the seed carries a reservation at all. `restore` re-inserts the snapshot rows by upsert, so a case that did not delete them is a no-op rather than a duplicate-key failure.
 
-**Category 4, stale-sync.** The only case whose identity survived. `last_checked_at` older than 6h with `last_sync_status='ok'`; `stale-footer` visible with `data-tier="red"` and `data-code="SYNC_DELAYED_SEVERE"` (`components/shared/StaleFooter.tsx:98`, `:114-116`).
+**Category 4, stale-sync.** The only case whose identity survived. `last_checked_at` older than 6h with `last_sync_status='ok'`; `stale-footer` visible with `data-tier="red"` and `data-code="SYNC_DELAYED_SEVERE"` (`components/shared/StaleFooter.tsx:98`, `components/shared/StaleFooter.tsx:114-116`).
 
-It gains a fresh-state half, and the contrast is on the TIER rather than on the element's absence. `selectCodeAndTier` returns `{code: null, tier: "subtle"}` under ten minutes (`StaleFooter.tsx:80-81`) and the code-less branch still emits the element (`:96-107`), so a recently-checked show has a footer, just not a red one. Asserting count 0 there was run and failed against exactly that subtle-tier footer. The case now asserts `data-tier="subtle"` with no `data-code` on the fresh copy, and red plus `SYNC_DELAYED_SEVERE` on the stale one.
+It gains a fresh-state half, and the contrast is on the TIER rather than on the element's absence. `selectCodeAndTier` returns `{code: null, tier: "subtle"}` under ten minutes (`StaleFooter.tsx:80-81`) and the code-less branch still emits the element (`StaleFooter.tsx:96-107`), so a recently-checked show has a footer, just not a red one. Asserting count 0 there was run and failed against exactly that subtle-tier footer. The case now asserts `data-tier="subtle"` with no `data-code` on the fresh copy, and red plus `SYNC_DELAYED_SEVERE` on the stale one.
 
 ### 6.4 The four `toHaveScreenshot` assertions are deleted
 
@@ -229,7 +232,7 @@ The four `*-mobile-safari-darwin.png` baselines under `tests/e2e/empty-state-rea
 
 ### 6.5 Project membership: mobile-safari only
 
-`playwright.config.ts:83` (mobile-safari) and `:97` (desktop-chromium) both name this spec. The desktop-chromium alternative is **removed**.
+`playwright.config.ts:83` (mobile-safari) and `playwright.config.ts:97` (desktop-chromium) both name this spec. The desktop-chromium alternative is **removed**.
 
 Reason: §8.4 makes the crew page mobile-primary, and section 6.2's admin arm is what renders there. Running one behaviour suite twice against the same server buys no coverage. (Before section 6.1's rewrite there was a second reason, shared-seed contention; the per-test copies removed it, and it is recorded here so the review does not credit an argument that no longer applies.) `playwright.config.ts:35-49` records that suites sharing the Waldorf seed are the reason `workers: 1` exists, and `tests/e2e/crew-page.spec.ts:161-165` gates itself to mobile-safari for the same "keeps the seed reads single-writer" reason. Running one behaviour spec twice against one mutable seed buys no coverage and doubles the mutation traffic. §8.4 makes the crew page mobile-primary, so mobile-safari is the arm that matters.
 
@@ -239,7 +242,7 @@ This is a narrowing, and it is stated here so the review does not read it as sco
 
 The spec joins the `app-e2e.yml` batch run step at `.github/workflows/app-e2e.yml:188`, whose file list is the authority for membership. The invocation there is `--project=mobile-safari --project=desktop-chromium`; naming the spec in the file list plus removing it from the desktop-chromium `testMatch` gives it exactly one project without a second run step.
 
-Its `UNSEEN` row at `tests/ci/_metaE2eWorkflowCoverage.test.ts:163` is then removed. This is mechanically forced rather than remembered: the shadowing assertion at `:296` fails on an allowlisted spec that has become covered. Wiring and de-allowlisting cannot drift apart.
+Its `UNSEEN` row at `tests/ci/_metaE2eWorkflowCoverage.test.ts:163` is then removed. This is mechanically forced rather than remembered: the shadowing assertion at `tests/ci/_metaE2eWorkflowCoverage.test.ts:296` fails on an allowlisted spec that has become covered. Wiring and de-allowlisting cannot drift apart.
 
 **The order matters and is a hard gate.** The row comes off only after a real run shows all four cases passing. A wired-but-failing spec is worse than an allowlisted one, because it reds every PR.
 
@@ -253,7 +256,7 @@ Both rows sit on shapes that recur. Per the class-sweep default every instance i
 
 A mechanical sweep extracted every testid referenced from `tests/e2e/**` and every testid defined under `app/`, `components/`, `lib/`, including template-literal prefixes, and differenced them. Result: **four dead ids, all in the retired flat-tile family, and `empty-state-reachability.spec.ts` is the only broken spec.**
 
-One peer turned up and **is repaired in this PR**, and it was larger than the sweep first reported. `tileGridColumnCount` (`tests/e2e/helpers/layout.ts:85`) waits on `tile-grid` and has zero callers. Checking its file rather than only its function showed the whole module is dead: `gotoCrewPage` (`:50`) navigates `/show/${slug}?crew=${crewId}`, which is BOTH the retired slug-only route and the retired `?crew=` identity mock, and `tests/e2e/helpers/layout.ts` has **no importers anywhere in the repo**. All three exports are unreferenced. The file is deleted rather than the one function, which is the difference between repairing the instance and repairing the shape.
+One peer turned up and **is repaired in this PR**, and it was larger than the sweep first reported. `tileGridColumnCount` (at line 85 of the now-deleted e2e layout helper) waits on `tile-grid` and has zero callers. Checking its file rather than only its function showed the whole module is dead: `gotoCrewPage` (line 50 of the same file) navigates `/show/${slug}?crew=${crewId}`, which is BOTH the retired slug-only route and the retired `?crew=` identity mock, and that helper file has **no importers anywhere in the repo**. All three exports are unreferenced. The file is deleted rather than the one function, which is the difference between repairing the instance and repairing the shape.
 
 Ruled out, and recorded so a reviewer does not re-raise them:
 
@@ -272,7 +275,7 @@ Peers on mobile-safari with the same read-timing exposure were checked against t
 `tests/e2e/_metaFontWaitCoverage.test.ts` is the corpus's navigate-then-measure guard. Two measured properties limit it, and both are recorded in that file's header by this PR, with the probe output:
 
 1. **`analyzeSource` is single-file** (`tests/e2e/_fontWaitCoverage.ts:573-582` builds a `noResolve` program over one source). A spec that navigates through a helper has no `page.goto` of its own, so no navigation site is found and the file reports zero problems. `tap-target-inline-controls.layout.spec.ts` is exactly that shape: it navigates through `openStep3Modal`, and the analyzer reports nothing for it. Probed over `tests/e2e/helpers/**`, five exported helpers navigate (`driveToState`, `openShowReviewFrameAt`, `openShowReviewModalAt`, `openStep3Modal`, `signInAs`), and **30 specs call one and also read geometry**. (A sixth, `gotoCrewPage`, is deleted by this PR: see section 7.1.)
-2. **`CALLERS` at `:31-58` is hand-enumerated**, so a spec absent from that list is unchecked whatever the analyzer would say about it. Probed by running `analyzeSource` over all 104 e2e specs: **10 files report live problems and none of them is in `CALLERS`** (`admin-layout-dimensions`, `admin-lifecycle-layout`, `admin-nav-layout-dimensions`, `deep-link-walker`, `help-mobile`, `help-typography`, `notify-toggles`, `sign-in-page`, `stage-restricted-crew-schedule`, `telemetry-layout`).
+2. **`CALLERS` at `tests/e2e/_metaFontWaitCoverage.test.ts:31-58` is hand-enumerated**, so a spec absent from that list is unchecked whatever the analyzer would say about it. Probed by running `analyzeSource` over all 104 e2e specs: **10 files report live problems and none of them is in `CALLERS`** (`admin-layout-dimensions`, `admin-lifecycle-layout`, `admin-nav-layout-dimensions`, `deep-link-walker`, `help-mobile`, `help-typography`, `notify-toggles`, `sign-in-page`, `stage-restricted-crew-schedule`, `telemetry-layout`).
 
 **Why this is a documented limit and not work in this PR.** Repairing it means either enrolling ten specs, each of which then needs a real e2e run to confirm the added await did not move its timing, or teaching the analyzer to resolve imports and deciding per helper whether its navigation is the one being measured (`signInAs` navigates to an auth endpoint that is never the measured document, so a naive rule would fire on nearly every spec in the corpus). Both are a redesign of a surface this PR does not otherwise touch, which is class-sweep exception (c). Under Eric's directive it files nowhere; it is written into the guard header where the next person to touch that guard will read it, with the two probe commands that reproduce both numbers.
 
@@ -290,7 +293,7 @@ Whether that is the right product behaviour is a product question, not a test qu
 
 **Loosen the flaking tolerance.** Rejected on measurement: the observed bad values include `-0.290`, so any tolerance wide enough to accept them accepts a total loss of the padding the assertion protects. Section 3 shows the settled value is exact.
 
-**Delete the two padding-split assertions and keep only the 34px aggregate.** Rejected: `:56-59` records why the aggregate alone is insufficient (`gap-1 py-2` and `gap-2 py-1.5` both sum to 34). The aggregate is also, per 546 of 546 reads, the one quantity that never flaked. Deleting the assertions that work to fix a defect in neither of them is backwards.
+**Delete the two padding-split assertions and keep only the 34px aggregate.** Rejected: `tests/e2e/tap-target-inline-controls.layout.spec.ts:56-59` records why the aggregate alone is insufficient (`gap-1 py-2` and `gap-2 py-1.5` both sum to 34). The aggregate is also, per 546 of 546 reads, the one quantity that never flaked. Deleting the assertions that work to fix a defect in neither of them is backwards.
 
 **`waitForTimeout(250)` after opening the modal.** Rejected: a sleep is a guess that is simultaneously too long on every healthy run and too short on a loaded runner. `getAnimations().finished` waits for the named thing and returns immediately when it is already done.
 
@@ -314,7 +317,7 @@ Every assertion this PR writes or edits runs in a real browser against the compi
 | T4 | Category 2: the `Power` fact row absent with `TBD`, present with a real value, in one test | The old "`TBD` not in text" form passing on a blank section. |
 | T5 | Category 3: `travel-hotels` visible with the seed's reservation, count 0 once the rows are deleted, `section-travel` non-blank in both | A travel section that failed to render being read as "the tile is correctly missing", and a card that never renders under any data. |
 | T6 | Category 4: fresh copy renders `stale-footer` at `data-tier="subtle"` with no `data-code`; stale copy renders it red with `SYNC_DELAYED_SEVERE` | A footer that is always red, and a tier ladder regression. |
-| T7 | Coverage meta-test green with the spec wired and its `UNSEEN` row removed | Wiring and de-allowlisting drifting apart; forced by the shadowing assertion at `:296`. |
+| T7 | Coverage meta-test green with the spec wired and its `UNSEEN` row removed | Wiring and de-allowlisting drifting apart; forced by the shadowing assertion at `tests/ci/_metaE2eWorkflowCoverage.test.ts:296`. |
 
 Null and boundary cases are inside T3, T4 and T5 by construction: each asserts both the missing state and the present state of the same identity.
 
@@ -326,16 +329,16 @@ Null and boundary cases are inside T3, T4 and T5 by construction: each asserts b
 
 **Consequence bound.** Each case in scope either proves its identity against a surface that actually renders it, or is left on the coverage allowlist with the run line saying why. No case passes vacuously and none reds on rasterisation alone. A conservative outcome plus a surfaced signal is a documented limit, not a finding.
 
-**Probe domain.** `tests/e2e/empty-state-reachability.spec.ts`, `tests/e2e/tap-target-inline-controls.layout.spec.ts`, `tests/e2e/helpers/devCaptureStaged.ts`, the seed fixture `seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf` those specs load, the two Playwright projects at `playwright.config.ts:83` and `:97`, and `.github/workflows/lifecycle-layout-e2e.yml`. A probe outside that set, or against a hand-built page, files to documented limits and not to a round.
+**Probe domain.** `tests/e2e/empty-state-reachability.spec.ts`, `tests/e2e/tap-target-inline-controls.layout.spec.ts`, `tests/e2e/helpers/devCaptureStaged.ts`, the seed fixture `seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf` those specs load, the two Playwright projects at `playwright.config.ts:83` and `playwright.config.ts:97`, and `.github/workflows/lifecycle-layout-e2e.yml`. A probe outside that set, or against a hand-built page, files to documented limits and not to a round.
 
 **Threat fence.** Ordinary CI runner variance and ordinary authoring drift under the real compiled app. Not adversarial fixtures, not hand-injected CSS, not a constructed animation.
 
 ---
 
-## 11. Do not relitigate
+## 11. Resolved scope — do not relitigate
 
 - Eric's no-new-rows directive of 2026-08-25. This arc closes its two rows and mints no `BL-`/`DEF-` row of any facing. Findings are repaired here or recorded as documented limits on the owning surface.
 - The deliberate absence of a `paths` filter on `lifecycle-layout-e2e.yml`, ratified over four spec-review rounds (`.github/workflows/lifecycle-layout-e2e.yml:4-6`).
-- The `--retries=0` flag on the tap-target step (`:177-179`) and its execution oracle (`:195-200`).
+- The `--retries=0` flag on the tap-target step (`.github/workflows/lifecycle-layout-e2e.yml:177-179`) and its execution oracle (`.github/workflows/lifecycle-layout-e2e.yml:195-200`).
 - `shareToken` is a required path segment on the crew route (`tests/e2e/crew-page.spec.ts:152-153`).
 - The six-section redesign retired the flat tile-grid idiom (`tests/e2e/crew-page.spec.ts:147-148`).

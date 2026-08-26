@@ -377,9 +377,11 @@ test.describe("tap-target floor — repaired inline text controls (spec §2, sit
    * 8.000 / 8.000 / 34.000. All 9 outliers fell at read index 0-3, i.e. inside
    * 120ms of the panel appearing; indices 4-13 were canonical in every run.
    * Three of 39 runs had a bad FIRST read, a 7.7% flake rate, which is the
-   * rate BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE was filed on. One outlier was
-   * `-0.290` top padding: a NEGATIVE inset no font metric can produce, which is
-   * what ruled out the rasterisation hypothesis the row proposed. The dead-space
+   * rate BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE was filed on. Six of the nine
+   * outlier pairs sum to exactly 16.000 (two edges of `py-2`): the cell box is
+   * right and the content is displaced inside it. One outlier was `-0.290` top
+   * padding, a NEGATIVE inset no font metric can produce, which is what ruled
+   * out the rasterisation hypothesis the row proposed. The dead-space
    * total was 34.000 in 546 of 546 reads, so no tolerance in this file was ever
    * the problem.
    *
