@@ -57,6 +57,19 @@ describe("bridge parity: scripts/specLintGate.mjs vs lib/specLintGate/gate.ts", 
     expect(messages.some((m) => m.includes("requires at least one --lint-doc"))).toBe(true);
     expect(messages.some((m) => m.includes("hard spec:lint failures"))).toBe(true);
     expect(messages.some((m) => m.includes("no readable summary count"))).toBe(true);
+
+    // R1 finding 2: an unreadable report must not SUPPRESS the hard failures in
+    // the same dispatch. Asserted on the combined case specifically, because the
+    // three reason-presence checks above are all satisfied by a message that
+    // names only one class.
+    const combined = GATE_CASES.find((c) => c.name.includes("unreadable AND hard"));
+    expect(combined, "the combined case must exist").toBeDefined();
+    const d = tsDecide(combined!.input);
+    expect(d.kind).toBe("refuse");
+    const msg = d.kind === "refuse" ? d.message : "";
+    expect(msg).toContain("no readable summary count");
+    expect(msg).toContain("hard spec:lint failures");
+    expect(msg).toContain("hard.md");
   });
 
   it("agrees on hardCountOf, including that null is NOT zero", () => {

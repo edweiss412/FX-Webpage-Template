@@ -46,24 +46,25 @@ export function decide({ stage, reports, waived }) {
     else if (hard > 0) failing.push({ rel: r.rel, hard });
   }
 
-  if (unreadable.length > 0) {
-    return {
-      kind: "refuse",
-      message:
+  // Mirrors the core exactly; see lib/specLintGate/gate.ts for why BOTH classes
+  // are reported rather than the infra fault alone (diff review R1).
+  if (unreadable.length > 0 || failing.length > 0) {
+    const parts = [];
+    if (unreadable.length > 0) {
+      parts.push(
         `spec:lint produced a report with no readable summary count for:\n` +
-        unreadable.map((r) => `  ${r}`).join("\n") +
-        `\nexpected a final line matching \`summary: <n> hard, <n> advisory\``,
-    };
-  }
-
-  if (failing.length > 0) {
-    return {
-      kind: "refuse",
-      message:
+          unreadable.map((r) => `  ${r}`).join("\n") +
+          `\nexpected a final line matching \`summary: <n> hard, <n> advisory\``,
+      );
+    }
+    if (failing.length > 0) {
+      parts.push(
         `artifact under review has hard spec:lint failures:\n` +
-        failing.map((f) => `  ${f.rel}: ${f.hard} hard`).join("\n") +
-        `\nfix them or pass --no-lint-gate to review an artifact that is mid-repair`,
-    };
+          failing.map((f) => `  ${f.rel}: ${f.hard} hard`).join("\n"),
+      );
+    }
+    parts.push(`fix them or pass --no-lint-gate to review an artifact that is mid-repair`);
+    return { kind: "refuse", message: parts.join("\n") };
   }
 
   return { kind: "proceed" };

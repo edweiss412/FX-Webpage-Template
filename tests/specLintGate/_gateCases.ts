@@ -76,7 +76,12 @@ export const GATE_CASES: readonly GateCase[] = [
     },
   },
   {
-    name: "spec, unreadable BEFORE a hard one -> the infra fault is reported alone",
+    // R1 caught this case PINNING A BUG: it was named "the infra fault is
+    // reported alone", and the implementation obliged by dropping the hard
+    // failure. A shared case table makes a wrong expectation authoritative for
+    // both implementations at once, which is the risk that comes with the parity
+    // it buys.
+    name: "spec, unreadable AND hard together -> BOTH are named, neither suppressed",
     input: {
       stage: "spec",
       reports: [

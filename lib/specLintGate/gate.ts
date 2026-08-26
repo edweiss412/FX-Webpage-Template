@@ -101,26 +101,32 @@ export function decide(input: GateInput): GateDecision {
     else if (hard > 0) failing.push({ rel: r.rel, hard });
   }
 
-  // The infra fault is reported first and on its own: a report we cannot read is
-  // not evidence of anything, so it must not be mixed into a findings verdict.
-  if (unreadable.length > 0) {
-    return {
-      kind: "refuse",
-      message:
+  // BOTH classes are reported, always. An earlier draft returned the
+  // unreadable-only message and DROPPED every known hard failure in the same
+  // dispatch, on the reasoning that an infra fault should not be mixed into a
+  // findings verdict. That reasoning is wrong here and diff review R1 caught it:
+  // the operator fixes what the message names, so a suppressed hard count is a
+  // second dispatch they did not need. It also contradicted this arm's own
+  // consequence bound, which requires every failing file and its count to be
+  // NAMED. The infra fault still leads, because a report that cannot be read is
+  // not evidence about that document either way.
+  if (unreadable.length > 0 || failing.length > 0) {
+    const parts: string[] = [];
+    if (unreadable.length > 0) {
+      parts.push(
         `spec:lint produced a report with no readable summary count for:\n` +
-        unreadable.map((r) => `  ${r}`).join("\n") +
-        `\nexpected a final line matching \`summary: <n> hard, <n> advisory\``,
-    };
-  }
-
-  if (failing.length > 0) {
-    return {
-      kind: "refuse",
-      message:
+          unreadable.map((r) => `  ${r}`).join("\n") +
+          `\nexpected a final line matching \`summary: <n> hard, <n> advisory\``,
+      );
+    }
+    if (failing.length > 0) {
+      parts.push(
         `artifact under review has hard spec:lint failures:\n` +
-        failing.map((f) => `  ${f.rel}: ${f.hard} hard`).join("\n") +
-        `\nfix them or pass --no-lint-gate to review an artifact that is mid-repair`,
-    };
+          failing.map((f) => `  ${f.rel}: ${f.hard} hard`).join("\n"),
+      );
+    }
+    parts.push(`fix them or pass --no-lint-gate to review an artifact that is mid-repair`);
+    return { kind: "refuse", message: parts.join("\n") };
   }
 
   return { kind: "proceed" };
