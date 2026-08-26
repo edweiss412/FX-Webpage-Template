@@ -1321,34 +1321,39 @@ export const MESSAGE_CATALOG = {
   UNKNOWN_FIELD: {
     code: "UNKNOWN_FIELD",
     warningClass: "parse_warning",
-    // Near-miss framing (field-near-miss detector spec §5): the row is no longer
-    // "one we don't recognize" — the content-keyed detector only fires when the label
-    // NEARLY matches a field we show, so every one of these six strings names the
-    // suggestion and the rename that fixes it. No `_<candidate>_` placeholder: the
-    // card renders `messageFor(code)` with NO params (PerShowActionableWarnings.tsx,
-    // NoteWarningCard.tsx) and `title`/`triggerContext`/`longExplanation` are never
-    // interpolated at all (lookup.ts messageFor), so a placeholder would render
-    // literally. The matched candidate rides `ParseWarning.candidate` + the warning
-    // message instead (warnings.ts emitUnknownField).
-    // NO string asks Doug to judge "our suggestion" (impeccable gate F1): the matched
-    // candidate is computed and attached but NOTHING renders it, so a card inviting him
-    // to report a wrong guess would be asking about a guess he was never shown. Rendering
-    // it is filed as BL-NEARMISS-CANDIDATE-RENDER; until it ships, the copy names only
-    // what is on screen. `helpfulContext` documents BOTH card controls (gate F4) because
-    // the Ignore button still renders for this code
-    // (DataQualityWarningControls.tsx:108, gated on the always-present rawSnippet), and
-    // every action string leads with the imperative rather than system state (gate F5).
+    // Near-miss framing (field-near-miss detector spec §5), stated CONDITIONALLY rather than
+    // as fact (2026-08-26 candidate-render spec §6.2). The content-keyed detector only fires
+    // on a near match, and the matched label now RENDERS: a `Looks like` band on the per-show
+    // card and a plain sibling line on wizard step 3. But one string serves every card while
+    // the band is per-warning, so no string here may assert that a near-miss happened. Rows
+    // persisted before the detector landed carry no `candidate` at all and never near-matched
+    // anything: `emitUnknownField` then had two call sites (blocks/event.ts, blocks/venue.ts
+    // at 9f9b0ef06^) and fired on ANY unrecognized label. Four fields therefore say "when we
+    // can tell which row you meant" instead of "it nearly matches one now" (dougFacing,
+    // helpfulContext, triggerContext, longExplanation); `title` and `followUp` were already
+    // true either way. `longExplanation` also renders on /help/errors, where there is no card
+    // at all, which is the second reason the copy cannot point at one.
+    // No `_<candidate>_` placeholder: the card renders `messageFor(code)` with NO params
+    // (PerShowActionableWarnings.tsx, NoteWarningCard.tsx) and `title`/`triggerContext`/
+    // `longExplanation` are never interpolated (lookup.ts messageFor), so a placeholder would
+    // render literally. The matched candidate rides `ParseWarning.candidate` structurally
+    // (warnings.ts emitUnknownField), which is exactly what the render sites read.
+    // Impeccable gate dispositions, unchanged: `helpfulContext` documents BOTH card controls
+    // (F4), because the Ignore button still renders for this code
+    // (DataQualityWarningControls.tsx:85, gated on the always-present rawSnippet); and every
+    // action string leads with the imperative rather than system state (F5). F1 is CLOSED by
+    // this arc: it objected that no string may ask Doug to judge a suggestion he was never
+    // shown, and he is now shown it.
     dougFacing:
-      "Rename the row labeled _<key>_ in _<sheet-name>_ so it matches the row we show. It nearly matches one now, which is why it isn't showing on the crew page.",
+      "Rename the row labeled _<key>_ in _<sheet-name>_ so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. When we can tell which row you meant, the notice names it.",
     crewFacing: null,
     followUp: "Doug → rename the row in the sheet (or optional Report)",
     helpfulContext:
-      "Rename this row in your sheet so it matches the row we show. It nearly matches one now (like 'Stage' for 'Stage Size'), which is why it isn't showing on the crew page. Report flags it to us; Ignore hides this notice.",
-    triggerContext:
-      "Appears when a row's label nearly matches a row we know how to show, but doesn't match it exactly.",
+      "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. When we can tell which row you meant, this card names it. Report flags it to us; Ignore hides this notice.",
+    triggerContext: "Appears when a row's label doesn't exactly match a row we know how to show.",
     title: "Row we couldn't match",
     longExplanation:
-      "A row in your sheet is labeled close to a row we show, but not close enough for us to read it as that row, so it isn't showing on the crew page: a row labeled 'Stage' where we show 'Stage Size', for example. Rename it in the sheet and it will show the next time this show checks its sheet. We don't rename it for you, because the row you meant would be a guess.",
+      "A row in your sheet is labeled something we don't read as one of the rows we show, so it isn't showing on the crew page. When we can tell which row you meant, the notice names it. Rename it in the sheet and it will show the next time this show checks its sheet. We don't rename it for you, because the row you meant would be a guess.",
     helpHref: "/help/errors#UNKNOWN_FIELD",
   },
   UNKNOWN_DAY_RESTRICTION: {

@@ -99,8 +99,7 @@ export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
   STAGE_WORD_AUTOCORRECTED:
     "Appears when a work-phase word in a role cell is a letter or two off (Load In / Set / Show / Strike / Load Out).",
   UNKNOWN_DAY_RESTRICTION: "Appears when a name carries the '***' marker but no days are listed.",
-  UNKNOWN_FIELD:
-    "Appears when a row's label nearly matches a row we know how to show, but doesn't match it exactly.",
+  UNKNOWN_FIELD: "Appears when a row's label doesn't exactly match a row we know how to show.",
   UNKNOWN_ROLE_TOKEN: "Appears when a role label in a crew cell isn't on the known-roles list.",
   UNKNOWN_SECTION_HEADER: "Appears when a header row doesn't match any section we know.",
   UNKNOWN_STAGE_RESTRICTION:
@@ -163,7 +162,7 @@ export const EXPECTED_TITLE_CHANGES: Readonly<Record<string, string>> = {
  */
 export const EXPECTED_LONG_EXPLANATION: Readonly<Record<string, string>> = {
   UNKNOWN_FIELD:
-    "A row in your sheet is labeled close to a row we show, but not close enough for us to read it as that row, so it isn't showing on the crew page: a row labeled 'Stage' where we show 'Stage Size', for example. Rename it in the sheet and it will show the next time this show checks its sheet. We don't rename it for you, because the row you meant would be a guess.",
+    "A row in your sheet is labeled something we don't read as one of the rows we show, so it isn't showing on the crew page. When we can tell which row you meant, the notice names it. Rename it in the sheet and it will show the next time this show checks its sheet. We don't rename it for you, because the row you meant would be a guess.",
 };
 
 /**
@@ -258,7 +257,7 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
   UNKNOWN_DAY_RESTRICTION:
     "This crew member is marked day-restricted ('***' in the sheet) but the sheet doesn't say which days, so their schedule shows 'days unconfirmed'. Add the days to the name cell, like '(6/24 and 6/26 ONLY)'.",
   UNKNOWN_FIELD:
-    "Rename this row in your sheet so it matches the row we show. It nearly matches one now (like 'Stage' for 'Stage Size'), which is why it isn't showing on the crew page. Report flags it to us; Ignore hides this notice.",
+    "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. When we can tell which row you meant, this card names it. Report flags it to us; Ignore hides this notice.",
   UNKNOWN_ROLE_TOKEN:
     "One of this crew member's role labels isn't one we recognize, so we left it off their page instead of guessing. If the label is correct, this card's controls let you add it as a real role.",
   UNKNOWN_SECTION_HEADER:
