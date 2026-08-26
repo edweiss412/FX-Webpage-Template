@@ -700,7 +700,7 @@ round's defect.
 
 ## BL-TAP-TARGET-LAYOUT-SUBPIXEL-TOLERANCE — a 0.5px equality on a webkit text-derived box flakes, and the job that would notice is dark on `main`
 
-**Status:** OPEN · **Filed:** 2026-08-24 (`ci/app-e2e-batch2`, from that arc's own CI) · **Facing:** product · **Severity:** MEDIUM (the assertion guards the 44px tap-target floor, a crew-facing a11y contract; a guard that reds on identical bytes gets rerun by habit, and a guard rerun by habit stops being read) · **Class:** e2e flake / a11y guard fidelity · **Effort:** M · **Reachability:** PROBED — the byte diff below, taken across the two consecutive heads that disagree. · **Incident:** run 32760376685 on head `4be690393` red on an arc whose diff contains no rendering code at all, costing a diagnosis cycle and a rerun during a deep-queue window.
+**Status:** IN PROGRESS · **Branch:** fix/e2e-proof-retired-route-subpixel · **Filed:** 2026-08-24 (`ci/app-e2e-batch2`, from that arc's own CI) · **Facing:** product · **Severity:** MEDIUM (the assertion guards the 44px tap-target floor, a crew-facing a11y contract; a guard that reds on identical bytes gets rerun by habit, and a guard rerun by habit stops being read) · **Class:** e2e flake / a11y guard fidelity · **Effort:** M · **Reachability:** PROBED — the byte diff below, taken across the two consecutive heads that disagree. · **Incident:** run 32760376685 on head `4be690393` red on an arc whose diff contains no rendering code at all, costing a diagnosis cycle and a rerun during a deep-queue window.
 
 `tests/e2e/tap-target-inline-controls.layout.spec.ts:440` asserts cell bottom padding as an exact
 equality with a half-pixel tolerance:
@@ -751,7 +751,7 @@ the same cost shape (a red indistinguishable from a spec defect).
 
 ## BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE — the empty-state catalog's only real-browser proof navigates a route the picker pivot retired
 
-**Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, deferred out of batch 2 by that spec's section 10) · **Facing:** product · **Severity:** MEDIUM (the §8.3 empty-state catalog has no live proof; the spec runs nowhere and would fail everywhere) · **Class:** e2e coverage · **Effort:** M · **Class-sweep exception:** (c) — re-targeting the route and replacing its four `toHaveScreenshot` assertions with behaviour assertions is a rewrite of a spec batch 2 does not otherwise touch. · **Reachability:** PROBED — the run line below.
+**Status:** IN PROGRESS · **Branch:** fix/e2e-proof-retired-route-subpixel · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, deferred out of batch 2 by that spec's section 10) · **Facing:** product · **Severity:** MEDIUM (the §8.3 empty-state catalog has no live proof; the spec runs nowhere and would fail everywhere) · **Class:** e2e coverage · **Effort:** M · **Class-sweep exception:** (c) — re-targeting the route and replacing its four `toHaveScreenshot` assertions with behaviour assertions is a rewrite of a spec batch 2 does not otherwise touch. · **Reachability:** PROBED — the run line below.
 
 `tests/e2e/empty-state-reachability.spec.ts` navigates `/show/<slug>` (line 154). The M11.5 picker
 pivot retired that route: there is no `page.tsx` under `app/show/[slug]/`, the crew route is
