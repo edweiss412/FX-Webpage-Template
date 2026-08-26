@@ -114,7 +114,17 @@ describe("readRun", () => {
 
   /** A record directory shaped exactly like the artifacts the nightly uploads. */
   const layout = (
-    opts: { elapsed?: string; emptyElapsedDir?: boolean; badDuration?: unknown } = {},
+    opts: {
+      elapsed?: string;
+      emptyElapsedDir?: boolean;
+      badDuration?: unknown;
+      /**
+       * Extra records, one per entry, each carrying that `startedAt` verbatim.
+       * `undefined` writes a record with the field ABSENT, which is a different
+       * input from an unparseable string and must stay distinguishable.
+       */
+      startedAts?: readonly (string | undefined)[];
+    } = {},
   ): string => {
     const dir = mkdtempSync(join(tmpdir(), "fx-readrun-"));
     roots.push(dir);
@@ -152,6 +162,25 @@ describe("readRun", () => {
         ],
       }),
     );
+    (opts.startedAts ?? []).forEach((stamp, i) => {
+      writeFileSync(
+        join(dir, "mutation-records-source-shards-2", `extra${String(i)}.run.json`),
+        JSON.stringify({
+          surfaceId: `extra${String(i)}`,
+          runId: `run${String(i)}`,
+          passed: true,
+          score: 1,
+          ...(stamp === undefined ? {} : { startedAt: stamp }),
+          outcomes: [
+            {
+              siteId: "s1",
+              verdict: "KILLED",
+              children: [{ suite: "one.test.ts", kind: "exit", durationMs: 10 }],
+            },
+          ],
+        }),
+      );
+    });
     if (opts.elapsed !== undefined || opts.emptyElapsedDir === true) {
       mkdirSync(join(dir, "elapsed-source-shards-2"), { recursive: true });
       if (opts.elapsed !== undefined)
@@ -207,6 +236,42 @@ describe("readRun", () => {
       const dir = layout({ badDuration: bad });
       expect(() => readRun(dir), `durationMs ${JSON.stringify(bad)}`).toThrow(/durationMs/);
     }
+  });
+
+  it("ACCEPTS a zero duration, because zero is a measurement and not a refusal", () => {
+    // The suite above only ever asserts REFUSAL, and a guard tested solely by what it
+    // rejects cannot notice a mutant that rejects MORE. Both `d < 0` -> `d <= 0` and
+    // `d < 0` -> `d < 1` survive that way: every value the refusal case feeds is
+    // rejected by the original AND by both mutants, so nothing distinguishes them.
+    // Zero is the only witness. It is also a real input -- a child that returns
+    // instantly is measured at 0 ms, and pricing it as unusable would refuse a leg
+    // over a fast test.
+    const dir = layout({ badDuration: 0 });
+    const [m] = readRun(dir).surfaces;
+    // 0 for the mutated child, then the untouched 500 and 2000 from s2.
+    expect(m?.seconds).toBeCloseTo(2.5, 6);
+  });
+
+  it("reports the LATEST startedAt across records, and absent when none parses", () => {
+    // `startedAt` had no coverage at all, which is why all three of its comparisons
+    // survived mutation. Each assertion below is aimed at one of them:
+    //   - `j.startedAt === undefined ? NaN : Date.parse(...)` inverted makes a record
+    //     that HAS a stamp parse to NaN, so the max never sees it.
+    //   - `startedAt === undefined ? t : Math.max(startedAt, t)` inverted makes the
+    //     FIRST record take Math.max(undefined, t), which is NaN.
+    //   - `...(startedAt === undefined ? {} : { startedAt })` inverted drops the field
+    //     exactly when it is present.
+    const earlier = "2026-08-26T01:00:00.000Z";
+    const later = "2026-08-26T03:00:00.000Z";
+
+    // Out of order on purpose: a max that is really "last one wins" passes an
+    // ascending fixture and fails this one.
+    const dir = layout({ startedAts: [later, earlier] });
+    expect(readRun(dir).startedAt).toBe(Date.parse(later));
+
+    // ABSENT is its own state, distinguishable from "ran at the epoch" (0).
+    const none = layout({ startedAts: [undefined, "nonsense"] });
+    expect(readRun(none).startedAt).toBeUndefined();
   });
 
   it("reads a leg's elapsed stamp, and reports an ABSENT one as absent rather than zero", () => {

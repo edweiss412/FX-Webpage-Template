@@ -3636,6 +3636,24 @@ export const GUARD_SURFACES: GuardSurface[] = [
     control: { from: "const leg = Number(rec[1]);", to: "const leg = 0;" },
     accepted: [
       {
+        siteId: "logical-connector:94:31:||>&&",
+        kind: "equivalent",
+        reason:
+          'The duration guard\'s first disjunction, `typeof d !== "number" || !Number.isFinite(d)`. ' +
+          "EQUIVALENT because every value reaching it came through `JSON.parse`, and over that " +
+          "domain the first clause IMPLIES the second: `Number.isFinite` never coerces, so a " +
+          "non-number is never finite. `A && B` is therefore just `A`, and the mutant reduces to " +
+          "`A || d < 0` -- the same predicate. The only witness would be a value that IS a number " +
+          "and is NOT finite, i.e. NaN or Infinity, and neither survives a JSON round trip: both " +
+          "serialise to `null`, which the guard already refuses via the first clause. " +
+          'PROBED: every JSON-representable shape ("1000", true, false, null, -1, 0, 0.5, 1500, ' +
+          "{}, [], absent, 1e308) round-tripped through JSON.stringify/parse and evaluated against " +
+          "both predicates -- zero values differ. Recorded as a row rather than repaid with an " +
+          "assertion because no assertion CAN kill it: the input that would distinguish the two " +
+          "cannot reach this function. The other five survivors on this surface WERE repaid with " +
+          "assertions, because each of them changes behaviour on an input a fixture can express.",
+      },
+      {
         siteId: "statement-removal:130:7:continue;>(removed)",
         kind: "equivalent",
         reason:
