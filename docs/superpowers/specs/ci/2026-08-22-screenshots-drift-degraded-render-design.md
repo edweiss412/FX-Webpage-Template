@@ -253,7 +253,9 @@ a second predicate spelled differently. Two live predicates already differ in sp
 
 A derived-cover meta-test walks the manifest-derived roots, classifies every consumer, and:
 
-- demands the attribute on every JSX-returning fault branch (shapes 1 and 5, and the replacements);
+- demands the attribute on every JSX-returning fault branch the `IfStatement`, `CaseClause` and
+  `CatchClause` arms reach (shapes 1 and 5, and the replacements). The `ConditionalExpression` arm
+  drops an unclassifiable guard silently; see the coverage limit in section 8;
 - skips shapes 2 and 3 with a recorded reason;
 - **reports shape 4 and the non-`infra_error` shapes as an enumerated residue**, pinned in a reasoned
   registry naming each flag and each capture output it can reach. The §4.2 table is that registry’s initial

@@ -125,13 +125,22 @@ const UNREACHED_RESIDUE: Record<string, { cause: UnreachedCause; reason: string 
 // about are pinned individually.
 const FAULT_VOCABULARY = /error|fail|infra|degrad|unavailable|corrupt/i;
 
-/** The four ternary sites the residue registry declares. */
-const REGISTERED_TERNARIES: readonly (readonly [string, number])[] = [
-  ["components/admin/Dashboard.tsx", 674],
-  ["components/admin/Dashboard.tsx", 858],
-  ["components/admin/IgnoredSheetsDisclosure.tsx", 79],
-  ["components/admin/OnboardingWizard.tsx", 803],
-];
+/**
+ * The ternary sites the residue registry declares, DERIVED from the registry
+ * itself plus the AST -- never a second hand-written list.
+ *
+ * Whole-diff review round 2 caught the parallel literal: a control that iterates
+ * its own copy of the sites proves nothing about the registry, and the two can
+ * drift apart silently. Reading the registry's keys and keeping the ones where a
+ * ternary actually begins removes the duplicate, so a site added to the registry
+ * is covered by these controls the day it lands.
+ */
+function registeredTernaries(): (readonly [string, number])[] {
+  return Object.keys(UNREACHED_RESIDUE)
+    .map((key) => parseSite(key))
+    .filter((site) => ternaryStartsAt(site.file, site.line))
+    .map((site) => [site.file, site.line] as const);
+}
 
 function containsJsx(node: Node | undefined): boolean {
   if (node === undefined) return false;
@@ -153,7 +162,7 @@ TERNARY_PROJECT.addSourceFilesAtPaths(scannedFiles());
 
 const CANDIDATE_KEYS = new Set(CANDIDATES.map((c) => `${c.file}:${c.line}`));
 
-type TernaryRow = { file: string; line: number; client: boolean; registered: boolean };
+type TernaryRow = { file: string; line: number; client: boolean };
 
 const TERNARY_SURVEY: { jsxTernaries: number; unclassifiedVocab: TernaryRow[] } = (() => {
   let jsxTernaries = 0;
@@ -171,16 +180,19 @@ const TERNARY_SURVEY: { jsxTernaries: number; unclassifiedVocab: TernaryRow[] } 
       const line = conditional.getStartLineNumber();
       if (CANDIDATE_KEYS.has(`${file}:${line}`)) continue;
       if (!FAULT_VOCABULARY.test(conditional.getCondition().getText())) continue;
-      const registered = REGISTERED_TERNARIES.some(([f, l]) => f === file && l === line);
-      unclassifiedVocab.push({ file, line, client, registered });
+      unclassifiedVocab.push({ file, line, client });
     }
   }
   return { jsxTernaries, unclassifiedVocab };
 })();
 
-const UNREGISTERED_SERVER = TERNARY_SURVEY.unclassifiedVocab.filter(
-  (row) => !row.client && !row.registered,
-);
+/** Lazy: the registry it filters against is declared further down this file. */
+function unregisteredServer(): TernaryRow[] {
+  const registered = registeredTernaries();
+  return TERNARY_SURVEY.unclassifiedVocab.filter(
+    (row) => !row.client && !registered.some(([f, l]) => f === row.file && l === row.line),
+  );
+}
 
 describe("the ConditionalExpression arm's decline is pinned, not just written down", () => {
   it("the numbers the arm declares equal the numbers the tree computes", () => {
@@ -206,9 +218,10 @@ describe("the ConditionalExpression arm's decline is pinned, not just written do
     // deliberate -- this asks one question, has the unreached server-side
     // population GROWN, and a count is the right instrument. Site identity is
     // pinned in the residue registry, for the entries that carry a declared cause.
+    const unregistered = unregisteredServer();
     expect(
-      UNREGISTERED_SERVER.length,
-      UNREGISTERED_SERVER.map((r) => `${r.file}:${r.line}`).join("\n"),
+      unregistered.length,
+      unregistered.map((r) => `${r.file}:${r.line}`).join("\n"),
     ).toBeLessThanOrEqual(7);
   });
 
@@ -218,7 +231,7 @@ describe("the ConditionalExpression arm's decline is pinned, not just written do
     // classifyExpression learns to recognise one of these guards, the site
     // becomes an ACCEPTED candidate rather than an unknown one, and the weaker
     // assertion never notices.
-    for (const [file, line] of REGISTERED_TERNARIES) {
+    for (const [file, line] of registeredTernaries()) {
       const source = TERNARY_PROJECT.getSourceFileOrThrow(join(process.cwd(), file));
       const conditional = source
         .getDescendantsOfKind(SyntaxKind.ConditionalExpression)
@@ -429,7 +442,7 @@ describe("every residue entry's declared cause is COMPUTED, not asserted in pros
     // Pins the no-ternary conjunct, which was entirely unpinned until plan review
     // round 2 wrote the branch-ordered derivation that omits it and still routes
     // all seven entries correctly.
-    for (const [file, line] of REGISTERED_TERNARIES) {
+    for (const [file, line] of registeredTernaries()) {
       expect(
         isUnreachedNoTernary({ file, line, flag: "" }),
         `${file}:${line} is a ternary and must fail the no-ternary conjunct`,
@@ -628,7 +641,7 @@ describe("the population is DERIVED from the manifest, not written down", () => 
   });
 });
 
-describe("every JSX-returning fault branch carries the marker", () => {
+describe("every JSX-returning fault branch the three reporting arms reach carries the marker", () => {
   it("leaves none unmarked", () => {
     const unmarked = ACCEPTED.filter((c) => !c.marked).map(
       (c) => `${c.file}:${c.line} (${c.form})`,
@@ -637,7 +650,7 @@ describe("every JSX-returning fault branch carries the marker", () => {
   });
 });
 
-describe("the residue is reported by name, never silently dropped", () => {
+describe("the residue is reported by name on the three arms that report one", () => {
   it("pins every unrecognized form with a reason", () => {
     const found = RESIDUE.map((c) => `${c.file}:${c.line}`).sort();
     expect(found).toEqual(Object.keys(REPORTED_RESIDUE).sort());

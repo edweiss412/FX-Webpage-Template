@@ -78,8 +78,9 @@ had three others. It is now `UNREACHED_RESIDUE`, keyed `file:line:flag`, each en
 causes that ONE derivation function computes from the node at that line — so **the count of entries whose
 stated cause is false is 0, computed rather than promised.** Two causes and not three: which arm holds the
 fault is not decidable without a fault oracle the scanner does not have, so it stays in prose. Both conjuncts
-of `unreached-no-ternary` are pinned by their own control, derived from `scanCandidates()`; deleting either
-fails. Coordinates are verified per cause and each half asserts uniqueness in the file.
+of `unreached-no-ternary` are pinned by their own control and no control iterates a hand-written list: two
+derive from `scanCandidates()`, and the no-ternary control derives from the registry's own keys filtered by
+the AST, since a ternary entry is by definition not a candidate. Deleting either conjunct fails. Coordinates are verified per cause and each half asserts uniqueness in the file.
 
 **The prior design's four normative coverage claims were false at HEAD** once the decline was ratified — a
 ternary whose `whenTrue` is JSX directly returns JSX and is reachable from the manifest. Each is now
@@ -110,8 +111,9 @@ neither trigger reproduced the failure. The mis-sample criticism of the old 0/9 
 named is untested.
 
 **The pin is extended to nothing**, no repair is opened and no perceptual-tolerance comparator is built, per
-this row's own scope decision. **Re-file trigger: the next drift-check FAILURE**, whose uploaded record is the
-reproducing sample the population lacks. The full per-run table is in section 1.5 of
+this row's own scope decision. **Re-file trigger: the next failure of the `Check screenshot drift` STEP**, whose
+uploaded record is the reproducing sample the population lacks. Not any red run of the job — Supabase
+startup, capture and evidence verification each fail independently and leave no such sample. The full per-run table is in section 1.5 of
 `docs/superpowers/specs/ci/2026-08-25-drift-residue-design.md`, because `retention-days: 7` expires the
 artifacts and the evidence record is never committed — within a week that table is the only surviving
 association between a runner and a hash.

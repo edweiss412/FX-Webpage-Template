@@ -689,10 +689,15 @@ function firstReturnedJsx(body: Node): Node | null {
 }
 
 /**
- * Every JSX-returning fault branch under the manifest-derived roots.
+ * Every JSX-returning fault branch under the manifest-derived roots that the
+ * `IfStatement`, `CaseClause` and `CatchClause` arms reach.
  *
  * A branch qualifies by returning JSX directly; its guard FORM then decides
- * whether it is accepted or reported by name. Branches that render nothing —
+ * whether it is accepted or reported by name -- ON THOSE THREE ARMS. The
+ * `ConditionalExpression` arm has no residue fallback and drops an
+ * unclassifiable guard SILENTLY, a declined asymmetry documented at the arm
+ * itself. `components/admin/IgnoredSheetsDisclosure.tsx:79` is a live instance:
+ * JSX in `whenTrue`, `classifyExpression` null, no candidate emitted. Branches that render nothing —
  * a flag assignment, an announce-only effect, a predicate definition — are not
  * candidates at all: tracing a flag to the JSX that consumes it is dataflow
  * analysis this arc does not carry, and those live in the reported residue.

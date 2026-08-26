@@ -36,11 +36,15 @@ name: Screenshots drift
 # could read. No screenshots repair is opened and no perceptual-tolerance
 # comparator is built, per the row's own scope decision.
 #
-# RE-FILE TRIGGER: the next drift-check FAILURE. The job fails only when a
-# captured identity's bytes differ from the committed baseline, and this
-# workflow uploads a record on failure as well as success, so a failing run's
-# record IS the reproducing sample the population lacks. Compare it against the
-# per-run table and the question becomes testable for the first time.
+# RE-FILE TRIGGER: the next failure of the `Check screenshot drift` STEP
+# specifically -- not any red run of this job. The distinction is load-bearing
+# and was caught in review: Supabase startup, the capture itself and the
+# evidence verification can each fail independently, and none of those leaves a
+# reproducing sample. Only the drift step fails BECAUSE a captured identity's
+# bytes differ from the committed baseline. The evidence record uploads on both
+# outcomes, so THAT run's record is the reproducing sample the population lacks.
+# Compare it against the per-run table and the question becomes testable for the
+# first time.
 #
 # The per-run table (run id, trigger, `runnerName`, `cpuModel`, and both
 # identities' hashes) is in section 1.5 of
