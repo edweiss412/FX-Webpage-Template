@@ -86,7 +86,13 @@ Eight evidence records collected 2026-08-25/26, every one inside its 7-day reten
 - **The 6 `crew-preview-*` identities hold two values, and the split is by head branch.** Both `bbbe3503e580…` records are `feat/ui-polish-class-sweep` (runs 32909205619, 32912963457); the other six, including both dispatches on `main`, are `cc36e78cf541…`. **Two CPU models appear on BOTH sides of that split** — `Intel Xeon 6973P-C` (32909205619 is `bbbe`, 32915671785 is `cc36`) and `AMD EPYC 9V74` (32912963457 is `bbbe`, 32915681874 is `cc36`) — so CPU model is refuted as the discriminator twice over, on independent pairs. A UI branch that changes crew-preview rendering and updates its own baselines produces exactly this.
 - **Zero identities where `pixelSha256` moved while the source tree held still. Zero cases of `webpSha256` moving without `pixelSha256`.**
 
-**Reading, and it settles two questions rather than one.** The runner population is heterogeneous on `cpuModel` (4 values in 8 runs) and the byte-equality predicate is invariant across it. Separately, the row's own live hypothesis — that the 0/9 non-reproduction was a mis-sample because "the trigger is the difference", since both failures were `pull_request` and all nine probes were `workflow_dispatch` — is now refuted directly: two `workflow_dispatch` runs and six `pull_request` runs produce the SAME `pixelSha256` on the failing identity. The mis-sample diagnosis was correct as a criticism of the old probe; the trigger it pointed at is not the variable.
+**Reading, and it is narrower than the table first suggests.** The runner population is heterogeneous on `cpuModel` — 4 values in 8 runs — and byte equality held across every one of them. That is worth having. It is not a refutation of the runner axis.
+
+**What these eight records CANNOT settle, stated plainly because an earlier draft of this section overstated it.** Not one of the eight reproduces the 2026-08-18 drift: `dashboard-overview/light` is `46d095ed19f5…` on all eight. The comparison `BACKLOG.md:545-547` actually schedules is between a REPRODUCING run and a non-reproducing one, and no reproducing run exists in this population. Eight non-reproductions are not evidence about a failure none of them contains. All eight `runnerName` values are distinct and the pool is explicitly unbounded, so "four CPU models agreed" is a sample, not a closed domain.
+
+The same correction applies to the row's trigger hypothesis, for the same reason. Two `workflow_dispatch` records agreeing with six `pull_request` records does not refute "the trigger is the difference", because neither trigger reproduced the failure here. The mis-sample criticism the row makes of the old 0/9 probe is correct and stands; this arc has not tested the variable it named, and says so rather than claiming a refutation the data does not carry.
+
+**So the runner reading is UNTESTED, not negative.** The comparison was executed as scheduled, and its outcome is that the comparison the row wants cannot be built out of passing runs alone. That is a real result: it tells the next person what to collect.
 
 ---
 
@@ -130,37 +136,42 @@ This is the narrowing direction taken at design time rather than after four roun
 
 The limit is recorded in three places, with the live 719 / 79 / 70 / 9 / 3 numbers and a re-file trigger: at the arm in `_renderFaultScan.ts`, in the residue registry's docblock, and in §8.5 of `docs/superpowers/specs/ci/2026-08-22-screenshots-drift-degraded-render-design.md`.
 
-**The re-file trigger, stated once and cited by all three copies:** if the count of server-component ternaries that are unclassified, fault-vocabulary AND not already registered rises above 3, the decline is re-opened. That is a number the suite can compute, so the trigger is checkable rather than aspirational.
+**The re-file trigger, stated once and cited by all three copies.** An earlier draft set it at 3 and was wrong on its own numbers: the computable set — server-component ternaries that are unclassified, fault-vocabulary and not already registered — holds **7** today, not 3. The 3 was the count AFTER discounting four emptiness checks (`allHidden && !roomsFetchFailed` and its three siblings in `components/crew/sections/`), an exclusion the trigger's wording never stated, so as written it was tripped from the moment it was authored.
+
+The trigger is therefore stated with no unstated exclusion: **the count is asserted `<= 7`, its resting value today.** A new unclassified fault-vocabulary server-component ternary trips it and re-opens the decline; removing one simply passes. The four emptiness checks are named in the comment as why the resting value is 7 rather than 3 — that is prose explaining a number, not a rule the assertion silently applies.
 
 ### §2.3 Render-fault registry — re-key so every declared cause is computed
 
-`FLAG_RESIDUE` is renamed `UNREACHED_RESIDUE` — a registry named for what it holds, sites layer 1's scanner does not reach, whatever the reason — and each entry declares its cause as a typed field rather than in prose:
+`FLAG_RESIDUE` is renamed `UNREACHED_RESIDUE` — a registry named for what it holds, sites layer 1's scanner does not reach, whatever the reason — and each entry declares its cause as a typed field rather than in prose.
+
+**Two causes, not three, and the reason is that a third is not computable.** An earlier draft of this section declared `flag-shaped`, `ternary-unclassified` and `ternary-when-false`, checked by three independent predicates. Round 2 refuted it with the live nodes: `Dashboard.tsx:858`, `IgnoredSheetsDisclosure.tsx` and `OnboardingWizard.tsx` all carry JSX in BOTH arms, so "JSX is in `whenFalse`" is true of three entries whatever arm holds the fault; all four unclassified ternaries satisfy "`whenTrue` contains JSX"; and all four are absent from `scanCandidates()`, so a candidate-absence reading of `flag-shaped` accepts every one of them. Three overlapping predicates cannot report "0 false causes" honestly, because a wrong relabel passes all of them.
+
+Which arm holds the FAULT is the thing the third cause wanted to record, and no AST predicate decides it without a fault oracle the scanner does not have. So the taxonomy narrows to what the AST does decide:
 
 ```ts
-type UnreachedCause = "flag-shaped" | "ternary-unclassified" | "ternary-when-false";
+type UnreachedCause = "not-a-ternary-site" | "ternary-unreached";
 ```
 
-Entries are keyed `file:line:flag` so the cause is checkable at a node. The suite then ASSERTS each declared cause against the AST, which is what makes "0 entries whose stated cause is false" a computed number instead of a promise:
+- **`not-a-ternary-site`** — no `ConditionalExpression` begins at the entry's line. This is the genuinely flag-shaped case: the guard site returns no JSX, so it is not a candidate under any arm.
+- **`ternary-unreached`** — a `ConditionalExpression` begins at the entry's line and `classifyExpression` returns `null` for its condition, so the arm's bare `continue` drops it.
 
-- `ternary-unclassified` — the site must be a `ConditionalExpression` whose `whenTrue` contains JSX and whose condition `classifyExpression` returns `null` for.
-- `ternary-when-false` — the site must be a `ConditionalExpression` whose JSX is in `whenFalse`.
-- `flag-shaped` — the site must NOT be a candidate under any arm.
+**They are mutually exclusive by construction, not by three separate checks agreeing.** The second's structural precondition is the negation of the first, and one derivation function returns exactly one cause per site; the suite asserts the declared cause EQUALS the derived one. A wrong relabel now fails, which is what "0 false causes" has to mean to be worth asserting.
+
+Entries are keyed `file:line:flag` so the derivation has a node to look at. The finer detail the dropped third cause carried — that `OnboardingWizard`'s fault sits in the false arm and is therefore invisible to an arm that inspects only `whenTrue` — stays in that entry's prose, which is where a true statement no checker can decide belongs. This is the same narrowing the ternary decline takes: state computably what is computable, and do not grow a recognizer to fake the rest.
 
 The prose reasons at `tests/help/_metaRenderFaultMarking.test.ts` lines 69 to 72, line 78 and line 80 are preserved verbatim; they are already true and re-fixing them is explicitly not a finding. What changes is that a future entry cannot be filed under a false cause without the suite failing, which is the defect the row is actually about — a registry read as settled while four of seven rows sat under the wrong heading.
 
-### §2.4 Screenshots drift — report the comparison, extend nothing, narrow nothing
+### §2.4 Screenshots drift — report the comparison, extend nothing, claim nothing the records do not carry
 
-The done condition offers two conclusions. §1.5 selects the second on its substance: **the byte-equality predicate is invariant across the runner heterogeneity the records actually name, so there is nothing to extend the pin to.**
+The done condition offers two conclusions. Neither is available on this evidence, and §1.5 says why: no record in the population reproduces the drift, so the runner reading is untested rather than confirmed or refuted. The spec takes the brief's third path, which the brief names explicitly — DECLINE, record the collected count and the reason as a documented limit, archive the row on that, and do not re-file it.
 
-Extending the pin to `cpuModel` is not available in any case — GitHub-hosted standard runners expose no CPU selection — but the records make the question moot before availability matters: four CPU models, one `pixelSha256` on all eight tree-stable identities, `dashboard-overview/light` included.
+**The pin is extended to nothing, and that is a decision rather than an omission.** Extending it to `cpuModel` is unavailable in any case — GitHub-hosted standard runners expose no CPU selection — and nothing in the records names `cpuModel` as the variable. Byte equality held across the four models these eight runs drew.
 
-Narrowing the predicate is not the same as loosening it, and the row's fence forbids the loosening: no perceptual-tolerance comparator, and no screenshots repair on the current evidence. The narrowing this spec takes is of the job's CLAIM, written into the workflow header: byte equality is asserted as a property that has held across a measured heterogeneous population, and the single 2026-08-18 drift is recorded as unexplained on the runner axis rather than left implicitly attributed to it. The 0/9 non-reproduction was a mis-sample; this is the sample it should have been, and it comes back negative for the runner reading.
+**The predicate is not loosened; the job's CLAIM is what narrows.** The row's fence forbids the loosening: no perceptual-tolerance comparator, and no screenshots repair on the current evidence. What goes into the workflow header is what the population actually supports — byte equality has held across a measured heterogeneous population of eight runs across both triggers; the single 2026-08-18 drift is unexplained on every axis this arc could read; and the comparison the row scheduled needs a reproducing run, which eight passing runs cannot supply.
 
-**Re-file trigger, stated in the header:** if a future record shows two `pixelSha256` values for one identity at one tree state, the runner reading is live again and the population comparison resumes from these six records.
+**Re-file trigger, stated in the header:** if a future record shows two `pixelSha256` values for one identity at one tree state, the runner reading becomes testable and the comparison resumes from these eight records, both triggers included.
 
-The brief's minimum is four records with at least two per trigger. Met and exceeded: six `pull_request` and two `workflow_dispatch`, all eight collected. The dispatch arm's `cancel-in-progress` is `false` (`.github/workflows/screenshots-drift.yml:65`), which does NOT mean dispatches queue harmlessly — a newer pending run in the same group supersedes the older pending one, so three dispatches fired back to back yielded two records and one `cancelled`. Fire them sequentially, waiting for each to leave the queue.
-
-**The trigger hypothesis is refuted, and that is a second result rather than a restatement of the first.** The row's live reading was that the 0/9 non-reproduction sampled the wrong population because "the trigger is the difference" — both failures `pull_request`, all nine probes `workflow_dispatch`. Both triggers now produce the same `pixelSha256` on the failing identity. The mis-sample criticism was right; the variable it named is not the variable.
+The brief's minimum is four records with at least two per trigger. Met and exceeded: six `pull_request` and two `workflow_dispatch`, all eight collected. The dispatch arm's `cancel-in-progress` is `false` (`.github/workflows/screenshots-drift.yml:65`), which does NOT mean dispatches queue harmlessly — a newer pending run in the same group supersedes the older pending one, so three fired back to back yielded two records and one `cancelled`. Fire them sequentially, waiting for each to leave the queue.
 
 ---
 
@@ -178,7 +189,7 @@ The brief's minimum is four records with at least two per trigger. Met and excee
 
 1. **The ternary arm reports no residue.** 719 JSX-bearing ternaries under the derived roots; 79 unclassified on a fault-vocabulary guard; 70 of those in `"use client"` files; 9 in server components, of which 4 are emptiness checks and 2 already registered. Re-file trigger in §2.2.
 2. **The server-time population stops at depth 1.** 18 true violations sit in `lib/**` modules reached only at depth 2 or deeper (31 unbounded minus 13 at depth 1) and are outside the guard's population. Every one is on a cron, sync, or CLI path; none is awaited by a render. Re-file trigger: a server component that imports one of them directly moves it to depth 1 and the guard picks it up automatically, which is the point of deriving the population rather than listing it.
-3. **The 2026-08-18 drift stays unexplained.** Sub-pixel rasterization variance is the named mechanism; the runner axis is now measured and negative. No further mechanism is proposed, and no repair is opened.
+3. **The 2026-08-18 drift stays unexplained, and the runner axis stays UNTESTED rather than cleared.** Sub-pixel rasterization variance is the named mechanism. Eight records show byte equality holding across four `cpuModel` values, but not one of them reproduces the drift, so they say nothing about the failing case. The comparison the row schedules needs a reproducing run. Re-file trigger: the first record that shows two `pixelSha256` values for one identity at one tree state. No further mechanism is proposed and no repair is opened.
 4. **`cpuModel` heterogeneity is measured over 8 runs, not proven bounded.** Four values is what eight runs happened to draw from GitHub's pool. The claim is that byte equality held across those four, not that the pool contains only four.
 5. **The guard's root set is `components/**` and `app/admin/**`, and nothing else.** Both derivations are manifest-driven and every manifest route is under `/admin`, so `app/show` and `app/me` are outside the population — the no-manifest fallback that once enumerated them (`tests/help/_metaServerTimeGuard.test.ts:16-25`) never fires while the manifest exists. Probed 2026-08-25: `grep -rnE '\bnew Date\(\s*\)|\bDate\.now\(\s*\)' app/show app/me` returns one hit and it is a comment (`app/me/page.tsx:121`), so the gap is currently empty. Re-file trigger: a live time call under either root, or a manifest route outside `/admin`, puts real code in the gap.
 
@@ -191,8 +202,8 @@ The brief's minimum is four records with at least two per trigger. Met and excee
 - **AC-3.** Two premises hold executably via `tests/_shared/premise.ts`: the derived `lib/**` population is non-empty, and it contains the survivor.
 - **AC-4.** The `ConditionalExpression` arm's decline is pinned by an assertion, and the arm, the registry docblock and spec §8.5 each carry the live numbers and the re-file trigger.
 - **AC-5.** The count of residue entries whose declared cause is false is **0**, computed from the AST rather than asserted in prose.
-- **AC-6.** Both stale `_renderFaultScan.ts:395` citations are gone — `tests/help/_metaRenderFaultMarking.test.ts:57` and the `BACKLOG.md` row — verified by `rg -n '_renderFaultScan\.ts:[0-9]+'` returning only live line numbers.
-- **AC-7.** `.github/workflows/screenshots-drift.yml`'s header carries a dated paragraph stating the record count, the distinct `cpuModel` count, whether `pixelSha256` moved while the container did not, the conclusion, and the re-file trigger.
+- **AC-6.** Both citations of the scanner's pre-repair line number (the ternary arm now sits at 754) are corrected, at `tests/help/_metaRenderFaultMarking.test.ts:57` and in the `BACKLOG.md` row, verified by `rg -n '_renderFaultScan\.ts:[0-9]+'` returning only live line numbers. This criterion deliberately does not spell the stale `path:line` token: an earlier draft did, so the very command it prescribes matched the acceptance criterion itself and could never come back clean.
+- **AC-7.** `.github/workflows/screenshots-drift.yml`'s header carries a dated paragraph stating the record count by trigger, the distinct `cpuModel` count, that no record reproduces the drift and therefore what the population cannot settle, that the pin is extended to nothing, and the re-file trigger. It must not claim the runner axis is cleared.
 - **AC-8.** All three ledger rows are archived with their measured numbers, and no new `BL-`/`DEF-` row is filed.
 
 ---
