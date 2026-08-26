@@ -734,6 +734,7 @@ const responsiveSkin = (): ScanElement => ({
   unresolved: false,
   hasClassName: true,
   allowlisted: false,
+  admittedAs: "element",
 });
 
 describe("category bars: refusals (spec §1.5, AC-4)", () => {
@@ -1853,6 +1854,7 @@ describe("what the second score found unpinned", () => {
       unresolved: false,
       hasClassName: true,
       allowlisted: false,
+      admittedAs: "element",
     };
     const row: ResidueRow = {
       file: el.file,

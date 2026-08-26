@@ -43,6 +43,7 @@ const el = (over: Partial<ScanElement>): ScanElement => ({
   // Default FALSE, deliberately: the allowlist is an identity the scanner
   // resolves from an import, so a unit case has to claim it on purpose.
   allowlisted: false,
+  admittedAs: "element",
   ...over,
 });
 
@@ -155,6 +156,111 @@ describe("AC-1 the default cover is unchanged", () => {
         .map((e) => e.tag)
         .sort(),
     ).toEqual(["button", "input", "select", "textarea"]);
+  });
+});
+
+/**
+ * The `paintedChildren` axis (spec §5, D2).
+ *
+ * Family B's principle is that paint landing on a child rather than on the
+ * interactive element is not a reason to treat it differently, so the child is
+ * admitted as its OWN element, anchored on its own opening tag. Both censuses
+ * then stay keyed the way they already key.
+ */
+describe("ScanOptions.paintedChildren (spec §5 D2, §5.3)", () => {
+  const ON = { paintedChildren: true } as const;
+  const at = (els: ScanElement[], tag: string) => els.filter((e) => e.tag === tag);
+
+  it("admits a className-carrying child of an in-scope element, on its OWN line", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        return (
+          <button className="outer">
+            <span className="painted" />
+          </button>
+        );
+      }`,
+      ON,
+    );
+    const child = at(els, "span")[0];
+    expect(child).toBeDefined();
+    expect(allStrings(child!)).toEqual(["painted"]);
+    expect(child!.admittedAs).toBe("painted-child");
+    // Its own opening tag, not the parent's: the fill census keys on file+line.
+    expect(child!.line).toBeGreaterThan(at(els, "button")[0]!.line);
+  });
+
+  it("does NOT admit a child without a className", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        return (
+          <button className="outer">
+            <span />
+          </button>
+        );
+      }`,
+      ON,
+    );
+    expect(at(els, "span")).toEqual([]);
+  });
+
+  it("admits a nested in-scope element ONCE, as an element", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        return (
+          <button className="outer">
+            <button className="inner">x</button>
+          </button>
+        );
+      }`,
+      ON,
+    );
+    expect(at(els, "button").map((e) => e.admittedAs)).toEqual(["element", "element"]);
+  });
+
+  it("does NOT admit JSX inside an ATTRIBUTE of an in-scope element (limit L2)", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        return <button className="outer" title={<span className="in-attr" />} />;
+      }`,
+      ON,
+    );
+    expect(at(els, "span")).toEqual([]);
+  });
+
+  it("does NOT admit a painted element with no in-scope ancestor", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        return (
+          <div className="wrap">
+            <span className="painted" />
+          </div>
+        );
+      }`,
+      ON,
+    );
+    expect(at(els, "span")).toEqual([]);
+  });
+
+  it("admits none of it at the default, which is what the four default consumers read", () => {
+    const src = `export function Fx() {
+      return (
+        <button className="outer">
+          <span className="painted" />
+        </button>
+      );
+    }`;
+    expect(scanFixture(src).map((e) => e.tag)).toEqual(["button"]);
+    expect(scanFixture(src, { paintedChildren: false }).map((e) => e.tag)).toEqual(["button"]);
+    expect(
+      scanFixture(src, { paintedChildren: 1 as unknown as boolean }).map((e) => e.tag),
+    ).toEqual(["button"]);
+  });
+
+  it("every element the DEFAULT returns is admittedAs element, over the live corpus", () => {
+    const live = scanInteractiveElements(process.cwd());
+    premiseHolds("corpus has >=300 in-scope elements", live.length >= 300);
+    expect(live.filter((e) => e.admittedAs !== "element")).toEqual([]);
   });
 });
 

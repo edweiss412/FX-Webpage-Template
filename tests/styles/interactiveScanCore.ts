@@ -62,6 +62,15 @@ export type ScanElement = {
    * inherit the canonical component's guarantee for free (whole-diff R1 F4).
    */
   allowlisted: boolean;
+  /**
+   * Whether this element is in scope on its own, or was admitted only because
+   * it paints inside one that is (spec §5, D2).
+   *
+   * `"painted-child"` is the structural half of the `inner-chrome` residue bar
+   * (spec §8): a row parked there whose live element is `"element"` is refused,
+   * which is what stops a real control being registered as chrome.
+   */
+  admittedAs: "element" | "painted-child";
 };
 
 export const FLOOR_COMPONENT_ALLOWLIST: ReadonlyArray<{
@@ -874,6 +883,11 @@ function resolvesToAllowlistedComponent(tag: string, ctx: Ctx): boolean {
 export type ScanOptions = {
   /** Admit text-entry element kinds: `<textarea>`, `<select>`, and `<input>` at ANY type. */
   readonly textEntry?: boolean;
+  /**
+   * Admit a className-carrying JSX descendant of an in-scope element as its OWN
+   * element, `admittedAs: "painted-child"`, anchored on its own opening tag.
+   */
+  readonly paintedChildren?: boolean;
 };
 
 const TEXT_ENTRY_TAGS = new Set(["textarea", "select"]);
@@ -910,10 +924,28 @@ export function scanInteractiveElements(rootDir: string, options: ScanOptions = 
     if (!sf) continue;
     const ctx: Ctx = { root: rootDir, file, sf, depth: 0, hops: 0 };
 
+    /**
+     * How many in-scope elements enclose the node being visited.
+     *
+     * Maintained across a `JsxElement`'s CHILDREN only, which is what makes
+     * limit L2 true rather than accidental: JSX inside an ATTRIBUTE is visited
+     * with the counter at its outer value, so a render prop is not a painted
+     * child of the element carrying it.
+     */
+    let insideInScope = 0;
+
     const visit = (node: ts.Node): void => {
       if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
         const tag = node.tagName.getText(sf);
-        if (isInScope(tag, node.attributes, options)) {
+        const own = isInScope(tag, node.attributes, options);
+        // `!own` is what makes "never twice" true: an in-scope descendant is
+        // admitted by the arm above, as an element, and never again here.
+        const asChild =
+          !own &&
+          options.paintedChildren === true &&
+          insideInScope > 0 &&
+          attributeNamed(node.attributes, "className") !== null;
+        if (own || asChild) {
           const className = attributeNamed(node.attributes, "className");
           // A spread can carry OR override className, so an unreadable one
           // demotes exactly like an unresolved span (rule 2). One whose every
@@ -941,8 +973,22 @@ export function scanInteractiveElements(rootDir: string, options: ScanOptions = 
             unresolved: resolution.unresolved || hasSpread,
             hasClassName: className !== null,
             allowlisted: resolvesToAllowlistedComponent(tag, ctx),
+            admittedAs: own ? "element" : "painted-child",
           });
         }
+      }
+      if (ts.isJsxElement(node)) {
+        const opens = isInScope(
+          node.openingElement.tagName.getText(sf),
+          node.openingElement.attributes,
+          options,
+        );
+        visit(node.openingElement);
+        if (opens) insideInScope++;
+        for (const child of node.children) visit(child);
+        if (opens) insideInScope--;
+        visit(node.closingElement);
+        return;
       }
       ts.forEachChild(node, visit);
     };
