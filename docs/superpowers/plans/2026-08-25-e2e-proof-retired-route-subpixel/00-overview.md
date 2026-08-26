@@ -8,11 +8,21 @@ impeccable-gate: N/A — no UI surface
 
 The diff touches `tests/**`, `.github/workflows/**`, `playwright.config.ts` and `docs/**` only. No file under `app/` outside `app/api/**`, none under `components/`, no design token file, no `DESIGN.md`. Section 4 records the one place where a product-code edit was considered and declined.
 
-## 1. Shape of the work
+## 1. Shape of the work, and how the order actually went
 
-Eight tasks. Every task is test-first against a real browser, and every e2e command runs through `pnpm heavy` wrapping the outermost invocation. No task edits product code, so invariant 8 does not arm; invariants 1 (TDD) and 6 (one conventional commit per task) apply throughout.
+Twelve implementation commits plus the docs. Every task is test-first against a real browser where a browser is the instrument, and every e2e command runs through `pnpm heavy` wrapping the outermost invocation. No task edits product code, so invariant 8 does not arm; invariant 6 (one conventional commit per task) holds throughout.
 
-The evidence each task rests on was gathered before the spec was written, because the alternative is a spec whose test section asserts oracles nobody ran. Four of the seven tasks exist only because a run disproved the obvious design: the identity the catalog's category 1 lives on, the viewer the route accepts, the cache that swallows a direct DB write, and the shape of "no dates" the shell survives. Each is recorded at its task.
+The evidence each task rests on was gathered before the spec was written, because the alternative is a spec whose test section asserts oracles nobody ran. Four tasks exist only because a run disproved the obvious design: the identity §8.3's category 1 lives on, the viewer the route accepts, the cache that swallows a direct DB write, and the shape of "no dates" the shell survives. Each is recorded at its task.
+
+### 1.1 Two ordering defects, recorded rather than hidden
+
+Plan review round 1 was right about the commit order, and this section says so instead of presenting an order the history does not have.
+
+**Defect one: the locked path landed after the writes it protects.** Task 1 (`ddf0d83fb`) shipped the rewritten spec with unlocked service-role `shows` writes. `tests/help/walker-routes.test.ts` was RED at that commit, because the file's frozen locked-table count no longer matched. Task 3b (`d6602335c`) then moved those writes onto the per-show lock and removed the frozen row. The correct order was Task 3b first, and the branch passed through a state that violated invariant 2.
+
+**Defect two: the lock proof landed after the lock.** `d6602335c` added `lockedShowCopy.ts`; its executable proof did not arrive until `95d69f052`, one review round later, and only because the reviewer showed that `walker-routes` is green with the lock deleted. That is a TDD-per-task violation on the one task where the invariant is strictest.
+
+Both are recorded, not rewritten. The final tree satisfies invariants 1, 2, 6 and 9, every gate below is green on it, and rewriting twelve commits across a merge to manufacture a tidier history would trade a real record for a fictional one. **The lesson, stated so it is reusable: when a task's first action is a write to an invariant-2 table, the locked path is task zero, and its structural proof is written before the helper it proves.** A guard that already exists is not evidence the invariant is covered; check what that guard actually discriminates first.
 
 ## 2. Meta-test inventory
 
@@ -22,28 +32,28 @@ The evidence each task rests on was gathered before the spec was written, becaus
 | `tests/e2e/_metaFontWaitCoverage.test.ts` | Task 6 adds documented limits to its header; `CALLERS` is deliberately NOT extended | unchanged and green — a row for a file this analyzer cannot see a navigation in would pass vacuously |
 | `tests/help/walker-routes.test.ts` | Task 3b moves the `shows` writes onto the locked path | red until the frozen `EXEMPT_PREEXISTING` count for this spec is REMOVED at 0 |
 | `tests/e2e/helpers/lockedShowCopy.unit.test.ts` (new) | invariant 2's "tests assert the lock is held", which walker-routes provably cannot do | new and green, with four mutant controls |
-| `tests/ci/modalWaitHelper/disposition.ts` | the rewrite's `gotoSection` adds a non-literal-goto candidate | census count rises; resolved to the UNION after `origin/main` bumped it for a different site the same day |
-| `scripts/check-app-e2e-executed.mjs` | Task 5 wires the spec, so the executed-count oracle owes it a `REQUIRED` row | new row at 4 (four cases, one project) |
+| `tests/ci/_metaModalWaitHelper.test.ts` (owning `tests/ci/modalWaitHelper/disposition.ts`) | the rewrite's `gotoSection` adds a non-literal-goto candidate | census count rises; resolved to the UNION (19) after `origin/main` bumped it for a different site the same day |
+| `tests/cross-cutting/app-e2e-ci-wiring.test.ts` | it, NOT the coverage meta-test, owns `REQUIRED` parity for `scripts/check-app-e2e-executed.mjs` | green once the spec's `REQUIRED` row lands at 4 |
+| `tests/docs/_metaDeferralLedgerGraduation.test.ts` | Task 12 graduates two rows, and each owes a `BACKLOG_GRADUATED` registry row with this branch as provenance | two new registry rows |
+| `tests/docs/_metaInvariant8Closeout.test.ts` | the plan carries the `impeccable-gate` marker | green with the marker on its own line |
 | `tests/docs/_metaLedgerInProgress.test.ts` | Task 0 marks both rows in progress; Task 7 removes the markers and archives | green throughout: markers name a branch that exists on origin until the last commit removes them |
 | `tests/docs/_metaLedgerMintBar.test.ts` | This arc files NO new row, so nothing new is subject to the bar | unchanged |
 
 **Advisory-lock holder topology (Task 3b).** The branch DOES touch a lock surface: `tests/e2e/helpers/lockedShowCopy.ts` acquires `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` for each fixture `shows` write. Single holder, at exactly one layer: the psql transaction itself. No JS-side wrapper, no RPC, and no nesting — one acquisition per transaction, asserted as such. Cleanup takes one transaction per show rather than one lock standing in for several.
 
-## 3. Tasks
+## 3. Tasks, in commit order
 
-### Task 0 — ledger markers (done at Stage 0)
+Each row names the commit that carries it and the verification that was actually run.
 
-Both rows carry `**Status:** IN PROGRESS · **Branch:** fix/e2e-proof-retired-route-subpixel`, committed and pushed so the claim is visible to other sessions (invariant 12). `pnpm ledger:claims --check` reported no collision before the marker was written.
+### Task 0 — ledger markers (`cd493bbdb`)
 
-Commit: `docs(ledger): mark ... in progress` (already on the branch).
+Both rows marked `**Status:** IN PROGRESS · **Branch:** fix/e2e-proof-retired-route-subpixel`, committed and pushed so the claim is visible to other sessions (invariant 12). `pnpm ledger:claims --check` reported no collision first.
 
-### Task 1 — rewrite `empty-state-reachability.spec.ts` against live identities
+### Task 1 — rewrite `empty-state-reachability.spec.ts` against live identities (`ddf0d83fb`)
 
-Test-first by construction: the deliverable IS the test, and the "before" state is four cases failing at `toBeVisible` on testids no product file defines.
+Test-first by construction: the deliverable IS the test, and the "before" state is four cases failing at `toBeVisible` on testids no product file defines. Per-test show copies (spec §6.1), `ADMIN_FIXTURE` (spec §6.2), the four categories re-expressed (spec §6.3), the four `toHaveScreenshot` calls and their four `-darwin.png` baselines deleted (spec §6.4).
 
-Per-test show copies (spec §6.1), `ADMIN_FIXTURE` (spec §6.2), the four categories re-expressed (spec §6.3), the four `toHaveScreenshot` calls and their four `-darwin.png` baselines deleted (spec §6.4).
-
-**Verification, and the runs that shaped it.** Six runs, each `CI=1 BASELINE_SERVER_ONLY=1 ... --project=mobile-safari --retries=0` under `pnpm heavy`:
+Six runs shaped it, each `CI=1 BASELINE_SERVER_ONLY=1 … --project=mobile-safari --retries=0` under `pnpm heavy`:
 
 | Run | Outcome | What it forced |
 |---|---|---|
@@ -54,69 +64,75 @@ Per-test show copies (spec §6.1), `ADMIN_FIXTURE` (spec §6.2), the four catego
 | 5 | 3 passed, 1 failed | `showDays: []` alone leaves travel/set/strike day cards. Empty the four fields `aggregateDays` reads. |
 | 6 | **4 passed (28.6s)** | green |
 
-Commit: `test(crew-page): re-target the §8.3 empty-state proof onto the redesigned CrewShell`
+**This commit is where ordering defect one lands** (§1.1): its `shows` writes were unlocked and `walker-routes` was red until Task 3b.
 
-### Task 2 — the tap-target barrier premise test (RED)
+### Task 2 — the tap-target barrier premise test, RED (`17ca1e35b`)
 
-Add `premise + barrier — openStep3Modal returns only after the entrance settles` to `tests/e2e/tap-target-inline-controls.layout.spec.ts`. It asserts a live premise (the panel DECLARES an entrance animation at this viewport, so the guard cannot outlive the thing it guards) and then the barrier (nothing under the panel is still running when the helper hands the page back).
+Verified RED before the fix: **6 repeats, 6 failures**, each naming `step3-details-sheet-rise` and reporting three running animations.
 
-**Verified RED before the fix, 6 repeats, 6 failures**, each naming `step3-details-sheet-rise` and reporting three running animations. That is the mechanism in §3.3 observed directly rather than inferred.
+Verification: `pnpm heavy pnpm exec playwright test tests/e2e/tap-target-inline-controls.layout.spec.ts --project=mobile-safari --retries=0 --repeat-each=6 -g "premise + barrier"`.
 
-Commit: `test(admin): assert openStep3Modal returns only after the panel entrance settles`
+### Task 3 — the barrier, GREEN (`76d62b5ff`)
 
-### Task 3 — the barrier (GREEN)
+`settleReviewPanelEntrance` in `tests/e2e/helpers/devCaptureStaged.ts`, between `waitForSelector` and the helper's `return`. Placed on the helper, not the call sites, so every caller inherits it (spec §4.1). No tolerance in any assertion changes.
 
-`settleReviewPanelEntrance` in `tests/e2e/helpers/devCaptureStaged.ts`, called between `waitForSelector` and the helper's `return`. Awaits `getAnimations({subtree:true})` `.finished` on the panel with a 5s loud-failure ceiling, then `document.fonts.ready`.
+Verification: the whole file at `--repeat-each=40 --retries=0` — 6 cases, **240 runs, 240 passed**. The pre-fix rate on the sites 6/7 case alone was 1 in 20, then 3 in 39.
 
-Placed on the helper, not the call sites, so every caller inherits it (spec §4.1). No tolerance in any assertion changes.
+### Task 4 — delete the dead layout helper (`dc064c4d5`)
 
-**Verification: the whole file at `--repeat-each=40`, `--retries=0`** — 6 cases, 240 runs, zero failures required. The pre-fix rate on the sites 6/7 case alone was 1 in 20 and 3 in 39.
-
-Commit: `fix(admin): settle the step-3 panel entrance before any measurement`
-
-### Task 3b — route the fixture `shows` writes through the per-show advisory lock
-
-Invariant 2 covers e2e fixture writes, and `tests/help/walker-routes.test.ts` enforces it: no file under `tests/e2e/` may reach a locked table through the service-role PostgREST client. The rewrite's show copy and its cleanup are `shows` DML, so they move into `tests/e2e/helpers/lockedShowCopy.ts`, the `shows` sibling of `lockedCrewRestriction.ts`: one psql transaction per show, `begin` → `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` → the write → `returning id` → `commit`.
-
-Single-holder rule: that transaction is the only lock holder on this path. No JS wrapper and no RPC wraps the call, so nothing nests.
-
-The clone is generic over the column list (`to_jsonb(s) || overrides` then `jsonb_populate_record`), so a column added to `shows` tomorrow is copied without touching the helper — an enumerated INSERT would silently start dropping it.
-
-Verification: `pnpm exec vitest run tests/help/walker-routes.test.ts`. The file's frozen `EXEMPT_PREEXISTING` count went 7 → 0, so the exemption row is REMOVED rather than shrunk, in the same commit, per the guard's shrink-only contract.
-
-Commit: `test(crew-page): route the empty-state fixture show writes through the per-show lock`
-
-### Task 4 — delete the dead layout helper
-
-The e2e layout helper had no importers anywhere in the repo and all three of its exports were unreferenced; two encoded retired identities (`tile-grid`, and `/show/${slug}?crew=${crewId}`). Deleted whole (spec §7.1).
+The e2e layout helper had no importers anywhere in the repo and all three exports were unreferenced; two encoded retired identities. Deleted whole (spec §7.1).
 
 Verification: a repo-wide search for that helper path returned only the file's own header before deletion and nothing after; `pnpm typecheck` clean.
 
-Commit: `test(crew-page): delete the unreferenced layout helper and its retired identities`
+### Task 5 — wire the spec, and let the meta-test force the allowlist row out (`f3c628421`)
 
-### Task 5 — wire the spec, and let the meta-test force the allowlist row out
+Spec added to `app-e2e.yml`'s run-step file list; removed from the desktop-chromium `testMatch` (spec §6.5); `UNSEEN` row removed; `ENV_KEY_ALLOWLIST`'s `governs` lists updated across all 18 rows the job's env keys govern, which the relocation-reds assertion caught.
 
-Add the spec to `app-e2e.yml`'s run-step file list; remove `empty-state-reachability` from the desktop-chromium `testMatch` (spec §6.5); remove the `UNSEEN` row.
+Verification: `pnpm exec vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` — 97 passed. The coupling is mechanical, not remembered: the shadowing assertion fails on an allowlisted spec that has become covered. Probed independently by the plan reviewer: `{"covered":true,"rejected":[],"shadowing":["tests/e2e/empty-state-reachability.spec.ts"]}`.
 
-Verification: `pnpm heavy pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` green. The ordering is load-bearing and is asserted by the run, not by intent: with the wiring but not the row removal the shadowing assertion fails, which is what makes the two impossible to drift apart.
+### Task 6 — record the two documented limits (`4a597f71a`, marker fix `0909afe87`)
 
-Commit: `ci(e2e): wire the empty-state reachability proof into app-e2e`
+The `lifecycle-layout-e2e.yml` header gets the corrected dark-on-`main` mechanism, the decision not to add `push:`, and a re-file trigger (spec §5). The `_metaFontWaitCoverage.test.ts` header gets the analyzer's single-file blind spot and the enumerated `CALLERS` limit, both with probe numbers and a re-file trigger (spec §7.3). Neither files a ledger row.
 
-### Task 6 — record the two documented limits
+Verification: `pnpm exec vitest run tests/e2e/_metaFontWaitCoverage.test.ts` — 27 passed. `0909afe87` puts the `impeccable-gate` marker on its own line; `pnpm exec vitest run tests/docs/_metaInvariant8Closeout.test.ts` — 14 passed.
 
-The `lifecycle-layout-e2e.yml` header gets the corrected dark-on-`main` mechanism, the decision not to add `push:`, and a re-file trigger (spec §5). The `_metaFontWaitCoverage.test.ts` header gets the analyzer's single-file blind spot and the enumerated `CALLERS` limit, both with their probe numbers and a re-file trigger (spec §7.3).
+### Task 7 — the modal-wait census (`60454587c`, conflict-resolved in the merge)
 
-Neither files a ledger row, per Eric's directive of 2026-08-25.
+`gotoSection` navigates the crew route through a `url` variable, so the non-literal-goto census gained a candidate. `origin/main` bumped the same count for a different site the same day; the merge resolves to the UNION (19), not either side's 18.
 
-Verification: `pnpm heavy pnpm vitest run tests/e2e/_metaFontWaitCoverage.test.ts` green; `actionlint`/`yaml` parse via the workflow-coverage meta-test, which loads every workflow.
+Verification: `pnpm exec vitest run tests/ci/_metaModalWaitHelper.test.ts tests/ci/_metaModalWaitCandidateV2.test.ts` — 41 passed.
 
-Commit: `docs(ci): record the dark-on-main and font-wait guard limits on their owning surfaces`
+### Task 8 — route the fixture `shows` writes through the per-show lock (`d6602335c`)
 
-### Task 7 — graduate both rows (LAST commit of the PR)
+`tests/e2e/helpers/lockedShowCopy.ts`, the `shows` sibling of `lockedCrewRestriction.ts`: one psql transaction per show, `begin` → `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` → the write → `returning id` → `commit`. The clone is generic over the column list (`to_jsonb(s) || overrides`, then `jsonb_populate_record`), so a column added to `shows` tomorrow is copied rather than silently dropped.
 
-Archive both entries with their measured outcomes, and remove both in-progress markers in the same commit, before the merge (invariant 12).
+Verification: `pnpm exec vitest run tests/help/walker-routes.test.ts` — 7 passed. The file's frozen `EXEMPT_PREEXISTING` count went 7 → 0, so the row is REMOVED rather than shrunk, in the same commit, per the guard's shrink-only contract. **This is where ordering defect one is repaired and where defect two begins** (§1.1): the proof came a round later.
 
-Commit: `docs(ledger): graduate the empty-state proof and tap-target flake rows`
+### Task 9 — prove the lock is held, and finish the call boundary (`95d69f052`)
+
+`walker-routes` recognizes PostgREST mutation syntax and is green with the lock deleted (probed: `mutantWalkerHits: 0`, `lockPresentMutant: false`), so it cannot discharge invariant 2's "tests assert the lock is held". The transaction shape is exported and proved without a database in `tests/e2e/helpers/lockedShowCopy.unit.test.ts`, whose analyzer classifies statement ORDER rather than containment and carries four positive controls asserted RED: lock deleted, lock after the write, a commit between the two, a nested second acquisition.
+
+Same commit closes invariant 9: both remaining calls take `{ data, error }` and USE the data.
+
+Verification: `pnpm exec vitest run tests/e2e/helpers/lockedShowCopy.unit.test.ts` — 5 passed; the spec re-run — 4 passed.
+
+### Task 10 — the executed-count floor (`9550de901`)
+
+`app-e2e.yml` named the spec while `scripts/check-app-e2e-executed.mjs` had no `REQUIRED` row, so a runtime skip of all four cases would have left the job green having proved nothing. The floor is the spec's FULL executable set (4), not a floor of 1, per that table's contract.
+
+Verification: `pnpm exec vitest run tests/cross-cutting/app-e2e-ci-wiring.test.ts tests/ci/appE2eAnnotationPrint.test.ts` — 8 passed. That wiring test, not the coverage meta-test, is what owns `REQUIRED` parity.
+
+### Task 11 — derive the schedule placeholder copy from its owning component
+
+`NO_DATES_COPY` was a transcribed literal, which makes the assertion "the page renders the string this test remembers": green after the component's copy changes, red on a copy edit that is not a defect. It is now extracted from `components/crew/sections/ScheduleSection.tsx` at test start, with a premise that throws by name if no `<EmptyState label="…"/>` is found. The contract becomes what the component DECLARES is what the page RENDERS.
+
+Verification: the spec re-run under CI posture.
+
+### Task 12 — graduate both rows (LAST commit of the PR)
+
+Archive both entries with their measured outcomes, and remove both in-progress markers in the same commit, before the merge (invariant 12). A graduation also owes a `BACKLOG_GRADUATED` row in `tests/docs/_metaDeferralLedgerGraduation.test.ts:99`, one per id, each carrying `provenance: "fix/e2e-proof-retired-route-subpixel"`.
+
+Verification: `pnpm heavy pnpm exec vitest run tests/docs` — the graduation, in-progress and mint-bar meta-tests all green.
 
 ## 4. The product-code edit that was considered and declined
 
@@ -126,4 +142,7 @@ Declined. It is a change under `components/`, so it arms invariant 8 and buys a 
 
 ## 5. Regression budget
 
-Any fix round re-runs the affected task's own verification command, not a narrower one. Specifically: a change to the barrier re-runs the 240-repeat sweep, not the single case, because the defect it repairs is a rate rather than an outcome.
+Any fix round re-runs the affected task's own verification command, named in §3, not a narrower one. Two of those are easy to get wrong and are called out:
+
+- A change to the barrier re-runs the **240-repeat whole-file sweep**, not the single case, because the defect it repairs is a RATE rather than an outcome.
+- A change to the locked helper re-runs **both** `walker-routes.test.ts` and `lockedShowCopy.unit.test.ts`. The first alone is insufficient by measurement: it is green with the lock deleted.
