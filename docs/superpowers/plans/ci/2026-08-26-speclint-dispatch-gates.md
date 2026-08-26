@@ -37,8 +37,11 @@ Four constraints ship with the ruling and bind tasks 8 through 12:
    PR body under "Unfixed peers" and stays flagged.
 3. The convention gets ONE paragraph in `docs/agents/writing-plans.md`, not in
    `AGENTS.md`.
-4. The probe domain is the live plans corpus and the done condition is zero
-   unclaimed ids on it.
+4. The probe domain is the live plans corpus. The done condition, restated after
+   spec R2 finding 4 showed constraints 2 and 4 could not both hold: the corpus's
+   unclaimed set equals a committed residue list EXACTLY, that list holding only
+   the UNSETTLED pairs with their negative evidence. Fail-closed — a new unclaimed
+   id is not on the list and reds the assertion.
 
 ## 0.25 Acceptance criteria, inlined from spec §10
 
@@ -48,8 +51,13 @@ Four constraints ship with the ruling and bind tasks 8 through 12:
 - AC-7: the guard-surface refusal prints one conforming `GUARD SURFACE:` line verbatim, and the AGENTS.md bullet shows the same line; the separator grammar is unchanged and a "plus" line is still refused with exit 2 and no result artifact.
 - AC-8: both ledger rows are archived with `provenance: "feat/speclint-dispatch-gates"`, and the heading arithmetic proves the two `##` headings moved while all seven `###` sub-rows stayed in `BACKLOG.md`, each named in the assertion.
 
-AC-4 is discharged by Task 8, AC-5 by Task 9, AC-6 by Tasks 11 and 12. AC-9 is the mutation score
-and is discharged by the closeout, not by a task.
+- AC-4: `TASK_AC_UNCLAIMED` fires on a declared id no marker cites whose declaring line carries no disposition; hard, exit 1, rendered `FAIL`.
+- AC-5: `TASK_AC_UNDECLARED` fires on a marker citing an id the plan does not declare, in a plan that declares at least one; no id ever draws two of the three codes.
+- AC-6: the corpus's unclaimed set equals the committed residue list exactly, walked from disk, fail-closed.
+- AC-9: `taskContract` scores at or above `scoreFloor` 0.95 with zero unaccepted survivors at the shipping head (discharged by the closeout, not by a task).
+
+These four were previously named only in a prose sentence, which this arc's own arm correctly flags
+as UNDECLARED — the plan cited them from markers without declaring them. Fixed by declaring them.
 
 ## 0.3 Meta-test inventory
 
@@ -181,15 +189,24 @@ these are TDD units like the rest.
 
 <!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts -t unclaimed` red-state=authored red-target=`lib/specLint/taskContract.ts:373` why=`the loop at :373-377 walks marker-cited ids only and there is no traversal in the other direction anywhere in the file, so a declared id nothing cites draws nothing; the new case asserting TASK_AC_UNCLAIMED on such a plan fails` ac=AC-4 -->
 
-Collect the ids the plan declares (a list item or ATX heading whose content begins
-with the id, secondary ids on the same line up to the first sentence end),
-collect the ids every `ac=` cites, and report the declared-and-uncited difference
-— unless the declaring line carries a disposition.
+Collect the ids the plan declares — a list item or ATX heading whose content
+begins with the id, **that LEADING id only, with its end anchored** — collect the
+ids every `ac=` cites, and report the declared-and-uncited difference unless the
+declaring line carries a disposition.
 
-**The disposition set is an ACCEPT-set.** An unrecognised disposition reports the
-id; it never exempts it. A deny-set would fail open on the case nobody modelled,
-which is the direction this arm cannot afford: the whole point is that silence
-and clean look identical to an author.
+Both narrowings are corpus-forced and were refuted into existence across two
+review rounds (spec §4.1): secondary-id collection read four other documents'
+criteria as these plans', and an unanchored id matched inside `AC-1..AC-7`.
+
+**The disposition set is an ACCEPT-set with a stated lexical grammar** (spec §4.3):
+parenthesised and end-anchored, `RETIRED` case-sensitive, owner a token list and
+never free prose. The anchoring is load-bearing and has a live witness —
+`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28` already ends with
+"Task 10.", so a loose matcher exempts a real unclaimed id silently.
+
+An unrecognised disposition REPORTS the id; it never exempts it. A deny-set would
+fail open on the case nobody modelled, which is the direction this arm cannot
+afford: to a plan author, silence and clean are indistinguishable.
 
 `checkTaskContract` already receives the whole `DocModel`
 (`lib/specLint/taskContract.ts:313`), so this is self-contained in a file the
@@ -225,18 +242,22 @@ circular — the registry would supply the very member the census failed to find
 
 <!-- task: red=`pnpm vitest run tests/specLint/acUnclaimedCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28` why=`AC-3 is declared at :28 with no disposition on the line and no marker cites it, so the corpus test this task writes reports a non-empty unclaimed set and fails; it passes only once every such line carries its plan own disposition` ac=AC-6 -->
 
-The corpus test walks every enrolled plan from disk and asserts ZERO unclaimed
-ids, with a `premise()` guard so an empty walk cannot satisfy it vacuously
-(`tests/_shared/premise.ts`, and `tests/specLint/acCoverageCorpus.test.ts` is the
-shape). **That zero is this arm's done condition** — a number outside the guard.
+The corpus test walks every enrolled plan from disk and asserts the unclaimed set
+equals the committed residue list EXACTLY, with a `premise()` guard so an empty
+walk cannot satisfy it vacuously (`tests/_shared/premise.ts`, and
+`tests/specLint/acCoverageCorpus.test.ts` is the shape).
 
-Each of the flagged plans gets a one-line edit, and per spec §4.2 constraint 1
-each edit states ONLY what that plan's prose already says, cited from its own
-line. Per constraint 2, a plan whose prose does not settle the disposition gets
-NO disposition: it goes in the PR body under "Unfixed peers" and stays flagged,
-which means this task's zero is over the plans whose prose settles it, with the
-remainder named. The per-plan classification with quoted evidence is the input to
-this task and is produced before it starts.
+**The unit is a declaring LINE, not a plan.** Measured at plan time under the v3
+grammar: 19 plans, 33 ids, and eight plans need more than one line
+(`app-e2e-batch2` needs five). Per spec §4.2 constraint 1 each edit states ONLY
+what that plan's prose already says, cited from its own line; per constraint 2 a
+plan whose prose settles nothing gets NO disposition and goes on the residue list
+instead, with what was searched. The per-plan classification with quoted evidence
+is committed at `docs/superpowers/specs/probes/2026-08-26-ac-disposition-classification.md`
+and is this task input.
+
+The residue is fail-closed and is a number that may go DOWN as owning arcs resolve
+their own plans, never up.
 
 ## Task 12: the convention paragraph
 
