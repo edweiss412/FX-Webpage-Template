@@ -972,10 +972,20 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       .select("id")
       .single();
     if (error || !data) throw new Error(`T-HUB-ZORDER alert seed failed: ${error?.message}`);
-    const alertId = data.id as string;
+    const alertIds = [data.id as string];
 
     try {
-      await openModal(page, POPUP);
+      // A SHORT panel, not the wide POPUP default, and the dock is why. The
+      // attention menu anchors under the HEADER and the share hub now sits in
+      // the FOOTER (spec 2026-08-25-review-modal-strip-dock §3.1), so at a tall
+      // viewport they are at opposite ends of the column and simply do not
+      // overlap — the precondition below then fails, loudly and correctly,
+      // because the overpaint contest this case exists to test is unreachable
+      // there. Compressing the panel puts the menu's capped height back across
+      // the hub. The DEFECT is unchanged (a stacking context on ShareHub's root
+      // painting its non-positioned triggers over the z-20 menu); only the
+      // geometry that exposes it moved.
+      await openModal(page, { width: 900, height: 620 });
       const menu = page.locator(`${MODAL} [data-testid="${BASE}-attention-menu"]`);
       const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
       if (!(await menu.isVisible())) await pill.click();
@@ -1013,7 +1023,7 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       // Surface a failed cleanup instead of swallowing it: a leaked actionable
       // alert would auto-open the attention menu for every later test in this
       // file and quietly corrupt them. Better to fail this test loudly here.
-      const { error: cleanupError } = await admin.from("admin_alerts").delete().eq("id", alertId);
+      const { error: cleanupError } = await admin.from("admin_alerts").delete().in("id", alertIds);
       if (cleanupError) {
         throw new Error(`T-HUB-ZORDER alert cleanup failed (would leak): ${cleanupError.message}`);
       }
@@ -1106,10 +1116,26 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     expect(caret.width).toBeGreaterThan(9);
     expect(caret.width).toBeLessThan(15);
 
-    // Straddles the panel's top edge - that overlap is what reads as a notch
-    // rather than a detached diamond.
-    expect(caret.y, "caret starts above the panel edge").toBeLessThan(panel.y);
-    expect(caret.y + caret.height, "caret crosses into the panel").toBeGreaterThan(panel.y);
+    // Straddles the panel edge FACING THE TRIGGER — that overlap is what reads
+    // as a notch rather than a detached diamond. WHICH edge is side-dependent
+    // and is read from the placement rather than hardcoded: the hub sits in the
+    // footer since the dock (spec §3.1), so its popover places ABOVE and the
+    // caret hangs off the popover's BOTTOM. Hardcoding either edge makes this
+    // case a restatement of the current slot instead of the notch contract.
+    const side = await page
+      .getByTestId("share-hub-popover")
+      .evaluate((el) => (el as HTMLElement).dataset["popoverSide"] ?? null);
+    expect(side, "the popover carries a placed side").not.toBeNull();
+    const edge = side === "top" ? panel.y + panel.height : panel.y;
+    if (side === "top") {
+      expect(caret.y + caret.height, "caret extends past the panel's bottom edge").toBeGreaterThan(
+        edge,
+      );
+      expect(caret.y, "caret crosses into the panel").toBeLessThan(edge);
+    } else {
+      expect(caret.y, "caret starts above the panel's top edge").toBeLessThan(edge);
+      expect(caret.y + caret.height, "caret crosses into the panel").toBeGreaterThan(edge);
+    }
 
     // NOT clipped away: proven STRUCTURALLY, not by elementFromPoint. The caret
     // is a SIBLING of the panel (unit test: popover does not contain it), so the
@@ -1125,7 +1151,15 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     const overCaret = await page.evaluate(
       ([x, y]: [number, number]) =>
         document.elementFromPoint(x, y)?.getAttribute("data-testid") === "share-hub-caret",
-      [caret.x + caret.width / 2, caret.y + caret.height - 1] as [number, number],
+      // Sampled INSIDE the panel-overlapping half of the caret, which is the
+      // half nearer the panel — the top half when the caret hangs below a
+      // top-placed popover, the bottom half when it sits above a bottom-placed
+      // one. Sampling the outer tip would land beyond the panel and prove
+      // nothing about interception.
+      [caret.x + caret.width / 2, side === "top" ? caret.y + 1 : caret.y + caret.height - 1] as [
+        number,
+        number,
+      ],
     );
     expect(overCaret, "the caret is inert to pointer events").toBe(false);
   });
