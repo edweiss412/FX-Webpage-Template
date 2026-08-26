@@ -160,7 +160,7 @@ The brief's minimum is four records with at least two per trigger. `workflow_dis
 
 ## §3 Convergence criterion for this spec's reviews
 
-**Consequence bound.** Every input each guard sees is either classified correctly or reported as residue with a true declared reason, never silently dropped while the guard reports clean. A conservative decline plus a surfaced documented limit is a DOCUMENTED LIMIT, not a finding.
+**Consequence bound.** Every input each guard sees is correct or signaled, never silently wrong: classified correctly, or reported as residue with a true declared reason. Never dropped in silence while the guard reports clean. A conservative decline plus a surfaced documented limit is a DOCUMENTED LIMIT, not a finding.
 
 **`PROBE DOMAIN:`** the live tracked corpus only — files under `components/**` and `app/**` reachable from `scannedFiles()` (`tests/help/_renderFaultScan.ts:70`), files under `lib/**` in this checkout, the committed `public/help/screenshots/**` baselines, and evidence records produced by real runs of `.github/workflows/screenshots-drift.yml`. A probe against a hand-built fixture, a synthesized TSX file, or a construct appearing nowhere in the tracked tree files to documented limits, not to a finding.
 
