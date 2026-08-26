@@ -817,12 +817,30 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       const panel = page.locator(`[data-testid="${testids[branch]}"]`);
       await expect(panel).toBeVisible();
 
-      const box = await panel.evaluate((el) => ({
-        clientHeight: el.clientHeight,
-        scrollHeight: el.scrollHeight,
-        overflowY: getComputedStyle(el).overflowY,
-        position: getComputedStyle(el).position,
-      }));
+      const box = await panel.evaluate(
+        (el, [panelSel, stripSel, gap, inset]) => {
+          const host = document.querySelector(panelSel as string)!.getBoundingClientRect();
+          const trig = document.querySelector(stripSel as string)!.getBoundingClientRect();
+          const r = el.getBoundingClientRect();
+          return {
+            clientHeight: el.clientHeight,
+            scrollHeight: el.scrollHeight,
+            overflowY: getComputedStyle(el).overflowY,
+            position: getComputedStyle(el).position,
+            side: (el as HTMLElement).dataset["popoverSide"] ?? null,
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            bottom: r.bottom,
+            boundsLeft: host.left + (inset as number),
+            boundsRight: host.right - (inset as number),
+            triggerTop: trig.top,
+            triggerBottom: trig.bottom,
+            gap: gap as number,
+          };
+        },
+        [PANEL, STRIP, GAP, VIEWPORT_INSET] as const,
+      );
       const cap = Math.min(page.viewportSize()!.height * 0.5, 320);
       expect(box.position, "panel is out of flow").toBe("absolute");
       expect(box.overflowY, "long copy scrolls inside the panel, not over the rail").toBe("auto");
@@ -830,6 +848,37 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         box.clientHeight,
         `panel height ${box.clientHeight} <= cap ${cap}`,
       ).toBeLessThanOrEqual(cap + TOL);
+
+      // PER BRANCH, closing round 2's TEST_1 and TEST_2 together. Both findings
+      // were that this loop's guarantees were weaker than its name: it checked
+      // `absolute`, overflow, the cap and reflow, so replacing the error and
+      // success `usePlacedOverlay` refs with PLAIN refs left everything green,
+      // and no case anywhere proved AC-19's full-width placement — a 100px-wide
+      // overlay sitting correctly inside the panel passed. Only the shrink
+      // branch had a side assertion, which is exactly the "two of three" shape
+      // this file already warns about for skin tokens.
+      expect(box.side, `${branch}: the module placed it and wrote a side`).not.toBeNull();
+      const edgeGap =
+        box.side === "top" ? box.triggerTop - box.bottom : box.top - box.triggerBottom;
+      expect(
+        edgeGap,
+        `${branch}: sits GAP from the strip on the ${box.side} side`,
+      ).toBeGreaterThanOrEqual(box.gap - 1);
+      expect(
+        edgeGap,
+        `${branch}: sits GAP from the strip on the ${box.side} side`,
+      ).toBeLessThanOrEqual(box.gap + 1);
+      // AC-19 full width: the overlay spans the placement bounds, not merely
+      // sits inside them. This is the assertion whose absence let a narrow
+      // overlay pass.
+      expect(
+        Math.abs(box.left - box.boundsLeft),
+        `${branch}: left edge ${box.left} spans to bounds ${box.boundsLeft}`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(box.right - box.boundsRight),
+        `${branch}: right edge ${box.right} spans to bounds ${box.boundsRight}`,
+      ).toBeLessThanOrEqual(1);
 
       const after = await bandAndBodyRects(page);
       expect(after.band, "band does not reflow when the overlay opens").toEqual(before.band);

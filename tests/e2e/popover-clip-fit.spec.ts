@@ -879,6 +879,10 @@ async function placeReplica(page: Page, geo: { panel: number; spacer: number }) 
         bannerTop: banner.top,
         bannerBottom: banner.bottom,
         bannerHeight: banner.height,
+        bannerLeft: banner.left,
+        bannerRight: banner.right,
+        boundsLeft: panel.left + (inset as number),
+        boundsRight: panel.right - (inset as number),
         side: el.dataset["popoverSide"] ?? null,
         inlineMaxHeight: el.style.maxHeight,
         visibility: getComputedStyle(el).visibility,
@@ -923,6 +927,18 @@ test.describe("§3.6 — the module selects the side, and the component writes i
     expect(m.inlineMaxHeight, "a fitting side must not be capped").toBe("");
     expect(Math.abs(m.bannerTop - (m.triggerBottom + GAP))).toBeLessThanOrEqual(0.5);
     expect(m.portaledIntoPanel, "the banner portals into the host, not the strip").toBe(true);
+    // AC-19 full width. Round 2 (TEST_2): every case here recorded VERTICAL
+    // geometry only, so a 100px-wide banner positioned correctly inside the
+    // panel passed all of them. Spanning the bounds is the contract; sitting
+    // inside them is not.
+    expect(
+      Math.abs(m.bannerLeft - m.boundsLeft),
+      `banner left ${m.bannerLeft} spans to bounds ${m.boundsLeft}`,
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(m.bannerRight - m.boundsRight),
+      `banner right ${m.bannerRight} spans to bounds ${m.boundsRight}`,
+    ).toBeLessThanOrEqual(1);
   });
 
   test("bottom does not fit but above does: the side FLIPS, still uncapped", async ({ page }) => {
@@ -1164,9 +1180,30 @@ async function headerGeometry(page: Page) {
       const h = r(header);
       const st = r(strip);
       const w = r(sw);
+      const foot = panel?.querySelector("footer") ?? null;
+      const f = r(foot);
+      // The BODY is the TALLEST panel child that is not header, footer or grab.
+      // Found by height rather than by position or name: the panel also carries
+      // a 1px sr-only announce node, and the first draft of this picked THAT,
+      // reporting a body height of 1 and failing the column equation for a
+      // reason that had nothing to do with the column.
+      const bodyEl =
+        Array.from(panel?.children ?? [])
+          .filter(
+            (c) =>
+              c !== header && c !== foot && !/-grab$/.test(c.getAttribute("data-testid") ?? ""),
+          )
+          .sort((a, z) => z.getBoundingClientRect().height - a.getBoundingClientRect().height)[0] ??
+        null;
+      const b = r(bodyEl);
       return {
-        panel: p === null ? null : { top: p.top, bottom: p.bottom },
+        panel:
+          p === null
+            ? null
+            : { top: p.top, bottom: p.bottom, clientHeight: (panel as HTMLElement).clientHeight },
         headerHeight: h === null ? null : h.height,
+        footerHeight: f === null ? null : f.height,
+        bodyHeight: b === null ? null : b.height,
         strip: st === null ? null : { top: st.top, bottom: st.bottom },
         switchRect: w === null ? null : { top: w.top, bottom: w.bottom },
       };
@@ -1223,6 +1260,35 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
           m.switchRect!.bottom,
           `switch bottom ${m.switchRect!.bottom} falls below the panel at load ${load.label}`,
         ).toBeLessThanOrEqual(m.panel!.bottom + 0.5);
+
+        // TOP edges too, and the column itself. Round 2 (TEST_3): checking only
+        // the two BOTTOM edges left the top edges, the column equation and a
+        // nonzero body unchecked in every one of the twelve cells, so a
+        // load-specific body collapse to zero passed the whole sweep. The
+        // separate equation case runs at only two viewports, so it cannot cover
+        // this matrix.
+        expect(
+          m.strip!.top,
+          `strip top ${m.strip!.top} rides above the panel at load ${load.label}`,
+        ).toBeGreaterThanOrEqual(m.panel!.top - 0.5);
+        expect(
+          m.switchRect!.top,
+          `switch top ${m.switchRect!.top} rides above the panel at load ${load.label}`,
+        ).toBeGreaterThanOrEqual(m.panel!.top - 0.5);
+        expect(
+          m.bodyHeight,
+          `body collapsed to ${m.bodyHeight} at load ${load.label} — the column is degenerate`,
+        ).toBeGreaterThan(0);
+        expect(m.footerHeight, `footer missing at load ${load.label}`).not.toBeNull();
+        expect(m.footerHeight, `footer collapsed at load ${load.label}`).toBeGreaterThan(0);
+        // The full column EQUATION is deliberately not re-asserted here. It is
+        // owned by T-LAYOUT in published-review-modal.layout.spec.ts, which
+        // measures grab/header/main/footer against `panel.clientHeight` with
+        // the non-vacuity checks that make it meaningful. Restating it against
+        // a heuristically-identified body would be a weaker copy of a stronger
+        // assertion, and the round-2 finding this closes was specifically that
+        // a body COLLAPSE passes the sweep — which the nonzero checks above
+        // catch in all twelve cells, at viewports T-LAYOUT does not visit.
       }
     });
   }
