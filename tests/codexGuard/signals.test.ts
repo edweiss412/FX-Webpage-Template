@@ -114,6 +114,11 @@ describe("codex-guard signals + spawn errors", () => {
         "spec",
         "--round",
         "1",
+        // This spawn bypasses runGuard, so it never receives the harness's
+        // --no-lint-gate injection. `spec` is a GATED stage and no --lint-doc is
+        // named here, so the coverage arm would refuse before this test's
+        // subject (signal handling / rollout scraping) is ever reached.
+        "--no-lint-gate",
       ],
       {
         env: guardEnv(run, {
