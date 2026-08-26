@@ -124,7 +124,20 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // counted survivor at all: an `accepted-gap` appearing here would be this surface's
   // first, owing its own filing AND a `scoreFloor` edit, and a new equivalent row is a
   // coverage regression to explain.
-  psqlStartupScan: { equivalent: 30 },
+  // THIRTY-ONE from 2026-08-25: BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND adds
+  // `doubleQuotedEnd`, the second of the two per-context recognizers the crossing
+  // repair introduces, and its loop header is a FURTHER SITE of the same one
+  // argument above rather than a new story. The row is owed an explanation because
+  // a new equivalent row is a coverage regression: the explanation is that the
+  // repair adds a character-indexing loop, and every such loop on this surface has
+  // carried this bound. Deletion was refused for the reason the family already
+  // records -- the bound is the loop's only terminator, so removing it moves
+  // termination into the predicate where an equality-flip mutant hangs -- which is
+  // also why the family's fifth member could be deleted and this one cannot: that
+  // one sat in a removable branch, this is a loop header. A killing test was
+  // attempted over ten inputs driving an unterminated double-quoted span to end of
+  // text and could not be built; the row carries that probe.
+  psqlStartupScan: { equivalent: 31 },
   // The pane-compaction classifier, enrolled with an EMPTY ledger: it is a pure
   // classifier over injected fixtures, so every survivor is repayable by a test
   // rather than blessable. A row appearing here later is a coverage regression
@@ -283,6 +296,16 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // declaration and a row appearing here later is a regression to explain.
   pgCronSmokes: {},
   popoverOverlayExtract: { equivalent: 2 },
+  // BL-ADMIN-LOADER-CI-TRANSIENT (2026-08-24). Both enrolled with an EMPTY ledger
+  // because neither has been SCORED yet — the run is slot-gated, and these two
+  // declarations exist so the parity contracts are green at enrolment rather than
+  // after. Empty is a claim, not a placeholder: it says every mutant is expected to
+  // die. If the run produces survivors, the honest repair is a row here WITH its
+  // argument, in the same commit as the accepted row in the registry. The W-NEARMISS
+  // note below is the standing warning about exactly this pair of files drifting.
+  supabaseRetryingFetch: {},
+  supabaseRetryEligibility: {},
+  retryableRpcVolatilityScan: {},
   renderedTextHaystack: {},
   // W-NEARMISS (2026-08-15). Both surfaces were enrolled with an EMPTY ledger, and
   // the note that stood here said both were expected to STAY empty. That was

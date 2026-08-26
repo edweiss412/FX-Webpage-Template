@@ -107,6 +107,9 @@ beforeEach(() => {
     get: (k: string) => headerMap.get(k.toLowerCase()) ?? null,
   } as unknown as Awaited<ReturnType<typeof headers>>);
   vi.mocked(revalidatePath).mockReset();
+  // mockReset, not only mockResolvedValue: a queued *Once value a case did not
+  // consume would otherwise leak into the next case.
+  vi.mocked(cookies).mockReset();
   vi.mocked(cookies).mockResolvedValue({
     get: (name: string) =>
       name === COOKIE_NAME && existingCookie ? { name, value: existingCookie } : undefined,
@@ -258,6 +261,130 @@ describe("clearIdentity telemetry — PICKER_IDENTITY_CLEARED", () => {
       expect.any(String),
       expect.objectContaining({ code: "PICKER_IDENTITY_CLEARED" }),
     );
+  });
+});
+
+describe("clearIdentity signs the device out, then clears the entry (spec §3)", () => {
+  // BL-SWITCH-PERSON-GOOGLE-LOOPBACK: the menu's "Not you? Switch person" used to
+  // clear the entry only, so a Google-resolved viewer bootstrapped straight back
+  // into the same identity. Sign-out comes FIRST on this path (spec §3.2): the
+  // core schedules revalidatePath, and a re-render with the session still live
+  // is exactly that loopback, hiding the failure the menu is supposed to show.
+  const seedEntry = () => {
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
+      KEY,
+    );
+  };
+  const submit = () => clearIdentity(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }));
+  const pickerCookieWrites = () =>
+    cookieSet.mock.calls.filter(([name]) => name === COOKIE_NAME).length;
+  const sweepWrites = () =>
+    cookieSet.mock.calls.filter(([name]) => String(name).startsWith("sb-")).length;
+
+  test("signs out BEFORE clearing the picker entry, returns ok, and does not redirect", async () => {
+    seedEntry();
+    // The mocked redirect throws a NEXT_REDIRECT digest, so resolving is the no-redirect proof.
+    await expect(submit()).resolves.toEqual({ ok: true });
+    expect(calls.indexOf("signOutResolved")).toBeGreaterThanOrEqual(0);
+    expect(calls.indexOf("cookieSet")).toBeGreaterThanOrEqual(0);
+    expect(calls.indexOf("signOutResolved")).toBeLessThan(calls.indexOf("cookieSet"));
+    expect(pickerCookieWrites()).toBe(1);
+    expect(revalidatePath).toHaveBeenCalledWith(`/show/${SLUG}/${TOKEN}`);
+  });
+
+  test("signs out device-locally, exactly once", async () => {
+    seedEntry();
+    await submit();
+    expect(supabaseMock.signOut).toHaveBeenCalledTimes(1);
+    expect(supabaseMock.signOut).toHaveBeenCalledWith({ scope: "local" });
+  });
+
+  test("with no picker cookie the clear is a no-op and the sign-out still runs", async () => {
+    // A Google viewer whose entry was already re-minted elsewhere is exactly the
+    // loopback case; gating the sign-out on "entry existed" would reopen it.
+    await expect(submit()).resolves.toEqual({ ok: true });
+    expect(supabaseMock.signOut).toHaveBeenCalledTimes(1);
+    expect(supabaseMock.signOut).toHaveBeenCalledWith({ scope: "local" });
+  });
+
+  test.each([
+    [
+      "signOut returns an error",
+      () => supabaseMock.signOut.mockResolvedValueOnce({ error: { message: "gateway" } }),
+      "sign_out_returned_error",
+    ],
+    [
+      "signOut throws",
+      () =>
+        supabaseMock.signOut.mockImplementationOnce(async () => {
+          calls.push("signOut");
+          throw new Error("network");
+        }),
+      "sign_out_threw",
+    ],
+    [
+      "the client cannot be constructed",
+      () => {
+        supabaseMock.throwOnCreate = true;
+      },
+      "client_construction",
+    ],
+    [
+      "the residual-cookie sweep throws after revocation",
+      () =>
+        // Throws only for Supabase auth cookie names, so only the sweep can fault.
+        cookieSet.mockImplementation((name: string) => {
+          calls.push("cookieSet");
+          if (name.startsWith("sb-")) throw new Error("sweep");
+        }),
+      "residual_cookie_sweep",
+    ],
+  ])(
+    "%s: PICKER_RESOLVER_LOOKUP_FAILED, forensic emit names THIS action and the stage, nothing revalidated",
+    async (_label, arrange, stage) => {
+      seedEntry();
+      arrange();
+      await expect(submit()).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      expect(logMock.error).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          code: "AUTH_SIGNOUT_FAILED",
+          source: "auth.picker.clearIdentity",
+          stage,
+          showId: SHOW_ID,
+        }),
+      );
+      // The spec-review round-1 defect: a revalidate here re-renders with the
+      // session live and bootstrap re-mints the identity, hiding the failure.
+      expect(revalidatePath).not.toHaveBeenCalled();
+      expect(pickerCookieWrites()).toBe(0);
+    },
+  );
+
+  test("invalid input is refused before any client is built", async () => {
+    seedEntry();
+    const r = await clearIdentity(fd({ slug: SLUG, shareToken: TOKEN, showId: "not-a-uuid" }));
+    expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+    expect(supabaseMock.createClient).not.toHaveBeenCalled();
+    expect(supabaseMock.signOut).not.toHaveBeenCalled();
+    expect(cookieSet).not.toHaveBeenCalled();
+  });
+
+  test("a clearIdentityCore failure after a successful sign-out is reported, not swallowed", async () => {
+    seedEntry();
+    // Two cookies() calls on this path: the sweep's (clearIdentity.ts signOutThisDevice),
+    // then the core's. Feed the first, fault the second, and PROVE which one faulted
+    // by the sweep's writes: a chain that faulted the sweep would leave none.
+    const store = await vi.mocked(cookies)();
+    vi.mocked(cookies)
+      .mockResolvedValueOnce(store)
+      .mockRejectedValueOnce(new Error("cookie store down"));
+    await expect(submit()).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    expect(calls).toContain("signOutResolved");
+    expect(sweepWrites()).toBeGreaterThan(0);
+    expect(pickerCookieWrites()).toBe(0);
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 });
 
@@ -476,15 +603,6 @@ describe("clearIdentityAndSkip — guest sign-out (spec §4.3)", () => {
       expect.objectContaining({ code: "AUTH_SIGNOUT_FAILED", stage }),
     );
   });
-
-  test("clearIdentity (non-skip) never constructs a Supabase client", async () => {
-    seedEntry();
-    // The identity chip's "not me" control (components/auth/IdentityChip.tsx)
-    // calls this on the viewer's OWN device; it must not destroy a session.
-    await expect(clearIdentity(fdFull())).resolves.toEqual({ ok: true });
-    expect(supabaseMock.createClient).not.toHaveBeenCalled();
-    expect(supabaseMock.signOut).not.toHaveBeenCalled();
-  });
 });
 
 describe("same-origin gate (BL-SERVER-ACTION-ORIGIN-GATE)", () => {
@@ -506,6 +624,7 @@ describe("same-origin gate (BL-SERVER-ACTION-ORIGIN-GATE)", () => {
     const r = await clearIdentity(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }));
     expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
     expect(cookieSet).not.toHaveBeenCalled(); // seeded cookie holds SHOW_ID → a late-gate mutant WOULD write
+    expect(supabaseMock.signOut).not.toHaveBeenCalled(); // this path signs out too now; the gate stays ahead of it
     // R6-F1: assert the emit's `action`, not just `code`. Deleting clearIdentity's
     // OWN guard makes it delegate to clearIdentityCore, whose guard emits
     // action:"clearIdentityCore" — so this fails, killing the "gate only core,

@@ -929,7 +929,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                     restoreResyncFocusRef.current = true;
                     setHeldShrink(null);
                   }}
-                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-text-faint bg-bg px-3.5 text-[13px] font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-control-outline-tinted bg-bg px-3.5 text-[13px] font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Keep current version
                 </button>

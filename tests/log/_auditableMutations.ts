@@ -634,6 +634,12 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   "DRIVE_WEBHOOK_INFRA_FAULT",
   "DRIVE_WATCH_RENEWAL_FAILED",
   "DRIVE_WATCH_INFRA_FAULT",
+  // supabase upstream-retry surface (2026-08-25): the wrapper's per-retry record. Forensic-only —
+  // it is not a §12.4 catalog row because nothing user-visible reads it; it exists so an absorbed
+  // transient fault leaves a durable trace instead of vanishing, which is the whole point of
+  // absorbing it. Registered here because the plan requires it and because omission is otherwise
+  // invisible: the producer scan would simply never see the code.
+  "SUPABASE_UPSTREAM_RETRY",
   // Drive-webhook telemetry completeness (2026-07-03): findings #17/#18/#19/#6 —
   // token-invalid per-event forensic warn on the security-relevant 401 ingress,
   // channel activation + stop-failure lifecycle events, and the stale-pending

@@ -31,6 +31,8 @@
  *
  * Server Component (no 'use client').
  */
+import { ChevronRight } from "lucide-react";
+
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { messageFor, type MessageParams } from "@/lib/messages/lookup";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
@@ -110,9 +112,20 @@ export function ErrorExplainer({
         cosmetic.
       */}
       {showHelpfulContext ? (
-        <details className="mt-3 list-none text-sm text-text-subtle [&::-webkit-details-marker]:hidden [&_summary::-webkit-details-marker]:hidden [&_summary]:list-none">
+        <details className="group mt-3 list-none text-sm text-text-subtle [&::-webkit-details-marker]:hidden [&_summary::-webkit-details-marker]:hidden [&_summary]:list-none">
+          {/* The comment above says removing the marker is purely cosmetic; it
+              was not, because nothing replaced it, and "Helpful context" then
+              read as a heading rather than as something that opens (design doc
+              2026-08-25-ui-polish-class-sweep-design.md, D10 — the same shape as
+              BL-RUNOFSHOW-SUMMARY-NO-MARKER, swept with it). The native
+              semantics the comment relies on are unchanged; this is the SIGHTED
+              affordance they always had and this site had lost. */}
           <summary className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center">
             Helpful context
+            <ChevronRight
+              aria-hidden="true"
+              className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
+            />
           </summary>
           <p data-testid="error-explainer-helpful-context" className="mt-2">
             {renderCatalogEmphasis(entry.helpfulContext!, params)}

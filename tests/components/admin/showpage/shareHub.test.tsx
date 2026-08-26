@@ -1139,6 +1139,19 @@ describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-p
 });
 
 describe("mobile split actions row (spec 2026-07-24-strip-mobile-stacked-band §3 R3)", () => {
+  /**
+   * The §3 R3 class contract, minus the border COLOUR, which moved on
+   * 2026-08-25. R3's skin sent it to `border-border` (1.27:1 below 640px on a
+   * control measuring 3.35:1 above it); DESIGN.md §1.2a's control-outline rule
+   * supersedes that one clause, and every other R3 class below is untouched
+   * (design doc 2026-08-25-ui-polish-class-sweep-design.md, D1, closing
+   * BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT).
+   *
+   * The retired token is asserted ABSENT rather than merely not-listed: with
+   * `toContain` over a class string, dropping a row from the list below is
+   * indistinguishable from the class going away, so the list alone cannot tell
+   * a half-revert from a clean one.
+   */
   it("root spans; primary carries the FULL §3 R3 class contract; kebab bordered square", () => {
     renderHub();
     const primary = screen.getByTestId("share-hub-primary");
@@ -1148,7 +1161,7 @@ describe("mobile split actions row (spec 2026-07-24-strip-mobile-stacked-band §
       "max-sm:min-h-tap-min",
       "max-sm:rounded-sm",
       "max-sm:border",
-      "max-sm:border-border",
+      "max-sm:border-text-faint",
       "max-sm:whitespace-nowrap",
       "max-sm:min-w-0",
       "max-sm:overflow-hidden",
@@ -1161,9 +1174,12 @@ describe("mobile split actions row (spec 2026-07-24-strip-mobile-stacked-band §
       "max-sm:min-w-tap-min",
       "max-sm:rounded-sm",
       "max-sm:border",
-      "max-sm:border-border",
+      "max-sm:border-text-faint",
     ]) {
       expect(kebab.className).toContain(cls);
+    }
+    for (const el of [primary, kebab]) {
+      expect(el.className).not.toContain("max-sm:border-border");
     }
     const root = screen.getByTestId("share-hub-root");
     expect(root.className).toContain("max-sm:w-full");

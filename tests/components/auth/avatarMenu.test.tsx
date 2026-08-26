@@ -596,6 +596,34 @@ describe("the switch-person failure state", () => {
     ); // re-enabled
   });
 
+  it("announces the pending switch: aria-busy on the item, a polite status region OUTSIDE the menu (impeccable P1)", async () => {
+    // The clear now signs the device out, so the pending window holds a network
+    // round trip; dimming alone announced nothing (WCAG 2.1 4.1.3).
+    const d = deferred<ClearIdentityResult>();
+    renderWith(() => d.promise);
+    // Always mounted, text empty before any tap: the BL-ANNOUNCE-REGION-UNMOUNT-CLASS shape.
+    const region = screen.getByTestId("avatar-menu-switch-announcer");
+    expect(region.getAttribute("role")).toBe("status");
+    expect(region.textContent).toBe("");
+    openMenu();
+    const item = screen.getByTestId("avatar-menu-switch-person");
+    expect(item.getAttribute("aria-busy")).toBeNull();
+    act(() => {
+      fireEvent.click(item);
+    });
+    expect(item.getAttribute("aria-busy")).toBe("true");
+    expect(region.textContent).toBe("Switching person");
+    // Outside role=menu: a status is not a menu item, and AT may ignore
+    // descendant changes under an aria-busy ancestor.
+    expect(screen.getByRole("menu").contains(region)).toBe(false);
+    await act(async () => {
+      d.resolve({ ok: true });
+      await d.promise;
+    });
+    expect(item.getAttribute("aria-busy")).toBeNull();
+    expect(region.textContent).toBe("");
+  });
+
   it("keyboard reaches the pending switch item by all four commands, and re-activation is a no-op", async () => {
     // Held open by a deferred, and RESOLVED at the end of this test. A promise
     // that never settles leaves an async transition permanently in flight, and
