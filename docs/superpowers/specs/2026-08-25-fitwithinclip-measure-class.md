@@ -223,28 +223,39 @@ Fact 4 is why `reapplyKey` stays a dependency of a callback that does not read i
 
 The hook has one parameter and one runtime input.
 
-**`reapplyKey` is not the only variable, and round-10 finding 1 caught these rows written as if it
-were.** What happens on a re-render is decided by the PAIR: did the key change, and did the node's
-presence change. Measured on the §2 shape, with a control row proving the instrument is not itself
-causing the attaches it reports:
+**`reapplyKey` is not the only variable**, and a re-render's outcome is decided by the PAIR: did the
+key change, and did the node's presence change. Round 10 caught these rows stated over the key alone;
+round 11 caught a cell missing from the hand-written list. So the table is now **generated from the
+cross product rather than enumerated** — 2 key states × 2 before × 2 after — and a missing cell is
+impossible by construction. The probe is committed at
+`docs/superpowers/specs/2026-08-25-fitwithinclip-key-node-matrix.probe.tsx`; its output, verbatim:
 
 ```
-PAIR2 CONTROL_NOTHING_MOVES         []
-PAIR2 UNCHANGED_KEY_NODE_APPEARS    ["attach","apply"]
-PAIR2 CHANGED_KEY_NO_NODE           []
-PAIR2 CHANGED_KEY_AND_NODE_APPEARS  ["attach","apply"]
-PAIR2 UNCHANGED_KEY_NODE_DISAPPEARS ["cleanup"]
-PAIR2 CHANGED_KEY_NODE_STAYS        ["cleanup","attach","apply"]
+MX key=unchanged node=stays-absent  []
+MX key=unchanged node=appears       ["attach","apply"]
+MX key=unchanged node=disappears    ["cleanup"]
+MX key=unchanged node=stays-present []
+MX key=CHANGED   node=stays-absent  []
+MX key=CHANGED   node=appears       ["attach","apply"]
+MX key=CHANGED   node=disappears    ["cleanup"]
+MX key=CHANGED   node=stays-present ["cleanup","attach","apply"]
+MX CELLS=8 (2 key x 2 from x 2 to = 8, complete by construction)
 ```
+
+**One cell in eight does a detach-and-reattach**, and it is the only one: a changed key with the node
+still present. Every other cell is at most one operation. That is the whole behaviour, and it is
+worth stating as one sentence because six rounds of prose about `reapplyKey` never did.
 
 | `reapplyKey` | Node presence | Behaviour | Pinned by |
 | --- | --- | --- | --- |
-| unchanged | unchanged | **Nothing at all.** No attach, no measure, no teardown | (h9) |
-| unchanged | appears | One attach, one measure. No detach — there was nothing attached | (h14), (h15) |
+| unchanged | stays absent | Nothing | (h18) |
+| unchanged | appears | One attach, one measure | (h14), (h15) |
 | unchanged | disappears | Teardown only | (h3), (h21) |
-| changed | absent throughout | **Nothing at all** — the callback identity changed but no node ever received it | (h18) |
-| changed | appears | One attach, one measure. **NOT a detach-then-attach**: nothing was attached to detach. This is `PublishedToggle`'s shipped shape, where the key IS the mounting condition | (h16) |
-| changed | unchanged (still present) | Teardown, then attach, then measure — the `X → D → Y` route | (c), (h17) |
+| unchanged | stays present | **Nothing at all** — the control that catches an identity-churning callback | (h9) |
+| changed | stays absent | Nothing. The callback identity changed and no node ever received it | (h18) |
+| changed | appears | One attach, one measure. **NOT detach-then-attach** — nothing was attached. `PublishedToggle`'s shipped first-error case, where the key IS the mounting condition | (h16) |
+| changed | disappears | Teardown only. `PublishedToggle`'s shipped CLOSE path: submitting again clears the error (`components/admin/PublishedToggle.tsx:116-117`), and the one boolean drops both the key and the banner in the same commit | (h16), second half |
+| changed | stays present | Teardown, attach, measure — the `X → D → Y` route, and the only cell that takes it | (c), (h17) |
 
 The `reapplyKey` VALUE matters only for the identity comparison React does on the callback, which is
 `Object.is` and not ours. Two further value cases:
@@ -351,6 +362,7 @@ any case at all before round 7.
 | `reapplyKey` changes in the same commit that attaches the node | One attach, one measure. This is `PublishedToggle`'s shipped shape (§0.1) |
 | A `transitionend` arrives mid-teardown | The listener is removed BEFORE `coalescer.cancel()`, so a late event cannot schedule after the cancel |
 | The conditional host hides and reappears, owner mounted throughout | F → D → F, with `nodeRef.current = null` in between so a stale `apply()` cannot measure a removed node |
+| The key and the node drop together | Teardown only, no re-attach — `PublishedToggle`'s close path, §2.2's `changed / disappears` cell. The one boolean gates both |
 | A re-render with a stable ref while the DOM's clip status changes | **Nothing happens**, deliberately — the probe above. The cap corrects on the next signal. This is a documented limit, §7, not a defect |
 
 Nothing here animates. Every transition is instant by design: this hook exists to write a cap
@@ -473,7 +485,8 @@ about those. Reading a count without knowing its harness is how §0.1 went wrong
 | (h12) | always-present | The `ResizeObserver` callback actually re-measures. That arm had NO behavioural case at all; case (d) discards the constructor callback | M11 |
 | (h13) | conditional, in `<StrictMode>` | Strict Mode's replay counts, asserted EXACTLY — including `ReSyncButton`'s dev apply going to 2, pinned as 2 rather than wished down to 1 | M13 |
 | (h14) | conditional | One owner render per appearance on the plainest live shape. The arc's headline in its minimal form | M12 |
-| (h15), (h16), (h17) | one per lifecycle: `ReSyncButton` conditional, `PublishedToggle` key-is-the-condition, `AttentionMenuPanel` always-present | One case per shipped lifecycle (§0.1), both modes. (h17) asserts TWO snapshots — the attach, then the totals after the entrance frame (§0.1a) | M14, M17 |
+| (h16) | `PublishedToggle` key-is-the-condition | BOTH directions of that shape: the first error (key changes AND node appears — one attach, no detach) and the close (key changes AND node disappears — teardown only). §2.2's two `changed` cells that are not `X → D → Y` | M21 |
+| (h15), (h17) | one per remaining lifecycle: `ReSyncButton` conditional, `PublishedToggle` key-is-the-condition, `AttentionMenuPanel` always-present | One case per shipped lifecycle (§0.1), both modes. (h17) asserts TWO snapshots — the attach, then the totals after the entrance frame (§0.1a) | M14, M17 |
 | (h18) | hook called, ref never attached | The hook called with its ref NEVER attached — `PublishedToggle`'s default `card` variant. Zero applies, zero walks, no throw | M16 |
 | (h19), (h20) | always-present, driven by a signal | The two SIGNAL-driven edges. Each asserts the re-render changed nothing FIRST, then signals and asserts the cap appears (h19) or is removed (h20) | M18, M19 |
 | (h21), (h22) | always-present, unclipped | State N still holds an observer on the positioned ancestor, and the teardown disconnects it. Four rounds of this inventory claimed otherwise | M20 |
