@@ -216,7 +216,7 @@ they fail at assert time:
 | `tests/mutation/source/shardPartition.ts:26` | `= 4` | `= 8` |
 | `.github/workflows/mutation-harness.yml:158` | `shard: [0, 1, 2, 3]` | `shard: [0, 1, 2, 3, 4, 5, 6, 7]` |
 | `.github/workflows/mutation-harness.yml:296` | `SOURCE_SHARD_COUNT: "4"` | `"8"` |
-| `tests/ci/_workflowCoverageScan.ts:1542` | `values: [{ text: "4", …}]` | `text: "8"` |
+| `tests/ci/_workflowCoverageScan.ts:1560` | `values: [{ text: "4", …}]` | `text: "8"` |
 | `package.json`, the `mutation:guards` script (line 58 today) | shard0..shard3 named literally | shard0..shard7 |
 
 **Class B, prose that fails silently.** Comments and case titles spelling the count as a word or
@@ -494,7 +494,7 @@ One new case, and the rest is already pinned:
 | the budget step's env equals the constant | `_metaSourceShardIntegrity.test.ts:274-278` |
 | `timeout-minutes >= 2 * budget + 300 s` | `_metaSourceShardIntegrity.test.ts:503-554` |
 | the vitest family count | `_metaSourceShardIntegrity.test.ts:137` |
-| the workflow's value text | `tests/ci/_workflowCoverageScan.ts:1542` |
+| the workflow's value text | `tests/ci/_workflowCoverageScan.ts:1560` |
 | the partition is total and disjoint | `tests/mutation/guardSurfaces.gates.test.ts` |
 | the binding leg fits the budget | NEW, replacing the deleted breach case (§2.3) |
 | the tracked shard range follows the count | NEW, AC-7 (§2.1 Class C) |
