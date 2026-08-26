@@ -163,14 +163,7 @@ type ReservationRow = Record<string, unknown>;
 type Template = { show: ShowRow; reservations: ReservationRow[] };
 
 /** A disposable copy of the template, addressable on the crew route. */
-type Copy = {
-  showId: string;
-  slug: string;
-  shareToken: string;
-  driveFileId: string;
-  /** How many reservation rows this copy was given, so cleanup can check its own work. */
-  reservationCount: number;
-};
+type Copy = { showId: string; slug: string; shareToken: string; driveFileId: string };
 
 async function readTemplate(): Promise<Template> {
   // not-subject-to-meta: test-local fixture lookup.
@@ -247,10 +240,8 @@ async function makeCopy(
     throw new Error(`no share_token minted for copied show ${showId}`);
   }
 
-  let reservationCount = 0;
   if (opts.withReservations && t.reservations.length > 0) {
     const rows = t.reservations.map((r) => ({ ...r, id: randomUUID(), show_id: showId }));
-    reservationCount = rows.length;
     // hotel_reservations is NOT an invariant-2 locked table, so the
     // service-role PostgREST client is the right instrument here.
     // not-subject-to-meta: test-local fixture write.
@@ -265,7 +256,7 @@ async function makeCopy(
       );
     }
   }
-  return { showId, slug, shareToken: token.share_token as string, driveFileId, reservationCount };
+  return { showId, slug, shareToken: token.share_token as string, driveFileId };
 }
 
 test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)", () => {
@@ -300,31 +291,15 @@ test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)",
 
   test.afterAll(async () => {
     if (created.length === 0) return;
-    // Every response is destructured and checked. A cleanup that discards its
-    // results fails silently and leaves fixture rows behind for the NEXT spec
-    // to trip over, which is the shape invariant 9 exists to stop.
-    // not-subject-to-meta: test-local fixture cleanup.
-    const { data: removed, error: resError } = await admin
-      .from("hotel_reservations")
-      .delete()
-      .in(
-        "show_id",
-        created.map((c) => c.showId),
-      )
-      .select("id");
-    if (resError) throw new Error(`reservation cleanup failed: ${resError.message}`);
-    // `data` is CHECKED, not merely named. A delete that matches nothing returns
-    // no error, so the returned row count is the only signal the cleanup removed
-    // what the run created — and each copy recorded how many rows it was given,
-    // so the expected total is derived rather than assumed.
-    const expectedReservations = created.reduce((n, c) => n + c.reservationCount, 0);
-    if ((removed ?? []).length !== expectedReservations) {
-      throw new Error(
-        `reservation cleanup removed ${(removed ?? []).length} rows, expected ${expectedReservations}`,
-      );
-    }
-    // show_share_tokens rows are removed by the shows delete's FK cascade;
-    // `shows` itself goes through the locked path, one transaction per show.
+    // ONE cleanup, not three. `hotel_reservations_show_id_fkey` and
+    // `show_share_tokens_show_id_fkey` are both ON DELETE CASCADE, so removing
+    // the show removes its reservations and its share token with it. A separate
+    // PostgREST delete for each would be a second and third success signal to
+    // get right, and the reservation one shipped briefly without a negative
+    // proof — deleting it is cheaper than proving it.
+    //
+    // `shows` goes through the locked path, one transaction per show, and
+    // deleteShowsLocked fails loudly for any show whose delete returned no row.
     deleteShowsLocked(created.map((c) => c.driveFileId));
   });
 

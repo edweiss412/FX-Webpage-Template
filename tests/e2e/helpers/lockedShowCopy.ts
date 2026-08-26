@@ -87,18 +87,66 @@ export function deleteShowBody(driveFileId: string): string {
   return `delete from public.shows where drive_file_id = ${sqlString(driveFileId)} returning id;`;
 }
 
-/** Run one locked statement block and return psql's tuple-only stdout. */
-function runLocked(caller: string, driveFileId: string, body: string): string {
-  const sql = lockedStatement(driveFileId, body);
+/**
+ * Runs one SQL block and returns its stdout. Injectable so the unit proof can
+ * drive the REAL `copyShowLocked` / `deleteShowsLocked` and read back the exact
+ * SQL they emit, key and all.
+ *
+ * Why that matters: a proof that hand-composes `lockedStatement` with a body
+ * tests neither the key each caller CHOOSES nor that `runLocked` forwards it.
+ * A drift at either join locks the wrong show, leaves both writes functionally
+ * successful, and keeps every lexical guard green (plan review R2 F3).
+ */
+export type SqlExecutor = (sql: string) => string;
+
+/** The real executor. `-q` is load-bearing: see `assertDeletedRows`. */
+function psqlExecutor(sql: string): string {
   // Resolved HERE, at the spawn, not at import: a mistargeted DSN must be
   // refused before it reaches a database. See lockedCrewRestriction's header.
   const dsn = psqlTarget();
+  return execFileSync("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-At", dsn], {
+    input: sql,
+    encoding: "utf8",
+    env: psqlChildEnv({ honorRemoteOptIn: true }),
+  });
+}
+
+/** A row id line, which is the only output a `RETURNING id` under `-Atq` emits. */
+const UUID_LINE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Decide whether a `DELETE ... RETURNING id` actually removed a row.
+ *
+ * PURE, and separate from the spawn, so it has a negative proof: the unit test
+ * feeds it the outputs a database really produces instead of asserting about a
+ * happy path it constructed.
+ *
+ * WHY NOT "stdout is non-empty". That was the first version and it was vacuous.
+ * `psql -At` still prints the COMMAND STATUS — `-t` suppresses headers and the
+ * row-count footer, not the status line — so a zero-row delete returns the
+ * non-empty string `DELETE 0` and the check reported success (spec review R4
+ * F2). `-q` silences the status, and requiring an actual id LINE means the
+ * check cannot be satisfied by any status text even if a future psql or a
+ * `PSQL*` setting puts one back.
+ */
+export function assertDeletedRows(stdout: string, driveFileId: string): void {
+  const ids = stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => UUID_LINE.test(l));
+  if (ids.length === 0) {
+    throw new Error(
+      `${driveFileId}: delete returned no row id (already gone, or never created) — psql said: ${JSON.stringify(
+        stdout.trim().slice(0, 120),
+      )}`,
+    );
+  }
+}
+
+function runLocked(caller: string, driveFileId: string, body: string, exec: SqlExecutor): string {
+  const sql = lockedStatement(driveFileId, body);
   try {
-    return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", dsn], {
-      input: sql,
-      encoding: "utf8",
-      env: psqlChildEnv({ honorRemoteOptIn: true }),
-    });
+    return exec(sql);
   } catch (err) {
     throw new Error(
       `lockedShowCopy: ${caller} failed for ${driveFileId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -118,6 +166,7 @@ function runLocked(caller: string, driveFileId: string, body: string): string {
 export function copyShowLocked(
   templateDriveFileId: string,
   overrides: Record<string, unknown>,
+  exec: SqlExecutor = psqlExecutor,
 ): void {
   const newDriveFileId = overrides["drive_file_id"];
   if (typeof newDriveFileId !== "string" || newDriveFileId.length === 0) {
@@ -131,6 +180,7 @@ export function copyShowLocked(
     "copyShowLocked",
     newDriveFileId,
     copyShowBody(templateDriveFileId, overrides),
+    exec,
   );
   if (!stdout.includes(newId)) {
     throw new Error(
@@ -152,20 +202,17 @@ export function copyShowLocked(
  * matches nothing raises no error, so an empty result is the only signal that
  * a fixture show outlived its run.
  */
-export function deleteShowsLocked(driveFileIds: readonly string[]): void {
+export function deleteShowsLocked(
+  driveFileIds: readonly string[],
+  exec: SqlExecutor = psqlExecutor,
+): void {
   const failures: string[] = [];
   for (const dfid of driveFileIds) {
     try {
-      const stdout = runLocked("deleteShowsLocked", dfid, deleteShowBody(dfid));
-      // `DELETE ... RETURNING id` prints one line per removed row under psql's
-      // -At. An EMPTY result is the silent no-op this check exists to catch: a
-      // delete that matches nothing raises no error, so the returned rows are
-      // the only evidence the cleanup removed what the run created. Without
-      // this the caller cannot tell "cleaned up" from "left every fixture show
-      // behind for the next spec to trip over".
-      if (stdout.trim().length === 0) {
-        failures.push(`${dfid}: delete matched no row (already gone, or never created)`);
-      }
+      const stdout = runLocked("deleteShowsLocked", dfid, deleteShowBody(dfid), exec);
+      // A delete that matches nothing raises no error, so the returned row ids
+      // are the only evidence the cleanup removed what the run created.
+      assertDeletedRows(stdout, dfid);
     } catch (err) {
       failures.push(err instanceof Error ? err.message : String(err));
     }
