@@ -623,7 +623,7 @@ N/A — no UI surface. This spec renders nothing. It is classified as a UI spec 
 `lib/specLint/sections.ts`'s `isUiPath` because §6 cites
 `components/shared/WrappedTile.tsx` as the ledger row's retained component; that
 citation is a record of a ratified retention, not a surface this spec designs.
-The closeout marker is `impeccable-gate: N/A — no UI surface` for the same reason.
+The closeout marker is `` for the same reason.
 
 ## 9. Transition Inventory
 
@@ -642,5 +642,21 @@ or proceed, and neither is a visual state.
 - AC-8: both ledger rows are archived with `provenance: "feat/speclint-dispatch-gates"`, and the heading arithmetic proves the two `##` headings moved while all seven `###` sub-rows stayed in `BACKLOG.md`, each named in the assertion.
 - AC-10: the live AMBIGUOUS declaring-line set equals the committed record EXACTLY, asserted over every enrolled plan walked from disk. Fail-closed: a new multi-id declaring line is not in the record and reds, so declining is never silent.
 - AC-9: `taskContract` scores at or above its `scoreFloor` of 0.95 with zero unaccepted survivors at the shipping head.
+
+## 11. Closeout
+
+**The lint-gate arm (§3, §5) SHIPPED in PR #904**, closing
+`BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE`. The two bookkeeping graduations (§6)
+ship with it.
+
+**The AC arm (§4) is RATIFIED AND UNIMPLEMENTED.**
+`BL-SPECLINT-AC-UNCLAIMED` stays OPEN and carries a dated addendum pointing at
+what four spec rounds established. The follow-on plan is
+`docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md`.
+
+The split is deliberate. Every finding across four spec rounds and two diff
+rounds landed on the AC arm; the lint gate drew none. Shipping the half that is
+done, and giving the half that needs its own rounds its own arc, is what that
+measurement argues for.
 
 impeccable-gate: N/A — no UI surface

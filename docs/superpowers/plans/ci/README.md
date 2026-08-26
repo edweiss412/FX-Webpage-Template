@@ -23,3 +23,4 @@ Post-deployment (v1.X+) plans grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-25-mutation-shard-weight-seconds.md`](./2026-08-25-mutation-shard-weight-seconds.md) | 2026-08-25 |
 | [`2026-08-26-mutation-shard-budget-fit.md`](./2026-08-26-mutation-shard-budget-fit.md) | 2026-08-26 |
 | [`2026-08-26-speclint-dispatch-gates.md`](./2026-08-26-speclint-dispatch-gates.md) | 2026-08-26 |
+| [`2026-08-26-speclint-ac-unclaimed-arm.md`](./2026-08-26-speclint-ac-unclaimed-arm.md) | 2026-08-26 |
