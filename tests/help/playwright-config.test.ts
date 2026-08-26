@@ -30,10 +30,26 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
     expect(config).toContain('TEST_AUTH_SECRET: "test-secret-fixture"');
   });
 
-  it("sets a local database URL for the production screenshot webServer", () => {
-    const config = readFileSync(screenshotConfigPath, "utf8");
+  it.each([
+    ["the production screenshot webServer", () => screenshotConfigPath],
+    ["the e2e webServer", () => configPath],
+  ])("pins a LOCAL database URL for %s and never forwards the validation one", (_label, path) => {
+    const config = readFileSync(path(), "utf8");
 
-    expect(config).toContain("process.env.TEST_DATABASE_URL ??");
+    // `.env.local` points TEST_DATABASE_URL at the REMOTE validation project on purpose,
+    // and lib/sync/_databaseUrl.ts prefers it over DATABASE_URL — so forwarding the
+    // AMBIENT value handed the app server under test a remote database, where the notify
+    // cron sent real mail. The old assertion here could not tell the two apart: it checked
+    // that the ambient read and the loopback literal both appeared SOMEWHERE in the file.
+    expect(config).not.toContain("process.env.TEST_DATABASE_URL");
+    // Both keys are set, and both resolve from DATABASE_URL. TEST_DATABASE_URL is pinned
+    // rather than dropped because `next dev` loads `.env.local` itself; an absent key lets
+    // the remote value back in, where an explicit local one wins.
+    for (const key of ["DATABASE_URL", "TEST_DATABASE_URL"]) {
+      expect(config, key).toMatch(
+        new RegExp(`\\b${key}:\\s*\\n?\\s*process\\.env\\.DATABASE_URL \\?\\?`),
+      );
+    }
     expect(config).toContain('"postgresql://postgres:postgres@127.0.0.1:54322/postgres"');
   });
 
