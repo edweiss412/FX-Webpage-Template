@@ -231,7 +231,21 @@ describe("plant 4 — the body is never read and never cloned", () => {
     const original = new Response(body, { status: 502 });
     const fetchFn = makeObservingFetch(async () => original, { baseUrl: BASE, onObserve });
 
+    // `clone()` is spied, not merely unobserved. Round-4 review probed the gap: an observer that
+    // calls clone() and DISCARDS the copy preserves identity, `bodyUsed === false` and the full
+    // read, so every assertion below passes while the contract is violated. Cloning tees the
+    // stream and buffers it, which is the cost the "never cloned" contract exists to avoid, and a
+    // discarded clone pays that cost invisibly.
+    let cloneCalls = 0;
+    const realClone = original.clone.bind(original);
+    original.clone = () => {
+      cloneCalls += 1;
+      return realClone();
+    };
+
     const res = await fetchFn(RPC, { method: "POST" });
+
+    expect(cloneCalls, "the observer must never clone the response").toBe(0);
 
     // IDENTITY FIRST, and round-3 review probed why the rest is not enough on its own: an
     // observer returning `response.clone()` satisfies `bodyUsed === false` AND a full read at the
@@ -289,5 +303,28 @@ describe("the observer is transparent to the request it observes", () => {
     const call = only(calls, "inner fetch call");
     expect(call.input).toBe(RPC);
     expect(call.init).toBe(init);
+  });
+
+  test("a Request OBJECT reaches the inner fetch by identity, not rebuilt", async () => {
+    // The case above passes a primitive string, so `toBe` is string equality and a mutant that
+    // rebuilds only OBJECT-valued inputs survives it. Round-4 review probed exactly that. A
+    // rebuilt Request is the more dangerous of the two: `new Request(input)` drops a `duplex`
+    // body, re-reads headers, and consumes the original's stream.
+    const calls: Array<{ input: unknown }> = [];
+    const fetchFn = makeObservingFetch(
+      async (input) => {
+        calls.push({ input });
+        return new Response("{}", { status: 200 });
+      },
+      { baseUrl: BASE, onObserve: () => {} },
+    );
+
+    const request = new Request(RPC, {
+      method: "POST",
+      headers: { "content-profile": "dev" },
+    });
+    await fetchFn(request);
+
+    expect(only(calls, "inner fetch call").input).toBe(request);
   });
 });
