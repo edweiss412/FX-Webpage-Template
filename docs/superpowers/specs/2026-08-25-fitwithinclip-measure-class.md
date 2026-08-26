@@ -537,9 +537,14 @@ count on an unclipped path counts walk entries instead, and says so in place.
 A test proving only that `apply` was called is worthless here: the subject is **how many times**.
 Every case above asserts a count or an absence.
 
-**The mutant-to-case mapping is deliberately NOT repeated here.** It lives in exactly one place, the
+**The mutant-to-case mapping is deliberately NOT repeated here.** The AUTHORITATIVE mapping is the
 plan's §5 table, which records what each mutant was MEASURED to kill rather than what it was expected
-to. This table used to carry an "Its mutant" column too, and diff review round 2 found seven places
+to. It is not the only place a mutant is NAMED — the plan's task bodies, its acceptance criteria, a
+unit-test comment and the parity checker all reference mutants, and diff review round 4 was right to
+charge an earlier version of this paragraph for claiming the mapping lived in "exactly one place".
+What is true, and what this paragraph now claims: §5 is the single AUTHORITY, every other mention is
+commentary, and commentary that contradicts §5 is a defect in the commentary. Round 3 found one such
+contradiction and fixed it at its source rather than by widening any scan. This table used to carry an "Its mutant" column too, and diff review round 2 found seven places
 across the two documents where the duplicate had drifted from the measurement — crediting `M3` and `M13`
 to `(h3)` when neither kills it, `M13` to `(h13)` which has no mutant, and `M16` to `(h18)` when `M16`
 leaves `(h18)` green and kills `(h9)`. It also carried a blanket claim, right here, that every listed
