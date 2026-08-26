@@ -102,6 +102,6 @@ describe("wizard step-3 row-label gate", () => {
     expect(screen.queryByTestId(tid(2, "label"))).toBeNull();
 
     // The control. A gate that suppressed every label would pass the assertion above.
-    expect(screen.getByTestId(tid(3, "label")).textContent).toBe("Address:");
+    expect(screen.getByTestId(tid(3, "label")).textContent).toContain("Address:");
   });
 });

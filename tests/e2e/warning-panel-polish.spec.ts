@@ -304,7 +304,7 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
     // EXACTLY ONE of the two UNKNOWN_FIELD rows carries a candidate, so exactly one band.
     await expect(values).toHaveCount(1);
     await expect(values.first()).toHaveText("VENUE ADDRESS");
-    await expect(bands.first()).toContainText("Looks like");
+    await expect(bands.first()).toContainText("Closest match");
 
     // The two bands share one flex container and wrap at a narrow width. Assert they are on
     // DIFFERENT lines there and the SAME line when wide, which is the §9 behaviour jsdom

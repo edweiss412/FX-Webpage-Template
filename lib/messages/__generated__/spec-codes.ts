@@ -1554,7 +1554,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Rename the row labeled _<key>_ in _<sheet-name>_ so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. When we can tell which row you meant, the notice names it.",
     "followUp": "Doug → rename the row in the sheet (or optional Report)",
-    "helpfulContext": "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. When we can tell which row you meant, this card names it. Report flags it to us; Ignore hides this notice.",
+    "helpfulContext": "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. Report flags it to us; Ignore hides this notice.",
   },
   "UNKNOWN_ROLE_TOKEN": {
     "crewFacing": null,

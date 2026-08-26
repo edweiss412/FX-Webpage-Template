@@ -34,7 +34,7 @@ describe("PerShowActionableWarnings candidate band", () => {
     // Grammar, not just the value: without this, rendering the bare guarded string satisfies
     // every other case and the settled band markup becomes optional.
     const band = screen.getByTestId("per-show-actionable-candidate");
-    expect(band.textContent).toContain("Looks like");
+    expect(band.textContent).toContain("Closest match");
     expect(
       band.querySelector('[data-testid="per-show-actionable-candidate-value"]'),
     ).not.toBeNull();

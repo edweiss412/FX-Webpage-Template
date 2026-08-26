@@ -1323,7 +1323,7 @@ export const MESSAGE_CATALOG = {
     warningClass: "parse_warning",
     // Near-miss framing (field-near-miss detector spec §5), stated CONDITIONALLY rather than
     // as fact (2026-08-26 candidate-render spec §6.2). The content-keyed detector only fires
-    // on a near match, and the matched label now RENDERS: a `Looks like` band on the per-show
+    // on a near match, and the matched label now RENDERS: a `Closest match` band on the per-show
     // card and a plain sibling line on wizard step 3. But one string serves every card while
     // the band is per-warning, so no string here may assert that a near-miss happened. Rows
     // persisted before the detector landed carry no `candidate` at all and never near-matched
@@ -1349,7 +1349,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → rename the row in the sheet (or optional Report)",
     helpfulContext:
-      "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. When we can tell which row you meant, this card names it. Report flags it to us; Ignore hides this notice.",
+      "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. Report flags it to us; Ignore hides this notice.",
     triggerContext: "Appears when a row's label doesn't exactly match a row we know how to show.",
     title: "Row we couldn't match",
     longExplanation:

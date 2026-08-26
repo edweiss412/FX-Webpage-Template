@@ -277,10 +277,30 @@ export function PerShowActionableWarnings({
 
         // The matched vocabulary label the near-miss detector attached (spec §3.2). Same band
         // grammar as `Sheet row` above, which is the shipped detail-band idiom, with its own
-        // testids. `Looks like` is the eyebrow because it is the word the emitted message
-        // already uses (warnings.ts emitUnknownField) and because it is honestly weaker than a
-        // claim of certainty. Mono value, matching `Sheet row`: both are exact strings the
-        // operator compares character by character.
+        // testids.
+        //
+        // `Closest match` is a NOUN phrase, so it reads as a field label like every other
+        // eyebrow in this family (`Sheet row`, `Phone`, `Email`) rather than a predicate. It is
+        // also the weaker and more accurate claim: `candidate` is `match.entry.raw`, the first
+        // spelling inserted when the vocabulary was built, so on the live corpus it can be a
+        // SECTION HEADER (`DETAILS/ROOM DIAGRAM`, knownSections.ts), one of several equally
+        // valid aliases shown in the shoutiest form (`VENUE ADDRESS`, aliases.ts), or a known
+        // corpus typo (`DIagrams`, types.ts). "Looks like" asserts resemblance and is at its
+        // most confident exactly where it is least right.
+        //
+        // NOT mono, and that is the point of the pairing. `Sheet row` is Doug's own string and
+        // mono invites the character-by-character comparison. This is OUR nearest vocabulary
+        // entry, and mono would read as "reproduce this exactly" under a card whose imperative
+        // is "rename the row" (spec §8 limit 4).
+        //
+        // `min-w-0` + `wrap-break-word` match the twin on wizard step 3 and the sibling
+        // `fieldBand` value above, which carries `min-w-0` + `break-all`. Without them the
+        // value cannot wrap INSIDE its band: the enclosing detail band is `flex-wrap`, but
+        // that wraps BETWEEN bands. The longest vocabulary entry today is 25 characters
+        // (`Hotel Contact Information`, measured over `buildVocabulary()`'s 132 entries), so
+        // it clears a 390px viewport by a margin that is a property of the DATA, not of the
+        // CSS. Word-boundary wrapping rather than `break-all`: these are labels with spaces,
+        // not the junk values `fieldBand` quotes.
         //
         // No `w.code` gate. The guard is on the FIELD, and `candidate` is set on no other code
         // (fieldNearMiss.ts is the sole producer), so a second predicate could only ever agree
@@ -288,14 +308,14 @@ export function PerShowActionableWarnings({
         const candidate = candidateLabel(w);
         const candidateBand: ReactNode = candidate ? (
           <span
-            className="inline-flex items-center gap-1.5"
+            className="inline-flex min-w-0 flex-wrap items-center gap-1.5"
             data-testid="per-show-actionable-candidate"
           >
             <span className="text-[10px] font-semibold tracking-wider text-warning-text uppercase">
-              Looks like
+              Closest match
             </span>
             <span
-              className="font-mono text-xs text-text"
+              className="min-w-0 text-xs wrap-break-word text-text"
               data-testid="per-show-actionable-candidate-value"
             >
               {candidate}

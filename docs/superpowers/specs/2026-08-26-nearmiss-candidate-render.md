@@ -429,6 +429,18 @@ Each is a conservative degrade with no silent corruption, so each is recorded he
 1. **A legacy warning shows no suggestion.** A pre-detector persisted `UNKNOWN_FIELD` renders the card with no candidate band. It resolves itself when the show next syncs, since a sync rewrites `parse_warnings` and the current producer always supplies a candidate. After §6.2 no string on that card promises a suggestion or asserts a near-miss, so what remains is an absence rather than a contradiction. *Re-file trigger:* a report of a card whose copy names a suggestion the card does not show.
 2. **The band shows the label, not the diff.** It names the vocabulary entry that matched; it does not highlight which characters differ from Doug's label. Deliberate: the two strings sit adjacent in the same band for exactly that comparison, and a character diff on a two-word label is decoration.
 3. **One candidate, not a ranked list.** `emitUnknownField` takes a single `candidate` and the detector supplies the §3.1 tie-break winner (`lib/parser/fieldNearMiss.ts:258`). Showing runners-up would need a carrier that does not exist. *Re-file trigger:* a measured case where the tie-break winner is the wrong suggestion often enough to matter.
+4. **The candidate is our nearest VOCABULARY entry, not a string to transcribe.** `candidate` is `match.entry.raw` (`lib/parser/fieldNearMiss.ts:258`), and `raw` is whichever spelling was inserted first when the vocabulary was built from `FIELD_ALIASES` values, `SECTION_HEADER_TOKEN_SETS`, and `LABEL_TO_KIND_KEYS` (`lib/parser/fieldNearMiss.ts:107-118`). Insertion order is the documented §3.1 tie-break, so on the committed 65-row baseline three of the ten distinct candidates are not what a person would call that row:
+
+   | Rendered | Count | What it actually is |
+   |---|---|---|
+   | `DETAILS/ROOM DIAGRAM` | 15 | a SECTION HEADER (`lib/parser/knownSections.ts:76`), matched against a table row's first cell |
+   | `VENUE ADDRESS` | 9 | one of three equally valid aliases, shown in the shoutiest (`lib/parser/aliases.ts:31`) |
+   | `DIagrams` | 1 | a known corpus typo, and the code says so (`lib/parser/types.ts:362`) |
+
+   Twenty-five of sixty-five. The impeccable critique raised this as a P0 against an earlier draft that set the value in MONO under an imperative to rename the row, which composes into an instruction to type a section-header path into a row label. The render half is repaired rather than documented: the value is no longer mono, and the label is `Closest match` (a noun phrase whose claim survives all three cases) rather than `Looks like` (which asserts resemblance and is most confident exactly where it is least right).
+
+   What remains documented is the detector's choice of spelling, which this arc surfaces but does not own. *Re-file trigger:* an operator report of a rename made to a suggested string that did not clear the warning. The repair would be detector-side, either suppressing `SECTION_HEADER_TOKEN_SETS`-sourced candidates on a row-label warning or carrying a display spelling beside `raw`, and it moves the 65-row baseline and an enrolled mutation surface, so it is not this row's work.
+
 
 ---
 

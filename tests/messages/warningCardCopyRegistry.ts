@@ -257,7 +257,7 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
   UNKNOWN_DAY_RESTRICTION:
     "This crew member is marked day-restricted ('***' in the sheet) but the sheet doesn't say which days, so their schedule shows 'days unconfirmed'. Add the days to the name cell, like '(6/24 and 6/26 ONLY)'.",
   UNKNOWN_FIELD:
-    "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. When we can tell which row you meant, this card names it. Report flags it to us; Ignore hides this notice.",
+    "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. Report flags it to us; Ignore hides this notice.",
   UNKNOWN_ROLE_TOKEN:
     "One of this crew member's role labels isn't one we recognize, so we left it off their page instead of guessing. If the label is correct, this card's controls let you add it as a real role.",
   UNKNOWN_SECTION_HEADER:

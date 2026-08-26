@@ -3252,7 +3252,7 @@ OAUTH_REDIRECT_INVALID: "The Google OAuth callback's `next` parameter pointed so
 # X.1 invariant (plan Task X.1) deep-compares this YAML against the table and fails the build if
 # any code with a non-em-dash `dougFacing` is missing here OR if any code with an em-dash `dougFacing`
 # (admin-log-only) has an entry here.
-UNKNOWN_FIELD: "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. When we can tell which row you meant, this card names it. Report flags it to us; Ignore hides this notice."
+UNKNOWN_FIELD: "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. Report flags it to us; Ignore hides this notice."
 PULL_SHEET_PARSE_PARTIAL: "Some pull-sheet rows have a QTY we couldn't read (a word, or a range like '1-2'), so those rows show their original text. The Report button on this card sends it to us if you'd like the format supported."
 AGENDA_GRID_MALFORMED: "We couldn't find the run-of-show grid in the AGENDA tab, so every day shows the standard schedule. Check the tab still has its header row and its usual name."
 AGENDA_BLOCK_UNRESOLVED: "One run-of-show day couldn't be matched to a calendar date, so that day shows the standard schedule. Check that day's date banner in the AGENDA tab; it's usually missing or showing an error like #REF!."

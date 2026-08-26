@@ -49,8 +49,8 @@ describe("wizard step-3 candidate line", () => {
     const line = screen.getByTestId(tid(0, "candidate"));
     expect(line.textContent).toContain(withCandidate.candidate);
     // Grammar: this surface's flatter rendering of the same information grammar (spec §4.1).
-    expect(line.textContent).toMatch(/^Looks like /);
-    expect(line.querySelector(".font-mono")?.textContent).toBe(withCandidate.candidate);
+    expect(line.textContent).toMatch(/^Closest match /);
+    expect(line.textContent).toContain(withCandidate.candidate);
   });
 
   it("renders no candidate line when the key is absent", () => {

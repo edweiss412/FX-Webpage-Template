@@ -620,7 +620,7 @@ test("candidate line and row-label gate, in a real browser", async ({ page }) =>
 
   // Row 0 carries a candidate: the line names it, in this surface's flatter grammar.
   await expect(row(0, "candidate")).toHaveCount(1);
-  await expect(row(0, "candidate")).toContainText("Looks like");
+  await expect(row(0, "candidate")).toContainText("Closest match");
   await expect(row(0, "candidate")).toContainText("VENUE ADDRESS");
 
   // Row 1 is an UNKNOWN_FIELD with NO candidate, which is what a pre-detector persisted row

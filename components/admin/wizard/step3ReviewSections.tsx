@@ -3111,12 +3111,18 @@ export function WarningsBreakdown({
                         // here, not a widening of it.
                         const rowLabel =
                           w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
+                        // The lead-in is not decoration: with the candidate line below
+                        // carrying one, this was the only unlabeled line on the row, and it is
+                        // the MORE important of the two facts (it is the string Doug searches
+                        // his sheet for). Same information grammar as the per-show band, in
+                        // this surface's flatter type ramp. The value keeps its own span so a
+                        // by-text query still matches the label alone.
                         return rowLabel ? (
                           <span
                             data-testid={`wizard-step3-card-${dfid}-warning-${i}-label`}
                             className="wrap-break-word text-xs text-text-subtle"
                           >
-                            {rowLabel}
+                            Sheet row <span className="font-mono text-text">{rowLabel}</span>
                           </span>
                         ) : null;
                       })()}
@@ -3124,16 +3130,20 @@ export function WarningsBreakdown({
                         // The vocabulary label the near-miss detector matched (spec §4.2).
                         // Deliberately NOT a band: this surface's row label above is a plain
                         // text-xs line with no eyebrow, so an eyebrow on the candidate alone
-                        // would make the suggestion louder than the row it belongs to. Same
-                        // information grammar as the per-show band (a label naming the fact,
-                        // then the exact string in mono), in this surface's flatter type ramp.
+                        // would make the suggestion louder than the row it belongs to.
+                        //
+                        // `Closest match` rather than `Looks like`, and NOT mono, for the same
+                        // reason as the per-show band: this is OUR nearest vocabulary entry,
+                        // which on the live corpus can be a section header, an alias-order
+                        // winner, or a corpus typo, so it must not read as a string to
+                        // reproduce. Spec §8 limit 4.
                         const candidate = candidateLabel(w);
                         return candidate ? (
                           <span
                             data-testid={`wizard-step3-card-${dfid}-warning-${i}-candidate`}
                             className="wrap-break-word text-xs text-text-subtle"
                           >
-                            Looks like <span className="font-mono text-text">{candidate}</span>
+                            Closest match <span className="text-text">{candidate}</span>
                           </span>
                         ) : null;
                       })()}
