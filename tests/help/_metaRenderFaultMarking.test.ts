@@ -50,37 +50,51 @@ const REPORTED_RESIDUE: Record<string, string> = {
 };
 
 /**
- * Shape-4 residue: the branch ASSIGNS a flag and a later return renders it.
+ * Sites layer 1's scanner does not reach, each with the cause it actually has.
  *
- * Invisible to the scanner, but for TWO different reasons, and the distinction
- * is load-bearing because only one of them is "by construction".
+ * Named UNREACHED, not flag-shaped, and the rename is the repair: this registry
+ * was called FLAG_RESIDUE while four of its seven rows had nothing to do with
+ * the flag shape, and a registry whose reasons are wrong is worse than one with
+ * gaps because it is read as settled. Live composition today, computed by the
+ * suite below rather than asserted here: 4 `unreached-ternary`, 3
+ * `unreached-no-ternary`, and 4 entries declaring a hand-marking.
  *
- * Genuinely flag-shaped (the three telemetry/layout entries): the guard site
- * returns no JSX at all, so it is not a candidate under any arm, and tracing
- * the flag to the JSX that consumes it is dataflow this arc does not carry.
+ * `unreached-no-ternary` -- the genuinely flag-shaped case. The guard site
+ * returns no JSX at all, so no arm makes it a candidate, and tracing the flag to
+ * the JSX that consumes it is dataflow this arc does not carry (spec section
+ * 4.2). The registry is the honest substitute: each flag named, with the capture
+ * output it can reach.
  *
- * Dropped by a scanner ASYMMETRY (the two Dashboard entries): those guards sit
- * on a ternary whose `whenTrue` IS the JSX, so they are exactly the shape the
- * scanner claims to reach. `scanCandidates` gives its `IfStatement` arm a
- * vocabulary fallback that reports an unclassifiable guard as `unknown`
- * residue, and gives its `ConditionalExpression` arm no fallback at all
- * (`_renderFaultScan.ts:754`). Probed on the live tree: 719 ternaries under the
- * derived roots return JSX, 79 of them on a fault-vocabulary guard, 70 of those in
- * `"use client"` files. RE-FILE TRIGGER for the decline, computed rather than
- * promised: the count of server-component ternaries that are unclassifiable,
- * fault-vocabulary AND unregistered rises above 7, its resting value today. The
- * suite asserts that bound and re-derives both figures above, so neither can go
- * stale silently — which is how the previous pair (714 and 91) did. And the
- * unclassifiable ones are dropped in silence rather than reported. Tracked as
- * BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY. Tracing a flag to the JSX that consumes it is dataflow
- * analysis this arc does not carry (spec §4.2), so the registry is the honest
- * substitute: each flag named, with the capture output it can reach.
+ * `unreached-ternary` -- dropped by a DECLINED scanner asymmetry. Those guards
+ * sit on a ternary whose `whenTrue` is the JSX, exactly the shape layer 1 claims
+ * to reach. `scanCandidates` gives its `IfStatement` arm a vocabulary fallback
+ * that reports an unclassifiable guard as `unknown` residue, and gives its
+ * `ConditionalExpression` arm no fallback at all (`_renderFaultScan.ts:754`).
+ * That arm's silent drop is a documented limit, not a gap left open: probed on
+ * the live tree, 719 ternaries under the derived roots return JSX in `whenTrue`,
+ * 79 of them carry a fault-vocabulary guard and are unclassifiable, and 70 of
+ * those 79 sit in `"use client"` files -- interaction state, not a server-render
+ * fault -- so the fallback would buy roughly three new server-side sites for 79
+ * hand-written reasons.
  *
- * Two entries are marked BY HAND. The scanner cannot enforce them and never
- * will under this design, but the flag was right there at authoring time and
- * the strip would otherwise encode "Unavailable" with nothing refusing.
- */
-const UNREACHED_RESIDUE: Record<string, { cause: UnreachedCause; reason: string }> = {
+ * RE-FILE TRIGGER for the decline, computed rather than promised: the count of
+ * server-component ternaries that are unclassifiable, fault-vocabulary AND
+ * unregistered rises above 7, its resting value today. The suite asserts that
+ * bound and re-derives both figures above, so neither can go stale silently --
+ * which is how the previous pair (714 and 91) did in eight days.
+ *
+ * WHICH ARM holds the fault is deliberately not a cause. No AST predicate
+ * decides it without a fault oracle this scanner does not have, so
+ * `OnboardingWizard`'s false-arm blind spot lives in that entry's prose. A true
+ * statement no checker can settle belongs in prose; inventing a checker for it
+ * is recognizer growth this arc is directed against.
+ *
+ * Some entries are marked BY HAND. The scanner cannot enforce those and never
+ * will under this design, but the flag was right there at authoring time and the
+ * surface would otherwise encode "Unavailable" with nothing refusing. The count
+ * is not written down here: the case below DERIVES it from the declarations, so
+ * a newly hand-marked site is covered the moment it is declared.
+ */ const UNREACHED_RESIDUE: Record<string, { cause: UnreachedCause; reason: string }> = {
   "components/admin/Dashboard.tsx:858:ignoredDegraded": {
     cause: "unreached-ternary",
     reason:
@@ -458,7 +472,7 @@ describe("every residue entry's declared cause is COMPUTED, not asserted in pros
   });
 });
 
-describe("the flag-shaped residue is named, since no scan can reach it", () => {
+describe("the unreached residue is named, since no scan can reach it", () => {
   it("gives every registered flag a reason naming what it reaches", () => {
     expect(Object.keys(UNREACHED_RESIDUE).length).toBeGreaterThan(0);
     for (const [site, { reason }] of Object.entries(UNREACHED_RESIDUE)) {
@@ -469,7 +483,8 @@ describe("the flag-shaped residue is named, since no scan can reach it", () => {
 
   it("every entry CLAIMING a hand-marking really carries one", () => {
     // DERIVED from the declarations, not a written-down list. The previous
-    // version named "the two hand-marked flags" and read one file, so when a
+    // version of THIS CASE named "the two hand-marked flags" as a literal and read
+    // one file, so when a
     // THIRD hand-marked site was added by a review repair the registry kept
     // claiming a marker nothing checked -- deleting that marker would have left
     // the scan at 35 candidates, 30 accepted, five residues, all green.
@@ -481,7 +496,7 @@ describe("the flag-shaped residue is named, since no scan can reach it", () => {
     const claimed = Object.entries(UNREACHED_RESIDUE).filter(([, { reason }]) =>
       reason.includes("MARKED BY HAND"),
     );
-    premise("some flag-residue entry claims a hand-marking", claimed.length, 0);
+    premise("some unreached-residue entry claims a hand-marking", claimed.length, 0);
 
     for (const [site] of claimed) {
       const { file, flag } = parseSite(site);
