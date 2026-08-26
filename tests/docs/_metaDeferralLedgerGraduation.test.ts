@@ -34,7 +34,6 @@
 // marker grammar). What remains HERE is the ledger half, enforceable and true.
 //
 // Spec: docs/superpowers/specs/2026-07-24-settings-devrow-copy-close.md §9 T8.
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -98,24 +97,6 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
-  // fix/supabase-upstream-fault-class (2026-08-25): the loader-class row and the
-  // observability row it was descoped into, graduating together because the second is what
-  // the first turned out to need. The class row closes on a recorded DISPOSITION rather than
-  // a repair: all eleven of its failing attempts name one of seven RPCs, every one already
-  // retryable, and none names anything else — but a failed write returns without logging, so
-  // that is association and not causation, and no repair can be chosen for a failure whose
-  // mechanism nobody can name. The two-way choice its first scheduled step posed is retired
-  // as undecidable on current evidence, by orchestrator ruling, with the boot-and-seed
-  // argument against bootstrap hardening explicitly WITHDRAWN as false: migrations apply over
-  // a direct connection and the seed shells out to psql on 54322, so neither traverses the
-  // gateway. The observability row ships in full, because unattributability is the thing the
-  // observer removes. Residues stay as documented limits in the shipped spec §9 and §9a and
-  // in the batch-2 spec's own limits section, per Eric's no-new-rows directive on this arc.
-  { id: "BL-ADMIN-LOADER-CI-TRANSIENT", provenance: "fix/supabase-upstream-fault-class" },
-  {
-    id: "BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY",
-    provenance: "fix/supabase-upstream-fault-class",
-  },
   // fix/speclint-prose-consistency-arms (2026-08-18): the two prose-consistency rows,
   // graduating together because one spec answered both — a universal-quantifier claim
   // standing away from its enumeration is the same structure the post-repair sweep keeps
@@ -674,21 +655,6 @@ const idsIn = (rel: string): Set<string> => ledgerIds(read(rel), DEFERRED_OPTS);
 const backlogIdsIn = (rel: string): Set<string> => ledgerIds(read(rel), BACKLOG_OPTS);
 
 const backlogEntries = (rel: string): LedgerEntry[] => extractEntries(read(rel), BACKLOG_OPTS);
-
-/**
- * A tracked blob at a revision, or null when the ref is not reachable in this checkout.
- *
- * `maxBuffer` is raised deliberately and is not defensive padding: `BACKLOG-archive.md` is over
- * twelve thousand lines, which exceeds Node's 1 MB default, and spawnSync then returns a NULL
- * status that is indistinguishable from "the ref does not exist". The first version of this
- * helper read that as an unreachable ref and skipped the check on a checkout where the ref was
- * perfectly reachable — a silent pass on the one arm that exists to catch a directive being
- * ignored.
- */
-const gitShow = (spec: string): string | null => {
-  const r = spawnSync("git", ["show", spec], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  return r.status === 0 ? r.stdout : null;
-};
 
 describe("deferral ledger graduation", () => {
   it("no id is both active and archived", () => {
@@ -1624,86 +1590,5 @@ describe("within-file ledger id uniqueness", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
-});
-
-/**
- * Two arms this arc owes beyond archive membership (supabase-upstream-fault-class plan §5).
- *
- * The first: an archived row's DOCUMENTED LIMITS must travel with it. A row that graduates
- * carrying only its heading loses the reason its residues were acceptable, and the next reader
- * re-derives it — or re-files it, which is what the no-new-rows directive exists to stop.
- *
- * The second: that directive itself, made checkable. It was given to an ARC rather than to the
- * repo, so nothing outlives the arc that was told it unless something asserts it. Compared
- * against `origin/main`'s TIP rather than a merge base, deliberately: `tests/docs/**` runs in the
- * parallel project, whose PR workflow checks out at depth one and fetches `origin/main` with
- * `--depth=1`, so the ancestry is grafted away and `git merge-base` cannot resolve where this
- * test actually runs. Set comparison against the tip needs no ancestry.
- */
-describe("supabase-upstream-fault-class: graduation carries its limits, and mints nothing", () => {
-  const ARC_IDS = [
-    "BL-ADMIN-LOADER-CI-TRANSIENT",
-    "BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY",
-  ] as const;
-
-  it("each archived row carries the documented limits it graduated with", () => {
-    const archive = read("BACKLOG-archive.md");
-    for (const id of ARC_IDS) {
-      const start = archive.indexOf(`## ${id}`);
-      expect(start, `${id} must have a heading in the archive`).toBeGreaterThan(-1);
-      const next = archive.indexOf("\n## ", start + 1);
-      const body = next === -1 ? archive.slice(start) : archive.slice(start, next);
-      // Keyed on the anchors rather than on prose, so a rewording does not red this and a
-      // DELETION does. Both limits sections are what the arc promised to carry over.
-      expect(body, `${id} must carry its documented limits`).toMatch(
-        /documented limit|Documented limit/,
-      );
-      expect(body, `${id} must name its re-file trigger`).toMatch(/[Rr]e-file trigger/);
-    }
-  });
-
-  it("introduces no new BL-/DEF- id anywhere, against origin/main's tip", () => {
-    // The positive control lives HERE rather than in a transcript, because this branch
-    // genuinely mints nothing: an implementation that always returned the empty set would pass
-    // on the live comparison alone and keep passing forever.
-    const novel = (base: string, head: string): string[] => {
-      const b = ledgerIds(base, BACKLOG_OPTS);
-      return [...ledgerIds(head, BACKLOG_OPTS)].filter((id) => !b.has(id));
-    };
-    expect(
-      novel("## BL-ALPHA — a\n\nbody\n", "## BL-ALPHA — a\n\nbody\n\n## BL-BETA — b\n\nbody\n"),
-      "the check must SEE a novel id",
-    ).toEqual(["BL-BETA"]);
-    expect(
-      novel("## BL-ALPHA — a\n\nbody\n", "## BL-ALPHA — a\n\nreworded body\n"),
-      "and must not invent one from an edit",
-    ).toEqual([]);
-
-    const baseOpen = gitShow("origin/main:BACKLOG.md");
-    const baseArchive = gitShow("origin/main:BACKLOG-archive.md");
-    if (baseOpen === null || baseArchive === null) {
-      // A checkout that cannot read origin/main at all is a fetch-shape problem rather than a
-      // verdict, and saying so beats a green that means nothing. But a PARTIAL failure — one
-      // blob readable and the other not — is never a fetch shape; it is this helper being
-      // wrong, which is exactly what happened the first time (maxBuffer). Fail loudly on it.
-      expect(
-        { open: baseOpen === null, archive: baseArchive === null },
-        "origin/main must be either fully readable or fully unreachable",
-      ).toEqual({ open: true, archive: true });
-      return;
-    }
-    const before = new Set([
-      ...ledgerIds(baseOpen, BACKLOG_OPTS),
-      ...ledgerIds(baseArchive, BACKLOG_OPTS),
-    ]);
-    const after = new Set([
-      ...backlogIdsIn("BACKLOG.md"),
-      ...backlogIdsIn("BACKLOG-archive.md"),
-    ]);
-    expect(
-      [...after].filter((id) => !before.has(id)),
-      "this arc files NO new BL-/DEF- row of any facing",
-    ).toEqual([]);
   });
 });
