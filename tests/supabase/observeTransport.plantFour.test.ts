@@ -69,6 +69,9 @@ describe("plant 1 — a 5xx is recorded", () => {
   });
 
   test("every 5xx records, not only the gateway's retryable trio", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     // The retry wrapper deliberately owns only 502/503/504. The OBSERVER is wider on purpose:
     // the row's class "is NOT bounded by the retry population". A 500 that only the observer
     // sees is exactly the occurrence this row exists to make attributable.
@@ -87,6 +90,9 @@ describe("plant 1 — a 5xx is recorded", () => {
   });
 
   test("a 4xx is NOT an upstream fault and records nothing", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     for (const status of [200, 201, 204, 400, 401, 403, 404, 409, 422, 429]) {
       const { seen, onObserve } = collector();
       // 204 forbids a body, and the constructor throws rather than ignoring one.
@@ -100,6 +106,9 @@ describe("plant 1 — a 5xx is recorded", () => {
   });
 
   test("the record names the PATH when the target is not an RPC, and never the query string", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     // The emit reaches a log sink. PostgREST carries filters in the query string
     // (`?email=eq.<address>`), so a raw URL here would write a crew member's email to a durable
     // sink. Asserted on a table read, which is where the filters actually live.
@@ -122,6 +131,9 @@ describe("plant 1 — a 5xx is recorded", () => {
 
 describe("the record carries no request data, on ANY path shape", () => {
   test("a Storage object path is truncated before the bucket's contents", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     // Round-1 review probed this against ordinary service-role Storage traffic, not an
     // adversarial URL. The observer runs on the service-role client, which uploads diagram
     // snapshots, and the previous form returned the WHOLE pathname for every non-RPC request:
@@ -146,6 +158,9 @@ describe("the record carries no request data, on ANY path shape", () => {
   });
 
   test("a PostgREST table read keeps the table name, which is schema and not data", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     // The truncation is bounded rather than total: three segments is chosen so `/rest/v1/<table>`
     // survives intact. A record that cannot say WHICH table faulted is not worth writing.
     const { seen, onObserve } = collector();
@@ -160,6 +175,9 @@ describe("the record carries no request data, on ANY path shape", () => {
   });
 
   test("a short path is not decorated with a truncation marker it did not earn", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     const { seen, onObserve } = collector();
     const fetchFn = makeObservingFetch(async () => new Response("{}", { status: 502 }), {
       baseUrl: BASE,
@@ -174,6 +192,9 @@ describe("the record carries no request data, on ANY path shape", () => {
 
 describe("plant 2 — success is invisible, with identical bytes", () => {
   test("a 200 records nothing and the caller gets the SAME Response object", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     const { seen, onObserve } = collector();
     const original = new Response('[{"id":1}]', { status: 200, headers: { "x-mark": "keep" } });
     const fetchFn = makeObservingFetch(async () => original, { baseUrl: BASE, onObserve });
@@ -191,6 +212,9 @@ describe("plant 2 — success is invisible, with identical bytes", () => {
 
 describe("plant 3 — a rejection is rethrown unwrapped", () => {
   test("the SAME error instance comes back, and it is not a TypeError from reading .status", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     const { seen, onObserve } = collector();
     const boom = new TypeError("fetch failed");
     const fetchFn = makeObservingFetch(
@@ -209,6 +233,9 @@ describe("plant 3 — a rejection is rethrown unwrapped", () => {
   });
 
   test("a non-Error rejection is rethrown as itself", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     // `AbortSignal.abort(null)` is legal and a caller can reject with any value. An observer
     // that normalises to an Error changes what the caller catches.
     const { seen, onObserve } = collector();
@@ -226,6 +253,9 @@ describe("plant 3 — a rejection is rethrown unwrapped", () => {
 
 describe("plant 4 — the body is never read and never cloned", () => {
   test("a recorded 502 reaches the consumer with its stream intact", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     const { seen, onObserve } = collector();
     const body = '{"message":"An invalid response was received from the upstream server"}';
     const original = new Response(body, { status: 502 });
@@ -261,6 +291,9 @@ describe("plant 4 — the body is never read and never cloned", () => {
   });
 
   test("the observer does not drain a ONE-SHOT stream that cannot be re-read", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     // A `Response` built from a string can be read twice in some runtimes, which would let a
     // draining observer pass the case above. A ReadableStream body cannot: if the observer
     // reads or clones it, the consumer's read here returns empty or throws.
@@ -285,6 +318,9 @@ describe("plant 4 — the body is never read and never cloned", () => {
 
 describe("the observer is transparent to the request it observes", () => {
   test("input and init reach the inner fetch byte-for-byte", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     // An observer that rebuilds the request to inspect it can drop a header, and the one that
     // matters here is `Content-Profile` — the ONLY thing separating `dev.is_admin` from
     // `public.is_admin` (lib/supabase/retryingFetch.ts documents that at contentProfileOf).
@@ -306,6 +342,9 @@ describe("the observer is transparent to the request it observes", () => {
   });
 
   test("a Request OBJECT reaches the inner fetch by identity, not rebuilt", async () => {
+    // no-premise: the transport is an injected stub and the observation is collected in-process;
+    // this case opens no socket, reads no clock and touches no environment variable. The
+    // classifier reports it touching for what the wrapper CAN reach, not for what the test does.
     // The case above passes a primitive string, so `toBe` is string equality and a mutant that
     // rebuilds only OBJECT-valued inputs survives it. Round-4 review probed exactly that. A
     // rebuilt Request is the more dangerous of the two: `new Request(input)` drops a `duplex`

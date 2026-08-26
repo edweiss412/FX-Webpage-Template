@@ -3582,6 +3582,24 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [],
   },
   {
+    id: "observeTransport",
+    sourcePath: "lib/supabase/observeTransport.ts",
+    // Both harnesses, because they pin different properties of the same module: the plants pin
+    // the four transport states and the transparency of request, response and rejection; the
+    // fence suite pins the LEVEL, which is the only thing making the service-role install safe.
+    suitePaths: [
+      "tests/supabase/observeTransport.plantFour.test.ts",
+      "tests/supabase/observeTransport.recursionFence.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Narrows the fault set by one status. The plants iterate 500 through 599 and assert each
+    // records, so 500 stops recording and the suite notices — a live behaviour change rather than
+    // a formatting one.
+    control: { from: "return status >= 500;", to: "return status > 500;" },
+    accepted: [],
+  },
+  {
     id: "retryableRpcVolatilityScan",
     sourcePath: "tests/supabase/retryableRpcVolatilityScan.ts",
     // Two deciding suites, split by whether they need a database. The walk file carries the

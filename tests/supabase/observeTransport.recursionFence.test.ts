@@ -60,6 +60,9 @@ describe("the observer's default emit cannot reach the durable sink", () => {
   });
 
   test("a rejection's emit is fenced identically", async () => {
+    // no-premise: the transport is an injected stub and the log sink is replaced; this case
+    // writes no row and opens no socket. It observes the emitted LEVEL and the persist decision
+    // only.
     const calls: Array<{ level: string; persist: boolean }> = [];
     setLogSink(async (record, persist) => {
       calls.push({ level: record.level, persist });
@@ -77,6 +80,9 @@ describe("the observer's default emit cannot reach the durable sink", () => {
   });
 
   test("the fault code travels on the record, so a CI grep can find the occurrence", async () => {
+    // no-premise: the transport is an injected stub and the log sink is replaced; this case
+    // writes no row and opens no socket. It observes the emitted LEVEL and the persist decision
+    // only.
     // The workflow's capture step greps stdout for this code. If the code stopped reaching the
     // record, every future occurrence would go dark again with every test here still green —
     // so the record's own `code` field is asserted, not just the observation object's.
@@ -94,6 +100,9 @@ describe("the observer's default emit cannot reach the durable sink", () => {
   });
 
   test("a green request emits nothing at all", async () => {
+    // no-premise: the transport is an injected stub and the log sink is replaced; this case
+    // writes no row and opens no socket. It observes the emitted LEVEL and the persist decision
+    // only.
     const calls: unknown[] = [];
     setLogSink(async (record, persist) => {
       calls.push({ record, persist });
