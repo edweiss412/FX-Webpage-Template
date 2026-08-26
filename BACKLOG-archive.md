@@ -1,3 +1,27 @@
+## BL-SWITCH-PERSON-GOOGLE-LOOPBACK — menu "Switch person" is ineffective for a Google-authenticated viewer — CLOSED 2026-08-25
+
+**Status:** SHIPPED 2026-08-25 · **Shipped by:** `feat/switch-person-google-signout` (PR #892) · **Effort (as shipped):** M · **Severity (as filed):** low · **Class:** UX correctness / product decision · **Facing:** product · **Surfaced:** `fix/auth-picker-hardening` spec R1-F1 (2026-08-15) · **Reachability:** PROBED — `lib/auth/picker/resolveShowPageAccess.ts` returns `needs_picker_bootstrap` for a Google `success` with no matching entry, and the branch's RED e2e run reproduced the loop (the new picker-flow case timed out waiting for the gate on the pre-fix file).
+
+**The open decision, and the ruling.** The row asked whether menu switch-person should sign a Google viewer out (Supabase `scope: "local"`) or whether the control should be hidden or relabelled for Google-authed viewers. Eric ruled 2026-08-25 13:50 CDT: sign out, device-locally, as part of the clear; not hidden, not relabelled. Spec: `docs/superpowers/specs/2026-08-25-switch-person-google-signout-design.md` §1.1.
+
+**What shipped.** `clearIdentity` (`lib/auth/picker/clearIdentity.ts`) validates, signs this device out through the existing `signOutThisDevice` (the guest path's helper, now taking the caller's action name for its forensic emit), then clears the picker entry. The order is the reverse of Mode B's for a stated reason: the core schedules `revalidatePath`, and a sign-out fault after it would re-render with the session live and bootstrap the identity back, hiding the failure (spec review round 1). Signing out first means a fault returns before anything is revalidated; the menu shows `PICKER_SWITCH_FAILED` and the person is still who they were. On success the route re-renders to the Mode A gate, the same landing a cookie-only viewer gets. `clearIdentityAndSkip` is unchanged. Unit coverage: eight new cases in `tests/auth/picker/clearIdentity.test.ts` (order, scope, four fault stages with no revalidate, invalid input, core failure after sign-out), four mutants killed at spec time; `tests/auth/_metaInfraContract.test.ts` pins one sign-out site. E2E: one new desktop-chromium case in `tests/e2e/picker-flow.spec.ts` (RED on the pre-fix file, GREEN on the branch), executed-count pin 6 → 7.
+
+**Documented limits (spec §7).** Landing is the Mode A gate, one tap from the picker, not the picker interstitial (re-file trigger: a product call to land everyone directly on the picker). Sign-out is device-local by design. A cookie-only switch now constructs a Supabase server client (no network when there is no session). The prior arc's §4.7 limit in `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` is superseded by this entry.
+
+---
+
+## BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE — should the show-review snapshot read absorb one bounded retry before throwing to the boundary? — CLOSED 2026-08-25
+
+**Status:** SUBSUMED 2026-08-25 · **Closed by:** `feat/switch-person-google-signout` (PR #892), no code; the behavior shipped with `fix/admin-loader-ci-transient` (PR #882, merged 2026-08-25 as `15e0b2d95`) · **Effort (as filed):** S · **Severity (as filed):** LOW (rare, recoverable via the boundary's own Retry) · **Class:** product posture decision · **Facing:** product · **Filed:** 2026-08-15
+
+**The decision the row asked for, and the ruling.** Whether a read-retry weakens the fail-loud contract or merely debounces it. Eric ruled 2026-08-25 13:50 CDT: the show-review snapshot read absorbs ONE bounded retry (~1s) before throwing to the error boundary; a second failure still fails loud. bl-orch ruled the same day (to pane wY:p5, verified on #882 head `96824f6d3`, re-verified at its merge `15e0b2d95`) that the fetch layer #882 installs satisfies that decision and that this arc adds no helper-level retry: stacking a second layer composes loops, which #882's own round 3 found.
+
+**What satisfies the ratified retry.** PR #882 (merged as `15e0b2d95`) wires `makeRetryingFetch` into `lib/supabase/server.ts`; its `RETRYABLE_RPCS` in `lib/supabase/retryEligibility.ts` lists `get_admin_show_review_snapshot`, and the wrapper retries the transient gateway 502 that PostgREST itself does not, with a budget of two retries after the first attempt (three transport attempts, `lib/supabase/retryingFetch.ts`, "Two, not the sibling's three: this path is a page render"). On exhaustion the first attempt's outcome is replayed, `readShowReviewSnapshot` maps it to `infra_error` (`lib/admin/readShowReviewSnapshot.ts`), and `app/admin/_showReviewModal.tsx` throws to the boundary exactly as before. Bounded, then fail loud; no second layer exists. The fail-hard posture (`app/admin/_showReviewModal.tsx:25-30`) is untouched. Spec record: `docs/superpowers/specs/2026-08-25-switch-person-google-signout-design.md` §4.
+
+**Re-file trigger.** If the fetch-layer retry is ever removed from the server client or `get_admin_show_review_snapshot` leaves `RETRYABLE_RPCS`, this row is re-opened as filed; the ratified decision stands and the helper-level form (`readShowReviewSnapshot` absorbing one retry) becomes the fix.
+
+---
+
 ## BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM — the byte gate fails on a diff that changes no render input — CLOSED 2026-08-24
 
 **Status:** SHIPPED 2026-08-24 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM · **Class:** CI gate fidelity · **Facing:** process · **Shipped by:** `fix/screenshots-drift-instrument`

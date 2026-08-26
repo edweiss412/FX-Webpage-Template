@@ -8,6 +8,18 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
+## BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG — a hung switch-person clear dims the menu row for good
+
+**Status:** OPEN · **Filed:** 2026-08-25 (`feat/switch-person-google-signout`, impeccable critique P1 at the invariant-8 gate) · **Facing:** product · **Severity:** LOW (needs a server action that never settles; a reload recovers) · **Class:** UX resilience · **Effort:** S · **Reachability:** INFERRED, NOT PROBED — reachable when the `clearIdentity` server action never settles (a stalled sign-out round trip, now part of that action); the probe that settles it is a `deferred()` clear in `tests/components/auth/avatarMenu.test.tsx` left unresolved past the timeout under fake timers, asserting the row re-enables and the status region clears. That probe is the first scheduled step.
+
+`components/auth/AvatarMenu.tsx` keeps `switchPending` from `useTransition` with no watchdog, and `onSwitchSubmit`'s re-entry guard refuses every further tap while it holds, so a transition that never settles leaves "Not you? Switch person" dimmed and inert until the page is reloaded. The same-route sibling `app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx` already carries `PENDING_TIMEOUT_MS = 8_000` with a status region; the menu row wants the same shape.
+
+**Deferral reason (c):** the repair adds a timing constant, and DESIGN.md's interaction-timing table is pinned in both directions by `tests/docs/_metaInteractionTimingInventory.test.ts`, so it is a small design-token change on a surface the filing arc did not otherwise touch. The arc fixed the sibling P1 (no `aria-busy`, no announcement) in-branch.
+
+**Trigger:** the next avatar-menu pass, or a report of a stuck switch row.
+
+---
+
 ## BL-SPECLINT-AC-UNCLAIMED — a plan can declare an acceptance criterion that no task is scheduled to prove
 
 **Status:** OPEN · **Filed:** 2026-08-22 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** LOW (an unwritten assertion; caught downstream by review rather than shipped) · **Class:** spec-lint arm · **Effort:** S · **Incident:** plan review round 1 of this arc raised "AC-2 has no executable owner" as a BLOCKING finding against a plan `pnpm spec:lint` had just passed at **0 hard**; the round is recorded in `docs/review-rounds/fix/screenshots-drift-instrument/50ca72a566b0.jsonl`. · **Reachability:** PROBED — the asymmetry is at `lib/specLint/taskContract.ts:376`, and the missing direction was written and run against this arc's own plan before filing.
@@ -326,20 +338,6 @@ gh api -X POST repos/edweiss412/FX-Webpage-Template/branches/main/protection/req
 
 Run it, confirm with `gh api repos/edweiss412/FX-Webpage-Template/branches/main/protection/required_status_checks --jq '.contexts'`,
 then archive this entry. Nothing else is owed.
-
-## BL-SWITCH-PERSON-GOOGLE-LOOPBACK — menu "Switch person" is ineffective for a Google-authenticated viewer
-
-**Status:** OPEN · **Severity:** low · **Class:** UX correctness / product decision · **Surfaced:** `fix/auth-picker-hardening` spec R1-F1 (2026-08-15) · **Effort:** M
-
-For a viewer whose access derives from a live Google session (not a cookie-only picker identity), tapping "Not you? Switch person" clears the picker cookie entry but the next resolve re-mints the SAME identity via bootstrap, so the control appears to do nothing. This is pre-existing behavior, distinct from the silent-failure defect `fix/auth-picker-hardening` fixes, and out of that arc's scope (class-sweep disposition exception (a): needs a product decision).
-
-**Reachability: PROBED.** `lib/auth/picker/resolveShowPageAccess.ts:246` — a Google `success` with a missing or mismatched picker entry returns `needs_picker_bootstrap`, which re-mints the identity; clearing the cookie entry does not end the Google session, so the loop closes back to the same person.
-
-**Open decision:** whether menu switch-person should sign a Google viewer out (Supabase `scope: "local"`) as part of the clear, or whether the control should be hidden/relabelled for Google-authed viewers. Documented as a limit in the arc spec §4.7 / §7.
-
-**Trigger:** the next auth/picker UX pass, or a product call on Google-viewer switch semantics.
-
----
 
 ---
 
@@ -771,14 +769,6 @@ bound requires: a spec is either wired and proving its identities, or left on th
 run line that says why.
 
 ---
-
-## BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE — should the show-review snapshot read absorb one bounded retry before throwing to the boundary?
-
-**Status:** OPEN · **Severity:** LOW (rare, recoverable via the boundary's own Retry) · **Class:** product posture decision · **Effort:** S · **Filed:** 2026-08-15
-
-A transient gateway 502 on `get_admin_show_review_snapshot` currently throws `show_review_snapshot_failed` to the `/admin` error boundary (`app/admin/_showReviewModal.tsx`, `snapResult.kind === "infra_error"` branch) — a real admin sees the boundary flash and must click Retry. Evidence: two CI occurrences with exact-timestamp server-log correlation in spec `docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md` §2.1, plus a same-class unmasked witness (`An invalid response was received from the upstream server`, the Kong 502 body). A single bounded server-side retry on this READ would spare that flash; the loader's other reads already fail open.
-
-**Deferral reason (a):** reverses the ratified fail-hard posture (`app/admin/_showReviewModal.tsx:25-30` — "infra faults still THROW to the error boundary") — a product decision the test-infra arc could not settle. The decision needs an owner ruling on whether a read-retry weakens the fail-loud contract or merely debounces it.
 
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
 
