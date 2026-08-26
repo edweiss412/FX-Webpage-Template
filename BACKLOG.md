@@ -227,32 +227,6 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 
 **Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk, deliberately and not by omission. `BL-STEP3-IMPECCABLE-LIVE-RENDER` was unscheduled here and SHIPPED 2026-08-02 on `test/step3-live-render-cluster` (graduated to `BACKLOG-archive.md`).
 
-### BL-THEME-NOTE-NO-DISMISS-AFFORDANCE — the persist-failure note cannot be dismissed, and a permanently-blocked device keeps it up all visit
-
-**Status:** OPEN · **Severity:** LOW · **Class:** UX signal · **Filed:** 2026-08-16 (`feat/theme-persistence-note`, impeccable critique P1) · **Effort:** S
-
-**Probed at implementation time, not theorized.** The note renders whenever `persistFailed` is true and clears only when a later write SUCCEEDS (`components/layout/useAppliedTheme.ts`). On a device where storage is blocked for the whole session — the entry that produced this feature named embedded webviews with storage partitioning — no later write can succeed, so the anchored bubble stays under the toggle until the page unloads, overlaying whatever sits beneath it.
-
-Spec `docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` §4 limit 5 accepts the overlay as the price of not displacing three differently-engineered consumer rows, and bounds it (it appears only after the user taps the control directly above it, is at most three short lines, and clears on recovery). What it does not answer is whether the note should be dismissible.
-
-**Why it is filed rather than fixed here.** A dismiss control is a product decision, not an implementation detail: it needs its own copy, a 44px tap target inside a `max-w-36` bubble, an a11y contract (a close button inside a `role="status"` region announces itself), and a rule for whether dismissal survives a later failure. Class-sweep disposition exception (a): needs a product decision.
-
-**Reachability:** PROBED — same reachability as the parent entry (any storage-partitioned webview).
-
----
-
-### BL-THEME-NOTE-BUBBLE-TEXT-ALIGN — the note bubble right-aligns copy the width math wraps to three lines
-
-**Status:** OPEN · **Severity:** LOW · **Class:** UX polish · **Filed:** 2026-08-16 (`feat/theme-persistence-note`, impeccable critique P2) · **Effort:** XS
-
-The bubble's chrome carries `text-right` (spec §2.2 class list, shipped verbatim in `components/layout/ThemeToggle.tsx`). The same spec section derives `max-w-36` from the tightest consumer and states the copy wraps to three short lines at 320px. Right-aligned multi-line body copy gives every line a different starting x, which is the readability case against it — and it lands hardest exactly where the width was engineered tightest.
-
-**Why it is filed rather than fixed here.** `text-right` is part of a ratified spec class list, and invariant 7 makes the spec canonical: changing a ratified visual contract mid-arc is not the implementer's call. The fix is one class (`text-right` to `text-left`, or dropping it) plus the spec §2.2 edit that ratifies it.
-
-**Reachability:** PROBED — the wrap is the spec's own width derivation; the alignment is visible on any failed persist at 320px.
-
----
-
 ### BL-AGENDA-PROSE-SECOND-DAY — a day label can name a second day in free prose
 
 **Status:** OPEN — known limit, accepted in PR #610 review R6 · **Severity:** low · **Class:** FEATURE REACH · **Effort:** S
@@ -365,32 +339,6 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 **Why the entry stays open with one row.** `WrappedTile` is retained by the ratified KEEP at `docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/04-layout-migration-closeout.md:10`. Its dormancy is itself the contract the 2026-07-24 alert-autoresolve family relies on — it keeps `TileServerFallback`'s `TILE_SERVER_RENDER_FAILED` producer dormant and its write-site pin honest — and `tests/crew/_metaTileProducerTopology.test.ts` pins exactly that. Deleting it would not shrink this ledger: it is the sole production importer of BOTH `TileErrorBoundary` and `TileServerFallback`, so the ledger would grow by two and take a registered alert producer with it. There is no mount to wire either — the live crew sections are synchronous and use `WrappedSection`, the deliberate synchronous analog; `WrappedTile` is the async `load()` form. **A future sweep must not read this row as unfinished work.** `tests/components/_metaOrphanedComponents.test.ts` asserts the row's reason names the KEEP and both cascade dependents, so the reason cannot decay back into an observation.
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
-
-## BL-MUTATION-SHARD-BUDGET-AGGREGATE-OVER — the source-mutation shards are 60% over budget in AGGREGATE, and the four-shard pin's premise no longer holds
-
-**Status:** OPEN · **Filed:** 2026-08-22 (queued by `bl-orch` onto `ci/app-e2e-batch2`'s closeout commit, from `dbconn`'s arithmetic) · **Facing:** process · **Severity:** MEDIUM (the budget gate is FAILURE on main itself, so every arc reads its own leg against a red baseline and cannot tell a regression from the inherited state) · **Class:** CI capacity · **Effort:** M · **Reachability:** PROBED — the main-red runs linked in the incident are this row's own evidence; the shard wall-clocks below were measured by `dbconn` on its own legs and are recorded here as ROUTED figures, attributed rather than re-derived, because the arc that measured them holds the artifacts. · **Incident:** the `mutation-harness` workflow is red on MAIN, not on a branch, and has been for days — the last five scheduled runs on `main` all failed: [32559529251](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32559529251) (2026-08-22), [32459382957](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32459382957), [32344648722](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32344648722), [32228276600](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32228276600) and [32111856491](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32111856491), listed by `gh run list --workflow=mutation-harness.yml --branch main`. Those are cost events that already happened, not a constructed hypothetical.
-
-Shard wall-clocks, measured by `dbconn` and routed here by the orchestrator (that arc holds the run
-artifacts; this row does not re-derive them): **4669 s, 6958 s, 4667 s, 6786 s = 23080 s** of work
-against a budget of `4 x 3600 s`. That is 60% over IN AGGREGATE, and — the part that matters for the fix — **all four
-legs are over**, with no single surface dominating any of them. The spec's §2.4 premise for pinning
-`SOURCE_SHARD_COUNT = 4` was that a small number of expensive surfaces set the ceiling; that premise
-is now false, so the pin cannot be defended on its original grounds.
-
-Fix candidate, by the same arithmetic: **n = 8 fits** at roughly 2885 s for the longest leg. `n = 5`
-and `n = 6` are both still over, so a one-notch bump buys nothing.
-
-**Per-leg ceiling proximity is trending, not just the aggregate.** One shard measured 111 minutes and
-then 118 minutes on consecutive runs against a 125-minute ceiling (`panecompact`, 2026-08-22). The
-aggregate says the budget is wrong; that pair says a single leg is now close enough to the ceiling
-that ordinary variance reaches it, and a leg that CANCELS at the ceiling reports nothing — the silent
-form this row exists to prevent.
-
-**The first scheduled step is the shard-count decision as a FLEET item, not a unilateral edit.**
-`shardPartition` is a shared surface and the LPT partition re-packs whenever the surface set changes,
-so a shard-count change moves which shard every enrolled surface lands in, and every arc holding a
-stamped score is affected at once. Note also that `arc-ctloutline`'s incoming **231 sites** land on
-this same partition and make every number above worse before any repair lands.
 
 ## BL-ADMIN-LOADER-CI-TRANSIENT — admin page and modal loaders fault transiently on the app-e2e runner, and the failure is indistinguishable from a spec defect
 

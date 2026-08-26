@@ -170,7 +170,9 @@ function InteractiveDeveloperToggle({ email, checked }: { email: string; checked
         <p
           role="alert"
           data-testid="developer-toggle-error"
-          className="max-w-prose rounded-sm bg-warning-bg px-2 py-1 text-right text-xs text-warning-text"
+          // No alignment class — see RevokeRowButton's self-last hint. Same
+          // shape, same 2026-08-26 class sweep.
+          className="max-w-prose rounded-sm bg-warning-bg px-2 py-1 text-xs text-warning-text"
         >
           {renderEmphasis(errorCopy)}
         </p>

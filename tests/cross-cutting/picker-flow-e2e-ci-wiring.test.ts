@@ -184,8 +184,15 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
     "transition (d): hero state-change while leaving Today unmounts the hero cleanly (no concurrent animation; compound)",
   ],
   "tests/e2e/theme-toggle.spec.ts": [],
-  // The persist-failure geometry spec skips nothing: all four cases resolve under
+  // The theme-note removal spec skips nothing: every case resolves under
   // desktop-chromium alone (its only project) and every one executes.
+  //
+  // No count here on purpose (diff review r2 finding 3). This comment said "all
+  // four cases" while the spec had been rewritten to five, and the floor in
+  // scripts/check-crew-e2e-executed.mjs already carries the real number and is
+  // cross-checked against live Playwright resolution by the oracle below. One
+  // anchored place owns the figure; a prose copy beside it can only ever drift
+  // out of date, which is exactly what it did.
   "tests/e2e/theme-persistence-note.spec.ts": [],
 };
 
