@@ -24,21 +24,21 @@ restate an approved criterion more weakly than the spec makes it.
 | enrolled plans | 100 | `grep -rl '<!-- tasks: depth=' docs/superpowers/plans/ \| wc -l` |
 | plans using `red-contract` | 47 | `grep -rl 'tasks: depth=[0-9] red-contract' docs/superpowers/plans/ \| wc -l` |
 
-## 0.1 What is NOT settled, and what that blocks
+## 0.1 The AC arm's design, ruled
 
-Spec §4.2 escalates the AC arm's live reach to the orchestrator: branch (A) migrate, (B) opt-in,
-(C) lint gate only. **Tasks 1 through 7 are independent of that choice and are complete as
-written.** Tasks 8 through 10 are written for branch (A), the recommendation; if (B) or (C) is
-chosen, only those three change and §0.2 says how.
+Spec §4.2 escalated the AC arm's live reach; **ruled 2026-08-26: branch (A),
+migrate.** The body grammar declares, an unclaimed id needs an explicit
+disposition on its declaring line, and the flagged plans are migrated in Task 11.
+Four constraints ship with the ruling and bind tasks 8 through 12:
 
-## 0.2 Branch deltas for tasks 8-10
-
-- **(A), as written.** Body grammar declares; an unclaimed id needs an explicit disposition on its
-  declaring line; 25 merged plans get a one-line edit in Task 10.
-- **(B).** Task 8 gains the region grammar of spec §4.2.1 and its three region codes; Task 9's
-  corpus test asserts zero newly-flagged plans instead of the migration set; Task 10 is dropped.
-- **(C).** Tasks 8-10 are dropped entirely; the spec's §4 becomes a documented-limits record and
-  `BL-SPECLINT-AC-UNCLAIMED` stays open with its premise defect recorded against it.
+1. Each migration edit states ONLY what that plan's prose already says, cited
+   from the plan's own line. Never a reinterpretation.
+2. A plan whose prose does not settle the disposition gets none: it goes in the
+   PR body under "Unfixed peers" and stays flagged.
+3. The convention gets ONE paragraph in `docs/agents/writing-plans.md`, not in
+   `AGENTS.md`.
+4. The probe domain is the live plans corpus and the done condition is zero
+   unclaimed ids on it.
 
 ## 0.25 Acceptance criteria, inlined from spec §10
 
@@ -48,8 +48,8 @@ chosen, only those three change and §0.2 says how.
 - AC-7: the guard-surface refusal prints one conforming `GUARD SURFACE:` line verbatim, and the AGENTS.md bullet shows the same line; the separator grammar is unchanged and a "plus" line is still refused with exit 2 and no result artifact.
 - AC-8: both ledger rows are archived with `provenance: "feat/speclint-dispatch-gates"`, and the heading arithmetic proves the two `##` headings moved while all seven `###` sub-rows stayed in `BACKLOG.md`, each named in the assertion.
 
-AC-4, AC-5, AC-6 and AC-9 belong to the AC arm and the mutation score; they are discharged by
-tasks 8-10 and the closeout, which §0.1 holds pending the branch decision.
+AC-4 is discharged by Task 8, AC-5 by Task 9, AC-6 by Tasks 11 and 12. AC-9 is the mutation score
+and is discharged by the closeout, not by a task.
 
 ## 0.3 Meta-test inventory
 
@@ -171,10 +171,82 @@ both ledgers via `ledgerFiles()` (`tests/docs/_metaLedgerReferentialIntegrity.te
 
 <!-- tasks: end -->
 
-## Tasks 8-10 — the AC arm
+The region reopens here — sequential regions are legal, each with its own depth
+(`docs/superpowers/specs/2026-08-09-task-enrollment-multi-region-design.md`), and
+these are TDD units like the rest.
 
-Written once branch (A), (B) or (C) is chosen per §0.1. Held rather than drafted so the plan does
-not carry a design the spec has escalated.
+<!-- tasks: depth=2 red-contract -->
+
+## Task 8: TASK_AC_UNCLAIMED and the disposition grammar
+
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts -t unclaimed` red-state=authored red-target=`lib/specLint/taskContract.ts:373` why=`the loop at :373-377 walks marker-cited ids only and there is no traversal in the other direction anywhere in the file, so a declared id nothing cites draws nothing; the new case asserting TASK_AC_UNCLAIMED on such a plan fails` ac=AC-4 -->
+
+Collect the ids the plan declares (a list item or ATX heading whose content begins
+with the id, secondary ids on the same line up to the first sentence end),
+collect the ids every `ac=` cites, and report the declared-and-uncited difference
+— unless the declaring line carries a disposition.
+
+**The disposition set is an ACCEPT-set.** An unrecognised disposition reports the
+id; it never exempts it. A deny-set would fail open on the case nobody modelled,
+which is the direction this arm cannot afford: the whole point is that silence
+and clean look identical to an author.
+
+`checkTaskContract` already receives the whole `DocModel`
+(`lib/specLint/taskContract.ts:313`), so this is self-contained in a file the
+mutation registry already covers (`tests/mutation/source/registry.ts:805`).
+
+## Task 9: TASK_AC_UNDECLARED, and the three-code partition
+
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts -t undeclared` red-state=authored red-target=`lib/specLint/taskContract.ts:118` why=`resolvesId at :118-126 is a word-boundaried regex over every non-marker line, so any prose occurrence satisfies a citation and a merely-mentioned id draws nothing; the new case asserting TASK_AC_UNDECLARED against a plan that mentions but does not declare the id fails` ac=AC-5 -->
+
+Fires only in a plan that declares at least one id, so the 42 spec-side plans are
+untouched. The partition test is the point of this task and is asserted directly:
+one id never draws two of the three codes. `UNRESOLVED` needs no occurrence,
+`UNDECLARED` needs an occurrence that is not a declaration, `UNCLAIMED` needs a
+declaration. The fixture that proves it declares one id, mentions a second in
+prose, and cites both.
+
+## Task 10: wire the codes
+
+<!-- task: red=`pnpm vitest run tests/specLint/taskContractWiring.test.ts` red-state=authored red-target=`tests/specLint/taskContractWiring.test.ts:180` why=`the title at :180 asserts ALL TEN codes and the table iterates CODE_FIXTURES; adding two rows without moving the count leaves the title stating ten while twelve run, and the new rows have no fixtures yet so the per-code exit/FAIL assertions fail` ac=AC-4,AC-5 -->
+
+One `CODE_FIXTURES` row per new code, single-finding each per the file's own
+comment at `tests/specLint/taskContractWiring.test.ts:69`, and the count in the title moves from ten to twelve.
+
+The all-codes cover is derived from the production source alone, PARSED rather
+than grepped — every string literal in first-argument position of a `fail` call —
+and asserted equal to the `CODE_FIXTURES` key set. A same-line grep is what
+produced this spec's own withdrawn "nine sites, ten codes" claim
+(`TASK_ENROLL_EMPTY` is raised through `fail` at `lib/specLint/taskContract.ts:259`,
+formatted across four lines), and unioning a grep with the fixture keys is
+circular — the registry would supply the very member the census failed to find.
+
+## Task 11: the corpus migration
+
+<!-- task: red=`pnpm vitest run tests/specLint/acUnclaimedCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28` why=`AC-3 is declared at :28 with no disposition on the line and no marker cites it, so the corpus test this task writes reports a non-empty unclaimed set and fails; it passes only once every such line carries its plan own disposition` ac=AC-6 -->
+
+The corpus test walks every enrolled plan from disk and asserts ZERO unclaimed
+ids, with a `premise()` guard so an empty walk cannot satisfy it vacuously
+(`tests/_shared/premise.ts`, and `tests/specLint/acCoverageCorpus.test.ts` is the
+shape). **That zero is this arm's done condition** — a number outside the guard.
+
+Each of the flagged plans gets a one-line edit, and per spec §4.2 constraint 1
+each edit states ONLY what that plan's prose already says, cited from its own
+line. Per constraint 2, a plan whose prose does not settle the disposition gets
+NO disposition: it goes in the PR body under "Unfixed peers" and stays flagged,
+which means this task's zero is over the plans whose prose settles it, with the
+remainder named. The per-plan classification with quoted evidence is the input to
+this task and is produced before it starts.
+
+## Task 12: the convention paragraph
+
+<!-- task: red=`pnpm vitest run tests/docs/_metaSpecLintDocs.test.ts` red-state=authored red-target=`docs/agents/writing-plans.md:26` why=`writing-plans.md documents the red= and gate-command contract at :26 and says nothing about acceptance-criterion dispositions, so a plan author has no statement of the convention the arm now enforces; the docs assertion this task writes fails against the current file` ac=AC-6 -->
+
+ONE paragraph in `docs/agents/writing-plans.md` per spec §4.2 constraint 3 — NOT
+`AGENTS.md`. It states the convention, the accept-set direction, and that a
+disposition may only say what the plan already says.
+
+<!-- tasks: end -->
 
 ## 12. Closeout
 
