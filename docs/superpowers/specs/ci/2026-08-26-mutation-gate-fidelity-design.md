@@ -1,8 +1,7 @@
 # Mutation gate fidelity: stop a leg going silent, score the surface that cannot be scored, and stop taxing the PRs that touch the harness
 
 **Arc:** arc-gatefidelity · **Branch:** `fix/mutation-gate-fidelity` · **Date:** 2026-08-26
-**Archives:** `BL-MUTATION-HARNESS-PR-TRIGGER-FANOUT`, `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH`
-**Repairs but does not archive:** `BL-MUTATION-HARNESS-MAIN-RED` — its own body requires a `workflow_dispatch` proof on `main`, which lands after a merge this arc does not perform (§6.1)
+**Archives:** `BL-MUTATION-HARNESS-MAIN-RED`, `BL-MUTATION-HARNESS-PR-TRIGGER-FANOUT`, `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH` — the first with its outstanding nightly verification named in the entry and owned by the orchestrator (§6.1)
 **Files:** `.github/workflows/mutation-harness.yml`, `tests/mutation/source/surfaceCases.ts`, `tests/mutation/source/oracle.ts`, `tests/db/connectionCensus.test.ts`, `tests/mutation/source/spawnBounded.ts`, `BACKLOG.md`, `BACKLOG-archive.md`
 
 **This arc files no new `BL-` or `DEF-` row of any facing** (Eric's directive, 2026-08-25, which overrides the mint freeze's exception clauses). Every finding below is repaired here or recorded as a documented limit on the surface that owns it.
@@ -161,9 +160,26 @@ The same sweep cleared the other registries this diff touches. `tests/mutation/_
 
 **Why the leg still fails.** A faulted surface registers failing cases, so the leg is red and the gate's verdict is unchanged. What changes is that the red is attributable and its co-tenants are visible.
 
-**The derived cover, executable, in machinery that already exists.** `tests/mutation/source/surfaceCases.test.ts` already drives the REAL `registerSurfaceCases` against a mocked `node:child_process.spawnSync` and a synthetic `fixture(id)` surface, and its mock already branches on whether the child is running the BASELINE. One added lever — a chosen suite whose BASELINE returns non-zero — reproduces `BaselineNotGreenError` in-process with no child vitest at all. The case registers `[faulting, healthy]` in that order and asserts the healthy surface's notices still reached the sink.
+**Registration is UNCONDITIONAL, and that is what closes the escape a reviewer found in an earlier draft.** The seven `it(` calls are made for every surface, always; only their BODIES consult the outcome. There is deliberately no branch between entering the `describe.each` callback and registering all seven, so there is no code path that registers fewer cases for a faulted surface than for an evaluated one. The escape that draft left open — catch the fault, return early, register nothing, and let the healthy surface satisfy the assertion — is unreachable by construction rather than merely untaken, because an early return is the one shape the structure forbids.
 
-RED validity: on today's tree that registrar call throws during collection and the whole file errors with `BaselineNotGreenError`, which is a production-behavior failure, not a test-local one. It cannot be made green by editing the test. The failure mode it catches: someone moves the evaluation back outside the wrapper, or catches the fault and swallows it instead of failing.
+That is worth stating because the seven-literal guard cannot catch it: `guardSurfaces.gates.test.ts` case (c) counts `it(` literals in the SOURCE and stays green whether or not they execute. A static literal count is not an execution guarantee, and this design does not ask it to be one.
+
+**A faulted surface reports on three independent channels**, so no single one has to carry the proof:
+
+1. **Seven failing cases** — the leg's verdict, unconditionally registered as above.
+2. **A fault NOTICE through the `write` sink**, the same channel the `TIMEOUT-KILL` notices use, emitted at module scope so it appears in the leg's output whether or not any case runs.
+3. **A run record** with `passed: false` (see above).
+
+**The derived cover, executable, in machinery that already exists.** `tests/mutation/source/surfaceCases.test.ts` already drives the REAL `registerSurfaceCases` against a mocked `node:child_process.spawnSync` and a synthetic `fixture(id)` surface, and its mock already branches on whether the child is running the BASELINE. One added lever — a chosen suite whose BASELINE returns non-zero — reproduces `BaselineNotGreenError` in-process with no child vitest at all.
+
+The case registers `[faulting, healthy]` in that order and asserts **both** directions, which is the point:
+
+- the **faulted** surface produced its fault notice, naming that surface id, and its record carries `passed: false`;
+- the **healthy** surface's notices still reached the sink.
+
+Asserting only the second is what the earlier draft did, and it is satisfiable by an implementation that silently drops the faulted surface entirely — the exact outcome R1 exists to prevent. The faulted-side assertion is the discriminating one; the healthy-side assertion is what proves isolation rather than mere error handling. Both are required.
+
+RED validity: on today's tree that registrar call throws during collection and the whole file errors with `BaselineNotGreenError`, which is a production-behavior failure, not a test-local one. It cannot be made green by editing the test. The failure modes it catches: moving the evaluation back outside the wrapper (the healthy assertion reds), and catching the fault without reporting it (the faulted assertion reds).
 
 **R1 also names the surface in the error.** `BaselineNotGreenError` (`tests/mutation/source/oracle.ts:21-30`) carries only the suite list, so the annotation on run 32958581720 named two test files and no surface — a triager has to re-derive the partition to learn which surface owns them. `assertCleanBaseline` gains the surface id and the message leads with it.
 
@@ -270,7 +286,19 @@ Item 2 is the sharp one and it is why the `workflow_dispatch` run below is manda
 
 **The escape, stated in the workflow so the next arc does not rediscover it.** `workflow_dispatch` at `mutation-harness.yml:33` gives any branch a real full run on demand: `gh workflow run mutation-harness.yml --ref <branch>`. A comment above the gated jobs says so.
 
-**Measured effect.** A harness-touching PR goes from **20 jobs (18 test legs) to 2 jobs**. Against today's sixteen fan-outs, eleven cancelled mid-flight, that is the whole of the capacity this arc returns — and it dwarfs R2's eleven added nightly minutes.
+**Measured effect, counted by what reaches a runner rather than by what appears in the check list.** The two differ, and an earlier draft of this line conflated them. `notify` is already gated to `schedule` or a DEFAULT-BRANCH dispatch, so it is skipped on every pull request and on every feature-branch dispatch — it occupies a row and no runner.
+
+| event | rows | runner jobs |
+| --- | --- | --- |
+| pull request, today | 20 | **19** (`notify` skipped) |
+| pull request, after R4 | 20 | **2** |
+| schedule on `main` | 20 | **20** |
+| `workflow_dispatch` on `main` | 20 | **20** |
+| `workflow_dispatch` on a feature branch | 20 | **19** (`notify` skipped) |
+
+Verified against run 32958581720, a real pull-request run: 20 job rows, of which exactly one (`notify`) is `skipped`.
+
+So the narrowing is **19 runner jobs to 2**. Against today's sixteen fan-outs, eleven cancelled mid-flight, that is the whole of the capacity this arc returns, and it dwarfs R2's eleven added nightly minutes.
 
 **`budget` must be gated too, and its skipping is correct rather than a loss.** It `needs:` the four harness jobs with `if: always()`, and `scripts/check-shard-budget.ts` checks completeness before any maximum — "an absent record must not read as ‘that shard was fast’" (`mutation-harness.yml:255-256`). With sixteen shard legs skipped it would fail on sixteen missing records, which is a true statement about a run that measured nothing and a useless one to put on a PR. Its subject is the legs, and on a PR there are none.
 
@@ -344,28 +372,26 @@ Total seconds rose ~12.5% because each additional leg pays its own setup and boo
 
 | id | criterion | how it is proved |
 | --- | --- | --- |
-| **AC-1** | A surface that faults during evaluation registers one failing case naming it, and every other surface on its leg still evaluates, emits notices and registers its cases. | Child-vitest fixture suite (§3.1). Red on today's tree because collection dies. |
+| **AC-1** | A surface that faults during evaluation (a) registers its full seven cases, every one failing and naming the surface, (b) emits a fault NOTICE through the same sink the timeout notices use, and (c) writes a run record with `passed: false`; and every other surface on the leg still evaluates, emits its notices and registers its seven. | In-process, in `tests/mutation/source/surfaceCases.test.ts`, against the sink and the record — never the child-vitest route, which an earlier draft named alongside this one and which is now dropped. Red on today's tree because collection dies before any of the three channels produces anything. |
 | **AC-2** | `BaselineNotGreenError` names the surface id, not only the suite paths. | Unit case on `assertCleanBaseline`. |
 | **AC-3** | `retryableRpcVolatilityScan` scores on a `source-shards` leg, with no `BaselineNotGreenError` in any annotation. | `workflow_dispatch` run on this branch; per-annotation read. |
 | **AC-4** | `reconcileValidationEnv` reports `stale: []` for an allow row whose file still holds a `validation-env` site; `connectionCensus` has zero unaccepted survivors. | The killing case (§3.3) plus a scored `pnpm heavy:mutation` run. |
-| **AC-5** | A harness-touching pull request **sends exactly 2 jobs to runners**; `schedule` and `workflow_dispatch` still send 20. | Counted by conclusion, not by row: a false job condition marks a job `skipped`, and GitHub evaluates job conditions before matrix expansion, so the PR's check list may still show skipped entries that consumed no runner. The assertion is on jobs whose conclusion is not `skipped`. Measured on this branch's own PR against the 20 measured in §1.3. |
-| **AC-6** | The bring-up steps are `run:` steps and none writes `$GITHUB_ENV`. | `tests/mutation/_metaSourceShardIntegrity.test.ts` stays green. |
+| **AC-5** | A harness-touching pull request **sends exactly 2 jobs to runners**, down from 19; a `schedule` run still sends 20 and this branch's own `workflow_dispatch` sends 19. | Counted by CONCLUSION, never by row: a false job condition marks a job `skipped`, so the check list still shows rows that consumed no runner. The assertion is on jobs whose conclusion is not `skipped`, and the three baselines are the ones in §3.4's table, each verified against a real run rather than derived from the matrix arithmetic. |
+| **AC-6** | `steps[0]` of every shard job is still the `stamp-start` step, exactly one step in each writes `$GITHUB_ENV`, and the two shell bring-up steps are `run:`. **The CLI step is `uses:` and this criterion does not claim otherwise** — an earlier draft asserted all three were `run:`, which contradicted R2 as repaired. | `tests/mutation/_metaSourceShardIntegrity.test.ts` stays green. Note honestly what that proves: it pins step 0 and the `$GITHUB_ENV` writer count, and it does NOT enforce step TYPE, so the `run:`-ness of the two shell steps is a review-verified property rather than a gated one. |
 | **AC-7** | Every enrolled surface this diff touches carries a stated `GUARD SURFACE:` score with zero unaccepted survivors. | Scored runs under `pnpm heavy:mutation` with the class lock taken. |
-| **AC-8** | The next scheduled nightly on `main` after the merge is green on every leg, `source-gates`, both parser jobs and `budget`. | The adjudicating observation. It lands after the merge, and this arc does not merge, which is why §6.1 does not let this PR archive the row that depends on it. |
+| **AC-8** | The next scheduled nightly on `main` after the merge is green on every leg, `source-gates`, both parser jobs and `budget`. | The adjudicating observation, and the only criterion here this arc cannot discharge itself: it lands after a merge this arc does not perform. Per §6.1 the orchestrator owns observing it and recording the outcome in the archived row's own text. Everything this arc CAN prove pre-merge is AC-1 through AC-7. |
 
 ---
 
-## 6.1 Row dispositions, and why one of the three does not close here
+## 6.1 Row dispositions
 
-`BL-MUTATION-HARNESS-PR-TRIGGER-FANOUT` and `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH` are archived by this PR. Both proofs are complete before the merge: the fan-out row closes on a job count measurable on this branch's own PR (AC-5), and the budget row closes on the arithmetic in §5, which is read off a run that has already happened.
+**All three rows are archived by this PR**, ruled by the orchestrator on 2026-08-26 after this spec's round-1 review raised the question.
 
-**`BL-MUTATION-HARNESS-MAIN-RED` stays OPEN, with only its in-progress marker removed.** Its own body states the proof it requires, and a PR run is explicitly excluded:
+`BL-MUTATION-HARNESS-PR-TRIGGER-FANOUT` and `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH` close on proofs that are complete before the merge: a job count measurable on this branch's own pull request (AC-5), and the arithmetic in §5 read off a run that has already happened. The budget row's archive entry carries its residue and re-file trigger inline — six of eight legs in the warn band, and the trigger being any leg crossing 3600 s, including R2's 84 s bring-up pushing the binding leg over.
 
-> Confirm the clean baseline with `workflow_dispatch` on main, not by reading a PR run — and note that a PR run's head is the PR branch.
+**`BL-MUTATION-HARNESS-MAIN-RED` is archived too, with its outstanding verification named in the entry and OWNED.** Its body requires a `workflow_dispatch` proof on `main` rather than a PR run, and that observation lands on the first scheduled nightly after the merge — after this PR's last commit, and after a merge this arc does not perform. The entry therefore records: the repair, the merge sha, that the first scheduled nightly after that merge is the verification, and that **the orchestrator owns observing it and writing the outcome into the entry's own text**.
 
-This arc can produce a `workflow_dispatch` run on its own BRANCH, which is mandatory here for the independent reason in §3.4 (a trigger cannot validate its own removal). It cannot produce one on `main`, because it does not merge. AC-8 puts the row's proof on the first scheduled nightly after the merge — after the last commit this PR will ever make. Archiving the row in that last commit would close the nightly-red row **before** the evidence it demands exists, and this arc may not file a replacement row if that nightly comes back red. So the row is left for whoever observes AC-8.
-
-The cost of leaving it open is one queue row for one nightly cycle. The cost of closing it early is a row that says the nightly is green when nobody has looked, which is the exact failure the row was filed about.
+The alternative this spec carried until the ruling was to leave the row open. It was rejected for a reason worth recording, because it is a general one: a row whose only remaining step is "someone watches a cron" is exactly the stale-queue shape the in-progress convention exists to prevent. The queue would claim work is pending when the work is done and only an observation is outstanding. A handoff carries a watch better than a ledger row does.
 
 ## 7. Invariants in play
 
