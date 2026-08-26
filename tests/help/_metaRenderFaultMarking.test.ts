@@ -82,6 +82,22 @@ const FLAG_RESIDUE: Record<string, string> = {
     "assigns a routing flag and returns no JSX from that branch; fails open by design.",
 };
 
+describe("the scanner's population is pinned against resolver drift", () => {
+  it("scanCandidates reports exactly 35 candidates", () => {
+    // Pinned HERE rather than in the server-time guard's suite, which needs the
+    // same fact but would pay a second full project scan for it (measured: the
+    // duplicate scan blew a 30s test timeout). CANDIDATES is already computed
+    // once at module scope in this file.
+    //
+    // What this catches: `resolveSpecifier` gained two directory-index forms so
+    // the server-time guard could derive its population correctly, and that
+    // resolver is also how this scanner makes its two cross-file hops. Index
+    // resolution can only ADD resolutions, so a moved count means the scanner
+    // had been silently missing a predicate -- worth failing over either way.
+    expect(CANDIDATES.length).toBe(35);
+  });
+});
+
 describe("the flag-shaped residue is named, since no scan can reach it", () => {
   it("gives every registered flag a reason naming what it reaches", () => {
     expect(Object.keys(FLAG_RESIDUE).length).toBeGreaterThan(0);

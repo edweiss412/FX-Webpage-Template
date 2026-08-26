@@ -40,7 +40,7 @@ export async function queryIngestFailures(filters: FailureFilters): Promise<Quer
     if (sinceHours != null) {
       query = query.gte(
         "last_attempt_at",
-        new Date(Date.now() - sinceHours * 3_600_000).toISOString(),
+        new Date(Date.now() - sinceHours * 3_600_000).toISOString(), // not-render-side: CLI read-path window (pnpm observe), not a rendered surface
       );
     }
     const { data, error } = await query

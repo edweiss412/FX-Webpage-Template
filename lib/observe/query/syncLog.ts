@@ -27,7 +27,7 @@ export async function querySyncLog(filters: SyncLogFilters): Promise<QuerySyncLo
     if (filters.status) query = query.eq("status", filters.status);
     const sinceHours = filters.sinceHours === undefined ? 24 : filters.sinceHours;
     if (sinceHours != null) {
-      query = query.gte("occurred_at", new Date(Date.now() - sinceHours * 3_600_000).toISOString());
+      query = query.gte("occurred_at", new Date(Date.now() - sinceHours * 3_600_000).toISOString()); // not-render-side: CLI read-path window (pnpm observe), not a rendered surface
     }
     const { data, error } = await query
       .order("occurred_at", { ascending: false })

@@ -294,7 +294,7 @@ export async function runManualSyncForShow_unlocked(
   // duration_ms = NULL despite having a sink (whole-diff r4 finding 1). A caller that
   // already captured one wins - it knows the wider boundary.
   const attemptStartedAtMs =
-    deps.processDeps?.attemptStartedAtMs ?? (deps.processDeps?.now?.() ?? new Date()).getTime();
+    deps.processDeps?.attemptStartedAtMs ?? (deps.processDeps?.now?.() ?? new Date()).getTime(); // not-render-side: dependency-injection default; sync attempt start, not a render
   // Tracked sink (spec §3.1 R3 F1): the retry route calls THIS entry point directly, bypassing the
   // locked wrapper's catch, so a throw inside processOneFile_unlocked before its first emission
   // would otherwise reach only the route's generic outer guard and record nothing. Family (i) only

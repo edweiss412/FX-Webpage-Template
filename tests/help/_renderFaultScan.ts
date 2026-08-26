@@ -80,7 +80,7 @@ export function scannedFiles(): string[] {
  * component -- arrive through that alias, so leaving it to the resolver would
  * silently drop the two cases the spec names as load-bearing.
  */
-function resolveSpecifier(file: SourceFile, specifier: string): SourceFile | null {
+export function resolveSpecifier(file: SourceFile, specifier: string): SourceFile | null {
   const base = specifier.startsWith("@/")
     ? join(process.cwd(), specifier.slice(2))
     : specifier.startsWith(".")
@@ -89,7 +89,13 @@ function resolveSpecifier(file: SourceFile, specifier: string): SourceFile | nul
   if (base === null) return null;
 
   const project = file.getProject();
-  for (const extension of [".ts", ".tsx"]) {
+  // The two directory-index forms are not decoration. Five live imports in the
+  // scan roots -- four of `@/lib/log`, one of `@/lib/parser` -- resolve only
+  // through an index file, and without them a caller deriving a population from
+  // this resolver silently gets 209 modules where TypeScript sees 211. Neither
+  // missed module happens to hold a violation today, so the omission would have
+  // shown up as a clean run over a smaller population rather than as a failure.
+  for (const extension of [".ts", ".tsx", "/index.ts", "/index.tsx"]) {
     const candidate = base + extension;
     if (!existsSync(candidate)) continue;
     return project.getSourceFile(candidate) ?? project.addSourceFileAtPath(candidate);
@@ -766,4 +772,58 @@ export function scanCandidates(): Candidate[] {
   }
 
   return candidates.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+}
+
+/**
+ * The `lib/**` modules a set of rendered files imports DIRECTLY at runtime.
+ *
+ * Depth 1, deliberately. A module a rendered file imports directly is on the
+ * render path; one four hops behind it is in the same module graph for reasons
+ * that have nothing to do with rendering, and following the graph to its end
+ * pulls in the cron and sync trees. Measured against the server-time guard's
+ * own filters: depth 1 is 211 modules and 13 violations, depth 2 is 319 and 22,
+ * unbounded is 396 and 31, and the whole directory is 532 and 55. All four
+ * reach `lib/admin/loadAppEvents.ts`, and every violation unbounded depth adds
+ * sits in a module whose only `app/` importers are under `app/api/**` or a cron
+ * path -- none is awaited by a render.
+ *
+ * Type-only edges are excluded: an `import type` declaration, and a named group
+ * whose every specifier is type-only with no default and no namespace binding,
+ * are erased at build and carry no render.
+ */
+export function deriveImportedLibFiles(rootFiles: string[]): string[] {
+  const project = new Project({
+    compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+    skipAddingFilesFromTsConfig: true,
+  });
+  const found = new Set<string>();
+
+  for (const path of rootFiles) {
+    const source = project.getSourceFile(path) ?? project.addSourceFileAtPath(path);
+    const specifiers: string[] = [];
+
+    for (const declaration of source.getImportDeclarations()) {
+      const named = declaration.getNamedImports();
+      const typeOnly =
+        declaration.isTypeOnly() ||
+        (named.length > 0 &&
+          named.every((specifier) => specifier.isTypeOnly()) &&
+          !declaration.getDefaultImport() &&
+          !declaration.getNamespaceImport());
+      if (!typeOnly) specifiers.push(declaration.getModuleSpecifierValue());
+    }
+    for (const declaration of source.getExportDeclarations()) {
+      const specifier = declaration.getModuleSpecifierValue();
+      if (specifier !== undefined && !declaration.isTypeOnly()) specifiers.push(specifier);
+    }
+
+    for (const specifier of specifiers) {
+      const target = resolveSpecifier(source, specifier);
+      if (target === null) continue;
+      const path = target.getFilePath();
+      if (relative(process.cwd(), path).startsWith("lib/")) found.add(path);
+    }
+  }
+
+  return [...found].sort();
 }

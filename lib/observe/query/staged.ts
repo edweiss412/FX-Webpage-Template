@@ -36,7 +36,7 @@ export async function queryStagedParses(filters: StagedFilters): Promise<QuerySt
     if (filters.warningsOnly) query = query.not("parse_result->warnings->0", "is", null);
     const sinceHours = filters.sinceHours === undefined ? 24 : filters.sinceHours;
     if (sinceHours != null) {
-      query = query.gte("parsed_at", new Date(Date.now() - sinceHours * 3_600_000).toISOString());
+      query = query.gte("parsed_at", new Date(Date.now() - sinceHours * 3_600_000).toISOString()); // not-render-side: CLI read-path window (pnpm observe), not a rendered surface
     }
     const { data, error } = await query
       .order("parsed_at", { ascending: false })
