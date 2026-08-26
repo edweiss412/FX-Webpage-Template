@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-// DB schema test (defaults to local 54322; CI sets TEST_DATABASE_URL=validation).
+// DB schema test against the LOCAL stack (DATABASE_URL, default 54322).
 // Pins shows.last_checked_at: the "we successfully reached Drive and evaluated
 // this show" timestamp (spec 2026-07-16-last-checked-at §3). Nullable timestamptz,
 // backfilled to last_synced_at so no active row is orphaned post-migration.
 const sql = postgres(
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  assertLocalDbUrl(
+    process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  ),
 );
 
 afterAll(async () => {

@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 // S1 (docs/superpowers/specs/alerts/2026-07-03-admin-alert-auto-resolution.md#s1). Proves the
 // `published` false->true row trigger resolves open SHOW_UNPUBLISHED alerts no matter which
@@ -17,10 +18,9 @@ import { afterAll, describe, expect, test } from "vitest";
 // in transaction blocks" warning during development) — the explicit transaction is load-bearing,
 // not decorative.
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const ROOT = process.cwd();
 const MIGRATION_PATH = join(

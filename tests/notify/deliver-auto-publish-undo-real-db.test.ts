@@ -10,8 +10,9 @@ import {
 import type { SendArgs } from "@/lib/notify/send";
 import { mintIdFor, recipientBindingFor } from "@/lib/sync/unpublishBinding";
 import { unpublishShowViaEmailedLink } from "@/lib/sync/unpublishShow";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 const ORIGIN = "https://crew.fxav.app";
 
 type Sql = ReturnType<typeof postgres>;
@@ -56,7 +57,7 @@ describe("auto_publish_undo deliver-time currentness — real DB (spec §4.3)", 
   test.skipIf(!DB_URL)(
     "token CONSUMED via the in-app undo path between detect and deliver → no send, no email_deliveries row",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `undo-consume-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const recipient = `notify-${suffix}@example.com`;
       const token = "12121212-1212-4212-8212-121212121212";
@@ -103,7 +104,7 @@ describe("auto_publish_undo deliver-time currentness — real DB (spec §4.3)", 
   );
 
   test.skipIf(!DB_URL)("token EXPIRED between detect and deliver → no send, no row", async () => {
-    const sql = postgres(DB_URL!, { max: 1, prepare: false });
+    const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
     const suffix = `undo-expire-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const recipient = `notify-${suffix}@example.com`;
     const token = "23232323-2323-4323-8323-232323232323";
@@ -136,7 +137,7 @@ describe("auto_publish_undo deliver-time currentness — real DB (spec §4.3)", 
   test.skipIf(!DB_URL)(
     "token RE-MINTED between detect and deliver (different mintId, same expiry) → stale candidate skips",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `undo-remint-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const recipient = `notify-${suffix}@example.com`;
       const token = "34343434-3434-4434-8434-343434343434";
@@ -182,7 +183,7 @@ describe("auto_publish_undo ledger writes — real DB (spec §4.1/§4.3 R14)", (
   test.skipIf(!DB_URL)(
     "sent row has exact context {slug,title,expires_at,mintId}, no token anywhere; same-show re-mint with FORCED-EQUAL expires_at ms gets a DISTINCT dedupKey and is NOT deduped against the first delivery",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `undo-ledger-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const recipient = `notify-${suffix}@example.com`;
       const token1 = "56565656-5656-4656-8656-565656565656";

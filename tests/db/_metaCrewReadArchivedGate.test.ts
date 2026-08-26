@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 // Structural meta-test (R5 recurrence defense). The "archived show ⇒ crew-unreachable" invariant lives
 // in EVERY crew_read RLS policy: a matching crew member must only read a show (and its child rows) when
@@ -9,8 +10,9 @@ import { describe, expect, test } from "vitest";
 // `published` and `archived` — so a NEW crew-readable child table that forgets the archived clause (or a
 // future edit that drops it) fails here at CI time, not in an adversarial round.
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 function runPsql(sql: string): string {
   return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t", databaseUrl], {

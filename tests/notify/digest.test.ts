@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { describe, expect, test, vi } from "vitest";
 import { DIGEST_MAX_ITEMS_PER_SHOW } from "@/lib/notify/constants";
 import { buildDigestModel, type DigestBuilderSql } from "@/lib/notify/digest";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 function fakeSql(opts: { holds?: Record<string, unknown>[]; rejectHolds?: boolean } = {}) {
   const calls: Array<{ text: string; values: unknown[] }> = [];
@@ -152,13 +153,13 @@ describe("buildDigestModel", () => {
   });
 });
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 
 describe("buildDigestModel real DB filters", () => {
   test.skipIf(!DB_URL)(
     "excludes wizard rows on both pending sources and excludes only this recipient's sent pending-ingestion item",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `digest-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const recipient = `digest-${suffix}@example.com`;
       const pendingDrive = `pending-${suffix}`;

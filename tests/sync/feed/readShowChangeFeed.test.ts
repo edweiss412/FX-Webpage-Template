@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, test } from "vitest";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
+import { assertLocalDbUrl } from "../../db/_localDbUrl";
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 const runPsql = (sql: string) =>
   execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", databaseUrl], {
     input: sql,

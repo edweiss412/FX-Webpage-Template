@@ -1,12 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 /**
  * set_pull_sheet_override RPC authorization contract (spec §5.4, Codex R1-3):
  * a SECURITY DEFINER write to pending_syncs is a privileged surface independent
  * of the route. Two belt-and-suspenders guarantees are proven against a real
- * Postgres (TEST_DATABASE_URL = the validation project; migration pre-applied):
+ * Postgres (DATABASE_URL = the LOCAL stack; migration pre-applied):
  *
  *  1. GRANT LOCKDOWN — execute is revoked from anon/authenticated/public and
  *     granted only to service_role, so a non-service (authenticated-role) direct
@@ -15,16 +16,20 @@ import { describe, expect, test } from "vitest";
  *     (not the live app_settings.pending_wizard_session_id) raises (SQLSTATE 22023)
  *     BEFORE any write, so a stale/forged session cannot mutate an unrelated show.
  *
- * Gated on TEST_DATABASE_URL (unset locally → skip; set in CI / when validation
+ * Gated on DATABASE_URL (unset → skip; set it to a loopback DSN when the local
  * creds are sourced from .env.local).
  */
-const databaseUrl = process.env.TEST_DATABASE_URL;
+const databaseUrl = process.env.DATABASE_URL;
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", databaseUrl as string], {
-    input: sql,
-    encoding: "utf8",
-  }).trim();
+  return execFileSync(
+    "psql",
+    ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", assertLocalDbUrl(databaseUrl as string)],
+    {
+      input: sql,
+      encoding: "utf8",
+    },
+  ).trim();
 }
 
 /** Run SQL that MUST raise; return the psql stderr so the SQLSTATE/message can be asserted. */

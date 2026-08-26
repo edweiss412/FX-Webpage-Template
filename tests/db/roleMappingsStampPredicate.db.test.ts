@@ -16,6 +16,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import postgres, { type Sql } from "postgres";
 
 import { asAdminRpc, readShow, seedHeldShow, sqlClient } from "@/tests/db/_b2Helpers";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 const TOKEN = "RVSO PREDICATE ROLE"; // unique to this file; canonical (upper, trimmed)
 const TOKEN_B = "RVSO SERIALIZE ROLE";
@@ -132,15 +133,15 @@ describe("FOR SHARE serialization (two connections)", () => {
   it("a settings DELETE blocks behind the gate's share lock until the gate tx commits", async () => {
     await seedMapping(sqlClient, TOKEN_B, []);
     const a = postgres(
-      process.env.TEST_DATABASE_URL ??
-        process.env.DATABASE_URL ??
-        "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      assertLocalDbUrl(
+        process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      ),
       { max: 1, prepare: false },
     );
     const b = postgres(
-      process.env.TEST_DATABASE_URL ??
-        process.env.DATABASE_URL ??
-        "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      assertLocalDbUrl(
+        process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      ),
       { max: 1, prepare: false },
     );
     try {

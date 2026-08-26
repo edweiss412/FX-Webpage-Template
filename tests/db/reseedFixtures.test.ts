@@ -2,7 +2,7 @@
  * tests/db/reseedFixtures.test.ts — Task 4 (validation-reset-button).
  *
  * Real-DB integration tests for mintFixtureCombos + finalizeFixtures.
- * Runs against local Supabase at TEST_DATABASE_URL (default 127.0.0.1:54322).
+ * Runs against local Supabase at DATABASE_URL (default 127.0.0.1:54322).
  * SAFETY: finalize PRUNES shows — never run against a remote URL.
  *
  * Tests:
@@ -24,20 +24,22 @@ import {
   type LooseSupabaseClient,
 } from "@/lib/validation/reseedFixtures";
 import { safeValidationCleanup } from "./_validation-cleanup-helpers";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 // ---------------------------------------------------------------------------
 // DB helpers
 // ---------------------------------------------------------------------------
 
-const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DATABASE_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
-// SAFETY: refuse if TEST_DATABASE_URL points at a remote host.
+// SAFETY: refuse if DATABASE_URL points at a remote host.
 const LOCAL_DB_URL_REGEX =
   /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\//i;
 if (!LOCAL_DB_URL_REGEX.test(DATABASE_URL)) {
   throw new Error(
-    `reseedFixtures.test.ts: TEST_DATABASE_URL='${DATABASE_URL}' is not a local DB. ` +
+    `reseedFixtures.test.ts: DATABASE_URL='${DATABASE_URL}' is not a local DB. ` +
       "finalizeFixtures PRUNES validation shows — refusing to run against a remote URL.",
   );
 }

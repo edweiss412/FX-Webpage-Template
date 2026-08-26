@@ -26,10 +26,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import postgres, { type Sql } from "postgres";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // SAFETY: tests 2-4 write to public.geocode_cache — never run against a remote DB
 // (same guard shape as tests/db/resetValidationDataPostgrest.test.ts:32-40; message
@@ -45,7 +44,7 @@ const LOCAL_DB_URL_REGEX =
   /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\//i;
 if (!LOCAL_DB_URL_REGEX.test(DB_URL)) {
   throw new Error(
-    `geocodeCacheCoordExpiry.test.ts: TEST_DATABASE_URL host '${redactedDbHost(DB_URL)}' is not local — refusing.`,
+    `geocodeCacheCoordExpiry.test.ts: DATABASE_URL host '${redactedDbHost(DB_URL)}' is not local — refusing.`,
   );
 }
 
@@ -59,6 +58,7 @@ delete process.env.SUPABASE_SECRET_KEY;
 delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 import { readGeocodeCache } from "@/lib/geocoding/cache";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 const sql: Sql = postgres(DB_URL, { max: 2, prepare: false });
 
