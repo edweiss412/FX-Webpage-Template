@@ -65,7 +65,24 @@ def main() -> int:
     print("plan USES        :", " ".join(sorted(plan_used)))
     print("UNRESOLVED (plan):", " ".join(plan_missing) if plan_missing else "none")
 
-    return 1 if (missing or plan_missing) else 0
+    # SINGLE-SOURCE: the mutant-to-case mapping lives in the PLAN only.
+    #
+    # Diff review round 2 found seven places where a duplicated mapping had
+    # drifted from the measurement — the spec's §5.1 table crediting `M3` and
+    # `M13` to (h3) when neither kills it, `M13` to (h13) which has no mutant,
+    # `M16` to (h18) when it kills (h9) instead, plus a blanket claim that every
+    # listed mutant turns its case red. Only measurement settles those, and a
+    # second copy cannot be re-measured, so it drifts every time a mutant is
+    # re-run. The column was deleted rather than corrected.
+    #
+    # This is the guard on that decision. Backticked spans are stripped by the
+    # same use-vs-mention rule used above, so the paragraph EXPLAINING the
+    # removal may name mutants; a table column or a prose claim asserting one
+    # may not.
+    spec_mutants = sorted(set(re.findall(r"\bM\d+\b", strip_code(spec))))
+    print("spec MUTANT refs :", " ".join(spec_mutants) if spec_mutants else "none (single-sourced)")
+
+    return 1 if (missing or plan_missing or spec_mutants) else 0
 
 
 if __name__ == "__main__":

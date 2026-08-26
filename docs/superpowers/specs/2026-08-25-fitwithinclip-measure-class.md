@@ -481,21 +481,21 @@ owner's first render — which is `AttentionMenuPanel`'s shape, not `ReSyncButto
 `PublishedToggle`'s. A second harness puts the overlay behind a flag, for the cases that must speak
 about those. Reading a count without knowing its harness is how §0.1 went wrong twice.
 
-| Case | Harness | Pins | Its mutant |
-| --- | --- | --- | --- |
-| (g), amended | always-present | Mount apply count is 1, not 2. The assertion the ledger row made executable; its comment stops citing a row this branch closes | M1 |
-| (h) | always-present | One attach is ONE ancestor walk. Ancestor `getComputedStyle` calls only, expected value derived from the harness's own chain, never typed | M2, M7 |
-| (h2) | always-present | The ref callback with `null`: no measure, no throw. Unreachable under React 19 cleanup refs but the type admits it | M4 |
-| (h3) | always-present | The teardown nulls the node, so a stale `apply()` after unmount cannot measure. React no longer calls `ref(null)`, so this is not free any more | M3, M13 |
-| (h8), (h9) | always-present | The two re-render rows of §2.2's matrix — key changed with the node still present, and nothing changed at all. (h9) is the ONLY case that can see an identity-churning callback, because every other assertion is about a single attach | M10 |
-| (h12) | always-present | The `ResizeObserver` callback actually re-measures. That arm had NO behavioural case at all; case (d) discards the constructor callback | M11 |
-| (h13) | conditional, in `<StrictMode>` | Strict Mode's replay counts, asserted EXACTLY — including `ReSyncButton`'s dev apply going to 2, pinned as 2 rather than wished down to 1 | M13 |
-| (h14) | conditional | One owner render per appearance on the plainest live shape. The arc's headline in its minimal form | M12 |
-| (h16) | `PublishedToggle` key-is-the-condition | BOTH directions of that shape — first error (key changes AND node appears: one attach, no detach) and close (key changes AND node disappears: teardown only), §2.2's two `changed` cells that are not `X → D → Y` — **AND its §0.1 counts in both modes**, renders included. Round 12 caught the directional half shipping alone: a mutant doing one extra owner render passes attach/apply/cleanup and fails §0.1's render row, so the directional assertions cannot stand in for the counts | M21, M12 |
-| (h15), (h17) | the remaining two lifecycles: `ReSyncButton` conditional, `AttentionMenuPanel` always-present | One case per shipped lifecycle (§0.1), both modes. (h17) asserts TWO snapshots — the attach, then the totals after the entrance frame (§0.1a) | M14, M17 |
-| (h18) | hook called, ref never attached | The hook called with its ref NEVER attached — `PublishedToggle`'s default `card` variant. Zero applies, zero walks, no throw | M16 |
-| (h19), (h20) | always-present, driven by a signal | The two SIGNAL-driven edges. Each asserts the re-render changed nothing FIRST, then signals and asserts the cap appears (h19) or is removed (h20) | M18, M19 |
-| (h21), (h22) | always-present, unclipped | State N still holds an observer on the positioned ancestor, and the teardown disconnects it. Four rounds of this inventory claimed otherwise | M20 |
+| Case | Harness | Pins |
+| --- | --- | --- |
+| (g), amended | always-present | Mount apply count is 1, not 2. The assertion the ledger row made executable; its comment stops citing a row this branch closes |
+| (h) | always-present | One attach is ONE ancestor walk. Ancestor `getComputedStyle` calls only, expected value derived from the harness's own chain, never typed |
+| (h2) | always-present | The ref callback with `null`: no measure, no throw. Unreachable under React 19 cleanup refs but the type admits it |
+| (h3) | always-present | The teardown nulls the node, so a stale `apply()` after unmount cannot measure. React no longer calls `ref(null)`, so this is not free any more |
+| (h8), (h9) | always-present | The two re-render rows of §2.2's matrix — key changed with the node still present, and nothing changed at all. (h9) is the ONLY case that can see an identity-churning callback, because every other assertion is about a single attach |
+| (h12) | always-present | The `ResizeObserver` callback actually re-measures. That arm had NO behavioural case at all; case (d) discards the constructor callback |
+| (h13) | conditional, in `<StrictMode>` | Strict Mode's replay counts, asserted EXACTLY — including `ReSyncButton`'s dev apply going to 2, pinned as 2 rather than wished down to 1 |
+| (h14) | conditional | One owner render per appearance on the plainest live shape. The arc's headline in its minimal form |
+| (h16) | `PublishedToggle` key-is-the-condition | BOTH directions of that shape — first error (key changes AND node appears: one attach, no detach) and close (key changes AND node disappears: teardown only), §2.2's two `changed` cells that are not `X → D → Y` — **AND its §0.1 counts in both modes**, renders included. Round 12 caught the directional half shipping alone: a mutant doing one extra owner render passes attach/apply/cleanup and fails §0.1's render row, so the directional assertions cannot stand in for the counts |
+| (h15), (h17) | the remaining two lifecycles: `ReSyncButton` conditional, `AttentionMenuPanel` always-present | One case per shipped lifecycle (§0.1), both modes. (h17) asserts TWO snapshots — the attach, then the totals after the entrance frame (§0.1a) |
+| (h18) | hook called, ref never attached | The hook called with its ref NEVER attached — `PublishedToggle`'s default `card` variant. Zero applies, zero walks, no throw |
+| (h19), (h20) | always-present, driven by a signal | The two SIGNAL-driven edges. Each asserts the re-render changed nothing FIRST, then signals and asserts the cap appears (h19) or is removed (h20) |
+| (h21), (h22) | always-present, unclipped | State N still holds an observer on the positioned ancestor, and the teardown disconnects it. Four rounds of this inventory claimed otherwise |
 
 **Every numbered id USED in §3.1's tables is DEFINED above, and a committed checker settles it:**
 
@@ -515,8 +515,19 @@ happened. §0.1 and §0.1a are unaffected — every shape they measure clips —
 count on an unclipped path counts walk entries instead, and says so in place.
 
 A test proving only that `apply` was called is worthless here: the subject is **how many times**.
-Every case above asserts a count or an absence, and each names the mutant that must turn it red. The
-mutants themselves, with their run procedure, live in the plan.
+Every case above asserts a count or an absence.
+
+**The mutant-to-case mapping is deliberately NOT repeated here.** It lives in exactly one place, the
+plan's §5 table, which records what each mutant was MEASURED to kill rather than what it was expected
+to. This table used to carry an "Its mutant" column too, and diff review round 2 found seven places
+across the two documents where the duplicate had drifted from the measurement — crediting `M3` and `M13`
+to `(h3)` when neither kills it, `M13` to `(h13)` which has no mutant, and `M16` to `(h18)` when `M16`
+leaves `(h18)` green and kills `(h9)`. It also carried a blanket claim, right here, that every listed
+mutant turns its case red, which the measured results contradict.
+
+The column is gone rather than corrected. A second copy of a mapping that only measurement can settle
+will drift again the next time a mutant is re-run, and this arc has now paid for that same shape three
+times. One source, measured, referenced from here.
 
 ### §5.2 — Real browser
 

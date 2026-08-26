@@ -152,7 +152,7 @@ rather than the hook, and M21 is a conditional change with no single-line spelli
 no owning task, so "each is RUN in the task that owns it" was aspiration. The **Run in** column below
 is the fix: every row names its task, and a row without one is a plan defect.
 
-**A row marked ACCEPTED GAP is RUN and recorded as SURVIVING.** That is its expected result, not a failure, and it is the one exception to "every assigned mutant turns its named case red". M3 is the only such row. Round 3 charged the plan for assigning M3 to a task whose generic instruction demanded a red it had already proved impossible.
+**A row marked ACCEPTED GAP is RUN and recorded as SURVIVING.** That is its expected result, not a failure, and it is the one exception to "every assigned mutant turns its named case red". M3 and M9 are the only such rows: M3 by design, and M9 as diff review round 2 forced into the open — planted, it left the suite 33/33 green, because jsdom tears down synchronously and the ordering it perturbs is not observable at all. Round 3 charged the plan for assigning M3 to a task whose generic instruction demanded a red it had already proved impossible.
 
 | # | Mutant | Must turn red | Run in |
 | --- | --- | --- | --- |
@@ -627,8 +627,14 @@ user-visible copy and no DOM shape. All four checked by grep over the diff's add
 - The `attachCount` counter leaves state entirely, so the owning component no longer re-renders on
   every attach **and every detach**. That re-render, not the doubled measure the ledger row named,
   was the real cost.
-- Measures per mount go 2 to 1; ancestor walks per measure go 2 to 1, because `apply()` returns the
-  clip it resolved instead of making the caller walk again.
+- Ancestor walks per measure go 2 to 1, because `apply()` returns the clip it resolved instead of
+  making the caller walk again. That one holds for every consumer.
+- Measures per attach do **not** move uniformly, and an earlier draft of this section said they went
+  "2 to 1" flatly. Diff review round 2 was right to charge it against spec §0.1's per-consumer table:
+  `PublishedToggle` and `AttentionMenu` go 2 to 1 in production, but `ReSyncButton` was already at 1
+  and stays at 1, and under Strict Mode it goes 1 to 2 because a cleanup-returning ref opts into the
+  replay. Production improves or holds on every metric for every consumer, which is the claim that is
+  actually true; the flat one was the arc's own headline overreaching past its measurements.
 - The mount measure stays **synchronous** and deliberately bypasses the coalescer, so the overlay
   cannot be painted uncapped. Only the burst-prone event-driven signals are coalesced, to one
   `apply()` per frame.
@@ -698,7 +704,7 @@ ratified scope decisions or filed ledger rows, listed in §1b.
 | AC-1 | One ATTACH is one `apply()`, on both harnesses. On the always-present harness that is one per mount, pinned by (g); on the live conditional-host harness it is one per appearance in production and two under Strict Mode's replay, pinned by (h14) and (h13). Mutants M1, M4 and M5 each turn a named case red; M3 is an accepted gap, recorded in §5 with its reason. |
 | AC-1b | EVERY cell of spec §0.1's per-consumer table and §0.1a's entrance table is pinned, in both modes, by the case spec §5.1 assigns to that consumer: `ReSyncButton` by (h15), `PublishedToggle` by (h16), `AttentionMenuPanel` by (h17), with (h17) asserting the attach and post-entrance snapshots separately. (h13) and (h14) pin the replay and the minimal-shape headline; (g) and (h) pin the always-present harness; (h8) and (h9) pin §2.2's two re-render rows. Plan review R3 charged the earlier version for crediting the generic cases with per-consumer rows they do not assert. |
 | AC-2 | One attach is one ancestor walk, pinned by (h) with a derived expectation, and mutants M2/M7 turn a named case red. |
-| AC-3 | All eight reachable pairs and all SEVEN compound rows (the count is the spec's; plan review R1 caught this table carrying five and this criterion claiming five) have an executable case that ACTUALLY PERFORMS that transition — not one that merely cites a nearby test. Spec review R6 found `N to F` citing a clipped-to-clipped case for six rounds; (h19) closes it and every other row was re-verified against what its cited case does. Mutants M8, M9, M10 and M18 each turn a named one red. |
+| AC-3 | All eight reachable pairs and all SEVEN compound rows (the count is the spec's; plan review R1 caught this table carrying five and this criterion claiming five) have an executable case that ACTUALLY PERFORMS that transition — not one that merely cites a nearby test. Spec review R6 found `N to F` citing a clipped-to-clipped case for six rounds; (h19) closes it and every other row was re-verified against what its cited case does. Mutants M8, M10 and M18 each turn a named one red. **M9 does not, and is an accepted gap** — measured, not assumed: planted, the suite stayed 33/33 green. |
 | AC-4 | In a real engine, neither overlay is ever painted crossing its clip edge, on any frame from first appearance, and mutant M6 breaks that. |
 | AC-6 | Invariant 8's dual gate has RUN — both halves, externally attested, findings and dispositions in §12, and a valid RAN-form marker line WRITTEN there, which is what turns `tests/docs/_metaInvariant8Closeout.test.ts` green. |
 | AC-5 | Every gate green as its own command; no new CI wiring needed and the e2e coverage meta-test confirms it. |
