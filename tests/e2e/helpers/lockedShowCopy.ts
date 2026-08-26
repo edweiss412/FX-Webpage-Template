@@ -147,12 +147,25 @@ export function copyShowLocked(
  * Errors are collected and rethrown together rather than thrown on the first
  * one: a cleanup that abandons the rest of its rows on a single failure leaves
  * more fixture residue behind than it removes.
+ *
+ * Each delete's `RETURNING id` output is CHECKED, not discarded. A delete that
+ * matches nothing raises no error, so an empty result is the only signal that
+ * a fixture show outlived its run.
  */
 export function deleteShowsLocked(driveFileIds: readonly string[]): void {
   const failures: string[] = [];
   for (const dfid of driveFileIds) {
     try {
-      runLocked("deleteShowsLocked", dfid, deleteShowBody(dfid));
+      const stdout = runLocked("deleteShowsLocked", dfid, deleteShowBody(dfid));
+      // `DELETE ... RETURNING id` prints one line per removed row under psql's
+      // -At. An EMPTY result is the silent no-op this check exists to catch: a
+      // delete that matches nothing raises no error, so the returned rows are
+      // the only evidence the cleanup removed what the run created. Without
+      // this the caller cannot tell "cleaned up" from "left every fixture show
+      // behind for the next spec to trip over".
+      if (stdout.trim().length === 0) {
+        failures.push(`${dfid}: delete matched no row (already gone, or never created)`);
+      }
     } catch (err) {
       failures.push(err instanceof Error ? err.message : String(err));
     }

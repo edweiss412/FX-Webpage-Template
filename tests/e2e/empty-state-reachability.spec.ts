@@ -163,7 +163,14 @@ type ReservationRow = Record<string, unknown>;
 type Template = { show: ShowRow; reservations: ReservationRow[] };
 
 /** A disposable copy of the template, addressable on the crew route. */
-type Copy = { showId: string; slug: string; shareToken: string; driveFileId: string };
+type Copy = {
+  showId: string;
+  slug: string;
+  shareToken: string;
+  driveFileId: string;
+  /** How many reservation rows this copy was given, so cleanup can check its own work. */
+  reservationCount: number;
+};
 
 async function readTemplate(): Promise<Template> {
   // not-subject-to-meta: test-local fixture lookup.
@@ -240,8 +247,10 @@ async function makeCopy(
     throw new Error(`no share_token minted for copied show ${showId}`);
   }
 
+  let reservationCount = 0;
   if (opts.withReservations && t.reservations.length > 0) {
     const rows = t.reservations.map((r) => ({ ...r, id: randomUUID(), show_id: showId }));
+    reservationCount = rows.length;
     // hotel_reservations is NOT an invariant-2 locked table, so the
     // service-role PostgREST client is the right instrument here.
     // not-subject-to-meta: test-local fixture write.
@@ -256,7 +265,7 @@ async function makeCopy(
       );
     }
   }
-  return { showId, slug, shareToken: token.share_token as string, driveFileId };
+  return { showId, slug, shareToken: token.share_token as string, driveFileId, reservationCount };
 }
 
 test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)", () => {
@@ -304,10 +313,16 @@ test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)",
       )
       .select("id");
     if (resError) throw new Error(`reservation cleanup failed: ${resError.message}`);
-    // `data` is destructured and USED, not merely named: a delete that matches
-    // nothing returns no error, so the row count is the only signal that the
-    // cleanup actually removed what the run created.
-    void removed;
+    // `data` is CHECKED, not merely named. A delete that matches nothing returns
+    // no error, so the returned row count is the only signal the cleanup removed
+    // what the run created — and each copy recorded how many rows it was given,
+    // so the expected total is derived rather than assumed.
+    const expectedReservations = created.reduce((n, c) => n + c.reservationCount, 0);
+    if ((removed ?? []).length !== expectedReservations) {
+      throw new Error(
+        `reservation cleanup removed ${(removed ?? []).length} rows, expected ${expectedReservations}`,
+      );
+    }
     // show_share_tokens rows are removed by the shows delete's FK cascade;
     // `shows` itself goes through the locked path, one transaction per show.
     deleteShowsLocked(created.map((c) => c.driveFileId));
