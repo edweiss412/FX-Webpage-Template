@@ -99,16 +99,32 @@ export function deleteShowBody(driveFileId: string): string {
  */
 export type SqlExecutor = (sql: string) => string;
 
+/**
+ * The one place a child process is started. Injectable so the proof can drive
+ * the REAL `psqlExecutor` and read back the bytes it hands the child.
+ *
+ * The seam is HERE and not one level up on purpose. An injectable
+ * `SqlExecutor` alone leaves `psqlExecutor` itself unexercised, so an edit that
+ * stripped the lock from the SQL just before spawning would keep every unit
+ * assertion green — probed by the diff reviewer, who mutated exactly that and
+ * watched both proofs stay green. Below this function there is no SQL handling
+ * left to get wrong: one `execFileSync` call that forwards `input` verbatim.
+ */
+export type Spawn = (args: readonly string[], input: string, env: NodeJS.ProcessEnv) => string;
+
+const execFileSpawn: Spawn = (args, input, env) =>
+  execFileSync("psql", [...args], { input, encoding: "utf8", env });
+
 /** The real executor. `-q` is load-bearing: see `assertDeletedRows`. */
-function psqlExecutor(sql: string): string {
+export function psqlExecutor(sql: string, spawn: Spawn = execFileSpawn): string {
   // Resolved HERE, at the spawn, not at import: a mistargeted DSN must be
   // refused before it reaches a database. See lockedCrewRestriction's header.
   const dsn = psqlTarget();
-  return execFileSync("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-At", dsn], {
-    input: sql,
-    encoding: "utf8",
-    env: psqlChildEnv({ honorRemoteOptIn: true }),
-  });
+  return spawn(
+    ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-At", dsn],
+    sql,
+    psqlChildEnv({ honorRemoteOptIn: true }),
+  );
 }
 
 /** A row id line, which is the only output a `RETURNING id` under `-Atq` emits. */
