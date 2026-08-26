@@ -997,6 +997,126 @@ test.describe("anchor-room census — what the MIN_FITTED_HEIGHT docblock may cl
 });
 
 // ---------------------------------------------------------------------------
+// T4 — the header bound (spec §3.0, AC-14..AC-18)
+// ---------------------------------------------------------------------------
+
+/** Boots the modal at a given load WITHOUT opening the attention menu. Load 0
+ *  has no actionable items and no menu to open, so `openMenu` cannot express
+ *  it, and the sweep needs all three loads measured the same way. */
+async function bootModal(page: Page, a: number, n: number, s: number) {
+  await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForFunction(
+    () => (window as unknown as { __hydrated?: boolean }).__hydrated === true,
+  );
+  await setItems(page, a, n, s);
+}
+
+/** Header, strip, switch and panel rects in one pass. */
+async function headerGeometry(page: Page) {
+  return page.evaluate(
+    ([panelSel, stripSel]) => {
+      const panel = document.querySelector(panelSel as string) as HTMLElement | null;
+      const header = panel?.querySelector("header") ?? null;
+      const strip = document.querySelector(stripSel as string);
+      const sw = document.querySelector('[data-testid="published-toggle"]');
+      const r = (el: Element | null) => (el === null ? null : el.getBoundingClientRect());
+      const p = r(panel);
+      const h = r(header);
+      const st = r(strip);
+      const w = r(sw);
+      return {
+        panel: p === null ? null : { top: p.top, bottom: p.bottom },
+        headerHeight: h === null ? null : h.height,
+        strip: st === null ? null : { top: st.top, bottom: st.bottom },
+        switchRect: w === null ? null : { top: w.top, bottom: w.bottom },
+      };
+    },
+    [PANEL, STRIP] as const,
+  );
+}
+
+const LOADS = [
+  { label: "0", a: 0, n: 0, s: 0 },
+  { label: "2", a: 1, n: 1, s: 0 },
+  { label: "30", a: 10, n: 10, s: 10 },
+] as const;
+
+const HEADER_VIEWPORTS = [
+  { w: 375, h: 667 },
+  { w: 375, h: 844 },
+  { w: 390, h: 560 },
+  { w: 390, h: 844 },
+] as const;
+
+test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
+  for (const vp of HEADER_VIEWPORTS) {
+    test(`the header does not grow with attention load at ${vp.w}x${vp.h}`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.w, height: vp.h });
+
+      // The baseline is PER VIEWPORT because header height is width-dependent;
+      // a single cross-viewport constant would be wrong at three of the four
+      // cells and would hide exactly the regression this case exists to catch.
+      await bootModal(page, 0, 0, 0);
+      const base = await headerGeometry(page);
+      expect(base.headerHeight, "PREMISE: the header must render at load 0").not.toBeNull();
+
+      for (const load of LOADS) {
+        await bootModal(page, load.a, load.n, load.s);
+        const m = await headerGeometry(page);
+        expect(m.headerHeight, `header missing at load ${load.label}`).not.toBeNull();
+        expect(
+          Math.abs(m.headerHeight! - base.headerHeight!),
+          `header grew at load ${load.label}: ${m.headerHeight} vs the ${vp.w}px baseline ${base.headerHeight}`,
+        ).toBeLessThanOrEqual(0.5);
+
+        // The consequence the bound exists FOR: the strip and the switch stay
+        // inside the panel. Asserting only the header height would pass against
+        // a header that stopped growing for some unrelated reason while the
+        // strip still fell out the bottom.
+        expect(m.strip, `strip missing at load ${load.label}`).not.toBeNull();
+        expect(m.switchRect, `switch missing at load ${load.label}`).not.toBeNull();
+        expect(
+          m.strip!.bottom,
+          `strip bottom ${m.strip!.bottom} falls below the panel at load ${load.label}`,
+        ).toBeLessThanOrEqual(m.panel!.bottom + 0.5);
+        expect(
+          m.switchRect!.bottom,
+          `switch bottom ${m.switchRect!.bottom} falls below the panel at load ${load.label}`,
+        ).toBeLessThanOrEqual(m.panel!.bottom + 0.5);
+      }
+    });
+  }
+
+  test("the title clamps to two lines below sm — asserted on the EMITTED style", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await bootModal(page, 10, 10, 10);
+    // `line-clamp-2` has NO other usage in this repo, so the class string
+    // proves nothing about whether Tailwind emitted a rule for it. An
+    // un-emitted utility is a silent no-op — the exact failure class this arc
+    // exists to remove — so the computed value is what gets asserted.
+    const clamp = await page.evaluate(
+      ([panelSel]) => {
+        const span = document
+          .querySelector(panelSel as string)
+          ?.querySelector("h2 span") as HTMLElement | null;
+        if (span === null || span === undefined) return null;
+        const cs = getComputedStyle(span);
+        return {
+          lineClamp: cs.webkitLineClamp,
+          display: cs.display,
+        };
+      },
+      [PANEL] as const,
+    );
+    expect(clamp, "PREMISE: the h2 inner span must render").not.toBeNull();
+    expect(clamp!.lineClamp, "the clamp must be EMITTED, not merely classed").toBe("2");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // T3 — the refusal is drivable through the REAL modal (spec §7 obstacle 1)
 // ---------------------------------------------------------------------------
 

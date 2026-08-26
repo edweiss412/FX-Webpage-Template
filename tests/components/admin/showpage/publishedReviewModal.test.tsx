@@ -19,7 +19,7 @@
  * literal.
  */
 import "@testing-library/jest-dom/vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StrictMode } from "react";
@@ -1383,5 +1383,55 @@ describe("PublishedReviewModal — attention-menu state reaches the hub triggers
         (settleArchive as (v: { ok: true }) => void)({ ok: true });
       });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-18 — the header cap lives in exactly ONE place
+// ---------------------------------------------------------------------------
+//
+// The browser sweep in tests/e2e/popover-clip-fit.spec.ts measures geometry and
+// the emitted clamp, and neither can tell `max-sm:max-w-40` on the action
+// cluster from a SECOND copy of the same cap somewhere else in components/.
+// Two copies measure identically right up until someone edits one of them, and
+// then the cap silently disagrees with itself. That drift is the whole of what
+// AC-18 asks for, and before this case nothing inspected it — a probe found the
+// token only in this arc's spec and plan, with no test contract at all.
+describe("AC-18 — the header cap has exactly one definition", () => {
+  const CAP = "max-sm:max-w-40";
+
+  function walk(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) out.push(...walk(full));
+      else if (/\.tsx?$/.test(entry.name)) out.push(full);
+    }
+    return out;
+  }
+
+  it("occurs exactly once across components/, and on the action cluster", () => {
+    // Walked from disk rather than listed, so a new file carrying a second copy
+    // is covered by default instead of being silently outside the check.
+    const files = walk("components");
+    expect(files.length, "PREMISE: the walk must find components").toBeGreaterThan(50);
+
+    const hits: string[] = [];
+    for (const f of files) {
+      const src = readFileSync(f, "utf8");
+      let idx = src.indexOf(CAP);
+      while (idx !== -1) {
+        hits.push(`${f}:${src.slice(0, idx).split("\n").length}`);
+        idx = src.indexOf(CAP, idx + 1);
+      }
+    }
+    expect(hits, `"${CAP}" must have exactly one definition`).toHaveLength(1);
+    expect(hits[0]).toContain("components/admin/showpage/PublishedReviewModal.tsx");
+
+    // And it is on the ACTION CLUSTER, not merely somewhere in that file. The
+    // count alone would pass if the cap moved to the title column, which is the
+    // element it is supposed to leave room FOR.
+    const src = readFileSync("components/admin/showpage/PublishedReviewModal.tsx", "utf8");
+    expect(src).toContain(`className="flex shrink-0 items-center gap-2 ${CAP}"`);
   });
 });

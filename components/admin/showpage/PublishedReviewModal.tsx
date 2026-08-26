@@ -910,7 +910,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 give the 14px trailing reach exactly the cluster clearance. */}
             <div className="flex min-h-tap-min min-w-0 items-center gap-2.5">
               <h2 id={h2Id} data-testid={`${TESTID_BASE}-title`} className="min-w-0">
-                <span className="min-w-0 wrap-break-word text-lg font-bold tracking-tight text-text-strong">
+                <span className="min-w-0 wrap-break-word text-lg font-bold tracking-tight text-text-strong max-sm:line-clamp-2">
                   {displayTitle}
                 </span>
               </h2>
@@ -949,7 +949,17 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               </span>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          {/* The header bound (spec 2026-08-25-review-modal-strip-dock §3.0).
+              A composite alert pill reading "20 issues · 10 monitoring" widens
+              this shrink-0 cluster until it starves the min-w-0 flex-1 title
+              column beside it, and the title then wraps until the header alone
+              is taller than the panel — measured at 587.97px against a 164.19px
+              baseline at 375px, which is what put the strip out of reach. 160px
+              is the largest cap that leaves every realistic load untouched: the
+              sweep in §3.0 ran eight cap values against three loads, 96 changed
+              the 0-load baseline and 192 still failed at load 30, and the
+              2-item cluster measures 147.73 naturally, below this cap. */}
+          <div className="flex shrink-0 items-center gap-2 max-sm:max-w-40">
             {/* Attention pill (published-show-alerts §5.1) — four states from
                 the ONE derived list. `before:-inset-y-3` hit-band arithmetic is
                 COPIED from the prior pill: text-xs (~16px line box) + py-1
@@ -960,7 +970,12 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                  their count > 0; the middot separator renders only BETWEEN two
                  present segments, never as the first glyph. The old else-branch
                  that hid the clearing count whenever action items existed is gone. */
-              <div className="relative">
+              /* `min-w-0` (§3.0): a flex item defaults to `min-width: auto`, so
+                 this wrapper's min-content width can force it WIDER than the
+                 capped parent. `items-center` on that parent is cross-axis only
+                 and transfers no width cap, and nothing else in the chain
+                 constrains this element. */
+              <div className="relative min-w-0">
                 <button
                   ref={pillRef}
                   type="button"
@@ -973,7 +988,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                         title: `${selfHeal.length} monitoring, clearing on their own, no action needed`,
                       }
                     : {})}
-                  className={`relative inline-flex shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                     monitoringOnly
                       ? /* border separates button-gray from the passive label-gray
                            spans; hover moves the border, never fades toward the
