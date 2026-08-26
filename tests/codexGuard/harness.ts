@@ -188,6 +188,15 @@ export function runGuard(
     ? [
         ...(extraArgs.includes("--stage") ? [] : ["--stage", "spec"]),
         ...(extraArgs.includes("--round") ? [] : ["--round", "1"]),
+        // The lint gate's COVERAGE arm requires a --lint-doc on spec/plan
+        // stages, and the default stage here is `spec`. Injecting the waiver is
+        // the same move as the two lines above: a test that is not about this
+        // gate keeps being about what it is about. The gate's own suite passes
+        // its flags explicitly and never takes this default, which is what
+        // keeps the requirement observable.
+        ...(extraArgs.includes("--lint-doc") || extraArgs.includes("--no-lint-gate")
+          ? []
+          : ["--no-lint-gate"]),
       ]
     : [];
   return new Promise((resolve) => {
