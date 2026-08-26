@@ -71,7 +71,9 @@ Round 2: a warning whose persisted `candidate` is the NUMBER `42` renders no ban
 
 Round 3: a warning whose `candidate` is `"  VENUE ADDRESS  "` renders the band with the value TRIMMED. Round 3 caught that all ten committed candidates are already trimmed, so `42` alone still licenses a local `typeof w.candidate === "string" ? w.candidate : null` at each call site, which passes every other case and renders padding into the DOM. A padded input is the only one that separates the guard's rule from the nearest wrong rule.
 
-**What these two cases can and cannot establish, stated so it is not re-raised.** Together they pin the BEHAVIOR at this call site: no non-string, no padding, no absent key. They cannot prove that `candidateLabel` is the function called, because a byte-identical inline duplicate is observationally identical, and a test that asserted otherwise would be asserting call structure rather than output. That is deliberate. The defect worth catching is divergent behavior between the two surfaces, and pinning both surfaces against the same rule catches it whichever way the code is factored.
+**A sixth case, pinning the GRAMMAR and not just the value.** A concurrent second reviewer of the round-3 head found that every case above is satisfied by rendering the bare guarded value: nothing requires the `Looks like` label or the wrapper nesting the spec settled. So the present-case assertion also requires that `per-show-actionable-candidate` contains the literal `Looks like` AND a `per-show-actionable-candidate-value` descendant. Without it the settled markup is optional and the band would ship as a naked string beside the row label.
+
+**What these cases can and cannot establish, stated so it is not re-raised.** Together they pin the BEHAVIOR and the MARKUP at this call site: no non-string, no padding, no absent key, and the band's shape. They cannot prove that `candidateLabel` is the function called, because a byte-identical inline duplicate is observationally identical, and a test asserting otherwise would be asserting call structure rather than output. That is deliberate. The defect worth catching is divergent behavior between the two surfaces, and pinning both against the same rule catches it whichever way the code is factored.
 
 GREEN: the band markup at spec §3.2 and the four-state collapse at spec §3.3.
 
@@ -83,7 +85,7 @@ Keep green, do not edit: `pnpm vitest run tests/components/perShowActionableWarn
 
 <!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3CandidateBand.test.tsx` ac=AC-2,AC-3 -->
 
-The same FIVE cases against `wizard-step3-card-${dfid}-warning-${i}-candidate`, reading the same helper, and with the same split of status: case 1 is the red, the rest are regression guards that pass today. Neither the non-string case nor the padded case is optional here: rounds 2 and 3 both found their gaps on BOTH surfaces, and repairing one surface would leave the class open on the other, which is the drip this project's round economy exists to prevent.
+The same SIX cases against `wizard-step3-card-${dfid}-warning-${i}-candidate`, reading the same helper, and with the same split of status: case 1 is the red, the rest are regression guards that pass today. None of the non-string, padded, or grammar cases is optional here: every one of those gaps was found on BOTH surfaces, and repairing one surface would leave the class open on the other, which is the drip this project's round economy exists to prevent. Surface B's grammar case asserts the line reads `Looks like ` followed by the candidate in a mono descendant, which is this surface's flatter rendering of the same information grammar (spec §4.1).
 
 GREEN: the prose lead-in line at spec §4.2. No `w.code` gate: the guard is on the field, and the field is set on no other code, so a second predicate could only ever agree with the first.
 
@@ -94,6 +96,8 @@ GREEN: the prose lead-in line at spec §4.2. No `w.code` gate: the guard is on t
 <!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3RowLabelGate.test.tsx` ac=AC-8 -->
 
 RED: a warning from EACH `PULL_SHEET_*` producer, both carrying a raw pipe row, renders NO `wizard-step3-card-${dfid}-warning-${i}-label`. Both, because round 2 caught that a single fixture licenses a gate excluding only that one code while `PULL_SHEET_AMBIGUOUS_FORMAT` keeps rendering a fake label, which is narrower than both the stated implementation and AC-8's `PULL_SHEET_*` claim. The two producers are `lib/parser/pull-sheet.ts:252` (`rawSnippet: nonFiveColumnRow`) and `lib/parser/pull-sheet.ts:343` (`rawSnippet: row`).
+
+**And a THIRD fixture whose code is neither**, because two PULL codes plus one `UNKNOWN_FIELD` still cannot separate the stated gate from its negative twin `!w.code.startsWith("PULL_SHEET_")`: those two implementations agree on all three. An `UNKNOWN_ROLE_TOKEN` carrying a pipe-bearing `rawSnippet` separates them, since the negative gate renders a label for it and `w.code === "UNKNOWN_FIELD"` does not. A concurrent second reviewer of the round-3 head found this; an accept-set fails CLOSED on the unknown case and a deny-set fails OPEN, which is why the fixture set has to contain a member of neither family.
 
 It fails today, and the failure is measured rather than inferred: `labelFromRawSnippet` splits on the first `" | "`, so `"| 2x | Shure SM58 | wireless | Case 3 |"` yields `"| 2x"`, which is non-empty and therefore renders as a field label that is not in the sheet.
 
@@ -177,13 +181,33 @@ So AC-7 splits the way AC-5 already does. Its RECORDING half is mechanical and t
 
 ## Task 8: graduate the row, last commit
 
-<!-- task: red=`sh -c 'grep -q "^### BL-NEARMISS-CANDIDATE-RENDER" BACKLOG.md && exit 1; awk "/^### BL-NEARMISS-CANDIDATE-RENDER/{f=1} f&&/^### /&&!/BL-NEARMISS-CANDIDATE-RENDER/{f=0} f" BACKLOG-archive.md > /tmp/nm-entry.txt; test -s /tmp/nm-entry.txt || exit 1; grep -q "IN PROGRESS" /tmp/nm-entry.txt && exit 1; grep -q "Resolution:" /tmp/nm-entry.txt || exit 1; grep -q "triggerContext" /tmp/nm-entry.txt || exit 1; exit 0'` ac=AC-4 -->
+<!-- task: red=`sh -c 'grep -qE "^#{2,3} BL-NEARMISS-CANDIDATE-RENDER" BACKLOG.md && exit 1; awk "/^#+ BL-NEARMISS-CANDIDATE-RENDER/{f=1;next} f&&/^#/{f=0} f" BACKLOG-archive.md > /tmp/nm-entry.txt; test -s /tmp/nm-entry.txt || exit 1; grep -q "IN PROGRESS" /tmp/nm-entry.txt && exit 1; for t in "Resolution:" "dougFacing" "triggerContext" "nine-site"; do grep -q "$t" /tmp/nm-entry.txt || exit 1; done; exit 0'` ac=AC-4 -->
 
 **Five conditions now, across two rounds of narrowing.** Round 1 caught that asserting only "the heading left `BACKLOG.md`" passes on a delete, a rename, or a move anywhere at all, including into the archive with the marker intact. Round 2 caught that even those three pass on moving the entry VERBATIM: the task's GREEN requires the entry to record the settled four-field rewrite and the nine-site lockstep, and none of the three conditions observes the entry's content.
 
 So: gone from `BACKLOG.md`; a non-empty entry block PRESENT in `BACKLOG-archive.md`; no `IN PROGRESS` in that block; the block carries a `Resolution:` line; and the block mentions `triggerContext`.
 
-**Round 3 found the extractor itself broken, which would have made the last two conditions unsatisfiable.** The range `awk "/^### BL-NEARMISS-CANDIDATE-RENDER/,/^### /"` uses a pattern for its END that also matches its START, so awk closes the range on the same line and emits the heading alone. Probed: one line out, both body greps failing on a correct entry. The flag form emits the block. A red that CANNOT pass on the correct implementation is the mirror image of one that passes on a wrong implementation, and it is worth naming as the same defect wearing the other face.
+**Three rounds narrowed this one red, and the history is kept because each found a different way for it to lie.**
+
+Round 1: asserting only "the heading left `BACKLOG.md`" passes on a delete, a rename, or a move anywhere at all.
+
+Round 3: the extractor was broken in the OTHER direction. `awk "/^### BL-.../,/^### /"` uses an END pattern that also matches its START, so awk closed the range on the same line and emitted the heading alone. Probed: one line out, both body greps failing on a CORRECT entry. A red that cannot pass on the right implementation is the same defect as one that passes on the wrong one, wearing the other face.
+
+Round 4, and a concurrent second reviewer of the same head, found the two remaining holes. The `###`-only terminator runs away, because the archive's newest entries are `##` (405 of them against 114 `###`), so the block ran 990 lines and BORROWED a neighbour's `Resolution:`. And `triggerContext` alone was too weak: an entry carrying only `**Resolution:** triggerContext` satisfied every predicate while recording nothing.
+
+The extractor is now level-agnostic on the heading and terminates on ANY subsequent heading, and the content set is four tokens. Verified across SEVEN states, six rejecting and one accepting:
+
+| State | Verdict |
+|---|---|
+| still open in `BACKLOG.md` | red |
+| absent from the archive | red |
+| moved verbatim | red |
+| moved with the IN PROGRESS marker intact | red |
+| `**Resolution:** triggerContext` and nothing else | red |
+| incomplete entry able to borrow a neighbour's `Resolution:` | red |
+| the resolution this task actually requires | GREEN |
+
+`dougFacing` and `nine-site` join `triggerContext` for the same measured reason: the row's body today mentions none of the three, because only `helpfulContext` and `longExplanation` were in scope when it was filed.
 
 `triggerContext` is the discriminator and it was chosen by measurement, not taste. The row's body today mentions neither `triggerContext` nor `dougFacing` (`awk` over the entry returns 0 matches for both), because when it was filed only `helpfulContext` and `longExplanation` were in scope. The four-field rewrite is this arc's finding. So a verbatim move fails the red and a real resolution passes it, which is exactly the distinction round 2 asked for.
 
