@@ -3812,6 +3812,10 @@ export const GUARD_SURFACES: GuardSurface[] = [
     ],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.9,
+    // MEASURED with scripts/mutation-score-surfaces.ts, not estimated: 10s of child wall clock
+    // over 10 modelled boots. The shard partition is priced in this number, so an enrolment
+    // carrying a guessed one would weight the partition by something nobody measured.
+    millisPerBoot: 969,
     // Narrows the fault set by one status. The plants iterate 500 through 599 and assert each
     // records, so 500 stops recording and the suite notices — a live behaviour change rather than
     // a formatting one.
