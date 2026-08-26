@@ -30,10 +30,12 @@ name: Lifecycle layout e2e (mobile-safari)
 #
 # The residual gap is real and narrow: `main` after a merge is not byte-
 # identical to the PR head that was measured, so an interaction between two
-# independently-green PRs goes unobserved until the next PR. Closing it costs a
-# full `pnpm build` plus four e2e steps on every merge to `main`, on an advisory
-# job in no required context set, producing a signal with no owner. Zero
-# post-merge-only reds have been observed here.
+# independently-green PRs goes unobserved until the next PR. Closing it costs
+# FOUR COLD BUILDS on every merge to `main`, not one: the job runs four separate
+# Playwright processes, each selecting a webServer with `reuseExistingServer:
+# false` whose command runs `pnpm build`, so each step pays its own. That is on
+# an advisory job in no required context set, producing a signal with no owner.
+# Zero post-merge-only reds have been observed here.
 #
 # RE-FILE TRIGGER: if a red on this job is ever traced to an interaction present
 # on `main` but absent from both contributing PR heads, add

@@ -31,9 +31,14 @@
 //      source (_fontWaitCoverage.ts:573-582), so a spec that navigates through a
 //      HELPER has no `page.goto` of its own, no navigation site is found, and
 //      the file reports zero problems however it measures. Probe over
-//      tests/e2e/helpers/**: five exported helpers navigate (driveToState,
-//      openShowReviewFrameAt, openShowReviewModalAt, openStep3Modal, signInAs),
-//      and 30 specs call one AND read geometry.
+//      tests/e2e/helpers/** with comments stripped: FOUR exported helpers
+//      navigate directly (driveToState, openShowReviewFrameAt,
+//      openShowReviewModalAt, openStep3Modal), plus openShowReviewModal
+//      transitively; 11 specs call one AND read geometry. `signInAs` is NOT
+//      one of them and an earlier draft of this note wrongly said it was: it
+//      posts through page.request.post (helpers/signInAs.ts:60) and never
+//      replaces the document, so counting it inflated the census and would
+//      have made any rule built on it fire almost corpus-wide.
 //      `tap-target-inline-controls.layout.spec.ts` is exactly that shape; it is
 //      deliberately NOT added to CALLERS below, because a row for a file whose
 //      navigation this analyzer cannot see would pass unconditionally forever,
@@ -42,7 +47,7 @@
 //      itself instead.
 //   2. CALLERS is HAND-ENUMERATED, so a spec absent from it is unchecked
 //      whatever the analyzer would say. Probe: running `analyzeSource` over all
-//      104 e2e specs reports live problems in 10 files, none of them in CALLERS
+//      105 e2e specs reports live problems in 10 files, none of them in CALLERS
 //      (admin-layout-dimensions, admin-lifecycle-layout,
 //      admin-nav-layout-dimensions, deep-link-walker, help-mobile,
 //      help-typography, notify-toggles, sign-in-page,
