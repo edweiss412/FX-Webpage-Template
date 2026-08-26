@@ -294,3 +294,35 @@ Baseline at the pre-implementation head, so a later regression is attributable: 
 
 - Phase 2, `BL-TYPO-NORMALIZED-V4-VENUE-SHAPE`.
 - Any mutation score. `tests/mutation/source/registry.ts` holds zero rows under `components/` or `app/`, and the one new module is unenrolled, so no round-1 diff brief for this phase carries a guard-surface declaration.
+
+---
+
+## 12. Close-out
+
+impeccable-gate: critique=RAN audit=RAN p0=1 p1=2 dispositions=recorded
+
+Grammar is `RAN_FORM` at `tests/docs/_invariant8Closeout.ts:45`. Both halves ran as two isolated sub-agents per the skill's hard invariant, A finishing before B's findings entered synthesis. Critique heuristics 25/40 (serviceable), AI-slop verdict clean for the product register. Audit 19/20 (excellent).
+
+**What this marker claims and what it cannot.** It records a gate result. It does not prove the gates ran: the guard says so about itself at `tests/docs/_invariant8Closeout.ts:11-16`, and assigns a fabricated marker to reviewer territory. The evidence a reader should weigh is the table below.
+
+### Findings and dispositions
+
+| Tier | Finding | Disposition |
+|---|---|---|
+| P0 | The band rendered `match.entry.raw`, an insertion-order winner, as if it were a string to transcribe. 25 of 65 baseline emissions are a section header (15), an alias-order winner shown shouty (9), or a known corpus typo (1). Mono under a rename imperative composes into "type a section-header path into a row label". | FIXED in `aa3dfd0e0`. Value is no longer mono; label is `Closest match`, a noun phrase whose claim survives all three cases. Detector-side residue recorded as spec §8 limit 4 with a re-file trigger: repairing the spelling moves the 65-row baseline and an enrolled mutation surface. All three claims probed against source before acting. |
+| P1 | `helpfulContext` said "this card names it" while rendering in an `<li>` on wizard step 3, and pre-explained a draining state on every card. | FIXED in `aa3dfd0e0`. Cut across the lockstep, 245 to 188 chars. `dougFacing` and `longExplanation` keep the conditional; both are surface-neutral. |
+| P1 | §4.1's no-eyebrow decision left the row label as the only unlabeled line on the wizard row, and it is the more important fact. | FIXED in `aa3dfd0e0`. Same prose lead-in, value in its own span so existing by-text assertions still match. |
+| P2 | The eyebrow was a predicate (`Looks like`) in a field slot beside `SHEET ROW` and `PHONE`, and was most confident exactly where least right. Its cited precedent was dead code: `.message` carries "; looks like" and never renders. | FIXED in `aa3dfd0e0`, by the same change as the P0. |
+| P2 | Two bands encode a mapping as two peer chips; the relation between them is encoded only by a 2.7x gap ratio, and wrapping destroys even that. | RECORDED, not fixed. A directional single band is a design change to a shipped, ratified band grammar (R4), not a defect repair. |
+| P3 ×2 | `tracking-wider` vs the repo's named `tracking-eyebrow`; `text-[10px]` is fixed px with no named token. | RECORDED. Both are repo-wide divergences across 13 and 8+ sites; the new node correctly matches its 6-site warning-plate family. Reconciling belongs in one sweep, not here. |
+| P3 | The sibling `Sheet row` band lacks the `min-w-0`/wrap the new band has, and now shares a `flex-wrap` row with it. | RECORDED. Pre-existing, and R4 fences re-deriving that band. |
+| P3 | The row-label gate comment named only `PULL_SHEET_*`; `DAY_RESTRICTION_DOUBLE_LOCATION` also writes a pipe snippet. | FIXED in `2b366d907`. All three families named, and the suite's third fixture swapped from a synthetic code to that real producer. |
+| P3 | Step 3 has no `fieldBand` twin, so `FIELD_UNREADABLE` rows carry no per-row discriminator there. | RECORDED. Out of scope: this arc renders `candidate`, and porting the field band is a separate surface. |
+
+No P0 or P1 is deferred. There is no `DEFERRED.md` entry and no ledger row, per the standing directive on this arc: everything is either repaired here or recorded on the surface that owns it.
+
+Assessment B also produced one measurement I corrected rather than accepted: it put the longest vocabulary entry at 36 characters; measured over `buildVocabulary()`'s 132 entries it is 25 (`Hotel Contact Information`). Its structural point held, so the wrap classes landed with the measured bound recorded in the code.
+
+### Pre-code checklist result
+
+Run before tasks 2 through 4, per the precondition section above the task region. Clean, with nothing to fix: no em dash and no apostrophe literal in either new string; no new interactive element, so no tap-target owed and the sibling deep links keep `min-h-tap-min` untouched; every color a named token; and no new color token, so no new contrast pin. The one arbitrary value, `text-[10px]`, is the shipped detail-band eyebrow idiom the audit independently confirmed at five pre-existing sites.
