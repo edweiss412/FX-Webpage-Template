@@ -243,7 +243,7 @@ ever disagree.
 | AC-10 | `--color-control-outline-tinted` vs `--color-bg` is pinned in `DESIGN.md` §1.2 and asserted in `tests/styles/secondary-action-contrast.test.ts`, in the same commit. |
 | AC-11 | `components/admin/dev/SwitcherControls.tsx:122` carries `hover:border-accent-on-bg`, and no bare `hover:border-accent` remains on any control in `app/**` or `components/**`. |
 | AC-12 | The tinted-plate derived arm passes with 9 members, and its inverted pin asserts the plate token on `components/admin/MaintenanceResetButtons.tsx:300`. |
-| AC-13 | Playwright at 390px, light and dark, on the five surfaces spec §14 names, with before and after captures in the PR body. |
+| AC-13 | Playwright at 390px, light and dark, on the five surfaces spec §14 names, with before and after captures in the PR body. SATISFIED by `tests/e2e/control-outline-contrast.live.spec.ts`, 12 cases: four surfaces in the static harness (venue tile, crew contact icons, BellPanel config row, report textarea, row-actions trigger in both arms) and the wizard done pill on its real route at `/admin?step=2`. Source pins are kept as the cheap layer; the 2026-08-26 ruling is that they do not satisfy this on their own. |
 | AC-14 | The invariant-8 dual gate green, with dispositions recorded in §12. |
 | AC-15 | The multiset of border-WIDTH utilities across every swap target is identical before and after. |
 | AC-16 | `tests/styles/tintedPlateOutline.test.ts:215` records 9 for `components/admin/wizard/step3ReviewSections.tsx`, counted code-only, in the same commit as the five occurrences the sweep adds. |
@@ -413,6 +413,34 @@ Assert spec §14's five parent/child pairs by `getBoundingClientRect()` at 390px
 **Harness, corrected.** The `webServer` at `playwright.config.ts:263-267` runs `pnpm build && pnpm start` only under `CI`; locally it runs `pnpm dev`. Readiness gate: a per-spec hydration wait in the shape of `tests/e2e/published-review-modal.reopen.spec.ts:48`, never `networkidle` alone. Any `locator.evaluate` sampler that can outlive its element is written detach-safe. The run goes through `pnpm heavy` (non-interactive playwright is a heavy phase); `--ui` and `--debug` are never wrapped.
 
 **Its own check, since no marker guards it.** Before the task is done, each of the five pairs is observed FAILING against a planted defect: temporarily remove the class that guarantees that pair (the child's `size-8`, the parent's `min-h-tap-min`, the tile span's `min-h-tap-min`), confirm the assertion reds, restore. A pin nobody has watched fail is a pin nobody has tested. Record the five observations in the commit message.
+
+
+### Task 7 follow-up — the CONTRAST half, ruled 2026-08-26
+
+The task above is the DIMENSIONS half and is unchanged. AC-13 is a contrast claim, and the ruling is
+that source pins do not satisfy it: the pairs are measured in a real browser or they are not measured.
+AC-15's width multiset is width evidence and cannot stand in.
+
+Three of the four remaining surfaces are client components and mount on the existing bundle route,
+one per page load. The BellPanel and the report modal are both `fixed inset-0` dialogs whose backdrops
+swallow every pointer event, which is invisible to a computed-style read and fatal to the row-actions
+case, the one case that has to click; that cost two full runs to find, so the entry gates on
+`?surface=` rather than rendering them together.
+
+The fourth is settled the other way, and the probe is the reason rather than the conclusion.
+`components/admin/OnboardingWizard.tsx` is a SERVER component: its module scope imports
+`createSupabaseServerClient`, which constructs an `AsyncLocalStorage` on import, and the bundle route
+empties node builtins, so the page dies with `TypeError:
+import_node_async_hooks.AsyncLocalStorage is not a constructor` at `#root` childElementCount 0. Next
+never ships that module to a client bundle either, so the route is the wrong vehicle by construction
+rather than by omission. The ruling permitted recording THAT pair as a documented limit; instead it is
+measured on its real route at `/admin?step=2`, where `isDone` is `n < step` so pill 1 is the done arm.
+
+**Same negative-control rule as the task above.** Reverting each swept token to its pre-sweep value
+reds all six DB-free cases at exactly the ratios the sweep exists to fix: bell config 1.59 light /
+1.60 dark, report textarea 1.22 / 1.35, row-actions 1.22 / 1.35. The two pill cases are pending a
+`pnpm db:seed` on a database every live worktree shares, which is held until the fleet is quiet;
+CI's result on the pushed head is the alternative evidence, stated as such.
 
 ## Task 8 — transition audit, and re-score the three enrolled surfaces
 

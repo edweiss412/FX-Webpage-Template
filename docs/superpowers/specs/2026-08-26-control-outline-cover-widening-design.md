@@ -737,7 +737,10 @@ here, so nothing about that record moves. A vacuous row would be worse than an h
   asserts `border-control-outline-tinted` on `MaintenanceResetButtons.tsx:300`.
 - **AC-13** Playwright at 390px, light and dark, on the BellPanel config row, a menu trigger open and
   closed, the step-3 report textarea, the wizard step indicator's done pill, and the venue tile's
-  Directions visual. Before and after captures in the PR body.
+  Directions visual. Before and after captures in the PR body. This is a CONTRAST claim and source
+  pins do not satisfy it (ruled 2026-08-26); AC-15's width multiset is width evidence and cannot stand
+  in either. `tests/e2e/control-outline-contrast.live.spec.ts` carries all five, four on the bundle
+  route and the wizard pill on its real route, for the reason in limit L9.
 - **AC-14** The invariant-8 dual gate green, with dispositions recorded in the closeout.
 - **AC-15** The multiset of border-WIDTH utilities across every swap target is identical before and
   after. A colour swap that moved a width would change layout, and §14 claims it does not.
@@ -858,6 +861,17 @@ finding.
   arrives through a caller's className reaching `main` at `border-border` or `border-border-strong`.
 - **L6. The `inner-chrome` bar cannot verify that a registered element really is chrome.** §8. Same
   posture as `switch-track`, and for the same reason: it is a ruling, not a projection.
+- **L9. The wizard step pill cannot be measured on the static bundle route, and should not be.**
+  `components/admin/OnboardingWizard.tsx` is a SERVER component whose module scope imports
+  `createSupabaseServerClient`, which constructs an `AsyncLocalStorage` on import. The route empties
+  node builtins, so the page dies before rendering anything (probe: `TypeError:
+  import_node_async_hooks.AsyncLocalStorage is not a constructor`, `#root` childElementCount 0, every
+  other surface on the page dark with it). Next never ships that module to a client bundle either, so
+  this is the route being wrong for the component rather than a gap in the route. Recorded rather than
+  worked around: the fix would be teaching the shared bundle helper to hand out a live
+  `AsyncLocalStorage`, which weakens the empty-by-class property every sibling spec depends on, to
+  reach a component that renders server-side anyway. The pill is measured at `/admin?step=2` instead.
+
 - **L8. An element's resolved className depends on the path that reached it first, and the scan keeps
   the first.** Found by the source-mutation gate, not by review. The de-duplication at the end of the
   scan is keyed `(file, line, tag)` and keeps the FIRST admission, while the import-hop and resolve-depth
