@@ -311,7 +311,7 @@ describe("workflow — the source-shards JOB uploads the records directory (AC-1
       (s) => String(s.with?.path ?? "").replace(/\/+$/, "") === DEFAULT_RECORD_DIR,
     );
     // The surfaces run in the `source-shards` MATRIX, so a correct step under
-    // `source-gates` uploads nothing and all four shard workspaces are still
+    // `source-gates` uploads nothing and every shard workspace is still
     // discarded — which a file-scoped existence check cannot distinguish from a
     // correct one.
     expect(records).toHaveLength(1);
@@ -320,7 +320,7 @@ describe("workflow — the source-shards JOB uploads the records directory (AC-1
     // failure-only defect, conditioned on failure it reproduces it inverted.
     expect(step.if).toBe("always()");
     expect(String(step.with?.path ?? "").replace(/\/+$/, "")).toBe(DEFAULT_RECORD_DIR);
-    // Shard-scoped, so four matrix jobs cannot collide on one constant name.
+    // Shard-scoped, so the matrix jobs cannot collide on one constant name.
     expect(step.with?.name).toContain("${{ matrix.shard }}");
   });
 

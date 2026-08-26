@@ -83,7 +83,7 @@ export const ENV_BOUND_EXCLUDES = [
 export const MUTATION_TEST_GLOBS = [
   "tests/parser/mutationHarness.*.test.ts",
   // Source-mutation gate (spec docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md),
-  // sharded across four files plus one corpus-wide gates file (wall-clock spec
+  // sharded across per-shard files plus one corpus-wide gates file (wall-clock spec
   // docs/superpowers/specs/ci/2026-08-16-mutation-gate-wallclock-design.md §3.2/§3.3).
   // Each shard spawns one vitest child per mutant, so all of them are nightly +
   // on-demand, never merge-gating.
