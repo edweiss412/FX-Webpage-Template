@@ -366,32 +366,6 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
-## BL-MUTATION-SHARD-BUDGET-AGGREGATE-OVER — the source-mutation shards are 60% over budget in AGGREGATE, and the four-shard pin's premise no longer holds
-
-**Status:** IN PROGRESS · **Branch:** fix/mutation-shard-budget-six · **Filed:** 2026-08-22 (queued by `bl-orch` onto `ci/app-e2e-batch2`'s closeout commit, from `dbconn`'s arithmetic) · **Facing:** process · **Severity:** MEDIUM (the budget gate is FAILURE on main itself, so every arc reads its own leg against a red baseline and cannot tell a regression from the inherited state) · **Class:** CI capacity · **Effort:** M · **Reachability:** PROBED — the main-red runs linked in the incident are this row's own evidence; the shard wall-clocks below were measured by `dbconn` on its own legs and are recorded here as ROUTED figures, attributed rather than re-derived, because the arc that measured them holds the artifacts. · **Incident:** the `mutation-harness` workflow is red on MAIN, not on a branch, and has been for days — the last five scheduled runs on `main` all failed: [32559529251](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32559529251) (2026-08-22), [32459382957](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32459382957), [32344648722](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32344648722), [32228276600](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32228276600) and [32111856491](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32111856491), listed by `gh run list --workflow=mutation-harness.yml --branch main`. Those are cost events that already happened, not a constructed hypothetical.
-
-Shard wall-clocks, measured by `dbconn` and routed here by the orchestrator (that arc holds the run
-artifacts; this row does not re-derive them): **4669 s, 6958 s, 4667 s, 6786 s = 23080 s** of work
-against a budget of `4 x 3600 s`. That is 60% over IN AGGREGATE, and — the part that matters for the fix — **all four
-legs are over**, with no single surface dominating any of them. The spec's §2.4 premise for pinning
-`SOURCE_SHARD_COUNT = 4` was that a small number of expensive surfaces set the ceiling; that premise
-is now false, so the pin cannot be defended on its original grounds.
-
-Fix candidate, by the same arithmetic: **n = 8 fits** at roughly 2885 s for the longest leg. `n = 5`
-and `n = 6` are both still over, so a one-notch bump buys nothing.
-
-**Per-leg ceiling proximity is trending, not just the aggregate.** One shard measured 111 minutes and
-then 118 minutes on consecutive runs against a 125-minute ceiling (`panecompact`, 2026-08-22). The
-aggregate says the budget is wrong; that pair says a single leg is now close enough to the ceiling
-that ordinary variance reaches it, and a leg that CANCELS at the ceiling reports nothing — the silent
-form this row exists to prevent.
-
-**The first scheduled step is the shard-count decision as a FLEET item, not a unilateral edit.**
-`shardPartition` is a shared surface and the LPT partition re-packs whenever the surface set changes,
-so a shard-count change moves which shard every enrolled surface lands in, and every arc holding a
-stamped score is affected at once. Note also that `arc-ctloutline`'s incoming **231 sites** land on
-this same partition and make every number above worse before any repair lands.
-
 ## BL-ADMIN-LOADER-CI-TRANSIENT — admin page and modal loaders fault transiently on the app-e2e runner, and the failure is indistinguishable from a spec defect
 
 **Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, from the counted runs of that arc's five-green loop) · **Facing:** process · **Severity:** MEDIUM (it costs a full five-green restart per occurrence, and read per-spec it drops members that are not defective) · **Class:** CI flake · **Effort:** M · **Reachability:** PROBED — the runs listed below, each with the failing page's own snapshot or its error text; three of them also carry a local CI-posture reproduction that passes, and which three is stated rather than implied. · **Incident:** the runs listed below died on this shape in one evening, across two PRs, and three batch-2 members left under AC-4 because of it. Those are cost events that already happened.
