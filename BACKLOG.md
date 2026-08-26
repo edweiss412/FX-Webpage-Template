@@ -37,36 +37,6 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 **Class-sweep exception (c).** The repair is an emit in `lib/admin/**`, which pulls application review
 surface into a PR whose brief scopes it to workflow, scripts and docs.
 
-## BL-SERVER-TIME-GUARD-EXCLUDES-LIB — the server-time guard's population never walks `lib/`
-
-**Status:** OPEN · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** LOW · **Class:** guard fidelity · **Effort:** M · **Incident:** `lib/admin/loadAppEvents.ts:45` calls `new Date(Date.now() - sinceH * 3_600_000)` and is a LIVE UNWAIVED SURVIVOR of `tests/help/_metaServerTimeGuard.test.ts` — `discoverScanRoots()` (`:11`) seeds with `"components"` plus manifest-derived `app/<segment>` roots, so `lib/**` is never walked. The guard reports clean over a population that excludes the survivor. · **Reachability:** PROBED — the survivor is named above and the seeding is read at `:11`.
-
-**Class-sweep exception (c).** Widening to `lib/**` is a redesign of a guard this PR does not otherwise
-touch, and it pulls an unbounded waiver population into a CI-fidelity diff.
-
-## BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY — the marking scanner's ternary arm drops what its if-arm reports
-
-**Status:** OPEN · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** MEDIUM · **Class:** guard fidelity · **Effort:** M · **Incident:** the defect shipped INTO this arc's own registry and was caught pre-merge by its self-review. `tests/help/_metaRenderFaultMarking.test.ts` declared `Dashboard.tsx:ignoredDegraded` and `Dashboard.tsx:dataGapsDegraded` as flag-shaped residue on the stated ground that "the guard site returns no JSX". Both are ternaries whose `whenTrue` IS the JSX (`components/admin/Dashboard.tsx:674`, `:858`), so the recorded justification was false and the two entries were filed under the wrong cause. A registry whose reasons are wrong is worse than one with gaps, because it is read as settled. · **Reachability:** PROBED — see the probe below.
-
-**The asymmetry.** `scanCandidates` (`tests/help/_renderFaultScan.ts`) gives its `IfStatement` arm a
-vocabulary fallback: an unclassifiable guard matching `/error|fail|infra|degrad|unavailable|corrupt/i`
-is pushed as `unknown` and lands in `REPORTED_RESIDUE`. The `ConditionalExpression` arm has no fallback
-and does a bare `continue` at `:395`. A ternary whose `whenTrue` is JSX is exactly the shape layer 1
-claims to reach, so this is a gap INSIDE the claimed coverage, not the documented ceiling at spec §4.2.
-
-**Probe** (ts-morph over `scannedFiles()`, live tree, 2026-08-24): **714** ternaries under the derived
-roots return JSX in `whenTrue`; **91** of those carry a fault-vocabulary guard. The classifiable ones are
-enforced; the rest are dropped in silence rather than reported. Reported residue today is 5, every one of
-them from an `IfStatement`.
-
-**Class-sweep exception (c).** Adding the fallback means declaring a reason for every unclassifiable
-ternary it surfaces. Hand-writing that population reduces the registry to boilerplate and destroys the
-signal residue exists to carry, so the repair is a redesign of the recognizer's residue model rather than
-a one-line symmetry fix. Sizing it, and deciding whether the vocabulary probe is even the right filter on
-this arm, is the first scheduled step.
-
----
-
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
 **Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
@@ -396,47 +366,6 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
-## BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED — one `dashboard-overview-light.webp` byte drift, now measured as rasterization variance with the population question still open
-
-**Status:** OPEN · **Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** M (the instrument shipped; the open step is a population comparison) · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, as the surviving half of `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`) · **Facing:** process · **Reachability:** PROBED for the mechanism; the runner-population reading remains unprobed and is what this row now schedules.
-
-**MECHANISM NAMED, and it is NOT the sibling's.** The artifact was replayed inside its retention window
-(`fix/screenshots-drift-instrument`, 2026-08-24). Geometry identical at 1216x1463 both; 45293 of 1779008
-pixels differ; 93% of the differing pixels are delta 0-31; run lengths concentrate at 1-2px on glyph
-edges; best vertical shift alignment is offset 0, so a uniform shift is refuted. Cropped and inspected:
-identical layout, identical text, identical dates and counts. **Sub-pixel text rasterization variance.**
-
-The hard part is that it happened at all: the capture already pins the image tag AND passes
-`--platform linux/amd64`, so the variance survived both pins the byte-comparison discipline prescribes.
-
-**The 0/9 non-reproduction was a MIS-SAMPLE, which is a sharper correction than "uninformative".** Probed
-2026-08-24 against the workflow's own run list. Both failures are `pull_request` runs — occurrence A is
-run 32528532727 on `be5d3d810db2`, this row's is run 31930558546 on `b5aa6ef7`, one run per sha,
-`run_attempt` 1. The nine non-reproducing probes are every one `workflow_dispatch`, and every one on
-`119895a7c756`, a descendant of `b5aa6ef7` whose `public/help/screenshots/` tree is byte-identical to it.
-So the probes never sampled the population either failure came from, and the baseline is not the
-difference — the trigger is. 0/9 was never weak evidence AGAINST a runner-population effect; it is not
-evidence about the failing population at all.
-
-This names no mechanism and must not be read as naming one. Nine dispatches is a small sample and the two
-triggers may well share a runner pool.
-
-**What shipped, and what it deliberately does not do.** The instrument now records, on BOTH outcomes,
-`eventName` from `GITHUB_EVENT_NAME`, the three runner fields, `cpuModel`/`cpuCount`, and a
-`pixelSha256` over DECODED RGB rather than the PNG container — a container hash reports a render change
-whenever only the encoding moved, which is precisely the confusion this row sits in. The upload runs on
-success as well as failure, because a passing run must leave a record or the comparison population can
-never be built.
-
-**The open step is a POPULATION COMPARISON, not a repair.** Collect records across both triggers and
-compare `cpuModel` and `runnerName` between a reproducing and a non-reproducing run. Only then does the
-runner-population reading become testable.
-
-**Do NOT open a screenshots repair on the current evidence.** The two candidate repairs are different
-products with different failure modes — pin the rasterization environment harder, or stop requiring byte
-equality and compare within a perceptual tolerance — and choosing between them needs the population data
-the instrument has only just begun collecting.
-
 ## BL-MUTATION-SHARD-BUDGET-AGGREGATE-OVER — the source-mutation shards are 60% over budget in AGGREGATE, and the four-shard pin's premise no longer holds
 
 **Status:** OPEN · **Filed:** 2026-08-22 (queued by `bl-orch` onto `ci/app-e2e-batch2`'s closeout commit, from `dbconn`'s arithmetic) · **Facing:** process · **Severity:** MEDIUM (the budget gate is FAILURE on main itself, so every arc reads its own leg against a red baseline and cannot tell a regression from the inherited state) · **Class:** CI capacity · **Effort:** M · **Reachability:** PROBED — the main-red runs linked in the incident are this row's own evidence; the shard wall-clocks below were measured by `dbconn` on its own legs and are recorded here as ROUTED figures, attributed rather than re-derived, because the arc that measured them holds the artifacts. · **Incident:** the `mutation-harness` workflow is red on MAIN, not on a branch, and has been for days — the last five scheduled runs on `main` all failed: [32559529251](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32559529251) (2026-08-22), [32459382957](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32459382957), [32344648722](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32344648722), [32228276600](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32228276600) and [32111856491](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32111856491), listed by `gh run list --workflow=mutation-harness.yml --branch main`. Those are cost events that already happened, not a constructed hypothetical.
@@ -463,48 +392,124 @@ so a shard-count change moves which shard every enrolled surface lands in, and e
 stamped score is affected at once. Note also that `arc-ctloutline`'s incoming **231 sites** land on
 this same partition and make every number above worse before any repair lands.
 
-## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
+## BL-ADMIN-LOADER-CI-TRANSIENT — admin page and modal loaders fault transiently on the app-e2e runner, and the failure is indistinguishable from a spec defect
 
-**Effort:** S
+**Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, from the counted runs of that arc's five-green loop) · **Facing:** process · **Severity:** MEDIUM (it costs a full five-green restart per occurrence, and read per-spec it drops members that are not defective) · **Class:** CI flake · **Effort:** M · **Reachability:** PROBED — the runs listed below, each with the failing page's own snapshot or its error text; three of them also carry a local CI-posture reproduction that passes, and which three is stated rather than implied. · **Incident:** the runs listed below died on this shape in one evening, across two PRs, and three batch-2 members left under AC-4 because of it. Those are cost events that already happened.
 
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02), and pinned by
-`tests/components/admin/useFitWithinClip.test.tsx` case (g), which asserts the count is 2 so a
-change to the mount path is visible rather than silently absorbed.
+Every run below is one occurrence, and the list is the count, which is why this sentence no longer restates it: counted runs of PR #875's own AC-3 loop plus one from an unrelated branch (`feat/destructive-guard-discovery-by-connection`), so TWO PRs, one shape — an admin loader faulting, never
+resolving, or leaving a server round-trip unsettled, while the rest of the page renders fine. The
+list is the row's evidence and the amended AC-3 exception reads its SIGNATURE from it, so every
+occurrence lands here as it happens:
 
-`useFitWithinClip` measures once when the layout effect runs, then the ref callback's
-`setAttachCount` bump re-runs the effect and it measures again. Both passes see a valid node
-and compute the same number, so the second is pure cost: one extra forced synchronous reflow
-(write, read, read, read, write) per mount, on every overlay the hook serves.
+- [32561531983](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32561531983) — `admin-parse-panel`, snapshot is the whole page as "Admin session unavailable" at the Re-sync assertion.
+- [32563705156](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32563705156) — `warning-panel-polish`, announcer empty after Ignore; no trace at `--retries=0`, so this one is the least attributed of the three.
+- [32564772189](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32564772189) — `needs-attention-page`, nav and badge render (badge reads "2"), `main` is "This admin page couldn't load".
+- [32571008405](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32571008405) — TWO members in one run: `published-show-attention`, where the ratified open-time recovery FIRED AND STILL FAILED ("error boundary persisted after one retry … grep the server log for `show_review_snapshot_failed`"), and `telemetry-layout`, whose snapshot ends at `status: Loading your dashboard…` with the sidebar and log both at zero rects. The second is the same class arriving as a loader that never resolves rather than one that faults, and it is the first evidence that the existing one-retry recovery is not sufficient.
+- [32573475808](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32573475808) — `telemetry-layout` AGAIN, the same case and the same zero-rect stall as 32571008405. This is the observation that dropped it (the second red on one spec, batch 1's threshold), and it is listed here because the drop's reason lives in this class, not in the spec.
+- [32572200250](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32572200250) — `notify-toggles`, **a BATCH-1 member wired on main since 2026-08-09**: the toggle's server action plus `router.refresh()` did not settle inside a 10 s poll (`aria-checked` still "true"). Nothing about batch 2 is in that spec's path, so this is the observation that separates the two readings cleanly: the variable is the runner, and main's own app-e2e job carries the same exposure. The pair is cross-PR: `dbconn`'s own app-e2e run [32557812890](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32557812890) on `feat/destructive-guard-discovery-by-connection` failed the SAME spec, the same case and at the same 10.7 s earlier the same night, and resolved green on one re-run. Two unrelated branches, one spec, one shape.
+- [32587470121](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32587470121) — `notify-toggles` AGAIN, on PR #875's own loop at head `567b3c852`, and it is the closest match to a prior occurrence this row holds: the same spec, the same case (`toggling a notify switch fires exactly one POST and flips state`, §7.5), the same 10 s poll, the same `aria-checked` still `"true"` where `"false"` was expected, and 157 of the run's 158 cases green around it. That is 32572200250 repeated two days later on a branch that still does not touch the spec's path, so the signature the amended AC-3 exception reads is matched literally rather than by family resemblance. **It is recorded here and does NOT drop the spec, and the reason is a boundary the ruling did not have to draw before:** AC-4 removes _a member_ of this batch, and every remedial step it prescribes names an artifact this arc does not own. `notify-toggles` is a BATCH-1 member wired on `origin/main` since 2026-08-09 (`git show origin/main:.github/workflows/app-e2e.yml` names it; main's oracle carries `"notify-toggles.spec.ts": 14`), it has no allowlist row to restore because batch 1 deleted it, and its `REQUIRED` row and `governs` entries came from batch 1 rather than from this arc's wiring commit. Dropping it would strip a check `main` already requires, which is a coverage regression outside a wiring arc's fence (spec 1.1), not an AC-4 drop. It would also retire the very observation the amendment cites as its cleanest control. The batch-1 threshold is therefore reached for this spec and belongs to whoever holds the class, not to this arc: it is named in the first scheduled step below.
 
-The bump exists for a real reason — these overlays mount long after their owner, so an effect
-keyed on the ref alone would run once with `null` and never wire the observers up. The fix is
-not to remove it but to stop needing it: React 19 lets a ref callback return a cleanup, so the
-callback itself could own the observer wiring and the state counter could go away entirely.
+- [32763990640](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32763990640) — TWO members in one run, on PR #875's re-anchored AC-3 loop at head `8e8a159d7`, and the run's server log names the mechanism directly rather than leaving it to inference: `AdminInfraError: requireAdmin: is_admin RPC failed: An invalid response was received from the upstream server`, `code: 'ADMIN_SESSION_LOOKUP_FAILED'`, repeated through the run alongside `Error: The destination stream closed early`. An upstream 502 on the admin gate, which is `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`'s measured shape on this same job. `admin-settings-admins-refresh` (`:91`) failed a `locator.click` at the 60 s test timeout, and `needs-attention-page` (`:223`) failed `toHaveText("9+")` with `element(s) not found`, both consistent with the admin page never resolving. 156 of 158 cases passed around them. `admin-settings-admins-refresh`'s FIRST occurrence; `needs-attention-page`'s SECOND, after 32564772189.
 
-**Trigger:** a refactor of the hook's attach mechanism, or evidence that mount cost matters on
-a surface with many simultaneous overlays. Not worth a standalone change at two reflows.
+- [32763990640 attempt 2](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32763990640) — the SAME run re-run on the SAME bytes, and it is the most useful occurrence on this row because of what CHANGED. Attempt 1 failed `admin-settings-admins-refresh` and `needs-attention-page`; attempt 2 failed NEITHER of them and failed `admin-changes-feed-layout.spec.ts:118` (mobile-safari) instead, 157 of 158 passing. Three distinct admin specs across two replays of one tree, and the third is the spec `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` is named for. **This is the row's cleanest disproof that these are spec defects**: a defect reproduces on identical bytes and these did not, they MOVED. It also settles an AC-4 question it was about to lose — `needs-attention-page`'s second red did not reproduce, so it is not a spec earning a strike, and dropping it would have removed a passing member and restarted the five-green count on an artefact.
 
----
+- [32786399563](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32786399563) — `admin-settings-admins-refresh` (`:91`) AGAIN, on PR #875's FINAL CI gate at head `4ed670170`, and it is the occurrence that shows this class outliving the count it disrupted: #875's five-green loop had already closed when this fired. Attempt 1 failed a `locator.click` at the 60 s test timeout, 157 of 158 cases passing, with the run's own server log naming the mechanism rather than leaving it to inference: `AdminInfraError: requireAdmin: is_admin RPC failed: An invalid response was received from the upstream server`, alongside `admin_read_share_token returned error: An invalid response was received from the upstream server` and repeated `Error: The destination stream closed early`. An upstream 502 on the admin gate, the same spec and the same line as this row's `32763990640` attempt-1 occurrence, so the signature is matched literally rather than by family resemblance. **The replay on identical bytes went GREEN**, which is the counter rule below applied prospectively rather than retroactively: the red did not reproduce, so it is an environment observation and no spec earned a strike. Recorded here rather than committed on `ci/app-e2e-batch2` by orchestrator ruling of 2026-08-24 — the occurrence is evidence, not a gate, and committing it would have moved a head whose CI-green proof the readiness report rested on.
 
-## BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK — `findClippingAncestor` walks the tree twice per effect run
+THREE of them were reproduced locally under the CI posture (`CI=1`, so `pnpm build && pnpm start`,
+both DSNs pinned) and passed: parse-panel 10 of 10, warning-panel 4 of 4 with `--trace on`,
+needs-attention 12 of 12. The occurrences not named in that sentence were not re-probed locally, and the row
+says so rather than generalizing: by then the shape was established, and a fourth green reproduction would have added a
+data point to a question already answered. So the domain of the defect is the LOADER on that runner, not the specs —
+which is why reading it per-spec drops members that are not defective and empties a batch to certify
+nothing. Same family as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`, which measured the transient gateway
+502 reaching the `/admin` error boundary on this same job.
 
-**Effort:** S
+**RATIFIED 2026-08-24 — the per-spec red counter advances only on a red that REPRODUCES on the
+same bytes.** A non-reproducing red is an environment observation, not a spec earning a strike, which
+is already what the amended AC-3 says about signature reds; this states the same thing for the
+per-spec threshold that DROPS members, where it had been left implicit. The evidence is the
+attempt-1/attempt-2 pair above: `needs-attention-page` had reached the batch-1 second-red threshold
+with AC-4 fully applicable, and the replay of identical bytes cleared it while failing a different
+spec. Applying the threshold to the unreproduced red would have removed a passing member, shipped
+nine instead of ten, and restarted a five-green count on an artefact. The four drops recorded above
+are unaffected: each was taken on evidence this rule does not disturb, and `telemetry-layout`'s two
+reds were the same case in two separate runs rather than one run's replay.
 
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
+**`admin-parse-panel`, `warning-panel-polish`, `telemetry-layout` and `published-show-attention` stay dropped for batch 2.** Each drop was
+procedurally valid when it was made — the first two on a first red with no attribution, the last two
+on a SECOND red for one spec, which is batch 1's threshold and the ruling's boundary (d) — and
+re-adding them tonight would be churn on an arc whose bar is five consecutive green
+runs. Their restoration is **batch 3's first question**, and their allowlist rows already carry every
+run id a batch-3 reader needs.
 
-`apply()` walks up from the node to resolve the clip ancestor, and the layout effect walks
-again immediately afterwards to decide what to observe. Each walk calls `getComputedStyle` on
-every ancestor until it finds a non-`visible` overflow.
+**What `fix/admin-loader-ci-transient` (PR #882) closed, and what it did not.** It ships a bounded
+retry at the Supabase RPC boundary plus the instrumentation that makes the fault visible, so the ONE
+mechanism this row's log finally named — `AdminInfraError: requireAdmin: is_admin RPC failed: An
+invalid response was received from the upstream server`, an upstream 502 on the admin gate (run 32763990640) — is absorbed and, when it recurs, leaves a durable `SUPABASE_UPSTREAM_RETRY` record
+instead of being inferred from app logs.
 
-Hoisting the result is not free: `apply()` must re-walk on every invocation, because the
-ancestor chain can change between measures (an overlay can be reparented, and an ancestor's
-overflow can change). Only the effect's own second walk is redundant, and only for the run
-that just called `apply()`.
+The row stays OPEN because it is a CLASS and that is one member of it. Not every occurrence listed
+above is an RPC 502: `notify-toggles` is a server action plus `router.refresh()` failing to settle
+inside a 10 s poll, and `telemetry-layout` is a loader that never resolves at all, with the sidebar
+and log at zero rects. Neither is a request the retry wrapper sees. The remaining scope is therefore
+exactly the decision below, unchanged by this PR, plus the descoped
+`BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY` — and the shipping spec's §7.1 repairs four consumer
+boundaries while explicitly claiming no completeness.
 
-**Trigger:** profiling that shows ancestor-walk cost is material, or a refactor that already
-restructures the effect body. Micro-optimisation otherwise.
+First scheduled step: decide whether the ratified open-time recovery (the changes-feed helper) can be
+extended to a page-segment boundary at all, or whether the runner's Supabase bootstrap is what needs
+hardening. Both are fleet decisions; neither belongs to a wiring arc. **`notify-toggles` now carries the second red on one spec that is batch 1's drop threshold, and it is wired on `main`,** so that step now also has to say what the threshold means for a member no batch owns: the choices are the recovery above, a targeted wait on that one server-action settle, or accepting a known-flaky required check on `main`. A wiring arc can record the occurrence, which is what this row is; it cannot choose between those three.
 
----
+## BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY — a transient upstream 5xx can be swallowed by its consumer, leaving the occurrence unattributable
+
+**Status:** OPEN · **Filed:** 2026-08-24 (`fix/admin-loader-ci-transient`, descoped out of that spec by orchestrator ruling after the attribution design drew twelve of eighteen findings across three review rounds) · **Facing:** process · **Severity:** MEDIUM (it does not break a shipped surface; it means the NEXT occurrence of an already-recurring CI class is diagnosed by inference again) · **Class:** observability · **Effort:** M · **Reachability:** PROBED — the four boundaries below were each read at their error branch, and the shipping spec's §7.1 repairs the four while explicitly claiming no completeness. · **Incident:** `BL-ADMIN-LOADER-CI-TRANSIENT`'s own arc. Five counted spec review rounds, eighteen declared findings, twelve of them against three successive attribution designs (`docs/review-rounds/fix/admin-loader-ci-transient/bcd3d088ec76.md` and its `.jsonl`). Separately, that row's occurrence list is a set of CI reds whose mechanism had to be inferred from app logs because nothing captured the gateway's own state.
+
+**What is missing.** A 502 from the local Supabase gateway is recorded only if the consumer that
+receives it chooses to log the message. Many do not: two log a code without the message, one returns
+it inside `infra_error` and never logs it, one discards it and returns a bare 500, and others swallow
+it entirely (`components/admin/Dashboard.tsx` maps both a returned error and a throw to "Held";
+`lib/admin/bellFeed.ts` returns `infra_error` without logging). The class is NOT bounded by the retry
+population — it includes VOLATILE RPCs and plain table reads — which is precisely why enumerating
+consumers failed three times.
+
+**Honest state after the shipping PR.** `fix/admin-loader-ci-transient` repairs FOUR boundaries as
+invariant-9 defects (`lib/admin/loadAlertSummary.ts`, `lib/admin/loadTelemetryStats.ts`,
+`lib/admin/loadRecentAutoApplied.ts`, `app/api/show/[slug]/version/route.ts`) and claims nothing
+beyond them. **Every other swallowing path stays dark until this row lands.** That is stated here so a
+reader does not mistake the stopgap for the solution.
+
+**The design this arc already paid for, so it is not re-derived.** Each item below cost at least one
+review round:
+
+- **Observe at the transport, not at the consumer.** A hook on the server-side client factories sees
+  every call and no consumer can swallow it. Enumerating consumers is the wrong shape.
+- **The recursion fence belongs on the LOG LEVEL, not on a client scope.** The durable sink persists
+  `warn`/`error` through `createSupabaseServiceRoleClient` (`lib/log/persist.ts`), so an observer on
+  that client emitting at `warn` observes its own persist write, without bound. `debug` reaches the
+  console chokepoint synchronously and can NEVER persist — the `app_events` level CHECK admits only
+  info/warn/error, and `tests/log/logger.test.ts` pins that `persist: true` on a debug call is inert.
+  A property anchored in a database constraint survives a later scope change; a fence written about
+  one mechanism did not survive being restated about a sibling.
+- **Plant FOUR transport states, not two.** 5xx records; success is invisible with identical bytes; a
+  rejected fetch rethrows the same error unwrapped (a hook written around `response.status` can throw
+  its own TypeError and change the failure class); the body is never read or cloned (reading it
+  consumes the stream and hands the consumer an empty response, a symptom that looks nothing like a
+  logging change).
+- **The workflow must CAPTURE the signal.** A later step cannot read an earlier step's stdout. Four
+  mechanics, each with a failure mode worse than the one it prevents: `set -o pipefail` under
+  `shell: bash` (without it the step's status is `tee`'s and a FAILING app-e2e reports success — a
+  required check that cannot go red is worse than the flake it instruments), `2>&1` before the pipe
+  (the records travel on stderr), `if: always()` on the grep step (else it is skipped exactly when the
+  run failed), and an `id:` (the dump's condition references `steps.<id>.outputs.<name>`).
+  `.github/workflows/x-audits.yml` already does all of this in four places.
+- **Coverage is enforced, not asserted.** Three server-side clients are constructed directly rather
+  than through a factory (`app/api/test-auth/set-session/route.ts` twice,
+  `lib/dev/materialize/client.ts`). Each is exempt on a stated ground, and a walked meta-test makes a
+  FOURTH fail by default.
+
+**First scheduled step:** decide observer versus a capture-only approach on the evidence, then build
+the plant-four harness BEFORE the spec, since three prose designs in a row each introduced the next
+round's defect.
 
 ## Merged from the plans backlog (2026-08-02)
 
@@ -823,3 +828,92 @@ The filter is not loose by accident — it covers the eight parser shard files, 
 **Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
 
 **First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
+
+---
+
+## BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN — the portal measures three times on every open, and its placement loop is why
+
+**Status:** OPEN · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, class sweep §4.2) · **Facing:** product · **Severity:** LOW-MEDIUM (three forced synchronous reflows per menu open on a shipped admin surface; correct output, redundant cost) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — unpicking the convergence loop is a redesign of a placement surface the fitWithinClip arc does not otherwise touch, with its own e2e geometry suite and viewport-source registry. · **Reachability:** PROBED — the run below, against `origin/main` at `449f29fab`.
+
+`components/admin/AnchoredPortal.tsx` runs `measureAndApply` three times for one closed → open
+transition. Counting anchor-rect reads, one per `measureAndApply`
+(`components/admin/AnchoredPortal.tsx:141`), in a jsdom harness that renders the portal closed and
+then re-renders it open:
+
+```
+PROBE closedReads=0 measureRunsOnOpenCommit=3
+```
+
+Two layout effects both cover the open commit: the gated one
+(`components/admin/AnchoredPortal.tsx:191`) and the deliberately ungated every-commit one
+(`components/admin/AnchoredPortal.tsx:254`). The `setApplied` they produce re-renders, which fires
+the ungated effect a third time; `commit` then drops the unchanged placement and the loop settles.
+So the third run is a convergence step of the design, not a stray call, and the second is the only
+plainly redundant one.
+
+**Why it is not a one-line deletion.** `components/admin/AnchoredPortal.tsx:245-253` documents at
+length why the every-commit effect is unconditional: it is the only subscription that catches a
+POSITION-ONLY anchor move, which `ResizeObserver` explicitly does not report — a background
+`router.refresh()` that reorders rows without changing any dimension moves the anchor under a panel
+that is a body child with absolute coordinates. Deleting the gated effect's own `measureAndApply`
+instead would leave the pre-paint guarantee resting on the ungated effect being declared after it,
+which is a silent coupling rather than a repair. Either direction is a design decision on the
+placement loop, so it wants its own arc and its own review.
+
+This row does not assert what the converged number should be. Deciding that is the work.
+
+**Trigger:** an arc that already restructures `AnchoredPortal`'s placement effects, or profiling
+that shows open-time reflow cost is material on the shows dashboard.
+
+**First scheduled step:** re-run the probe against the live surface (not only jsdom) via
+`tests/e2e/rowactions-geometry.spec.ts`, to establish whether the third run's placement is ever
+DIFFERENT from the second's — if it never is, the convergence step is dead weight and the repair
+narrows to the gated effect.
+
+---
+
+## BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION — a clip ancestor that starts clipping is never observed, and the stale cap is silent
+
+**Status:** OPEN · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, spec review R12 finding 1) · **Facing:** product · **Severity:** MEDIUM (a wrong cap on a shipped admin overlay with no diagnostic; reachable only when an ancestor's overflow changes without a re-attach) · **Class:** subscription freshness · **Effort:** M · **Reachability:** PROBED — the transcript below, and it is IDENTICAL on the current hook and on the refactor, so this is pre-existing and not introduced.
+
+`useFitWithinClip` resolves the clip ancestor once per ATTACH and wires its `ResizeObserver` from that
+result. `apply()` re-walks on every invocation, so the CAP is recomputed correctly on every signal —
+but the SUBSCRIPTION set is never updated. If an ancestor starts clipping after the attach, the
+overlay's cap corrects on the next signal and then goes stale, because the newly-clipping ancestor is
+not observed and its resizes deliver nothing.
+
+Probed on the existing two-ancestor unit topology: mount unclipped, make `outer` clip, deliver a
+window resize, then resize only the new clip ancestor. Byte-identical on both hooks:
+
+```
+STALE ATTACH_UNCLIPPED   cap=""      liveObservers=1 targets=[["inner"]]
+STALE RERENDER_NOW_CLIPS cap=""      liveObservers=1 targets=[["inner"]]
+STALE AFTER_SIGNAL       cap="322px" liveObservers=1 targets=[["inner"]]
+STALE NEW_CLIP_RESIZE    cap="322px" liveObservers=1 targets=[["inner"]] deliverable=0 expectedCap="222px" diagnostics=0
+```
+
+The last line is the defect: the correct cap is 222px, the written cap is 322px, nothing was
+delivered, and the floor-clamp diagnostic did not fire because the geometry is not floor-clamped. So
+the outcome is **neither correct nor signaled** — the one outcome the hook's own consequence bound
+forbids.
+
+**Why it is not repaired in the arc that found it.** That arc's subject is the MEASURE path: how many
+times `apply()` runs and how many times the chain is walked. This is the SUBSCRIPTION path, a
+different mechanism with no overlap in the diff, and the repair is a behaviour change to a path the
+arc never touches — re-resolving the observed set when the resolved clip differs, which needs its own
+cases and its own mutant. Repairing it there would have been an unreviewed behaviour change smuggled
+into a measure-count refactor. **Class-sweep exception (c):** a redesign of a surface the PR does not
+otherwise change, in a different class from the one being swept.
+
+**Reachability bound, stated so the severity is not overread.** An ancestor's `overflow` changing
+without a re-attach is uncommon: on the three shipped consumers the clip ancestor is the review-modal
+panel, which is `overflow-clip` for its whole life. The probe constructs the transition directly. No
+live surface is known to take it today, which is why this is MEDIUM rather than HIGH — but the
+consequence when it is taken is a silently wrong cap, which is why it is filed rather than demoted.
+
+**Trigger:** any consumer whose clip ancestor's `overflow` becomes non-`visible` from state, or a
+fourth consumer whose ancestor chain is not the review-modal panel.
+
+**First scheduled step:** decide between re-resolving the observed set inside the coalesced path
+(cheap, but adds a disconnect/rebuild per signal that finds a different clip) and observing the whole
+ancestor chain up to the clip (steadier, more observers). Both need the probe above as their red.

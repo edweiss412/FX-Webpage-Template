@@ -40,7 +40,7 @@ export async function queryIngestFailures(filters: FailureFilters): Promise<Quer
     if (sinceHours != null) {
       query = query.gte(
         "last_attempt_at",
-        new Date(Date.now() - sinceHours * 3_600_000).toISOString(),
+        new Date(Date.now() - sinceHours * 3_600_000).toISOString(), // not-render-side: observe read-path window; both executions are non-render — the pnpm observe CLI, and the developer capture action app/admin/_devCaptureAction.ts, which is a "use server" action building a downloaded diagnostic bundle
       );
     }
     const { data, error } = await query
