@@ -1,3 +1,79 @@
+## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** M · **Severity (as filed):** LOW-MEDIUM · **Class:** layout measurement · **Facing:** product · **Shipped by:** `feat/review-modal-strip-dock`
+
+**Resolution — the anchor has its number, and it is not the number the row expected.**
+
+    375x667, load 30, strip docked at the panel floor:
+      spaceAbove = 342.94px    spaceBelow = 0    banner natural height = 142px
+      side = top               cap = (none)
+
+There is no room BELOW the docked strip at any viewport height, so the placement
+module puts the refusal banner in the 342.94px above it, uncapped, because the
+banner needs 142. `MIN_FITTED_HEIGHT` (48) is over-satisfied seven times and
+never binds at this anchor. Emitted by "the row's obligation — real-surface
+anchor room" in `tests/e2e/popover-clip-fit.spec.ts`.
+
+**The row named two obstacles and both were real; neither was the actual defect.**
+It recorded that the banner mounts only on a refusal "which the real-modal
+harness cannot drive", and that its anchor "renders below the clip window". Both
+were true. `_publishedReviewModalHarness.tsx` hardcoded `setPublished: NOOP_OK`,
+so every click resolved `ok` and no banner ever mounted; and at 30 attention
+items the strip measured 713.03..911.03 against a panel bottom of 667.
+
+What the pre-spec measurement found is that the SECOND obstacle was a symptom of
+something the row did not suspect. The strip was not too low because the strip
+was wrong — it was too low because the HEADER grew. A composite alert pill
+reading "20 issues · 10 monitoring" widens the `shrink-0` action cluster, which
+starves the `min-w-0 flex-1` title column beside it, which wraps the title until
+the header alone is taller than the panel: 587.97px against a 164.19px baseline
+at 375px. The switch was unreachable because the header had pushed the entire
+strip out of the panel. Docking alone would not have fixed it at that load, and
+capping the header alone would not have fixed it either; the arc needed both,
+which is why its scope was widened by ruling after the spike rather than at
+filing time.
+
+**What shipped.** The header's action cluster is capped below `sm`
+(`max-sm:max-w-40`, chosen from a sweep of eight cap values against three loads)
+with the title clamped to two lines and the pill allowed to wrap inside the cap.
+The strip is docked from the shell's `subHeader` slot to its `footer` slot, so
+its distance from the panel top no longer depends on header height. Four clipped
+overlays — the refusal banner and Re-sync's error, shrink-confirm and success
+panels — migrated from CSS anchoring to the shipped placement module, which is
+what lets the banner FLIP above the strip when there is no room below it. CSS
+anchoring cannot flip, which is why the dock forced the migration rather than
+merely accompanying it. The harness gained a `setPublished` override so a
+refusal is drivable through the real modal, and the placement stack gained a
+dev-only diagnostic for a geometry no caller can act on.
+
+**The fenced entry is RETIRED, not filled in.** `lib/layout/fitWithinClip.ts`'s
+per-anchor list documents the anchors the FIT HOOK serves. This anchor left that
+set when it migrated, so a room figure there would describe a mechanism it no
+longer uses — the same error the docblock's own next sentence already corrects
+about generalizing one anchor's number to three. It carries a deletion plus a
+cross-reference to where the measurement lives.
+
+**Verified where it could be, and flagged where it could not.** 96 passed across
+the five standalone-config e2e suites; the four placement branches (bottom fits,
+flip, cap above floor, cap below floor) are each driven with two-sided premises
+so a fixture that drifts onto a neighbouring branch fails loudly. Two
+default-config suites — `admin-lifecycle-layout.spec.ts` and
+`published-review-modal.interactions.spec.ts` — could not be made green in the
+worktree for reasons upstream of this arc (a per-test archived-show fixture a
+database seed did not supply), and real CI is their gate; it seeds by
+construction. ShareHub's per-viewport side tables were re-derived analytically
+rather than measured, from the fact that `spaceBelow` is 0 at every height once
+the strip is docked.
+
+**Documented limits carried forward, rather than closed by assertion.** Bottom-
+side placement is now unreachable THROUGH ShareHub by construction, so the
+per-viewport loop that existed to exercise both sides covers one; the bottom
+branch is covered at module level by the replica cases instead. And a comment in
+one file about another file's state is reachable by no discovery command — two
+instances were found by reading, one in `step3-review-modal.layout.spec.ts` and
+one in `_shareLinkFlashLiveEntry.tsx`, and §9 records that residue as a limit
+rather than attempting a fifth widening of a grep.
+
 ## BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE — a dispatch spends reviewer attention on lint the wrapper could have refused — CLOSED 2026-08-26
 
 **Graduated:** 2026-08-26 on `feat/speclint-dispatch-gates` (PR #904). **Status:** SHIPPED.
@@ -12826,3 +12902,66 @@ Full text in `docs/superpowers/specs/2026-08-25-supabase-upstream-fault-class.md
 - **`scripts/` is outside the observer's coverage, deliberately.** Six or more direct constructions live there; none is a server request path, and their faults surface to the operator running them, immediately, on the terminal. Re-file trigger: a script grows a long-running server mode.
 - **AC-5's retry-wrapper half is structural, not behavioural**, and cannot be otherwise: the wrapper emits only for requests it owns, and eligibility admits exactly an RPC path and a three-segment PostgREST path, which the two describers spell identically. Re-file trigger: any change to `RETRYABLE_RPCS`' shape or the PostgREST prefix rule that admits a deeper path — a behavioural parity case then becomes constructible and should replace the source-level assertion.
 - **Two corrections to settled design notes**, recorded because `BACKLOG.md` stated each the other way: `x-audits.yml` has 13 `set -o pipefail` sites and NO `id:` keys, and `log.debug` reaches stdout rather than stderr. Neither needs a re-file trigger; both are closed.
+
+### BL-NEARMISS-CANDIDATE-RENDER — the near-miss card asks Doug to judge a suggestion no surface displays
+
+**Severity:** MEDIUM (the card functions; the arc's whole point is unrealized in UI) · **Class:** UI / warning-card copy-behavior mismatch · **Filed:** 2026-08-15 (`feat/mutation-section-order`, impeccable dual-gate finding F1, deferred half) · **Effort:** S
+
+**Probed, not theorized.** The detector computes the matched candidate and attaches it structurally — `lib/parser/warnings.ts:427`, `if (opts.candidate !== undefined) warning.candidate = opts.candidate;` — and the emitted message carries it as `; looks like '<candidate>'`. But `rg -n '\.candidate\b' components/ app/` returns only `NeedsAttentionInbox.tsx:92,105,106` `item.candidateTitle`, an unrelated show-title field. **Zero render sites for `ParseWarning.candidate`.** The card's only concrete example is the hard-coded `'Stage'` / `'Stage Size'` pair in `helpfulContext`, which is the wrong pair for nearly every one of the 65 live emissions.
+
+**Why it is filed rather than fixed in the filing branch.** Rendering the candidate is a change to `components/` — a surface `feat/mutation-section-order` does not otherwise touch, so it would pull the invariant-8 dual gate onto a new rendered component and a fresh design pass. That is class-sweep disposition exception **(c)**: the repair is a redesign of a surface the PR does not otherwise touch. The copy half WAS repaired in that branch — every clause inviting Doug to Report "if our suggestion is wrong" is gone, so the shipped card names only what is on screen and is honest as it stands. That is what makes this schedulable rather than urgent.
+
+**Work:** render `ParseWarning.candidate` on the near-miss card (and the wizard's step-3 row, which already derives its own per-row label from `rawSnippet` at `components/admin/wizard/step3ReviewSections.tsx:3067`), then re-edit `helpfulContext`/`longExplanation` to point at the shown suggestion instead of the invented `'Stage'` example — which also closes gate finding F2's residue, since the worked example exists only because there is nothing real to point at. Guard the render, or it regresses to the same silent mismatch.
+
+**Resolution:** SHIPPED 2026-08-26 on `feat/nearmiss-surface`. Spec
+`docs/superpowers/specs/2026-08-26-nearmiss-candidate-render.md`, plan
+`docs/superpowers/plans/2026-08-26-nearmiss-candidate-render.md` (closeout §12).
+
+**Render sites.** `ParseWarning.candidate` renders on both operator surfaces, guarded by one
+shared rule in `lib/parser/candidateLabel.ts`: a string with a non-whitespace character renders
+trimmed, and everything else (absent key, `null`, empty, whitespace, or a non-string from the
+unvalidated jsonb boundary) renders nothing. A per-show `Closest match` band beside the existing
+`Sheet row` band; a plain sibling line on wizard step 3, deliberately not a band because that
+surface's row label has no eyebrow.
+
+**The composition trap, which was the non-obvious part.** `CompactAlertCard` exposes ONE
+`detailBand` slot and `present()` is four inequalities; a JSX fragment is an object satisfying all
+four, so composing the two bands unconditionally would have rendered a bordered but EMPTY band on
+every card with no detail content. The shell deliberately does not special-case that, asserting
+the band RENDERS for `0`, `NaN` and `[]` over a comment saying adapters normalize, so the collapse
+belongs in the adapter. Nothing covered that case before this arc.
+
+**The copy defect the row did not know about.** The worked example was not invented, which this
+row and the first spec draft both called it: `'Stage'` for `'Stage Size'` occurs twice in the
+committed baseline, 6th of 10 distinct pairs across 65 emissions. It is unrepresentative, and no
+per-code string can be representative when the largest pair is 15 of 65. Separately, FOUR fields
+asserted that a near-miss HAPPENED, which is false on every candidate-less card: probed rather
+than argued, the pre-detector `emitUnknownField` had two call sites and fired on ANY unrecognized
+label, so a legacy row never near-matched anything. `dougFacing`, `helpfulContext`,
+`triggerContext` and `longExplanation` were rewritten; `title`, `followUp` and `crewFacing` were
+already true either way. The near-miss framing the 2026-08-15 arc introduced is not reverted, it
+moves into a conditional true on both card states.
+
+**The lockstep is a nine-site set, not the three AGENTS.md names**, because this code is also
+enrolled in the warning-card copy registry and this arc moved `dougFacing` and `triggerContext`
+into scope, which pulled in the §12.4 table row. Enumerated with the gate that catches each miss
+in spec §6.4; three cell mechanics that would have redded `x1` are in plan Appendix C.
+
+**Two peers repaired in the same PR rather than deferred.** The wizard's row label was ungated on
+`w.code`, so three families that put a pipe in `rawSnippet` rendered a fragment as a fake field
+label: both `PULL_SHEET_*` codes and `DAY_RESTRICTION_DOUBLE_LOCATION`. That is the defect audit
+idx46/#217 fixed on one of two surfaces. And the row label was the only unlabeled line on the
+wizard row once the candidate line landed, so it gained the same lead-in.
+
+**What the impeccable gate found that four plan review rounds did not.** `candidate` is
+`match.entry.raw`, an insertion-order winner, so 25 of 65 baseline emissions render a section
+header (15), an alias-order winner shown shouty (9), or a known corpus typo (1). The first draft
+set that in mono under a rename imperative. Repaired at the render: no mono, and `Closest match`
+rather than `Looks like`, a noun phrase whose claim survives all three cases. The detector-side
+residue is spec §8 limit 4 with a re-file trigger, since repairing the spelling moves the 65-row
+baseline and an enrolled mutation surface.
+
+**Catalog comment.** The block at the row's head recorded, as fact, that the candidate "is
+computed and attached but NOTHING renders it" and that rendering it "is filed as
+BL-NEARMISS-CANDIDATE-RENDER". Both stopped being true in this arc and were rewritten in the same
+commit that made them false; no suite can read a comment, so that phrase is in the copy task's red.

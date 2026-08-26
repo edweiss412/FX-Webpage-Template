@@ -39,6 +39,10 @@ import { test, expect, type Page } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
+// Imported, never mirrored: the placement assertions below compute the same
+// quantities the module computes, and a second copy can drift from the one
+// under test.
+import { GAP, VIEWPORT_INSET } from "@/lib/popover/position";
 import { admin } from "./helpers/supabaseAdmin";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import {
@@ -64,6 +68,8 @@ const MODAL_ANY = `[data-testid="${BASE}-modal"]`;
  *  never trip Playwright strict mode. */
 const MODAL = `${MODAL_ANY}:has([data-testid="${BASE}-title"])`;
 const PANEL = "[data-review-modal-panel]";
+/** The strip root — the anchor both overlay owners are placed against. */
+const STRIP = '[data-testid="show-status-strip"]';
 const SCRIM = "[data-review-modal-scrim]";
 const GRAB = `[data-testid="${BASE}-grab"]`;
 const CLOSE = `[data-testid="${BASE}-close"]`;
@@ -624,7 +630,11 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
   // reach on demand, and the subject under test is the OVERLAY, not the route.
 
   const RESYNC = '[data-testid="admin-resync-button"]';
+  // The strip DOCKED to the footer (spec 2026-08-25-review-modal-strip-dock
+  // §3.1). SUBHEADER is kept ONLY to assert the band is gone; every rect and
+  // locator below reads FOOTER.
   const SUBHEADER = `[data-testid="${BASE}-subheader"]`;
+  const FOOTER = `[data-testid="${BASE}-footer"]`;
   /** Deliberately long so the shrink panel genuinely overflows its cap — a
    *  short payload makes "internal scroll" vacuous. Sized generously on
    *  purpose: the panel spans the FULL BAND WIDTH (~1200px at the popup
@@ -656,18 +666,21 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
   /** Rect of every element the overlay must not disturb (§6.7: the panels
    *  reserve NO layout space, which is the entire point of the relocation). */
   async function bandAndBodyRects(page: Page) {
-    return page.evaluate((subSel) => {
-      const band = document.querySelector(subSel)!;
-      const body = band.nextElementSibling!;
+    return page.evaluate((footSel) => {
+      const band = document.querySelector(footSel)!;
+      // PREVIOUS sibling, not next: the footer is the panel's LAST child since
+      // the dock, so the body sits above it. `nextElementSibling` is null here
+      // and would throw on the non-null assertion.
+      const body = band.previousElementSibling!;
       const r = (el: Element) => {
         const b = el.getBoundingClientRect();
         return { top: b.top, height: b.height };
       };
       return { band: r(band), body: r(body) };
-    }, SUBHEADER);
+    }, FOOTER);
   }
 
-  test("T-OVERLAY: the shrink confirm anchors to the BAND and its focused control is genuinely topmost", async ({
+  test("T-OVERLAY: the shrink confirm is placed against the STRIP and its focused control is genuinely topmost", async ({
     page,
   }) => {
     await stubSync(page, SHRINK_BODY);
@@ -682,25 +695,65 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     // Geometry, NOT offsetParent (§6.7): offsetParent is sensitive to
     // transforms and hidden states, so it false-reds on correct placement and
     // couples the assertion to layout internals. Edges are what the user sees.
-    const geom = await page.evaluate((subSel) => {
-      const band = document.querySelector(subSel)!.getBoundingClientRect();
-      const panel = document
-        .querySelector('[data-testid="admin-resync-shrink-confirm"]')!
-        .getBoundingClientRect();
-      return { band, panel: { left: panel.left, right: panel.right, top: panel.top } };
-    }, SUBHEADER);
+    // That reasoning is unchanged by the migration; the REFERENCE it measures
+    // against is what changed. The overlay used to be a CSS-anchored child of
+    // the band, so "band edges" was the right frame. It is now portaled into
+    // the modal panel and placed by the module against the STRIP, so the frame
+    // is the placement BOUNDS (the panel inset by VIEWPORT_INSET) and the
+    // vertical relation is the module's GAP rather than an abut.
+    const geom = await page.evaluate(
+      ([panelSel, stripSel, gap, inset]) => {
+        const host = document.querySelector(panelSel as string)!.getBoundingClientRect();
+        const trigger = document.querySelector(stripSel as string)!.getBoundingClientRect();
+        const el = document.querySelector(
+          '[data-testid="admin-resync-shrink-confirm"]',
+        ) as HTMLElement;
+        const overlay = el.getBoundingClientRect();
+        return {
+          bounds: {
+            left: host.left + (inset as number),
+            right: host.right - (inset as number),
+          },
+          trigger: { top: trigger.top, bottom: trigger.bottom },
+          overlay: {
+            left: overlay.left,
+            right: overlay.right,
+            top: overlay.top,
+            bottom: overlay.bottom,
+          },
+          side: el.dataset["popoverSide"] ?? null,
+          portaledOutOfStrip: !document.querySelector(stripSel as string)!.contains(el),
+        };
+      },
+      [PANEL, STRIP, GAP, VIEWPORT_INSET] as const,
+    );
+
+    // The module ran and chose. Without this the edge assertions below could
+    // pass against a component that never placed at all.
+    expect(geom.side, "the overlay carries the module's chosen side").not.toBeNull();
     expect(
-      Math.abs(geom.panel.left - geom.band.left),
-      "panel left edge == band left",
-    ).toBeLessThanOrEqual(1);
+      geom.portaledOutOfStrip,
+      "the overlay portals into the panel, not into the strip whose clip would bound it",
+    ).toBe(true);
+    expect(geom.overlay.left, "overlay left is inside the placement bounds").toBeGreaterThanOrEqual(
+      geom.bounds.left - 1,
+    );
+    expect(geom.overlay.right, "overlay right is inside the placement bounds").toBeLessThanOrEqual(
+      geom.bounds.right + 1,
+    );
+    // GAP from the trigger on whichever side the module picked — the abut this
+    // used to assert was a property of `top-full`, which is gone.
+    const edgeGap =
+      geom.side === "top"
+        ? geom.trigger.top - geom.overlay.bottom
+        : geom.overlay.top - geom.trigger.bottom;
     expect(
-      Math.abs(geom.panel.right - geom.band.right),
-      "panel right edge == band right",
-    ).toBeLessThanOrEqual(1);
-    expect(
-      Math.abs(geom.panel.top - geom.band.bottom),
-      "panel top sits at the band's bottom (top-full)",
-    ).toBeLessThanOrEqual(1);
+      edgeGap,
+      `overlay sits GAP from the strip on the ${geom.side} side`,
+    ).toBeGreaterThanOrEqual(GAP - 1);
+    expect(edgeGap, `overlay sits GAP from the strip on the ${geom.side} side`).toBeLessThanOrEqual(
+      GAP + 1,
+    );
 
     // TOPMOST, not merely focused. A test asserting only toHaveFocus() passes
     // while the control is completely covered — which is exactly the WCAG 2.4.3
@@ -718,18 +771,50 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     // popover's exact anchoring + z-index stands in for it. This pins the
     // stacking RULE (§6.7: the Re-sync overlay renders ABOVE the popover),
     // which is what an unspecified `z-*` would silently break.
-    await page.evaluate((subSel) => {
+    await page.evaluate((panelSel) => {
       const decoy = document.createElement("div");
       decoy.id = "popover-decoy";
-      decoy.className = "absolute inset-x-0 top-full z-40";
-      decoy.style.height = "400px";
+      // The decoy stands in for the publish popover, so it must carry the
+      // popover's CURRENT shape and live where the popover now lives: portaled
+      // into the panel with `absolute z-banner`, not anchored to a band with
+      // `inset-x-0 top-full`. A decoy still wearing the old skin would test a
+      // stacking contest against an element the app no longer produces.
+      // COVERS THE WHOLE PANEL. A fixed 400px block at the panel's top does not
+      // reach the shrink confirm, which is placed near the panel FLOOR since the
+      // dock — so `elementFromPoint` returned the control because nothing was
+      // over it, not because it won on z-index. Round 3 caught that, and the
+      // premise below now proves coverage rather than assuming it. Filling the
+      // panel makes the contest unconditional at any placement.
+      decoy.className = "absolute z-banner";
+      decoy.style.inset = "0";
       decoy.style.background = "red";
-      document.querySelector(subSel)!.appendChild(decoy);
-    }, SUBHEADER);
+      document.querySelector(panelSel)!.appendChild(decoy);
+    }, PANEL);
     await expect(keep, "focus is unchanged by the decoy").toBeFocused();
+
+    // PREMISE: the decoy must actually COVER the focused control's centre.
+    // Round 3 (P1): the decoy is positioned by hardcoded coordinates, and if it
+    // does not overlap, `elementFromPoint` returns the control regardless of
+    // z-index — so the stacking test passes with no stacking contest at all.
+    // The point sampled below is the control's centre, so that is the point
+    // whose coverage has to be established.
+    const covers = await keep.evaluate((el) => {
+      const decoy = document.getElementById("popover-decoy");
+      if (decoy === null) return false;
+      const b = el.getBoundingClientRect();
+      const d = decoy.getBoundingClientRect();
+      const cx = b.left + b.width / 2;
+      const cy = b.top + b.height / 2;
+      return cx >= d.left && cx <= d.right && cy >= d.top && cy <= d.bottom;
+    });
+    expect(
+      covers,
+      "the decoy must cover the focused control's centre, or this proves nothing about z-order",
+    ).toBe(true);
+
     expect(
       await topmost(),
-      "the confirm still wins over a z-40 band-anchored overlay (the publish popover's layer)",
+      "the confirm still wins over a z-banner panel-portaled overlay (the publish popover's layer)",
     ).toBe(true);
   });
 
@@ -757,12 +842,32 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       const panel = page.locator(`[data-testid="${testids[branch]}"]`);
       await expect(panel).toBeVisible();
 
-      const box = await panel.evaluate((el) => ({
-        clientHeight: el.clientHeight,
-        scrollHeight: el.scrollHeight,
-        overflowY: getComputedStyle(el).overflowY,
-        position: getComputedStyle(el).position,
-      }));
+      const box = await panel.evaluate(
+        (el, [panelSel, stripSel, gap, inset]) => {
+          const host = document.querySelector(panelSel as string)!.getBoundingClientRect();
+          const trig = document.querySelector(stripSel as string)!.getBoundingClientRect();
+          const r = el.getBoundingClientRect();
+          return {
+            clientHeight: el.clientHeight,
+            scrollHeight: el.scrollHeight,
+            overflowY: getComputedStyle(el).overflowY,
+            position: getComputedStyle(el).position,
+            side: (el as HTMLElement).dataset["popoverSide"] ?? null,
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            bottom: r.bottom,
+            boundsLeft: host.left + (inset as number),
+            boundsRight: host.right - (inset as number),
+            boundsTop: host.top + (inset as number),
+            boundsBottom: host.bottom - (inset as number),
+            triggerTop: trig.top,
+            triggerBottom: trig.bottom,
+            gap: gap as number,
+          };
+        },
+        [PANEL, STRIP, GAP, VIEWPORT_INSET] as const,
+      );
       const cap = Math.min(page.viewportSize()!.height * 0.5, 320);
       expect(box.position, "panel is out of flow").toBe("absolute");
       expect(box.overflowY, "long copy scrolls inside the panel, not over the rail").toBe("auto");
@@ -770,6 +875,60 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         box.clientHeight,
         `panel height ${box.clientHeight} <= cap ${cap}`,
       ).toBeLessThanOrEqual(cap + TOL);
+
+      // THE FITTED bound, which the static cap above does not imply. Diff round
+      // 4 (P1): `min(50vh, 320px)` is a CSS ceiling, not the room this overlay
+      // actually has, so a placement mutant that ignores `maxHeight` while
+      // keeping side, gap, width and overflow left all three branches green and
+      // still clipped on a short phone. Asserted against the room on the side
+      // the module itself chose, plus plain vertical containment.
+      const spaceOnSide =
+        box.side === "top"
+          ? box.triggerTop - box.boundsTop - box.gap
+          : box.boundsBottom - box.triggerBottom - box.gap;
+      expect(
+        box.clientHeight,
+        `${branch}: panel is ${box.clientHeight} tall but only ${spaceOnSide} is available on the ${box.side} side`,
+      ).toBeLessThanOrEqual(spaceOnSide + TOL);
+      expect(
+        box.top,
+        `${branch}: panel top ${box.top} rides above the modal bounds at ${box.boundsTop}`,
+      ).toBeGreaterThanOrEqual(box.boundsTop - TOL);
+      expect(
+        box.bottom,
+        `${branch}: panel bottom ${box.bottom} falls past the modal bounds at ${box.boundsBottom}`,
+      ).toBeLessThanOrEqual(box.boundsBottom + TOL);
+
+      // PER BRANCH, closing round 2's TEST_1 and TEST_2 together. Both findings
+      // were that this loop's guarantees were weaker than its name: it checked
+      // `absolute`, overflow, the cap and reflow, so replacing the error and
+      // success `usePlacedOverlay` refs with PLAIN refs left everything green,
+      // and no case anywhere proved AC-19's full-width placement — a 100px-wide
+      // overlay sitting correctly inside the panel passed. Only the shrink
+      // branch had a side assertion, which is exactly the "two of three" shape
+      // this file already warns about for skin tokens.
+      expect(box.side, `${branch}: the module placed it and wrote a side`).not.toBeNull();
+      const edgeGap =
+        box.side === "top" ? box.triggerTop - box.bottom : box.top - box.triggerBottom;
+      expect(
+        edgeGap,
+        `${branch}: sits GAP from the strip on the ${box.side} side`,
+      ).toBeGreaterThanOrEqual(box.gap - 1);
+      expect(
+        edgeGap,
+        `${branch}: sits GAP from the strip on the ${box.side} side`,
+      ).toBeLessThanOrEqual(box.gap + 1);
+      // AC-19 full width: the overlay spans the placement bounds, not merely
+      // sits inside them. This is the assertion whose absence let a narrow
+      // overlay pass.
+      expect(
+        Math.abs(box.left - box.boundsLeft),
+        `${branch}: left edge ${box.left} spans to bounds ${box.boundsLeft}`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(box.right - box.boundsRight),
+        `${branch}: right edge ${box.right} spans to bounds ${box.boundsRight}`,
+      ).toBeLessThanOrEqual(1);
 
       const after = await bandAndBodyRects(page);
       expect(after.band, "band does not reflow when the overlay opens").toEqual(before.band);
@@ -815,14 +974,14 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
   // right edge drifts off the band's content edge, and one that overflows a
   // 390px phone.
   for (const width of [390, 1280]) {
-    test(`T-HUB-POPOVER @ ${width}: 308px, below the triggers, right-aligned, inside the modal`, async ({
+    test(`T-HUB-POPOVER @ ${width}: 308px, above the triggers, right-aligned, inside the modal`, async ({
       page,
     }) => {
       await openModal(page, { width, height: 900 });
       await page.getByTestId("share-hub-primary").click();
       await expect(page.getByTestId("share-hub-popover")).toBeVisible();
 
-      const geo = await page.locator(SUBHEADER).evaluate((band) => {
+      const geo = await page.locator(FOOTER).evaluate((band) => {
         const pop = document.querySelector('[data-testid="share-hub-popover"]');
         const group = band.querySelector('[data-testid="share-hub-group"]');
         const primary = band.querySelector('[data-testid="share-hub-primary"]');
@@ -835,9 +994,11 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         return {
           popWidth: p.width,
           popTop: p.top,
+          popBottom: p.bottom,
           popRight: p.right,
           popLeft: p.left,
           groupBottom: group.getBoundingClientRect().bottom,
+          groupTop: group.getBoundingClientRect().top,
           contentRight: bandRect.right - padRight,
           primaryHeight: primary.getBoundingClientRect().height,
           kebabW: k.width,
@@ -855,10 +1016,14 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         expectedWidth,
         0,
       );
+      // ABOVE the triggers since the dock: the hub sits in the footer, so there
+      // is no room below it and the placement module puts the popover above.
+      // The old assertion ("at/below the group bottom") was a property of the
+      // band position, not of the hub, and it inverts with the slot.
       expect(
-        geo!.popTop,
-        `popover top ${geo!.popTop} is at/below the trigger group bottom ${geo!.groupBottom}`,
-      ).toBeGreaterThanOrEqual(geo!.groupBottom - 1);
+        geo!.popBottom,
+        `popover bottom ${geo!.popBottom} is at/above the trigger group top ${geo!.groupTop}`,
+      ).toBeLessThanOrEqual(geo!.groupTop + 1);
       expect(
         Math.abs(geo!.popRight - geo!.contentRight),
         `popover right ${geo!.popRight} === band content-box right ${geo!.contentRight}`,
@@ -895,21 +1060,70 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     //
     // Unknown codes are actionable by classification (neither inbox-routed nor
     // auto-resolving) — the same seed code the deeplink suite uses.
+    // EIGHT DISTINCT codes, and each part of that is load-bearing.
+    //
+    // EIGHT, because the dock separated the two elements this case pits against
+    // each other: the attention menu anchors under the header and the share hub
+    // is in the footer (spec 2026-08-25-review-modal-strip-dock §3.1), so they
+    // overlap only when the menu is tall enough to span the column. The count
+    // is MEASURED, not guessed: at six rows the menu rendered
+    // [408,122 400x293] against a hub at [691,502 113x44] — the x ranges
+    // overlap and the y ranges miss by 87px, so the precondition failed. At
+    // ~49px per row, two more rows close it. Menu height is its content's
+    // height here (293 is well under the `max-h-96` cap), which is why row
+    // COUNT is the lever and a shorter viewport is not: the menu is fitted
+    // against the panel, so shrinking the panel shrinks the menu with it.
+    //
+    // DISTINCT, because `admin_alerts_one_unresolved_idx` permits only one
+    // unresolved alert PER CODE. It forbids duplicates, not breadth: six
+    // unresolved alerts of six different codes is a legal production state, so
+    // this fixture constructs a reachable arrangement rather than an impossible
+    // one.
+    //
+    // The set is DERIVED, not hand-picked: `lib/admin/attentionItems.ts:274`
+    // classifies an alert actionable as `!isInboxRouted(code) &&
+    // !isAutoResolving(code)` (`lib/messages/adminSurface.ts:58`,
+    // `lib/adminAlerts/audience.ts:63`). Applying that filter to
+    // MESSAGE_CATALOG's key order yields 256 actionable codes; these are the
+    // first eight. Fixture-only — no catalog entry is added or changed.
+    const ZORDER_CODES = [
+      "GOOGLE_NO_CREW_MATCH",
+      "AMBIGUOUS_EMAIL_BINDING",
+      "SESSION_IDLE_TIMEOUT",
+      "SESSION_ABSOLUTE_TIMEOUT",
+      "SHEET_PROCESS_FAILED",
+      "STALE_WRITE_ABORTED",
+      "STALE_MANUAL_REPLAY_ABORTED",
+      "STALE_PUSH_ABORTED",
+    ] as const;
     const { data, error } = await admin
       .from("admin_alerts")
-      .insert({
-        show_id: show.showId,
-        code: "SYNC_DELAYED_SEVERE",
-        context: {},
-        raised_at: new Date().toISOString(),
-      })
-      .select("id")
-      .single();
-    if (error || !data) throw new Error(`T-HUB-ZORDER alert seed failed: ${error?.message}`);
-    const alertId = data.id as string;
+      .insert(
+        ZORDER_CODES.map((code) => ({
+          show_id: show.showId,
+          code,
+          context: {},
+          raised_at: new Date().toISOString(),
+        })),
+      )
+      .select("id");
+    if (error || !data || data.length !== ZORDER_CODES.length) {
+      throw new Error(`T-HUB-ZORDER alert seed failed: ${error?.message}`);
+    }
+    const alertIds = data.map((r) => r.id as string);
 
     try {
-      await openModal(page, POPUP);
+      // A SHORT panel, not the wide POPUP default, and the dock is why. The
+      // attention menu anchors under the HEADER and the share hub now sits in
+      // the FOOTER (spec 2026-08-25-review-modal-strip-dock §3.1), so at a tall
+      // viewport they are at opposite ends of the column and simply do not
+      // overlap — the precondition below then fails, loudly and correctly,
+      // because the overpaint contest this case exists to test is unreachable
+      // there. Compressing the panel puts the menu's capped height back across
+      // the hub. The DEFECT is unchanged (a stacking context on ShareHub's root
+      // painting its non-positioned triggers over the z-20 menu); only the
+      // geometry that exposes it moved.
+      await openModal(page, { width: 900, height: 620 });
       const menu = page.locator(`${MODAL} [data-testid="${BASE}-attention-menu"]`);
       const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
       if (!(await menu.isVisible())) await pill.click();
@@ -928,7 +1142,9 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       const ib = Math.min(menuBox.y + menuBox.height, hubBox.y + hubBox.height);
       expect(
         ir > ix && ib > iy,
-        "the attention menu and the share-hub button must overlap for this test to mean anything",
+        "the attention menu and the share-hub button must overlap for this test to mean anything — " +
+          `menu [${Math.round(menuBox.x)},${Math.round(menuBox.y)} ${Math.round(menuBox.width)}x${Math.round(menuBox.height)}] ` +
+          `hub [${Math.round(hubBox.x)},${Math.round(hubBox.y)} ${Math.round(hubBox.width)}x${Math.round(hubBox.height)}]`,
       ).toBe(true);
 
       const hit = await page.evaluate(
@@ -947,7 +1163,7 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       // Surface a failed cleanup instead of swallowing it: a leaked actionable
       // alert would auto-open the attention menu for every later test in this
       // file and quietly corrupt them. Better to fail this test loudly here.
-      const { error: cleanupError } = await admin.from("admin_alerts").delete().eq("id", alertId);
+      const { error: cleanupError } = await admin.from("admin_alerts").delete().in("id", alertIds);
       if (cleanupError) {
         throw new Error(`T-HUB-ZORDER alert cleanup failed (would leak): ${cleanupError.message}`);
       }
@@ -1040,10 +1256,26 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     expect(caret.width).toBeGreaterThan(9);
     expect(caret.width).toBeLessThan(15);
 
-    // Straddles the panel's top edge - that overlap is what reads as a notch
-    // rather than a detached diamond.
-    expect(caret.y, "caret starts above the panel edge").toBeLessThan(panel.y);
-    expect(caret.y + caret.height, "caret crosses into the panel").toBeGreaterThan(panel.y);
+    // Straddles the panel edge FACING THE TRIGGER — that overlap is what reads
+    // as a notch rather than a detached diamond. WHICH edge is side-dependent
+    // and is read from the placement rather than hardcoded: the hub sits in the
+    // footer since the dock (spec §3.1), so its popover places ABOVE and the
+    // caret hangs off the popover's BOTTOM. Hardcoding either edge makes this
+    // case a restatement of the current slot instead of the notch contract.
+    const side = await page
+      .getByTestId("share-hub-popover")
+      .evaluate((el) => (el as HTMLElement).dataset["popoverSide"] ?? null);
+    expect(side, "the popover carries a placed side").not.toBeNull();
+    const edge = side === "top" ? panel.y + panel.height : panel.y;
+    if (side === "top") {
+      expect(caret.y + caret.height, "caret extends past the panel's bottom edge").toBeGreaterThan(
+        edge,
+      );
+      expect(caret.y, "caret crosses into the panel").toBeLessThan(edge);
+    } else {
+      expect(caret.y, "caret starts above the panel's top edge").toBeLessThan(edge);
+      expect(caret.y + caret.height, "caret crosses into the panel").toBeGreaterThan(edge);
+    }
 
     // NOT clipped away: proven STRUCTURALLY, not by elementFromPoint. The caret
     // is a SIBLING of the panel (unit test: popover does not contain it), so the
@@ -1059,7 +1291,15 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     const overCaret = await page.evaluate(
       ([x, y]: [number, number]) =>
         document.elementFromPoint(x, y)?.getAttribute("data-testid") === "share-hub-caret",
-      [caret.x + caret.width / 2, caret.y + caret.height - 1] as [number, number],
+      // Sampled INSIDE the panel-overlapping half of the caret, which is the
+      // half nearer the panel — the top half when the caret hangs below a
+      // top-placed popover, the bottom half when it sits above a bottom-placed
+      // one. Sampling the outer tip would land beyond the panel and prove
+      // nothing about interception.
+      [caret.x + caret.width / 2, side === "top" ? caret.y + 1 : caret.y + caret.height - 1] as [
+        number,
+        number,
+      ],
     );
     expect(overCaret, "the caret is inert to pointer events").toBe(false);
   });
@@ -1093,17 +1333,21 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     // popover). The hub group is right-flushed by `ml-auto`, so a hub-then-
     // Re-sync DOM order still LOOKS correct while producing toggle → hub →
     // Re-sync. §10 makes DOM order the contract because tab order follows it.
-    const order = await page.evaluate((subSel) => {
-      const band = document.querySelector(subSel)!;
+    const order = await page.evaluate((footSel) => {
+      const band = document.querySelector(footSel)!;
       const focusables = Array.from(
         band.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"),
       );
       return focusables.map((el) => el.getAttribute("data-testid"));
-    }, SUBHEADER);
+    }, FOOTER);
+    // The retired band is GONE, not emptied — asserted here so this suite
+    // notices a resurrected subheader rather than silently reading the footer.
+    await expect(page.locator(SUBHEADER)).toHaveCount(0);
+
     const resync = order.indexOf("admin-resync-button");
     const copy = order.indexOf("share-hub-primary");
     const toggle = order.findIndex((t) => t !== null && t.startsWith("published-toggle"));
-    expect(resync, "Re-sync is focusable in the band").toBeGreaterThanOrEqual(0);
+    expect(resync, "Re-sync is focusable in the footer").toBeGreaterThanOrEqual(0);
     expect(copy, "the share-hub trigger is focusable in the band").toBeGreaterThan(resync);
     // The kebab follows its primary; both live in the same right-flushed group.
     expect(order.indexOf("share-hub-kebab"), "kebab follows the primary trigger").toBeGreaterThan(
@@ -1135,23 +1379,38 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       await page.locator(RESYNC).click();
       await expect(page.locator(`[data-testid="${expected[branch][0]}"]`)).toBeVisible();
 
-      const order = await page.evaluate((subSel) => {
-        const band = document.querySelector(subSel)!;
-        return Array.from(band.querySelectorAll<HTMLElement>("a[href], button"))
+      // Scoped to the PANEL, not the strip, and the contract is re-derived
+      // rather than re-pointed. This case asserted that the overlay's controls
+      // sit BETWEEN Re-sync and the hub trigger in DOM order, which was a
+      // property of the overlay being an in-band child. It is portaled into the
+      // panel now (spec §3.2a), so it is appended AFTER the footer and the
+      // "between" relation is false by construction — not broken, removed.
+      //
+      // What replaces it is the contract the portal actually provides, and it
+      // is the same one ShareHub and HoverHelp rely on: the controls are
+      // reachable inside the focus trap, and focus is MOVED into them on open
+      // rather than left to DOM adjacency. The move itself is asserted in
+      // T-OVERLAY (`keep` is focused, and topmost at its centre), so this case
+      // pins reachability and relative order without re-asserting focus.
+      const order = await page.evaluate((panelSel) => {
+        const panel = document.querySelector(panelSel)!;
+        return Array.from(panel.querySelectorAll<HTMLElement>("a[href], button"))
           .filter((el) => el.getClientRects().length > 0)
           .map((el) => el.getAttribute("data-testid"));
-      }, SUBHEADER);
+      }, PANEL);
 
       const resync = order.indexOf("admin-resync-button");
-      // share-hub T4: the trailing band control is the hub trigger, not Copy.
+      // share-hub T4: the trailing strip control is the hub trigger, not Copy.
       const copy = order.indexOf("share-hub-primary");
       expect(resync, "Re-sync present").toBeGreaterThanOrEqual(0);
       expect(copy, "share-hub trigger present").toBeGreaterThanOrEqual(0);
       for (const id of expected[branch]) {
         const idx = order.indexOf(id);
-        expect(idx, `${id} present in the band`).toBeGreaterThanOrEqual(0);
-        expect(idx, `${id} follows Re-sync`).toBeGreaterThan(resync);
-        expect(idx, `${id} precedes the share-hub trigger`).toBeLessThan(copy);
+        expect(idx, `${id} present and visible in the panel`).toBeGreaterThanOrEqual(0);
+        // The portal appends after the footer, so the overlay's controls follow
+        // BOTH strip controls. Asserting against the trailing one (the hub) is
+        // the strictly stronger of the two and subsumes Re-sync.
+        expect(idx, `${id} follows the strip's trailing control`).toBeGreaterThan(copy);
       }
     });
   }

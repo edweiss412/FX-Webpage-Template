@@ -458,11 +458,28 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a standalone harness page (mkdtemp workdir or the dev gallery route), not the /admin loader",
     },
-    // 73 until 2026-08-26. `tests/e2e/control-outline-contrast.live.spec.ts`
-    // adds one: it serves the real <Step3ReviewModal> tree from a mkdtemp
-    // workdir over node:http to measure computed outline contrast, so its
-    // `page.goto(baseUrl)` is a harness navigation and never the /admin loader.
-    expectedCount: 74,
+    // 73 -> 74 -> 75 -> 76, by three independent arcs, which is what a declared
+    // population claim looks like when it is doing its job.
+    //
+    // feat/review-modal-strip-dock added two: the §7 anchor-room measurement,
+    // which drives a refusal through the real modal at `baseUrl` and is the case
+    // that finally gave BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED its number; then
+    // the degraded-pill case from diff review round 3, which boots the same entry
+    // at load 0 with `alertsDegraded` to reach the branch where the 160px cap was
+    // unenforceable.
+    //
+    // fix/control-outline-cover adds two more, both in
+    // `tests/e2e/control-outline-contrast.live.spec.ts`: it serves the real
+    // <Step3ReviewModal> tree from a mkdtemp workdir over node:http to measure
+    // computed outline contrast, and then a SECOND page from the same server for
+    // the three AC-13 surfaces that render outside that tree. Both gotos are
+    // harness navigations and neither is ever the /admin loader.
+    //
+    // A declared count is a population claim, so growing the population is an
+    // edit here by design — and this rule is a SUBJECT of
+    // _metaScratchRootCleanup, so a stale count here fails that suite's premise
+    // downstream, which is how the strip-dock bump was found.
+    expectedCount: 76,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {
