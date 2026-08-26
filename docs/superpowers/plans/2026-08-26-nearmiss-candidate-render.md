@@ -323,6 +323,18 @@ No P0 or P1 is deferred. There is no `DEFERRED.md` entry and no ledger row, per 
 
 Assessment B also produced one measurement I corrected rather than accepted: it put the longest vocabulary entry at 36 characters; measured over `buildVocabulary()`'s 132 entries it is 25 (`Hotel Contact Information`). Its structural point held, so the wrap classes landed with the measured bound recorded in the code.
 
+### Cross-model review, and the ruling that closed it
+
+diff r2 APPROVE at base fc9d246ed; absorb 97754d5bc changed only main's files plus the ledger resolution; no round at the new base (Codex usage wall, resets Sep 1).
+
+The fresh round at the new base returned `no_verdict` / `attempts_exhausted`, which is
+infrastructure and not a finding of nothing. It stays in the corpus recorded as such rather than
+retried into a pass. bl-orch ruled the carry after verifying independently that the merge
+commit's diff against the prior head is exactly the set of files main changed between the two
+bases, with the only overlap on this arc's own files being `BACKLOG.md` and `BACKLOG-archive.md`,
+resolved by set arithmetic with zero ids in both. Same shape as the shardbudget precedent earlier
+that day.
+
 ### Pre-code checklist result
 
 Run before tasks 2 through 4, per the precondition section above the task region. Clean, with nothing to fix: no em dash and no apostrophe literal in either new string; no new interactive element, so no tap-target owed and the sibling deep links keep `min-h-tap-min` untouched; every color a named token; and no new color token, so no new contrast pin. The one arbitrary value, `text-[10px]`, is the shipped detail-band eyebrow idiom the audit independently confirmed at five pre-existing sites.
