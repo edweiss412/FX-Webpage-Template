@@ -20,3 +20,4 @@ Post-deployment (v1.X+) plans grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-21-shell-attached-redirection-target.md`](./2026-08-21-shell-attached-redirection-target.md) | 2026-08-21 |
 | [`2026-08-21-shell-attached-redirection-target-HANDOVER.md`](./2026-08-21-shell-attached-redirection-target-HANDOVER.md) | 2026-08-21 |
 | [`2026-08-24-mutation-scratch-fs-event-storm.md`](./2026-08-24-mutation-scratch-fs-event-storm.md) | 2026-08-24 |
+| [`2026-08-25-mutation-shard-weight-seconds.md`](./2026-08-25-mutation-shard-weight-seconds.md) | 2026-08-25 |
