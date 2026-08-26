@@ -11,6 +11,7 @@ import {
   scanInteractiveElements,
   themeBlocks,
   type ScanElement,
+  type ScanOptions,
 } from "./interactiveScanCore";
 
 /**
@@ -47,8 +48,8 @@ const el = (over: Partial<ScanElement>): ScanElement => ({
 
 // Fixture harness (plan R2 F3): the resolver is ALSO exercised end-to-end through temp files,
 // so a flattening scanner or first-wins lookup cannot stay green on unit cases alone.
-function scanFixture(source: string) {
-  return scanFixtureFiles({ "components/Fx.tsx": source });
+function scanFixture(source: string, options?: ScanOptions) {
+  return scanFixtureFiles({ "components/Fx.tsx": source }, options);
 }
 
 /**
@@ -56,7 +57,7 @@ function scanFixture(source: string) {
  * only be expressed across real files, and every one of those was a surviving
  * mutant until this existed (2026-08-15 mutation run).
  */
-function scanFixtureFiles(files: Record<string, string>) {
+function scanFixtureFiles(files: Record<string, string>, options?: ScanOptions) {
   const dir = trackScratch(mkdtempSync(join(tmpdir(), "scan-fixture-")));
   mkdirSync(join(dir, "components"), { recursive: true });
   mkdirSync(join(dir, "app"), { recursive: true });
@@ -65,8 +66,97 @@ function scanFixtureFiles(files: Record<string, string>) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, source);
   }
-  return scanInteractiveElements(dir);
+  return scanInteractiveElements(dir, options);
 }
+
+/**
+ * The `textEntry` axis (spec §4, §5.3).
+ *
+ * The DEFAULT case is not decoration: it is the half that proves the flag is
+ * what admits these kinds, rather than some unrelated widening. Without it the
+ * `textEntry: true` case passes on a scanner that admits text-entry
+ * unconditionally, which is the change the four default-reading consumers
+ * (spec §7.3 to §7.6) must never see.
+ */
+describe("ScanOptions.textEntry (spec §4 D1, §5.3)", () => {
+  const FIXTURE = `
+    export function Fx({ kind }: { kind: string }) {
+      return (
+        <div>
+          <textarea className="ta" />
+          <select className="se" />
+          <input type="email" className="em" />
+          <input type={kind} className="dyn" />
+          <input type="checkbox" className="cb" />
+          <button className="btn">go</button>
+        </div>
+      );
+    }
+  `;
+  const kinds = (els: ScanElement[]) => els.map((e) => e.tag).sort();
+
+  it("admits textarea, select and input at ANY type when the flag is on", () => {
+    const els = scanFixture(FIXTURE, { textEntry: true });
+    expect(kinds(els)).toEqual(["button", "input", "input", "input", "select", "textarea"]);
+    // The dynamic type is admitted WITHOUT reading it (§5.3): a `type={expr}`
+    // the resolver cannot read is in scope, not demoted out of scope.
+    expect(
+      allStrings(els.find((e) => e.tag === "input" && allStrings(e).includes("dyn"))!),
+    ).toContain("dyn");
+  });
+
+  it("admits NONE of them at the default, and still admits checkbox and button", () => {
+    expect(kinds(scanFixture(FIXTURE))).toEqual(["button", "input"]);
+    expect(kinds(scanFixture(FIXTURE, {}))).toEqual(["button", "input"]);
+    expect(kinds(scanFixture(FIXTURE, { textEntry: false }))).toEqual(["button", "input"]);
+  });
+
+  it("reads the flag by identity, so a truthy non-true value does not widen", () => {
+    // `=== true`, never truthiness (§5.3 guard conditions). A cast is the only
+    // way to express the mistake this pins, and the mistake is what a caller
+    // threading an untyped config would make.
+    const els = scanFixture(FIXTURE, { textEntry: 1 as unknown as boolean });
+    expect(kinds(els)).toEqual(["button", "input"]);
+  });
+});
+
+/**
+ * AC-1: with both flags off the cover is what it was.
+ *
+ * The EXACT comparison against `b30413cf5` is a task-time verification whose
+ * transcript is in the commit (plan Task 1): pinned here it would red on every
+ * unrelated PR that adds a control, which is why every live premise in this
+ * corpus uses a floor rather than an equality. What ships is the structural
+ * claim, which survives corpus growth and says the same thing.
+ */
+describe("AC-1 the default cover is unchanged", () => {
+  it("admits no painted child and no text-entry kind over the live corpus", () => {
+    const live = scanInteractiveElements(process.cwd());
+    premiseHolds("corpus has >=300 in-scope elements", live.length >= 300);
+    expect(live.filter((e) => e.tag === "textarea" || e.tag === "select")).toEqual([]);
+    // The painted-child half of this claim lands with `admittedAs` in Task 2.
+  });
+
+  it("is not vacuous: the same fixture holds one of each kind the default excludes", () => {
+    const FIXTURE = `
+      export function Fx() {
+        return (
+          <button className="b">
+            <textarea className="ta" />
+            <select className="se" />
+            <input type="email" className="em" />
+          </button>
+        );
+      }
+    `;
+    expect(scanFixture(FIXTURE).map((e) => e.tag)).toEqual(["button"]);
+    expect(
+      scanFixture(FIXTURE, { textEntry: true })
+        .map((e) => e.tag)
+        .sort(),
+    ).toEqual(["button", "input", "select", "textarea"]);
+  });
+});
 
 describe("resolver corpus walk", () => {
   const all = scanInteractiveElements(process.cwd());

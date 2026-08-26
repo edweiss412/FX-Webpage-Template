@@ -862,13 +862,33 @@ function resolvesToAllowlistedComponent(tag: string, ctx: Ctx): boolean {
   return target !== null && relative(ctx.root, target) === row.file;
 }
 
-function isInScope(tag: string, attributes: ts.JsxAttributes): boolean {
+/**
+ * The declared widening axes, defaulted OFF (spec §4, D1).
+ *
+ * ONE definition of what counts as interactive, with declared axes a consumer
+ * opts into in its own source, rather than two definitions that can drift. The
+ * module header argues against the second shape; this is not it. Each consumer
+ * of `scanInteractiveElements` states which setting it reads, and spec §7
+ * accounts for all six.
+ */
+export type ScanOptions = {
+  /** Admit text-entry element kinds: `<textarea>`, `<select>`, and `<input>` at ANY type. */
+  readonly textEntry?: boolean;
+};
+
+const TEXT_ENTRY_TAGS = new Set(["textarea", "select"]);
+
+function isInScope(tag: string, attributes: ts.JsxAttributes, options: ScanOptions = {}): boolean {
   if (INTRINSIC_TAGS.has(tag) || tag === "Link") return true;
   if (ALLOWLIST_TAGS.has(tag)) return true;
   if (tag === "input") {
     const type = staticAttributeValue(attributeNamed(attributes, "type"));
     if (type === "checkbox" || type === "radio") return true;
+    // Any other type, INCLUDING one the resolver cannot read: the flag admits
+    // the kind, and reading the type is not part of that question (spec §5.3).
+    if (options.textEntry === true) return true;
   }
+  if (options.textEntry === true && TEXT_ENTRY_TAGS.has(tag)) return true;
   if (staticAttributeValue(attributeNamed(attributes, "role")) === "button") return true;
   return attributeNamed(attributes, "onClick") !== null;
 }
@@ -881,7 +901,7 @@ function isInScope(tag: string, attributes: ts.JsxAttributes): boolean {
  * resolver's own end-to-end tests, so the walk, the `@/` alias base and the
  * reported paths all derive from ONE argument.
  */
-export function scanInteractiveElements(rootDir: string): ScanElement[] {
+export function scanInteractiveElements(rootDir: string, options: ScanOptions = {}): ScanElement[] {
   const elements: ScanElement[] = [];
   const files = CORPUS_DIRS.flatMap((dir) => walkTsx(join(rootDir, dir)));
 
@@ -893,7 +913,7 @@ export function scanInteractiveElements(rootDir: string): ScanElement[] {
     const visit = (node: ts.Node): void => {
       if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
         const tag = node.tagName.getText(sf);
-        if (isInScope(tag, node.attributes)) {
+        if (isInScope(tag, node.attributes, options)) {
           const className = attributeNamed(node.attributes, "className");
           // A spread can carry OR override className, so an unreadable one
           // demotes exactly like an unresolved span (rule 2). One whose every
