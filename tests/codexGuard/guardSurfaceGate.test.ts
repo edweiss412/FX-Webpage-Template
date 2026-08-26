@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -445,5 +446,98 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
     const res = await dispatch(run);
     expect(res.code).toBe(2);
     expect(readCalls(run)).toHaveLength(0);
+  });
+});
+
+const T = 60000;
+
+describe("guard-surface refusal message (2026-08-26)", () => {
+  /** The one conforming line the refusal must show, verbatim. */
+  const CONFORMING =
+    "GUARD SURFACE: <surface>, MUTATION SCORE: 4/4, 0 unaccepted survivors, OPERATORS: all";
+
+  it(
+    "prints one CONFORMING line, and that line actually passes the gate",
+    async () => {
+      // The measured incident: the refusal repeated the AGENTS.md conjunction
+      // prose ("<killed>/<total> plus 0 unaccepted survivors plus OPERATORS:"),
+      // so a contributor who wrote "plus" was told to write "plus". The message
+      // now shows a line that WORKS.
+      const run = mkRun();
+      writeScenario(run, [APPROVE_STEP]);
+      writeFileSync(
+        run.briefPath,
+        [
+          "# Brief",
+          "",
+          "GUARD SURFACE: x, MUTATION SCORE: 4/4 plus 0 unaccepted survivors plus OPERATORS: all",
+          "",
+        ].join("\n"),
+      );
+      const r = await runGuard(
+        run,
+        ["--stage", "diff", "--round", "1"],
+        {},
+        { injectDefaults: false },
+      );
+
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain(CONFORMING);
+      expect(readCalls(run)).toHaveLength(0);
+
+      // The example is not decoration: the same line, used as a brief, DISPATCHES.
+      // A message showing a non-conforming example would be worse than none.
+      const ok = mkRun();
+      writeScenario(ok, [APPROVE_STEP]);
+      writeFileSync(
+        ok.briefPath,
+        ["# Brief", "", CONFORMING.replace("<surface>", "taskContract"), ""].join("\n"),
+      );
+      const r2 = await runGuard(
+        ok,
+        ["--stage", "diff", "--round", "1"],
+        {},
+        { injectDefaults: false },
+      );
+      expect(r2.code).toBe(0);
+      expect(readCalls(ok)).toHaveLength(1);
+    },
+    T,
+  );
+
+  it(
+    "does NOT widen the separator grammar: a conjunction line is still refused",
+    async () => {
+      // The docs show the form; the grammar does not chase them. Asserted
+      // explicitly so a later reader cannot resolve the incident by loosening
+      // the regex, which is the repair this arc declined.
+      const run = mkRun();
+      writeScenario(run, [APPROVE_STEP]);
+      writeFileSync(
+        run.briefPath,
+        [
+          "# Brief",
+          "",
+          "GUARD SURFACE: x, MUTATION SCORE: 4/4 and 0 unaccepted survivors, OPERATORS: all",
+          "",
+        ].join("\n"),
+      );
+      const r = await runGuard(
+        run,
+        ["--stage", "diff", "--round", "1"],
+        {},
+        { injectDefaults: false },
+      );
+      expect(r.code).toBe(2);
+      expect(readCalls(run)).toHaveLength(0);
+    },
+    T,
+  );
+
+  it("AGENTS.md shows the same conforming line, not the conjunction prose", () => {
+    // The docs half of the same repair. Without it the message and the
+    // contributor's source of truth still disagree.
+    const agents = readFileSync(join(process.cwd(), "AGENTS.md"), "utf8");
+    expect(agents).toContain(CONFORMING);
   });
 });

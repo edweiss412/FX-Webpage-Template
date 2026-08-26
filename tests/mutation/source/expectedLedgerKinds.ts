@@ -262,6 +262,7 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // survivor across the enrolment runs was repaid by a named test in
   // tests/reviewRounds/filing.test.ts or the meta-test's message assertions -
   // an accepted-gap row appearing here later needs its own backlog entry.
+  specLintGate: {},
   reviewRoundFiling: { equivalent: 8 },
   // Counted from the surface: the executed-count oracle carries NO blessed
   // survivor. Its floor is 1, so a row appearing here is a coverage regression

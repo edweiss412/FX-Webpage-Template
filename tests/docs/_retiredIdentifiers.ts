@@ -155,35 +155,35 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
   },
   {
     kind: "line",
-    file: "BACKLOG.md",
+    file: "BACKLOG-archive.md",
     text:
       "| `components/admin/PerShowCrewSection.tsx` | RETIRED. Mount removed at `d70761005`; the route is now a 307 into the dashboard modal, where `CrewBreakdown` renders the roster.                                 |",
     reason:
-      "Disposition table in the worked orphan entry: each row records what was retired and what superseded it.",
+      "Disposition table in the worked orphan entry: each row records what was retired and what superseded it. Moved to BACKLOG-archive.md 2026-08-26 with BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS; the line is unchanged, only its file.",
   },
   {
     kind: "line",
-    file: "BACKLOG.md",
+    file: "BACKLOG-archive.md",
     text:
       "| `components/admin/ResolveAlertButton.tsx` | RETIRED. Superseded at `67ce6d082` by the bell panel's resolve control (labelled `Confirm` / `Mark resolved`, never \"Dismiss\").                                   |",
     reason:
-      "Disposition table in the worked orphan entry.",
+      "Disposition table in the worked orphan entry. Moved to BACKLOG-archive.md 2026-08-26 with the entry; the line is unchanged, only its file.",
   },
   {
     kind: "line",
-    file: "BACKLOG.md",
+    file: "BACKLOG-archive.md",
     text:
       "| `components/admin/RunFinalCASButton.tsx`  | RETIRED. Superseded at `bd214c04b`; `FinalizeButton`'s `\"finish\"` mode is the live finalize-cas path.                                                             |",
     reason:
-      "Disposition table in the worked orphan entry.",
+      "Disposition table in the worked orphan entry. Moved to BACKLOG-archive.md 2026-08-26 with the entry; the line is unchanged, only its file.",
   },
   {
     kind: "line",
-    file: "BACKLOG.md",
+    file: "BACKLOG-archive.md",
     text:
       "| `components/right-now/RightNowCard.tsx`   | RETIRED. Superseded at `b327d5eb0` by `RightNowHero`; its two regression suites were RETARGETED onto the hero first, each proven by mutation rather than assumed. |",
     reason:
-      "Disposition table in the worked orphan entry.",
+      "Disposition table in the worked orphan entry. Moved to BACKLOG-archive.md 2026-08-26 with the entry; the line is unchanged, only its file.",
   },
   {
     kind: "line",

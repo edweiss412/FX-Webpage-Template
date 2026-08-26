@@ -97,6 +97,19 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/speclint-dispatch-gates (2026-08-26, PR #904): two bookkeeping rows,
+  // neither of which shipped code. A graduation is leaving the open queue, not
+  // necessarily an implementation — the BL-TEST-PG-CLIENT-TEARDOWN precedent.
+  //
+  // The orphaned-components row reached its terminal state 2026-08-03 and then
+  // sat in the open queue for three weeks saying "a future sweep must not read
+  // this row as unfinished work", which is the one place a future sweep does not
+  // look. The nullcode row is a CONTAINER HEADING whose working order finished;
+  // only the heading moved, and the five `###` sub-rows under it are still open
+  // and in place, proved by heading set arithmetic in the archive entry.
+  { id: "BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE", provenance: "feat/speclint-dispatch-gates" },
+  { id: "BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS", provenance: "feat/speclint-dispatch-gates" },
+  { id: "BL-NULLCODE-STAMP-BATCH-2", provenance: "feat/speclint-dispatch-gates" },
   // fix/e2e-proof-retired-route-subpixel (2026-08-25): the two e2e-proof rows,
   // graduating together because one arc answered both and because their repairs
   // turned out to share a root — a real-browser proof reporting something other
