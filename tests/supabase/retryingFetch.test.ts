@@ -15,6 +15,7 @@
  * truth, never the abort error's name, so a CALLER-initiated abort is attempted once and
  * rethrown as itself while a timeout abort is retried.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, test, vi } from "vitest";
 
 import {
@@ -980,5 +981,58 @@ describe("retrying fetch — the caller's own answer is never rewritten", () => 
       makeRetryingFetch(inner, instant)(RPC, { method: "POST", signal: caller.signal }),
     ).rejects.toBeNull();
     expect(inner).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * AC-5's retry-wrapper half, which is STRUCTURAL and cannot be behavioural.
+ *
+ * The claim is that ONE describer serves both transport emits. For the observer that is
+ * behavioural — its population is every request, so the Storage case reaches it. For THIS module
+ * it cannot be: the wrapper emits only for requests it OWNS, and `isRetryEligible` admits exactly
+ * an RPC path, where both describers return the bare function name, and a three-segment PostgREST
+ * path, which is identical under the shared describer's bound. No eligible request has a target
+ * the two spell differently, so a behavioural test would have to construct an input the wrapper
+ * refuses to own, which proves nothing about the wrapper.
+ *
+ * That is the same coincidence spec §5.4 gives as the reason to share the describer at all: the
+ * old private copy leaked nothing only because eligibility happened to admit nothing deeper, a
+ * property of a neighbouring function rather than a guarantee of this one. So the property worth
+ * pinning is the STRUCTURE — that this module has no describer of its own to drift — and a
+ * source-level assertion is the right instrument for a source-level claim.
+ *
+ * The assertion is on the ASSIGNMENT, not on the absence of a name: this module legitimately
+ * keeps `describeRequest`, which parses url, method and schema and is unrelated, so a check for
+ * "no local function whose name starts with describe" would trip on it and get loosened until it
+ * meant nothing.
+ *
+ * DOCUMENTED LIMIT: widen `isRetryEligible` past three path segments and a behavioural parity
+ * case becomes constructible and should replace this. Re-file trigger: any change to
+ * `RETRYABLE_RPCS`' shape or to the PostgREST prefix rule that admits a deeper path.
+ */
+describe("one describer serves both transport emits (AC-5, structural half)", () => {
+  const source = readFileSync("lib/supabase/retryingFetch.ts", "utf8");
+
+  test("imports describeTransportTarget from the eligibility module", () => {
+    // no-premise: reads one tracked source file and nothing else; no socket, clock or env var.
+    expect(source).toMatch(
+      /import\s*\{[^}]*\bdescribeTransportTarget\b[^}]*\}\s*from\s*["']\.\/retryEligibility["']/,
+    );
+  });
+
+  test("assigns the emit's `fn` DIRECTLY from that shared describer", () => {
+    // no-premise: same, a source read only.
+    // The discriminating half. Importing the shared describer while assigning `fn` from a
+    // restored private one satisfies the case above and violates AC-5, which is exactly the
+    // regression this pins.
+    expect(source).toMatch(/\bfn:\s*describeTransportTarget\(/);
+  });
+
+  test("declares no describer of its own for the emit's target", () => {
+    // no-premise: same, a source read only.
+    // Scoped to a TARGET describer rather than to the prefix `describe`, so the unrelated
+    // `describeRequest` above is not swept in.
+    const localTargetDescriber = /(?:function|const)\s+describeTarget\b/;
+    expect(source).not.toMatch(localTargetDescriber);
   });
 });
