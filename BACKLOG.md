@@ -22,7 +22,7 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ## BL-SPECLINT-AC-UNCLAIMED — a plan can declare an acceptance criterion that no task is scheduled to prove
 
-**Status:** OPEN · **Filed:** 2026-08-22 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** LOW (an unwritten assertion; caught downstream by review rather than shipped) · **Class:** spec-lint arm · **Effort:** S · **Incident:** plan review round 1 of this arc raised "AC-2 has no executable owner" as a BLOCKING finding against a plan `pnpm spec:lint` had just passed at **0 hard**; the round is recorded in `docs/review-rounds/fix/screenshots-drift-instrument/50ca72a566b0.jsonl`. · **Reachability:** PROBED — the asymmetry is at `lib/specLint/taskContract.ts:376`, and the missing direction was written and run against this arc's own plan before filing.
+**Status:** IN PROGRESS · **Branch:** feat/speclint-dispatch-gates · **Filed:** 2026-08-22 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** LOW (an unwritten assertion; caught downstream by review rather than shipped) · **Class:** spec-lint arm · **Effort:** S · **Incident:** plan review round 1 of this arc raised "AC-2 has no executable owner" as a BLOCKING finding against a plan `pnpm spec:lint` had just passed at **0 hard**; the round is recorded in `docs/review-rounds/fix/screenshots-drift-instrument/50ca72a566b0.jsonl`. · **Reachability:** PROBED — the asymmetry is at `lib/specLint/taskContract.ts:376`, and the missing direction was written and run against this arc's own plan before filing.
 
 `spec:lint` checks marker to AC but not AC to marker. `TASK_AC_UNRESOLVED` fires when a task marker cites an `ac=` id that appears nowhere in the plan's text. Nothing fires when a plan DECLARES an acceptance criterion in its own list and no task marker claims it — which means no task is scheduled to write that assertion, and the plan still lints clean.
 
@@ -219,6 +219,8 @@ the fix IS the control. Claim released; it was marked at Stage 0 before the fenc
 
 ## BL-NULLCODE-STAMP-BATCH-2 residuals (2026-07-03)
 
+**Status:** IN PROGRESS · **Branch:** feat/speclint-dispatch-gates
+
 **Effort:** XS
 
 Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observability/2026-07-03-nullcode-forensic-batch2-design.md` §9) — separate user-facing / alerting surfaces beyond the pure log-code enrichment.
@@ -345,6 +347,8 @@ Each is a value the system is confident about and wrong about, with no signal pr
 ## Share hub follow-ups (2026-07-25, share-link-chrome-backlog)
 
 ## BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS — one component retained by contract; the other four retired
+
+**Status:** IN PROGRESS · **Branch:** feat/speclint-dispatch-gates
 
 **Effort:** XS
 
@@ -813,7 +817,7 @@ The filter is not loose by accident — it covers the eight parser shard files, 
 
 ## BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE — a dispatch spends reviewer attention on lint the wrapper could have refused
 
-**Status:** OPEN · **Severity:** LOW (no shipped defect; this is review-economy waste) · **Class:** review tooling / dispatch hygiene · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R1 F2 + R2 F5) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a change to `scripts/codex-guard.mjs`, a surface this arc does not otherwise touch · **Reachability:** PROBED — both incidents are committed corpus rows, and the failing lint reproduces on the pre-repair blobs.
+**Status:** IN PROGRESS · **Branch:** feat/speclint-dispatch-gates · **Severity:** LOW (no shipped defect; this is review-economy waste) · **Class:** review tooling / dispatch hygiene · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R1 F2 + R2 F5) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a change to `scripts/codex-guard.mjs`, a surface this arc does not otherwise touch · **Reachability:** PROBED — both incidents are committed corpus rows, and the failing lint reproduces on the pre-repair blobs.
 
 `node scripts/codex-guard.mjs review` already refuses a round-1 `--stage diff` brief whose `GUARD SURFACE:` line carries no mutation score, exiting 2 before any dispatch. It makes no equivalent check on the ARTIFACT under review. So a spec or plan carrying hard `pnpm spec:lint` failures dispatches normally, and the reviewer spends a finding — and the arc spends a round — on a class the repo already detects mechanically in under a minute.
 
