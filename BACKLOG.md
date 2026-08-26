@@ -98,7 +98,7 @@ carry these two sites with it, since the marginal cost then collapses to the edi
 
 ## BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER — two families of low-contrast outline the element-level cover cannot see in either direction
 
-**Status:** OPEN · **Severity:** LOW-MEDIUM (a resting boundary at 1.4-1.8:1, on surfaces whose peers moved to 3.35:1 on 2026-08-16) · **Class:** visual boundary / DESIGN scope · **Effort:** S per site, M as a class · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, spec §3.2) · **Class-sweep exception:** (a) — the repair needs a design decision this PR cannot settle, stated per family below · **Reachability:** PROBED — every claim below is a transcript, not an argument.
+**Status:** IN PROGRESS · **Branch:** fix/control-outline-cover · **Severity:** LOW-MEDIUM (a resting boundary at 1.4-1.8:1, on surfaces whose peers moved to 3.35:1 on 2026-08-16) · **Class:** visual boundary / DESIGN scope · **Effort:** S per site, M as a class · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, spec §3.2) · **Class-sweep exception:** (a) — the repair needs a design decision this PR cannot settle, stated per family below · **Reachability:** PROBED — every claim below is a transcript, not an argument.
 
 The 2026-08-16 ruling swapped the 21 controls a DERIVED cover found: interactive elements whose OWN className `tests/styles/interactiveScanCore.ts` statically resolves. Two families sit outside that cover **in both directions** — the census will never flag them and never exempt them — so they are recorded here rather than hand-added to a swap set that is otherwise entirely derived.
 
