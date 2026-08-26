@@ -29,6 +29,7 @@
  * Synchronous Server Component (no `'use client'`, no `async`, no `next/headers`,
  * no `new Date()` / `nowDate()` inside). `today` + `showId` are passed in.
  */
+import { ChevronRight } from "lucide-react";
 import type { JSX } from "react";
 
 import { RightNowHero } from "@/components/crew/RightNowHero";
@@ -564,9 +565,21 @@ export function TodaySection({
                           className="rounded-sm border border-border bg-surface"
                         >
                           <details className="group">
+                            {/* Chevron, not a bare row: this summary suppresses
+                                the native marker and rendered no replacement, so
+                                nothing said the truncated value expands (design
+                                doc 2026-08-25-ui-polish-class-sweep-design.md,
+                                D10 — the same shape as
+                                BL-RUNOFSHOW-SUMMARY-NO-MARKER, swept with it).
+                                It sits on the label row so it does not compete
+                                with the value below. */}
                             <summary className="flex min-h-tap-min cursor-pointer list-none flex-col gap-1 rounded-sm px-3 py-2 [&::-webkit-details-marker]:hidden">
-                              <span className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
+                              <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
                                 {entry.label}
+                                <ChevronRight
+                                  aria-hidden="true"
+                                  className="inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
+                                />
                               </span>
                               <span
                                 className={cn(
