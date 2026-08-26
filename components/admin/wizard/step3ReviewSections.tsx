@@ -3102,13 +3102,21 @@ export function WarningsBreakdown({
                         // identical entries scannable and identifies the row when the deep
                         // link is absent.
                         // Only UNKNOWN_FIELD writes rawSnippet in the `<label> | <value>`
-                        // shape. PULL_SHEET_* carries a RAW pipe-delimited row (pull-sheet.ts
-                        // sets `rawSnippet: nonFiveColumnRow` and `rawSnippet: row`), so
-                        // ungated this rendered a garbled first-cell fragment as a field label
-                        // that is not in the sheet: for `| 2x | Shure SM58 | wireless | Case 3 |`
-                        // it rendered `| 2x`. Same gate the per-show surface has carried since
-                        // audit idx46/#217; this is the half of that sweep that never landed
-                        // here, not a widening of it.
+                        // shape (`lib/parser/warnings.ts:425` is its sole producer). THREE
+                        // other code families put a pipe in that field and are not that shape,
+                        // so ungated this rendered a fragment as a field label that appears
+                        // nowhere in the sheet:
+                        //
+                        //   PULL_SHEET_AMBIGUOUS_FORMAT  pull-sheet.ts  a raw table row
+                        //   PULL_SHEET_PARSE_PARTIAL     pull-sheet.ts  a raw table row
+                        //   DAY_RESTRICTION_DOUBLE_LOCATION  personalization.ts:85
+                        //                                    `name: X | role: Y` -> `name: X`
+                        //
+                        // Measured: `| 2x | Shure SM58 | wireless | Case 3 |` rendered `| 2x`.
+                        // Same gate the per-show surface has carried since audit idx46/#217;
+                        // this is the half of that sweep that never landed here, not a
+                        // widening of it. The third family was found by the impeccable audit,
+                        // which noticed the first version of this comment under-claimed.
                         const rowLabel =
                           w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
                         // The lead-in is not decoration: with the candidate line below

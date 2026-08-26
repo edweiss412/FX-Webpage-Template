@@ -64,10 +64,14 @@ const pullSheetAmbiguous: ParseWarning = {
  *  does not. An accept-set fails CLOSED on the unknown case; a deny-set fails OPEN. */
 const neitherFamily: ParseWarning = {
   severity: "warn",
-  code: "UNKNOWN_ROLE_TOKEN",
-  message: "an unrecognized role label",
+  code: "DAY_RESTRICTION_DOUBLE_LOCATION",
+  message: "Two locations for one day restriction.",
   blockRef: { kind: "crew", name: "Jordan Ellis" },
-  rawSnippet: "Role | Jordan Ellis",
+  // Shaped exactly as lib/parser/personalization.ts:85 builds it. A REAL producer with a real
+  // pipe-bearing snippet beats the synthetic UNKNOWN_ROLE_TOKEN this started as: ungated,
+  // labelFromRawSnippet renders `name: Jordan Ellis` as a field label. Found by the impeccable
+  // audit, which noticed the gate fixes a third family nothing here asserted.
+  rawSnippet: "name: Jordan Ellis | role: A1",
 };
 
 const unknownField: ParseWarning = {

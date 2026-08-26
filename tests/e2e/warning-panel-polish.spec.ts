@@ -309,12 +309,23 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
     // The two bands share one flex container and wrap at a narrow width. Assert they are on
     // DIFFERENT lines there and the SAME line when wide, which is the §9 behaviour jsdom
     // cannot compute.
-    const row = page.locator('[data-testid="per-show-actionable-row-label"]').first();
+    //
+    // BOTH locators are scoped to the ONE card that has a candidate. Taking `.first()` of each
+    // testid across the page picks bands from two DIFFERENT cards (the first row-label band
+    // belongs to a card with no candidate), and the assertion then measures the gap between
+    // cards rather than the wrap within one. That is what this first read: 190px apart at a
+    // width where they should have shared a line.
+    const card = page.locator('[data-testid="per-show-actionable-item"]', {
+      has: page.locator('[data-testid="per-show-actionable-candidate"]'),
+    });
+    await expect(card).toHaveCount(1);
+    const row = card.locator('[data-testid="per-show-actionable-row-label"]');
+    const band = card.locator('[data-testid="per-show-actionable-candidate"]');
     const topsAt = async (width: number) => {
       await page.setViewportSize({ width, height: 900 });
-      await expect(bands.first()).toBeVisible();
+      await expect(band).toBeVisible();
       const a = await row.boundingBox();
-      const b = await bands.first().boundingBox();
+      const b = await band.boundingBox();
       if (!a || !b) throw new Error("candidate or row-label band has no box");
       return [a.y, b.y] as const;
     };
