@@ -1293,6 +1293,71 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
     });
   }
 
+  test("at load 30 the capped cluster contains its pill and clears the title block", async ({
+    page,
+  }) => {
+    // THE CAP'S REASON FOR EXISTING, which round 2 (TEST_4) found absent from
+    // this matrix: the AC-14..AC-18 block measured header height and switch
+    // reachability, and never once looked at the pill the cap is FOR. All four
+    // load-30 cells could pass without the composite pill ever being exercised.
+    await page.setViewportSize({ width: 375, height: 667 });
+    await bootModal(page, 10, 10, 10);
+
+    const m = await page.evaluate(
+      ([panelSel]) => {
+        const panel = document.querySelector(panelSel as string)!;
+        const header = panel.querySelector("header")!;
+        const cluster = header.querySelector<HTMLElement>(".shrink-0.items-center");
+        const pill = header.querySelector<HTMLElement>('[data-testid$="-alert-pill"]');
+        const title = header.querySelector<HTMLElement>("h2");
+        if (cluster === null || pill === null || title === null) return null;
+        const r = (el: Element) => el.getBoundingClientRect();
+        const c = r(cluster);
+        const pl = r(pill);
+        const t = r(title);
+        return {
+          pillText: (pill.textContent ?? "").trim(),
+          cluster: { left: c.left, right: c.right, width: c.width },
+          pill: { left: pl.left, right: pl.right },
+          title: { right: t.right },
+          // The dialog's accessible name must survive the two-line clamp: the
+          // clamp hides overflow visually, it must not truncate the a11y tree.
+          accessibleTitle: (title.textContent ?? "").trim(),
+        };
+      },
+      [PANEL] as const,
+    );
+    expect(m, "PREMISE: header, cluster, pill and title must all render").not.toBeNull();
+
+    // The composite pill is genuinely in its two-segment state at this load —
+    // otherwise the containment below is measuring the easy case.
+    expect(m!.pillText, `pill reads "${m!.pillText}", expected two segments`).toMatch(
+      /\d+.*·.*\d+/,
+    );
+
+    // CONTAINMENT CHAIN: pill inside the cluster, cluster inside the cap.
+    expect(m!.pill.left, "pill starts inside the cluster").toBeGreaterThanOrEqual(
+      m!.cluster.left - 0.5,
+    );
+    expect(m!.pill.right, "pill ends inside the cluster").toBeLessThanOrEqual(
+      m!.cluster.right + 0.5,
+    );
+    expect(m!.cluster.width, "the cluster honours its 160px cap below sm").toBeLessThanOrEqual(
+      160.5,
+    );
+
+    // And the cap's PURPOSE: the cluster must not eat into the title block.
+    expect(
+      m!.title.right,
+      `title block right ${m!.title.right} overlaps the cluster at ${m!.cluster.left}`,
+    ).toBeLessThanOrEqual(m!.cluster.left + 0.5);
+
+    // The clamp is visual only; the full title stays in the accessibility tree.
+    expect(m!.accessibleTitle.length, "the clamped title is not truncated for AT").toBeGreaterThan(
+      0,
+    );
+  });
+
   test("the title clamps to two lines below sm — asserted on the EMITTED style", async ({
     page,
   }) => {

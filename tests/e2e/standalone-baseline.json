@@ -269,6 +269,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-986eb872a18232fece0c\",[\"popover-clip-fit.spec.ts\",\"§9 obligation 3 — PublishedToggle refusal banner fits its clip panel\",\"the scroll region is named by the error copy it wraps, and the alert is bare\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-9d6e5dbff28363e6c155\",[\"popover-clip-fit.spec.ts\",\"§3.6 — the module selects the side, and the component writes it\",\"bottom does not fit but above does: the side FLIPS, still uncapped\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-9f4c85b026bde99b200f\",[\"popover-clip-fit.spec.ts\",\"§9 obligation 1+2 — AttentionMenu scroller fits inside the clipping panel\",\"compound: the O2 -> O1 flip lands MID-ENTRANCE and still settles fitted\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-a4c4fe0e97254d8bd810\",[\"popover-clip-fit.spec.ts\",\"§3.0 — the header is bounded, so the dock can hold\",\"at load 30 the capped cluster contains its pill and clears the title block\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-a69b6922b1d1ca7c702a\",[\"popover-clip-fit.spec.ts\",\"§3.6 — the module selects the side, and the component writes it\",\"neither side fits: caps to the LARGER side, above the floor\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-a9a5d798427a91419452\",[\"popover-clip-fit.spec.ts\",\"§3.0 — the header is bounded, so the dock can hold\",\"the header does not grow with attention load at 375x667\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-afa3a5e94989a60f84e6\",[\"popover-clip-fit.spec.ts\",\"§9 obligation 1+2 — AttentionMenu scroller fits inside the clipping panel\",\"settled fit at 390x560 on the ANIMATED path (awaits transitionend)\"]]",
@@ -671,5 +672,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 588
+  "totalTests": 589
 }
