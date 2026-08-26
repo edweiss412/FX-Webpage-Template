@@ -953,7 +953,7 @@ export async function subscribeToWatchedFolder(
     // reject `subscribeToWatchedFolder` outright — leaving the row pending until
     // the stale sweep, with neither the orphaned result nor the alert that every
     // other failure on this path produces.
-    const nowMs = (deps.now ?? (() => Date.now()))();
+    const nowMs = (deps.now ?? (() => Date.now()))(); // not-render-side: dependency-injection default; the watch renewal path is cron-driven, never awaited by a render
     watch = await (deps.watchFolder ?? defaultWatchFolder)({
       folderId,
       channelId,
@@ -1041,7 +1041,7 @@ export async function subscribeToWatchedFolder(
       // Measured at ACTIVATION, not at request time: the pending insert and the
       // Drive round-trip both consume lease life, so a nominal grant that took
       // two minutes to obtain has two fewer usable minutes.
-      const remainingMs = Date.parse(watch.expiration) - (deps.now ?? (() => Date.now()))();
+      const remainingMs = Date.parse(watch.expiration) - (deps.now ?? (() => Date.now()))(); // not-render-side: dependency-injection default; watch-expiry arithmetic on the cron path
       if (Number.isFinite(remainingMs) && isGrantTooShort(remainingMs)) {
         // NOT awaited (whole-diff R3 finding 3): the inner catch contains a
         // rejecting sink, but not a sink that never settles — awaiting one would
@@ -1169,7 +1169,7 @@ export type RefreshResult = {
 
 export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise<RefreshResult> {
   const runTx = watchTxRunner(deps);
-  const now = deps.now ?? (() => new Date());
+  const now = deps.now ?? (() => new Date()); // not-render-side: dependency-injection default; cron-path clock seam
   const refreshed: string[] = [];
   const orphaned: string[] = [];
   const failures: Array<{ folderId: string; operation: string }> = [];
@@ -1386,7 +1386,7 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
     // rows would consume the GC cron's 300s window and, under a deterministic
     // order, would be served first on every subsequent pass, starving every
     // expired and orphaned row behind them (whole-diff finding 1).
-    const nowMs = deps.now ?? (() => Date.now());
+    const nowMs = deps.now ?? (() => Date.now()); // not-render-side: dependency-injection default; cron-path clock seam
     const gcStartedMs = nowMs();
     let attempted = 0;
     // ONE write for every branch, so no branch can drift into an unguarded
@@ -1559,7 +1559,7 @@ export async function reconcileWatchChannels(
   deps: ReconcileDeps = {},
 ): Promise<ReconcileResult> {
   const runTx = watchTxRunner(deps);
-  const now = deps.now ?? (() => new Date());
+  const now = deps.now ?? (() => new Date()); // not-render-side: dependency-injection default; cron-path clock seam
   const faults: string[] = [];
   let sweptPending = 0;
 

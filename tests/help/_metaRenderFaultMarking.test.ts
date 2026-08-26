@@ -1,10 +1,20 @@
 // @vitest-environment node
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { premise } from "../_shared/premise";
 import { Node, Project, ScriptTarget, SyntaxKind } from "ts-morph";
-import { ACCEPTED_FORMS, attributeCanRender, scanCandidates, scanRoots } from "./_renderFaultScan";
+import {
+  ACCEPTED_FORMS,
+  attributeCanRender,
+  classifyExpression,
+  infraPredicateNames,
+  scanCandidates,
+  scanRoots,
+  scannedFiles,
+} from "./_renderFaultScan";
+import { stripCommentsForFile } from "../_shared/stripComments";
 
 // One scan for the file: the walk is over every .ts/.tsx under the derived
 // roots and is the expensive part.
@@ -40,60 +50,449 @@ const REPORTED_RESIDUE: Record<string, string> = {
 };
 
 /**
- * Shape-4 residue: the branch ASSIGNS a flag and a later return renders it.
+ * Sites layer 1's scanner does not reach, each with the cause it actually has.
  *
- * Invisible to the scanner, but for TWO different reasons, and the distinction
- * is load-bearing because only one of them is "by construction".
+ * Named UNREACHED, not flag-shaped, and the rename is the repair: this registry
+ * was called FLAG_RESIDUE while four of its seven rows had nothing to do with
+ * the flag shape, and a registry whose reasons are wrong is worse than one with
+ * gaps because it is read as settled. Live composition today, computed by the
+ * suite below rather than asserted here: 4 `unreached-ternary`, 3
+ * `unreached-no-ternary`, and 4 entries declaring a hand-marking.
  *
- * Genuinely flag-shaped (the three telemetry/layout entries): the guard site
- * returns no JSX at all, so it is not a candidate under any arm, and tracing
- * the flag to the JSX that consumes it is dataflow this arc does not carry.
+ * `unreached-no-ternary` -- the genuinely flag-shaped case. The guard site
+ * returns no JSX at all, so no arm makes it a candidate, and tracing the flag to
+ * the JSX that consumes it is dataflow this arc does not carry (spec section
+ * 4.2). The registry is the honest substitute: each flag named, with the capture
+ * output it can reach.
  *
- * Dropped by a scanner ASYMMETRY (the two Dashboard entries): those guards sit
- * on a ternary whose `whenTrue` IS the JSX, so they are exactly the shape the
- * scanner claims to reach. `scanCandidates` gives its `IfStatement` arm a
- * vocabulary fallback that reports an unclassifiable guard as `unknown`
- * residue, and gives its `ConditionalExpression` arm no fallback at all
- * (`_renderFaultScan.ts:395`). Probed on the live tree: 714 ternaries under the
- * derived roots return JSX, 91 of them on a fault-vocabulary guard, and the
- * unclassifiable ones are dropped in silence rather than reported. Tracked as
- * BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY. Tracing a flag to the JSX that consumes it is dataflow
- * analysis this arc does not carry (spec §4.2), so the registry is the honest
- * substitute: each flag named, with the capture output it can reach.
+ * `unreached-ternary` -- dropped by a DECLINED scanner asymmetry. Those guards
+ * sit on a ternary whose `whenTrue` is the JSX, exactly the shape layer 1 claims
+ * to reach. `scanCandidates` gives its `IfStatement` arm a vocabulary fallback
+ * that reports an unclassifiable guard as `unknown` residue, and gives its
+ * `ConditionalExpression` arm no fallback at all (`_renderFaultScan.ts:754`).
+ * That arm's silent drop is a documented limit, not a gap left open: probed on
+ * the live tree, 719 ternaries under the derived roots return JSX in `whenTrue`,
+ * 79 of them carry a fault-vocabulary guard and are unclassifiable, and 70 of
+ * those 79 sit in `"use client"` files -- interaction state, not a server-render
+ * fault -- so the fallback would buy roughly three new server-side sites for 79
+ * hand-written reasons.
  *
- * Two entries are marked BY HAND. The scanner cannot enforce them and never
- * will under this design, but the flag was right there at authoring time and
- * the strip would otherwise encode "Unavailable" with nothing refusing.
- */
-const FLAG_RESIDUE: Record<string, string> = {
-  "components/admin/Dashboard.tsx:ignoredDegraded":
-    "reaches dashboard-overview: adds a notice and removes warning badges. NOT flag-shaped, despite living in this registry — Dashboard.tsx:858 is a ternary whose whenTrue is the JSX. It is dropped by the ConditionalExpression arm's missing residue fallback, not by shape.",
-  "components/admin/Dashboard.tsx:dataGapsDegraded":
-    "reaches dashboard-overview: a shows_internal read failure removes data-quality badges. Dashboard.tsx:674, same ternary shape and the same asymmetry, not the flag shape this registry is named for.",
-  "components/admin/telemetry/TelemetryOverviewStrip.tsx:SystemHealthCard.unavailable":
-    "reaches no manifest capture today (/admin/dev/telemetry is unrouted), but renders Unavailable / Health check failed. MARKED BY HAND via the renderFault prop.",
-  "components/admin/telemetry/TelemetryOverviewStrip.tsx:EventsCard.isInfra":
-    "same surface, renders Unavailable. MARKED BY HAND via the renderFault prop.",
-  "components/admin/IgnoredSheetsDisclosure.tsx:degraded":
-    'reaches dashboard-overview and IS captured: Dashboard derives `degraded` from `ignoredResult.kind === "infra_error"` (Dashboard.tsx:489) and passes it here, where a `degraded ?` ternary renders a visible Couldn\'t-load chip on /admin. MARKED BY HAND via data-render-fault. Not scanner-reachable because the guard is a bare prop, so classifyExpression returns null and the ConditionalExpression arm drops it. Found by whole-diff review r1, which is the point worth recording: the residue registry named the ASSIGNMENT site in Dashboard and missed that the RENDER lives in another component.',
-  "components/admin/OnboardingWizard.tsx:OperatorErrorBlock":
-    "reaches dashboard-overview and IS captured: OnboardingWizard.tsx:818 renders it from the FALSE arm of `service.ok ? healthy : <OperatorErrorBlock />`, and it paints a Setup-is-paused section on /admin. MARKED BY HAND at the component, which renders the fault unconditionally, so the marker always reaches the DOM and the capture refuses. Not scanner-reachable for a DIFFERENT reason from the others: the ternary arm inspects only `whenTrue`, so a fault in the false arm is invisible to it whatever its guard looks like. Found by whole-diff review r4b; the blind spot is declared here rather than widened into the recognizer.",
-  "app/admin/layout.tsx:inOnboarding":
-    "assigns a routing flag and returns no JSX from that branch; fails open by design.",
+ * RE-FILE TRIGGER for the decline, computed rather than promised: the count of
+ * server-component ternaries that are unclassifiable, fault-vocabulary AND
+ * unregistered rises above 7, its resting value today. The suite asserts that
+ * bound and re-derives both figures above, so neither can go stale silently --
+ * which is how the previous pair (714 and 91) did in eight days.
+ *
+ * WHICH ARM holds the fault is deliberately not a cause. No AST predicate
+ * decides it without a fault oracle this scanner does not have, so
+ * `OnboardingWizard`'s false-arm blind spot lives in that entry's prose. A true
+ * statement no checker can settle belongs in prose; inventing a checker for it
+ * is recognizer growth this arc is directed against.
+ *
+ * Some entries are marked BY HAND. The scanner cannot enforce those and never
+ * will under this design, but the flag was right there at authoring time and the
+ * surface would otherwise encode "Unavailable" with nothing refusing. The count
+ * is not written down here: the case below DERIVES it from the declarations, so
+ * a newly hand-marked site is covered the moment it is declared.
+ */ const UNREACHED_RESIDUE: Record<string, { cause: UnreachedCause; reason: string }> = {
+  "components/admin/Dashboard.tsx:858:ignoredDegraded": {
+    cause: "unreached-ternary",
+    reason:
+      "reaches dashboard-overview: adds a notice and removes warning badges. Dropped by the ConditionalExpression arm, whose guard classifyExpression cannot classify, not by shape.",
+  },
+  "components/admin/Dashboard.tsx:674:dataGapsDegraded": {
+    cause: "unreached-ternary",
+    reason:
+      "reaches dashboard-overview: a shows_internal read failure removes data-quality badges. Same ternary shape and the same declined asymmetry.",
+  },
+  "components/admin/telemetry/TelemetryOverviewStrip.tsx:101:SystemHealthCard.unavailable": {
+    cause: "unreached-no-ternary",
+    reason:
+      "reaches no manifest capture today (/admin/dev/telemetry is unrouted), but renders Unavailable / Health check failed. MARKED BY HAND via the renderFault prop.",
+  },
+  "components/admin/telemetry/TelemetryOverviewStrip.tsx:230:EventsCard.isInfra": {
+    cause: "unreached-no-ternary",
+    reason: "same surface, renders Unavailable. MARKED BY HAND via the renderFault prop.",
+  },
+  "components/admin/IgnoredSheetsDisclosure.tsx:79:degraded": {
+    cause: "unreached-ternary",
+    reason:
+      'reaches dashboard-overview and IS captured: Dashboard derives `degraded` from `ignoredResult.kind === "infra_error"` (Dashboard.tsx:489) and passes it here, where a `degraded ?` ternary renders a visible Couldn\'t-load chip on /admin. MARKED BY HAND via data-render-fault. Not scanner-reachable because the guard is a bare prop, so classifyExpression returns null and the ConditionalExpression arm drops it. Found by whole-diff review r1, which is the point worth recording: the residue registry named the ASSIGNMENT site in Dashboard and missed that the RENDER lives in another component.',
+  },
+  "components/admin/OnboardingWizard.tsx:803:OperatorErrorBlock": {
+    cause: "unreached-ternary",
+    reason:
+      "reaches dashboard-overview and IS captured: the ternary at OnboardingWizard.tsx:803 renders it from the FALSE arm of `service.ok ? healthy : <OperatorErrorBlock />`, at OnboardingWizard.tsx:828, painting a Setup-is-paused section on /admin. MARKED BY HAND at the component, which renders the fault unconditionally, so the marker always reaches the DOM and the capture refuses. Unreachable for a DIFFERENT reason from the other ternaries: the arm inspects only `whenTrue`, so a fault in the false arm is invisible to it whatever its guard looks like. That distinction is prose because no AST predicate decides which arm holds the fault without a fault oracle the scanner does not have; the blind spot is declared here rather than widened into the recognizer.",
+  },
+  "app/admin/layout.tsx:130:inOnboarding": {
+    cause: "unreached-no-ternary",
+    reason: "assigns a routing flag and returns no JSX from that branch; fails open by design.",
+  },
 };
 
-describe("the flag-shaped residue is named, since no scan can reach it", () => {
-  it("gives every registered flag a reason naming what it reaches", () => {
-    expect(Object.keys(FLAG_RESIDUE).length).toBeGreaterThan(0);
-    for (const [site, reason] of Object.entries(FLAG_RESIDUE)) {
+// ---- Ternary-arm decline, pinned (BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY) ----
+//
+// The ConditionalExpression arm keeps its bare `continue`. Everything below
+// exists so that decision stays TRUE rather than merely written down: the
+// numbers the arm's comment declares are re-derived and compared, the trigger
+// that would re-open the decline is computed, and the sites the decline is
+// about are pinned individually.
+const FAULT_VOCABULARY = /error|fail|infra|degrad|unavailable|corrupt/i;
+
+/**
+ * The ternary sites the residue registry declares, DERIVED from the registry
+ * itself plus the AST -- never a second hand-written list.
+ *
+ * Whole-diff review round 2 caught the parallel literal: a control that iterates
+ * its own copy of the sites proves nothing about the registry, and the two can
+ * drift apart silently. Reading the registry's keys and keeping the ones where a
+ * ternary actually begins removes the duplicate, so a site added to the registry
+ * is covered by these controls the day it lands.
+ */
+function registeredTernaries(): (readonly [string, number])[] {
+  return Object.keys(UNREACHED_RESIDUE)
+    .map((key) => parseSite(key))
+    .filter((site) => ternaryStartsAt(site.file, site.line))
+    .map((site) => [site.file, site.line] as const);
+}
+
+function containsJsx(node: Node | undefined): boolean {
+  if (node === undefined) return false;
+  if (Node.isJsxElement(node) || Node.isJsxSelfClosingElement(node) || Node.isJsxFragment(node)) {
+    return true;
+  }
+  return Boolean(
+    node.getFirstDescendant(
+      (d) => Node.isJsxElement(d) || Node.isJsxSelfClosingElement(d) || Node.isJsxFragment(d),
+    ),
+  );
+}
+
+const TERNARY_PROJECT = new Project({
+  compilerOptions: { target: ScriptTarget.ESNext, jsx: 4 },
+  skipAddingFilesFromTsConfig: true,
+});
+TERNARY_PROJECT.addSourceFilesAtPaths(scannedFiles());
+
+const CANDIDATE_KEYS = new Set(CANDIDATES.map((c) => `${c.file}:${c.line}`));
+
+type TernaryRow = { file: string; line: number; client: boolean };
+
+const TERNARY_SURVEY: { jsxTernaries: number; unclassifiedVocab: TernaryRow[] } = (() => {
+  let jsxTernaries = 0;
+  const unclassifiedVocab: TernaryRow[] = [];
+  for (const path of scannedFiles()) {
+    const source = TERNARY_PROJECT.getSourceFileOrThrow(path);
+    const file = relative(process.cwd(), path);
+    const raw = readFileSync(path, "utf8");
+    const client = /^["']use client["'][ \t]*(?:;|$|\r?\n)/.test(
+      stripCommentsForFile(raw, path).trimStart(),
+    );
+    for (const conditional of source.getDescendantsOfKind(SyntaxKind.ConditionalExpression)) {
+      if (!containsJsx(conditional.getWhenTrue())) continue;
+      jsxTernaries++;
+      const line = conditional.getStartLineNumber();
+      if (CANDIDATE_KEYS.has(`${file}:${line}`)) continue;
+      if (!FAULT_VOCABULARY.test(conditional.getCondition().getText())) continue;
+      unclassifiedVocab.push({ file, line, client });
+    }
+  }
+  return { jsxTernaries, unclassifiedVocab };
+})();
+
+/** Lazy: the registry it filters against is declared further down this file. */
+function unregisteredServer(): TernaryRow[] {
+  const registered = registeredTernaries();
+  return TERNARY_SURVEY.unclassifiedVocab.filter(
+    (row) => !row.client && !registered.some(([f, l]) => f === row.file && l === row.line),
+  );
+}
+
+describe("the ConditionalExpression arm's decline is pinned, not just written down", () => {
+  it("the numbers the arm declares equal the numbers the tree computes", () => {
+    // NOT "the comment exists". Both figures are re-derived and compared, so a
+    // comment edited without a re-probe fails. The previous figures (714 and 91)
+    // went stale in eight days, which is the concrete failure this catches.
+    const armSource = readFileSync(join(process.cwd(), "tests/help/_renderFaultScan.ts"), "utf8");
+    const declared = armSource.match(
+      /Probed:\s*(\d+)\s+such ternaries under the derived roots,\s*(\d+)\s+on a/,
+    );
+    expect(declared, "the arm must declare both figures in a parseable form").not.toBeNull();
+    expect(Number(declared![1])).toBe(TERNARY_SURVEY.jsxTernaries);
+    expect(Number(declared![2])).toBe(TERNARY_SURVEY.unclassifiedVocab.length);
+  });
+
+  it("the re-file trigger has not tripped: at most 7 unregistered server-side sites", () => {
+    // The computable set with NO unstated exclusion. An earlier draft set this at
+    // 3, which discounted four emptiness checks by a rule the assertion never
+    // applied and was tripped the moment it was written.
+    //
+    // DOCUMENTED LIMIT: a bound on a COUNT does not pin site identity. Swapping a
+    // registered site for a new one leaves the count at 7 and passes. That is
+    // deliberate -- this asks one question, has the unreached server-side
+    // population GROWN, and a count is the right instrument. Site identity is
+    // pinned in the residue registry, for the entries that carry a declared cause.
+    const unregistered = unregisteredServer();
+    expect(
+      unregistered.length,
+      unregistered.map((r) => `${r.file}:${r.line}`).join("\n"),
+    ).toBeLessThanOrEqual(7);
+  });
+
+  it("the arm still does not reach the sites the decline is about", () => {
+    // Asserted POSITIVELY per site. "No unknown candidate originates from a
+    // ternary" is green in BOTH directions of the growth it claims to forbid: if
+    // classifyExpression learns to recognise one of these guards, the site
+    // becomes an ACCEPTED candidate rather than an unknown one, and the weaker
+    // assertion never notices.
+    for (const [file, line] of registeredTernaries()) {
+      const source = TERNARY_PROJECT.getSourceFileOrThrow(join(process.cwd(), file));
+      const conditional = source
+        .getDescendantsOfKind(SyntaxKind.ConditionalExpression)
+        .find((c) => c.getStartLineNumber() === line);
+      expect(conditional, `${file}:${line} must still be a ternary`).toBeDefined();
+      expect(
+        classifyExpression(conditional!.getCondition(), infraPredicateNames(source)),
+        `${file}:${line} became classifiable — classifyExpression grew, which the decline forbids`,
+      ).toBeNull();
+      expect(
+        CANDIDATE_KEYS.has(`${file}:${line}`),
+        `${file}:${line} became a candidate — the arm reached it`,
+      ).toBe(false);
+    }
+  });
+});
+
+describe("the scanner's population is pinned against resolver drift", () => {
+  it("scanCandidates reports exactly 35 candidates", () => {
+    // Pinned HERE rather than in the server-time guard's suite, which needs the
+    // same fact but would pay a second full project scan for it (measured: the
+    // duplicate scan blew a 30s test timeout). CANDIDATES is already computed
+    // once at module scope in this file.
+    //
+    // What this catches: `resolveSpecifier` gained two directory-index forms so
+    // the server-time guard could derive its population correctly, and that
+    // resolver is also how this scanner makes its two cross-file hops. Index
+    // resolution can only ADD resolutions, so a moved count means the scanner
+    // had been silently missing a predicate -- worth failing over either way.
+    expect(CANDIDATES.length).toBe(35);
+  });
+
+  it("scanCandidates reports exactly the same file:line:form:marked SET", () => {
+    // A count alone is not set stability: a resolver change that ADDS one
+    // candidate and DROPS another leaves 35 and passes. Whole-diff review round
+    // 1 caught the archive claiming the count prevented unnoticed movement,
+    // which only this case makes true.
+    //
+    // Pinned as a digest over the sorted set rather than a 35-line literal: an
+    // enumeration goes stale on any legitimate move and invites being
+    // regenerated without being read, while a digest fails loudly and is
+    // regenerated only deliberately.
+    const digest = createHash("sha256")
+      .update(
+        CANDIDATES.map((c) => `${c.file}:${c.line}:${c.form}:${c.marked}`)
+          .sort()
+          .join("\n"),
+      )
+      .digest("hex");
+    expect(digest).toBe("225ed22b3e0cfc6ea673c3a1fce3c30ae10a8159a64f81a73a0ec87a51e55558");
+  });
+});
+
+// ---- Residue causes, DERIVED from the node at each entry's line ----
+//
+// Two causes, not three. An earlier design declared `flag-shaped`,
+// `ternary-unclassified` and `ternary-when-false` behind three independent
+// predicates, and review refuted it on the live nodes: three entries carry JSX
+// in BOTH arms so "JSX in whenFalse" is true of them whatever arm holds the
+// fault, all four unclassified ternaries satisfy "whenTrue contains JSX", and
+// all four are absent from scanCandidates() so a candidate-absence reading of
+// `flag-shaped` accepts every one. Three overlapping predicates cannot report
+// zero false causes, because a wrong relabel passes all of them.
+//
+// Which arm holds the FAULT is what the dropped third cause wanted to record,
+// and no AST predicate decides it without a fault oracle this scanner does not
+// have. It stays in the entries' prose, which is where a true statement no
+// checker can settle belongs.
+type UnreachedCause = "unreached-no-ternary" | "unreached-ternary";
+type Site = { file: string; line: number; symbol: string };
+
+function parseSite(key: string): Site {
+  // `file:line:symbol`. Split from the RIGHT: a path never ends in
+  // `:<digits>:<id>` by accident, and the symbol may itself be dotted
+  // (`SystemHealthCard.unavailable`).
+  //
+  // SYMBOL, not flag: three entries name a boolean flag, but
+  // `OnboardingWizard.tsx:803:OperatorErrorBlock` names an exported COMPONENT
+  // (`components/admin/OnboardingWizard.tsx:666`). Calling the field `flag` is
+  // what produced two universal claims this registry cannot support.
+  const lastColon = key.lastIndexOf(":");
+  const symbol = key.slice(lastColon + 1);
+  const head = key.slice(0, lastColon);
+  const secondColon = head.lastIndexOf(":");
+  return { file: head.slice(0, secondColon), line: Number(head.slice(secondColon + 1)), symbol };
+}
+
+/** The symbol's own identifier: `SystemHealthCard.unavailable` looks for `unavailable`. */
+const identifierOf = (symbol: string): string => symbol.slice(symbol.lastIndexOf(".") + 1);
+
+const sourceAt = (file: string) => TERNARY_PROJECT.getSourceFileOrThrow(join(process.cwd(), file));
+
+function ternaryAt(file: string, line: number) {
+  return sourceAt(file)
+    .getDescendantsOfKind(SyntaxKind.ConditionalExpression)
+    .find((c) => c.getStartLineNumber() === line);
+}
+
+const ternaryStartsAt = (file: string, line: number): boolean =>
+  ternaryAt(file, line) !== undefined;
+const candidateAt = (file: string, line: number): boolean => CANDIDATE_KEYS.has(`${file}:${line}`);
+
+/**
+ * BOTH conjuncts are load-bearing.
+ *
+ * The structural half alone would label a reached IfStatement candidate
+ * unreached -- `components/admin/settings/AdministratorsSection.tsx:54` is one,
+ * marked and returning JSX, with no conditional at that line. The
+ * candidate-absence half alone accepted all four ternary entries. Only the
+ * conjunction establishes what this registry claims of every row: unreached.
+ */
+function isUnreachedNoTernary(site: Site): boolean {
+  return !ternaryStartsAt(site.file, site.line) && !candidateAt(site.file, site.line);
+}
+
+function isUnreachedTernary(site: Site): boolean {
+  const conditional = ternaryAt(site.file, site.line);
+  if (conditional === undefined) return false;
+  return (
+    classifyExpression(conditional.getCondition(), infraPredicateNames(sourceAt(site.file))) ===
+    null
+  );
+}
+
+/** Exactly one cause per site, so a wrong relabel fails rather than agreeing. */
+function deriveCause(site: Site): UnreachedCause | null {
+  if (isUnreachedTernary(site)) return "unreached-ternary";
+  if (isUnreachedNoTernary(site)) return "unreached-no-ternary";
+  return null;
+}
+
+/**
+ * The coordinate is VERIFIED, per cause, and each half asserts uniqueness.
+ *
+ * A ternary entry's line is where the symbol is USED; a flag entry's line is where
+ * it is DECLARED. One uniform rule cannot fit both -- requiring a declaration at
+ * a ternary's line is unsatisfiable. Text-mention alone is also too weak:
+ * `dataGapsDegraded` appears in three of Dashboard's ternaries, and only the
+ * conjunction with the cause predicates picks out the registered one.
+ */
+function uniqueCoordinate(site: Site): boolean {
+  const identifier = identifierOf(site.symbol);
+  const source = sourceAt(site.file);
+  const mentions = new RegExp(`\\b${identifier}\\b`);
+
+  if (ternaryStartsAt(site.file, site.line)) {
+    const qualifying = source.getDescendantsOfKind(SyntaxKind.ConditionalExpression).filter((c) => {
+      const line = c.getStartLineNumber();
+      if (candidateAt(site.file, line)) return false;
+      if (!containsJsx(c.getWhenTrue()) && !containsJsx(c.getWhenFalse())) return false;
+      return mentions.test(c.getText());
+    });
+    return qualifying.length === 1 && qualifying[0]!.getStartLineNumber() === site.line;
+  }
+
+  const declarations = source.getDescendants().filter((d) => {
+    if (
+      !Node.isVariableDeclaration(d) &&
+      !Node.isParameterDeclaration(d) &&
+      !Node.isBindingElement(d) &&
+      !Node.isPropertyAssignment(d) &&
+      !Node.isShorthandPropertyAssignment(d)
+    ) {
+      return false;
+    }
+    return d.getName() === identifier;
+  });
+  return declarations.length === 1 && declarations[0]!.getStartLineNumber() === site.line;
+}
+
+describe("every residue entry's declared cause is COMPUTED, not asserted in prose", () => {
+  it("each entry's declared cause equals the cause derived from the node at its line", () => {
+    // The defect BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY is actually about:
+    // four of seven entries sat under a cause they do not have, in a registry
+    // read as settled. Prose cannot fail; a derivation compared to a declaration
+    // can. ONE function returns exactly one cause per site, so the two causes are
+    // mutually exclusive by construction rather than by separate predicates
+    // happening to agree.
+    const wrong: string[] = [];
+    for (const [site, entry] of Object.entries(UNREACHED_RESIDUE)) {
+      const derived = deriveCause(parseSite(site));
+      if (derived !== entry.cause)
+        wrong.push(`${site}: declared ${entry.cause}, derived ${derived}`);
+    }
+    expect(wrong, wrong.join("\n")).toEqual([]);
+  });
+
+  it("each entry's coordinate is verified and UNIQUE in its file, per cause", () => {
+    // Round 3 of the plan review blocked an earlier single rule here: requiring a
+    // declaration at the line is right for a flag site and impossible for a
+    // ternary site, whose line is where the flag is USED. The two causes put
+    // their coordinate at different kinds of node, so the contract is per cause.
+    // Each half asserts UNIQUENESS rather than existence -- a text match alone
+    // was measured insufficient, since `dataGapsDegraded` appears in three of
+    // Dashboard's ternaries.
+    for (const site of Object.keys(UNREACHED_RESIDUE)) {
+      const parsed = parseSite(site);
+      expect(uniqueCoordinate(parsed), `${site} does not resolve to exactly one node`).toBe(true);
+    }
+  });
+
+  it("control: a REACHED candidate at a line with no ternary is not unreached-no-ternary", () => {
+    // Pins the candidate-absence conjunct. Derived from scanCandidates(), never
+    // named: a literal site list goes stale as the corpus moves. Deleting that
+    // conjunct labels every reached IfStatement candidate unreached.
+    const control = CANDIDATES.find((c) => !ternaryStartsAt(c.file, c.line));
+    premise("some candidate sits at a line where no ternary begins", control ? 1 : 0, 0);
+    expect(isUnreachedNoTernary({ file: control!.file, line: control!.line, symbol: "" })).toBe(
+      false,
+    );
+  });
+
+  it("control: a registered ternary site is not unreached-no-ternary", () => {
+    // Pins the no-ternary conjunct, which was entirely unpinned until plan review
+    // round 2 wrote the branch-ordered derivation that omits it and still routes
+    // all seven entries correctly.
+    for (const [file, line] of registeredTernaries()) {
+      expect(
+        isUnreachedNoTernary({ file, line, symbol: "" }),
+        `${file}:${line} is a ternary and must fail the no-ternary conjunct`,
+      ).toBe(false);
+    }
+  });
+
+  it("control: a CLASSIFIED ternary candidate is not unreached-ternary", () => {
+    // Pins the classifyExpression === null conjunct. Derived, not named.
+    const control = CANDIDATES.find((c) => c.form !== "unknown" && ternaryStartsAt(c.file, c.line));
+    premise("some accepted candidate originates at a ternary", control ? 1 : 0, 0);
+    expect(isUnreachedTernary({ file: control!.file, line: control!.line, symbol: "" })).toBe(
+      false,
+    );
+  });
+});
+
+describe("the unreached residue is named, since no scan can reach it", () => {
+  it("gives every registered site a reason naming what it reaches", () => {
+    expect(Object.keys(UNREACHED_RESIDUE).length).toBeGreaterThan(0);
+    for (const [site, { reason }] of Object.entries(UNREACHED_RESIDUE)) {
       expect(reason.length, `${site} needs a reason`).toBeGreaterThan(20);
-      expect(site, `${site} must name a file and a flag`).toContain(":");
+      expect(site, `${site} must name a file, a line and a symbol`).toContain(":");
     }
   });
 
   it("every entry CLAIMING a hand-marking really carries one", () => {
     // DERIVED from the declarations, not a written-down list. The previous
-    // version named "the two hand-marked flags" and read one file, so when a
+    // version of THIS CASE named "the two hand-marked flags" as a literal and read
+    // one file, so when a
     // THIRD hand-marked site was added by a review repair the registry kept
     // claiming a marker nothing checked -- deleting that marker would have left
     // the scan at 35 candidates, 30 accepted, five residues, all green.
@@ -102,20 +501,19 @@ describe("the flag-shaped residue is named, since no scan can reach it", () => {
     // reason and this case reads that entry's file and demands the attribute.
     // A new hand-marked site is covered the moment it is declared, and a
     // declaration whose marker was removed fails here rather than lying.
-    const claimed = Object.entries(FLAG_RESIDUE).filter(([, reason]) =>
+    const claimed = Object.entries(UNREACHED_RESIDUE).filter(([, { reason }]) =>
       reason.includes("MARKED BY HAND"),
     );
-    premise("some flag-residue entry claims a hand-marking", claimed.length, 0);
+    premise("some unreached-residue entry claims a hand-marking", claimed.length, 0);
 
     for (const [site] of claimed) {
-      const file = site.slice(0, site.lastIndexOf(":"));
-      const flag = site.slice(site.lastIndexOf(":") + 1);
-      // The flag's own identifier, so `SystemHealthCard.unavailable` looks for
+      const { file, symbol } = parseSite(site);
+      // The symbol's own identifier, so `SystemHealthCard.unavailable` looks for
       // `unavailable`. Two entries can name the SAME file, which is why a
       // file-scoped check is not enough: TelemetryOverviewStrip declares two
       // and carries four marker occurrences, so deleting one of the two left a
       // surviving mutant under the previous version of this case.
-      const identifier = flag.slice(flag.lastIndexOf(".") + 1);
+      const identifier = identifierOf(symbol);
       // Comment lines are dropped BEFORE matching. A commented-out marker is
       // exactly the state this case exists to catch -- someone disabling the
       // attribute while the declaration still claims it -- and a line regex
@@ -266,7 +664,7 @@ describe("the population is DERIVED from the manifest, not written down", () => 
   });
 });
 
-describe("every JSX-returning fault branch carries the marker", () => {
+describe("every JSX-returning fault branch the three reporting arms reach carries the marker", () => {
   it("leaves none unmarked", () => {
     const unmarked = ACCEPTED.filter((c) => !c.marked).map(
       (c) => `${c.file}:${c.line} (${c.form})`,
@@ -275,7 +673,7 @@ describe("every JSX-returning fault branch carries the marker", () => {
   });
 });
 
-describe("the residue is reported by name, never silently dropped", () => {
+describe("the residue is reported by name on the three arms that report one", () => {
   it("pins every unrecognized form with a reason", () => {
     const found = RESIDUE.map((c) => `${c.file}:${c.line}`).sort();
     expect(found).toEqual(Object.keys(REPORTED_RESIDUE).sort());

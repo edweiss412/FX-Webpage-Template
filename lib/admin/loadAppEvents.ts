@@ -1,5 +1,6 @@
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { log } from "@/lib/log";
+import { nowDate } from "@/lib/time/now";
 import {
   PAGE_SIZE,
   escapeIlike,
@@ -41,8 +42,13 @@ export async function loadAppEvents(filters: AppEventFilters): Promise<LoadAppEv
     if (filters.showId) query = query.eq("show_id", filters.showId);
     if (filters.requestId) query = query.eq("request_id", filters.requestId);
     const sinceH = filters.sinceHours === undefined ? 24 : filters.sinceHours;
-    if (sinceH != null)
-      query = query.gte("occurred_at", new Date(Date.now() - sinceH * 3_600_000).toISOString());
+    if (sinceH != null) {
+      // Render-side: /admin/dev/telemetry awaits this during SSR, so a wall-clock
+      // read here re-renders differently on every capture. That page already
+      // reads its own instant through lib/time/now.ts; this is the same seam.
+      const nowMs = (await nowDate()).getTime();
+      query = query.gte("occurred_at", new Date(nowMs - sinceH * 3_600_000).toISOString());
+    }
     if (filters.q) query = query.ilike("message", `%${escapeIlike(filters.q)}%`);
     if (filters.cursor) query = applyCursor(query, filters.cursor);
     const { data, error } = await query

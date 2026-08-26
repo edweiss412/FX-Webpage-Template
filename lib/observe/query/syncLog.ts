@@ -27,7 +27,7 @@ export async function querySyncLog(filters: SyncLogFilters): Promise<QuerySyncLo
     if (filters.status) query = query.eq("status", filters.status);
     const sinceHours = filters.sinceHours === undefined ? 24 : filters.sinceHours;
     if (sinceHours != null) {
-      query = query.gte("occurred_at", new Date(Date.now() - sinceHours * 3_600_000).toISOString());
+      query = query.gte("occurred_at", new Date(Date.now() - sinceHours * 3_600_000).toISOString()); // not-render-side: observe read-path window; both executions are non-render — the pnpm observe CLI, and the developer capture action app/admin/_devCaptureAction.ts, which is a "use server" action building a downloaded diagnostic bundle
     }
     const { data, error } = await query
       .order("occurred_at", { ascending: false })
