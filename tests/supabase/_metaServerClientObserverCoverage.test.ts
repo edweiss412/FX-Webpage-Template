@@ -80,10 +80,16 @@ const EXEMPT: Record<string, { count: number; ground: string }> = {
  */
 export function blankNonCode(src: string, filePath: string): string {
   const blank = (m: string) => m.replace(/[^\n]/g, " ");
+  // Each replacement is written as an arrow AT THE CALL SITE rather than passing `blank`
+  // directly. tests/cross-cutting/replacementString.test.ts accepts a string literal, a
+  // no-substitution template, or a function written inline, and refuses a bare identifier --
+  // because an identifier can just as easily name a string carrying `$&` or `$1`, which
+  // substitutes silently. The judge cannot resolve the binding, so it fails closed, correctly.
+  // Do not shorten these back to `blank`.
   return stripCommentsForFile(src, filePath)
-    .replace(/`(?:\\.|[^`\\])*`/g, blank)
-    .replace(/'(?:\\.|[^'\\])*'/g, blank)
-    .replace(/"(?:\\.|[^"\\])*"/g, blank);
+    .replace(/`(?:\\.|[^`\\])*`/g, (m) => blank(m))
+    .replace(/'(?:\\.|[^'\\])*'/g, (m) => blank(m))
+    .replace(/"(?:\\.|[^"\\])*"/g, (m) => blank(m));
 }
 
 /** Constructor names this file imported from a Supabase package, statically OR dynamically. */
