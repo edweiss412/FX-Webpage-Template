@@ -4,9 +4,11 @@ import { afterEach, describe, expect, test } from "vitest";
 import { reserveQuota } from "@/lib/reports/rateLimit";
 import { submitReport } from "@/lib/reports/submit";
 import { cleanupReportFixtures, seedShow } from "@/tests/reports/_dbHelpers";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 function runPsql(sql: string): string {
   return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", databaseUrl], {

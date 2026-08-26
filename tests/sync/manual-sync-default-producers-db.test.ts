@@ -4,8 +4,9 @@ import { describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
 import { runManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
 import type { ProcessOneFileDeps } from "@/lib/sync/runScheduledCronSync";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 
 function fileMeta(driveFileId: string): DriveListedFile {
   return {
@@ -50,7 +51,7 @@ describe("runManualSyncForShow default-path real DB producers", () => {
   test.skipIf(!DB_URL)(
     "hard_fail emits one PARSE_ERROR_LAST_GOOD occurrence on the default processOneFile path",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `hard-fail-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const driveFileId = `drive-${suffix}`;
       let showId: string | undefined;
@@ -104,7 +105,7 @@ describe("runManualSyncForShow default-path real DB producers", () => {
   test.skipIf(!DB_URL)(
     "drive_error emits one DRIVE_FETCH_FAILED occurrence on the default processOneFile path",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `drive-error-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const driveFileId = `drive-${suffix}`;
       let showId: string | undefined;

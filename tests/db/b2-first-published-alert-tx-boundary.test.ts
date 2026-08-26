@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import postgres, { type Sql } from "postgres";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 // R3 (adversarial, HIGH) real-DB regression. The first-seen auto-publish apply tail emits
 // SHOW_FIRST_PUBLISHED via lib/sync/applyStaged.ts's DEFAULT `firstPublishedTailDeps` writer. R2/R3
@@ -14,10 +15,9 @@ import postgres, { type Sql } from "postgres";
 // FK-fails (or deadlocks against the apply tx that is itself blocked on the synchronous tail) — either
 // way the whole approval rolls back. The fix routes the write through tx.queryOne on the apply tx.
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // The EXACT statement applyStaged's default firstPublishedTailDeps writer runs (lib/sync/applyStaged.ts).
 // Pinning the literal ties this regression to the production statement, not a paraphrase.

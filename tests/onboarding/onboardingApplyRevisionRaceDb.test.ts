@@ -6,6 +6,7 @@ import {
   revisionTimesMatch,
   type PendingSyncForApplyRow,
 } from "@/lib/sync/applyStaged";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 /**
  * REAL-DB integration test for the onboarding apply revision-race FALSE POSITIVE
@@ -34,8 +35,9 @@ import {
  * Postgres is unreachable the suite skips with a clear message rather than
  * failing in environments without a local stack.
  */
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // Mirrors defaultReadWizardPendingSyncForApply's SELECT exactly so the read
 // boundary (and thus the postgres.js timestamptz->Date coercion) is identical.

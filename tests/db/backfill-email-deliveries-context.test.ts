@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import postgres from "postgres";
 import { describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 const MIGRATION_PATH =
   "supabase/migrations/20260612000000_backfill_email_deliveries_context_scalar.sql";
 
@@ -14,7 +15,7 @@ describe("backfill_email_deliveries_context_scalar migration", () => {
   test.skipIf(!DB_URL)(
     "parses string-scalar context rows back into objects, idempotently",
     async () => {
-      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const sql = postgres(assertLocalDbUrl(DB_URL!), { max: 1, prepare: false });
       const suffix = `ctx-backfill-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const recipient = `notify-${suffix}@example.com`;
       const migrationSql = readFileSync(MIGRATION_PATH, "utf8");

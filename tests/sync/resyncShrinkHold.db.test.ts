@@ -10,6 +10,7 @@ import {
   runManualSyncForShow,
   type RunManualSyncForShowDeps,
 } from "@/lib/sync/runManualSyncForShow";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 /**
  * Task 7 — DB-backed end-to-end validation of the re-sync material-shrink HOLD (audit finding #3),
@@ -25,12 +26,13 @@ import {
  *
  * DB convention mirrors tests/onboarding/finalizeCasDougEditSelfHeal.db.test.ts: the pipeline
  * openers commit their own tx (withPostgresSyncPipelineLock), so seeding is COMMITTED and cleaned
- * up by drive_file_id prefix rather than rolled back. `test.skipIf(!process.env.TEST_DATABASE_URL)`
+ * up by drive_file_id prefix rather than rolled back. `test.skipIf(!process.env.DATABASE_URL)`
  * gates the whole suite; a reachability probe additionally skips when no local Postgres answers.
  */
 
-const LOCAL_URL =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const FOLDER = "resync-shrink-hold-folder";
 const DRIVE_PREFIX = "drive-rsh-";
@@ -144,7 +146,7 @@ try {
   dbUp = false;
 }
 
-const shouldRun = Boolean(process.env.TEST_DATABASE_URL) && dbUp;
+const shouldRun = Boolean(process.env.DATABASE_URL) && dbUp;
 
 function one<T = Record<string, unknown>>(rows: unknown): T {
   return (rows as T[])[0]!;

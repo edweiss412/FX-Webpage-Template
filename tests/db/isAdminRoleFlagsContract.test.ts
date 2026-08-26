@@ -23,14 +23,14 @@
  */
 import postgres, { type Sql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 // Its OWN short-lived connection, deliberately NOT the shared `sqlClient`
 // exported by ./_b2Helpers: ending a shared client in afterAll would close it
 // out from under every other db test in the run.
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 const sql: Sql = postgres(DB_URL, { max: 1, prepare: false });
 
 const ADMIN_CLAIMS = JSON.stringify({

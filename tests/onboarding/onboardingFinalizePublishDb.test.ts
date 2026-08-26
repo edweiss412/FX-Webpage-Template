@@ -3,6 +3,7 @@ import postgres from "postgres";
 
 import { PostgresOnboardingScanTx, type PostgresTransaction } from "@/lib/sync/runOnboardingScan";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 /**
  * REAL-DB end-to-end test for the M12 Phase 0.F smoke-3 finalize 500 (5th
@@ -22,8 +23,9 @@ import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/ro
  *
  * Runs against local Supabase. Skips cleanly if Postgres is unreachable.
  */
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const databaseUrl = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "5e5e5e5e-2222-4222-8222-5e5e5e5e5e5e";
 const FOLDER = "finalize-publish-db-folder";

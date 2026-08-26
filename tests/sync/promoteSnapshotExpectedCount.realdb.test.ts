@@ -31,11 +31,11 @@ import { EXPECTED_ASSET_NAMES_SQL } from "@/lib/sync/promoteSnapshot";
 import { withPromoteLock } from "@/lib/sync/lockedPromoteTx";
 import { withShowLock, type LockableSyncTx } from "@/lib/sync/lockedShowTx";
 import { premise } from "@/tests/_shared/premise";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB_URL = assertLocalDbUrl(
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // not-subject-to-meta: test-only fixture connection against the local stack;
 // faults fail the test directly rather than needing a typed infra result.

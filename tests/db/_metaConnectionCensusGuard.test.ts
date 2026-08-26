@@ -37,9 +37,11 @@ import {
   SOURCE_EXTENSIONS,
   propagateThroughImports,
   reconcileDispositions,
+  reconcileValidationEnv,
   renderReport,
 } from "./_connectionCensus";
 import { CONNECTION_CENSUS_DISPOSITIONS } from "./_connectionCensusDispositions";
+import { VALIDATION_ENV_ALLOWLIST } from "./_validationEnvAllowlist";
 
 const ROOT = process.cwd();
 const TESTS_ROOT = join(ROOT, "tests");
@@ -192,6 +194,7 @@ const inheritingFiles = [...propagation.classes.entries()].filter(
   ([file, classes]) => classes.size > 0 && !connectingFiles.includes(file),
 );
 const reported = attachAffected(reconciliation.undisposed, propagation.affected);
+const validationEnv = reconcileValidationEnv(records, VALIDATION_ENV_ALLOWLIST);
 
 describe("connection census — the live tree", () => {
   test("the population premises hold, so every assertion below ranges over a real corpus", () => {
@@ -283,9 +286,46 @@ describe("connection census — the live tree", () => {
       "tests/e2e/helpers/devCaptureStaged.ts galleryDatabaseUrl(dsn)",
     ]);
 
+    // The B2 helper was the named instance of the 2026-08-26 defect: it resolved
+    // `TEST_DATABASE_URL ?? DATABASE_URL ?? loopback`, so in any shell that had exported the
+    // parity variable its seed-and-publish suites wrote to the validation deployment and
+    // tripped that project's notify cron. Pinned as guard-bound, in the same place the old
+    // expectation pinned it as validation-env, so a regression to the old resolution reds
+    // here as well as in the allowlist arm.
     const b2 = records.find((r) => r.file === "tests/db/_b2Helpers.ts");
     premise("sites in tests/db/_b2Helpers.ts", b2?.sites.length ?? 0, 0);
-    expect([...new Set(b2?.sites.map((s) => s.cls))]).toEqual(["validation-env"]);
+    expect([...new Set(b2?.sites.map((s) => s.cls))]).toEqual(["guard-bound"]);
+  });
+
+  test("no file outside the validation allowlist opens a connection on TEST_DATABASE_URL", () => {
+    // The defect this arm exists to stop: `.env.local` points TEST_DATABASE_URL at the
+    // REMOTE validation project on purpose (the parity gates need a validation
+    // credential), so any suite whose URL resolution consults it seeds and publishes on
+    // that deployment the moment a shell has the variable exported. Validation runs the
+    // notify cron, which sends REAL email — nine alerts on 2026-08-26, 01:10 to 03:10 CDT.
+    //
+    // Two premises, because this arm has a tautological version. The allowlist must be
+    // non-empty (an arm that permits nothing and finds nothing is not discriminating),
+    // and the corpus must actually contain permitted validation-env sites — otherwise the
+    // classifier could have stopped recognising the class altogether and this would still
+    // read green.
+    premise("allow rows", VALIDATION_ENV_ALLOWLIST.length, 0);
+    premise("validation-env sites in the corpus", counts["validation-env"], 0);
+    expect(
+      validationEnv.unallowed.map((r) => `${r.file}:${r.line} ${r.site}`),
+      "these files build a postgres connection from TEST_DATABASE_URL (the REMOTE validation " +
+        "project) and are not in tests/db/_validationEnvAllowlist.ts. Resolve the URL locally " +
+        "instead: assertLocalDbUrl(process.env.DATABASE_URL ?? <loopback>).",
+    ).toEqual([]);
+  });
+
+  test("every allow row still names a file that has a validation-env site, and says why", () => {
+    // A row goes stale the moment its file is repaired, moved or deleted. Left standing,
+    // it is a permanent hole waiting for a site to come back under it.
+    expect(validationEnv.stale, "stale allow rows in tests/db/_validationEnvAllowlist.ts").toEqual(
+      [],
+    );
+    expect(validationEnv.inadmissible, "allow rows with a blank reason").toEqual([]);
   });
 
   test("the three devCaptureStaged consumers inherit `dispositioned` and appear in no report", () => {
