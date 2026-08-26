@@ -228,15 +228,19 @@ describe("plant 4 — the body is never read and never cloned", () => {
   test("a recorded 502 reaches the consumer with its stream intact", async () => {
     const { seen, onObserve } = collector();
     const body = '{"message":"An invalid response was received from the upstream server"}';
-    const fetchFn = makeObservingFetch(async () => new Response(body, { status: 502 }), {
-      baseUrl: BASE,
-      onObserve,
-    });
+    const original = new Response(body, { status: 502 });
+    const fetchFn = makeObservingFetch(async () => original, { baseUrl: BASE, onObserve });
 
     const res = await fetchFn(RPC, { method: "POST" });
 
-    // Unconsumed on arrival, and fully readable at the far end. Together these are what the
-    // consumer depends on; either alone can hold while the other is broken.
+    // IDENTITY FIRST, and round-3 review probed why the rest is not enough on its own: an
+    // observer returning `response.clone()` satisfies `bodyUsed === false` AND a full read at the
+    // far end, so this case would have passed the exact regression it claims to catch. A clone is
+    // a different object carrying the same bytes, and the consumer's stream is not the one the
+    // observer left alone. Only identity separates the two.
+    expect(res).toBe(original);
+    // Unconsumed on arrival, and fully readable at the far end. Kept because they pin what the
+    // consumer actually depends on, now that identity pins WHICH object it depends on.
     expect(res.bodyUsed).toBe(false);
     expect(await res.text()).toBe(body);
     expect(seen).toHaveLength(1);
@@ -248,21 +252,19 @@ describe("plant 4 — the body is never read and never cloned", () => {
     // reads or clones it, the consumer's read here returns empty or throws.
     const { onObserve } = collector();
     const chunk = new TextEncoder().encode('{"rows":[]}');
-    const fetchFn = makeObservingFetch(
-      async () =>
-        new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.enqueue(chunk);
-              controller.close();
-            },
-          }),
-          { status: 502 },
-        ),
-      { baseUrl: BASE, onObserve },
+    const oneShot = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(chunk);
+          controller.close();
+        },
+      }),
+      { status: 502 },
     );
+    const fetchFn = makeObservingFetch(async () => oneShot, { baseUrl: BASE, onObserve });
 
     const res = await fetchFn(RPC, { method: "POST" });
+    expect(res).toBe(oneShot);
     expect(await res.text()).toBe('{"rows":[]}');
   });
 });

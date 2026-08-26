@@ -40,43 +40,46 @@ The row's first scheduled step (`BACKLOG.md:644`) poses a two-way choice: extend
 
 ### 2.0 Population and counting unit
 
-**The population is COMPLETE: all ten run IDs the row cites, across all twelve job attempts.** There is no exclusion rule, because round 2 showed that any exclusion rule I could state was doing work the evidence should do. The first draft excluded four IDs as "unattributed" and one of them, `32557812890`, turned out to be a third occurrence of the very case the conclusion rested on.
+**The population is COMPLETE: all ten run IDs the row cites, across all twelve job attempts.** There is no exclusion rule, because round 2 showed that any rule I could state was doing work the evidence should do: the first draft excluded four IDs as "unattributed" and one of them, `32557812890`, was a third occurrence of the very case the conclusion rested on.
 
-**Counting unit.** One Node error object prints across several lines (`message`, `stack`, a nested `error`, plus the reporter's `⨯` line), so counting `upstream server` LINES overcounts. Faults are deduplicated by timestamp second, which reconciles with the committed probe from `fix/admin-loader-ci-transient` where a raw line count did not: 2 events for `32786399563` attempt 1, against 3 raw lines.
+**The counting rule is the committed probe's, adopted rather than reinvented.** `docs/superpowers/specs/ci/probes/2026-08-24-admin-loader-502-clustering.md:164` states it: a genuine 502 is a line containing `An invalid response was received from the upstream server`; events are keyed by **(timestamp-second, consumer)**, so one fault printing several lines counts once; and the consumer is read from the same line when it names an RPC, otherwise from the most recent preceding log-object header, otherwise `unattributed`.
 
-**What this measurement is NOT.** It observes faults that some consumer chose to LOG. It cannot see a fault a consumer swallowed, so it establishes a floor and nothing about the true distribution. That is not incidental to this arc: it is `BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY` restated as a number, and §5 is what removes it. §2.2 is careful about exactly this.
+The first draft keyed on the SECOND alone and matched only two message shapes. Round 3 showed what that cost: it collapsed distinct consumers sharing a second, and it missed every fault whose consumer is named by a log-object header rather than inline. Two log-object headers appear in these runs and both resolve to an RPC — `ADMIN_SHOW_VERSION_TOKEN_READ_FAILED` to `viewer_version_token` and `ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED` to `readfinalizeowned_b2`, both at `app/admin/_showReviewModal.tsx:142` and `app/admin/_showReviewModal.tsx:188`.
 
-### 2.1 The complete attribution table
+**What this measurement is NOT.** It observes faults that some consumer chose to LOG. It cannot see a fault a consumer swallowed, so it establishes a floor and nothing about the true distribution. That is not incidental to this arc: it is `BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY` restated as a number, and §5 removes it. §2.2 is careful about exactly this.
 
-Extracted uniformly across all twelve attempts: the failing member, and every mechanism the job log NAMES.
+### 2.1 The complete table
 
-| Run | Failing member | Mechanism named in the log |
-|---|---|---|
-| 32557812890 | `notify-toggles:168` | `is_session_live` |
-| 32561531983 | `admin-parse-panel:245` | `is_session_live` |
-| 32563705156 | `warning-panel-polish:275` | `is_admin`, `admin_read_share_token` |
-| 32564772189 | `needs-attention-page:181` | `is_session_live` |
-| 32571008405 | `published-show-attention:138`, `telemetry-layout:170` | `admin_read_share_token` |
-| 32572200250 | `notify-toggles:168` | `is_admin` |
-| 32573475808 | `telemetry-layout:170` | `admin_read_share_token` |
-| 32587470121 | `notify-toggles:168` | `is_admin`, `admin_read_share_token` |
-| 32763990640 a1 | `admin-settings-admins-refresh:91`, `needs-attention-page:223` | `is_admin`, `is_session_live` |
-| 32763990640 a2 | `admin-changes-feed-layout:118` | `is_session_live` |
-| 32786399563 a1 | `admin-settings-admins-refresh:91` | `is_admin`, `admin_read_share_token` |
-| 32786399563 a2 | none (this attempt went green) | none |
+Every attempt, its failing member, its 502 event count and every consumer named, under the rule above.
 
-**Eleven attempts fail. All eleven name at least one of exactly three functions, and none names anything else.** The three are `is_admin`, `is_session_live` and `admin_read_share_token`, and all three are members of `RETRYABLE_RPCS` (`lib/supabase/retryEligibility.ts:29`, `lib/supabase/retryEligibility.ts:33`, `lib/supabase/retryEligibility.ts:27`), so all three are inside the eligibility bound `lib/supabase/retryingFetch.ts` absorbs.
+| Run | Failing member | 502 events | Consumers named |
+|---|---|---|---|
+| 32557812890 | `notify-toggles:168` | 2 | `is_session_live`, `viewer_version_token` |
+| 32561531983 | `admin-parse-panel:245` | 4 | `is_session_live`, `viewer_version_token`, `readfinalizeowned_b2` |
+| 32563705156 | `warning-panel-polish:275` | 2 | `is_admin`, `admin_read_share_token` |
+| 32564772189 | `needs-attention-page:181` | 3 | `is_session_live`, `get_admin_show_review_snapshot` |
+| 32571008405 | `published-show-attention:138`, `telemetry-layout:170` | 3 | `admin_read_share_token`, `get_admin_show_review_snapshot` |
+| 32572200250 | `notify-toggles:168` | 3 | `is_admin`, `viewer_version_token`, `readfinalizeowned_b2` |
+| 32573475808 | `telemetry-layout:170` | 4 | `admin_read_share_token`, `viewer_version_token`, `readfinalizeowned_b2` |
+| 32587470121 | `notify-toggles:168` | 3 | `is_admin`, `admin_read_share_token`, `readfinalizeowned_b2` |
+| 32763990640 a1 | `admin-settings-admins-refresh:91`, `needs-attention-page:223` | 2 | `is_admin`, `is_session_live` |
+| 32763990640 a2 | `admin-changes-feed-layout:118` | 6 | `is_session_live`, `viewer_version_token`, `get_admin_show_review_snapshot` |
+| 32786399563 a1 | `admin-settings-admins-refresh:91` | 2 | `is_admin`, `admin_read_share_token` |
+| 32786399563 a2 | none (this attempt went GREEN) | 2 | `is_developer`, `viewer_version_token` |
 
-Two corrections to the row's own text follow from this table, and both matter:
+**Thirty-six events across twelve attempts, naming SEVEN distinct functions, and every one of the seven is a member of `RETRYABLE_RPCS`** (`lib/supabase/retryEligibility.ts:25-40`): `is_admin`, `is_session_live`, `is_developer`, `admin_read_share_token`, `get_admin_show_review_snapshot`, `viewer_version_token`, `readfinalizeowned_b2`. Not one consumer falls outside the set `lib/supabase/retryingFetch.ts` absorbs.
 
-- **The row calls three of these occurrences unattributed.** They are not. `32561531983`, `32563705156` and `32564772189` each name a `requireAdmin` RPC 502 in the job log. What was true is that nobody had read the logs.
-- **`telemetry-layout` is not undiagnosable.** Both its runs name `admin_read_share_token`. The first draft of this spec said it named no mechanism, which was an artefact of a narrower grep, not a property of the runs.
+Three corrections to the row's own text follow, and the first two are the reason this table exists:
+
+- **The row calls three occurrences unattributed.** They are not. `32561531983`, `32563705156` and `32564772189` each name consumers in the log. What was true is that nobody had read the logs.
+- **`telemetry-layout` is not undiagnosable.** Both its runs name consumers. Earlier drafts of this spec said otherwise, which was an artefact of a narrower extraction rule, not a property of the runs.
+- **The last row is the useful one.** `32786399563` attempt 2 carried two 502 events and went GREEN. A fault is not a failure.
 
 ### 2.2 What the table does and does not license
 
-**It does not establish causation, and this spec does not claim it.** Round 2 was right on the point and the reason is in this arc's own §9.2: the `app_settings` UPDATE returns `{ ok: false }` without logging, and `components/admin/settings/NotifyToggle.tsx:99-102` ignores that result. A failed write is therefore invisible, so "the log names only these three RPCs" cannot exclude an unlogged write fault or another dark round-trip. No request identifier ties a logged RPC line to a failed action.
+**It does not establish causation, and this spec does not claim it.** The reason is in this arc's own §9.2: the `app_settings` UPDATE returns `{ ok: false }` without logging, and `components/admin/settings/NotifyToggle.tsx:99-102` ignores that result. A failed write is invisible, so "the log names only retryable RPCs" cannot exclude an unlogged write fault or another dark round-trip. No request identifier ties a logged consumer to a failed assertion, and the green attempt above shows a named fault need not correspond to any failure at all.
 
-**What it does license** is the strongest statement the evidence supports: across two PRs, several branches and twelve attempts, **every mechanism anyone can name for this class is a now-retryable RPC, and no attempt names any other mechanism at all.** That is a complete absence of evidence for a second mechanism, which is not the same as evidence of its absence, and §3 is built on the weaker of those two readings.
+**What it does license** is the strongest statement the evidence supports: across two PRs, several branches and twelve attempts, **every consumer anyone can name for this class is a now-retryable RPC, and no attempt names a consumer outside that set.** That is a complete absence of evidence for a second mechanism, which is not the same as evidence of its absence, and §3 is built on the weaker of those two readings.
 
 ### 2.3 What the positions do and do not show
 
@@ -104,11 +107,11 @@ The first draft refuted bootstrap hardening on three grounds and all three were 
 
 Two facts, and the second is the one that decides it.
 
-**Every mechanism the class's complete evidence names is already absorbed.** All eleven failing attempts name one of three RPCs, all now retryable (§2.1). Whatever else is true, the row's own evidence contains no request that #882's wrapper does not already cover.
+**Every consumer the class's complete evidence names is already absorbed.** Thirty-six 502 events across twelve attempts name seven distinct functions, and all seven are retryable (§2.1). Whatever else is true, the row's own evidence contains no consumer that #882's wrapper does not already cover.
 
 **And no remaining member's failure can be ATTRIBUTED well enough to choose a repair.** §2.2 is explicit that the association is not causation, and §9.2 names the dark path that keeps it from being one. Taking the three remaining members in turn:
 
-- **`notify-toggles`** has three occurrences across three branches, each naming only a now-retryable RPC and nothing else. Whether those RPCs CAUSED the failures is exactly what nobody can currently establish.
+- **`notify-toggles`** has three occurrences across three branches, each naming only now-retryable consumers and nothing else. Whether any of them CAUSED the failures is exactly what nobody can currently establish, and §2.1 closes with an attempt that named two faults and went green.
 - **`telemetry-layout`** and **`published-show-attention`** are dropped batch-2 members. Neither appears in any workflow, both are `UNSEEN` in `tests/ci/_metaE2eWorkflowCoverage.test.ts:186` and `tests/ci/_metaE2eWorkflowCoverage.test.ts:218`, and their restoration is batch 3's first question (`BACKLOG.md:623`), out of this arc's scope.
 
 **A repair cannot be chosen for a failure whose mechanism nobody can name.** Extending the recovery and hardening the bootstrap are both answers to a question the evidence does not yet ask precisely enough: one presumes a page-segment boundary is where the failure lands, the other presumes the runner's setup is. Nothing in §2 distinguishes them, and §3.1 records why the first draft's attempt to distinguish them was wrong.
@@ -121,13 +124,19 @@ So the row closes on its DISPOSITION, and the disposition is that its remainder 
 2. `telemetry-layout` and `published-show-attention` are recorded as a documented limit on the batch-2 spec's limits section, with their run ids, and NOT as a new ledger row (Eric's directive). That entry is at `docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md` §9.
 3. The two-way recovery choice is RETIRED as undecidable on current evidence, with §3.1's correction written in so nobody re-refutes bootstrap hardening on the boot-and-seed argument.
 
-The ratification was given on the earlier and weaker justification that #882 had absorbed the remainder; the orchestrator was told when §2.2 replaced it with this one. The observability deliverable (§5, §6, §7) is unaffected and is what this arc ships.
+**RE-RATIFIED on the new basis**, verbatim, after §2.2 replaced the earlier and weaker justification that #882 had absorbed the remainder:
+
+> `BL-ADMIN-LOADER-CI-TRANSIENT` closes because its remaining member is UNATTRIBUTABLE on current evidence (3-for-3 association with retryable RPCs across runs 32572200250, 32587470121, 32557812890, no causation, a dark `app_settings` path that logs nothing), not because #882 absorbed it; the two-way recovery choice retires as undecidable, and OBSERVABILITY is the precondition for ever attributing it.
+
+The observability deliverable (§5, §6, §7) is unaffected and is what this arc ships.
 
 ### 3.3 What the next occurrence needs, which is what this arc builds
 
-The reason the paragraph above took a full review round to reach is that every attribution in §2.1 came from a consumer that happened to print its error message, and three of the nine rows name no mechanism at all. Two of those three are `telemetry-layout`, whose loader produced no diagnostic whatsoever.
+Every consumer in §2.1 is named only because some code path happened to log its error message, and §2.2 records what that cannot support. The gap is not that the logs are silent; it is that they are ARBITRARY. A consumer that logs appears, a consumer that swallows does not, and nothing distinguishes "this request did not fault" from "this request's fault was discarded". §9.1 and §9.2 name two swallowing paths that are live today.
 
 That is the gap `BL-SUPABASE-UPSTREAM-FAULT-OBSERVABILITY` names, and closing it is what makes the NEXT occurrence a reading rather than an inference. §5 through §7 are that work.
+
+---
 
 ## 4. What this arc ships, and what it does not
 
