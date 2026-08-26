@@ -211,7 +211,19 @@ export function PublishedToggle({
       // the accessibility tree exactly when an operator needs to read it, and
       // out of every unit test. Leave it unpositioned and VISIBLE, which is
       // what ShareHub does at ShareHub.tsx:293-302.
-      if (triggerRect.width === 0 || naturalRect.width === 0) return null;
+      // WIDTH **OR HEIGHT**, on BOTH rects. Guarding width alone let a
+      // zero-HEIGHT trigger or overlay through to the core, which correctly
+      // calls it degenerate and returns `kind: "hidden"` — the exact opposite
+      // of AC-11, which requires an unmeasurable geometry to stay VISIBLE and
+      // unpositioned. Caught by cross-model diff review round 1, which probed
+      // the core directly on both shapes.
+      if (
+        triggerRect.width <= 0 ||
+        triggerRect.height <= 0 ||
+        naturalRect.width <= 0 ||
+        naturalRect.height <= 0
+      )
+        return null;
       return placeWithinVisibleViewport(window, {
         hostRect: hostRectOrNull,
         trigger: toRect(triggerRect),
@@ -222,7 +234,22 @@ export function PublishedToggle({
         warnKey: body,
       });
     });
-    if (placement === null) return;
+    if (placement === null) {
+      // A degenerate measurement CLEARS any prior placement rather than
+      // returning bare. A bare return kept whatever the last successful pass
+      // wrote — `visibility: hidden`, stale coordinates, a stale cap, a stale
+      // side — so an overlay could stay invisible or mispositioned with no new
+      // diagnostic, which violates the correct-or-signalled bound in the very
+      // case the bound exists for. Unpositioned and VISIBLE is AC-11's
+      // disposition, and that is now what the caller actually gets.
+      body.style.visibility = "";
+      body.style.removeProperty("left");
+      body.style.removeProperty("top");
+      body.style.removeProperty("max-height");
+      body.style.removeProperty("max-width");
+      delete body.dataset["popoverSide"];
+      return;
+    }
     if (placement.kind === "hidden") {
       body.style.visibility = "hidden";
       delete body.dataset["popoverSide"];

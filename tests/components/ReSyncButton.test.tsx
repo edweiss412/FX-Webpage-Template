@@ -576,33 +576,66 @@ describe("ReSyncButton", () => {
   // independent nodes each get their own placement effect, and "two of three
   // migrated" is the documented half-done failure mode this file already warns
   // about for the skin tokens.
-  test("all three overlays portal into the popover host, not into the strip", async () => {
-    const hostEl = document.createElement("div");
-    document.body.appendChild(hostEl);
-    const anchor = document.createElement("div");
-    document.body.appendChild(anchor);
-    const hostRef = { current: hostEl };
-    const anchorRef = { current: anchor };
-    try {
-      fetchMock.mockResolvedValue({
-        json: async () => ({ ok: false, error: "SHOW_BUSY_RETRY" }),
-      } as unknown as Response);
-      const { getByTestId, findByTestId } = render(
-        <PopoverHostContext.Provider value={hostRef}>
-          <ReSyncButton slug="my-show" anchorRef={anchorRef} />
-        </PopoverHostContext.Provider>,
-      );
-      fireEvent.click(getByTestId("admin-resync-button"));
-      const panel = await findByTestId("admin-resync-error");
-      expect(panel.parentElement, "the error overlay is a child of the HOST").toBe(hostEl);
-      // Degenerate measurement (jsdom): intercepted and left VISIBLE, never
-      // hidden. A pending decision about the show's data must stay readable.
-      expect(panel.style.visibility).not.toBe("hidden");
-    } finally {
-      hostEl.remove();
-      anchor.remove();
-    }
-  });
+  // PER BRANCH, and the name is the reason. Diff review round 1 (P2) caught the
+  // first version driving only SHOW_BUSY_RETRY while claiming "all three":
+  // production has three INDEPENDENT `createPortal` sites and three independent
+  // refs, so shrink-confirm or success could stay unported and a single-branch
+  // case would pass. That is the same "relocating two of three is the documented
+  // half-done failure mode" this file already warns about for the skin tokens,
+  // and the browser backstop that would otherwise catch it was itself broken by
+  // the stale-locator finding in the same round.
+  const PORTAL_BRANCHES = [
+    {
+      name: "error",
+      testid: "admin-resync-error",
+      body: { ok: false, error: "SHOW_BUSY_RETRY" },
+    },
+    {
+      name: "shrink confirm",
+      testid: "admin-resync-shrink-confirm",
+      body: {
+        ok: true,
+        result: { outcome: "shrink_held", detail: "crew 5→2", heldModifiedTime: "T1" },
+      },
+    },
+    {
+      name: "success",
+      testid: "admin-resync-success",
+      body: { ok: true, result: { outcome: "applied" } },
+    },
+  ] as const;
+
+  for (const branch of PORTAL_BRANCHES) {
+    test(`the ${branch.name} overlay portals into the popover host, not into the strip`, async () => {
+      const hostEl = document.createElement("div");
+      document.body.appendChild(hostEl);
+      const anchor = document.createElement("div");
+      document.body.appendChild(anchor);
+      const hostRef = { current: hostEl };
+      const anchorRef = { current: anchor };
+      try {
+        fetchMock.mockResolvedValue({
+          json: async () => branch.body,
+        } as unknown as Response);
+        const { getByTestId, findByTestId } = render(
+          <PopoverHostContext.Provider value={hostRef}>
+            <ReSyncButton slug="my-show" anchorRef={anchorRef} />
+          </PopoverHostContext.Provider>,
+        );
+        fireEvent.click(getByTestId("admin-resync-button"));
+        const panel = await findByTestId(branch.testid);
+        expect(panel.parentElement, `the ${branch.name} overlay is a child of the HOST`).toBe(
+          hostEl,
+        );
+        // Degenerate measurement (jsdom): intercepted and left VISIBLE, never
+        // hidden. A pending decision about the show's data must stay readable.
+        expect(panel.style.visibility).not.toBe("hidden");
+      } finally {
+        hostEl.remove();
+        anchor.remove();
+      }
+    });
+  }
 
   test("overlay keeps the CSS cap when nothing clips it", async () => {
     fetchMock.mockResolvedValue({

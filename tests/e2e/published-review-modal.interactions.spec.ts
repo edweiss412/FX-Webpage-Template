@@ -630,7 +630,11 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
   // reach on demand, and the subject under test is the OVERLAY, not the route.
 
   const RESYNC = '[data-testid="admin-resync-button"]';
+  // The strip DOCKED to the footer (spec 2026-08-25-review-modal-strip-dock
+  // §3.1). SUBHEADER is kept ONLY to assert the band is gone; every rect and
+  // locator below reads FOOTER.
   const SUBHEADER = `[data-testid="${BASE}-subheader"]`;
+  const FOOTER = `[data-testid="${BASE}-footer"]`;
   /** Deliberately long so the shrink panel genuinely overflows its cap — a
    *  short payload makes "internal scroll" vacuous. Sized generously on
    *  purpose: the panel spans the FULL BAND WIDTH (~1200px at the popup
@@ -662,15 +666,18 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
   /** Rect of every element the overlay must not disturb (§6.7: the panels
    *  reserve NO layout space, which is the entire point of the relocation). */
   async function bandAndBodyRects(page: Page) {
-    return page.evaluate((subSel) => {
-      const band = document.querySelector(subSel)!;
-      const body = band.nextElementSibling!;
+    return page.evaluate((footSel) => {
+      const band = document.querySelector(footSel)!;
+      // PREVIOUS sibling, not next: the footer is the panel's LAST child since
+      // the dock, so the body sits above it. `nextElementSibling` is null here
+      // and would throw on the non-null assertion.
+      const body = band.previousElementSibling!;
       const r = (el: Element) => {
         const b = el.getBoundingClientRect();
         return { top: b.top, height: b.height };
       };
       return { band: r(band), body: r(body) };
-    }, SUBHEADER);
+    }, FOOTER);
   }
 
   test("T-OVERLAY: the shrink confirm anchors to the BAND and its focused control is genuinely topmost", async ({
@@ -764,14 +771,21 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     // popover's exact anchoring + z-index stands in for it. This pins the
     // stacking RULE (§6.7: the Re-sync overlay renders ABOVE the popover),
     // which is what an unspecified `z-*` would silently break.
-    await page.evaluate((subSel) => {
+    await page.evaluate((panelSel) => {
       const decoy = document.createElement("div");
       decoy.id = "popover-decoy";
-      decoy.className = "absolute inset-x-0 top-full z-40";
+      // The decoy stands in for the publish popover, so it must carry the
+      // popover's CURRENT shape and live where the popover now lives: portaled
+      // into the panel with `absolute z-banner`, not anchored to a band with
+      // `inset-x-0 top-full`. A decoy still wearing the old skin would test a
+      // stacking contest against an element the app no longer produces.
+      decoy.className = "absolute z-banner w-full";
+      decoy.style.top = "0px";
+      decoy.style.left = "0px";
       decoy.style.height = "400px";
       decoy.style.background = "red";
-      document.querySelector(subSel)!.appendChild(decoy);
-    }, SUBHEADER);
+      document.querySelector(panelSel)!.appendChild(decoy);
+    }, PANEL);
     await expect(keep, "focus is unchanged by the decoy").toBeFocused();
     expect(
       await topmost(),
@@ -861,14 +875,14 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
   // right edge drifts off the band's content edge, and one that overflows a
   // 390px phone.
   for (const width of [390, 1280]) {
-    test(`T-HUB-POPOVER @ ${width}: 308px, below the triggers, right-aligned, inside the modal`, async ({
+    test(`T-HUB-POPOVER @ ${width}: 308px, above the triggers, right-aligned, inside the modal`, async ({
       page,
     }) => {
       await openModal(page, { width, height: 900 });
       await page.getByTestId("share-hub-primary").click();
       await expect(page.getByTestId("share-hub-popover")).toBeVisible();
 
-      const geo = await page.locator(SUBHEADER).evaluate((band) => {
+      const geo = await page.locator(FOOTER).evaluate((band) => {
         const pop = document.querySelector('[data-testid="share-hub-popover"]');
         const group = band.querySelector('[data-testid="share-hub-group"]');
         const primary = band.querySelector('[data-testid="share-hub-primary"]');
@@ -881,9 +895,11 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         return {
           popWidth: p.width,
           popTop: p.top,
+          popBottom: p.bottom,
           popRight: p.right,
           popLeft: p.left,
           groupBottom: group.getBoundingClientRect().bottom,
+          groupTop: group.getBoundingClientRect().top,
           contentRight: bandRect.right - padRight,
           primaryHeight: primary.getBoundingClientRect().height,
           kebabW: k.width,
@@ -901,10 +917,14 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         expectedWidth,
         0,
       );
+      // ABOVE the triggers since the dock: the hub sits in the footer, so there
+      // is no room below it and the placement module puts the popover above.
+      // The old assertion ("at/below the group bottom") was a property of the
+      // band position, not of the hub, and it inverts with the slot.
       expect(
-        geo!.popTop,
-        `popover top ${geo!.popTop} is at/below the trigger group bottom ${geo!.groupBottom}`,
-      ).toBeGreaterThanOrEqual(geo!.groupBottom - 1);
+        geo!.popBottom,
+        `popover bottom ${geo!.popBottom} is at/above the trigger group top ${geo!.groupTop}`,
+      ).toBeLessThanOrEqual(geo!.groupTop + 1);
       expect(
         Math.abs(geo!.popRight - geo!.contentRight),
         `popover right ${geo!.popRight} === band content-box right ${geo!.contentRight}`,
@@ -1139,17 +1159,21 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     // popover). The hub group is right-flushed by `ml-auto`, so a hub-then-
     // Re-sync DOM order still LOOKS correct while producing toggle → hub →
     // Re-sync. §10 makes DOM order the contract because tab order follows it.
-    const order = await page.evaluate((subSel) => {
-      const band = document.querySelector(subSel)!;
+    const order = await page.evaluate((footSel) => {
+      const band = document.querySelector(footSel)!;
       const focusables = Array.from(
         band.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"),
       );
       return focusables.map((el) => el.getAttribute("data-testid"));
-    }, SUBHEADER);
+    }, FOOTER);
+    // The retired band is GONE, not emptied — asserted here so this suite
+    // notices a resurrected subheader rather than silently reading the footer.
+    await expect(page.locator(SUBHEADER)).toHaveCount(0);
+
     const resync = order.indexOf("admin-resync-button");
     const copy = order.indexOf("share-hub-primary");
     const toggle = order.findIndex((t) => t !== null && t.startsWith("published-toggle"));
-    expect(resync, "Re-sync is focusable in the band").toBeGreaterThanOrEqual(0);
+    expect(resync, "Re-sync is focusable in the footer").toBeGreaterThanOrEqual(0);
     expect(copy, "the share-hub trigger is focusable in the band").toBeGreaterThan(resync);
     // The kebab follows its primary; both live in the same right-flushed group.
     expect(order.indexOf("share-hub-kebab"), "kebab follows the primary trigger").toBeGreaterThan(
@@ -1181,23 +1205,38 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       await page.locator(RESYNC).click();
       await expect(page.locator(`[data-testid="${expected[branch][0]}"]`)).toBeVisible();
 
-      const order = await page.evaluate((subSel) => {
-        const band = document.querySelector(subSel)!;
-        return Array.from(band.querySelectorAll<HTMLElement>("a[href], button"))
+      // Scoped to the PANEL, not the strip, and the contract is re-derived
+      // rather than re-pointed. This case asserted that the overlay's controls
+      // sit BETWEEN Re-sync and the hub trigger in DOM order, which was a
+      // property of the overlay being an in-band child. It is portaled into the
+      // panel now (spec §3.2a), so it is appended AFTER the footer and the
+      // "between" relation is false by construction — not broken, removed.
+      //
+      // What replaces it is the contract the portal actually provides, and it
+      // is the same one ShareHub and HoverHelp rely on: the controls are
+      // reachable inside the focus trap, and focus is MOVED into them on open
+      // rather than left to DOM adjacency. The move itself is asserted in
+      // T-OVERLAY (`keep` is focused, and topmost at its centre), so this case
+      // pins reachability and relative order without re-asserting focus.
+      const order = await page.evaluate((panelSel) => {
+        const panel = document.querySelector(panelSel)!;
+        return Array.from(panel.querySelectorAll<HTMLElement>("a[href], button"))
           .filter((el) => el.getClientRects().length > 0)
           .map((el) => el.getAttribute("data-testid"));
-      }, SUBHEADER);
+      }, PANEL);
 
       const resync = order.indexOf("admin-resync-button");
-      // share-hub T4: the trailing band control is the hub trigger, not Copy.
+      // share-hub T4: the trailing strip control is the hub trigger, not Copy.
       const copy = order.indexOf("share-hub-primary");
       expect(resync, "Re-sync present").toBeGreaterThanOrEqual(0);
       expect(copy, "share-hub trigger present").toBeGreaterThanOrEqual(0);
       for (const id of expected[branch]) {
         const idx = order.indexOf(id);
-        expect(idx, `${id} present in the band`).toBeGreaterThanOrEqual(0);
-        expect(idx, `${id} follows Re-sync`).toBeGreaterThan(resync);
-        expect(idx, `${id} precedes the share-hub trigger`).toBeLessThan(copy);
+        expect(idx, `${id} present and visible in the panel`).toBeGreaterThanOrEqual(0);
+        // The portal appends after the footer, so the overlay's controls follow
+        // BOTH strip controls. Asserting against the trailing one (the hub) is
+        // the strictly stronger of the two and subsumes Re-sync.
+        expect(idx, `${id} follows the strip's trailing control`).toBeGreaterThan(copy);
       }
     });
   }

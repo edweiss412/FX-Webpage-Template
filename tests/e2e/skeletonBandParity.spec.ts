@@ -204,6 +204,29 @@ for (const { mode, width, height } of VIEWPORTS) {
         ),
         "loaded body band",
       ).toHaveCount(1);
+
+      // THREE means three, in both directions. Diff review round 1 (P2) is
+      // right that the checks above only prove the three named bands EXIST: a
+      // skeleton that also kept the retired subheader would satisfy every one
+      // of them, and would satisfy B through E too, because the footer classes
+      // and heights it compares would still match. The case would report parity
+      // while the two columns had different shapes.
+      for (const state of ["skeleton", "loaded"] as const) {
+        await expect(
+          inState(page, state, "subheader"),
+          `${state}: the retired subheader band is GONE, not emptied`,
+        ).toHaveCount(0);
+        // And the panel carries no FOURTH band. Counted from the panel's own
+        // children rather than by naming what must be absent — an absence list
+        // only ever excludes what someone thought to name.
+        const bandCount = await panel(page, state).evaluate(
+          (el) =>
+            Array.from(el.children).filter((c) =>
+              /-(header|subheader|footer)$/.test(c.getAttribute("data-testid") ?? ""),
+            ).length,
+        );
+        expect(bandCount, `${state}: exactly header + footer, no third chrome band`).toBe(2);
+      }
     });
 
     // B — both slots are emitted by ReviewModalShell, so any difference means

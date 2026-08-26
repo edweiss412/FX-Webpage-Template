@@ -241,12 +241,18 @@ describe("refusal banner — transition inventory (§6)", () => {
 
   it("B↔C: exactly ONE node carries data-popover-side, written and cleared in one place", () => {
     const s = banner();
-    // One write, one delete. Two write sites would mean two nodes could carry
-    // the attribute at once, and a reader could not tell which side won.
+    // ONE WRITE is the discriminating claim: two write sites would mean two
+    // nodes could carry the attribute at once and a reader could not tell which
+    // side won. CLEARS are a different matter and are asserted as "at least
+    // one", deliberately loosened from "exactly one" — diff review round 1
+    // added a second clear on the degenerate path, where a bare return used to
+    // leave a stale side behind. Pinning the clear count would have made a
+    // correctness fix look like a regression, which is the wrong thing for a
+    // guard to do; what must stay unique is the write.
     const writes = s.match(/dataset\["popoverSide"\]\s*=/g) ?? [];
     const deletes = s.match(/delete\s+\w+\.dataset\["popoverSide"\]/g) ?? [];
     expect(writes, "exactly one write site for the side").toHaveLength(1);
-    expect(deletes, "exactly one clear site for the side").toHaveLength(1);
+    expect(deletes.length, "at least one clear site for the side").toBeGreaterThanOrEqual(1);
     // And exactly one PLACED node. Counting `data-testid` occurrences would be
     // wrong here and the first draft of this case got it wrong: the finalize
     // hint deliberately SHARES the popover testid while being an in-flow chip

@@ -149,7 +149,19 @@ function usePlacedOverlay(active: boolean, anchorRef?: RefObject<HTMLElement | n
       const naturalRect = body.getBoundingClientRect();
       // Degenerate (SSR, jsdom): nothing was measured, so leave it alone and
       // visible rather than hiding a pending decision about the show's data.
-      if (triggerRect.width === 0 || naturalRect.width === 0) return null;
+      // WIDTH **OR HEIGHT**, on BOTH rects. Guarding width alone let a
+      // zero-HEIGHT trigger or overlay through to the core, which correctly
+      // calls it degenerate and returns `kind: "hidden"` — the exact opposite
+      // of AC-11, which requires an unmeasurable geometry to stay VISIBLE and
+      // unpositioned. Caught by cross-model diff review round 1, which probed
+      // the core directly on both shapes.
+      if (
+        triggerRect.width <= 0 ||
+        triggerRect.height <= 0 ||
+        naturalRect.width <= 0 ||
+        naturalRect.height <= 0
+      )
+        return null;
       return placeWithinVisibleViewport(window, {
         hostRect: hostRectOrNull,
         trigger: toRect(triggerRect),
@@ -160,7 +172,22 @@ function usePlacedOverlay(active: boolean, anchorRef?: RefObject<HTMLElement | n
         warnKey: body,
       });
     });
-    if (placement === null) return;
+    if (placement === null) {
+      // A degenerate measurement CLEARS any prior placement rather than
+      // returning bare. A bare return kept whatever the last successful pass
+      // wrote — `visibility: hidden`, stale coordinates, a stale cap, a stale
+      // side — so an overlay could stay invisible or mispositioned with no new
+      // diagnostic, which violates the correct-or-signalled bound in the very
+      // case the bound exists for. Unpositioned and VISIBLE is AC-11's
+      // disposition, and that is now what the caller actually gets.
+      body.style.visibility = "";
+      body.style.removeProperty("left");
+      body.style.removeProperty("top");
+      body.style.removeProperty("max-height");
+      body.style.removeProperty("max-width");
+      delete body.dataset["popoverSide"];
+      return;
+    }
     if (placement.kind === "hidden") {
       body.style.visibility = "hidden";
       delete body.dataset["popoverSide"];
@@ -198,7 +225,44 @@ function usePlacedOverlay(active: boolean, anchorRef?: RefObject<HTMLElement | n
     const host = hostRef?.current ?? null;
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
     if (observer && host) observer.observe(host);
+
+    // The BODY is observed too, and PublishedToggle's banner deliberately does
+    // not do this. That asymmetry is the point, and getting it wrong is what
+    // diff review round 1 caught.
+    //
+    // The banner's content IS fixed at mount: one catalog string and a help
+    // link, nothing that changes height while it is open. These three panels
+    // are not. The shrink CONFIRM grows when armed — the component keeps
+    // `heldShrink` mounted across the version-bound accept request and a
+    // response can replace its `detail` — while `heldShrink != null` stays
+    // true, so the effect above never reruns and the enlarged panel keeps
+    // coordinates computed for the smaller one. Measured by the reviewer: the
+    // core returns top 352 at 142px tall and top 234 at 260px, so the stale
+    // coordinate overlaps the strip, the cap is stale, and NO diagnostic fires
+    // because no placement call happens at all.
+    //
+    // That is precisely the case ShareHub keeps its body observer for — arming
+    // Archive swaps a 44px row for a confirm block — and the T2 note that
+    // dropped the observer said so about ShareHub while generalising the
+    // banner's fixed-content property onto these three.
+    //
+    // scrollHeight, not the observed box: our own `max-height` write CHANGES
+    // the box, so observing the box re-places forever. Same guard ShareHub uses.
+    let lastScrollHeight = -1;
+    const bodyObserver =
+      typeof ResizeObserver === "function"
+        ? new ResizeObserver(() => {
+            const el = bodyRef.current;
+            if (el === null) return;
+            if (el.scrollHeight === lastScrollHeight) return;
+            lastScrollHeight = el.scrollHeight;
+            schedule();
+          })
+        : null;
+    if (bodyObserver && bodyRef.current) bodyObserver.observe(bodyRef.current);
+
     return () => {
+      bodyObserver?.disconnect();
       observer?.disconnect();
       coalescer.cancel();
       window.removeEventListener("resize", schedule);
