@@ -37,7 +37,11 @@ export const REQUIRED = {
   // second seedable SheetTitleLink render site is the TIGHTER of the two filed
   // overlap contexts (a `mt-1` warning line, 4px of clearance against the old
   // 10px downward bleed), so a half-fix would still fail there.
-  "tap-target-inline-controls.layout.spec.ts": 5,
+  // 5 -> 6 (2026-08-25, fix/e2e-proof-retired-route-subpixel): the premise +
+  // barrier case. It is the reason the other five stopped flaking, so it is the
+  // one case whose absence would be least visible — a run that skipped only it
+  // would look identical to a healthy run until the next unrelated PR ate a red.
+  "tap-target-inline-controls.layout.spec.ts": 6,
 };
 
 /** The report path the workflow step registers, and this script's zero-arg default. */
