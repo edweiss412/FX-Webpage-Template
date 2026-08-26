@@ -456,6 +456,104 @@ describe("useFitWithinClip", () => {
     }
   });
 
+  test("(h4) N to D: an observer exists with nothing clipping, and teardown disconnects it", () => {
+    // Four rounds of the inventory claimed state N holds no observer. It does:
+    // with no clip to watch, the POSITIONED ancestor is watched regardless.
+    const observedPer: string[][] = [];
+    let disconnected = 0;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        private mine: string[] = [];
+        constructor(_cb: ResizeObserverCallback) {
+          observedPer.push(this.mine);
+        }
+        observe(t: Element) {
+          this.mine.push((t as HTMLElement).dataset["testid"] ?? "?");
+        }
+        unobserve() {}
+        disconnect() {
+          disconnected += 1;
+        }
+      },
+    );
+
+    const { view } = withOffsetParent(() => mount({ clips: false }));
+
+    // PREMISE (own inputs): nothing may be clipping, or this is the F case.
+    premiseHolds(
+      "the fixture does not clip",
+      screen.getByTestId("outer").dataset["clips"] === undefined,
+    );
+    expect(observedPer, "one observer is constructed even with no clip").toHaveLength(1);
+    expect(
+      observedPer[0],
+      "the positioned ancestor is observed; there is no clip to observe",
+    ).toEqual(["inner"]);
+
+    view.unmount();
+    expect(disconnected, "the teardown must disconnect the unclipped observer").toBe(1);
+  });
+
+  test("(h9) a re-render that changes nothing costs nothing", () => {
+    const { view } = mount({ reapplyKey: "k" });
+    const after = applyCount;
+    for (let i = 0; i < 3; i += 1) view.rerender(<Harness reapplyKey="k" clips />);
+    // The ONLY case that can see an identity-churning ref callback: every other
+    // assertion in this suite is about a single attach.
+    expect(applyCount - after, "an unchanged re-render measured").toBe(0);
+  });
+
+  test("(h18) the hook is called and its ref is never attached", () => {
+    // PublishedToggle's DEFAULT `card` variant: the hook runs for rules-of-hooks
+    // reasons and the returned callback is never used.
+    function NeverAttached({ n }: { n: number }) {
+      useFitWithinClip(n);
+      return <div data-testid="outer" data-clips="true" />;
+    }
+    const view = render(<NeverAttached n={1} />);
+    const after = applyCount;
+    view.rerender(<NeverAttached n={2} />);
+    view.rerender(<NeverAttached n={3} />);
+    expect(applyCount - after, "a hook whose ref never attaches must not measure").toBe(0);
+  });
+
+  test("(h19) N to F: a SIGNAL writes a cap where none existed", () => {
+    // Neither F<->N edge is reachable by a re-render. With a stable ref and an
+    // unchanged reapplyKey a re-render does nothing at all, even when the DOM's
+    // clip status changed in that same commit — so this case is driven by a
+    // signal, and asserts that negative FIRST.
+    const { view, fitted } = mount({ clips: false, reapplyKey: "k" });
+    expect(fitted.style.maxHeight, "nothing clips, so nothing is capped").toBe("");
+
+    view.rerender(<Harness reapplyKey="k" clips />);
+    expect(
+      fitted.style.maxHeight,
+      "a stable-ref re-render must not re-measure, even as the clip status changes",
+    ).toBe("");
+
+    fireEvent(window, new Event("resize"));
+    flushFrames();
+    // Derived from the fixture geometry via the real arithmetic, never typed.
+    expect(fitted.style.maxHeight, "the signal must WRITE a cap where none existed").toBe(
+      expectedPx(),
+    );
+  });
+
+  test("(h20) F to N: a SIGNAL removes the stale cap", () => {
+    const { view, fitted } = mount({ clips: true, reapplyKey: "k" });
+    // PREMISE (own inputs): a cap must exist first, or its removal is vacuous.
+    premiseHolds("a fitted cap exists before the transition", fitted.style.maxHeight !== "");
+    const capped = fitted.style.maxHeight;
+
+    view.rerender(<Harness reapplyKey="k" clips={false} />);
+    expect(fitted.style.maxHeight, "a stable-ref re-render must not re-measure").toBe(capped);
+
+    fireEvent(window, new Event("resize"));
+    flushFrames();
+    expect(fitted.style.maxHeight, "the signal must REMOVE the stale cap").toBe("");
+  });
+
   test("(g4) a non-transform transitionend does not re-measure", () => {
     const { inner, fitted } = withOffsetParent(() => mount());
     const before = applyCount;
