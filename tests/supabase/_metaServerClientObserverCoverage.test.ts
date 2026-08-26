@@ -25,6 +25,7 @@ import { describe, expect, it } from "vitest";
 
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 import { premise } from "../_shared/premise";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { PRODUCT_SOURCE_EXTENSION } from "./retryableRpcVolatilityScan";
 
 const ROOT = process.cwd();
@@ -65,14 +66,24 @@ const EXEMPT: Record<string, { count: number; ground: string }> = {
   },
 };
 
-/** Comments and string literals blanked, so a MENTION of a call is never read as one. */
-export function stripNonCode(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p: string) => p + " ".repeat(m.length - p.length))
-    .replace(/`(?:\\.|[^`\\])*`/g, (m) => " ".repeat(m.length))
-    .replace(/'(?:\\.|[^'\\])*'/g, (m) => " ".repeat(m.length))
-    .replace(/"(?:\\.|[^"\\])*"/g, (m) => " ".repeat(m.length));
+/**
+ * Comments and string literals blanked, so a MENTION of a call is never read as one.
+ *
+ * Comment handling is NOT local: it goes through the one shared stripper, which lexes
+ * with the TypeScript scanner and so gets the cases a regex silently loses -- a `//`
+ * inside a string, a `/*` inside a regex literal. The local half is string-literal
+ * blanking, which is a different question and no part of the single source.
+ *
+ * Every replacement preserves length AND newlines, because the caller derives a 1-based
+ * line number from the match offset. Collapsing a multi-line template to spaces would
+ * keep the offsets and still report the wrong line.
+ */
+export function blankNonCode(src: string, filePath: string): string {
+  const blank = (m: string) => m.replace(/[^\n]/g, " ");
+  return stripCommentsForFile(src, filePath)
+    .replace(/`(?:\\.|[^`\\])*`/g, blank)
+    .replace(/'(?:\\.|[^'\\])*'/g, blank)
+    .replace(/"(?:\\.|[^"\\])*"/g, blank);
 }
 
 /** Constructor names this file imported from a Supabase package, statically OR dynamically. */
@@ -114,7 +125,7 @@ export function scanConstructions(root: string, roots: readonly string[]): strin
     const raw = readFileSync(file, "utf8");
     if (!SUPABASE_PKG.test(raw)) continue;
     const bound = supabaseBindings(raw);
-    const code = stripNonCode(raw);
+    const code = blankNonCode(raw, file);
     for (const name of CONSTRUCTORS) {
       if (!bound.has(name)) continue;
       // Every CALL SITE, not the first per file. Round 3 probed why: recording a path and
