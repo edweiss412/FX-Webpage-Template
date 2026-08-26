@@ -134,6 +134,7 @@ import {
   type SchedulePhase,
 } from "@/lib/crew/agendaDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { Avatar } from "@/components/atoms/Avatar";
 import { CrewRowActions, type CrewRowOutcome } from "@/components/admin/wizard/CrewRowActions";
@@ -3107,6 +3108,23 @@ export function WarningsBreakdown({
                             className="wrap-break-word text-xs text-text-subtle"
                           >
                             {rowLabel}
+                          </span>
+                        ) : null;
+                      })()}
+                      {(() => {
+                        // The vocabulary label the near-miss detector matched (spec §4.2).
+                        // Deliberately NOT a band: this surface's row label above is a plain
+                        // text-xs line with no eyebrow, so an eyebrow on the candidate alone
+                        // would make the suggestion louder than the row it belongs to. Same
+                        // information grammar as the per-show band (a label naming the fact,
+                        // then the exact string in mono), in this surface's flatter type ramp.
+                        const candidate = candidateLabel(w);
+                        return candidate ? (
+                          <span
+                            data-testid={`wizard-step3-card-${dfid}-warning-${i}-candidate`}
+                            className="wrap-break-word text-xs text-text-subtle"
+                          >
+                            Looks like <span className="font-mono text-text">{candidate}</span>
                           </span>
                         ) : null;
                       })()}
