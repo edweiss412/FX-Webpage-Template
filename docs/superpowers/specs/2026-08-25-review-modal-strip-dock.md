@@ -520,7 +520,7 @@ That is the whole of scope item 2, already written and already unit-tested
 6. **No caret.** The banner has never had one; the returned `caret` is ignored, and no caret element
    is added. `computePopoverPlacement` returns it unconditionally, so ignoring it is the adaptation,
    not a gap.
-7. `POPOVER_POSITION`'s `absolute inset-x-0 top-full mt-1` becomes `absolute w-full` plus the declared cap
+7. `POPOVER_POSITION`'s `absolute inset-x-0 top-full mt-1` becomes `absolute w-full max-h-[min(50vh,20rem)]` plus the declared cap
    the placement core reads as its `cap` input, in the `max-h-[...]` idiom ShareHub uses
    (`components/admin/showpage/ShareHub.tsx:897`). Everything else in the skin — `z-banner`,
    `overflow-y-auto`, the border, background, focus ring, `wrap-break-word` — is unchanged.
@@ -627,10 +627,17 @@ warnKey?: object;
 ```
 
 Callers pass the overlay element they already hold. The `WeakSet` lives at the one site and is keyed
-by a value only the caller can supply. Omitted, the warning still fires but is not de-duplicated —
-which is the honest degradation, because a caller that supplies no identity has not told us what
-"once" would mean. `AnchoredPortal`, `HoverHelp` and `ShareHub` need no change: they keep today's
-behaviour of no warning until someone passes a key.
+by a value only the caller can supply. **Omitted, the warning still fires; it is simply not
+de-duplicated** — a caller that supplies no identity has not told us what "once" would mean.
+
+**That means the three existing callers START warning, and round-4 finding 2 is right that the first
+draft claimed both this and the opposite.** The contradiction is resolved in this direction on
+purpose: `AnchoredPortal`, `HoverHelp` and `ShareHub` have carried the same silent-unsatisfiable-geometry
+gap since their own migrations, and covering them is the entire argument for putting the warning at
+one site instead of writing it four times. They emit only in development, only on `hidden` or a
+sub-floor cap, and un-deduplicated until someone passes them a key — which is a one-line change
+whenever anyone wants it. A version that stayed silent for them would be four copies wearing one
+site's clothes.
 
 **Why this is still ONE site and not four.** The alternative is four `WeakSet`s and four copies of the
 message. The identity is the only thing the callers have that the site does not, so the caller passes
@@ -728,7 +735,7 @@ Pinned by AC-6.
 
 ## §4 Acceptance criteria
 
-**THREE AXES, and every criterion names exactly one.** Round 1 finding 2, round 2 finding 3 and
+**FOUR AXES, and every criterion declares the one it measures on — or an explicit union.** Round 1 finding 2, round 2 finding 3 and
 round 3 finding 2 are one vector three times. Naming a single domain was not enough, because the
 criteria do not all range over the same kind of thing: some are about the real modal at a viewport and
 an attention load, some are about a replica geometry chosen to hit an algebra branch, and some are
@@ -741,6 +748,10 @@ declared against another is what kept drifting.
 | **REPLICA** | the four fixture geometries of §3.6, one per branch of `computePopoverPlacement` | 4 cases |
 | **DEGENERATE** | environments where nothing is laid out and every rect is zero-area: jsdom and SSR | 1 environment |
 | **STRUCTURAL** | claims about source text or the module graph, with no geometry at all | n/a |
+
+**Unions are allowed and are declared as unions** (round-4 finding 4 caught the first draft promising
+"exactly one" while two rows already declared a union). A criterion spanning two axes names both; what
+is forbidden is a criterion whose BODY measures on an axis its column does not name.
 
 **REAL is also THE PROBE DOMAIN** that §11 declares; §11 references this table rather than restating
 it. Attention load on the REAL axis is always set EXPLICITLY via `window.__setItems` before any
@@ -767,10 +778,10 @@ therefore ranges over `MODES ∪ REAL`, declared in its own row.
 | AC-5 | **REAL** | Driving a refusal through the REAL modal renders `[data-testid="published-toggle-popover"]` with `data-popover-side="top"`, the banner's rect lies entirely inside the panel, and its bottom sits `GAP` above the trigger's top within 0.5px. The attention load matters here and is not incidental: it changes the header's height, which moves the footer, which moves the trigger — so a banner asserted only at load 0 says nothing about the state where the header is largest. |
 | AC-6 | **STRUCTURAL** | `document.querySelector("#share-access")` is the strip root, and that root is inside the footer. |
 | AC-7 | **REAL (one cell: 375x667 x load 30)** | ONE cell, deliberately, and now fully specified: 375x667 because it is the tightest supported phone and the viewport the row names, at load 30 because that is where the header is largest and the trigger lowest, i.e. the worst case for space above. AC-5 covers all twelve for reachability. Measured through the real modal, in the placement module's own terms: `spaceBelow` is under the banner's natural height and `spaceAbove` exceeds it, so the top side is chosen because it is the only one that fits. Both numbers recorded — in the test and in the migrated registry row's reason — and the retired `lib/layout/fitWithinClip.ts` entry cross-references them. |
-| AC-8 | **REPLICA 1-4** | One assertion per §3.6 case, so every branch of the algebra is covered exactly once. When the banner does not fit on either side, the placement module's `maxHeight` is written and the banner's rendered height equals the space on the chosen side within 0.5px; when it does fit, no `max-height` beyond the declared CSS cap is written and the rendered height is the natural height. Both branches are asserted, because asserting only the capped one passes against a component that never caps. |
+| AC-8 | **REPLICA 1-4** | One assertion per §3.6 case. That covers the three VERTICAL branches, plus the sub-floor variant of the third; the `hidden` gates and the width branch are covered on DEGENERATE and REAL respectively (§3.6). NOT "every branch exactly once" — round-4 finding 3 corrected that overclaim. When the banner does not fit on either side, the placement module's `maxHeight` is written and the banner's rendered height equals the space on the chosen side within 0.5px; when it does fit, no `max-height` beyond the declared CSS cap is written and the rendered height is the natural height. Both branches are asserted, because asserting only the capped one passes against a component that never caps. |
 | AC-9 | **REPLICA 1 and 3** | T4's four obligations survive in SUBSTANCE against the rebuilt replica (§3.6): containment, the written cap matching the room on the chosen side, scroll not stranding the tail, and tab + ArrowDown reachability — each asserted against the fixture case that produces it. NOT "unchanged": round-2 finding 2 established that the old entry has no host provider and no trigger, so after the migration it would bound placement by the viewport and pass while proving nothing. |
 | AC-10 | **STRUCTURAL** | `HarnessStateOverrides` accepts a `setPublished` override; omitted, `modalElement` still passes `NOOP_OK`, and every existing harness consumer is byte-identical. |
-| AC-11 | **DEGENERATE** | In jsdom, where every rect is zero-area, the CONSUMER handles `kind: "hidden"` the way `ShareHub` does: on a degenerate measurement (SSR, jsdom, mid-unmount, zero-area trigger) the banner is left `visibility: hidden` with no `data-popover-side`, and recovers on the next frame rather than writing NaN coordinates. The placement algebra's own boundaries are already owned by `tests/lib/popover/position.test.ts` and are NOT re-asserted here — re-testing an imported pure module through a component is the tautology this arc is meant to avoid. |
+| AC-11 | **DEGENERATE** | In jsdom, where every rect is zero-area, the consumer takes `ShareHub`'s posture EXACTLY, which is the opposite of hiding: it INTERCEPTS the degenerate measurement before calling the placement core, returns `null`, and leaves the overlay **unpositioned and VISIBLE** (`components/admin/showpage/ShareHub.tsx:293-302`) — because hiding is right for a real browser that measured a genuinely unplaceable anchor and wrong here, where nothing was measured at all, and it would make the dialog invisible to assistive tech and to every unit test. Round-4 finding 5: the first draft said "left `visibility: hidden` … the way ShareHub does", which inverted the precedent it cited. `visibility: hidden` is reserved for a real `kind: "hidden"` from a real measurement. The placement algebra's own boundaries stay owned by `tests/lib/popover/position.test.ts`. |
 | AC-12 | **STRUCTURAL** | `rg -n -i 'sticky\s+(status\s?)?strip\|sticky\s+StatusStrip' app components tests lib` returns zero hits, AND all seven sites in §2.3 describe the post-migration reality (the overlays are portaled into the panel and placed by the module; the strip is neither sticky nor positioned), AND the triaged remainder in §2.3 is unchanged. Dated records under `docs/` are out of the sweep by §2.3. |
 | AC-13 | **STRUCTURAL** | `BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED` is archived with the measured numbers, in the same commit that removes its in-progress marker. |
 | AC-14 | **REAL** | At each of the twelve cells: the header's height equals its 0-load height AT THAT VIEWPORT within 0.5px, the strip's rect lies entirely inside the panel, and the publish switch's rect lies entirely inside the panel. This is the executable form of "reachable on every supported phone" and it is the arc's central assertion. The baseline is per-viewport, because header height is width-dependent. |
@@ -778,7 +789,7 @@ therefore ranges over `MODES ∪ REAL`, declared in its own row.
 | AC-16 | **STRUCTURAL** | Step 3's modal header is byte-identical: `ReviewModalShell.tsx` is unmodified, and `tests/components/admin/review/reviewModalShell.test.tsx` passes unchanged, including the T-STEP3-INVARIANT cases. |
 | AC-17 | **REAL (the load-30 cells)** | The four load-30 cells only: a pill that is not wide enough to wrap cannot exercise the cap. At those cells every segment (`10 issues`, the middot, `20 monitoring`) is present in the pill's `textContent`, and no segment carries `display: none` or an ellipsis. **Plus geometric containment, which text assertions cannot establish (round-1 finding 5): the pill's rect and its `relative` wrapper's rect both lie within the capped cluster's rect, and the pill's rect does not intersect the title block's rect.** The accessible name of the dialog still contains the complete title despite `line-clamp-2`. |
 | AC-19 | **REAL** | Each migrated overlay's rendered width equals `bounds.width` (the host rect inset by `VIEWPORT_INSET`) within 0.5px, and its left edge equals `bounds.left` within 0.5px — the executable form of "full width survived the migration" (round-2 finding 1). Derived from the measured host rect and the imported constant, never from a literal. |
-| AC-20 | **REPLICA 4 + DEGENERATE** | An unsatisfiable geometry is SIGNALED, not merely rendered. Arm 2 (a `maxHeight` below `MIN_FITTED_HEIGHT`) is exercised by REPLICA case 4, whose geometry is derived to land there; arm 1 (`kind === "hidden"`) by the DEGENERATE environment, since a laid-out replica cannot reach `hidden` without being built degenerate (§3.6). De-duplication is per `warnKey`, which the caller supplies (§3.2b). Asserted NOT to fire on REPLICA 1, 2 or 3 — a warning that always fires signals nothing — including the boundary `maxHeight === MIN_FITTED_HEIGHT`, which is silent. |
+| AC-20 | **REPLICA 1-4 ∪ DEGENERATE** | An unsatisfiable geometry is SIGNALED, not merely rendered. Arm 2 (a `maxHeight` below `MIN_FITTED_HEIGHT`) is exercised by REPLICA case 4, whose geometry is derived to land there. **Arm 1 (`kind === "hidden"`) is exercised in the new `place.ts` warning suite by calling `placeWithinVisibleViewport` DIRECTLY with a degenerate input — not through a component.** Round-4 finding 5: consumers intercept degenerate measurements before the core sees them, so no component path delivers a `hidden` result and an arm asserted through one would never fire. The warning is a `place.ts` concern and is tested at `place.ts`. De-duplication is per `warnKey`, which the caller supplies (§3.2b). Asserted NOT to fire on REPLICA 1, 2 or 3 — a warning that always fires signals nothing — including the boundary `maxHeight === MIN_FITTED_HEIGHT`, which is silent. |
 | AC-18 | **STRUCTURAL** | The cap is written once, as `max-sm:max-w-40` on the action cluster; the sweep test derives its expectations from measured rects (the cluster's rendered width, the 0-item header height) and never repeats `160` or `164.19` as a literal. |
 
 ---
@@ -949,29 +960,63 @@ starting point and not a proof.
 
 This command is for FINDING sites while implementing. Its output is not transcribed here.
 
-### 2. The changed set, which the tasks own and the diff verifies
+### 2. The changed set — an exact filename list, because the diff is compared to it
 
-| file | why it changes |
-|---|---|
-| `components/admin/showpage/PublishedReviewModal.tsx` | the dock (§3.1), the header bound (§3.0), the migration (§3.2) |
-| `components/admin/PublishedToggle.tsx` | the migration (§3.2) |
-| `components/admin/ReSyncButton.tsx` | three overlays migrate (§3.2a) |
-| `components/admin/showpage/StatusStrip.tsx` | docblock: its container is the footer |
-| `components/admin/showpage/ShowReviewModalSkeleton.tsx` | the skeleton docks with it |
-| `lib/popover/place.ts` | the dev warning + the `warnKey` field (§3.2b) |
-| `lib/layout/fitWithinClip.ts` | ONE docblock entry retired (§7) — the arc's only fenced-file edit |
-| `tests/components/admin/showpage/popoverOverlayRegistry.ts` | four rows re-dispositioned (§3.3) |
-| `tests/e2e/_publishedToggleClipLiveEntry.tsx` | rebuilt (§3.6) |
-| `tests/e2e/_publishedReviewModalHarness.tsx`, `tests/e2e/_pillFocusLiveEntry.tsx` | the refusal override (§7) |
-| `tests/e2e/_shareLinkFlashLiveEntry.tsx`, `tests/e2e/_skeletonParityHarness.tsx`, `tests/e2e/_statusStripToggleHarness.tsx` | replica entries and comments that describe the old placement |
-| `tests/e2e/popover-clip-fit.spec.ts`, `published-review-modal.layout.spec.ts`, `published-review-modal.interactions.spec.ts`, `skeletonBandParity.spec.ts`, `stackedBandLayout.spec.ts`, `admin-parse-panel.spec.ts`, `attention-modal-gallery.spec.ts`, `published-review-modal.deeplink.spec.ts` | placement assertions and comments retargeted |
-| `tests/components/admin/showpage/publishedReviewModal.test.tsx`, `statusStrip.test.tsx`, `tests/components/ReSyncButton.test.tsx`, `tests/components/admin/transitionAudit.test.tsx`, `tests/components/admin/PublishedToggle.test.tsx` | unit-level assertions and comments |
-| NEW — a warning suite beside `tests/lib/popover/position.test.ts` | §3.2b's warning, both directions |
+Round-4 finding 6: the previous version grouped paths, shortened some, and carried a `NEW — …`
+placeholder, so "compare it to the diff" was not mechanically defined. One path per line, verbatim,
+sorted. **The close-out gate is `git diff --name-only origin/main...HEAD | sort` compared to this
+block; any line in one and not the other is a defect in one of them.**
 
-**This list is a CLAIM ABOUT THE DIFF, and the diff settles it.** Close-out runs
-`git diff --name-only origin/main...HEAD` and compares it to this table: a file in the diff and not in
-the table, or the reverse, is a defect in one of them. That is a comparison of two things that both
-exist, which is what the previous three versions of this section did not have.
+```
+components/admin/PublishedToggle.tsx
+components/admin/ReSyncButton.tsx
+components/admin/showpage/PublishedReviewModal.tsx
+components/admin/showpage/ShowReviewModalSkeleton.tsx
+components/admin/showpage/StatusStrip.tsx
+lib/layout/fitWithinClip.ts
+lib/popover/place.ts
+tests/components/ReSyncButton.test.tsx
+tests/components/admin/PublishedToggle.test.tsx
+tests/components/admin/showpage/popoverOverlayRegistry.ts
+tests/components/admin/showpage/publishedReviewModal.test.tsx
+tests/components/admin/showpage/statusStrip.test.tsx
+tests/components/admin/transitionAudit.test.tsx
+tests/e2e/_pillFocusLiveEntry.tsx
+tests/e2e/_publishedReviewModalHarness.tsx
+tests/e2e/_publishedToggleClipLiveEntry.tsx
+tests/e2e/_shareLinkFlashLiveEntry.tsx
+tests/e2e/_skeletonParityHarness.tsx
+tests/e2e/_statusStripToggleHarness.tsx
+tests/e2e/admin-parse-panel.spec.ts
+tests/e2e/attention-modal-gallery.spec.ts
+tests/e2e/popover-clip-fit.spec.ts
+tests/e2e/published-review-modal.deeplink.spec.ts
+tests/e2e/published-review-modal.interactions.spec.ts
+tests/e2e/published-review-modal.layout.spec.ts
+tests/e2e/skeletonBandParity.spec.ts
+tests/e2e/stackedBandLayout.spec.ts
+tests/e2e/step3-review-modal.layout.spec.ts
+tests/lib/popover/placeWarning.test.ts
+```
+
+Plus the documents the arc writes: this spec, its plan, `BACKLOG.md` and `BACKLOG-archive.md`,
+`docs/review-rounds/feat/review-modal-strip-dock/**`, and `docs/superpowers/specs/README.md`.
+
+**`tests/e2e/step3-review-modal.layout.spec.ts` is in that list because of round-4 finding 6, and it
+is the most useful thing this round produced about §9.** Its comment at `tests/e2e/step3-review-modal.layout.spec.ts:301` says the published modal has NO
+footer, and uses that to explain why T-CORNER covers the header and side rail there instead. That becomes false, and **the discovery command does not reach it** — the file
+names Step 3, not this modal, so it fails the first condition. No widening fixes this in general: a
+comment in file A about the state of file B is reachable by no grep keyed on A's own subject.
+
+So the honest statement of what §9's two claims cover, and what they do not:
+
+- The CHANGED set is settled by the diff. **Complete by construction** once the list is right.
+- "Everything else unchanged, proved by its suite" catches BEHAVIOUR. **It cannot catch a stale
+  COMMENT**, because no suite asserts comment truth. Round 4 found one such comment; §2.3's
+  stale-anchor class was another; both were found by reading, not by a command.
+- **That residue is a documented limit (§10 item 7), not a fifth attempt at a cover.** Three rounds of
+  widening one grep is the evidence that a prose-truth recognizer over comments is the unbounded shape
+  this spec declines to build (§2.3).
 
 ### 3. Everything else in the cover: unchanged, and the suite is the proof
 
@@ -984,8 +1029,10 @@ accident:
   tests, `tests/e2e/step3-review-modal.interactions.spec.ts`,
   `tests/components/admin/review/reviewModalShell.test.tsx`). The shell is not edited and Step 3 is the
   proof: it never passes `subHeader`, and it is the one consumer that ALREADY passes `footer`. **AC-16.**
-- **`HoverHelp.tsx`, `ShareHub.tsx` and their tests.** Already `placement-module`; the precedents. They
-  gain nothing except the `warnKey` field's availability, which they do not pass.
+- **`HoverHelp.tsx`, `ShareHub.tsx`, `AnchoredPortal.tsx` and their tests.** Already
+  `placement-module`; the precedents. Their SOURCE is unchanged, but their dev-time BEHAVIOUR is not:
+  they begin emitting §3.2b's warning on `hidden` or a sub-floor cap, un-deduplicated until someone
+  passes a `warnKey`. That is deliberate (§3.2b) and it is why the warning sits at one site.
 
 ### Overlays and their registry rows
 
@@ -1055,6 +1102,15 @@ consequence bound in §11, these are limits, not findings.
    the provider (`components/admin/review/ReviewModalShell.tsx:643`), so this degradation is only
    reachable when an overlay is mounted outside the shell — which is a harness, not a shipped surface.
    §3.6 makes that concrete for the one harness where it bites.
+
+7. **A stale COMMENT in a file about another file is reachable by no command.** §9's cover keys on a
+   file's own subject, so a comment in Step 3's layout spec asserting a fact about the published modal
+   sits outside it — which is how round 4 found one by reading. The behavioural half of §9 cannot help:
+   no suite asserts comment truth. Building a recognizer for it is the unbounded prose-guard shape
+   §2.3 declines, and three rounds spent widening one grep is the evidence. **Accepted limit:** stale
+   comments in files that name a DIFFERENT surface are found by review, not by a gate. **Re-file
+   trigger:** a third instance reaching main, which would make the class recurrent rather than
+   incidental.
 
 ---
 
@@ -1129,6 +1185,34 @@ whether the dock works. The repair that finally converges is not a better list �
 
 ---
 
+## §10d Round-4 triage record — and the spec stage closes here
+
+Seven findings, verdict BLOCKING. **All seven admissible, none refuted. All seven repaired in this
+commit.** Running total: **23 findings across four rounds, zero refuted.**
+
+**The spec stage closes at round 4 by orchestrator ruling** (bl-orch, 2026-08-25): repair what is
+admissible, record the residue as documented limits, close without a round 5, move to plan. The
+reasoning, which this document's own history supports: the product design has been settled since round
+1's citation pass, and 23 bookkeeping findings are the round economy reporting that the DOCUMENT is
+what is under review, not the design.
+
+| # | finding | disposition |
+|---|---|---|
+| 1 | The banner's CSS cap was never named, so `height0` and every replica geometry were undefined | **REPAIRED, §3.2 item 7** — `max-h-[min(50vh,20rem)]`, equal to Re-sync's rather than ShareHub's, because these two are siblings on one trigger and a reader comparing them should find one number. |
+| 2 | `warnKey`'s omission semantics contradicted themselves — fires-undeduplicated in one paragraph, no-warning-for-existing-callers in the next | **REPAIRED, §3.2b**, resolved toward FIRES. The three existing callers begin warning in development, which is the whole argument for one site over four copies. |
+| 3 | The four replica cases are not four algebra branches — 3 and 4 share the `else` | **REPAIRED, §3.6 and AC-8.** They cover three VERTICAL branches plus a sub-floor variant of the third; the `hidden` gates and the width branch are covered on other axes, now said so. |
+| 4 | "THREE AXES" defining four, "exactly one axis" against two union rows, AC-20's body wider than its column, and §11 putting the replica inside REAL | **REPAIRED** — four axes, unions declared as unions, AC-20 recolumned, and the replica moved OUT of the probe domain with what it can and cannot establish stated. |
+| 5 | AC-11 inverted the precedent it cited: `ShareHub` intercepts degenerate rects and leaves the popover unpositioned and VISIBLE, never hidden | **REPAIRED, AC-11 and AC-20.** The consequence is real, not cosmetic: no component path delivers a `hidden` result, so AC-20's arm 1 moved to a direct unit call on `place.ts`. |
+| 6 | §9's cover misses a stale comment in Step 3's layout spec, and the changed set was not a mechanical filename set | **REPAIRED both halves**, and the residue is named: the changed set is now an exact sorted list the diff is compared to, and the un-coverable part — a stale comment in a file about a DIFFERENT surface — is §10 item 7, a documented limit rather than a fifth grep. |
+| 7 | §12 still cited the deleted §3.4 | **REPAIRED.** |
+
+**What closes with it.** Two findings this round (1 and 5) were defects that would have produced wrong
+CODE, not merely wrong prose — an undefined cap and an inverted degenerate posture. That is worth
+recording against the temptation to read a long round train as pure bookkeeping: the last round still
+found two.
+
+---
+
 ## §11 Convergence criterion (carried into every review brief)
 
 **Consequence bound.** At every supported viewport, and at every attention load in the probe domain,
@@ -1137,12 +1221,19 @@ is either fully readable or scrollable within its clip, never silently cut. A co
 a surfaced dev warning is a documented limit, not a finding. Visually clamped title text whose full
 value remains in the accessibility tree is a documented limit (§10 item 4), not a finding.
 
-**PROBE DOMAIN.** The **REAL** axis defined at the head of §4 — twelve cells — through the shared harness
-(`tests/e2e/_publishedReviewModalHarness.tsx` via `tests/e2e/_pillFocusLiveEntry.tsx`) and the replica
-entry (`tests/e2e/_publishedToggleClipLiveEntry.tsx`). The item-count axis is part of the domain, not
-an extra: §0 measured that a probe varying only the viewport reproduces the row's number and confirms
-the wrong cause. A probe outside those viewports or loads, or against a hand-built panel, files to §10
-rather than to a finding.
+**PROBE DOMAIN.** The **REAL** axis defined at the head of §4 — twelve cells, through the shared
+harness (`tests/e2e/_publishedReviewModalHarness.tsx` via `tests/e2e/_pillFocusLiveEntry.tsx`). The
+item-count axis is part of it, not an extra: §0 measured that a probe varying only the viewport
+reproduces the row's number and confirms the wrong cause. A probe outside those viewports or loads
+files to §10 rather than to a finding.
+
+**The replica entry is NOT in the probe domain, and round-4 finding 4 was right that the first draft
+put it there while the fence excluded hand-built panels in the same breath.** The replica is the
+REPLICA axis: chosen geometries that pin the algebra's branches and the consumer's handling of them.
+It can establish that the code takes the branch its geometry selects; it cannot establish anything
+about reachability on a real surface, which is why §7 exists and why the replica's own docblock has
+said so since before this arc. A finding drawn from a replica geometry is admissible about BRANCH
+BEHAVIOUR and inadmissible about reachability.
 
 **Threat fence.** Ordinary responsive layout under real compiled Tailwind at supported phone sizes.
 Adversarial CSS injected into the panel, a caller mounting the strip outside the shell, and hostile
@@ -1154,7 +1245,7 @@ ancestor stacking are out of scope and file to §10.
 
 - Any change to `components/admin/useFitWithinClip.ts`, and any change to
   `lib/layout/fitWithinClip.ts` other than RETIRING the PublishedToggle entry in its per-anchor
-  docblock (§3.4). The banner and the three Re-sync overlays stop consuming that hook rather than
+  docblock (§7; there is no §3.4 — see §1.2). The banner and the three Re-sync overlays stop consuming that hook rather than
   forking it, so the §1.2 fence is not engaged.
 - `AttentionMenu`'s overlay. Its anchor is the header, at the TOP of the panel, which the dock does
   not move; it keeps `useFitWithinClip` and its registry row is unchanged.
