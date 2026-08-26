@@ -357,6 +357,51 @@ describe("candidate contract v2 — attribution boundaries", () => {
     ).toEqual([]);
   });
 
+  test("the census exclusion needs BOTH the file and the crawl-target shape", () => {
+    // `b/route-census-loops` excludes no-raw-codes.spec.ts's route walk only
+    // where the navigation target is `crawlTargetFor(...)`. Read as either
+    // condition ALONE, the rule certifies any `/admin?show=` navigation later
+    // added to that spec, and certifies a crawl-target walk in a spec that runs
+    // no census at all. Nothing in the live corpus separates the two readings.
+    // #892 (d04d63709) moved the counts this rule sits between, and no
+    // expectedCount discriminates the connector any more. The source-mutation
+    // gate said so out loud: `logical-connector:502:42` survived on surface
+    // `modal-wait-disposition`. These two fixtures are what kills it.
+    const censusRoot = twoTreeRoot(
+      "no-raw-codes",
+      ['test("x", async ({ page }) => {', "  await page.goto(someRoute);", "});"].join("\n"),
+    );
+    const census = enumerateCandidates(censusRoot).filter((c) => c.origin === "b-nonliteral-goto");
+    expect(census).toHaveLength(1);
+    premiseHolds(
+      "the census file's candidate really lacks the crawl-target call, or the file arm is untested",
+      !/crawlTargetFor\(/.test((census[0] as Candidate).matchLineText),
+    );
+    expect(
+      claimsOf(census[0] as Candidate),
+      "the census FILE alone is not the excluded shape",
+    ).toEqual([]);
+
+    const elsewhereRoot = twoTreeRoot(
+      "route-walk-elsewhere",
+      ['test("x", async ({ page }) => {', "  await page.goto(crawlTargetFor(target));", "});"].join(
+        "\n",
+      ),
+    );
+    const elsewhere = enumerateCandidates(elsewhereRoot).filter(
+      (c) => c.origin === "b-nonliteral-goto",
+    );
+    expect(elsewhere).toHaveLength(1);
+    premiseHolds(
+      "the outside candidate really carries the crawl-target call, or the shape arm is untested",
+      /goto\(crawlTargetFor\(/.test((elsewhere[0] as Candidate).matchLineText),
+    );
+    expect(
+      claimsOf(elsewhere[0] as Candidate),
+      "the crawl-target SHAPE outside the census file is not the excluded shape",
+    ).toEqual([]);
+  });
+
   test("scope resolution ignores an ordinary call that merely takes a string first", () => {
     // The scope key is `test`/`describe` and their chains, NOT "any call with a
     // string argument". A local wrapper taking a label plus a callback is
