@@ -19,7 +19,15 @@
  * literal.
  */
 import "@testing-library/jest-dom/vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+// The SHARED stripper, not a local regex: a structural guard
+// (tests/cross-cutting/_metaStripCommentsSingleSource.test.ts) requires one
+// implementation of comment handling across the walked test tree, and it caught
+// the hand-rolled pair I wrote for this census. One stripper means one set of
+// edge cases — string literals containing `//`, nested `/*`, URLs — rather than
+// each caller rediscovering them.
+import ts from "typescript";
+import { stripCommentsSafely } from "@/tests/_shared/stripComments";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StrictMode } from "react";
@@ -862,18 +870,22 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
   // lived in the shell's <header>. The intent (the strip is mounted and carries
   // the toggle) survives; the location assertion is now specific enough to fail
   // for the reason this task exists.
-  it("StatusStrip renders in the subHeader BAND — not in the header wrapper — with the toggle present", () => {
+  it("StatusStrip renders in the FOOTER — not in the header wrapper — with the toggle present", () => {
     renderModal();
     const panel = document.querySelector("[data-review-modal-panel]")! as HTMLElement;
     const strip = within(panel).getByTestId("show-status-strip");
     expect(within(strip).getByTestId("strip-publish-toggle")).toBeTruthy();
 
-    const band = screen.getByTestId(`${TB}-subheader`);
+    const footer = screen.getByTestId(`${TB}-footer`);
     const header = screen.getByTestId(`${TB}-header`);
-    // BOTH directions. The positive alone passes for a COPY of the strip left
-    // behind in the header; the negative is what proves this was a MOVE.
-    expect(band.contains(strip)).toBe(true);
+    // BOTH directions, unchanged in spirit from when this named the subheader
+    // band: the positive alone passes for a COPY of the strip left behind, and
+    // the negative is what proves this was a MOVE. The band itself is gone
+    // (spec 2026-08-25-review-modal-strip-dock §3.1), so its absence is
+    // asserted too — an emptied band would keep painting a seam.
+    expect(footer.contains(strip)).toBe(true);
     expect(header.contains(strip)).toBe(false);
+    expect(screen.queryByTestId(`${TB}-subheader`)).toBeNull();
   });
 
   // T-ARCHIVED-BAND: read-only mode must not degrade the band into an empty
@@ -882,9 +894,9 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
   // at its thinnest here — if
   // the archived strip ever rendered nothing, the band would still paint its
   // border and the panel would grow a hairline for no reason.
-  it("archived: the band still renders non-empty (archived badge), with no toggle or live badge", () => {
+  it("archived: the footer still renders non-empty (archived badge), with no toggle or live badge", () => {
     renderModal({ archived: true, published: false, isLive: true });
-    const band = screen.getByTestId(`${TB}-subheader`);
+    const band = screen.getByTestId(`${TB}-footer`);
     const strip = within(band).getByTestId("show-status-strip");
     expect(within(strip).getByTestId("strip-archived-badge").textContent).toMatch(/read-only/i);
     expect(band.textContent?.trim().length ?? 0).toBeGreaterThan(0);
@@ -895,17 +907,18 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
     expect(within(band).queryByTestId("strip-live-badge")).toBeNull();
   });
 
-  it("the strip carries no container chrome — no second seam, shadow, sticky pin or padding inside the band", () => {
-    // The subHeader band already owns the surface, the bottom border and
-    // px-tile-pad (ReviewModalShell.tsx); a strip-level border-b + shadow-tile
-    // would stack a doubled seam right above it, and px-4/sm:px-6 a doubled
-    // inset. Failure mode: page chrome is re-added to the strip's single
-    // layout literal (modal-header-reconciliation §6.5).
+  it("the strip carries no container chrome — no second seam, shadow, sticky pin or padding of its own", () => {
+    // The SLOT owns the surface, the seam and px-tile-pad (ReviewModalShell.tsx);
+    // a strip-level border-b + shadow-tile would stack a doubled seam against
+    // it, and px-4/sm:px-6 a doubled inset. That reason is unchanged by the
+    // dock — only the slot's name is, from the subheader band to the footer.
+    // Failure mode: page chrome is re-added to the strip's single layout
+    // literal (modal-header-reconciliation §6.5).
     renderModal();
     const panel = document.querySelector("[data-review-modal-panel]")! as HTMLElement;
     const classes = within(panel).getByTestId("show-status-strip").className.split(/\s+/);
     for (const token of ["sticky", "top-0", "z-30", "border-b", "shadow-tile", "px-4", "sm:px-6"]) {
-      expect(classes, `strip in the band must not carry \`${token}\``).not.toContain(token);
+      expect(classes, `the strip must not carry \`${token}\` of its own`).not.toContain(token);
     }
   });
 
@@ -1003,9 +1016,16 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
     expect(screen.getByTestId("section-warning-controls-crew")).toBeTruthy();
   });
 
-  it("no footer: the shell footer wrapper is absent", () => {
+  // INVERTED by the dock (spec 2026-08-25-review-modal-strip-dock §3.1). This
+  // asserted the shell footer wrapper was ABSENT, which was true for as long as
+  // the strip lived in the subheader band. The footer is now the strip's home,
+  // so the claim worth pinning is that there is exactly ONE — a second would
+  // mean two strips — and that the band it replaced is gone rather than
+  // emptied.
+  it("exactly one footer, and no leftover subheader band", () => {
     renderModal();
-    expect(screen.queryByTestId(`${TB}-footer`)).toBeNull();
+    expect(screen.getAllByTestId(`${TB}-footer`)).toHaveLength(1);
+    expect(screen.queryByTestId(`${TB}-subheader`)).toBeNull();
   });
 });
 
@@ -1383,5 +1403,63 @@ describe("PublishedReviewModal — attention-menu state reaches the hub triggers
         (settleArchive as (v: { ok: true }) => void)({ ok: true });
       });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-18 — the header cap lives in exactly ONE place
+// ---------------------------------------------------------------------------
+//
+// The browser sweep in tests/e2e/popover-clip-fit.spec.ts measures geometry and
+// the emitted clamp, and neither can tell `max-sm:max-w-40` on the action
+// cluster from a SECOND copy of the same cap somewhere else in components/.
+// Two copies measure identically right up until someone edits one of them, and
+// then the cap silently disagrees with itself. That drift is the whole of what
+// AC-18 asks for, and before this case nothing inspected it — a probe found the
+// token only in this arc's spec and plan, with no test contract at all.
+describe("AC-18 — the header cap has exactly one definition", () => {
+  const CAP = "max-sm:max-w-40";
+
+  function walk(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) out.push(...walk(full));
+      else if (/\.tsx?$/.test(entry.name)) out.push(full);
+    }
+    return out;
+  }
+
+  it("occurs exactly once across components/, and on the action cluster", () => {
+    // Walked from disk rather than listed, so a new file carrying a second copy
+    // is covered by default instead of being silently outside the check.
+    const files = walk("components");
+    expect(files.length, "PREMISE: the walk must find components").toBeGreaterThan(50);
+
+    // COMMENTS ARE NOT DEFINITIONS. Round 3 defeated the raw-substring version
+    // with an ordinary explanatory comment containing the cap: the count went
+    // one to two while the single real definition was untouched. A census that
+    // a comment can move is measuring prose, not code — and this is my own
+    // guard, written to close exactly this kind of escape.
+    const hits: string[] = [];
+    for (const f of files) {
+      const src = stripCommentsSafely(
+        readFileSync(f, "utf8"),
+        f.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+      );
+      let idx = src.indexOf(CAP);
+      while (idx !== -1) {
+        hits.push(`${f}:${src.slice(0, idx).split("\n").length}`);
+        idx = src.indexOf(CAP, idx + 1);
+      }
+    }
+    expect(hits, `"${CAP}" must have exactly one definition`).toHaveLength(1);
+    expect(hits[0]).toContain("components/admin/showpage/PublishedReviewModal.tsx");
+
+    // And it is on the ACTION CLUSTER, not merely somewhere in that file. The
+    // count alone would pass if the cap moved to the title column, which is the
+    // element it is supposed to leave room FOR.
+    const src = readFileSync("components/admin/showpage/PublishedReviewModal.tsx", "utf8");
+    expect(src).toContain(`className="flex shrink-0 items-center gap-2 ${CAP}"`);
   });
 });

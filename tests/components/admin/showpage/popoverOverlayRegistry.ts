@@ -84,30 +84,30 @@ export const POPOVER_OVERLAY_REGISTRY: readonly OverlayRow[] = [
   {
     file: "components/admin/ReSyncButton.tsx",
     overlay: "admin-resync-error",
-    disposition: "fit-within-clip",
+    disposition: "placement-module",
     reason:
-      "Clip-safe by the other route: useFitWithinClip caps the overlay against the clip edge. Full-width inset-x-0, where flipping sides buys nothing, so the placement module is not worth the churn.",
+      'Migrated 2026-08-25 (feat/review-modal-strip-dock, §3.2a). This row previously read "Full-width inset-x-0, where flipping sides buys nothing, so the placement module is not worth the churn" — the same premise the published-toggle row carried, and wrong for the same reason: it held only while the strip sat at the TOP of the panel. Docking the strip to the floor removes the room below, and CSS anchoring cannot flip. The churn was not optional either, since these three anchored to the BAND and the band goes away.',
   },
   {
     file: "components/admin/ReSyncButton.tsx",
     overlay: "admin-resync-shrink-confirm",
-    disposition: "fit-within-clip",
+    disposition: "placement-module",
     reason:
-      "Same OVERLAY_PANEL skin and cap as admin-resync-error — one shared const carries the fit-within-clip geometry for all three ReSync overlays.",
+      "Same OVERLAY_PANEL skin as admin-resync-error, and migrated with it — one shared const carries the geometry for all three ReSync overlays, so they cannot be dispositioned separately. Each gets its OWN placement effect: the three are independent nodes with independent mount lifetimes, and a single shared effect would place whichever mounted last.",
   },
   {
     file: "components/admin/ReSyncButton.tsx",
     overlay: "admin-resync-success",
-    disposition: "fit-within-clip",
+    disposition: "placement-module",
     reason:
-      "Same OVERLAY_PANEL skin and cap as admin-resync-error; the success summary can exceed the panel height on phones, so the cap is load-bearing, not decorative.",
+      "Same OVERLAY_PANEL skin as admin-resync-error, migrated with it; the success summary can exceed the panel height on phones, so the fitted cap the module writes is load-bearing, not decorative.",
   },
   {
     file: "components/admin/PublishedToggle.tsx",
     overlay: "published-toggle-popover",
-    disposition: "fit-within-clip",
+    disposition: "placement-module",
     reason:
-      "Detected 2026-08-02, the moment its anchored refusal banner became an internal scroller (BL-PUBLISHED-TOGGLE-OVERLAY-CLIP). Absolutely anchored inside the sticky strip inside the review-modal panel (overflow-clip, NOT a scroll container); useFitWithinClip caps it against that edge. Full-width inset-x-0, so side-flipping buys nothing.",
+      'Migrated 2026-08-25 (feat/review-modal-strip-dock, BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED). Same portal + placeWithinVisibleViewport stack as HoverHelp and ShareHub, anchored to the StatusStrip root that StatusStrip now hands down as a ref. This row previously read "Full-width inset-x-0, so side-flipping buys nothing" under a fit-within-clip disposition, and that is the claim the arc refuted: it held only while the strip sat at the TOP of the panel, where the room below never ran out. Docking the strip to the panel floor removes that room, and CSS anchoring cannot flip — so the banner needed the side selection it was assumed not to need. The width argument was sound and is unaffected; what was wrong was reading it as a reason side selection could not matter.',
   },
   {
     file: "components/admin/showpage/AttentionMenu.tsx",

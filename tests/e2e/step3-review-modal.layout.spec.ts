@@ -298,10 +298,20 @@ for (const { mode, width, height, maxRatio } of MODES) {
   // corners of its own — without a clip on the panel it covers the panel's
   // bottom corners and the modal reads square-edged, while
   // `getComputedStyle(panel).borderRadius` keeps computing 12px the whole time.
-  // Sibling coverage: the published modal has NO footer, so its
-  // T-CORNER (tests/e2e/published-review-modal.layout.spec.ts) pins the header
-  // and side-rail occupants instead; between them every opaque corner occupant
-  // of the shared shell is covered.
+  // Sibling coverage: the published modal now has a footer TOO — the status
+  // strip docked into that slot on 2026-08-25
+  // (docs/superpowers/specs/2026-08-25-review-modal-strip-dock.md §3.1), and
+  // this comment asserted the opposite until then. Its T-CORNER
+  // (tests/e2e/published-review-modal.layout.spec.ts) pins the header and
+  // side-rail occupants; between them every opaque corner occupant of the
+  // shared shell is covered, and the two modals now cover the footer corner
+  // independently rather than only this one.
+  //
+  // Worth noting how this was found, since it is the shape §9 documents as its
+  // residue: no grep reaches it. This file names Step 3, not the published
+  // modal, so a discovery command keyed on the changed component's own subject
+  // cannot see a comment in it that describes that component. It was found by
+  // reading.
   //
   // The probe offset is derived from the panel's own computed radius, never
   // hardcoded: (left+d, top+d) lies outside a quarter-circle of radius r

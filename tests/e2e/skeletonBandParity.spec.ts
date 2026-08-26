@@ -1,7 +1,12 @@
 /**
  * tests/e2e/skeletonBandParity.spec.ts (modal-header-reconciliation §6.1.1 — Task 9)
  *
- * T-SKELETON-BANDS. `ReviewModalShell` has THREE consumers, not two, and the
+ * T-SKELETON-BANDS. The strip DOCKED to the shell's footer on 2026-08-25
+ * (2026-08-25-review-modal-strip-dock §3.1); references to a subheader band
+ * below describe the pre-dock shape and the parity this suite now asserts is
+ * header + body + footer in BOTH states.
+ *
+ * `ReviewModalShell` has THREE consumers, not two, and the
  * third — `ShowReviewModalSkeleton` — renders through the SAME shell with the
  * SAME identifiers as the loaded published modal. If it keeps the OLD nested
  * two-band header, a slow `/admin?show=<slug>` load shows the before-state
@@ -16,7 +21,7 @@
  * differ by construction and no fixture makes them equal. Demanding equality
  * would buy a CI flake, or a "fix" that distorts one side to chase pixels.
  * The assertions are scoped to the invariant that actually causes the visible
- * snap — where the header->subheader seam sits — plus the structural facts
+ * snap — where the header seam sits, and where the footer's does — plus the structural facts
  * that ARE exactly assertable:
  *
  *   A  exactly 3 bands (header, subheader, body), same count as loaded — EXACT
@@ -190,7 +195,7 @@ for (const { mode, width, height } of VIEWPORTS) {
       await open(page, { width, height });
       for (const state of ["skeleton", "loaded"] as const) {
         await expect(inState(page, state, "header"), `${state} header`).toHaveCount(1);
-        await expect(inState(page, state, "subheader"), `${state} subheader`).toHaveCount(1);
+        await expect(inState(page, state, "footer"), `${state} footer`).toHaveCount(1);
       }
       // The body is the third band. Each state names its own body node, so this
       // asserts presence per state rather than a shared testid.
@@ -204,25 +209,76 @@ for (const { mode, width, height } of VIEWPORTS) {
         ),
         "loaded body band",
       ).toHaveCount(1);
+
+      // THREE means three, in both directions. Diff review round 1 (P2) is
+      // right that the checks above only prove the three named bands EXIST: a
+      // skeleton that also kept the retired subheader would satisfy every one
+      // of them, and would satisfy B through E too, because the footer classes
+      // and heights it compares would still match. The case would report parity
+      // while the two columns had different shapes.
+      for (const state of ["skeleton", "loaded"] as const) {
+        await expect(
+          inState(page, state, "subheader"),
+          `${state}: the retired subheader band is GONE, not emptied`,
+        ).toHaveCount(0);
+      }
+
+      // PARITY on the panel's whole child list, which is what this suite is
+      // actually for. Round 2 (P2) caught two weaker versions in a row: naming
+      // the three bands only proved they exist, and counting children whose
+      // testid ends in header/subheader/footer let a one-edit extra child —
+      // `published-show-review-extra-body`, say — slip through at the same
+      // count. Comparing the two states' full child SETS cannot be escaped by
+      // choosing a different testid, and it is the stronger claim anyway: the
+      // skeleton's column must have the same SHAPE as the loaded one, not
+      // merely the same named bands.
+      //
+      // The BODY child is named per state by design (the skeleton's `-loading`
+      // against the loaded surface's own root), so it is compared by POSITION
+      // and excluded from the name comparison.
+      const shapeOf = (state: "skeleton" | "loaded") =>
+        panel(page, state).evaluate((el) =>
+          Array.from(el.children).map((c) => c.getAttribute("data-testid") ?? c.tagName),
+        );
+      const skeletonKids = await shapeOf("skeleton");
+      const loadedKids = await shapeOf("loaded");
+      expect(
+        skeletonKids.length,
+        `panel child count differs — skeleton [${skeletonKids.join(", ")}] vs loaded [${loadedKids.join(", ")}]`,
+      ).toBe(loadedKids.length);
+      // Same positions, same identities, body excluded.
+      const bodyIdx = skeletonKids.findIndex((t) => t.endsWith("-loading"));
+      expect(bodyIdx, "the skeleton body child must be locatable").toBeGreaterThanOrEqual(0);
+      expect(
+        skeletonKids.filter((_, i) => i !== bodyIdx),
+        "every non-body panel child matches between the two states",
+      ).toEqual(loadedKids.filter((_, i) => i !== bodyIdx));
     });
 
-    // B — both bands are emitted by ReviewModalShell, so any difference means
-    // the skeleton hand-rolled a band instead of going through the slot.
-    test("B: the skeleton's subheader carries the shell's exact band classes", async ({ page }) => {
+    // B — both slots are emitted by ReviewModalShell, so any difference means
+    // the skeleton hand-rolled one instead of going through the slot.
+    test("B: the skeleton's footer carries the shell's exact slot classes", async ({ page }) => {
       await open(page, { width, height });
       // Fail FAST rather than burning the 120s test timeout inside evaluate()
       // when the band is simply absent (which is the pre-change state).
-      await expect(inState(page, "skeleton", "subheader")).toHaveCount(1, { timeout: 5_000 });
+      await expect(inState(page, "skeleton", "footer")).toHaveCount(1, { timeout: 5_000 });
       const classOf = (state: "skeleton" | "loaded") =>
-        inState(page, state, "subheader").evaluate((el) => el.className);
+        inState(page, state, "footer").evaluate((el) => el.className);
       const skeletonClass = await classOf("skeleton");
       const loadedClass = await classOf("loaded");
       expect(skeletonClass).toBe(loadedClass);
       // Non-vacuity: an empty className on BOTH sides would satisfy the equality
-      // above while proving nothing. Pin the seam, surface and padding the band
+      // above while proving nothing. Pin the seam, surface and padding the slot
       // actually owns.
-      for (const cls of ["border-b", "border-border", "bg-surface", "px-tile-pad", "py-2"]) {
-        expect(skeletonClass, `band retains ${cls}`).toContain(cls);
+      //
+      // The seam is `border-t`, not the band's `border-b`: the shell's footer
+      // seams UPWARD because the body is above it now. Same for the vertical
+      // inset — `pt-3` plus a safe-area-aware bottom, rather than the band's
+      // symmetric `py-2`. These are the SHELL's classes either way, which is
+      // exactly what this case exists to pin; the list is stale whenever the
+      // strip changes slots, and nothing else about the assertion changes.
+      for (const cls of ["border-t", "border-border", "bg-surface", "px-tile-pad", "pt-3"]) {
+        expect(skeletonClass, `footer retains ${cls}`).toContain(cls);
       }
     });
 
@@ -285,10 +341,10 @@ for (const { mode, width, height } of VIEWPORTS) {
     // never this tolerance (spec §1.1 forbids widening).
     const bandHeights = async (page: Page) => {
       await open(page, { width, height });
-      await expect(inState(page, "skeleton", "subheader")).toHaveCount(1, { timeout: 5_000 });
+      await expect(inState(page, "skeleton", "footer")).toHaveCount(1, { timeout: 5_000 });
       return {
-        skeleton: (await rect(inState(page, "skeleton", "subheader"))).height,
-        loaded: (await rect(inState(page, "loaded", "subheader"))).height,
+        skeleton: (await rect(inState(page, "skeleton", "footer"))).height,
+        loaded: (await rect(inState(page, "loaded", "footer"))).height,
       };
     };
 

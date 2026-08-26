@@ -178,7 +178,7 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/nav/UserMenu.tsx", line: 51 },
   { file: "components/admin/review/ShowReviewSurface.tsx", line: 814 },
   { file: "components/admin/review/ShowReviewSurface.tsx", line: 993 },
-  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 964 },
+  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 979 },
   { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 119 },
   { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
   { file: "components/agenda/AgendaEmbed.tsx", line: 83 },

@@ -910,7 +910,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 give the 14px trailing reach exactly the cluster clearance. */}
             <div className="flex min-h-tap-min min-w-0 items-center gap-2.5">
               <h2 id={h2Id} data-testid={`${TESTID_BASE}-title`} className="min-w-0">
-                <span className="min-w-0 wrap-break-word text-lg font-bold tracking-tight text-text-strong">
+                <span className="min-w-0 wrap-break-word text-lg font-bold tracking-tight text-text-strong max-sm:line-clamp-2">
                   {displayTitle}
                 </span>
               </h2>
@@ -949,7 +949,17 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               </span>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          {/* The header bound (spec 2026-08-25-review-modal-strip-dock §3.0).
+              A composite alert pill reading "20 issues · 10 monitoring" widens
+              this shrink-0 cluster until it starves the min-w-0 flex-1 title
+              column beside it, and the title then wraps until the header alone
+              is taller than the panel — measured at 587.97px against a 164.19px
+              baseline at 375px, which is what put the strip out of reach. 160px
+              is the largest cap that leaves every realistic load untouched: the
+              sweep in §3.0 ran eight cap values against three loads, 96 changed
+              the 0-load baseline and 192 still failed at load 30, and the
+              2-item cluster measures 147.73 naturally, below this cap. */}
+          <div className="flex shrink-0 items-center gap-2 max-sm:max-w-40">
             {/* Attention pill (published-show-alerts §5.1) — four states from
                 the ONE derived list. `before:-inset-y-3` hit-band arithmetic is
                 COPIED from the prior pill: text-xs (~16px line box) + py-1
@@ -960,7 +970,12 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                  their count > 0; the middot separator renders only BETWEEN two
                  present segments, never as the first glyph. The old else-branch
                  that hid the clearing count whenever action items existed is gone. */
-              <div className="relative">
+              /* `min-w-0` (§3.0): a flex item defaults to `min-width: auto`, so
+                 this wrapper's min-content width can force it WIDER than the
+                 capped parent. `items-center` on that parent is cross-axis only
+                 and transfers no width cap, and nothing else in the chain
+                 constrains this element. */
+              <div className="relative min-w-0">
                 <button
                   ref={pillRef}
                   type="button"
@@ -973,7 +988,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                         title: `${selfHeal.length} monitoring, clearing on their own, no action needed`,
                       }
                     : {})}
-                  className={`relative inline-flex shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                     monitoringOnly
                       ? /* border separates button-gray from the passive label-gray
                            spans; hover moves the border, never fades toward the
@@ -1034,28 +1049,46 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   {selfHeal.length > 0 ? (
                     <>
                       {/* Separator only BETWEEN segments — never a leading
-                          glyph on the monitoring-only pill (spec §3.1). */}
-                      {needsYou.length > 0 ? <span className="opacity-50">{" · "}</span> : null}
-                      {/* /80 floor: /70 computes 4.01:1 over --color-warning-bg in
+                          glyph on the monitoring-only pill (spec §3.1).
+                          The `inline-flex` pair wrapper below is load-bearing,
+                          and round 4's critique (F3, P3) is why. As a STANDALONE
+                          flex item the separator could land last on line 1 when
+                          the pill wraps under `max-sm:flex-wrap`, so a 30-item
+                          load at 375px read "● 20 issues ·" / "○ 10 monitoring"
+                          — a dangling middot that scans as a typo. Binding the
+                          separator to the monitoring segment inside ONE flex
+                          item makes them a single wrap unit, so the middot leads
+                          line 2 instead of orphaning on line 1.
+                          NOT `display: contents` — that removes the wrapper from
+                          layout and hands both children back to the parent as
+                          separate flex items, which is exactly the orphaning
+                          this fixes. The separator stays a REAL " · " text node,
+                          visible and announced (#537 space-node rule); hiding it
+                          below `sm` was the other option and would have taken
+                          the glyph out of the announced string. */}
+                      <span className="inline-flex items-center gap-1.5">
+                        {needsYou.length > 0 ? <span className="opacity-50">{" · "}</span> : null}
+                        {/* /80 floor: /70 computes 4.01:1 over --color-warning-bg in
                           light theme (below AA 4.5:1 at text-xs); /80 is ~5.35:1
                           light, higher dark. Impeccable critique P1, 2026-07-22. */}
-                      <span
-                        data-testid="attention-pill-monitoring-segment"
-                        className={`inline-flex items-center gap-1 font-medium ${
-                          monitoringOnly ? "text-text-subtle" : "text-warning-text/80"
-                        }`}
-                      >
-                        {/* hollow positive-tone dot (spec §3.2) — same cue as the
+                        <span
+                          data-testid="attention-pill-monitoring-segment"
+                          className={`inline-flex items-center gap-1 font-medium ${
+                            monitoringOnly ? "text-text-subtle" : "text-warning-text/80"
+                          }`}
+                        >
+                          {/* hollow positive-tone dot (spec §3.2) — same cue as the
                             monitoring-only pill, distinct from the solid review
                             dot. Omitted on the monitoring-only pill, whose
                             LEADING dot is already the hollow cue (no double dot). */}
-                        {monitoringOnly ? null : (
-                          <span
-                            aria-hidden="true"
-                            className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
-                          />
-                        )}
-                        {selfHeal.length > 99 ? "99+" : selfHeal.length} monitoring
+                          {monitoringOnly ? null : (
+                            <span
+                              aria-hidden="true"
+                              className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
+                            />
+                          )}
+                          {selfHeal.length > 99 ? "99+" : selfHeal.length} monitoring
+                        </span>
                       </span>
                       {selfHeal.length > 99 ? (
                         <>
@@ -1093,15 +1126,40 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                  To-confirm state; the Overview notice card is the detail. */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-text-subtle"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-text-subtle"
               >
                 Alerts unavailable
               </span>
             ) : (
-              /* §5.1 in-sync state (S3C-1 clean-dot recipe, DESIGN.md §92). */
+              /* §5.1 in-sync state (S3C-1 clean-dot recipe, DESIGN.md §92).
+                 `min-w-0` AND NO `shrink-0`, on both static pills. Round 2 added
+                 `min-w-0` alone and round 3 showed it cannot work: `min-w-0`
+                 only lowers the automatic minimum, and `flex-shrink: 0` means
+                 the item never contracts regardless. The cap was unenforceable
+                 on these two branches. Measured in that round: "Alerts
+                 unavailable" is ~104px at 12px semibold in Inter, and with
+                 padding, the 8px cluster gap and the 44px close target the row
+                 reaches ~176px against a 160px cap.
+                 Round 4's fresh critique (F1, P2) refuted what this comment
+                 used to claim. It said `truncate` made shrinking
+                 non-destructive because the label "ellipsises rather than
+                 overflowing". That is false as written: `truncate` puts
+                 `text-overflow: ellipsis` on this `inline-flex` container, the
+                 label is an ANONYMOUS FLEX ITEM inside it, and `text-overflow`
+                 does not inherit into that item. The browser clipped with no
+                 ellipsis drawn — "Alerts unavailab" cut hard against the pill
+                 edge below `sm`, where the capped cluster leaves ~108px and the
+                 label needs ~124px.
+                 `truncate` is therefore REMOVED from both static pills. Without
+                 `whitespace-nowrap` the copy wraps inside the `min-w-0` box, so
+                 shrinking stays non-destructive AND no copy is cut, which is
+                 what spec §3.0 asks for and what the button pill at :991
+                 already does with `max-sm:flex-wrap`. The in-sync branch gets
+                 the same treatment even though its shorter copy fits today;
+                 that it fits is a property of the string, not of the layout. */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-status-positive-text"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-status-positive-text"
               >
                 <span
                   aria-hidden="true"
@@ -1114,9 +1172,17 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
           </div>
         </>
       }
-      // The control strip is its OWN band below the header seam
-      // (modal-header-reconciliation §6.1): identity above, live controls below.
-      subHeader={
+      // The control strip is DOCKED to the panel floor (spec
+      // 2026-08-25-review-modal-strip-dock §3.1). It was its own band directly
+      // below the header seam — identity above, live controls below
+      // (modal-header-reconciliation §6.1) — and that reading survives the move:
+      // the controls are still separated from the identity block, just at the
+      // other end of the column. What forced the move is that a band pinned
+      // under the header rides DOWN with the header, and at 30 attention items
+      // the header alone grew taller than the panel, taking the Published
+      // switch out of reach entirely. A footer's distance from the panel top
+      // does not depend on how tall the header is.
+      footer={
         <>
           {/* Freshness announcement (spec 2026-08-03-modal-freshness-cue §4.6).
               The REGION is branch-stable and always mounted: a region that mounts
@@ -1125,11 +1191,12 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               onto the same text node and that is not a DOM mutation, so a repeat
               cue with identical copy would otherwise be silent to a screen reader.
 
-              In `subHeader`, not the body slot: the shell contracts that its
-              children mount directly in the panel flex column so the consumer's
-              surface root IS the body element, and ShowReviewSurface is that sole
-              child. This band is inside the same dialog subtree, so the region
-              announces identically. */}
+              In the `footer` slot, not the body slot: the shell contracts that
+              its children mount directly in the panel flex column so the
+              consumer's surface root IS the body element, and ShowReviewSurface
+              is that sole child. This row is inside the same dialog subtree, so
+              the region announces identically — the slot it lives in does not
+              change that, which is why the dock is not an announcement change. */}
           <span
             key="freshness-announce"
             role="status"
@@ -1141,6 +1208,11 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
           </span>
           <div
             data-testid={`${TESTID_BASE}-freshness-band`}
+            // `w-full` because the new parent is `flex flex-wrap items-center`
+            // (the shell's footer wrapper) rather than a block band: without it
+            // this row shrink-wraps its content and the strip's own `w-full`
+            // then resolves against the wrong width.
+            className="w-full"
             {...(bandFresh !== null ? { "data-section-freshness-flash": bandFresh.value } : {})}
           >
             <StatusStrip
