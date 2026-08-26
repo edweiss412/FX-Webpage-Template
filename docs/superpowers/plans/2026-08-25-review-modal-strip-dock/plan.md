@@ -683,7 +683,7 @@ entries, so the marker cannot ride along). This is the PR's last commit, before 
 
 ## §12 Close-out
 
-impeccable-gate: critique=RAN audit=RAN-DEGRADED p0=0 p1=0 dispositions=4-fixed-5-documented
+impeccable-gate: critique=RAN audit=RAN-DEGRADED p0=0 p1=0 dispositions=none
 
 **Both halves ran and both are declared DEGRADED, with the reason, because a silent
 degraded gate is a failed gate.** The skill requires the critique's two assessments to run
