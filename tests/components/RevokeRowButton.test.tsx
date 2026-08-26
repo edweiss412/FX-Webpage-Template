@@ -295,3 +295,35 @@ describe("arm-expiry announcement — RevokeRowButton", () => {
     expect(getByTestId("arm-expiry-announce").textContent).toBe(EXPIRY);
   });
 });
+
+describe("RevokeRowButton — the self-last hint starts every line at the same x", () => {
+  // Class sweep off BL-THEME-NOTE-BUBBLE-TEXT-ALIGN (2026-08-26). This hint is
+  // the same shape the repo already repaired once on its own sibling: the
+  // lockout error two elements below carried `max-w-xs text-right text-xs`
+  // until M9 commit 4e438b0 moved it to full-width and left-aligned, "easy to
+  // miss after refusal on Doug's phone" — see the comment still sitting on it.
+  //
+  // The hint's BOX is right-positioned by the column's `items-end`, not by
+  // `text-right`. So on a single line `text-right` is a no-op (the box shrinks
+  // to the text), and the only case where it does anything is the wrapped one,
+  // where it gives each line a different starting x. There is no third case,
+  // which is why dropping it cannot move the single-line rendering.
+  //
+  // jsdom does not lay out, so this pins the CLASS rather than claiming a
+  // measured line box. The measured evidence for the shape is in the theme-note
+  // arc: 57.68px of line-start spread across 8 readings.
+  it("carries no alignment class on the wrapping hint copy", () => {
+    const { getByTestId } = render(<RevokeRowButton email="only@example.com" disabled={true} />);
+
+    const hint = getByTestId("admin-allowlist-self-last-hint");
+    const tokens = hint.className.split(/\s+/).filter(Boolean);
+
+    // PREMISE: this is the real hint with its real chrome, not an empty node
+    // that would satisfy any absence assertion.
+    expect(hint.textContent ?? "").toContain("revoke your own admin access");
+    expect(tokens).toContain("max-w-xs");
+
+    expect(tokens).not.toContain("text-right");
+    expect(tokens).not.toContain("text-center");
+  });
+});

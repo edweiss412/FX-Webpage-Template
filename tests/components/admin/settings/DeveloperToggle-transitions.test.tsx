@@ -212,6 +212,36 @@ describe("DeveloperToggle transition audit (Task 18c)", () => {
     expect(within(bobRow).getByTestId("developer-toggle")).not.toBeDisabled();
   });
 
+  it("the error copy carries no alignment class (class sweep, 2026-08-26)", async () => {
+    // Same shape as the self-last revoke hint and the removed theme-persist
+    // note: right-aligned sentence copy in a width-capped box inside an
+    // `items-end` column. The box is positioned by `items-end`; `text-right`
+    // only ever changes where WRAPPED lines start, and `renderEmphasis` copy
+    // here is long enough to wrap on a phone.
+    renderDevView([row({ email: "bob@example.com", is_developer: false })]);
+    await act(async () => {
+      fireEvent.click(toggleIn("bob@example.com"));
+    });
+    await act(async () => {
+      ctl.resolvers.get("bob@example.com")!({ kind: "infra_error" });
+    });
+
+    const bobRow = rowByEmail("bob@example.com");
+    await waitFor(() => {
+      expect(within(bobRow).getByTestId("developer-toggle-error")).toBeTruthy();
+    });
+    const err = within(bobRow).getByTestId("developer-toggle-error");
+    const tokens = err.className.split(/\s+/).filter(Boolean);
+
+    // PREMISE: the real alert with its real chrome and real copy.
+    expect((err.textContent ?? "").length).toBeGreaterThan(0);
+    expect(tokens).toContain("max-w-prose");
+    expect(tokens).toContain("bg-warning-bg");
+
+    expect(tokens).not.toContain("text-right");
+    expect(tokens).not.toContain("text-center");
+  });
+
   it("compound: toggling row A while row B is mid-pending leaves B's pending state intact (independent useActionState)", async () => {
     renderDevView([
       row({ email: "alice@example.com", is_developer: true }), // actor (locked)
