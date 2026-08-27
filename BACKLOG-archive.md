@@ -13263,3 +13263,29 @@ five further legs in the warn band (>75% of 3600 s)
 **What is genuinely closed here** is the row as filed: the `budget` job failed on four of four legs at `N = 4`, and at `N = 8` it passes on six of eight with one over. That is a repair, not a fiction. What is NOT closed is the growth curve underneath it, which is why this row graduates with the breach recorded instead of a clean subsumption.
 
 **Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`**, and the distinction held all the way to closure: that row is the source gate's COVERAGE failure set and explicitly disclaims the budget half. This was the `budget` job — a different job, a different failure, a different repair, closed by a different PR.
+
+## BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE — the mi11 genuine-removal fallback retains a frozen snapshot over a live row — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** M (filed S) · **Severity (as filed):** low-medium · **Class:** correctness (silent data revert) · **Facing:** product · **Filed:** 2026-08-07 (arc C Q1 class-sweep, `feat/backlog-quick-wins`) · **Closed by:** `fix/mi11-removal-fallback-live-row`
+
+**The ruling the entry was waiting on: DEFECT.** A hold exists to stop a row being REMOVED and to stop its IDENTITY moving while an admin decides. It does not hold non-identity, and no path in the file holds non-identity on purpose. The freeze the old code performed was invisible and unbounded: an admin edits a held member's phone in the sheet, sees it apply, sees it on the crew page, and then sees it silently revert on the sync after the member drops off the sheet. No warning, no feed entry, no notice.
+
+**The entry's own framing was wrong in a way worth recording, because it is why this took eight review dispatches rather than one.** It asked whether the live row should win at `:337`, and answered by comparing three adjacent sites that "disagree on purpose". Two of those three readings did not survive:
+
+- `:477` is NOT the correct-by-design counter-example the entry claimed. `mi11_reject_hold` converts a rejected rename or removal into the same `undo_override`/`crew_identity` shape `undo_change` writes (`supabase/migrations/20260608000002_mi11_gate_rpcs.sql:83-98`) and never touches `crew_members`, and `readOpenHolds` carries no origin discriminator. That site serves Reject with a CURRENT live row and a LAGGING snapshot, so it reproduced the defect too. It changed.
+- WM-F6 at `:321` was described as deliberately preferring held values. What WM-F6 actually protects is that a DIFFERENT person's fields never land on the held crew. Nothing in it required the held crew's own non-identity to come from the snapshot. It changed as well.
+- `:300`, the rename fold, is the one that was right: the sheet's fold-target row wins there via `nonIdentityOverride`, and still does.
+
+**And `held_value` is not the opening snapshot.** `writeMi11Holds` upserts with `held_value = excluded.held_value` (`lib/sync/holds/writeMi11Holds.ts:78`), so it is refreshed by every sync that re-asserts the MI-11 and stops advancing only when the member stops appearing. A LAGGING snapshot, not a frozen one.
+
+**What shipped: one rule at all five retains.** Identity from the held snapshot; non-identity from `entity_key`'s own live row when one exists; the snapshot only when none does. The argument is about who can WRITE the row, not about when any path runs: a held member's live row is written only by this sync's own upsert for that key and by operator edits, and `held_value` is a copy of a prior live row, so live is never older than the snapshot in any state. Four spec rounds went into arguing the WHEN version before that replaced it (`docs/review-rounds/fix/mi11-removal-fallback-live-row/4cb585b3508a.md`).
+
+**Two things closed with it that were not in the entry.** The `crew_email` reject branch retained the live row RAW under a `pinnedIdentity` whose email may be null, so a null-held-email hold leaked the LIVE email onto a row the hold pins to none; and that branch's retain was guarded on the live row's presence, so a member with no live row got `protectedNames` and NO row — the exact shape behind arc C's original false capability-loss report. Both are gone.
+
+**Operator-facing copy moved with the behaviour.** Two shipped help pages told Doug that a held member's "prior details stay in effect", which described the reverting behaviour as a feature. They now say the prior IDENTITY stays in effect and the other details keep following the sheet and his edits, pinned by a walker over every help page.
+
+**Documented limits, recorded rather than re-filed** (this arc files no rows, per the 2026-08-27 arc directive):
+
+- **No live row, no repair.** With no prior-crew entry for the member the held snapshot is still retained. It is the pre-arc behaviour at four sites and an improvement on retaining nothing at the fifth.
+- **Sheet edits under a suppressed replacement never reach the retained row.** When a rename is undone or a folded rename rejected, the sheet keeps listing the member under the replacement name; that row is suppressed by name and email, so an edit to it does not reach them. True before this arc; the arc neither creates nor closes it. A `nonIdentityOverride` that would have preferred those fields was specced and then DROPPED by ruling, on two grounds: the writer-set argument makes live-wins already correct there, and spec round 4 found a mixed-liveness defect in the mechanism itself — its guard tested the stored `suppressed_added.name` for prior liveness while its lookup matched by canonical email under ANY name.
+- **The class guard pins what each retain is GIVEN and how many there are, not the lexical scope the call sits in.** Two rounds of trying to pin scope each drew the next mutant, and the survivor is behaviour-preserving.
