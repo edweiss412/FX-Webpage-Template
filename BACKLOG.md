@@ -32,18 +32,6 @@ Index entry: `LIM-AUTHORED-RED` in `docs/review-rounds/LIMITS.md`, named by six 
 
 ---
 
-## BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG — a hung switch-person clear dims the menu row for good
-
-**Status:** IN PROGRESS · **Branch:** fix/avatar-menu-switch-pending-watchdog · **Filed:** 2026-08-25 (`feat/switch-person-google-signout`, impeccable critique P1 at the invariant-8 gate) · **Facing:** product · **Severity:** LOW (needs a server action that never settles; a reload recovers) · **Class:** UX resilience · **Effort:** S · **Reachability:** INFERRED, NOT PROBED — reachable when the `clearIdentity` server action never settles (a stalled sign-out round trip, now part of that action); the probe that settles it is a `deferred()` clear in `tests/components/auth/avatarMenu.test.tsx` left unresolved past the timeout under fake timers, asserting the row re-enables and the status region clears. That probe is the first scheduled step.
-
-`components/auth/AvatarMenu.tsx` keeps `switchPending` from `useTransition` with no watchdog, and `onSwitchSubmit`'s re-entry guard refuses every further tap while it holds, so a transition that never settles leaves "Not you? Switch person" dimmed and inert until the page is reloaded. The same-route sibling `app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx` already carries `PENDING_TIMEOUT_MS = 8_000` with a status region; the menu row wants the same shape.
-
-**Deferral reason (c):** the repair adds a timing constant, and DESIGN.md's interaction-timing table is pinned in both directions by `tests/docs/_metaInteractionTimingInventory.test.ts`, so it is a small design-token change on a surface the filing arc did not otherwise touch. The arc fixed the sibling P1 (no `aria-busy`, no announcement) in-branch.
-
-**Trigger:** the next avatar-menu pass, or a report of a stuck switch row.
-
----
-
 ## BL-ADMIN-LOADER-INFRA-ERROR-TELEMETRY-SILENT — the loader is telemetry-silent on the fault this instrument measures
 
 **Status:** OPEN · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** MEDIUM (a diagnosable fault leaves no trace in the job log) · **Class:** observability · **Effort:** S · **Incident:** this arc's own diagnosis. `lib/admin/loadRecentAutoApplied.ts` imports `log` (`:28`) and none of its five `infra_error` return sites (`:145`, `:170`, `:176`, `:231`, `:241`) emit anything, so attributing run 32528532727 required downloading the failure artifact inside its 7-day retention window rather than reading a log. A code-carrying emit would have named it from the log. · **Reachability:** PROBED — the five return sites are read directly.
