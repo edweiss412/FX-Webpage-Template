@@ -70,9 +70,11 @@ The criteria are declared in the spec's §8 and are not re-declared here, so the
 - **A case whose subject is a DELIVERY consequence needs the stub to model delivery.** AC-8's cost rule is about the initial observation `observe()` emits, which the default stub never emits, so those cases run with `installTargetTrackingObserver({ deliverInitial: true })`. When on, `observe()` schedules ONE delivery through the same held-frame queue the rest of the suite uses, and only when the target's stubbed rect is non-zero, which is how the 0x0 class becomes testable at all. It is off everywhere else, because coupling the subscription cases to delivery behaviour they are not about is how the previous draft's counts became unreadable.
 - **A fixture must not let the element under test be held for the OTHER reason.** Round 1's sharpest finding: task 2's original fixture moved the positioned role onto `outer`, which the default harness already holds as the CLIP ancestor, so "outer is observed" and "resize(outer) is deliverable" both passed without any positioned-role reconciliation existing. Aliasing is the subject of task 3 and must be absent from task 2, so task 2 gets a three-level fixture where the positioned role moves between two nodes, neither of which is the clip.
 
-## The real-browser half, which no jsdom case can carry
+## The real-browser half: a geometry regression gate on the one live consumer
 
 Spec §4.3 claims that conditional re-targeting is what makes the coalesced path terminate, because `ResizeObserver.observe()` delivers an initial observation.
+
+**Every claim about what this suite proves lives in this section and in task 5, and nowhere else.** Three rounds were spent on three versions of that claim, and plan round 4 found the fourth round's repair had corrected two copies and stranded two. Anything asserting what the browser run establishes belongs here; a sentence elsewhere that starts to say it should instead point at this section.
 
 **What a stub can and cannot settle.** Task 4's four AC-8 cases run the stub with `deliverInitial: true`, so they DO observe an initial delivery and they are the actual proof of AC-8's arithmetic. What they cannot check is the MODELLING ASSUMPTION underneath: that the real platform delivers once for an added target with a box and stays silent for one that is 0x0.
 
@@ -80,13 +82,13 @@ Spec §4.3 claims that conditional re-targeting is what makes the coalesced path
 
 **What that costs, so the exposure is bounded rather than hand-waved.** If the model is wrong about the 0x0 case, the consequence is one extra coalesced `apply()` on a transition no shipped consumer takes: a wrong number in AC-8, never a stale cap. Termination is safe in the direction that matters, because the loop of spec §4.3 REQUIRES `observe()` to deliver, so a platform that delivers LESS than the model says cannot loop more. Task 4's class-1 case is what actually pins termination, and it does so against the same delivery the loop would need.
 
-The real cover already exists: `tests/e2e/popover-clip-fit.spec.ts` drives the one live consumer in a real browser, including the settled fit, the animated path that awaits `transitionend`, containment against the clip edge, and the held-open flip that lands mid-entrance (`tests/e2e/popover-clip-fit.spec.ts:271`, `tests/e2e/popover-clip-fit.spec.ts:308`, `tests/e2e/popover-clip-fit.spec.ts:332`, `tests/e2e/popover-clip-fit.spec.ts:409`, `tests/e2e/popover-clip-fit.spec.ts:447`). Under a non-terminating re-measure loop those cases do not fail subtly; they thrash and time out.
+The real cover already exists: `tests/e2e/popover-clip-fit.spec.ts` drives the one live consumer in a real browser, including the settled fit, the animated path that awaits `transitionend`, containment against the clip edge, and the held-open flip that lands mid-entrance (`tests/e2e/popover-clip-fit.spec.ts:271`, `tests/e2e/popover-clip-fit.spec.ts:308`, `tests/e2e/popover-clip-fit.spec.ts:332`, `tests/e2e/popover-clip-fit.spec.ts:409`, `tests/e2e/popover-clip-fit.spec.ts:447`). What it catches is a geometry regression on the shipped surface, on a real browser with a real `ResizeObserver`.
 
 **What it does and does not verify.** It verifies that the ONE live consumer's geometry is still correct after this change, on a real browser with a real `ResizeObserver`, across the settled fit, the animated path, containment, and the held-open flip mid-entrance. That is a regression gate on the attach path and it is worth running.
 
 It does NOT verify termination, and the earlier draft claiming it would "thrash and time out" was wrong. A per-frame re-measure loop rewrites the SAME cap, and the suite's settle helper compares two geometry samples 80ms apart (`tests/e2e/popover-clip-fit.spec.ts:214-218`), so stable geometry and a spinning loop are indistinguishable to it. It also does not verify AC-8's count, and it induces no subscription addition at all, since no shipped consumer takes the transition. Termination and the count are both task 4's, against the model.
 
-So the termination claim is verified by running that suite on the shipping head, wrapped, since a non-interactive Playwright run is a heavy phase:
+So that gate is run on the shipping head, wrapped, since a non-interactive Playwright run is a heavy phase:
 
 `pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts`
 
