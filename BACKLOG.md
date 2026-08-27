@@ -279,6 +279,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK — a leg with no displayable content beyond its date renders as an unlabeled raw line
 
+**Status:** OPEN
 **Effort:** M
 
 **Filed:** 2026-08-10, whole-diff review R2 F3 on `feat/crew-field-enrichment`, which refuted the claim that the unlabeled-leg render "no longer exists" while `BL-FLIGHT-LEG-ORIENTATION` was being archived. This row is that entry's successor: the archived one closed because the structured card became the DEFAULT render, and this one carries the residual it did not cover.
@@ -289,7 +290,15 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Why this is a different problem from the entry it succeeds.** That entry asked for labels once a structured source existed; the source exists and the labels ship. This one is about segments that ARE structured — `structured: true`, date parsed — but carry no other displayable field, so the structured card has only a date to lay out and hands them to the raw branch. Layout work on the card's populated fields therefore never reaches them: the gap is what to render when every field except the date is empty. The candidate direction is a RENDERER one — give the date-only segment a labeled treatment of its own — not parser widening, which an earlier draft of this row wrongly implied and which would find nothing to fix.
 
-**Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation in a case whose real-world frequency has not been measured. **Promotion prerequisite:** a corpus probe over live `flight_info` values counting how often a segment parses but carries no displayable field beyond its date. Because the segments ARE structured, the cheap direction is a renderer question — give the date-only segment a labeled treatment of its own — rather than the parser widening an earlier draft implied.
+**Reachability:** PROBED 2026-08-27, 0 of 10 segments date-only. The corpus is 7 of the 8 sheets in the live `fxav-test-shows` folder; the eighth does not parse (`VERSION_AMBIGUOUS`) and is reported as unmeasured rather than counted as a zero. The validation deployment's `crew_members.flight_info` holds the same 5 itineraries, compared verbatim rather than by agreeing totals. Every segment on every real sheet carries a route and both times, so none reaches the raw branch. The classifier behind that zero is pinned rather than assumed: this entry's own `3/22 Charter pending | 3/24 Return pending` classifies date-only on both legs, and 5 of 6 hand-mutants of the renderer's predicate go red (the survivor is equivalent — `arrTime` is never set without `depTime`). Probe `scripts/probe-flight-date-only-legs.ts`, report `docs/superpowers/specs/crew/2026-08-27-flight-date-only-leg-probe.md`, suite `tests/scripts/probeFlightDateOnlyLegs.test.ts`.
+
+**Re-file trigger:** the first date-only leg observed in a live sheet, or Doug adopting the pending-charter phrasing. Rerun the probe to settle it — it is one command and it prints the count.
+
+**Why still open after PR #916, and what that PR did NOT cover.** #916 closes this row's PROMOTION PREREQUISITE and nothing else. It ships the probe, its committed output, the report, and the `**Reachability:**` field above; it ships no renderer change and no test of one. The residual is the entire defect as filed: a segment that parses with nothing displayable beyond its date still renders as an unlabeled raw line, and the labeled treatment this row asks for is not built. Read the row as unstarted work whose gating question is now answered, not as work that partly shipped.
+
+**Why nothing was built:** the prerequisite returned zero, which is the answer that says do not build. A labeled treatment would be a renderer for a case the corpus does not contain; ruled RECORD AND PARK 2026-08-27. The entry keeps its place in the queue with the number attached, so the next reader inherits the measurement instead of re-deriving it.
+
+**Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation, in a case that turns out not to arise. **Promotion prerequisite (RUN 2026-08-27, returned zero):** a corpus probe over live `flight_info` values counting how often a segment parses but carries no displayable field beyond its date — see `**Reachability:**` above. Should it ever return non-zero, the direction is a renderer question, because the segments ARE structured: give the date-only segment a labeled treatment of its own, rather than the parser widening an earlier draft implied.
 
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
