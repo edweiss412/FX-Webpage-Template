@@ -74,11 +74,17 @@ The criteria are declared in the spec's §8 and are not re-declared here, so the
 
 Spec §4.3 claims that conditional re-targeting is what makes the coalesced path terminate, because `ResizeObserver.observe()` delivers an initial observation.
 
-**What a stub can and cannot settle, stated precisely, because round 1's repair changed the answer and round 2 caught the two halves contradicting each other.** Task 4's four AC-8 cases run the stub with `deliverInitial: true`, so they DO observe an initial delivery and they are the actual proof of AC-8's arithmetic. What they cannot do is check the MODELLING ASSUMPTION underneath: that the real platform delivers once for an added target with a box, and stays silent for one that is 0x0. A unit suite asserting against its own model proves the model is self-consistent and nothing else.
+**What a stub can and cannot settle.** Task 4's four AC-8 cases run the stub with `deliverInitial: true`, so they DO observe an initial delivery and they are the actual proof of AC-8's arithmetic. What they cannot check is the MODELLING ASSUMPTION underneath: that the real platform delivers once for an added target with a box and stays silent for one that is 0x0.
+
+**Nothing in this arc checks that assumption, and the third round of saying otherwise is where the plan stops trying.** Two drafts claimed the browser suite carried it; both were wrong for different reasons, and round 3 enumerated why: no case there observes whether adding a sized target produces a callback, no case adds a 0x0 target, and no case counts applies or frames. The assumption is taken from the Resize Observer specification's broadcast step, where each observation's last-reported size starts at `(0, 0)` and only targets whose current size differs are reported. It is a citation, not a measurement, and this plan says so rather than dressing it up.
+
+**What that costs, so the exposure is bounded rather than hand-waved.** If the model is wrong about the 0x0 case, the consequence is one extra coalesced `apply()` on a transition no shipped consumer takes: a wrong number in AC-8, never a stale cap. Termination is safe in the direction that matters, because the loop of spec §4.3 REQUIRES `observe()` to deliver, so a platform that delivers LESS than the model says cannot loop more. Task 4's class-1 case is what actually pins termination, and it does so against the same delivery the loop would need.
 
 The real cover already exists: `tests/e2e/popover-clip-fit.spec.ts` drives the one live consumer in a real browser, including the settled fit, the animated path that awaits `transitionend`, containment against the clip edge, and the held-open flip that lands mid-entrance (`tests/e2e/popover-clip-fit.spec.ts:271`, `tests/e2e/popover-clip-fit.spec.ts:308`, `tests/e2e/popover-clip-fit.spec.ts:332`, `tests/e2e/popover-clip-fit.spec.ts:409`, `tests/e2e/popover-clip-fit.spec.ts:447`). Under a non-terminating re-measure loop those cases do not fail subtly; they thrash and time out.
 
-**What it does and does not verify, stated so the plan does not overclaim.** It verifies TERMINATION on the real platform, because a non-terminating re-measure loop makes those cases thrash and time out rather than fail subtly. It does NOT verify AC-8's exact apply count, and it induces no subscription addition at all: no shipped consumer takes the transition, which is the row's own reachability bound. AC-8's arithmetic is task 4's; this suite is the regression gate around it and the only place the stub's modelling assumption meets a real `ResizeObserver`.
+**What it does and does not verify.** It verifies that the ONE live consumer's geometry is still correct after this change, on a real browser with a real `ResizeObserver`, across the settled fit, the animated path, containment, and the held-open flip mid-entrance. That is a regression gate on the attach path and it is worth running.
+
+It does NOT verify termination, and the earlier draft claiming it would "thrash and time out" was wrong. A per-frame re-measure loop rewrites the SAME cap, and the suite's settle helper compares two geometry samples 80ms apart (`tests/e2e/popover-clip-fit.spec.ts:214-218`), so stable geometry and a spinning loop are indistinguishable to it. It also does not verify AC-8's count, and it induces no subscription addition at all, since no shipped consumer takes the transition. Termination and the count are both task 4's, against the model.
 
 So the termination claim is verified by running that suite on the shipping head, wrapped, since a non-interactive Playwright run is a heavy phase:
 
@@ -97,6 +103,20 @@ Total: 34 tests in 1 file
 ```
 
 Zero collected is the whole failure: a gate that collects nothing observes nothing, and 34 is the number the closeout must see.
+
+## Every command this plan declares, run at plan time
+
+Round 2's first finding was a gate that collected nothing because I read the command instead of running it. The class-level answer is not "check the Playwright command", it is a derived cover: grep this document for every declared command and run each one, recording what it actually did. The extraction is mechanical (`pnpm`, `node`, `sh -c`, `npx`, `git` in backticks or as a fenced shell line), so a command added later is covered by re-running the sweep rather than by remembering to add a row.
+
+| Command | Run at plan time | Observed |
+| --- | --- | --- |
+| `pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx` | yes | 33 passed, 1 file. Collects, so tasks 1 to 3 have a `red=` that can express a verdict. |
+| `pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts` | yes, as `--list` | `Total: 34 tests in 1 file` |
+| the same without `--config` (the earlier draft's form, kept as the probe that condemns it) | yes, as `--list` | `Total: 0 tests in 0 files` |
+| task 4's `sh -c` gate | yes | exit 1, on the missing `plant-N` row |
+| task 5's `sh -c` gate | yes | exit 1, on the missing `impeccable-gate:` marker |
+
+Four distinct commands, six occurrences. No declared command in this plan is unrun.
 
 <!-- tasks: depth=2 -->
 
@@ -181,7 +201,7 @@ Cases, one per row of spec §5 plus the three invariants:
   **The target-set cases must not be run in this configuration**, and each states that as its premise rather than leaving it implicit. Spec §8's precondition is that the six target-mentioning criteria range over a constructed observer; with none there is no target set, so an assertion like "the resolved clip is in the target set" would be inapplicable rather than satisfied, and a case that quietly passed there would be vacuous in exactly the environment it is least able to notice.
 - **AC-8, the apply-count bound, over its FOUR delta classes, run with `deliverInitial: true`.** Every spec round and plan round 1 landed here, so the cover is stated as the spec derives it rather than as a list that keeps growing. The cost is driven by ADDITIONS THAT HAVE A BOX, so the closed cover is four, not three, and plan round 1 found the fourth missing:
   1. adds a target with a non-zero box: exactly one extra coalesced apply, and ZERO more on the following frame, because the follow-up derives the same set;
-  2. adds only a target that is currently 0x0: **zero**, because the platform emits no initial observation for a zero-sized target (spec §4.3);
+  2. adds only a target that is currently 0x0: **zero extra applies, AND the 0x0 target is in the observe log and in the held set.** Both halves, because round 3 found that the count alone is satisfied by a hook that simply skips `observe()` for a zero-sized target, which is the opposite of the required behaviour and would leave that ancestor permanently dark. The count proves the platform stays quiet; the log proves the hook still subscribed (spec §4.3);
   3. only removes: zero;
   4. neither: zero.
 
@@ -189,7 +209,7 @@ Cases, one per row of spec §5 plus the three invariants:
 
   **These four are the only cases in the suite that run the stub with `deliverInitial: true`**, and the case body says why: the criterion is ABOUT the initial observation, and the default stub emits none, so plan round 1 was right that the previous draft's addition case could not prove the follow-up apply it promised. With the flag off, class 1 and class 2 are indistinguishable, which is precisely the distinction the spec's cost rule turns on.
 
-  Plants: call `apply()` twice in the coalesced path (catches all four); drop the difference guard so the follow-up re-observes (catches class 1, and it is §4.3's loop caught at one frame's remove); make `observe()` deliver unconditionally in the stub's model (catches class 2, and it is the plant that proves the 0x0 arm is not decorative).
+  Plants: call `apply()` twice in the coalesced path (catches all four); drop the difference guard so the follow-up re-observes (catches class 1, and it is §4.3's loop caught at one frame's remove); make `observe()` deliver unconditionally in the stub's model (catches class 2's count); and skip `observe()` in the HOOK whenever the resolved target is currently 0x0 (catches class 2's log assertion, and it is the plant round 3's finding names, since it satisfies both counts while subscribing to nothing).
 
 ### Mutant plants, run and recorded
 
@@ -202,13 +222,13 @@ This task's `red=` greps for a `| plant-N |` row rather than for the heading abo
 
 ## Task 5: close-out
 
-<!-- task: red=`sh -c 'P=docs/superpowers/plans/2026-08-27-fitwithinclip-clip-subscription.md; grep -qE "^impeccable-gate: critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=(0|[1-9][0-9]*) p1=(0|[1-9][0-9]*) dispositions=(recorded|none)$" $P || exit 1; grep -qE "^#{2,3} BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION" BACKLOG.md && exit 1; awk "/^#+ BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION/{f=1;next} f&&/^#/{f=0} f" BACKLOG-archive.md > /tmp/fwc-entry.txt; test -s /tmp/fwc-entry.txt || exit 1; grep -q "IN PROGRESS" /tmp/fwc-entry.txt && exit 1; grep -q "fix/fitwithinclip-stale-clip-subscription" /tmp/fwc-entry.txt || exit 1; grep -q "BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION" tests/docs/_metaDeferralLedgerGraduation.test.ts || exit 1; exit 0'` ac=AC-8 -->
+<!-- task: red=`sh -c 'P=docs/superpowers/plans/2026-08-27-fitwithinclip-clip-subscription.md; grep -qE "^impeccable-gate: critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=(0|[1-9][0-9]*) p1=(0|[1-9][0-9]*) dispositions=(recorded|none)$" $P || exit 1; grep -qE "^#{2,3} BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION" BACKLOG.md && exit 1; awk "/^#+ BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION/{f=1;next} f&&/^#/{f=0} f" BACKLOG-archive.md > /tmp/fwc-entry.txt; test -s /tmp/fwc-entry.txt || exit 1; grep -q "IN PROGRESS" /tmp/fwc-entry.txt && exit 1; grep -q "fix/fitwithinclip-stale-clip-subscription" /tmp/fwc-entry.txt || exit 1; grep -q "BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION" tests/docs/_metaDeferralLedgerGraduation.test.ts || exit 1; exit 0'` ac=AC-3 -->
 
 **What is red and why.** Before the task the closeout marker line is absent, the row is still open in `BACKLOG.md` carrying its IN PROGRESS marker, the archive holds nothing under this id, and `BACKLOG_GRADUATED` has no row for it. Each is a non-zero exit; all four hold after, on the same command. Run against the live tree at plan time, and each half was confirmed red: the marker regex misses (no marker line exists), the open-queue grep HITS at `BACKLOG.md` heading level 2 and so takes the `exit 1`, and the archive extraction yields zero lines.
 
 Run `pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts` at the shipping head and record the counts (34 collected, per the probe above), per the section above.
 
-**Why this task cites AC-8, restated after round 2 caught the earlier rationale being false.** It is NOT that no stub can deliver an initial observation; task 4's stub does, and task 4 is where AC-8's arithmetic is proved. It is that task 4 proves the arithmetic against a MODEL of the platform, and this run is the only executable check that the model matches a real `ResizeObserver`: a hook that loops against the real one cannot pass these cases. Task 5 discharges AC-8's modelling premise, task 4 discharges its count, and task 1 discharges AC-4. The hook file lives under `components/admin/`, so the invariant-8 dual gate runs on the diff even though no render path changes. The gate command accepts only the RAN form and NOT the `N/A` one, deliberately: this arc runs the pair, so accepting `N/A` would be grammar the closeout can never legally use, and a gate that accepts an outcome the task forbids is a gate with a hole in it. Expect "no visual change" dispositions; record them rather than skipping the gate.
+**Why this task cites AC-3 and not AC-8.** Two earlier drafts gave it `ac=AC-8` on two different rationales and both were false; round 3 showed the suite proves neither the platform model nor termination. What it does prove is the one thing it actually exercises: the live consumer ATTACHES and gets the right cap, on a real browser, which is AC-3's claim that the attach path is unchanged. Task 4 proves AC-3 in jsdom against stubs; this is the only place it runs against a real `ResizeObserver` and the real component. AC-8's count and its termination argument are task 4's, against the model, and the model itself is an unmeasured citation this plan declares as such. The hook file lives under `components/admin/`, so the invariant-8 dual gate runs on the diff even though no render path changes. The gate command accepts only the RAN form and NOT the `N/A` one, deliberately: this arc runs the pair, so accepting `N/A` would be grammar the closeout can never legally use, and a gate that accepts an outcome the task forbids is a gate with a hole in it. Expect "no visual change" dispositions; record them rather than skipping the gate.
 
 The ledger row graduates into `BACKLOG-archive.md` and its IN PROGRESS marker comes off in this branch's LAST commit, before readiness, so no marker reaches main. The archived section names `fix/fitwithinclip-stale-clip-subscription` in its own prose, because the marker was the section's only mention of the branch and the graduation guard asserts the replacement rather than the deletion.
 
