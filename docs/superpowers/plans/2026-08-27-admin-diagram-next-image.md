@@ -1,6 +1,6 @@
 # Plan: the two admin wizard diagram sites render through the diagram loader
 
-**Row:** `BL-ADMIN-DIAGRAM-NEXT-IMAGE` (`BACKLOG.md:68`). **Branch:** `perf/admin-diagram-next-image`. **Base:** `66c9857f5`.
+**Row:** `BL-ADMIN-DIAGRAM-NEXT-IMAGE` (`BACKLOG.md:35`). **Branch:** `perf/admin-diagram-next-image`. **Base:** `66c9857f5`.
 **No spec.** The crew gallery's shipped shape is the design; `docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §6 is the contract this plan reuses without amending.
 
 Every task is TDD per invariant 1: failing test, minimal implementation, passing test, one commit. Each marker's `red=` is the command that must be observed failing before the implementation and passing after.
@@ -22,7 +22,7 @@ Baselines at this head, so a later regression is attributable: `pnpm typecheck` 
 
 ## Command sweep, authored AND run at plan time
 
-Every runnable command named anywhere in this plan, extracted mechanically and settled. The extractor:
+Every runnable command named anywhere in this plan, extracted mechanically and settled. Round 1's finding 1 was a command that could not collect what it claimed, so the sweep is derived rather than remembered:
 
 ```
 grep -noE '`(pnpm|node|npx|sh -c|git|grep -r)[^`]*`' docs/superpowers/plans/2026-08-27-admin-diagram-next-image.md
@@ -30,22 +30,24 @@ grep -noE '`(pnpm|node|npx|sh -c|git|grep -r)[^`]*`' docs/superpowers/plans/2026
 
 | Command | Settled how |
 |---|---|
-| `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check` | Run; baselines above. |
+| `pnpm lint`, `pnpm typecheck`, `pnpm format:check` | The three the `quality` job runs, read from `.github/workflows/quality.yml` rather than remembered. All three run; baselines below. |
 | `grep -rn "<img" app/ components/` | Run; output is the sweep table below. |
-| `pnpm vitest run tests/components/admin/wizard/step3DiagramTile.staged.test.tsx` | Authored red — the file does not exist yet. Collection is proven by the wiring declaration below and by the sibling `tests/components/admin/wizard/step3ReviewSections.test.tsx` collecting in the baseline run. |
+| `pnpm vitest run tests/components/admin/wizard/step3DiagramTile.staged.test.tsx` | Authored red — the file does not exist yet. Collection proven by the wiring declaration above and by the sibling `tests/components/admin/wizard/step3ReviewSections.test.tsx` collecting in the baseline run. |
+| `pnpm vitest run tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx` | Same. |
 | `pnpm vitest run tests/components/admin/wizard/step3DiagramTile.published.test.tsx` | Same. |
-| `pnpm exec playwright test --config=tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.layout.spec.ts` | `--list` run at plan time: collects, `Total: 35 tests in 1 file`. The `--config` flag is load-bearing; without it the file matches no project and the run exits green having collected nothing. `pnpm test:e2e:modal-header` (the `test:e2e:modal-header` script, package.json line 66) is the committed alias that carries the same flag. |
+| `pnpm exec playwright test --config=tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.layout.spec.ts` | `--list` run at plan time: collects, `Total: 35 tests in 1 file`. The `--config` flag is load-bearing; without it the file matches no project and the run exits green having collected nothing. |
+| `pnpm exec playwright test --config=tests/e2e/standalone.config.ts tests/e2e/published-review-modal.layout.spec.ts` | `--list` run at plan time: collects, `Total: 48 tests in 1 file`. Same `--config` requirement. |
 | `pnpm vitest run tests/components/a11y/newTabAnnouncementBehavior.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx` | Run; green in the baseline. |
-| Task 3's and Task 4's `sh -c` gates | Both run at plan time; both exit 1 on the current tree. All four `red=` commands parse-check clean under `sh -nc`. |
+| Task 5's and Task 6's `sh -c` gates | Both run at plan time; both exit 1 on the current tree, Task 5's now including its content checks. All six `red=` commands parse-check clean under `sh -nc`. |
 | `pnpm heavy pnpm test`, `pnpm heavy pnpm exec playwright test …` | Wrapper form per the heavy-phase rule; the inner commands are the rows above. |
 
 ## Test-file collection and CI wiring
 
 Declared per `docs/agents/writing-plans.md:27`, verified on this base.
 
-- Both new Vitest files live under `tests/components/admin/wizard/`. `BASE_INCLUDE` is `["tests/**/*.test.ts", "tests/**/*.test.tsx"]` (`vitest.projects.ts:34`) and the DB-free parallel project's glob list carries `tests/components/**/*.test.{ts,tsx}` (`vitest.projects.ts:105`), so both are collected by `pnpm test` and by the `unit-suite` CI job with **no new entry to add**. Neither appears in the serial-only exclusion lists.
+- Three new Vitest files land under `tests/components/admin/wizard/`: step3DiagramTile.staged.test.tsx (Task 1), step3DiagramTile.reconcile.test.tsx (Task 2), step3DiagramTile.published.test.tsx (Task 3). `BASE_INCLUDE` is `["tests/**/*.test.ts", "tests/**/*.test.tsx"]` (`vitest.projects.ts:34`) and the DB-free parallel project's glob list carries `tests/components/**/*.test.{ts,tsx}` (`vitest.projects.ts:105`), so all three are collected by `pnpm test` and by the `unit-suite` CI job with **no new entry to add**. None appears in the serial-only exclusion lists.
 - The `unit-suite` workflow trigger is unfiltered by path (`.github/workflows/unit-suite.yml:90-94`), so no path filter needs widening.
-- The e2e additions land in an existing file already matched by `tests/e2e/standalone.config.ts:86`, and its committed alias `pnpm test:e2e:modal-header` (the `test:e2e:modal-header` script, package.json line 66) already names it. No config edit is owed.
+- Both e2e files this plan touches already exist and are already matched by `tests/e2e/standalone.config.ts:86`: `step3-review-modal.layout.spec.ts` (Tasks 1) and `published-review-modal.layout.spec.ts` (Task 4). The first has a committed alias, the `test:e2e:modal-header` script at package.json line 66. No config edit is owed for either.
 
 ## The loader contract this plan consumes
 
@@ -91,23 +93,24 @@ Round 2 corrected the ownership column: `snapshotPath`, `mimeType` and `snapshot
 
 | Input | Value | Rendered result | Covered by |
 |---|---|---|---|
-| `variants` | absent (old manifest, the common case today) | `validVariants(undefined)` → `[]` → constant loader → the original asset URL at every candidate width. | Task 2 case 2 |
-| `variants` | `[]` (GIF, generation failure) | Same as absent. | Task 2 case 3 |
-| `variants` | a non-array (`42`) | `validVariants` returns `[]`. Same as absent. Never throws. | Task 2 case 3 |
-| `variants` | rows present but every row malformed | Same as absent. | Task 2 case 3 |
-| `variants` | one row naming the original key | `servingVariants` drops it; falls back to the original. Never a variant URL that resolves to original bytes. | Task 2 case 3 |
-| `variants` | a valid ladder | Smallest tier ≥ the requested width; above the ladder, the largest tier. | Task 2 case 1 |
-| `variants` | absent, then a ladder on a later render (the show's next snapshot) | The mounted image's srcset moves from original to variants in place. | Task 2 case 4 |
-| `variants` | a ladder, then absent on a later render (a regenerated snapshot whose variant stage failed) | The mounted image's srcset moves back to the original in place. | Task 2 case 5 |
-| `snapshotPath` | `null` | The published servability gate is false → the placeholder branch renders and NO image element mounts. | Task 2 case 7 |
-| `mimeType` | not in the allowed set | Same gate, same result (`isAllowedDiagramMime`, `components/admin/wizard/step3ReviewSections.tsx:4036-4039`). | Task 2 case 7 |
-| `snapshot_revision_id` | `""` (a malformed row past the resolver gate) | Original and variant URLs both carry `""` as `<rev>` and the asset route 410s both. The tile renders a well-formed src pointing at a revision that 410s, and the error branch is what the user sees — never an empty or malformed src, which is the half this arc owns. | Task 2 case 8 |
-| staged `contentUrl` | `null` with no media pair (restage-only) | The staged predicate is false → placeholder, no element. | Task 1 case 6 |
-| staged `contentUrl` | an UNTRUSTED host string | The staged predicate is false → placeholder, no element. | Task 1 case 6 |
-| runtime fetch | 4xx/5xx on whichever candidate the browser chose | `onError` → `failed` → the placeholder. | Task 1 cases 7, 8 |
-| `hasPreviewSource` | flips false → true on a later render, same key | The placeholder must yield to a live image. Broken today: `failed` is initialised once and never reconciled. | Task 1 case 9 |
-| `hasPreviewSource` | flips true → false on a later render, same key | The image must yield to the placeholder immediately, not wait for a fetch to fail. Broken today, same cause. | Task 1 case 10 |
-| `href` / `imageKey` | change after a runtime failure, same key | A new, good source must clear the failure. Broken today, same cause. | Task 1 case 11 |
+| `variants` | absent (old manifest, the common case today) | `validVariants(undefined)` → `[]` → constant loader → the original asset URL at every candidate width. | Task 3 case 2 |
+| `variants` | `[]` (GIF, generation failure) | Same as absent. | Task 3 case 3 |
+| `variants` | a non-array (`42`) | `validVariants` returns `[]`. Same as absent. Never throws. | Task 3 case 3 |
+| `variants` | rows present but every row malformed | Same as absent. | Task 3 case 3 |
+| `variants` | one row naming the original key | `servingVariants` drops it; falls back to the original. Never a variant URL that resolves to original bytes. | Task 3 case 3 |
+| `variants` | a valid ladder | Smallest tier ≥ the requested width; above the ladder, the largest tier. | Task 3 case 1 |
+| `variants` | absent, then a ladder on a later render (the show's next snapshot) | The mounted image's srcset moves from original to variants in place. | Task 3 case 4 |
+| `variants` | a ladder, then absent on a later render (a regenerated snapshot whose variant stage failed) | The mounted image's srcset moves back to the original in place. | Task 3 case 5 |
+| `snapshotPath` | `null` | The published servability gate is false → the placeholder branch renders and NO image element mounts. | Task 3 case 7 |
+| `mimeType` | not in the allowed set | Same gate, same result (`isAllowedDiagramMime`, `components/admin/wizard/step3ReviewSections.tsx:4036-4039`). | Task 3 case 7 |
+| `snapshot_revision_id` | `""` (a malformed row past the resolver gate) | The published servability gate is false → placeholder, no image element. Round 3 probed the earlier answer and it was wrong: `diagramAssetUrl(show, "", key)` yields a doubled slash, which the consequence bound calls malformed. A row with no revision has no fetchable bytes at any width, so the tile stops asking. | Task 3 case 8 |
+| staged `contentUrl` | `null` with no media pair (restage-only) | The staged predicate is false → placeholder, no element. | Task 1's staged suite |
+| staged `contentUrl` | an UNTRUSTED host string | The staged predicate is false → placeholder, no element. | Task 1's staged suite |
+| runtime fetch | 4xx/5xx on whichever candidate the browser chose | `onError` → `failed` → the placeholder. | Task 1's staged suite |
+| `hasPreviewSource` | flips false → true on a later render, same key | The placeholder must yield to a live image. Broken today: `failed` is initialised once and never reconciled. | Task 2 case 1 |
+| `hasPreviewSource` | flips true → false on a later render, same key | The image must yield to the placeholder immediately, not wait for a fetch to fail. Broken today, same cause. | Task 2 case 2 |
+| `href` / `sourceKey` | change after a runtime failure, same key | A new, good source must clear the failure. Broken today, same cause. | Task 2 case 3 |
+| `variants` | a serving ladder arrives while the tile is already failed, same asset key | The tile must recover and render the variant. Serving variants exist and none renders otherwise, which the consequence bound forbids in its own words. | Task 2 case 4 |
 
 The consequence bound the reviews converge against: **each of the two sites renders the variant URL when serving variants exist and the original otherwise, and never an empty or malformed src.** The domain is finite: the manifest shapes the ingest ladder writes, plus the absent/empty/malformed cases enumerated above.
 
@@ -125,7 +128,8 @@ There is no `AnimatePresence` and no framer-motion anywhere in `DiagramTile`, an
 | image → placeholder (runtime error) | Instant. `onError` sets `failed`; the next render swaps the anchor for the span. No animation, and none is wanted: the swap reports a failure, and a fade would read as a load. |
 | placeholder → image (`hasPreviewSource` false → true, same key) | Instant. Requires the reconciliation Task 1 adds; today it never happens. |
 | image → placeholder (`hasPreviewSource` true → false, same key) | Instant, and immediately — not deferred until a fetch fails. Same reconciliation. |
-| failed on source A → image on source B (`href`/`imageKey` change, same key) | Instant. Same reconciliation; the failure belongs to the source that failed, not to the slot. |
+| failed on source A → image on source B (`href`/`sourceKey` change, same key) | Instant. Same reconciliation; the failure belongs to the source that failed, not to the slot. |
+| failed → image when only the MANIFEST moved (a ladder arrives, same asset key) | Instant. The loader is a fresh closure each render, so it cannot be the comparison; `sourceKey` carries the ladder, which is what makes this row expressible at all. Round 3 found the round-2 record claiming `loader` reconciled while the design compared three props that could not see it. |
 | original → variant (rerender: the show's next snapshot lands a ladder) | Instant, in place. Same key, same element; only `srcset` and `src` move. Pins against a loader memoised on mount. |
 | variant → original (rerender: a later snapshot whose variant stage failed, or a GIF) | Instant, in place, the same mechanism in the other direction. |
 | COMPOUND: a runtime error AFTER a successful load | Instant, and distinct from the plain error row: the element has already fired `load`, so this is the late-5xx-on-refetch path rather than a first-fetch failure. Round 2 found the first draft's "compound" case traced the same events as the plain one and therefore added no state coverage. |
@@ -152,7 +156,9 @@ The crew gallery records a second, sharper version of the containing-block trap:
 
 ## The `sizes` string, the layout model behind it, and the browser-authoritative oracle
 
-Two review rounds landed here, each finding the derivation incomplete rather than wrong in kind. Round 1: two 20px paddings and the panel-card border were missing. Round 2: the modal's own outer padding was still missing, and three sample viewports cannot expose a tier mistake that lives between them. Both repairs are below, and the lesson is in the oracle rather than in the arithmetic — the browser now decides, not a calculation in the plan.
+Three review rounds landed here and each found the previous repair incomplete in a different way. Round 1: two 20px paddings and the panel-card border were missing. Round 2: the modal's own outer padding was still missing, and three sample viewports cannot expose a tier mistake living between them. Round 3: the oracle itself could not observe what it claimed — the only real-browser harness renders STAGED mode, where the loader is width-independent and every srcset descriptor maps to one URL, so `img.currentSrc` names no tier at all.
+
+That third finding is the one that matters, and the repair is not another correction of the arithmetic. **The oracle moves to a harness that has a ladder.**
 
 **The full chain**, every term read on this base:
 
@@ -165,7 +171,7 @@ Two review rounds landed here, each finding the derivation incomplete rather tha
 | panel-card padding + border | 20px each side + 1px each side | `p-tile-pad` + `border`, `components/admin/wizard/step3ReviewSections.tsx:1052` |
 | grid | 3 columns below `sm`, 4 at and above, 8px gaps | `grid grid-cols-3 gap-2 sm:grid-cols-4`, `components/admin/wizard/step3ReviewSections.tsx:3908` |
 
-**The model ships as code, not as a paragraph.** `diagramTileWidthAt(viewportPx)` is exported beside the grid it describes, built from named constants for each row above. Two copies of layout arithmetic drift; one copy, exported and asserted against the browser, does not.
+**The model ships as code.** `diagramTileWidthAt(viewportPx)` is exported beside the grid it describes, built from one named constant per row above:
 
 ```
 panel = min(vw − (vw >= 640 ? 48 : 0), 1024)
@@ -174,9 +180,9 @@ card  = main − 40 − 42
 tile  = (card − 8 × (cols − 1)) / cols,  cols = vw >= 640 ? 4 : 3
 ```
 
-which gives 74.00 at 320, 97.33 at 390, 180.33 at 639, 121.50 at 640, 161.50 at 800, 217.25 at 1023, 157.50 at 1024, and 169.50 from 1072 up — **constant only from 1072**, not from 1024, because the panel does not reach its 1024px cap until the outer padding is paid.
+74.00 at 320, 97.33 at 390, 180.33 at 639, 121.50 at 640, 161.50 at 800, 217.25 at 1023, 157.50 at 1024, and 169.50 from 1072 up — **constant only from 1072**, because the panel does not reach its 1024px cap until the outer padding is paid.
 
-**Declared**, and exact rather than approximate, because the sweep below shows an approximation is not close enough:
+**Declared**, exact rather than approximate:
 
 ```
 (min-width: 1072px) 169.5px,
@@ -185,19 +191,20 @@ which gives 74.00 at 320, 97.33 at 390, 180.33 at 639, 121.50 at 640, 161.50 at 
 calc(33.3333vw - 32.6667px)
 ```
 
-Probed at plan time over EVERY integer viewport 320–1600 at DPR 1, 2 and 3, importing `imageConfigDefault` from next and `DIAGRAM_VARIANT_WIDTHS` from the ingest module rather than pasting either: the tier the declared string selects equals the tier the model's width selects at every one of those 3,843 points. The previous approximate string (`(min-width: 1024px) 170px, (min-width: 640px) 23vw, 25vw`) fails 215 of them, in both directions — 483–512 at DPR 2 fetches 256 where 512 is needed, 835–922 at DPR 2 fetches 1024 where 512 would do.
+Probed at plan time over every integer viewport 320–1600 at DPR 1, 2 and 3 — 3,843 points — importing `imageConfigDefault` from next and `DIAGRAM_VARIANT_WIDTHS` from the ingest module: the tier the declared string selects equals the tier the model's width selects at every one. The round-1 approximation fails 215 of them in both directions.
 
-**`calc()` is deliberate and its interaction with next is checked.** `getWidths` (next's `get-img-props`, lines 50–69) scans `sizes` with `/(^|\s)(1?\d?\d)vw/g`; inside `calc(25vw` the digits are preceded by `(`, so nothing matches and next falls back to the FULL `allSizes` candidate list. That is the most generous set, and the browser then evaluates the calc precisely. Were a future next to start parsing inside `calc`, the candidate list would only be filtered below 256px — under the ladder's smallest tier — so no tier selection moves either way.
+**`calc()` is deliberate and its interaction with next is checked.** `getWidths` (next's `get-img-props`, lines 50–69) scans `sizes` with `/(^|\s)(1?\d?\d)vw/g`; inside `calc(25vw` the digits are preceded by `(`, so nothing matches and next falls back to the FULL `allSizes` candidate list. The browser then evaluates the calc precisely. Were a future next to parse inside `calc`, the candidate list would only be filtered below 256px — under the ladder's smallest tier — so no tier selection moves either way.
 
-**The oracle is the browser, not this arithmetic.** Three fixed viewports cannot see a mistake that lives between them, and a test that re-implements the model to check the model proves nothing. So:
+### The oracle, and the harness it needs
 
-- The e2e visits a **derived** viewport set, not a hand-picked one: every viewport at which the model's tier CHANGES, per DPR, computed from `diagramTileWidthAt` ∪ `imageConfigDefault` ∪ `DIAGRAM_VARIANT_WIDTHS`. On this base that is 12 points (320/483/640/667/923/1024 at DPR 2; 320/355/483/640/667 at DPR 3; 320 at DPR 1), and it is recomputed rather than pasted, so a layout change moves the cover with it.
-- At each point it asserts two things the plan cannot assert for itself: the MEASURED tile width equals `diagramTileWidthAt(viewport)` within 0.5px, which validates the model against real layout; and the browser's own `img.currentSrc` names the ladder tier that measured width warrants, which validates the declared string end to end. No `sizes` parser is written, and no tier arithmetic is duplicated in the test — the browser does the selecting, exactly as it will in production.
-- **Documented limit:** DPR is a browser-context option, so each distinct DPR in the derived set costs its own context. The suite runs DPR 1 and 2 over the whole derived set and DPR 3 only at the sheet viewports, because DPR 3 on this desktop admin surface is the phone-width case and nothing else. A DPR-3 desktop regression between 483 and 667 would not be caught here; it is recorded rather than silently uncovered.
+- **It runs in PUBLISHED mode**, in `tests/e2e/published-review-modal.layout.spec.ts`, whose harness renders the real `PublishedReviewModal` to static markup and today passes `diagrams: null` (`tests/e2e/_publishedReviewModalHarness.tsx:129`). Task 4 gives it a persisted manifest carrying a real two-tier ladder and serves real bytes for both the original and each variant key. Only there does `img.currentSrc` name a tier, because only there do the srcset descriptors map to different URLs. The staged harness keeps the geometry assertions, which do not need a ladder.
+- **The viewport set is derived and TWO-SIDED.** Round 3 found the first version sampled each tier-transition viewport but not its predecessor, so a transition that fired one pixel early escaped. The set is every viewport at which the model's tier changes, PLUS the pixel before each, per DPR, computed from `diagramTileWidthAt` ∪ `imageConfigDefault` ∪ `DIAGRAM_VARIANT_WIDTHS` and recomputed rather than pasted. On this base the one-sided set is 12 points and the two-sided set is 21 — one at DPR 1 (320), eleven at DPR 2 (320, 482/483, 639/640, 666/667, 922/923, 1023/1024) and nine at DPR 3 (320, 354/355, 482/483, 639/640, 666/667). The probe that motivated the second side, nudging the ≥640px slot by +0.25px, moves exactly the viewports (666 and 922) that only a predecessor sample can see.
+- **At each point, two assertions the plan cannot make for itself:** the measured tile width equals `diagramTileWidthAt(viewport)` within 0.5px, which validates the model against real layout; and `img.currentSrc` names the ladder tier that measured width warrants, which validates the declared string end to end. No `sizes` parser is written and no tier arithmetic is duplicated — the browser selects, exactly as in production.
+- **Documented limit:** DPR is a browser-context option, so each distinct DPR costs its own context. The suite runs DPR 1 and 2 over their whole two-sided sets — 12 points across two contexts — and DPR 3 only at its sub-640 sheet points (320, 354, 355, 482, 483, 639; six of its nine), because DPR 3 on a desktop admin surface is the phone-width case. The three DPR-3 points at and above 640 are therefore uncovered, so a DPR-3 desktop regression at 640/666/667 is not caught here; recorded rather than silently uncovered.
 
 ## Meta-test inventory
 
-Mandatory per `docs/agents/writing-plans.md:19`, which accepts "none applies" only with the reason declared.
+Mandatory per `docs/agents/writing-plans.md:21`, which accepts "none applies" only with the reason declared.
 
 **This plan creates no structural meta-test and extends none.** The five registries that rule names are Supabase call boundaries (`tests/auth/_metaInfraContract.test.ts`), sentinel hiding in optional text (`tests/components/tiles/_metaSentinelHidingContract.test.ts`), `admin_alerts.upsert` catalog completeness (`tests/messages/_metaAdminAlertCatalog.test.ts`), advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`), and no-inline-email-normalization (`tests/admin/no-inline-email-normalization.test.ts`). This diff touches no Supabase call, no DB write, no advisory lock, no `admin_alerts` row and no email path, so none has a new member to register. Invariant 10 is likewise untouched: no mutating route handler and no `"use server"` action is added or changed.
 
@@ -207,106 +214,130 @@ Mandatory per `docs/agents/writing-plans.md:19`, which accepts "none applies" on
 
 `grep -n sourcePath tests/mutation/source/registry.ts` on this base returns no row under `components/`, `app/` or `lib/images/`. **No enrolled surface is touched**, so no round-1 diff brief carries a `GUARD SURFACE:` line and no score is owed. Nothing is enrolled under review pressure.
 
-## The two mandatory task types, and why each lands where it does
+## The two mandatory task types
 
-`docs/agents/writing-plans.md:12-13` makes a layout-dimensions task and a transition-audit task mandatory for surfaces of this shape. Both assertions are in this plan; **neither is its own task**, and the reason is the RED-validity rule two bullets below them.
+`docs/agents/writing-plans.md:8-9` makes a layout-dimensions task and a transition-audit task mandatory for surfaces of this shape. **Both are their own TDD tasks below**, and the earlier drafts' argument that they could not be — that their assertions would be green the moment they were authored — was wrong. Round 3 found the disproof in one line: the layout assertion includes `getComputedStyle(anchor).position === "relative"`, and the live anchor is `className="block"` (`components/admin/wizard/step3ReviewSections.tsx:3829`), which is statically positioned. The assertion fails today, for exactly the production defect it pins. Recorded mutants are a supplement to that cycle, never a substitute for it.
 
-A separate later task's red would be **green the moment it is authored**: once Task 1 has landed `relative` on the anchor, an assertion that the anchor is positioned passes immediately, and the writing-plans rule rejects exactly that marker. Ordering it before Task 1 is worse — there is no `fill` child yet, so the assertion would be about a raw `<img>` whose box already equals its anchor's, which is true before and after and discriminates nothing.
+Task 1 is the layout-dimensions task. Task 2 is the transition-audit task. Neither borrows the other's red.
 
-So both land inside Task 1, in the commit that creates the parent-child relationship they constrain, and their discriminating power is established by **recorded mutants** rather than by a fake cycle: Task 1's commit message carries the observed failure of each assertion against a deliberately broken tree. That is the "four pre-dispatch mutants" posture of the same rule set, applied to a pin that cannot honestly be a red.
+## Task 1: the element and its box (the mandatory layout-dimensions task)
 
-<!-- tasks: depth=2 -->
+<!-- task: red=`pnpm heavy pnpm exec playwright test --config=tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.layout.spec.ts` ac=AC-1,AC-5 -->
 
-## Task 1: the tile renders through a caller-supplied loader, the staged site supplies the original-only one, and failure state reconciles
+**What is red and why.** New assertions in `tests/e2e/step3-review-modal.layout.spec.ts` require the tile anchor to be a positioned containing block and the image to fill it. The production line that makes them fail is `components/admin/wizard/step3ReviewSections.tsx:3829`, `className="block"` — statically positioned, so `getComputedStyle(anchor).position` reads `static` today. This is a real red on the live tree for the exact defect the assertions pin, which is why this is a task and not a recorded mutant.
 
-<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.staged.test.tsx` ac=AC-1,AC-3,AC-5,AC-6 -->
+RED, in the staged layout spec, at each of its three existing modes (390 sheet, 800 popup, 1280 two-pane):
 
-**What is red and why.** A new test file, tests/components/admin/wizard/step3DiagramTile.staged.test.tsx, asserts that a staged diagram tile offers the browser width-keyed srcset candidates and that every one of them is the staged preview route URL. The production line that makes it fail is `components/admin/wizard/step3ReviewSections.tsx:3833`, a raw `<img src={src}>` with no `srcSet` attribute at all: the candidate list is empty, and the premise guarding the row reports the assertion as unreachable rather than letting it pass on nothing. Cases 9 to 11 fail against a second production line, `components/admin/wizard/step3ReviewSections.tsx:3798`, whose `useState(!hasPreviewSource)` never reconciles.
+1. `getComputedStyle(anchor).position === "relative"`.
+2. The image's rect equals the anchor's rect **deflated by the anchor's own computed border widths** on both axes, within 0.5px. `fill` insets against the PADDING box while `getBoundingClientRect` returns the BORDER box; round 2 caught the first draft comparing the two directly, which no tolerance absorbs. Border widths come from `getComputedStyle`, so no token literal enters the test.
+3. The anchor's width/height ratio is 4:3 within 0.5px, and the placeholder branch's box equals the live branch's at the same grid position.
+4. Zero requests to `/_next/image` — the admin twin of the crew AC-3 pin.
 
-RED, eleven cases, all rendering `DiagramsBreakdown` in staged mode through the existing `wizardSessionId`/`dfid` props. **Every stub carries its OWN `objectId`, unique across the whole file** — the reason is case 2.
-
-1. **Width-keyed candidates, all original.** Parse `srcset`, split on `,`, take the URL of each entry, compare pathnames (jsdom resolves `img.src` against the document origin — the gallery suite's `pathOf` helper at `tests/components/diagrams/Gallery.test.tsx:246-248` is the precedent). `premiseHolds` that an image element mounted, then `premise("next/image emitted more than one srcset candidate", candidates.length, 1)`. Every candidate equals the staged route URL built from the fixture's own `wizardSessionId`, `dfid` and `objectId`; none contains `@`; none contains `/_next/image`; none contains `/api/asset/diagram`.
-2. **`src` identity is not the URL**, asserted by the ABSENCE of next's missing-loader-width warning: spy on `console.warn`, render, assert no call whose first argument contains `does not implement width`. **Round 1 found this case can pass for the exact implementation it targets.** Next dedupes through `warnOnce`, process-global and keyed on the message string, and the message embeds `src`. Two things make it discriminating and both are required: the spy is installed BEFORE this case's own render, and this case's stub carries an `objectId` used by no other case in the file.
-3. **The anchor keeps its sole accessible name and the image stays decorative.** The anchor's `aria-label` is `${alt} (opens in a new tab)`, derived from the fixture's `alt`; the image's `alt` is `""` (`components/admin/wizard/step3ReviewSections.tsx:3810-3818`).
-4. **The href is the full-resolution original**, unchanged: the staged route URL, `target="_blank"`, `rel="noopener noreferrer"`.
-5. **The declared `sizes` reaches the element**: the rendered `sizes` attribute equals the exported constant, read from the module rather than pasted, so the e2e and the DOM cannot disagree about what shipped.
-6. **Unavailable at mount → placeholder, no image element**, over BOTH staged non-servable shapes: `contentUrl: null` with no media pair, and an untrusted-host `contentUrl` string. These are the staged predicate's own inputs (`lib/admin/stagedDiagramGuards.ts:57-63`); the published-only inputs moved to Task 2 after round 2.
-7. **Image → placeholder on a runtime error**, in one step: `fireEvent.error` removes the image and renders "Preview unavailable" in the same testid slot.
-8. **COMPOUND: a runtime error AFTER a successful load.** `fireEvent.load`, assert the image is still mounted, then `fireEvent.error`. Round 2 found the first draft's compound case traced the same events as case 7 and so covered no additional state; this is the late-failure-on-refetch path and it is genuinely distinct.
-9. **`hasPreviewSource` false → true on a rerender, same key**: the placeholder yields to a live image. Fails today — `failed` is initialised once.
-10. **`hasPreviewSource` true → false on a rerender, same key**: the image yields to the placeholder immediately, without waiting for a fetch to fail.
-11. **A source change after a failure clears it**: fire `error`, then rerender with a different `objectId`, and assert an image is mounted again. The failure belongs to the source that failed, not to the slot.
-
-Cases 9 to 11 hold the tile's element reference across the rerender and assert the key did not change, so they cannot pass by remount.
+The harness needs one servable stub for an image to mount at all: `tests/e2e/_step3ReviewModalHarness.tsx:69-75` gains an XLSX-media entry (`contentUrl: null` plus a `mediaPartName` and a non-null `embeddedFingerprint`, which `hasStagedPreviewSource` accepts, `lib/admin/stagedDiagramGuards.ts:57-63`), and the spec's node:http server (`tests/e2e/step3-review-modal.layout.spec.ts:170-181`) gains an `/api/`-prefixed branch serving a real 4:3 PNG. The harness comment at `tests/e2e/_step3ReviewModalHarness.tsx:59-62` is updated to say why one stub is now servable. Tile count and the "+N more" note are untouched: the fixture still holds cap+3 stubs. **The harness change alone cannot turn the red green** — the position assertion is about production CSS — so this is not a test-local red.
 
 GREEN, in `components/admin/wizard/step3ReviewSections.tsx`:
 
-- `DiagramTile` takes `href` (the full-resolution URL the anchor opens), `imageKey` (the `next/image` `src` identity, ignored by every loader), `loader` (an `ImageLoader`), and `sizes`, alongside today's `alt`, `testId`, `hasPreviewSource`. The single `src` prop is retired: two strings that both look like sources is the reader-load defect this API shape exists to avoid.
-- **Failure state reconciles on identity change.** Alongside `failed`, the tile keeps the inputs it last rendered and, during render, resets `failed` to `!hasPreviewSource` when `hasPreviewSource`, `href` or `imageKey` differs from that record — React's documented adjust-state-during-render form, no effect and no extra commit. This is the whole of cases 9 to 11 and it is a REPAIR, not a port: the one-way `setFailed(true)` at `components/admin/wizard/step3ReviewSections.tsx:3838` is already wrong today under the stable key, and this arc is the work that opens the file.
-- The anchor gains `relative aspect-4/3 w-full overflow-hidden`, and the chrome moves with the box: `rounded-md border border-text-faint bg-surface-sunken` leave the image for the anchor, and only `object-cover` stays on the image (the crew gallery's arrangement, `components/diagrams/Gallery.tsx:351`). A `fill` image is inset against the anchor's PADDING box, so a border left on the image would no longer bound the tile. **The two branches keep their DISTINCT border tokens**: `border-text-faint` on the live tile, `border-border` on the placeholder span.
-- The image becomes `<Image fill sizes={sizes} className="object-cover" …>` and keeps `alt=""` and the `onError` handler. `loading="lazy"` and `decoding="async"` are `next/image` defaults and are dropped as explicit attributes.
-- The `eslint-disable-next-line @next/next/no-img-element` at `components/admin/wizard/step3ReviewSections.tsx:3830-3832` is removed with the element it exempted, and the stale comment at `components/admin/wizard/step3ReviewSections.tsx:3784-3785` is rewritten to state what is now true: the crew gallery is loader-driven, the `/_next/image` optimizer is never reached because the loader emits our own asset-route URLs, and cookies therefore survive.
-- `DiagramsBreakdown` gains an optional `buildLoader?: (stub: EmbeddedImageStub) => ImageLoader`, defaulting to `(stub) => () => resolveSrc(stub)` — the width-independent staged loader, derived from the existing `resolveSrc` so the staged URL is defined in exactly one place.
-- Two exports beside the grid they describe: `DIAGRAM_TILE_SIZES`, the declared CSS from the section above, and `diagramTileWidthAt(viewportPx)`, the layout model, built from one named constant per row of that section's chain.
-- `tests/components/a11y/newTabAnnouncementBehavior.test.tsx:1071-1081` is updated to the new prop names — `href`, `imageKey`, and a one-line constant `loader` — with its `toHaveAccessibleName` expectation untouched. That suite owns the new-tab suffix contract, not the image contract; changing its expectation would be a gate edit, not a call-site update.
+- `DiagramTile` takes `href` (the full-resolution URL the anchor opens), `sourceKey` (see Task 2 — it is both the `next/image` `src` identity and the reconciliation key), `loader` (an `ImageLoader`), and `sizes`, alongside today's `alt`, `testId`, `hasPreviewSource`. The single `src` prop is retired: two strings that both look like sources is the reader-load defect this API shape exists to avoid.
+- The anchor gains `relative aspect-4/3 w-full overflow-hidden`, and the chrome moves with the box: `rounded-md border border-text-faint bg-surface-sunken` leave the image for the anchor, and only `object-cover` stays on the image (the crew gallery's arrangement, `components/diagrams/Gallery.tsx:351`). A `fill` image is inset against the anchor's padding box, so a border left on the image would no longer bound the tile. **The two branches keep their DISTINCT border tokens**: `border-text-faint` on the live tile, `border-border` on the placeholder span.
+- The image becomes `<Image fill sizes={sizes} className="object-cover" …>`, keeping `alt=""` and the `onError` handler. `loading="lazy"` and `decoding="async"` are `next/image` defaults and are dropped as explicit attributes.
+- `DiagramsBreakdown` supplies the staged default loader, `(stub) => () => resolveSrc(stub)` — width-independent, derived from the existing `resolveSrc` so the staged URL is defined in one place — and passes the exported `DIAGRAM_TILE_SIZES`.
+- Two exports beside the grid they describe: `DIAGRAM_TILE_SIZES` and `diagramTileWidthAt(viewportPx)`, per the section above.
+- The `eslint-disable-next-line @next/next/no-img-element` at `components/admin/wizard/step3ReviewSections.tsx:3830-3832` goes with the element it exempted, and the stale comment at `components/admin/wizard/step3ReviewSections.tsx:3784-3785` is rewritten to state what is now true: the crew gallery is loader-driven, the `/_next/image` optimizer is never reached because the loader emits our own asset-route URLs, and cookies therefore survive.
+- `tests/components/a11y/newTabAnnouncementBehavior.test.tsx:1071-1081` moves to the new prop names with its `toHaveAccessibleName` expectation untouched. That suite owns the new-tab suffix contract, not the image contract; changing its expectation would be a gate edit, not a call-site update.
 
-**Same commit, the two mandatory assertions, each verified by a recorded mutant** (see the section above for why they are not separate tasks). In `tests/e2e/step3-review-modal.layout.spec.ts`, whose harness already renders `HARNESS_DIAGRAM_STUB_COUNT` staged stubs and already measures tile widths (`tests/e2e/step3-review-modal.layout.spec.ts:481-523`):
+**Authored in the same commit, red recorded alongside**: the staged jsdom suite tests/components/admin/wizard/step3DiagramTile.staged.test.tsx, whose subject is the originals-only branch — width-keyed srcset candidates that are all the staged route URL (`premiseHolds` an image mounted, `premise` more than one candidate, none containing `@`, `/_next/image` or `/api/asset/diagram`); the absence of next's missing-loader-width warning, with the spy installed before that case's own render and a `objectId` unique in the file, because `warnOnce` is process-global and keyed on a message embedding `src`; the anchor's sole accessible name with the image decorative; the href, target and rel; the rendered `sizes` equal to the exported constant; both staged non-servable shapes (restage-only, and an untrusted-host `contentUrl`) rendering the placeholder with no image element; error-to-placeholder; and the compound case, which is an error AFTER a successful load — round 2 found the first draft's compound case traced the same events as the plain one.
 
-- `tests/e2e/_step3ReviewModalHarness.tsx:69-75` gains ONE servable stub, so an image element actually mounts: the XLSX-media pair — `contentUrl: null` with a `mediaPartName` and a non-null `embeddedFingerprint` — which `hasStagedPreviewSource` accepts (`lib/admin/stagedDiagramGuards.ts:57-63`); the jsdom case at `tests/components/admin/wizard/step3ReviewSections.test.tsx:800-826` is the precedent that this shape mounts the element. The harness's comment (`tests/e2e/_step3ReviewModalHarness.tsx:59-62`) is updated to say why one stub is now servable, and the spec's node:http server (`tests/e2e/step3-review-modal.layout.spec.ts:170-181`) gains an `/api/`-prefixed branch serving a real 4:3 PNG so the load is deterministic and `currentSrc` is observable. Tile count and the "+N more" note are untouched: the fixture still holds cap+3 stubs.
-- Geometry, at the three existing modes: `getComputedStyle(anchor).position === "relative"`; the image's rect equals the anchor's rect deflated by the anchor's own computed border widths on both axes within 0.5px; the anchor's width/height ratio is 4:3 within 0.5px.
-- `sizes` end to end, over the DERIVED boundary viewport set from the section above rather than three fixed points: the measured tile width equals `diagramTileWidthAt(viewport)` within 0.5px, and `img.currentSrc` names the ladder tier that measured width warrants at that context's DPR.
-- Zero requests to `/_next/image`, the admin twin of the crew AC-3 pin.
-- **Mutant record, in the commit message.** (a) Drop `relative` from the anchor: the geometry assertion fails at every mode. (b) Replace the exported `sizes` with the round-1 approximation (`(min-width: 1024px) 170px, (min-width: 640px) 23vw, 25vw`): `currentSrc` names the wrong tier at the DPR-2 483 and 923 boundaries — the two ranges the plan-time sweep predicts, so the mutant confirms the sweep and the browser agree. (c) Point the harness stub back at `contentUrl: null`: the premise reports no image element rather than the suite passing green on an empty selector. (d) Delete the reconciliation branch: staged cases 9 to 11 fail.
+**Mutant record, in the commit message.** (a) Drop `relative`: assertions 1 and 2 fail at every mode. (b) Leave the border on the image: assertion 2 fails by exactly twice the border width. (c) Point the harness stub back at `contentUrl: null`: the premise reports no image element rather than the suite passing on an empty selector.
 
-`red=` is the jsdom command because that is the assertion with an honest red-then-green cycle on one command. The e2e is run in the same task by `pnpm heavy pnpm exec playwright test --config=tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.layout.spec.ts` and its result recorded in the commit. The standalone-config flag is not optional: without it the file matches no project and the run exits green having collected nothing.
+## Task 2: failure state reconciles under a stable key (the mandatory transition-audit task)
 
-**Regression checks inside Task 1, per the fix-round regression budget.** `pnpm vitest run tests/components/a11y/newTabAnnouncementBehavior.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx` — the first is the retired-prop call site, the second owns the placeholder and cap behaviour the swap must not disturb.
+<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx` ac=AC-6 -->
 
-## Task 2: the published site builds its loader from the manifest
+**What is red and why.** `const [failed, setFailed] = useState(!hasPreviewSource)` (`components/admin/wizard/step3ReviewSections.tsx:3798`) initialises once, and the only later write is `setFailed(true)` (`components/admin/wizard/step3ReviewSections.tsx:3838`). The tile key is stable (`components/admin/wizard/step3ReviewSections.tsx:3911`), so every prop the tile derives state from can change under one component instance and none of them is reconciled. Three transitions are unreachable today and a new tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx asserts all of them.
+
+RED, four cases, each rerendering with a STABLE key:
+
+1. **Unavailable → available.** Placeholder yields to a live image.
+2. **Available → unavailable.** Image yields to the placeholder immediately, not on a failed fetch.
+3. **Failed on source A → a good source B.** The failure belongs to the source that failed, not to the slot.
+4. **Failed, then a loader-only manifest change.** The tile has failed; a later render brings a serving ladder with the SAME asset key. Serving variants now exist and none renders — the consequence bound's own words. Round 3 found this one: the round-2 record claimed `loader` reconciled while the design compared only three props.
+
+**Two anti-tautology constraints, both of which an earlier draft got wrong** and which round 3 named:
+
+- **Case 3 must move the href without moving the key.** The key is `${stub.objectId}-${i}`, so varying `objectId` REMOUNTS, `failed` resets for free, and the case passes against the unrepaired component. In staged mode the URL is built from `wizardSessionId`/`dfid`/`objectId`, so the case varies the WIZARD SESSION: same objectId, same key, same testid, different href, with a `premiseHolds` that the href actually moved.
+- **Node identity is not the proof for cases 1 and 2.** The placeholder is a `<span>` and the live tile is an `<a>`, so the two are necessarily different DOM nodes and an identity check cannot hold. The proof is that the swap happens at all: the key is stable, React keeps the component instance, and `failed` starts true and is only ever set true — without a reset, that render is still the placeholder.
+
+GREEN: the tile keeps the inputs it last rendered and, during render, resets `failed` to `!hasPreviewSource` when `hasPreviewSource`, `href` or `sourceKey` differs from that record — React's documented adjust-state-during-render form, no effect and no extra commit.
+
+**`sourceKey` is what makes case 4 expressible, and it is why the prop exists.** The loader is a fresh closure on every render, so comparing it resets `failed` constantly and destroys the error state; comparing nothing misses a manifest change. `sourceKey` is a caller-derived string naming the bytes this tile can serve, and it is deliberately NOT URL-shaped — staged: `staged:<wizardSessionId>:<dfid>:<objectId>`; published (Task 3): the asset key joined with the serving ladder's `width:key` rows. It doubles as `next/image`'s `src` identity, which retires the separate `imageKey` prop. **The not-URL-shaped part is load-bearing rather than stylistic:** next warns when the loader returns the `src` it was handed, and the staged loader returns the staged URL, so a `sourceKey` set to that URL would warn on every staged tile — the exact trap Task 1's warning case exists to catch, walked into by the prop meant to avoid it.
+
+**Mutant record.** Delete the reconciliation branch: all four cases fail. Reconcile on `hasPreviewSource` alone: cases 3 and 4 fail. Reconcile on the loader function identity: the error-to-placeholder case in Task 1's staged suite fails, because every render clears the failure.
+
+## Task 3: the published site builds its loader from the manifest
 
 <!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.published.test.tsx` ac=AC-2,AC-3,AC-4 -->
 
-**What is red and why.** A new test file, tests/components/admin/wizard/step3DiagramTile.published.test.tsx, renders `PublishedDiagramsBreakdown` over a persisted manifest whose entry carries a two-tier ladder, and asserts that every srcset candidate is one of that fixture's variant URLs. The production line that makes it fail is `components/admin/wizard/step3ReviewSections.tsx:4031`: `buildSrc` constructs one original URL and nothing conveys `variants` to the tile, so after Task 1 the published site still renders the constant staged-shaped loader and every candidate is the original.
+**What is red and why.** A new tests/components/admin/wizard/step3DiagramTile.published.test.tsx renders `PublishedDiagramsBreakdown` over a persisted manifest carrying a two-tier ladder and asserts every srcset candidate is one of that fixture's variant URLs. The production line that makes it fail is `components/admin/wizard/step3ReviewSections.tsx:4031`: `buildSrc` constructs one original URL and nothing conveys `variants` to the tile, so after Tasks 1 and 2 the published site still renders the constant staged-shaped loader and every candidate is the original.
 
-RED, eight cases, every expected URL composed from the fixture's own `showId`, `snapshot_revision_id`, `snapshotPath` and `variants` rows — never pasted, so a fixture edit extends the cover instead of stranding it. **Every case carries two premises**, because a set-equality over an empty candidate list is vacuously satisfiable: `premiseHolds` that an image element mounted, and `premise` that more than one srcset candidate was emitted.
+RED, eight cases, every expected URL composed from the fixture's own `showId`, `snapshot_revision_id`, `snapshotPath` and `variants` rows. **Every case carries two premises** — an image mounted, and more than one srcset candidate — because a set equality over an empty candidate list is vacuously satisfiable.
 
-1. **Ladder present.** The distinct candidate set EQUALS the set of the fixture's variant URLs; the original appears in no candidate; every candidate contains `@`. A third premise guards this row: the fixture ladder holds more than one serving row and no row names the original — without it a one-tier fixture makes "every candidate is a variant" true without exercising snapping. Equality rather than containment because a loader that fell through to the original above the ladder — what `makeDiagramLoader` deliberately does not do (`lib/images/diagramLoader.ts:1-8`) and a hand-rolled port would — adds the original URL and fails here while containment still passed.
-2. **No ladder** (`variants` omitted): the original at every candidate. The common case until each show's next snapshot.
-3. **Degenerate and malformed ladders**, one `test.each` row per guard-table value: `[]`, `42`, `[{}, { width: "big", key: 5 }, null]`, and `[{ width: 256, key: <the original key> }]`. Each renders the original at every candidate and none throws. Asserted through the component rather than against `makeDiagramLoader` directly — `tests/images/diagramLoader.test.ts` owns the unit contract; what is unproven is that this call site reaches it with the right arguments. The `[]` row exists because round 1 found AC-3 named it and no case covered it.
-4. **Rerender absent → ladder**, on a held element reference: the same mounted image moves from the original to the variant set. Catches a loader memoised on mount, which would strand every already-open review on original bytes after the show's next snapshot.
-5. **Rerender ladder → absent**, the same mechanism in the other direction: a regenerated snapshot whose variant stage failed, or a GIF, must fall back in place rather than keep pointing at variant keys the new revision never wrote.
-6. **The anchor's full-resolution href does not drift.** `pathOf(href)` equals `diagramAssetUrl(showId, rev, key)` for the fixture's key, with a Slides-style colon in the object id — legal after the first character and inside the minted-key alphabet (`lib/images/diagramKey.ts:25`). **The claim is byte-NEUTRALITY, not a fix**: `encodeKeySegment` decodes `%40` back to the at-sign and `%3A` back to the colon (`lib/images/diagramLoader.ts:36-50`), so on every key the ingest ladder writes the shared builder is byte-identical to the template it replaces. A key carrying a space or `#` would discriminate, but such a key is outside this arc's threat fence and probe domain.
-7. **The published servability gate, both of its inputs**, which round 2 moved here from Task 1 because the staged predicate never reads them: `snapshotPath: null` renders the placeholder with no image element, and an entry whose `mimeType` is outside `isAllowedDiagramMime` does the same (`components/admin/wizard/step3ReviewSections.tsx:4036-4039`). Two rows, each asserting no `<img>` in that tile.
-8. **An empty `snapshot_revision_id`.** A malformed persisted row past the resolver gate yields `rev === ""` (`components/admin/wizard/step3ReviewSections.tsx:4021-4022`). The assertion is the half this arc owns: the rendered src is well-formed and carries the empty segment verbatim rather than being empty, absent, or a URL with a doubled slash that resolves somewhere else. What the route does with it (410) is the route's contract and is not re-asserted here.
+1. **Ladder present.** The distinct candidate set EQUALS the set of the fixture's variant URLs; the original appears in none; every candidate contains `@`. A third premise guards this row: the fixture ladder holds more than one serving row and none names the original. Equality rather than containment, because a loader falling through to the original above the ladder — what `makeDiagramLoader` deliberately does not do (`lib/images/diagramLoader.ts:1-8`) — adds the original and fails here while containment still passed.
+2. **No ladder** (`variants` omitted): the original at every candidate.
+3. **Degenerate and malformed ladders**, one `test.each` row per guard-table value: `[]`, `42`, `[{}, { width: "big", key: 5 }, null]`, and a row naming the original itself. Each renders the original and none throws.
+4. **Rerender absent → ladder**, on a held element reference: the same mounted `<img>` moves from the original to the variant set. Here node identity IS the right proof — the element persists and only its srcset moves.
+5. **Rerender ladder → absent**, the same mechanism in the other direction.
+6. **The href does not drift.** `pathOf(href)` equals `diagramAssetUrl(showId, rev, key)` with a Slides-style colon in the object id — legal after the first character and inside the minted-key alphabet (`lib/images/diagramKey.ts:25`). The claim is byte-NEUTRALITY: `encodeKeySegment` decodes `%40` and `%3A` back (`lib/images/diagramLoader.ts:36-50`), so on every key the ingest ladder writes the shared builder is byte-identical to the template it replaces.
+7. **The published servability gate**, which round 2 moved here because the staged predicate never reads these inputs: `snapshotPath: null` and a `mimeType` outside `isAllowedDiagramMime` each render the placeholder with no image element (`components/admin/wizard/step3ReviewSections.tsx:4036-4039`).
+8. **An empty `snapshot_revision_id` renders the placeholder, not a URL.** Round 3 probed the first draft's answer and it was wrong: `diagramAssetUrl("show-1", "", key)` yields `/api/asset/diagram/show-1//key`, a doubled slash, which is a malformed src by the consequence bound's own words — the bound is not satisfiable by explaining that the route 410s it.
 
 GREEN, in `PublishedDiagramsBreakdown`:
 
-- One local `keyOf(stub)` wrapping the existing `diagramAssetKeyFromPath((stub as PersistedEmbeddedImage).snapshotPath, stub.objectId)` (`lib/data/diagrams.ts:72`), so the key is derived once and the href and the loader cannot disagree about it.
+- One local `keyOf(stub)` wrapping `diagramAssetKeyFromPath((stub as PersistedEmbeddedImage).snapshotPath, stub.objectId)` (`lib/data/diagrams.ts:72`), so the key is derived once and href and loader cannot disagree.
 - `buildSrc={(stub) => diagramAssetUrl(showId, rev, keyOf(stub))}`, replacing the inline template at `components/admin/wizard/step3ReviewSections.tsx:4031-4034`.
 - `buildLoader={(stub) => makeDiagramLoader({ showId, rev, key: keyOf(stub), variants: (stub as PersistedEmbeddedImage).variants })}`.
-- `imageKey` for the published tile is `stub.objectId`, never the URL, so the missing-loader-width warning cannot fire on the no-ladder path either.
+- `buildSourceKey={(stub) => [keyOf(stub), ...(serving rows as "width:key")].join("|")}` — Task 2's reconciliation key, which is what makes a loader-only manifest change observable.
+- **`previewSourceFor` additionally requires a non-empty `rev`.** One condition, in the site this arc owns, and it is what makes the consequence bound TRUE rather than excused: a row whose revision did not survive the resolver gate has no fetchable bytes at any width, so it takes the same placeholder branch as a null `snapshotPath`. The comment at `components/admin/wizard/step3ReviewSections.tsx:4021-4022` is updated from "the asset route 410s it" to say the tile no longer asks.
 
-**Regression check inside this task, per the fix-round regression budget.** `tests/components/admin/review/publishedNoStagedTraffic.test.tsx:211-220` asserts the tile's `src` attribute is exactly the original asset URL; its fixture carries no `variants`, so the assertion must still hold byte-for-byte. Run it explicitly and record the result. If it moves, the encoder or the loader wiring is wrong, not the test.
+**Regression check, per the fix-round regression budget.** `tests/components/admin/review/publishedNoStagedTraffic.test.tsx:211-220` asserts the tile's `src` is exactly the original asset URL; its fixture carries no `variants`, so it must still hold byte-for-byte. Run it explicitly and record the result. If it moves, the encoder or the loader wiring is wrong, not the test.
 
-## Task 3: invariant-8 dual gate
+## Task 4: the `sizes` oracle, in a browser that has a ladder
 
-<!-- task: red=`sh -c 'P=docs/superpowers/plans/2026-08-27-admin-diagram-next-image.md; grep -qE "^impeccable-gate: critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=(0|[1-9][0-9]*) p1=(0|[1-9][0-9]*) dispositions=(recorded|none)$" $P || exit 1; grep -q "^### Findings and dispositions" $P || exit 1; grep -q "^### Pre-code checklist result" $P || exit 1; exit 0'` ac=AC-7 -->
+<!-- task: red=`pnpm heavy pnpm exec playwright test --config=tests/e2e/standalone.config.ts tests/e2e/published-review-modal.layout.spec.ts` ac=AC-5 -->
 
-`/impeccable critique` and `/impeccable audit` on the diff, both with the canonical v3 setup gates (the skill's context.mjs load over PRODUCT.md + DESIGN.md, then the register reference read). P0 and P1 findings are fixed in-branch; per the standing directive on this arc nothing is deferred to a ledger row, so anything not fixed is recorded in §12 below and named in the readiness message under "Unfixed peers".
+**What is red and why.** Round 3's sharpest finding: the staged harness's loader is width-independent, so every srcset descriptor maps to one URL and `img.currentSrc` names no tier. The oracle needs a ladder, and the only harness that can have one is the published modal's — `tests/e2e/_publishedReviewModalHarness.tsx:129` passes `diagrams: null` today. With a manifest in place, the assertion that `currentSrc` names the width-matched tier fails against the pre-Task-3 tree, and it fails for a production reason: without `buildLoader` the published site emits one URL at every descriptor, exactly as the staged one does.
 
-One pre-existing condition is worth naming before the gate sees it: the tile anchor carries no focus-visible ring today (`className="block"`), so a keyboard user gets only the browser default on a surface this arc touches. Not introduced here. If the pair returns it P0 or P1 it is fixed in-branch like any other finding.
+RED:
 
-The marker line's grammar is `RAN_FORM` at `tests/docs/_invariant8Closeout.ts:45`. What the marker claims is a gate RESULT; it does not prove the gates ran, and the guard says so about itself at `tests/docs/_invariant8Closeout.ts:11-16`. The dispositions table is the evidence.
+- The harness gains a persisted manifest with a real two-tier ladder, and the spec's static server serves real bytes for the original and for each variant key, at their true intrinsic widths so the browser's selection is honest.
+- Over the DERIVED TWO-SIDED viewport set from the section above (21 points; DPR 1 and 2 in full, DPR 3 at its sub-640 points): the measured tile width equals `diagramTileWidthAt(viewport)` within 0.5px, and `img.currentSrc` names the ladder tier that measured width warrants at that context's DPR.
+- The set is COMPUTED in the spec from `diagramTileWidthAt` ∪ `imageConfigDefault` ∪ `DIAGRAM_VARIANT_WIDTHS`, never pasted, with a `premise` that it is non-empty and that it contains at least one predecessor/transition PAIR — without which the two-sidedness is a claim rather than a fact.
 
-## Task 4: graduate the row, last commit before readiness
+GREEN: Task 3's `buildLoader` is what makes the descriptors distinct; this task's own production change is the exported `DIAGRAM_TILE_SIZES` reaching the published tile and being CORRECT, which the oracle is what establishes.
+
+**Mutant record.** Replace `DIAGRAM_TILE_SIZES` with the round-1 approximation: `currentSrc` names the wrong tier at the DPR-2 483 and 923 boundaries — the two ranges the plan-time sweep predicts, so the mutant confirms sweep and browser agree. Nudge the ≥640px slot by +0.25px: 666 and 922 fail, and they fail only because the set is two-sided.
+
+## Task 5: invariant-8 dual gate
+
+<!-- task: red=`sh -c 'P=docs/superpowers/plans/2026-08-27-admin-diagram-next-image.md; grep -qE "^impeccable-gate: critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=(0|[1-9][0-9]*) p1=(0|[1-9][0-9]*) dispositions=(recorded|none)$" $P || exit 1; awk "/^### Findings and dispositions/{f=1;next} f&&/^#/{exit} f" $P | grep -qE "^\| *(P[0-3]|Tier) " || exit 1; awk "/^### Pre-code checklist result/{f=1;next} f&&/^#/{exit} f" $P | grep -qi "pending" && exit 1; awk "/^### Findings and dispositions/{f=1;next} f&&/^#/{exit} f" $P | grep -qi "pending" && exit 1; exit 0'` ac=AC-7 -->
+
+`/impeccable critique` and `/impeccable audit` on the diff, both with the canonical v3 setup gates (the skill's context.mjs load over PRODUCT.md + DESIGN.md, then the register reference read). P0 and P1 findings are fixed in-branch; per the standing directive on this arc nothing is deferred to a ledger row, so anything not fixed is recorded in §12 and named in the readiness message under "Unfixed peers".
+
+**The gate command checks CONTENT, not headings.** Round 3 probed the first version with a syntactically valid marker pasted in and it exited 0 while both sections still read "Pending" — a gate that passes on the shape of the evidence rather than its presence. It now requires the dispositions section to hold at least one table row, and neither section to contain the word "pending".
+
+One pre-existing condition, named before the pair sees it: the tile anchor carries no focus-visible ring today (`className="block"`), so a keyboard user gets only the browser default on a surface this arc touches. Not introduced here. If the pair returns it P0 or P1 it is fixed in-branch like any other finding.
+
+The marker's grammar is `RAN_FORM` at `tests/docs/_invariant8Closeout.ts:45`. The marker claims a gate RESULT; it does not prove the gates ran, and the guard says so about itself at `tests/docs/_invariant8Closeout.ts:11-16`. The dispositions table is the evidence.
+
+## Task 6: graduate the row, last commit before readiness
 
 <!-- task: red=`sh -c 'grep -qE "^#{2,3} BL-ADMIN-DIAGRAM-NEXT-IMAGE" BACKLOG.md && exit 1; awk "/^#+ BL-ADMIN-DIAGRAM-NEXT-IMAGE/{f=1;next} f&&/^#/{f=0} f" BACKLOG-archive.md > /tmp/wizardimg-entry.txt; test -s /tmp/wizardimg-entry.txt || exit 1; grep -q "IN PROGRESS" /tmp/wizardimg-entry.txt && exit 1; for t in "Resolution:" "makeDiagramLoader" "staged" "published"; do grep -q "$t" /tmp/wizardimg-entry.txt || exit 1; done; exit 0'` ac=AC-8 -->
 
-Move the row out of `BACKLOG.md` and into `BACKLOG-archive.md` with a `**Resolution:**` naming both sites and the loader, and strip the `**Status:** IN PROGRESS · **Branch:** …` marker in the same commit. Archives categorically reject in-flight entries, so the marker cannot ride along; and a marker that reaches `main` names a branch the merge just deleted and reds `tests/docs/_metaLedgerInProgress.test.ts` on main until someone clears it.
+Move the row out of `BACKLOG.md` into `BACKLOG-archive.md` with a `**Resolution:**` naming both sites and the loader, and strip the `**Status:** IN PROGRESS · **Branch:** …` marker in the same commit. Archives categorically reject in-flight entries, so the marker cannot ride along; a marker that reaches `main` names a branch the merge just deleted and reds `tests/docs/_metaLedgerInProgress.test.ts` on main until someone clears it.
 
 This is the PR's LAST commit, before readiness and before the merge — not a post-merge tidy.
 
-<!-- tasks: end -->
+**Citation re-verification belongs here**, because round 3 found three stale `file:line` citations after two absorbs and the class is "a citation into a file another arc edits drifts on every absorb". The step is mechanical: re-run `pnpm spec:lint` on the plan after the final absorb, and re-READ every line-form citation the plan makes into a file this branch does not own — `BACKLOG.md`, `docs/agents/writing-plans.md`, and the `components/`/`lib/` anchors — confirming the cited line still holds the symbol its sentence names. `RED_TARGET_INVALID` checks only that a line is in range, never what is at it.
+
 
 ## Acceptance criteria
 
@@ -315,13 +346,13 @@ Handles. No sibling spec exists for this arc, so these are the plan's own and th
 | Id | Handle | Tasks |
 |---|---|---|
 | AC-1 | The staged site renders through a loader; every candidate is the staged preview route URL | 1 |
-| AC-2 | The published site renders through `makeDiagramLoader`; with a ladder every candidate is a variant URL and the original appears in none | 2 |
-| AC-3 | Absent, empty, non-array, malformed and original-naming `variants` all render the original, never an empty or malformed src, never a throw | 1, 2 |
-| AC-4 | The anchor still opens the full-resolution original, and the shared builder is byte-neutral against the template it replaces | 2 |
-| AC-5 | In a real browser: the image box equals the anchor box deflated by its computed borders; the measured tile width equals `diagramTileWidthAt` at every derived boundary viewport; `img.currentSrc` names the ladder tier that width warrants; no request reaches `/_next/image` | 1 |
-| AC-6 | Every transition-inventory pair is pinned behaviourally: both manifest rerender directions, all three availability reconciliations, and the after-load compound case | 1, 2 |
-| AC-7 | Both impeccable halves pass; P0 and P1 fixed in-branch | 3 |
-| AC-8 | The row is archived with a resolution and no in-progress marker reaches main | 4 |
+| AC-2 | The published site renders through `makeDiagramLoader`; with a ladder every candidate is a variant URL and the original appears in none | 3 |
+| AC-3 | Absent, empty, non-array, malformed and original-naming `variants` all render the original; a revision-less row renders the placeholder; never an empty or malformed src, never a throw | 3 |
+| AC-4 | The anchor still opens the full-resolution original, and the shared builder is byte-neutral against the template it replaces | 3 |
+| AC-5 | In a real browser: the image box equals the anchor box deflated by its computed borders and no request reaches `/_next/image` (Task 1, staged harness); and at every point of the derived two-sided boundary set the measured width equals `diagramTileWidthAt` and `img.currentSrc` names the tier that width warrants (Task 4, published harness, which is the only one with a ladder) | 1, 4 |
+| AC-6 | Every transition-inventory pair is pinned behaviourally: the after-load compound case (Task 1), all four reconciliations including the loader-only manifest change (Task 2), and both manifest rerender directions (Task 3) | 1, 2, 3 |
+| AC-7 | Both impeccable halves pass; P0 and P1 fixed in-branch; the gate command checks the evidence's CONTENT, not its headings | 5 |
+| AC-8 | The row is archived with a resolution and no in-progress marker reaches main, and every line-form citation into a file this branch does not own is re-read after the final absorb | 6 |
 | AC-9 | All twelve required CI checks green at a head whose merge base is `origin/main` | close-out |
 
 AC-9 carries no task marker because no `red=` can express it: it is satisfied by real CI on the pushed branch, and a red shelling out to `gh` goes green on a stale run.
@@ -388,4 +419,18 @@ The base had moved once already; this round's repairs are folded in above and th
 | 3 | The inventory still omitted every availability transition: `failed` is initialised once from `hasPreviewSource` and only ever set true, so unavailable→available never recovers, available→unavailable waits for a fetch to fail, and a failure on source A survives a move to source B. The "compound" case traced the same events as the plain error case. BLOCKING. | *An inventory reasoning about what a MOUNT can reach rather than what a stable key can reach.* Swept every prop the tile derives state from: `hasPreviewSource`, `href`, `imageKey`, `loader`. All four now reconcile. | Three rows added to the inventory and the guard table; the tile reconciles `failed` during render on identity change; staged cases 9–11 assert it on a held element reference; the compound case became error-after-load, which is genuinely distinct. This is a REPAIR of an existing defect, stated as such. |
 | 4 | Three published-only guard conditions (`snapshotPath`, `mimeType`, `snapshot_revision_id`) were assigned to a staged test whose predicate never reads them. MEDIUM. | *A coverage column asserting an ownership the predicate contradicts.* Swept the whole table against the two predicates rather than fixing three rows: every row now names the mode whose gate actually reads it, and two staged-only rows were added that the first draft had left implicit. | Rows moved to Task 2 cases 7 and 8; Task 1 case 6 restated over both staged non-servable shapes. |
 | 5 | The plan named a stale base. LOW. | *A fact about the live tree that goes stale on every absorb.* | `66c9857f5`, and the round record now says which base each round ran at, so the next absorb makes the drift visible rather than silent. |
+
+### Round 3 (base `66c9857f56a5`, seven findings, all accepted)
+
+The round that changed the plan's shape rather than its numbers. Two of its findings were disproofs of arguments the plan had been making since round 1.
+
+| # | Finding | Class, and the sweep it triggered | Repair |
+|---|---|---|---|
+| 1 | The browser oracle could not observe what it claimed: the only real-browser harness renders STAGED mode, whose loader is width-independent, so every srcset descriptor maps to one URL and `img.currentSrc` names no tier. The derived viewport set was also one-sided, so a transition firing one pixel early escaped. BLOCKING. | *An oracle placed in a harness that cannot exhibit the phenomenon.* The third round in a row on `sizes`, which is the signal to stop correcting the arithmetic and check the instrument instead. The sweep: for each assertion in the plan, does the harness it runs in contain the thing it measures? Only this one failed, because only this one needs a manifest. | The oracle moves to `tests/e2e/published-review-modal.layout.spec.ts`, whose harness renders the real `PublishedReviewModal` and today passes `diagrams: null` (`tests/e2e/_publishedReviewModalHarness.tsx:129`); Task 4 gives it a real ladder and serves real bytes. The viewport set becomes two-sided (21 points, computed not pasted), with a premise that it contains at least one predecessor/transition pair. The staged harness keeps the geometry assertions, which need no ladder. |
+| 2 | The empty-revision case could not pass its own implementation: `diagramAssetUrl(show, "", key)` yields `/api/asset/diagram/show//key`, a doubled slash, while the plan demanded a well-formed URL. BLOCKING. | *A guard-table row whose stated outcome the GREEN path cannot produce.* Swept every row against the code path that would render it; this was the only one whose answer was a URL rather than a branch. | The published servability gate additionally requires a non-empty `rev`, so the row takes the placeholder branch. One condition, in the site this arc owns, and it makes the consequence bound TRUE rather than excused — a revision-less row has no fetchable bytes at any width, so the tile stops asking. |
+| 3 | The reconciliation cases' anti-remount proof was impossible: case 11 varied `objectId`, which IS the key, so it remounts and passes against the unrepaired component; and cases 9–10 claimed a held element reference across a `<span>`↔`<a>` swap, which necessarily replaces the node. BLOCKING. | *A test whose stated proof mechanism the DOM cannot provide.* Swept every case in the plan that claims element identity: three claimed it wrongly here, and Task 3's manifest rerenders claim it correctly, because there the `<img>` genuinely persists. | Case 3 moves the href by varying the WIZARD SESSION — same objectId, same key, same testid — with a `premiseHolds` that the href actually moved. Cases 1 and 2 state the real proof: the key is stable, so React keeps the instance, and `failed` starts true and is only ever set true, so the swap cannot happen without a reset. |
+| 4 | Reconciliation omitted loader-only identity changes, which Task 3 deliberately creates: a ladder arriving while the tile is already failed leaves serving variants that never render. BLOCKING. | *A sweep that named four inputs while the design compared three.* The round-2 record itself claimed `loader` reconciled — the claim and the mechanism had drifted inside one document. | `sourceKey`, a caller-derived non-URL string naming the bytes the tile can serve, replaces `imageKey` and carries the ladder. The loader itself cannot be the comparison: it is a fresh closure every render, so comparing it would clear the failure state on every render, which the mutant record now pins. |
+| 5 | The layout assertion DOES have an honest red — the live anchor is `className="block"`, so `position` reads `static` — so the mandatory layout task was a real TDD task all along and the recorded-mutants substitute was unnecessary. BLOCKING. | *An argument from "this cannot be red" that one grep disproves.* Swept the same argument where it was also made for the transition-audit task: it fails there too, because three of its transitions are unreachable in the current component. | Both mandatory task types became their own TDD tasks (1 and 2), each with its own production-caused red. The plan's "why neither is a task" section became "the two mandatory task types", and says plainly that the earlier argument was wrong. Mutants stay as a supplement, never a substitute. |
+| 6 | The close-out gate passed with both evidence sections still reading "Pending": it checked for a valid marker and two headings, and the headings already existed. BLOCKING. | *A gate that checks the shape of evidence rather than its presence.* Swept the plan's other declared gate, Task 6's, against the same question: it already checks content (four required tokens inside the extracted archive entry), so only this one was shape-only. | The gate requires the dispositions section to hold at least one table row and neither section to contain "pending". Probed both ways at plan time: red on the live tree, and still red under round 3's own mutant of a valid marker pasted above unfilled sections. |
+| 7 | Three live-tree citations were stale after two absorbs. LOW. | *A citation into a file another arc edits drifts on every absorb, silently, because the lint arm checks that a line is IN RANGE and never what is AT it.* | Fixed, and the class is now a step rather than a hope: Task 6 re-reads every line-form citation into a file this branch does not own, after the final absorb, matching each cited line to the symbol its sentence names. |
 
