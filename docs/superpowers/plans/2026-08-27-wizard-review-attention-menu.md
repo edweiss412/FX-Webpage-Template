@@ -36,9 +36,9 @@
 - AC-7: `AttentionMenu` renders a Sheet warnings group from `warningIndex` and is byte-identical without it (§4.3, §5).
 - AC-8: published row click jumps to the warning's card via `data-attention-anchor="warning:<reportSurfaceId>"` on both render paths; a missing card falls back to the section top (§4.4).
 - AC-9: `isWarnSeverity` is the only severity predicate at the seven review-surface sites; a severity-less warning counts as warn everywhere the badge counts it (§2.1, I-1).
-- AC-10: committed baselines prove the untouched states byte-identical: step3 clean + dirty headers, published pill + open menu (§1.1, §12.15, §12.19a).
+- AC-10: committed baselines prove the untouched states byte-identical: step3 clean + dirty headers, published pill + open menu (§1.1, §12.15, §12.19a) (discharged by Task 1)
 - AC-11: every line-keyed registry row that moved is re-keyed with the scanner's measured value; WizardAttentionMenu.tsx is enrolled in `PAGE_COMPONENT_COUNTS` and `SERVER_RENDERED` (§5).
-- AC-12: real-browser: pill hit band ≥ 44px, every menu row ≥ 44px, panel inside the shell clip at 375×667 and 1280×800 (§9).
+- AC-12: real-browser: pill hit band ≥ 44px, every menu row ≥ 44px, panel inside the shell clip at 375×667 and 1280×800 (§9) (discharged by Task 9)
 - AC-13: impeccable critique + audit ran on the diff; P0/P1 fixed or deferred with a `DEFERRED.md` entry; closeout marker present (discharged by the closeout)
 
 ## File structure
@@ -132,9 +132,7 @@ Scanner set, run at the end of T2, T4, T6, T7, T8: `pnpm exec vitest run tests/s
 
 ---
 
-<!-- tasks: depth=3 red-contract -->
-
-### Task 1: Baselines captured from the pre-change tree
+### Task 1: Baselines captured from the pre-change tree (capture, not TDD; outside the red-contract region)
 
 **Files:**
 - Modify: `scripts/captureStep3HeaderBaseline.ts` (dirty variant), `tests/helpers/step3HeaderBaseline.ts` (export `STEP3_DIRTY_BASELINE_FIXTURE_PATH`), `tests/components/admin/review/reviewModalShell.test.tsx` (T-STEP3-DIRTY-INVARIANT).
@@ -143,9 +141,7 @@ Scanner set, run at the end of T2, T4, T6, T7, T8: `pnpm exec vitest run tests/s
 **Interfaces:**
 - Produces: fixtures at tests/components/admin/review/__fixtures__/step3-header-dirty-baseline.html, tests/components/admin/showpage/__fixtures__/published-attention-pill-baseline.html and published-attention-menu-baseline.html; `PUBLISHED_ATTENTION_PILL_FIXTURE_PATH`, `PUBLISHED_ATTENTION_MENU_FIXTURE_PATH`; `item()`, `needsLookItem()`, `selfHealItem()` from the shared fixture module.
 
-This task runs FIRST and touches no component. The published modal cannot be rendered by a standalone script the way the Step 3 header can: `publishedReviewModal.test.tsx` `baseProps` builds `vi.fn()` actions, and the component needs the `ShareTokenProvider` wrapper (`app/admin/show/[slug]/ShareTokenContext.tsx` `useShareToken`) plus the `next/navigation` `vi.mock` for `useRouter`/`useSearchParams` (`components/admin/useShowModalNav.ts`). So the published baselines are captured IN VITEST by the invariant test itself in capture mode (`PUBLISHED_ATTENTION_CAPTURE=1` writes the fixtures instead of comparing), run once on this pre-change tree; the same module graph that renders the component captures it. What is red and why: the three fixture files do not exist, so each invariant test's `readFileSync` throws.
-
-<!-- task: red=`pnpm exec vitest run tests/components/admin/review/reviewModalShell.test.tsx tests/components/admin/showpage/publishedAttentionBaseline.test.tsx` red-state=authored red-target=`scripts/captureStep3HeaderBaseline.ts:52` why=`the capture script renders only isDirtyRescan:false, so no dirty fixture exists and the new dirty invariant's readFileSync throws ENOENT; the published fixtures likewise do not exist until capture mode has run once` ac=AC-10 -->
+This task runs FIRST and touches no component. It has NO red→green cycle of its own and carries no task marker: a baseline capture cannot be red for a production reason (the fixtures it writes are the test's own inputs), which is exactly the test-local RED `docs/agents/writing-plans.md` forbids. Its discriminating power is proven differently: after capture, mutate one byte of the rendered header (temporarily change the "All clean" text in `Step3ReviewModal.tsx`, run, confirm the invariant fails, revert; same for the published pill's "In sync" text and the menu's needs-you heading) and quote the three failures in the commit body. The published modal cannot be rendered by a standalone script the way the Step 3 header can: `publishedReviewModal.test.tsx` `baseProps` builds `vi.fn()` actions, and the component needs the `ShareTokenProvider` wrapper (`app/admin/show/[slug]/ShareTokenContext.tsx` `useShareToken`) plus the `next/navigation` `vi.mock` for `useRouter`/`useSearchParams` (`components/admin/useShowModalNav.ts`). So the published baselines are captured IN VITEST by the invariant test itself in capture mode (`PUBLISHED_ATTENTION_CAPTURE=1` writes the fixtures instead of comparing), run once on this pre-change tree; the same module graph that renders the component captures it. What is red and why: the three fixture files do not exist, so each invariant test's `readFileSync` throws.
 
 - [ ] **Step 1: Add the dirty path constant**
 
@@ -196,7 +192,7 @@ export const PUBLISHED_ATTENTION_MENU_FIXTURE_PATH =
   "tests/components/admin/showpage/__fixtures__/published-attention-menu-baseline.html";
 ```
 
-tests/components/admin/showpage/publishedAttentionBaseline.test.tsx: same `vi.mock` set and `ShareTokenProvider` wrapper as `publishedReviewModal.test.tsx` (copy its module-top mocks verbatim; the `renderModal`/`baseProps` helpers are duplicated into this file rather than lifted, because they close over `vi.fn()` and the test module graph). Two cases, each:
+tests/components/admin/showpage/publishedAttentionBaseline.test.tsx: first line `// @vitest-environment jsdom` (the root `vitest.config.ts` environment is `node`; every DOM-rendering peer declares the directive), then the same `vi.mock` set and `ShareTokenProvider` wrapper as `publishedReviewModal.test.tsx` (copy its module-top mocks verbatim; the `renderModal`/`baseProps` helpers are duplicated into this file rather than lifted, because they close over `vi.fn()` and the test module graph). Two cases, each:
 
 ```ts
 const CAPTURE = process.env.PUBLISHED_ATTENTION_CAPTURE === "1";
@@ -211,10 +207,10 @@ function check(path: string, html: string) {
 
 Case A (menu): render `<AttentionMenu items={[needsLookItem("a1"), selfHealItem("s1", "Sync stalled")]} open onClose={vi.fn()} onNavigate={vi.fn()} pillRef={pillRef} />` with the pill-ref scaffold from `attentionMenu.test.tsx` `renderMenu`; `check(PUBLISHED_ATTENTION_MENU_FIXTURE_PATH, normalizeIds(screen.getByTestId("published-show-review-attention-menu").outerHTML))`. Case B (pill cluster): render the modal via the duplicated `renderModal({ attentionItems: [needsLookItem("a1"), selfHealItem("s1", "Sync stalled")] })` with no warnings; `check(PUBLISHED_ATTENTION_PILL_FIXTURE_PATH, normalizeIds(pill().parentElement!.outerHTML))` (the `relative min-w-0` wrapper: pill + menu mount point). `normalizeIds` from `@/tests/helpers/step3HeaderBaseline`.
 
-- [ ] **Step 4: Run to verify RED**
+- [ ] **Step 4: Run once before capture (expected ENOENT, a scaffolding check, not a RED)**
 
 Run: `pnpm exec vitest run tests/components/admin/review/reviewModalShell.test.tsx tests/components/admin/showpage/publishedAttentionBaseline.test.tsx`
-Expected: FAIL with `ENOENT` on all three fixture paths.
+Expected: `ENOENT` on all three fixture paths, proving the tests read the committed paths and nothing else.
 
 - [ ] **Step 5: Extend the Step 3 capture script**
 
@@ -227,12 +223,16 @@ Then: `git diff --stat tests/components/admin/review/__fixtures__/step3-header-b
 Run: `pnpm exec vitest run tests/components/admin/review/reviewModalShell.test.tsx tests/components/admin/showpage/publishedAttentionBaseline.test.tsx tests/components/admin/showpage/attentionMenuGroups.test.tsx` (capture env UNSET)
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Mutant proof of the three baselines** — for each of: `Step3ReviewModal.tsx` "All clean" text, the published pill's "In sync" text (`PublishedReviewModal.tsx`), the needs-you heading text (`AttentionMenu.tsx`): edit the string by one character, run the two invariant files, confirm the matching invariant FAILS, `git checkout -- <file>`; a mutant whose diff is empty or whose invariant stays green is a broken baseline, not a pass. Quote the three failure lines in the commit body.
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add scripts tests/helpers tests/components/admin/review tests/components/admin/showpage
 git commit --no-verify -m "test(admin): capture dirty step3 and published attention baselines before the header change"
 ```
+
+<!-- tasks: depth=3 red-contract -->
 
 ### Task 2: `isWarnSeverity` at the seven sites
 
@@ -321,7 +321,7 @@ export function isWarnSeverity(w: Pick<ParseWarning, "severity">): boolean {
 
 and in `summarizeDataGaps` replace `if (w.severity === "info") continue;` with `if (!isWarnSeverity(w)) continue;` (comment kept).
 
-Then the six sites, each a one-line swap, importing `isWarnSeverity` from `@/lib/parser/dataGaps`:
+Then the other six sites (seven including `summarizeDataGaps` above), each a one-line swap, importing `isWarnSeverity` from `@/lib/parser/dataGaps`:
 - `step3SectionStatus.ts` `sectionForWarning`: `if (isWarnSeverity(w) && w.code === "UNKNOWN_SECTION_HEADER")`.
 - `step3SectionStatus.ts` `warningsBySection`: `if (!isWarnSeverity(warning)) return;`.
 - `step3SectionStatus.ts` `sectionStatus`: `const warns = warnings.filter(isWarnSeverity);`.
@@ -361,15 +361,18 @@ import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { deriveWarningAttention } from "@/lib/admin/warningAttention";
 import { GAP_CLASSES, summarizeDataGaps } from "@/lib/parser/dataGaps";
 import { AMBIGUITY_CODES, isAmbiguityCode } from "@/lib/parser/ambiguityCodes";
-import { sectionStatus, warningsBySection } from "@/lib/admin/step3SectionStatus";
+import { KIND_TO_SECTION, sectionStatus, warningsBySection } from "@/lib/admin/step3SectionStatus";
 import { ASSET_WARN_CODES, BENIGN_WARN_CODES } from "@/tests/parser/_dataGapBuckets";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
+import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
+import { buildStagedSectionData } from "@/components/admin/review/sectionData";
+import { sectionDataArgs } from "@/tests/components/admin/wizard/_step3ReviewFixture"; // add: the arg object Step3ReviewModal.test.tsx's sectionData() passes to buildStagedSectionData, exported so tests share one shape
 
-const SECTIONS = [
-  { id: "crew" as SectionId, label: "Crew" },
-  { id: "warnings" as SectionId, label: "Sheet warnings" },
-];
+// The REAL registry, so labels are read from production, never restated here.
+const DEFS = step3Sections(buildStagedSectionData({ /* the shared wizard fixture: */ ...sectionDataArgs() }));
+const SECTIONS = DEFS.map((d) => ({ id: d.id, label: d.label }));
+const labelOf = (id: SectionId) => DEFS.find((d) => d.id === id)!.label;
 const warn = (code: string, kind = "crew"): ParseWarning => ({ severity: "warn", code, message: "", blockRef: { kind } });
 const route = (ws: ParseWarning[]) =>
   [...warningsBySection(ws, new Set(SECTIONS.map((s) => s.id)))].flatMap(([sectionId, list]) =>
@@ -383,7 +386,10 @@ describe("deriveWarningAttention", () => {
     expect(r.needsLook.map((e) => e.index)).toEqual([0, 2]);
     expect(r.judgment.map((e) => e.index)).toEqual([1]);
     expect(r.all.map((e) => e.index)).toEqual([0, 1, 2]);
-    expect(r.all[1]!.sectionLabel).toBe("Sheet warnings"); // rooms not rendered → warnings bucket
+    expect(r.all[1]!.sectionLabel).toBe(labelOf(r.all[1]!.sectionId)); // label READ from the registry
+    // the function reads the SUPPLIED registry, not a hardcoded string: a synthetic registry proves it
+    const synthetic = SECTIONS.map((x) => ({ ...x, label: `Zz ${x.id}` }));
+    expect(deriveWarningAttention(route([warn("UNKNOWN_FIELD")]), synthetic).all[0]!.sectionLabel).toBe("Zz warnings");
   });
   it("I-1: never counts fewer than the badge, across every known code, typed and severity-less", () => {
     const codes = [
@@ -404,16 +410,30 @@ describe("deriveWarningAttention", () => {
       }
     }
   });
-  it("I-2: a section is flagged iff it holds a needsLook entry, judgment iff only judgment entries", () => {
-    const ws = [warn("UNKNOWN_FIELD", "crew"), warn("ROOM_HEADER_SPLIT_AMBIGUOUS", "crew")];
-    const by = warningsBySection(ws, new Set(SECTIONS.map((s) => s.id)));
-    const r = deriveWarningAttention(route(ws), SECTIONS);
-    for (const [sid, list] of by) {
-      const st = sectionStatus(list.map((e) => e.warning));
-      const hasNeeds = r.needsLook.some((e) => e.sectionId === sid);
-      const hasJudg = r.judgment.some((e) => e.sectionId === sid);
-      expect(st === "flagged").toBe(hasNeeds);
-      expect(st === "judgment").toBe(!hasNeeds && hasJudg);
+  it("I-2: per section and per shape, flagged iff a needsLook entry, judgment iff only judgment entries, clean iff none", () => {
+    // Every registry section that a warning can route to (KIND_TO_SECTION keys), times
+    // four shapes: needs-look only, judgment only, mixed, none. A mutant that always
+    // returns "flagged" fails on the judgment-only and clean shapes; one that never
+    // returns "judgment" fails on judgment-only.
+    const kinds = Object.entries(KIND_TO_SECTION) as Array<[string, SectionId]>;
+    premise("routable kinds", kinds.length, 3);
+    const shapes = {
+      needs: (k: string) => [warn("UNKNOWN_FIELD", k)],
+      judg: (k: string) => [warn("ROOM_HEADER_SPLIT_AMBIGUOUS", k)],
+      mixed: (k: string) => [warn("UNKNOWN_FIELD", k), warn("ROOM_HEADER_SPLIT_AMBIGUOUS", k)],
+      none: (_k: string) => [] as ParseWarning[],
+    };
+    for (const [kind, sid] of kinds) for (const [name, make] of Object.entries(shapes)) {
+      const ws = make(kind);
+      const rendered = new Set(SECTIONS.map((x) => x.id));
+      const by = warningsBySection(ws, rendered);
+      const r = deriveWarningAttention(route(ws), SECTIONS);
+      const target = rendered.has(sid) ? sid : ("warnings" as SectionId);
+      const st = sectionStatus((by.get(target) ?? []).map((e) => e.warning));
+      const hasNeeds = r.needsLook.some((e) => e.sectionId === target);
+      const hasJudg = r.judgment.some((e) => e.sectionId === target);
+      expect(st, `${kind}/${name}`).toBe(hasNeeds ? "flagged" : hasJudg ? "judgment" : "clean");
+      expect(r.all.length, `${kind}/${name}`).toBe(ws.length);
     }
   });
   it("I-3: any warn-severity input yields a non-empty `all`", () => {
@@ -506,7 +526,7 @@ git commit --no-verify -m "feat(admin): deriveWarningAttention, the shared needs
 
 - [ ] **Step 1: Write the failing frame tests**
 
-attentionMenuFrame.test.tsx: render `<AttentionMenuFrame testId="t-frame" ariaLabel="Needs you" scrollerLabel="Attention items" pillRef={pillRef} onClose={onClose}>` with two `<AttentionMenuRow>` children; assert (a) the panel has `role="group"` + `aria-label="Needs you"` and the scroller inside has `role="group"`, `aria-label="Attention items"`, `tabindex="0"`; (b) a capture-phase Escape calls `onClose` once and focuses the pill, and a bubble listener on `document` does NOT see the event; (c) `AttentionMenuRow` with `secondLine: null` renders no second-line span, with a string renders it, `truncateSecondLine: true` adds `truncate`; (d) `heading` renders between the panel edge and the scroller (heading element's `nextElementSibling` is the scroller). Reuse the `renderMenu` pill-ref scaffold from `attentionMenu.test.tsx`.
+attentionMenuFrame.test.tsx (first line `// @vitest-environment jsdom`): render `<AttentionMenuFrame testId="t-frame" ariaLabel="Needs you" scrollerLabel="Attention items" pillRef={pillRef} onClose={onClose}>` with two `<AttentionMenuRow>` children; assert (a) the panel has `role="group"` + `aria-label="Needs you"` and the scroller inside has `role="group"`, `aria-label="Attention items"`, `tabindex="0"`; (b) a capture-phase Escape calls `onClose` once and focuses the pill, and a bubble listener on `document` does NOT see the event; (c) `AttentionMenuRow` with `secondLine: null` renders no second-line span, with a string renders it, `truncateSecondLine: true` adds `truncate`; (d) `heading` renders between the panel edge and the scroller (heading element's `nextElementSibling` is the scroller). Reuse the `renderMenu` pill-ref scaffold from `attentionMenu.test.tsx`.
 
 - [ ] **Step 2: RED** — Run: `pnpm exec vitest run tests/components/admin/showpage/attentionMenuFrame.test.tsx`. Expected: FAIL, no export `AttentionMenuFrame`.
 
@@ -531,7 +551,7 @@ Expected: FAIL on the moved divider line (`AttentionMenu.tsx:189` in `controlOut
 
 <!-- task: red=`pnpm exec vitest run tests/components/admin/perShowActionableWarnings.anchorIds.test.tsx` red-state=authored red-target=`components/admin/PerShowActionableWarnings.tsx:372` why=`the item li renders no data-attention-anchor and the component accepts no anchorIds prop, so the aligned case's attribute assertion finds nothing` ac=AC-8 -->
 
-- [ ] **Step 1: Failing tests** — six cases (§12.19b): absent, `[]`, shorter, longer, aligned, `["", "b"]`; each renders three `warn`-severity items and asserts, per `[data-testid="per-show-actionable-item"]` by index, `getAttribute("data-attention-anchor")` equals the expected id or is `null`. Use `renderItemControls={() => null}`.
+- [ ] **Step 1: Failing tests** — file starts with `// @vitest-environment jsdom`; six cases (§12.19b): absent, `[]`, shorter, longer, aligned, `["", "b"]`; each renders three `warn`-severity items and asserts, per `[data-testid="per-show-actionable-item"]` by index, `getAttribute("data-attention-anchor")` equals the expected id or is `null`. Use `renderItemControls={() => null}`.
 - [ ] **Step 2: RED** — Run the file. Expected: aligned/shorter/longer/empty-string cases FAIL (no attribute); absent and `[]` pass.
 - [ ] **Step 3: Implement** — add `anchorIds?: readonly string[]` to the props type; in the map: `const anchor = anchorIds?.[i]; … <li … {...(anchor ? { "data-attention-anchor": anchor } : {})}>`.
 - [ ] **Step 4: GREEN** — Run the new file plus `tests/components/admin` files that import `PerShowActionableWarnings` (`rg -l PerShowActionableWarnings tests`). Expected: PASS.
@@ -584,7 +604,17 @@ it("segments compose in order with separators only between present ones", () => 
   const seg = screen.getByTestId("attention-pill-warnings-segment");
   expect(seg.textContent).toContain("·"); // separator lives INSIDE the wrap unit
 });
-it("caps sheet warnings at 99+ with the exact count sr-only, and not at 99", () => { /* 99 → "99 sheet warnings", no sr-only; 100 → "99+ sheet warnings" + "(100 sheet warnings)" */ });
+it.each([99, 100])("cap boundary at %i sheet warnings", (count) => {
+  const ws = Array.from({ length: count }, () => warnRow("UNKNOWN_FIELD", "crew"));
+  const k = expectedK(ws);
+  premiseHolds("fixture routes every warning", k === count);
+  renderModal({ attentionItems: [] }, ws);
+  const el = pill();
+  const visible = k > 99 ? "99+" : String(k);
+  expect(visibleText(el)).toBe(`${visible} sheet warnings`);
+  const sr = el.querySelector(".sr-only");
+  if (k > 99) expect(sr?.textContent).toBe(`(${k} sheet warnings)`); else expect(sr).toBeNull();
+});
 it("menu row click jumps to the card anchor on both render paths", async () => {
   // grouped: rooms warning renders in section-warning-active-rooms; crew: renders under the row for a crewKey the fixture renders
   // click attention-menu-row-warning:<id>-0 → the <li data-attention-anchor="warning:<id>"> gains data-step3-warning-flash
@@ -640,7 +670,7 @@ Run: `pnpm exec vitest run tests/styles tests/components/admin/showpage/pageTran
 
 <!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/wizardAttentionMenu.test.tsx` red-state=authored red-target=`components/admin/wizard/Step3ReviewModal.tsx:451` why=`the wizard has no menu component; the header chip at this line is a span and nothing under components/admin/wizard exports WizardAttentionMenu, so the import fails` ac=AC-3 -->
 
-- [ ] **Step 1: Failing tests** — render with `open: true` and an `attention` of two needs-look entries + one judgment entry: panel testid `wizard-step3-card-<dfid>-review-attention-menu`, `aria-label="Needs a look"`, heading `wizard-attention-needslook-heading` outside the scroller (`aria-label="Warnings to review"`), rows `wizard-step3-card-<dfid>-attention-row-<index>` titled by `reviewWarningTitle`, second line = section label, judgment heading `wizard-attention-judgment-heading` with `border-t`, judgment row dot `bg-text-faint`; judgment-only → `aria-label="Judgment calls"`, heading `rounded-t-md`, no needs-look heading; click → `onClose` then `onNavigate(entry)`; `open: false` → nothing rendered; 100 entries → 100 rows.
+- [ ] **Step 1: Failing tests** — file starts with `// @vitest-environment jsdom`. Build `attention` with `deriveWarningAttention` over a constructed entry list (two needs-look + one judgment) so every expected count below is read from `attention.needsLook.length` / `attention.judgment.length` / `attention.all.length`, never restated; render with `open: true`: panel testid `wizard-step3-card-<dfid>-review-attention-menu`, `aria-label="Needs a look"`, heading `wizard-attention-needslook-heading` outside the scroller (`aria-label="Warnings to review"`), rows `wizard-step3-card-<dfid>-attention-row-<index>` titled by `reviewWarningTitle`, second line = section label, judgment heading `wizard-attention-judgment-heading` with `border-t`, judgment row dot `bg-text-faint`; judgment-only → `aria-label="Judgment calls"`, heading `rounded-t-md`, no needs-look heading; click → `onClose` then `onNavigate(entry)`; `open: false` → nothing rendered; a large list: build `N = 100` entries, `premise("list exceeds the visible cap", attention.all.length, 99)`, and assert the rendered row count equals `attention.all.length` (no cap on rows).
 - [ ] **Step 2: RED** — module missing.
 - [ ] **Step 3: Implement** per spec §3.3, using the frame + row from Task 4; no overlay markup, no `useFitWithinClip` import here.
 - [ ] **Step 4: GREEN + enrol** — run the file; then `pageTransitions.test.tsx` (add `"components/admin/wizard/WizardAttentionMenu.tsx": <measured>` with a comment naming each conditional) and `transitionAudit.test.tsx` (`SERVER_RENDERED` row); run both, paste the scanner output.
@@ -655,6 +685,8 @@ Run: `pnpm exec vitest run tests/styles tests/components/admin/showpage/pageTran
 
 <!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/Step3ReviewModal.test.tsx` red-state=authored red-target=`components/admin/wizard/Step3ReviewModal.tsx:296` why=`flaggedCount counts sections with a flagged sectionStatus, so two crew warnings in one section render "1 needs a look" and the new case asserting "2 need a look" fails` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-9,AC-11 -->
 
+The transition cases live in `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` (new describe "attention pill: §8 inventory") and are part of this task's RED (they fail for the marker's reason: no menu exists) and GREEN.
+
 - [ ] **Step 1: Failing tests**
 
 Rewrite `expectedFlagged` to count warnings:
@@ -668,6 +700,27 @@ function expectedCounts(d: StagedSectionData): { n: number; m: number } {
   return { n: a.needsLook.length, m: a.judgment.length };
 }
 ```
+
+**Transition audit (mandatory; the spec §8 inventory, tested inside this task's own red→green cycle because the menu state it exercises does not exist before this task):**
+
+The spec's inventory, reproduced so the task is checkable against it. Wizard pill states: SheetChanged (S), AllClean (A), NeedsLook (N), Composite (C), JudgmentOnly (J).
+
+| Pair | Treatment |
+|---|---|
+| S↔A | instant; no menu on either side |
+| S↔N | instant; menu closed on both sides (S has none; entering N starts closed, auto-open may fire once if never consumed) |
+| S↔C | instant; as S↔N |
+| S↔J | instant; as S↔N, and J never auto-opens |
+| A↔N | instant; A has no menu; entering N starts closed |
+| A↔C | instant; as A↔N |
+| A↔J | instant; as A↔N |
+| N↔C | instant; menu state preserved (both interactive), rows re-render |
+| N↔J | instant; menu state preserved, rows re-render |
+| C↔J | instant; menu state preserved, rows re-render |
+
+Compound rows: pill swaps while menu open (count > 0 keeps it open, count 0 unmounts); row click during entrance; auto-open rAF pending while modal closes; Escape during entrance; jump flash active on a second click; published: warning ignored while the menu lists it.
+
+Cases (one `it` per pair, driven by `rerender` between `sectionData` fixtures): for S/A pairs assert no `[data-testid$="-review-attention-menu"]` before and after and the chip's tag flips span↔button with no `transition`/`animate` class on the chip's wrapper; for N/C/J pairs open the menu first (click the chip, flush the rAF), rerender, assert the menu is still mounted, `aria-expanded="true"`, and the row testids match the new fixture's `deriveWarningAttention` entries (count derived). Compound: (a) open on N, rerender to A → menu gone, `document.activeElement` inside the dialog; (b) open on N, rerender with `isDirtyRescan` → menu gone, span rendered; (c) click a row before the entrance rAF flushes → `onNavigate` fired, menu unmounted; (d) unmount the modal with the auto-open rAF pending → nothing opens, no state-update warning (spy `requestAnimationFrame`); (e) Escape during entrance → menu gone, pill focused, modal still open; (f) second click: click row 0 → `<li data-attention-anchor="warning:0">` carries the flash attribute; reopen and click row 1 → li 0 no longer carries it, li 1 does (one flash at a time). Published compound (in `publishedReviewModal.test.tsx`, Task 6): open the menu with one sheet warning, rerender with that warning ignored → row gone; with issues also 0 → menu closed, pill "In sync".
 
 Every string expectation is BUILT from `expectedCounts(d)` plus the spec §6 noun forms; a `premise` pins the fixture's shape so the noun branch under test is the one exercised:
 
@@ -705,37 +758,9 @@ Run: `pnpm exec vitest run tests/styles` → re-key `Step3ReviewModal.tsx` rows 
 
 - [ ] **Step 5: Commit** — `git commit --no-verify -m "feat(wizard): header pill counts warnings and opens the warning index with card jumps"`
 
-### Task 8b: Transition audit (spec §8 inventory, compound states)
+<!-- tasks: end -->
 
-**Files:**
-- Test: `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` (new describe "attention pill, §8 inventory"), `tests/components/admin/showpage/publishedReviewModal.test.tsx` (compound rows).
-
-The spec's inventory, reproduced so the task is checkable against it. Wizard pill states: SheetChanged (S), AllClean (A), NeedsLook (N), Composite (C), JudgmentOnly (J).
-
-| Pair | Treatment |
-|---|---|
-| S↔A | instant; no menu on either side |
-| S↔N | instant; menu closed on both sides (S has none; entering N starts closed, auto-open may fire once if never consumed) |
-| S↔C | instant; as S↔N |
-| S↔J | instant; as S↔N, and J never auto-opens |
-| A↔N | instant; A has no menu; entering N starts closed |
-| A↔C | instant; as A↔N |
-| A↔J | instant; as A↔N |
-| N↔C | instant; menu state preserved (both interactive), rows re-render |
-| N↔J | instant; menu state preserved, rows re-render |
-| C↔J | instant; menu state preserved, rows re-render |
-
-Compound rows: pill swaps while menu open (count > 0 keeps it open, count 0 unmounts); row click during entrance; auto-open rAF pending while modal closes; Escape during entrance; jump flash active on a second click; published: warning ignored while the menu lists it.
-
-<!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` red-state=authored red-target=`components/admin/wizard/Step3ReviewModal.tsx:451` why=`the header has no menu state at all today, so a case that opens the menu on an N fixture and rerenders to a C fixture expecting the menu still open and its rows re-rendered cannot find a menu to hold open` ac=AC-5 -->
-
-- [ ] **Step 1: Failing cases** — one `it` per pair, driven by `rerender` between fixtures built with `sectionData`: for S/A pairs assert no `[data-testid$="-review-attention-menu"]` before and after and the chip's tag flips span↔button with no `transition`/`animate` class on the chip's wrapper; for N/C/J pairs open the menu first (click the chip, flush the rAF), rerender, assert the menu is still mounted, `aria-expanded="true"`, and the row testids match the new fixture's `deriveWarningAttention` entries (count derived, never literal). Compound: (a) open on N, rerender to A → menu gone, `document.activeElement` inside the dialog; (b) open on N, rerender with `isDirtyRescan` → menu gone, span rendered; (c) click a row before the entrance rAF flushes → `onNavigate` fired, menu unmounted; (d) unmount the modal with the auto-open rAF pending → no `setState` warning, nothing opens (spy `requestAnimationFrame`); (e) Escape during entrance → menu gone, pill focused, modal still open. Published compound: open the menu with one sheet warning, rerender with that warning ignored (empty `bySection` active list) → row gone; with issues also 0 → menu closed, pill "In sync".
-- [ ] **Step 2: RED** — run the file; Expected: every new case FAILS for the marker's reason.
-- [ ] **Step 3:** no production change is expected here; if a case fails after Task 8's implementation, the defect is in Task 8's effects and is fixed there (commit under Task 8's scope), then this task re-runs.
-- [ ] **Step 4: GREEN** — run the two files. Expected: PASS.
-- [ ] **Step 5: Commit** — `git commit --no-verify -m "test(wizard): transition audit for the attention pill inventory and compound states"`
-
-### Task 9: Real-browser assertions
+### Task 9: Real-browser assertions (geometry pins; outside the red-contract region, mutant-proven)
 
 **Files:**
 - Create: tests/e2e/wizard-attention-menu.spec.ts.
@@ -746,16 +771,16 @@ Harness readiness (writing-plans rule): there are NO shared `bundle()`/`serve()`
 
 The wizard modal's clip element is `[data-step3-review-panel]` (`Step3ReviewModal.tsx` passes `dataAttrPrefix="step3-review"` to `ReviewModalShell`, which stamps `data-<prefix>-panel`); `[data-review-modal-panel]` is the PUBLISHED modal's and must not be used here (the interactions spec's `PANEL` selector is the precedent).
 
-<!-- task: red=`STEP3_LIVE_BUNDLE_ONLY=1 pnpm exec playwright test --project=desktop-chromium tests/e2e/wizard-attention-menu.spec.ts` red-state=authored red-target=`tests/e2e/_step3ReviewModalLiveEntry.tsx:96` why=`the live harness builds its fixture from NEAR_MISS only and has no attention param, so a warnings-bearing modal cannot be served; and the desktop-chromium testMatch alternation in playwright.config.ts does not name wizard-attention-menu, so Playwright collects zero tests and exits non-zero on "No tests found"` ac=AC-12 -->
+Why no RED marker: a geometry pin has no production-defect RED once Task 8 has landed (the dimensions it asserts are already true), and a "No tests found" collection failure is not an observed red (writing-plans rule). Discrimination is proven by mutants instead (Step 5), each checked for the three validity conditions (applied: file hash changed; in-window: Playwright reads after layout settles on a static page, so no timing window exists; on-branch: the mutated class is on the element the assertion measures, confirmed by `evaluate(() => el.className)` in the same pass).
 
-- [ ] **Step 1: Write the spec** — at 1280×800 and after `page.setViewportSize({ width: 375, height: 667 })`: (a) pill hit band: `document.elementFromPoint(cx, cy ± 20)` resolves to the chip button, and the computed before-pseudo-element `top`/`bottom` insets plus the box height sum to ≥ 44; (b) open the menu; every `[data-testid^="wizard-step3-card-"][data-testid*="-attention-row-"]` has `getBoundingClientRect().height >= 44`; (c) the panel's `right <= clip.right` and `bottom <= clip.bottom` where `clip = document.querySelector('[data-step3-review-panel]').getBoundingClientRect()`; (d) click the first row → the `<li data-attention-anchor="warning:0">` is inside the scroller viewport (`top >= scroller.top && bottom <= scroller.bottom`) and carries `data-step3-warning-flash`.
-- [ ] **Step 2: RED** — run the marker command; Expected: "No tests found" (non-zero).
-- [ ] **Step 3: Wire** — config alternation, workflow paths + run list (append the new spec to the `playwright test` line at `.github/workflows/step3-live-bundle.yml` line 75), live-entry param.
-- [ ] **Step 4: GREEN** — `STEP3_LIVE_BUNDLE_ONLY=1 pnpm heavy pnpm exec playwright test --project=desktop-chromium tests/e2e/wizard-attention-menu.spec.ts tests/e2e/step3-review-modal.interactions.spec.ts`. Expected: PASS.
+Tailwind source coverage: the agenda spec's `beforeAll` passes raw source files to `compileEntryCss` because the static fixture cannot emit classes it never renders. Add `components/admin/wizard/Step3ReviewModal.tsx`, components/admin/wizard/WizardAttentionMenu.tsx, and `components/admin/showpage/AttentionMenu.tsx` to that source list in the new spec, and assert once in the spec that the compiled CSS contains the `min-h-tap-min` rule and the escaped `before:-inset-y-3` rule (match on the utility names as substrings of the CSS text) (a missing rule makes every geometry assertion measure unstyled markup).
+
+- [ ] **Step 1: Wire first** — config alternation, workflow paths + run list, live-entry `attention=1` param, the Tailwind source list.
+- [ ] **Step 2: Write the spec** — at 1280×800 and after `page.setViewportSize({ width: 375, height: 667 })`: (a) pill hit band: `document.elementFromPoint(cx, cy ± 20)` resolves to the chip button, and the computed before-pseudo-element `top`/`bottom` insets plus the box height sum to ≥ 44; (b) open the menu; every `[data-testid^="wizard-step3-card-"][data-testid*="-attention-row-"]` has `getBoundingClientRect().height >= 44`; (c) the panel's `right <= clip.right` and `bottom <= clip.bottom` where `clip = document.querySelector('[data-step3-review-panel]').getBoundingClientRect()`; (d) click the first row → the `<li data-attention-anchor="warning:0">` is inside the scroller viewport (`top >= scroller.top && bottom <= scroller.bottom`) and carries `data-step3-warning-flash`.
+- [ ] **Step 3: Run** — `STEP3_LIVE_BUNDLE_ONLY=1 pnpm heavy pnpm exec playwright test --project=desktop-chromium tests/e2e/wizard-attention-menu.spec.ts tests/e2e/step3-review-modal.interactions.spec.ts`. Expected: PASS.
+- [ ] **Step 4: Mutant proofs (each must FAIL the named assertion; revert after each)** — (i) `min-h-tap-min` → `min-h-0` on `AttentionMenuRow` → assertion (b) fails; (ii) `before:-inset-y-3` → `before:inset-y-0` on the wizard pill → assertion (a) fails; (iii) `w-[min(400px,calc(100vw-32px))]` → `w-[600px]` on the frame → assertion (c) fails at 375; (iv) `data-attention-anchor` removed from the wizard `<li>` → assertion (d) fails (fallback lands on the section top, no flash). Record hash-changed + failure line for each in the commit body.
 - [ ] **Step 5: Published e2e, gated on the DB slot** — `published-show-attention.spec.ts` seeds a show through the local Postgres (its `beforeAll` DB setup) and NO workflow runs it today: `rg -n "^\\s+run:.*published-show-attention" .github/workflows/*.yml` matches no `run:` step (a `paths:` mention would not count; anchor to the structural position, never a substring). Ask bl-orch for the slot in one chunked part: "feat/wizard-review-attention-menu: Task 9 needs the local Postgres slot for tests/e2e/published-show-attention.spec.ts (seeded show); may I take it?". If GRANTED: extend the spec with a seeded warn row (a `parse_warnings` entry on the seeded show's internal row) → assert the "sheet warnings" segment text derives from the seeded count and that its menu row's click flashes the card's `<li data-attention-anchor>`; run it RED (before the fixture edit) then GREEN; add the spec to `published-modal-e2e.yml` paths AND the run list at line 152 so CI runs it; release the slot in a chunked part. If DECLINED: commit NO published e2e case; record in the closeout doc under "Documented limits" that the published card-jump is proven by the jsdom case (Task 6, test 19) and the shared surface effect (wizard e2e), not by a real-browser published run, with the re-file trigger "slot available".
 - [ ] **Step 6: Commit** — `git commit --no-verify -m "test(e2e): wizard attention menu tap band, row floor, clip fit and card jump"` (the published case, when run, in its own commit).
-
-<!-- tasks: end -->
 
 ### Task 10: Whole-tree verification
 
