@@ -112,19 +112,39 @@ describe("the AC arm over the live plans corpus (AC-6)", () => {
 
   it("AC-6: every residue row passes its KIND's predicate, not merely a quotation check", () => {
     premise("residue rows to check", AC_UNCLAIMED_RESIDUE.length, 0);
+    // A quotation of at least this many characters. `toContain("")` is true of
+    // every string, so an empty or erased evidence field satisfied every check
+    // below until this floor existed (diff review R1 finding 2).
+    const MIN_QUOTE = 12;
     for (const row of AC_UNCLAIMED_RESIDUE) {
-      const lines = readFileSync(row.plan, "utf8").replace(/\r\n/g, "\n").split("\n");
+      const text = readFileSync(row.plan, "utf8");
+      const lines = text.replace(/\r\n/g, "\n").split("\n");
+      // Fences are elided HERE TOO. `acAnalysis` elides them, so a settling
+      // scan that reads fenced content is a different predicate from the arm's:
+      // a documentation sample carrying an id beside "Task N" would make an
+      // honest `unsettled` row fail. The corpus holds 20 such fenced lines
+      // (diff review R1 finding 3).
+      const fenced = parseDoc(text).fencedInfo;
       const at = row.kind === "unsettled" ? row.nearMissAt : row.quotedAt;
       const quote = row.kind === "unsettled" ? row.nearMiss : row.quote;
-      // The quotation is the reader's evidence: it must be real, at the line the
-      // row names.
-      expect(`${row.plan}:${at} ${row.id}`).toBe(`${row.plan}:${at} ${row.id}`);
+
+      // The quotation is the reader's evidence: real, non-trivial, and at the
+      // line the row names.
+      expect(`${row.plan}:${at} quote length >= ${MIN_QUOTE}`).toBe(
+        `${row.plan}:${at} quote length >= ${quote.length >= MIN_QUOTE ? MIN_QUOTE : quote.length}`,
+      );
       expect(lines[at - 1] ?? "").toContain(quote);
 
       const idHit = new RegExp(`(?<![A-Za-z0-9.-])${escape(row.id)}${ID_BOUNDARY}`);
       const settling = lines
         .map((l, i) => ({ l, n: i + 1 }))
-        .filter(({ l }) => !/^ {0,3}<!-- task/.test(l) && idHit.test(l) && OWNER_WORD.test(l));
+        .filter(
+          ({ l, n }) =>
+            fenced[n - 1] === undefined &&
+            !/^ {0,3}<!-- task/.test(l) &&
+            idHit.test(l) &&
+            OWNER_WORD.test(l),
+        );
 
       if (row.kind === "unsettled") {
         // The predicate: NO line of the plan carries the id beside an owner word.
@@ -133,14 +153,22 @@ describe("the AC arm over the live plans corpus (AC-6)", () => {
         expect(`${row.plan} ${row.id} settled at [${settling.map((s) => s.n).join(",")}]`).toBe(
           `${row.plan} ${row.id} settled at []`,
         );
-        premiseHolds(`${row.plan} ${row.id} has a non-empty searched note`, row.searched !== "");
+        premiseHolds(
+          `${row.plan} ${row.id} has a searched note of substance`,
+          row.searched.length >= MIN_QUOTE,
+        );
       } else {
-        // The mirror: the quoted line DOES settle it, and the grammar rejects
-        // the owner it names — after normalisation, because a copied sentence
-        // period would otherwise make a settled owner look inexpressible.
-        expect(`${row.plan} ${row.id} settling lines`).toBe(`${row.plan} ${row.id} settling lines`);
+        // The mirror: the quoted line DOES settle it, it names the owner the row
+        // claims, and the grammar rejects that owner.
         expect(settling.length > 0).toBe(true);
         expect(OWNER_WORD.test(lines[at - 1] ?? "")).toBe(true);
+        // The owner must be ON the quoted line. Without this, a row naming an
+        // owner that appears nowhere — `Step 5` where the plan says `Step 4` —
+        // passes, because an absent owner is rejected by the grammar just as
+        // readily as a real one (diff review R1 finding 1).
+        expect(`${row.plan}:${at} names ${row.owner}`).toBe(
+          `${row.plan}:${at} names ${(lines[at - 1] ?? "").includes(row.owner) ? row.owner : "SOMETHING ELSE"}`,
+        );
         expect(
           `${row.owner} expressible=${acceptsDisposition(`(discharged by ${normaliseOwner(row.owner)})`)}`,
         ).toBe(`${row.owner} expressible=false`);
