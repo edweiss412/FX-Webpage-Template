@@ -36,6 +36,24 @@ interface Site {
   readonly kind: "if" | "ternary" | "switch" | "jsx-and";
   readonly line: number;
   readonly text: string;
+  /**
+   * The statement that FOLLOWS this one in its block, or "".
+   *
+   * Two sites in this component are textually IDENTICAL
+   * (`if (switchAttempt.current !== attempt) return;` in the catch and again on
+   * the settle path; `if (!open) return;` in two effects), so node text alone
+   * cannot tell them apart. Diff round 1 at this base proved the cost: with
+   * rows free to match more than one site, deleting the catch's supersession
+   * guard left the audit GREEN, because its row still matched the settle-path
+   * twin. The match key is `text \u0000 after`, and the mapping below is
+   * one-to-one.
+   */
+  readonly after: string;
+}
+
+/** The match key a DECLARED marker is tested against. */
+function siteKey(site: Site): string {
+  return `${site.text}\u0000${site.after}`;
 }
 
 /** `a && <jsx/>` is a render branch; `a && b` inside an `if` test is not. */
@@ -62,10 +80,20 @@ function conditionalSites(): Site[] {
       kind = "jsx-and";
     }
     if (kind !== null) {
+      let after = "";
+      const parent = node.parent;
+      if (ts.isBlock(parent) || ts.isSourceFile(parent)) {
+        const statements = parent.statements;
+        const index = statements.indexOf(node as ts.Statement);
+        if (index >= 0 && index + 1 < statements.length) {
+          after = statements[index + 1]!.getText(src).replace(/\s+/g, " ").slice(0, 60);
+        }
+      }
       sites.push({
         kind,
         line: src.getLineAndCharacterOfPosition(node.getStart(src)).line + 1,
         text: node.getText(src).replace(/\s+/g, " "),
+        after,
       });
     }
     ts.forEachChild(node, visit);
@@ -91,13 +119,13 @@ const DECLARED = [
   {
     id: "C3",
     what: "the watchdog effect arms only while pending",
-    marker: /^if \(switchPhase !== "pending"\) return;$/,
+    marker: /^if \(switchPhase !== "pending"\) return;\u0000/,
     treatment: "not a render branch; arming, not painting",
   },
   {
     id: "C4",
     what: "the watchdog callback refuses to leave a phase that is not pending",
-    marker: /^phase === "pending" \? "timedout" : phase$/,
+    marker: /^phase === "pending" \? "timedout" : phase\u0000/,
     treatment: "instant when it fires; a no-op after a settle",
   },
   {
@@ -109,13 +137,19 @@ const DECLARED = [
   {
     id: "C6",
     what: "the catch drops a superseded attempt BEFORE rethrowing control flow",
-    marker: /^if \(switchAttempt\.current !== attempt\) return;$/,
+    marker: /^if \(switchAttempt\.current !== attempt\) return;\u0000unstable_rethrow/,
     treatment: "not a render branch; a superseded redirect is not this row's to follow",
+  },
+  {
+    id: "C6b",
+    what: "the settle path drops a superseded attempt's result",
+    marker: /^if \(switchAttempt\.current !== attempt\) return;\u0000setSwitchPhase\("idle"\)/,
+    treatment: "not a render branch; a superseded attempt enters no state",
   },
   {
     id: "C7",
     what: "the settle path reports a failure",
-    marker: /^if \(failed\) setSwitchStatus\("error"\);$/,
+    marker: /^if \(failed\) setSwitchStatus\("error"\);\u0000/,
     treatment: "instant; the row is enabled by the time the alert is readable",
   },
   {
@@ -126,8 +160,14 @@ const DECLARED = [
   },
   {
     id: "C9",
-    what: "the outside-pointerdown and deferred-focus effects are inert while closed",
-    marker: /^if \(!open\) return;$/,
+    what: "the outside-pointerdown effect is inert while closed",
+    marker: /^if \(!open\) return;\u0000const onPointerDown/,
+    treatment: "not a render branch",
+  },
+  {
+    id: "C9b",
+    what: "the deferred-focus effect is inert while closed",
+    marker: /^if \(!open\) return;\u0000const index = pendingFocus\.current;/,
     treatment: "not a render branch",
   },
   {
@@ -139,7 +179,7 @@ const DECLARED = [
   {
     id: "C11",
     what: "the deferred-focus effect is inert with no pending index",
-    marker: /^if \(index === null\) return;$/,
+    marker: /^if \(index === null\) return;\u0000/,
     treatment: "not a render branch",
   },
   {
@@ -182,7 +222,7 @@ const DECLARED = [
   {
     id: "C18",
     what: "the trigger toggles the menu",
-    marker: /^open \? close\(\{ restoreFocus: false \}\) : openAt\(0\)$/,
+    marker: /^open \? close\(\{ restoreFocus: false \}\) : openAt\(0\)\u0000/,
     treatment:
       "closed↔open; the close path does NOT restore focus, the person is already reaching elsewhere",
   },
@@ -201,37 +241,39 @@ const DECLARED = [
   {
     id: "C21",
     what: "the sr-only separator between name and role",
-    marker: /avatar-menu-sr-separator/,
+    marker:
+      /^name\.trim\(\) !== "" && role\.trim\(\) !== "" && \( <span data-testid="avatar-menu-sr-separator"/,
     treatment: "instant; screen-reader punctuation only",
   },
   {
     id: "C22",
     what: "the visible middot between name and role",
-    marker: /aria-hidden="true">.*·/,
+    marker:
+      /^name\.trim\(\) !== "" && role\.trim\(\) !== "" && \( <span className="font-medium text-text-subtle" aria-hidden/,
     treatment: "instant; decorative, hidden from AT",
   },
   {
     id: "C23",
     what: "the theme row's roving tabindex",
-    marker: /^activeIndex === 0 \? 0 : -1$/,
+    marker: /^activeIndex === 0 \? 0 : -1\u0000/,
     treatment: "not a render branch; focus order, not paint",
   },
   {
     id: "C24",
     what: "the theme row toggles light and dark",
-    marker: /^isDark \? "light" : "dark"$/,
+    marker: /^isDark \? "light" : "dark"\u0000/,
     treatment: "instant; the menu deliberately stays open",
   },
   {
     id: "C25",
     what: "the theme check glyph is visible only when mounted and dark",
-    marker: /^mounted && isDark \? "visible" : "invisible"$/,
+    marker: /^mounted && isDark \? "visible" : "invisible"\u0000/,
     treatment: "instant; invisible rather than absent, so the row cannot reflow",
   },
   {
     id: "C26",
     what: "the switch row's roving tabindex",
-    marker: /^activeIndex === 1 \? 0 : -1$/,
+    marker: /^activeIndex === 1 \? 0 : -1\u0000/,
     treatment:
       "not a render branch; the pending row stays focusable, which is why aria-disabled is used over disabled",
   },
@@ -265,19 +307,31 @@ describe("AvatarMenu transition audit (spec §4.6)", () => {
     ).toBe(true);
   });
 
-  test.each(DECLARED)("$id matches a real conditional", ({ marker }) => {
-    const sites = conditionalSites();
-    expect(sites.some((s) => marker.test(s.text))).toBe(true);
+  test.each(DECLARED)("$id matches EXACTLY ONE conditional", ({ marker }) => {
+    // Exactly one, not at least one. Diff round 1 at this base demonstrated the
+    // difference with a live escaping mutant: with rows free to match more than
+    // one site, deleting the catch's supersession guard left this suite GREEN,
+    // because its row still matched the textually identical settle-path twin.
+    const matched = conditionalSites().filter((s) => marker.test(siteKey(s)));
+    expect(matched.map((m) => `${FILE}:${m.line}`)).toHaveLength(1);
   });
 
-  test("every conditional in the source is declared above", () => {
-    const undeclared = conditionalSites()
-      .filter((s) => !DECLARED.some((d) => d.marker.test(s.text)))
-      .map((s) => `${FILE}:${s.line} [${s.kind}] ${s.text.slice(0, 80)}`);
-    expect(
-      undeclared,
-      "conditionals with no DECLARED row. Add one with its §4.6 treatment.",
-    ).toEqual([]);
+  test("every conditional is claimed by EXACTLY ONE row", () => {
+    const offenders = conditionalSites()
+      .map((s) => ({ s, rows: DECLARED.filter((d) => d.marker.test(siteKey(s))) }))
+      .filter((x) => x.rows.length !== 1)
+      .map(
+        (x) =>
+          `${FILE}:${x.s.line} [${x.s.kind}] claimed by ${x.rows.length} rows ` +
+          `(${x.rows.map((r) => r.id).join(", ") || "none"}): ${x.s.text.slice(0, 70)}`,
+      );
+    expect(offenders, "each conditional needs exactly one DECLARED row").toEqual([]);
+  });
+
+  test("the row count equals the site count", () => {
+    // The third leg of the bijection: rows and sites are the same size, so a
+    // row cannot quietly go unused after its conditional is deleted.
+    expect(DECLARED.length).toBe(conditionalSites().length);
   });
 
   test("every declared row has a treatment", () => {

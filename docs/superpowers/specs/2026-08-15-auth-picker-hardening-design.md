@@ -204,42 +204,29 @@ Because the gate never reads `x-forwarded-host` or `host`, the "which headers ar
 
   `ClearIdentityResult` is exported (type-only) from `clearIdentity.ts` so the client island can `import type` it (types are erased — no server code crosses the boundary).
 
-- **`AvatarMenu`** consumes the result through a client-side action closure with local state:
+- **`AvatarMenu`** consumes the result through a client-side action closure with local state. **AMENDED 2026-08-27** (`fix/avatar-menu-switch-pending-watchdog`): the snippet below used to derive busy from `useTransition`'s pending flag and to guard re-entry inside `onSwitchSubmit`. Neither is true of the shipped component. The flag is entangled across concurrent transitions from one hook, so anything rendered from it is wrong the moment a retry exists; and React holds updates scheduled inside a form action until that action settles, so a clear that never settles never commits its own pending state. The component owns a three-valued phase, and the phase write and the re-entry guard live in the submit button's `onClick`:
 
   ```ts
   const [switchStatus, setSwitchStatus] = useState<"idle" | "error">("idle");
-  const [switchPending, startSwitch] = useTransition();
-  // clearAction prop type widens: (formData: FormData) => Promise<ClearIdentityResult>
+  const [switchPhase, setSwitchPhase] = useState<"idle" | "pending" | "timedout">("idle");
+  const [, startSwitch] = useTransition(); // scheduling only; its flag is not read
+  const switchBusy = switchPhase === "pending";
 
-  const onSwitchSubmit = (formData: FormData): void => {
-    if (switchPending) return;                      // R4-F1: aria-disabled item stays focusable; guard re-entry here
-    setSwitchStatus("idle");                        // clear a prior error before the retry
-    startSwitch(async () => {
-      const result = await clearAction(formData);   // invokes the server action
-      if (!result.ok) setSwitchStatus("error");     // success path re-renders/unmounts server-side
-    });
+  // onClick, a discrete event that commits immediately.
+  const beginSwitch = (event) => {
+    if (switchBusy) { event.preventDefault(); return; }
+    switchAttempt.current += 1;
+    setSwitchStatus("idle");
+    setSwitchPhase("pending");
   };
-  ```
 
-  The form binds `action={onSwitchSubmit}` (keeping its hidden `slug`/`shareToken`/`showId` inputs — R1-F7 role inputs preserved). **Reset-on-open (R1-F4 fix):** `openAt(...)` and the trigger's open path call `setSwitchStatus("idle")`, so every reopen starts clean and a stale error can never reappear. Closing mid-pending is safe: the transition resolves on the still-mounted `AvatarMenu`, but the alert lives inside the `{open ? … }` popover, so nothing is shown while closed, and the next open has already reset to idle.
-
-### 4.3 Rendered elements (exact placement, guard conditions)
-
-- **Error node (exact contract, R3-F2).** When `switchStatus === "error"`, render, as the LAST child of the popover `<div>` and a SIBLING placed immediately AFTER the `role="menu"` element (not inside it, not after `</form>` which sits within the menu):
-
-  ```tsx
-  <div
-    role="alert"
-    data-testid="avatar-menu-switch-error"
-    className="mt-1 rounded-sm border border-border-strong bg-warning-bg px-3 py-2 text-xs/relaxed text-warning-text"
-  >
-    {messageFor("PICKER_SWITCH_FAILED").crewFacing}
-  </div>
+  // the form action: the async work and the result seam.
+  const onSwitchSubmit = (formData: FormData): void => { … };
   ```
 
   This is the repo's canonical crew/admin inline-error idiom, copied verbatim from `components/admin/ShowRowActions.tsx:859` (`role="alert"` + `border border-border-strong bg-warning-bg … text-xs/relaxed text-warning-text`). It uses the `warning-*` token family, which matches the catalog's `warningClass: "general"`; the earlier draft named `text-danger`/`border-danger`, which do NOT exist — only `--color-danger-bg` is defined (`app/globals.css:94`), and no danger text/border token exists (R3-F2). Placement mirrors the identity header, which is deliberately a sibling of the menu, not one of its items (`components/auth/AvatarMenu.tsx:401-427`; pinned by `tests/components/auth/avatarMenu.test.tsx:97`, `menu.contains(header) === false`). `mt-1` gives it separation from the menu within the popover's `p-1.5`; `px-3` aligns with the menu items' horizontal rhythm. The alert is not a `menuitem`, not focusable, not in arrow-key traversal. Contrast for `warning-text` on `warning-bg` is already established (used across `ShowRowActions`, `PreviewBanner`); the impeccable dual-gate re-verifies on the diff.
 - **Guard conditions.** `switchStatus === "idle"` (initial, after reopen, and after a successful clear that has not yet unmounted) renders **no** error node. Partial identity (blank name/role) is unchanged by this feature — the error node does not depend on name/role.
-- **Pending (R4-F1 — `aria-disabled`, NOT native `disabled`).** While `switchPending`, the "Not you?" submit button carries `aria-disabled={switchPending}` and a visual disabled style (`aria-disabled:opacity-60 aria-disabled:cursor-not-allowed`), NOT the native `disabled` attribute. Native `disabled` removes the element from focus, which breaks this menu's roving-tabindex contract: `focusItem` calls `.focus()` on the fixed item index (`components/auth/AvatarMenu.tsx:180-182`, `components/auth/AvatarMenu.tsx:229-259`), so a disabled switch item would swallow ArrowDown / ArrowUp-wrap / End / reopen-with-ArrowUp and strand focus outside the menu (the four commands R4-F1's sweep named). Per the WAI-ARIA menu pattern a disabled item stays focusable and is skipped only for activation, so `aria-disabled` keeps arrow navigation intact. Re-entry is prevented in the handler instead: `onSwitchSubmit` early-returns `if (switchPending) return;` before touching state, so a second Enter/Space/click while pending is a no-op. The error node is cleared by `setSwitchStatus("idle")` at the start of `onSwitchSubmit`, so the retry shows no stale error.
+- **Pending (R4-F1 — `aria-disabled`, NOT native `disabled`).** While busy (`switchPhase === "pending"`, AMENDED 2026-08-27 from `switchPending`), the "Not you?" submit button carries `aria-disabled={switchBusy}` and a visual disabled style (`aria-disabled:opacity-60 aria-disabled:cursor-not-allowed`), NOT the native `disabled` attribute. Native `disabled` removes the element from focus, which breaks this menu's roving-tabindex contract: `focusItem` calls `.focus()` on the fixed item index (`components/auth/AvatarMenu.tsx:180-182`, `components/auth/AvatarMenu.tsx:229-259`), so a disabled switch item would swallow ArrowDown / ArrowUp-wrap / End / reopen-with-ArrowUp and strand focus outside the menu (the four commands R4-F1's sweep named). Per the WAI-ARIA menu pattern a disabled item stays focusable and is skipped only for activation, so `aria-disabled` keeps arrow navigation intact. Re-entry is prevented in the handler instead: `onSwitchSubmit` early-returns `if (switchPending) return;` before touching state, so a second Enter/Space/click while pending is a no-op. The error node is cleared by `setSwitchStatus("idle")` at the start of `onSwitchSubmit`, so the retry shows no stale error.
 - **Menu stays open on failure.** No code sets `open = false` on submit. So on failure the menu is unchanged except the error node appears as a sibling of the menu. (Ratified Resolved scope #3.)
 
 ### 4.4 New catalog code `PICKER_SWITCH_FAILED` (three-lockstep)

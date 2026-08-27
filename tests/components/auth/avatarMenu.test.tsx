@@ -677,9 +677,11 @@ describe("the switch-person failure state", () => {
     // Held open by a deferred, and RESOLVED at the end of this test. A promise
     // that never settles leaves an async transition permanently in flight, and
     // React tracks that beyond the unmounted component: every later test in
-    // this file then saw its own transition never retire, so onSwitchSubmit's
-    // pending guard swallowed their submits and they failed for a reason that
-    // had nothing to do with them. Measured while adding the retry cases below.
+    // this file then saw its own transition never retire, so the pending
+    // guard swallowed their submits and they failed for a reason that had
+    // nothing to do with them. Measured while adding the retry cases below.
+    // (The guard now reads the component's own phase in `beginSwitch`; the
+    // leak this records predates that and is why every case retires its own.)
     const held = deferredPending<ClearIdentityResult>();
     const action = vi.fn(() => held.promise); // pending until this test ends
     renderWith(action);
@@ -722,7 +724,7 @@ describe("the switch-person failure state", () => {
     act(() => {
       fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
     });
-    expect(action.mock.calls.length).toBe(calls); // onSwitchSubmit early-returns while pending
+    expect(action.mock.calls.length).toBe(calls); // beginSwitch preventDefaults while busy
     // Settle the held transition so it cannot leak into later tests.
     await act(async () => {
       held.resolve({ ok: true });
@@ -735,7 +737,7 @@ describe("the switch-person failure state", () => {
  * Retry out of Open-error — spec §4.6's Open-error↔Open-pending and
  * Open-error→Open-idle pairs, which round 1 of the diff review found
  * unexercised. Two mutants survived without these: removing the
- * `setSwitchStatus("idle")` at the head of `onSwitchSubmit` (a retry that
+ * `setSwitchStatus("idle")` at the head of `beginSwitch` (a retry that
  * SUCCEEDS leaves the stale alert on screen), and a stale-closure read of the
  * status (a retry that FAILS AGAIN leaves the menu idle with no alert at all,
  * so the second failure reads as success).
@@ -743,9 +745,9 @@ describe("the switch-person failure state", () => {
  * Each attempt is driven by its own deferred and resolved inside `act`, the
  * same shape the close/reopen lifecycle cases use. An immediately-resolved mock
  * is NOT interchangeable here: the transition's pending flag is still set when
- * the alert first paints, and `onSwitchSubmit` early-returns while pending, so
- * the retry would be silently swallowed and the test would pass for the wrong
- * reason.
+ * the alert first paints, and `beginSwitch` preventDefaults while the phase is
+ * still `pending`, so the retry would be silently swallowed and the test would
+ * pass for the wrong reason.
  */
 describe("retrying out of the failure state", () => {
   const EXPECTED = messageFor("PICKER_SWITCH_FAILED").crewFacing ?? "";
@@ -768,7 +770,7 @@ describe("retrying out of the failure state", () => {
    * Resolving the action's promise inside `act` commits the state update, but
    * the `useTransition` pending flag is NOT retired by that alone in jsdom —
    * measured here: right after the resolve the alert is on screen while the
-   * submit still reads `aria-disabled="true"`. Since `onSwitchSubmit`
+   * submit still reads `aria-disabled="true"`. Since `beginSwitch`
    * early-returns while pending, retrying on the alert's paint would silently
    * drop the retry and the test would pass for the wrong reason. Extra
    * microtask turns inside `act` retire it; the assertion below is what proves
@@ -796,7 +798,7 @@ describe("retrying out of the failure state", () => {
 
   it("clears the alert when the retry SUCCEEDS (kills the missing-reset mutant)", async () => {
     // The menu never closes between the two attempts, so reset-on-open cannot
-    // be what clears the alert — only the reset inside onSwitchSubmit can.
+    // be what clears the alert, only the reset inside beginSwitch can.
     const first = deferred<ClearIdentityResult>();
     const second = deferred<ClearIdentityResult>();
     const action = renderWithQueue([first.promise, second.promise]);
@@ -807,7 +809,7 @@ describe("retrying out of the failure state", () => {
       await first.promise;
     });
     expect(await screen.findByRole("alert")).toBeTruthy(); // Open-error
-    // Let the first transition fully retire before retrying: onSwitchSubmit
+    // Let the first transition fully retire before retrying: beginSwitch
     // early-returns while pending, and the alert paints before the pending flag
     // clears, so submitting on the paint alone silently drops the retry.
     await settled();
@@ -863,7 +865,7 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
    * transition it leaves in flight is tracked past unmount, so the next case's
    * submit is swallowed by the pending guard and it fails for a reason that is
    * not its own. That is measured, not feared: it is the same leak the file
-   * already records against onSwitchSubmit at
+   * already records against the pending guard at
    * tests/components/auth/avatarMenu.test.tsx:675-681, and the first draft of
    * this describe reproduced it (one red case turned the unchanged-behaviour
    * case red too, which would have made a harness artifact look like the
