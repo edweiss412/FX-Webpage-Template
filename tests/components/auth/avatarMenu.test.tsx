@@ -744,10 +744,9 @@ describe("the switch-person failure state", () => {
  *
  * Each attempt is driven by its own deferred and resolved inside `act`, the
  * same shape the close/reopen lifecycle cases use. An immediately-resolved mock
- * is NOT interchangeable here: the transition's pending flag is still set when
- * the alert first paints, and `beginSwitch` preventDefaults while the phase is
- * still `pending`, so the retry would be silently swallowed and the test would
- * pass for the wrong reason.
+ * is NOT interchangeable here: the phase is still `pending` when the alert
+ * first paints, and `beginSwitch` preventDefaults while it is, so the retry
+ * would be silently swallowed and the test would pass for the wrong reason.
  */
 describe("retrying out of the failure state", () => {
   const EXPECTED = messageFor("PICKER_SWITCH_FAILED").crewFacing ?? "";
@@ -768,9 +767,9 @@ describe("retrying out of the failure state", () => {
    * Retires the in-flight transition before the next submit.
    *
    * Resolving the action's promise inside `act` commits the state update, but
-   * the `useTransition` pending flag is NOT retired by that alone in jsdom —
-   * measured here: right after the resolve the alert is on screen while the
-   * submit still reads `aria-disabled="true"`. Since `beginSwitch`
+   * the phase has NOT returned to idle by that alone in jsdom — measured here:
+   * right after the resolve the alert is on screen while the submit still
+   * reads `aria-disabled="true"`. Since `beginSwitch`
    * early-returns while pending, retrying on the alert's paint would silently
    * drop the retry and the test would pass for the wrong reason. Extra
    * microtask turns inside `act` retire it; the assertion below is what proves
@@ -809,9 +808,10 @@ describe("retrying out of the failure state", () => {
       await first.promise;
     });
     expect(await screen.findByRole("alert")).toBeTruthy(); // Open-error
-    // Let the first transition fully retire before retrying: beginSwitch
-    // early-returns while pending, and the alert paints before the pending flag
-    // clears, so submitting on the paint alone silently drops the retry.
+    // Let the first attempt fully retire before retrying: beginSwitch
+    // preventDefaults while the phase is pending, and the alert paints before
+    // the phase returns to idle, so submitting on the paint alone silently
+    // drops the retry.
     await settled();
     submit(); // Open-error → Open-pending, menu still open
     await waitFor(() => expect(action).toHaveBeenCalledTimes(2));

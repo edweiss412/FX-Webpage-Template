@@ -116,7 +116,7 @@ None. No markup, class, or layout changes in `components/auth/AvatarMenu.tsx`; t
 
 ### 3.9 Transition inventory
 
-Unchanged from the prior arc (`docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4.6): the menu still has the states idle, pending, error, and the same transitions; this spec adds no state.
+Unchanged BY THIS SPEC (`docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4.6): this spec adds no state. **A LATER arc did** — `fix/avatar-menu-switch-pending-watchdog` (2026-08-27) added `timedout` and replaced §4.6's single-axis model with two independent axes and seven observable configurations, so read §4.6 rather than the three states this sentence used to enumerate.
 
 ## 4. `BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE` — archived, no code
 

@@ -84,6 +84,16 @@ BLOCKING, three findings, and all three are mine rather than the mechanism's.
 
 Round 4 is this stage's cap. The filing is at `docs/review-rounds/fix/avatar-menu-switch-pending-watchdog/4cb585b3508a.md`, and whether the plan gets a fifth round is the orchestrator's call rather than this arc's.
 
+## Diff rounds, and the class that took three of them
+
+Diff round 1 at base `4cb585b3508a`: BLOCKING, 2. Round 1 at base `5fccaaac7804`: BLOCKING, 4. Round 2 there: BLOCKING, 1. Every one of those seven findings was in one of two classes, and the second is the one worth writing down.
+
+**The guard class.** The transition audit claimed more than it checked, twice. First its regex census saw 7 of 12 ternaries, missed the keyboard `switch` and counted a comment; that was replaced with an AST walk. Then its "bijection" turned out to be many-to-many, so deleting the catch's supersession guard left it green because the row still matched a textually identical twin. That is closed with a match key carrying the following statement, and three assertions: exactly one site per row, exactly one row per site, equal counts. Both repairs were verified against the reviewer's own escaping mutant rather than argued.
+
+**The stale-prose class, which is the one that recurred.** Rounds kept finding sentences describing a mechanism the code no longer had: the plan's opening, eight test comments, the canonical spec's pending bullet, a second spec's state list, and finally a code block in this plan that still showed the phase write inside `onSwitchSubmit`. That last one was not cosmetic. An implementer following it would have moved the phase back into the form action and recreated the exact defect the arc exists to fix, because React holds updates scheduled inside an action until that action settles.
+
+**The repair is subtraction, not a guard.** Every instance was a COPY of the implementation living where a reader could follow it, so the structural answer is fewer copies. The plan no longer restates the submit path at all; it carries the contract and the reasons, which no copy of the code can hold, and points at the component. A recognizer over prose would have been the other option, and this repo already records where those go: the round after next widens it, and the round after that widens it again. What remains in the corpus naming `switchPending` is either historical by construction (a past plan, this plan's own pre-draft verification table dated to the tree it read, the round narratives) or the guard assertion that forbids the identifier outright.
+
 ## Citation drift, swept and bounded
 
 This diff adds roughly twenty-five lines near the top of `components/auth/AvatarMenu.tsx` and removes fourteen from the sibling, so every line-form citation into either file moves. Derived cover: every an AvatarMenu.tsx or _ClaimedRowButton.tsx line citation citation in a LIVE document, with historical records excluded by path (`docs/superpowers/plans/**`, `docs/review-rounds/**`, `**/probes/**`, `BACKLOG-archive.md`) because those record a past tree and rewriting them would falsify the record. Twenty live citations, across four specs and `BACKLOG.md`.
@@ -527,41 +537,16 @@ else if (switchPhase === "timedout") switchAnnouncement = SWITCH_TIMEOUT_NOTICE;
 
 The submit path carries the other two round-1 repairs. A monotonic attempt ordinal drops a superseded attempt's late result, because enabling a retry is what makes a first attempt's failure arrive while a second is in flight (AC-5). And the `await` is wrapped: unwrapped, a rejected clear took the whole component off screen instead of reporting, which AC-10 pins by wrapping the menu in an error boundary and requiring that the boundary catch nothing. Losing the whole crew page because one switch tap's round trip failed is worse than the failure it reports, and this component already owns the right copy for it.
 
-```tsx
-const switchAttempt = useRef(0);
+**The submit path is NOT restated here, and that is the structural repair.** Three review rounds in a row found stale prose about this component's mechanism, and every one of them was a COPY of the implementation living somewhere a reader could follow. This block was the worst of them: it still showed the phase write and the re-entry guard inside `onSwitchSubmit`, and an implementer following it would have moved the phase back into the form action and recreated the defect where a hung action never commits its own pending state. Fewer copies is the only repair that terminates; a guard over prose is a recognizer, and this repo already documents where those go.
 
-const onSwitchSubmit = (formData: FormData): void => {
-  if (switchBusy) return;              // the guard reads the phase
-  const attempt = ++switchAttempt.current;
-  setSwitchStatus("idle");
-  setSwitchPhase("pending");
-  startSwitch(async () => {
-    let failed: boolean;
-    try {
-      const result = await clearAction(formData);
-      failed = !result.ok;
-    } catch (error) {
-      // The supersession check comes FIRST, and it gates the rethrow as well as
-      // the state writes. A superseded attempt reports NOTHING, and framework
-      // control flow is not an exception to that: a redirect requested by a
-      // clear the person has already superseded by tapping again would take
-      // this row down while a newer attempt is live (round 4 F3). The live
-      // attempt decides the navigation.
-      if (switchAttempt.current !== attempt) return;
-      // Next's own classifier, NOT a digest test. Do not replace this with a
-      // `typeof error.digest === "string"` check: the pair of cases in
-      // avatarMenu.test.tsx that reject with "3693416880" and with
-      // "NEXT_REDIRECT;replace;/x;307;" require opposite outcomes, and that
-      // check gives both the same one.
-      unstable_rethrow(error);
-      failed = true;
-    }
-    if (switchAttempt.current !== attempt) return;  // superseded by a retry
-    setSwitchPhase("idle");
-    if (failed) setSwitchStatus("error");
-  });
-};
-```
+What the plan owes is the CONTRACT and the reasons, which no copy of the code can carry:
+
+- The re-entry guard and the phase write live in the submit button's `onClick`, never in the form action. React 19 holds updates scheduled inside an action until the action settles, so a clear that never settles never commits its own pending state. Measured at `aria-disabled="false"` with the action already called.
+- A monotonic attempt ordinal drops a superseded attempt's late result, and it comes BEFORE the rethrow, so a redirect requested by a clear the person already superseded is not this row's to follow.
+- The classifier is `unstable_rethrow` from `next/navigation`, not a `digest` type test, because Next stamps ordinary server failures with opaque string digests too.
+- The failure branch writes the same generic copy whichever way the clear failed.
+
+The implementation is `components/auth/AvatarMenu.tsx`, and its comments name the case that fails if any of the four is simplified away.
 
 An error is never observed while the row is busy. That is pinned by AC-9's fail-order case, which reads `aria-disabled` at the moment the alert appears and requires `"false"`; the plan does not say why beyond that, because the why is React's and the case is ours.
 
@@ -727,7 +712,7 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
    * transition it leaves in flight is tracked past unmount, so the next case's
    * submit is swallowed by the pending guard and it fails for a reason that is
    * not its own. That is measured, not feared: it is the same leak the file
-   * already records against onSwitchSubmit at
+   * already records against the pending guard at
    * tests/components/auth/avatarMenu.test.tsx:675-681, and the first draft of
    * this describe reproduced it (one red case turned the unchanged-behaviour
    * case red too, which would have made a harness artifact look like the
@@ -816,7 +801,6 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
     expect(item.getAttribute("aria-busy"), "not busy just after 8s").toBeNull();
     expect(region.textContent).toBe(NOTICE);
   });
-
 
   it("admits a retry after the timeout, on a fresh window (AC-2)", () => {
     vi.useFakeTimers();
@@ -1107,9 +1091,6 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
     expect(screen.getByRole("alert")).toBeTruthy(); // getBy: fake timers, see AC-5
   });
 
-
-
-
   it("COMPOUND C5: a theme flip while TIMED OUT leaves the row and the notice alone (AC-16)", () => {
     // Round 2 F5: C5 was declared with no case that ever enters timed-out. The
     // existing compound at tests/components/auth/avatarMenu.test.tsx:305 runs
@@ -1203,7 +1184,9 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
     // "3693416880" is the shape the installed Next produced for an ORDINARY
     // server failure. The digest test round 2 refuted would send this one to
     // the boundary, which is the fault the catch exists to prevent.
-    const { caught } = await rejectWith(Object.assign(new Error("server"), { digest: "3693416880" }));
+    const { caught } = await rejectWith(
+      Object.assign(new Error("server"), { digest: "3693416880" }),
+    );
     expect(caught, "an opaque digest is not control flow").toBe(false);
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
