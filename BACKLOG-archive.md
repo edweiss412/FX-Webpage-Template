@@ -1,3 +1,36 @@
+## BL-TYPO-NORMALIZED-V4-VENUE-SHAPE — the venue gate could not see the current template, and the miss was silent — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** S · **Shipped by:** `fix/typo-v4-venue-shape` · **Spec:** `docs/superpowers/specs/parser/2026-08-27-venue-block-predicate-design.md`
+
+**The decision was the work, exactly as the row said.** Eric ruled option 2 — one shared definition — on 2026-08-26 05:05. The row named two candidate predicates; the spec chose between them on a measurement rather than an argument:
+
+|                                                 | tables | typo-alias rows inside | baseline rows moved |
+| ----------------------------------------------- | ------ | ---------------------- | ------------------- |
+| before                                          | 14     | 0                      | 0                   |
+| **A — `VENUE` token OR opener is `venue.name`** | **21** | **0**                  | **0**               |
+| B — `VENUE` token OR any `venue.*` canonical    | 33     | 6                      | 0                   |
+
+**B was rejected with its cost stated.** `Hotal Contact Info` and `In House AV` are themselves `venue.*` aliases that OPEN their own hotel-contact tables in six corpus fixtures, so B would have moved the corpus census from 0 to 6, contradicted the ratified "0 before, 0 after", and pulled those mini-tables into the venue namespace. It repairs the row by redefining the venue block to include tables nobody calls the venue block.
+
+**Both arms normalize through the same function**, which is what "one shared definition" has to mean. An unwrapped `resolveAlias` left `VENUE  NAME`, a tab and a non-breaking space outside the block, so a typo row inside one of those stayed silent — this row's own defect, one layer down. Parity, not permissiveness: `decodeEntities` would have accepted a `&#10;` form that the first arm rejects, so that opener is a documented limit instead.
+
+**Numbers a person notices, all measured on the shipping head:**
+
+- A typo in the current template goes from **0 reports to 1**.
+- Baseline rows moved: **0** (`EXPECTED_TOTAL` still 65, empty `--stat` and `--numstat`) — Eric's condition 1.
+- Corpus `TYPO_NORMALIZED` census: **0 before, 0 after**.
+- Venue anchors on a v4 workbook: **0 to 2**, and a near-miss row in one resolves **null to `A3`**. `UNKNOWN_FIELD` is in `OPERATOR_ACTIONABLE_ANCHORED`, so that is a working "Open in Sheet" link where there was none.
+- `CARD_SURFACED_LOG_ONLY`: **3 members to 4**.
+- Mutation score, `fieldNearMiss`: **[k]/[n]**, 0 unaccepted survivors, all operators.
+
+**The anchor was absent, not broken.** The prior readiness note said a `VENUE NAME` block "silently drops the Open in Sheet deep link". Probed by resolution: such a workbook produced ZERO anchors of any kind, so there was no link to drop. Recorded once here so it is not re-derived.
+
+**Operator copy** (Eric's condition 3) across eight sites. The card showed Doug an internal key; it now reads through the catalog via the `CARD_SURFACED_LOG_ONLY` carve-out. Four drafts were false in four different ways — publication, an action invitation contradicting the not-actionable classification, storage, and a misspelling claim untrue of `Diagrams` — and every one cleared the banned-vocabulary regex and the caps. The arc added the missing gate rather than only the copy: `CARD_SURFACED_LOG_ONLY ⊆ WARNING_CARD_COPY_CODES` is now asserted, its RED constructed and observed.
+
+**No persisted-value backfill** (Eric's condition 2). Rows written before this change keep their `block`.
+
+**Review:** spec 4 rounds (3/2/2/1 findings), ratified by the orchestrator rather than taken to a fifth; plan 4 rounds (6/4/3/2, all BLOCKING), likewise ratified; diff [N] rounds. Filing: `docs/review-rounds/fix/typo-v4-venue-shape/44b0d74b1107.md`. The two stages failed in opposite ways and the filing records both: the spec's findings were seven parts operator copy, the plan's were almost entirely about whether a stated red is a real red.
+
 ## BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER — two families of low-contrast outline the element-level cover could not see in either direction — CLOSED 2026-08-26
 
 **Status:** CLOSED 2026-08-26 · **Effort (as shipped):** M · **Shipped by:** `fix/control-outline-cover` · **Spec:** `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md`

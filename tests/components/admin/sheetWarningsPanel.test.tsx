@@ -60,6 +60,34 @@ function expectedCopyFor(code: MessageCode): string | null {
   return null;
 }
 
+describe("TYPO_NORMALIZED card copy (venue-block predicate spec AC-V8)", () => {
+  it("renders the catalog title, not the parser's internal message", () => {
+    const w = {
+      code: "TYPO_NORMALIZED",
+      severity: "info",
+      message: "Typo alias 'Hotal Contact Info' normalized to canonical 'venue.contact_info'",
+      blockRef: { kind: "venue" },
+      rawSnippet: "Hotal Contact Info",
+      sourceCell: null,
+    } as unknown as ParseWarning;
+
+    // Derived from the catalog, never restated. A hardcoded expectation here would keep
+    // passing if the catalog row were emptied, which is the whole defect this pins:
+    // reviewWarningTitle falls through a null title to the warning's own `message`, and that
+    // message contains an internal key.
+    const title = MESSAGE_CATALOG.TYPO_NORMALIZED.title;
+    expect(
+      title,
+      "catalog title must be authored for this assertion to mean anything",
+    ).toBeTruthy();
+    expect(reviewWarningTitle(w)).toBe(title);
+    expect(reviewWarningTitle(w)).not.toContain("venue.contact_info");
+    // The `?` popover body comes from longExplanation ?? helpfulContext; helpfulContext is
+    // now authored, so the trigger renders where it previously could not.
+    expect(notePopoverParts(w).copy).not.toBeNull();
+  });
+});
+
 describe("notePopoverParts (spec §2.4 truth table)", () => {
   const CASES: ReadonlyArray<
     [label: string, w: ParseWarning, copy: string | null, sentence: string | null]

@@ -1,10 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import {
-  parseVenue,
-  SECTION_HEADER_TOKENS as VENUE_SECTION_HEADER_TOKENS,
-} from "@/lib/parser/blocks/venue";
-import { matchesSectionHeader } from "@/lib/parser/blocks/_sectionHeaderMatch";
+import { parseVenue, isVenueBlockOpener } from "@/lib/parser/blocks/venue";
 import { splitRow } from "@/lib/parser/blocks/_helpers";
 import { detectVersion } from "@/lib/parser/schema";
 import { newAggregator } from "@/lib/parser/warnings";
@@ -417,16 +413,25 @@ describe("parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)",
             // Leading/trailing-space neighbours are not typos: resolveAliasScoped trims, so they
             // resolve EXACTLY and must not be reported as a correction. TYPO_NORMALIZED fires iff
             // the alias is a registered typo spelling (e.g. 'hotal contact info') AND the row's
-            // physical block is the VENUE block — the gate re-keyed from the retired positional
-            // scope window to block membership (field-near-miss spec §2.1). Both anchor rows
-            // here open a v4 two-column table (`VENUE NAME` / `LOADING DOCK`), a different
-            // namespace, so this generator exhaustively pins the SILENT direction. The
-            // membership term is derived from the document rather than folded into a constant
-            // `false`, so re-widening the gate reds all 8453 cases instead of passing.
-            const opensVenueBlock = matchesSectionHeader(
-              splitRow(anchorRow.trim())[0] ?? "",
-              VENUE_SECTION_HEADER_TOKENS,
-            );
+            // physical block is the venue block. The predicate is `isVenueBlockOpener` — THE
+            // shared definition, called by the gate and by the near-miss detector's
+            // anchor-namespace arm alike, so this generator and the parser cannot drift apart
+            // (2026-08-27-venue-block-predicate-design.md §2).
+            //
+            // Both corpus venue shapes are inside it, so the anchor rows here — which open v4
+            // two-column tables — now pin the FIRING direction on `VENUE NAME`, the shape that
+            // was silent before that spec and is the current template. The membership term is
+            // DERIVED from the document rather than folded into a constant, so narrowing the
+            // predicate reds these cases instead of passing.
+            //
+            // What this generator does NOT discriminate, said plainly so the next reader does
+            // not overrate it: only ONE of the four registered typo aliases is venue-scoped
+            // (`hotal contact info` -> `venue.contact_info`; `diagrams`, `virtaul audience` and
+            // `goosneck` are all `details.*`). So the `LOADING DOCK` arm carries no typo alias
+            // and its silence holds whatever the predicate says — a NON-REGRESSION check, not a
+            // discriminating one. The discriminating silence witness is the byte-identical
+            // `| HOTEL |` case in tests/parser/fieldNearMissBaseline.test.ts.
+            const opensVenueBlock = isVenueBlockOpener(splitRow(anchorRow.trim())[0] ?? "");
             expect(autocorrected, `${where} resolves exactly after trim`).toHaveLength(0);
             expect(
               agg.warnings.some((w) => w.code === "TYPO_NORMALIZED"),

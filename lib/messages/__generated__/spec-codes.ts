@@ -1506,7 +1506,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": null,
     "followUp": null,
-    "helpfulContext": null,
+    "helpfulContext": "A row's label in your sheet matched one of the alternate spellings we keep for a field, so it wasn't listed as a row we didn't recognize. This is a record for us; there is nothing for you to fix.",
   },
   "UNDO_EMAIL_CLAIMED": {
     "crewFacing": null,

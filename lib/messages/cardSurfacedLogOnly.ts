@@ -10,4 +10,5 @@ export const CARD_SURFACED_LOG_ONLY: ReadonlySet<string> = new Set([
   "FIELD_UNREADABLE",
   "SECTION_HEADER_NO_FIELDS",
   "UNKNOWN_SECTION_HEADER",
+  "TYPO_NORMALIZED",
 ]);

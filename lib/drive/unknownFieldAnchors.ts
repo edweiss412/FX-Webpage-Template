@@ -37,8 +37,26 @@ export type UnknownFieldAnchor = {
 // guarantee (spec §5.1.1) a MISSED header degrades to null (safe) while a false-early
 // one does not — so exact matching is strictly safer. The real headers are standalone
 // "DETAILS" / "EVENT DETAILS" / "GS DETAILS" cells, which all match exactly.
+//
+// The VENUE header admits `VENUE NAME` as well as `VENUE`, because the v4 template opens its
+// venue table on `VENUE NAME` and such a sheet produced NO venue anchors at all before — a
+// near-miss row in one resolved to null and its card carried no "Open in Sheet" link.
+// UNKNOWN_FIELD is in OPERATOR_ACTIONABLE_ANCHORED, so that is a working link gained, not
+// bookkeeping. Spec: docs/superpowers/specs/parser/2026-08-27-venue-block-predicate-design.md §4.
+//
+// It does NOT reintroduce the false-early hazard above. The scan takes the FIRST matching row
+// and breaks; a v2 header row's first non-blank cell is `VENUE` (its `VENUE NAME` sits in
+// column 1); and no corpus fixture carries a `VENUE NAME` row above its bare `VENUE` one — the
+// only fixture with both has them 219 rows apart in that order. The alternation stays
+// END-ANCHORED: a prefix form would open the scan at a `VENUE NOTES` field row, which
+// tests/drive/unknownFieldAnchors.test.ts pins by asserting the anchor SET.
+//
+// TERMINATORS deliberately still carries `VENUE` and not `VENUE NAME`, so a v4 scan runs past
+// the four-row table until the next real terminator. That over-inclusion is bounded by the
+// resolution rule rather than by the scan: extra anchors can only produce a two-or-more
+// collision, and a collision resolves to null, never to another row's cell.
 const BLOCKS: { kind: string; header: RegExp }[] = [
-  { kind: "venue", header: /^VENUE$/i },
+  { kind: "venue", header: /^VENUE(\s+NAME)?$/i },
   { kind: "details", header: /^(EVENT\s+DETAILS|DETAILS|GS\s+DETAILS)$/i },
 ];
 
