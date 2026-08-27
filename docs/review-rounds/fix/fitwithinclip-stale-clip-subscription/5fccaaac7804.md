@@ -1,0 +1,27 @@
+# Review rounds — `fix/fitwithinclip-stale-clip-subscription` @ `5fccaaac7804`
+
+The spec and plan stages ran at the previous merge base and are filed in the sibling `4cb585b3508a.md`. `origin/main` was merged into the branch before the diff stage opened, which moved the base and restarted round numbering by design.
+
+## diff — 4 rounds
+
+**Examined:** four diff rounds at this base, the arc's whole diff stage. Ten reviewer findings across the four rounds (3, 1, 4, 2), every one accepted and none refuted. Subject was a 226-line React hook and its unit suite.
+
+**Judgment:** **the production file was found sound in every round.** Nothing in `components/admin/useFitWithinClip.ts` changed across the entire diff stage except one stale comment. All ten findings were in the SUITE and the plan, and every one was the same class: **an assertion blind to the defect it was written for.**
+
+The class is not the lesson; the anti-tautology rules already name it. Two things here are worth carrying forward.
+
+**First: the repair pattern was itself the defect.** Three consecutive rounds landed on one property, AC-9's "no already-held target is re-observed". Round 1 asserted it per site. Round 2 named four ADDITION paths that had not called the assertion; the repair added it at those four and the plan then claimed it was called at every reconcile. A sweep immediately afterwards found four more sites that still had not, and round 3 named three of them independently. Each repair was the same bet at longer odds: a per-site assertion cannot cover a site that forgot it, and adding call sites makes the next omission likelier rather than less, because the claim of totality gets louder while the mechanism stays manual. What ended it was moving the check into the STUB, where `observe()` on an already-held target records the violation and `afterEach` asserts the record is empty. Coverage became a property of using the stub rather than of remembering a call.
+
+**Second, and this is the one I would not have found alone: the suite's own teardown was corrupting its evidence.** Round 4 disputed a row of the mutant table, arguing that plant-11 could not by its own description make `(h33)` fail. Correct. `(h33)` was failing with `Found multiple elements by: [data-testid="outer"]`, inherited from the previous case, because the `afterEach` asserted the no-reobserve record BEFORE calling `cleanup()` and an assertion that throws skips everything after it. A failing case left its DOM mounted and the next case died on it. Cases were therefore being RECORDED as reddening plants they had never detected, which is a false certificate in the one artifact the plan offers as proof. The whole table was re-measured after the fix, read from the JSON reporter's failing titles rather than by grepping output for a name pattern that cannot tell a failure from a mention, and plant-1's list fell from fourteen entries to twelve.
+
+Round 4's other finding is the substantive one and it is a genuine gap the arc would have shipped: no case proved the REMOVAL half of a mixed remove-and-add reconcile, so an implementation performing its additions and skipping its removals whenever both happened would have satisfied every membership, deliverability and apply assertion in the file while retaining a stale signal source. The per-site helper is two-sided now and `plant-14` is that mutant.
+
+Worth recording about the reviewer as well: rounds 2, 3 and 4 each disputed a claim of TOTALITY in the plan ("asserted at every reconcile", twice, then a mutant red list), and each dispute was correct. On this arc the reviewer's value was not finding bugs in the hook, which it never did, but refusing to accept the suite's account of itself.
+
+**Mechanizable:** one, with an incident inside this arc.
+
+An `expect(...)` evaluated inside an `afterEach` BEFORE that hook's own teardown call is statically detectable, and its consequence is not local: the failure aborts the hook, the teardown never runs, and the NEXT case fails for a reason that has nothing to do with it. Here it silently falsified a mutant red list, which is evidence a plan offers as proof. A rule of the shape "no assertion may precede `cleanup()` within an `afterEach`" is one AST walk over `tests/**`, and the honest repair is the same everywhere: tear down first, assert last on a captured copy.
+
+declined: not filed as a ledger row; indexed as **LIM-AFTEREACH-ASSERT-BEFORE-TEARDOWN**, a class this arc coins. It is process-facing work whose done condition is a property of test tooling rather than a number a product arc or a human would notice moving, which the 2026-08-25 process mint freeze routes to the owning surface's documented limits, and this filing is that record. Re-file trigger: a second arc whose recorded evidence, a mutant table or a coverage claim, is falsified by a teardown that did not run.
+
+**Infra:** the reviewer could not run Vitest in any of the four rounds; its read-only sandbox denied the temporary client and SSR directories with `EPERM` every time, so all ten findings are file-trace-only and none was confirmed by a red. They were correct anyway, which is worth recording: on a suite whose defects are "this assertion cannot see its own subject", reading is a sound method and executing would mostly have confirmed green. It did successfully run `git diff --check`, which is how round 3's fourth finding was measured rather than inferred.
