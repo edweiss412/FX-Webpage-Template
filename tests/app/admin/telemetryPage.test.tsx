@@ -138,6 +138,87 @@ describe("TelemetryPage", () => {
     expect(retry).not.toHaveAttribute("href");
   });
 
+  test("a retry that succeeds replaces the fallback, and takes the control with it", async () => {
+    const job = {
+      jobName: "sync",
+      label: "Auto sync",
+      cadence: "every 5 min",
+      description: "Checks each show's Google Sheet for changes",
+      staleAfterMs: 3_600_000,
+      lastRunAt: "2026-06-29T11:58:00.000Z",
+      outcome: "ok",
+      level: "info",
+      counts: null,
+    };
+    const loadCronHealth = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: "infra_error", message: "x" })
+      .mockResolvedValue({ kind: "ok", jobs: [job] });
+    vi.doMock("@/lib/admin/loadCronHealth", () => ({ loadCronHealth }));
+    vi.doMock("@/lib/admin/loadAppEvents", () => ({
+      loadAppEvents: async () => ({ kind: "ok", events: [], hasMore: false, nextCursor: null }),
+    }));
+    const { default: Page } = await import("@/app/admin/dev/telemetry/page");
+
+    const renderPage = async () => await Page({ searchParams: Promise.resolve({}) });
+    const utils = render(await renderPage());
+
+    // Both premises on THIS case's own inputs: a fixture whose label is "" would make the
+    // on-screen assertion pass against any DOM, and an ok first render would make the whole
+    // case vacuous.
+    premise("the label the success assertion looks for is non-empty", job.label.length, 0);
+    premise(
+      "the first render took the fallback branch",
+      screen.queryAllByTestId("cron-health-degraded").length,
+      0,
+    );
+
+    routerRefresh.mockImplementation(() => {
+      void act(async () => {
+        utils.rerender(await renderPage());
+      });
+    });
+    fireEvent.click(screen.getByTestId("cron-health-retry"));
+
+    await waitFor(() => expect(screen.queryByTestId("cron-health-degraded")).toBeNull());
+    // The control goes with the branch it lives in; nothing is left behind to click.
+    expect(screen.queryByTestId("cron-health-retry")).toBeNull();
+    // Read off the fixture, never retyped, so a fixture whose label changes cannot leave
+    // this passing against a stale string.
+    expect(screen.getByText(job.label)).toBeInTheDocument();
+  });
+
+  test("a retry that fails again keeps the copy and the control unchanged", async () => {
+    const loadCronHealth = vi.fn(async () => ({ kind: "infra_error", message: "x" }));
+    vi.doMock("@/lib/admin/loadCronHealth", () => ({ loadCronHealth }));
+    vi.doMock("@/lib/admin/loadAppEvents", () => ({
+      loadAppEvents: async () => ({ kind: "ok", events: [], hasMore: false, nextCursor: null }),
+    }));
+    const { default: Page } = await import("@/app/admin/dev/telemetry/page");
+
+    const renderPage = async () => await Page({ searchParams: Promise.resolve({}) });
+    const utils = render(await renderPage());
+    const before = loadCronHealth.mock.calls.length;
+    premise("the first render read the loader", before, 0);
+
+    routerRefresh.mockImplementation(() => {
+      void act(async () => {
+        utils.rerender(await renderPage());
+      });
+    });
+    fireEvent.click(screen.getByTestId("cron-health-retry"));
+    await waitFor(() => expect(loadCronHealth.mock.calls.length).toBe(before + 1));
+    fireEvent.click(screen.getByTestId("cron-health-retry"));
+    await waitFor(() => expect(loadCronHealth.mock.calls.length).toBe(before + 2));
+
+    const fallback = screen.getByTestId("cron-health-degraded");
+    expect(within(fallback).getByTestId("cron-health-retry")).toBeInTheDocument();
+    // Asserted on the shipped sentences, apostrophe sidestepped, so "copy unchanged" is a
+    // test rather than a claim.
+    expect(fallback).toHaveTextContent("load scheduled-job health right now");
+    expect(fallback).toHaveTextContent("The jobs are probably still running");
+  });
+
   // #601 impeccable critique P2. The de-jargon pass collapsed two distinct
   // labels ("Cron jobs" / "Cron health") onto one word, so the sidebar section
   // and the stat card said the same thing and the section lost the health axis
