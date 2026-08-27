@@ -8,6 +8,30 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
+## BL-SPECLINT-EXPECT-N-EXIT-STATUS — a plan command's stated expectation is not enforced by its exit status
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`docs/ledger-lim-mechanization-rows`; owner-directed 2026-08-27 from the `docs/lim-slug-convention` session, which is the scheduling decision) · **Facing:** process · **Mint-exception:** product-blocked · **Severity:** MEDIUM (a declared gate that collects nothing reads as green) · **Class:** spec-lint mechanization · **Effort:** S · **Incident:** `fix/fitwithinclip-stale-clip-subscription` (product-facing, `BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION`), plan round 2 P1, 2026-08-27: a declared Playwright regression gate collected `0 tests in 0 files` because the command omitted `--config tests/e2e/standalone.config.ts`, and nothing in the plan's command enforced its expectation; caught by the reviewer at round 2, not at authoring time (filing `docs/review-rounds/fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md`, plan section, second note). · **Reachability:** PROBED — the filing quotes the command and its collection count.
+
+Index entry: `LIM-EXPECT-N-COMMENT` in `docs/review-rounds/LIMITS.md` (named by `fix/premisescan-registrar-accept-sets` and `ci/app-e2e-batch2`; its own re-file trigger was "a second arc burns review rounds on this class", met by the app-e2e-batch2 filing and now by a product arc). The shape: a `# expect 0` comment beside a `grep -c` that prints and moves on, a deliberately red proof whose nonzero exit is masked by a pipe, a measurement selector that can print nothing and still exit 0, and the Playwright form above (a gate whose `--list` collects zero tests). Nothing is mechanized today; `spec:lint --exec-red` derives a `vitest list` probe for vitest-shaped `red=` targets and has no Playwright or `# expect N` arm.
+
+**Done condition, as a number outside the process:** the clipsub plan's round-2 command, re-run through `spec:lint`, is flagged at authoring time (zero collection named, not believed), and a `# expect N` comment beside a command whose exit status does not encode N is flagged the same way; measured on the live plans corpus with zero false advisories (the same closable form the AC arm used). This is the cheaper, sharper first target of the two rows minted 2026-08-27.
+
+**Trigger:** owner-directed; schedule as the next process arc.
+
+---
+
+## BL-SPECLINT-RED-TRUTH-PROBE — a declared `red=` that cannot be red for its stated reason, and nothing executes it to find out
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`docs/ledger-lim-mechanization-rows`; owner-directed 2026-08-27 from the `docs/lim-slug-convention` session, which is the scheduling decision) · **Facing:** process · **Mint-exception:** product-blocked · **Severity:** MEDIUM (a task whose red can never turn green burns a review round per instance and stalls the arc that owns it) · **Class:** spec-lint mechanization · **Effort:** M · **Incident:** `fix/mi11-removal-fallback-live-row` (product-facing, `BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE`), plan round 1 BLOCKING/8 on 2026-08-27: two tasks could not turn green at all, both the same shape (the test writes state where the code does not read it: Task 2 diverged the crew member's database row while `applyParseResult` reads `previousCrewMembers` from the `snapshot()` argument; Task 3 set the transaction role to `authenticated` for the reject RPC and never restored it, and `sync_holds` revokes all from that role, so the hold read died on a permission error before reaching the site under test). Corpus row `docs/review-rounds/fix/mi11-removal-fallback-live-row/4cb585b3508a.jsonl`, stage plan, round 1. · **Reachability:** PROBED — the two findings are quoted in that arc's plan repair commit history.
+
+Index entry: `LIM-AUTHORED-RED` in `docs/review-rounds/LIMITS.md`, named by six arcs (the strongest recurrence in the corpus) and fenced out of scope by `docs/superpowers/specs/2026-08-15-spec-lint-intent-red-arms.md` (mechanizing existence-of-declaration is that arm; truth-of-claim is not). Collectability is already mechanized in `lib/specLint/redContract.ts`; this row is the unmechanized truth half: a plan `red=` already green at the merge base, or a killing case that passes against clean production the moment it is written. The index's own re-file trigger ("a product-facing arc measurably blocked by a red that could not fire") is met by the incident above.
+
+**Done condition, as a number outside the process:** for every `red=` target in a plan under review, `spec:lint --exec-red` (or its successor) runs the target against the merge base and reports GREEN-AT-BASE when it passes, so the holdstale round-1 pair is flagged before dispatch; measured on the live plans corpus with the false-advisory count at zero. Rounds per product-arc plan stage is the number that should move.
+
+**Trigger:** owner-directed; schedule after `BL-SPECLINT-EXPECT-N-EXIT-STATUS`.
+
+---
+
 ## BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG — a hung switch-person clear dims the menu row for good
 
 **Status:** OPEN · **Filed:** 2026-08-25 (`feat/switch-person-google-signout`, impeccable critique P1 at the invariant-8 gate) · **Facing:** product · **Severity:** LOW (needs a server action that never settles; a reload recovers) · **Class:** UX resilience · **Effort:** S · **Reachability:** INFERRED, NOT PROBED — reachable when the `clearIdentity` server action never settles (a stalled sign-out round trip, now part of that action); the probe that settles it is a `deferred()` clear in `tests/components/auth/avatarMenu.test.tsx` left unresolved past the timeout under fake timers, asserting the row re-enables and the status region clears. That probe is the first scheduled step.
