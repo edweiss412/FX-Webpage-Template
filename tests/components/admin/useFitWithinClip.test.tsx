@@ -53,12 +53,39 @@ function flushFrames(): void {
 }
 
 /**
+ * Flush until no frame remains. A modelled initial observation takes two hops,
+ * the delivery frame and then the coalescer's own, so a single `flushFrames()`
+ * would count the first and miss the apply it buys.
+ */
+function flushUntilQuiet(max = 8): void {
+  for (let i = 0; i < max && frames.size > 0; i += 1) flushFrames();
+}
+
+/**
  * One `apply()` run calls `getBoundingClientRect` on the fitted node exactly
  * once, so counting those calls counts APPLIES — the quantity under test.
  * Counting style writes instead would undercount: a re-measure that lands on
  * the same number still costs the forced reflow this test exists to bound.
  */
 let applyCount: number;
+
+/**
+ * testids that `rectFor` reports as a 0x0 box. `ResizeObserver` initialises each
+ * observation's last-reported size to (0, 0) and broadcasts only targets whose
+ * current size DIFFERS, so observing an element that is currently zero-sized
+ * fires nothing at all. That is the platform behaviour AC-8's second delta
+ * class exists for, and this set is how a case reaches it.
+ */
+let zeroSized: Set<string>;
+
+/**
+ * Chain walks, counted exactly and independently of fixture depth: `apply()`
+ * always begins its walk at the fitted node's parentElement, so one
+ * `getComputedStyle` call on THAT node is one walk however deep the chain runs.
+ * A case sets `walkAnchor` to the node it expects walks to start from.
+ */
+let walkAnchor: Element | null;
+let walkCount: number;
 
 /**
  * Both stubs resolve from the element's own data attributes on EVERY call, so
@@ -68,6 +95,19 @@ let applyCount: number;
  */
 function rectFor(el: Element): DOMRect {
   const id = (el as HTMLElement).dataset?.["testid"];
+  if (id !== undefined && zeroSized.has(id)) {
+    return {
+      left: 0,
+      right: 0,
+      width: 0,
+      top: 0,
+      bottom: 0,
+      height: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => "",
+    } as DOMRect;
+  }
   const box =
     id === "outer"
       ? { top: 0, bottom: geometry.clipBottom }
@@ -171,7 +211,7 @@ function withOffsetParent<T>(fn: () => T): T {
  * the attach observe" -- and neither question is visible in any apply count,
  * since a redundant `observe()` here delivers nothing at all.
  */
-function installTargetTrackingObserver() {
+function installTargetTrackingObserver({ deliverInitial = false } = {}) {
   const state = {
     targets: new Set<Element>(),
     observeLog: [] as string[],
@@ -189,6 +229,22 @@ function installTargetTrackingObserver() {
       observe(t: Element) {
         state.targets.add(t);
         state.observeLog.push(idOf(t));
+        // OFF by default. AC-8's cost rule is ABOUT the initial observation, so
+        // its cases cannot run without this; every other case's subject is
+        // target membership, and coupling those to delivery behaviour they are
+        // not about makes their counts unreadable.
+        //
+        // Zero-sized targets deliver NOTHING, which is the platform behaviour
+        // the 0x0 delta class turns on, and modelling it is the only way a case
+        // can tell that class from the sized one.
+        if (deliverInitial && t.getBoundingClientRect().height > 0) {
+          const cb = state.callbacks[state.callbacks.length - 1];
+          if (cb !== undefined) {
+            requestAnimationFrame(() => {
+              cb([{ target: t } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+            });
+          }
+        }
       }
       unobserve(t: Element) {
         state.targets.delete(t);
@@ -324,6 +380,9 @@ beforeEach(() => {
   nextFrameId = 1;
   cancelledFrames = [];
   applyCount = 0;
+  zeroSized = new Set();
+  walkAnchor = null;
+  walkCount = 0;
   vi.stubGlobal("requestAnimationFrame", (cb: FrameCb): number => {
     const id = nextFrameId++;
     frames.set(id, cb);
@@ -334,6 +393,7 @@ beforeEach(() => {
     frames.delete(id);
   });
   vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
+    if (walkAnchor !== null && el === walkAnchor) walkCount += 1;
     const data = (el as HTMLElement).dataset;
     const clips = data?.["clips"] === "true";
     return {
@@ -1295,6 +1355,190 @@ describe("useFitWithinClip", () => {
       expect(state.unobserveLog.slice(u0), "the wrong element was unobserved").toEqual(["other"]);
       expect(resize(shared), "the surviving target stopped being deliverable").toBe(true);
       expect(state.targets.has(other), "an unwanted target survived").toBe(false);
+    });
+  });
+
+  // ---- the reconcile's own guards (spec AC-2, AC-3, AC-6, AC-7, AC-8, AC-9) ----
+
+  test("(h32) AC-2: a signal that derives the SAME set issues no observer call", () => {
+    const { state } = installTargetTrackingObserver();
+    withOffsetParent(() => {
+      const { outer, inner } = mount({ clips: true });
+      premiseHolds(
+        "both ancestors are observed at attach",
+        state.targets.has(outer) && state.targets.has(inner),
+      );
+      const o0 = state.observeLog.length;
+      const u0 = state.unobserveLog.length;
+
+      for (let i = 0; i < 3; i += 1) {
+        fireEvent(window, new Event("resize"));
+        flushFrames();
+      }
+
+      // Not an efficiency assertion. `observe()` delivers an initial
+      // observation, so a reconcile that re-observes on every signal feeds its
+      // own next signal and never reaches a fixed point (spec §4.3).
+      expect(state.observeLog.length - o0, "an unchanged reconcile re-observed").toBe(0);
+      expect(state.unobserveLog.length - u0, "an unchanged reconcile unobserved").toBe(0);
+    });
+  });
+
+  test("(h33b) AC-3: the attach observes clip then positioned, once each, on both fixtures", () => {
+    const clipped = installTargetTrackingObserver();
+    withOffsetParent(() => mount({ clips: true }));
+    // ORDER, which a target set cannot express: the log can.
+    expect(clipped.state.observeLog, "attach order or count changed").toEqual(["outer", "inner"]);
+    expect(clipped.state.unobserveLog, "the attach unobserved something").toEqual([]);
+    cleanup();
+    vi.unstubAllGlobals();
+
+    const unclipped = installTargetTrackingObserver();
+    withOffsetParent(() => mount({ clips: false }));
+    // Nothing clips, so there is nothing to observe for the clip role, and
+    // (h21) already pins that an observer still exists for the positioned one.
+    expect(unclipped.state.observeLog, "the non-clipping attach changed").toEqual(["inner"]);
+  });
+
+  test("(h34) AC-6: a clip ancestor that STOPS clipping keeps its target", () => {
+    const { state, resize } = installTargetTrackingObserver();
+    const { view, outer, fitted } = mount({ clips: true, reapplyKey: "k" });
+    premiseHolds(
+      "the clip ancestor is observed and a cap exists",
+      state.targets.has(outer) && fitted.style.maxHeight !== "",
+    );
+
+    view.rerender(<Harness reapplyKey="k" clips={false} />);
+    fireEvent(window, new Event("resize"));
+    flushFrames();
+    expect(fitted.style.maxHeight, "the stale cap survived").toBe("");
+
+    // RETAINED. An observed ancestor is a signal source, and "nothing clips
+    // right now" is not "this source is gone": dropping it would mean the same
+    // ancestor clipping again delivers nothing at all (spec §4.1).
+    expect(state.targets.has(outer), "the retained clip target was dropped").toBe(true);
+
+    // ...and the proof that retaining is what matters: clipping again is
+    // delivered by that node itself, with no bridging signal.
+    view.rerender(<Harness reapplyKey="k" clips />);
+    expect(resize(outer), "the re-clipping ancestor was not deliverable").toBe(true);
+    flushFrames();
+    expect(fitted.style.maxHeight, "the re-clip did not re-cap").toBe(expectedPx());
+  });
+
+  test("(h35) AC-6: a positioned ancestor that resolves NULL keeps its target and its listener", () => {
+    const { state, resize } = installTargetTrackingObserver();
+    withMarkedOffsetParent(() => {
+      const view = render(<ThreeLevelHarness reapplyKey="k" positionedOn="inner" />);
+      const inner = screen.getByTestId("inner");
+      premiseHolds("the positioned ancestor is observed at attach", state.targets.has(inner));
+
+      // `offsetParent` reads null for a `display: none` subtree, so this is the
+      // hide-then-show path, not an exotic one.
+      view.rerender(<ThreeLevelHarness reapplyKey="k" positionedOn="none" />);
+      fireEvent(window, new Event("resize"));
+      flushFrames();
+
+      expect(state.targets.has(inner), "a null resolution dropped the target").toBe(true);
+      expect(resize(inner), "the retained positioned target was not deliverable").toBe(true);
+
+      // The listener is retained with the role, so the shown-again overlay's
+      // own entrance still re-measures.
+      fireEvent(inner, transitionEnd("transform"));
+      expect(frames.size, "the retained positioned listener was removed").toBe(1);
+    });
+  });
+
+  test("(h36) AC-7: with no ResizeObserver the hook reconciles nothing and still re-measures", () => {
+    vi.stubGlobal("ResizeObserver", undefined);
+    // PREMISE (own inputs): the constructor must really be absent, or this case
+    // silently runs in the configuration it is not testing.
+    premiseHolds(
+      "no ResizeObserver constructor",
+      typeof (globalThis as { ResizeObserver?: unknown }).ResizeObserver !== "function",
+    );
+
+    const { view, fitted } = mount({ clips: false, reapplyKey: "k" });
+    expect(() => {
+      view.rerender(<Harness reapplyKey="k" clips />);
+      fireEvent(window, new Event("resize"));
+      flushFrames();
+    }, "a reconcile site threw with no observer").not.toThrow();
+
+    // The roles still update with no observer, which is what keeps the window
+    // path correct and the transitionend listener following.
+    expect(fitted.style.maxHeight, "the window path stopped writing the cap").toBe(expectedPx());
+  });
+
+  test("(h37) AC-8: the cost of a reconcile is one apply only when it ADDS a target with a box", () => {
+    const { state } = installTargetTrackingObserver({ deliverInitial: true });
+    withMarkedOffsetParent(() => {
+      const { view, other, shared, fitted } = mountAlias({
+        reapplyKey: "k",
+        clipOn: "other",
+        positionedOn: "other",
+      });
+      walkAnchor = fitted.parentElement;
+      premiseHolds(
+        "both roles start on ONE element, so the next transition is an ADD",
+        state.targets.size === 1 && state.targets.has(other),
+      );
+
+      // CLASS 1 — adds a target that has a box.
+      const base1 = applyCount;
+      const walk1 = walkCount;
+      view.rerender(<AliasHarness reapplyKey="k" clipOn="other" positionedOn="shared" />);
+      fireEvent(window, new Event("resize"));
+      flushFrames();
+      const afterSignal1 = applyCount;
+      const afterWalk1 = walkCount;
+      expect(afterSignal1 - base1, "the signal itself must apply exactly once").toBe(1);
+      expect(afterWalk1 - walk1, "the signal's own apply must carry exactly one walk").toBe(1);
+      flushUntilQuiet();
+      expect(applyCount - afterSignal1, "an added sized target must cost one apply").toBe(1);
+      // A walk rides every apply, so the deltas match. "Unchanged" would be
+      // wrong here and could never go green (plan review round 2).
+      expect(walkCount - afterWalk1, "walks did not track applies").toBe(1);
+      expect(state.targets.has(shared)).toBe(true);
+
+      // CLASS 3 — removes only. Back to both roles on `other`.
+      const base3 = applyCount;
+      view.rerender(<AliasHarness reapplyKey="k" clipOn="other" positionedOn="other" />);
+      fireEvent(window, new Event("resize"));
+      flushFrames();
+      const afterSignal3 = applyCount;
+      expect(afterSignal3 - base3, "the signal itself must apply exactly once").toBe(1);
+      flushUntilQuiet();
+      expect(applyCount - afterSignal3, "a removal-only reconcile cost an apply").toBe(0);
+
+      // CLASS 4 — neither. Same set, twice.
+      const afterSignal4Base = applyCount;
+      fireEvent(window, new Event("resize"));
+      flushFrames();
+      const afterSignal4 = applyCount;
+      flushUntilQuiet();
+      expect(applyCount - afterSignal4, "an unchanged reconcile cost an apply").toBe(0);
+      expect(afterSignal4 - afterSignal4Base, "the signal itself must apply exactly once").toBe(1);
+
+      // CLASS 2 — adds a target that is currently 0x0. Both halves, because the
+      // count alone is satisfied by a hook that simply SKIPS observe() for a
+      // zero-sized target, which is the opposite of what is wanted and would
+      // leave that ancestor permanently dark (plan review round 3).
+      zeroSized.add("shared");
+      const base2 = applyCount;
+      const observes2 = state.observeLog.length;
+      view.rerender(<AliasHarness reapplyKey="k" clipOn="other" positionedOn="shared" />);
+      fireEvent(window, new Event("resize"));
+      flushFrames();
+      const afterSignal2 = applyCount;
+      flushUntilQuiet();
+      expect(applyCount - afterSignal2, "a zero-sized target delivered an observation").toBe(0);
+      expect(afterSignal2 - base2, "the signal itself must apply exactly once").toBe(1);
+      expect(
+        state.observeLog.slice(observes2),
+        "the hook did not subscribe the zero-sized ancestor",
+      ).toEqual(["shared"]);
+      expect(state.targets.has(shared), "the zero-sized ancestor is not held").toBe(true);
     });
   });
 });

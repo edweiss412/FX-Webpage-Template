@@ -219,8 +219,19 @@ Written by this task; empty until it runs. One row per plant, keyed `plant-N`: t
 
 This task's `red=` greps for a `| plant-N |` row rather than for the heading above, because the heading ships with the plan and a `red=` satisfied by the plan's own scaffolding is green from the moment it is written.
 
-| Plant | Edit | Command | Cases that went red |
-| --- | --- | --- | --- |
+| Plant | Edit | Cases that went red |
+| --- | --- | --- |
+| plant-1 | drop the "already held" guard on additions, so every reconcile re-observes | (h29) (h30) (h31) (h32) (h37) |
+| plant-2 | reverse the desired-set insertion order | (h33b) |
+| plant-3 | clip role re-targets on null too, dropping retain-on-null | (h34) |
+| plant-4 | positioned role re-targets on null too | (h35) |
+| plant-5 | reconcile without the `observer === null` guard | (h36), and (f) |
+| plant-6 | call `apply()` twice in the coalesced path | (h27) (h37) |
+| plant-7 | skip `observe()` when the resolved target is currently 0x0 | (h37) |
+
+Command for every row: `pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx`, with the plant applied to `components/admin/useFitWithinClip.ts` and reverted after. Baseline with no plant: 47 passed.
+
+Two rows are worth reading rather than counting. **plant-1** reds five cases, which is the shape of the termination argument: an unconditional reconcile is not one defect but the same defect seen from five angles, and (h32) is the one that names it. **plant-7** is round 3's finding made executable: it satisfies both of AC-8's class-2 COUNTS, zero applies and zero walks, while subscribing to nothing at all, so only the observe-log half of that class can see it. A version of this suite that asserted counts alone would have shipped a hook that leaves every zero-sized ancestor permanently dark.
 
 ## Task 5: close-out
 
