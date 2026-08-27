@@ -1,7 +1,7 @@
 # Plan — the acceptance-criterion arm (follow-on)
 
 **Spec:** `docs/superpowers/specs/2026-08-26-speclint-dispatch-gates-design.md` §4 (canonical).
-**Ledger:** `BL-SPECLINT-AC-UNCLAIMED` (`BACKLOG.md`), which stays OPEN.
+**Ledger:** `BL-SPECLINT-AC-UNCLAIMED` (`BACKLOG.md`), which this arc archives.
 **Status:** RATIFIED AND UNIMPLEMENTED. Nothing here has shipped.
 
 **Why this is a separate document.** The lint-gate arm of that spec shipped in PR
@@ -28,6 +28,34 @@ was done, and an unshipped task block inside a merged plan is a false one.
 
 ---
 
+## 0.1 The live measurement this plan is written against
+
+**Measured 2026-08-27 on this branch's head by running the v4 recognizer over the
+corpus. Every number below is the arm's own output, not the snapshot's.**
+
+| measure | snapshot (2026-08-26, 101 plans) | live, this head |
+| --- | --- | --- |
+| enrolled plans | 101 | **108** |
+| plans with at least one CERTAIN declaration | 57 | **59** |
+| AMBIGUOUS declaring lines | 14 across 12 plans | **13 across 11 plans** |
+| plans flagged UNCLAIMED | 19, 31 ids | **19, 34 ids** |
+
+`grep -rl '<!-- tasks: depth=' docs/superpowers/plans | wc -l` returns **108** at
+this head. The snapshot's `.report.txt` has no re-runnable producer — no probe
+script is committed and the report carries no provenance header — so **Task 1's
+arm is the instrument from here on**, and the report's detail sections are the
+migration's starting list rather than its final one. The population moves with
+every merge, so re-measuring at the shipping head is a step in Task 4, not a
+formality.
+
+**Two snapshot discrepancies, settled by the arm and not by hand.**
+`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:29` carries AC-4 and AC-3, so
+under v4 it is AMBIGUOUS and AC-4 is **not** unclaimed: that plan needs **five**
+edits, not the six the snapshot implies. And the snapshot's 31 ids predate two
+merges; the live figure is 34.
+
+---
+
 ## 1. The design, ruled
 
 Spec §4.2 escalated the AC arm's live reach; **ruled 2026-08-26: branch (A),
@@ -37,83 +65,207 @@ Four constraints ship with the ruling and bind every task below:
 
 1. Each migration edit states ONLY what that plan's prose already says, cited
    from the plan's own line. Never a reinterpretation.
-2. A plan whose prose does not settle the disposition gets none: it goes in the
-   PR body under "Unfixed peers" and stays flagged.
+2. A plan whose prose does not settle the disposition gets none: it goes on the
+   residue list with its negative evidence and stays flagged.
 3. The convention gets ONE paragraph in `docs/agents/writing-plans.md`, not in
    `AGENTS.md`.
 4. The probe domain is the live plans corpus. The done condition, restated after
    spec R2 finding 4 showed constraints 2 and 4 could not both hold: the corpus's
    unclaimed set equals a committed residue list EXACTLY, that list holding only
-   the UNSETTLED pairs with their negative evidence. Fail-closed — a new unclaimed
+   the pairs no disposition can honestly express. Fail-closed — a new unclaimed
    id is not on the list and reds the assertion.
+
+### 1.1 Three orchestrator rulings taken during implementation
+
+Recorded here so no round re-derives them.
+
+**The count cut applies SYMMETRICALLY** (2026-08-27). An id sitting on a line the
+arm DECLINES — a multi-id line, a table row, a heading or list item that fails the
+CERTAIN form — is neither declared nor undeclared, and `TASK_AC_UNDECLARED` never
+fires on it. This is the wider ambiguous cut the same-axis recurrence rule names
+as the allowed repair direction, not a positive grammar for tables. Without it the
+code reds **9 plans / 71 ids** on the live corpus, because one incidental list
+item beginning with an id opts a whole plan in while its real criteria live in a
+table: `docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md:123` opts
+that plan in, and its line 25 carries all twelve of its criteria on one prose line. With
+the cut the remainder is **2 plans / 5 ids**, and those are MIGRATED to zero in
+Task 4 rather than given a residue of their own.
+
+**The decline is SILENT BY DESIGN, and that is a documented limit with a measured
+reason** (2026-08-27). Recording every declined line was measured before it was
+rejected: **1078 rows across 96 plans** for every declined line carrying an id,
+and **609 rows across 73 plans** even when bounded to the declines that actually
+suppress a finding. The cause is the corpus's own conventions — 42 of the enrolled
+plans declare their criteria in a table or a coverage map rather than in a list
+item — so a record that size reds on any routine plan edit anywhere in the corpus.
+That is a corpus tripwire, not a fail-closed guard. The ambiguous record therefore
+stays exactly as ratified (multi-id DECLARING lines only, 13 live, AC-10
+unchanged), and the loudness for the symmetric cut is placed where the consequence
+is: **the live `TASK_AC_UNDECLARED` set must be exactly EMPTY** (AC-6). A new plan
+whose cited id is neither declared nor declined then reds, which is the row's
+actual defect. This limit is restated in §12, in the archive entry, and in the
+`docs/agents/writing-plans.md` paragraph Task 6 adds, each carrying these numbers
+as the reason.
+
+**The shipped plan's orphaned criteria go on the residue** (2026-08-27).
+`docs/superpowers/plans/ci/2026-08-26-speclint-dispatch-gates.md` declares AC-4,
+AC-5, AC-6, AC-8 and AC-9 while its markers cite only AC-1, AC-2, AC-3 and AC-7 —
+the AC-arm tasks were split out by `a673d040c` and took their markers with them.
+Its prose settles them (its closeout calls the AC arm "RATIFIED AND
+UNIMPLEMENTED" and names this plan), so they are not UNSETTLED; but the owner set
+in spec §4.3 is closed at task lists, `closeout`, `the closeout` and
+`the PR's last commit`, and none of those can name another arc. **The owner set is
+NOT widened.** Those five rows go on the residue quoting that closeout sentence as
+their evidence.
+
+---
+
+## 2. Meta-test inventory
+
+- **CREATES** `tests/specLint/acUnclaimedCorpus.test.ts (new)` — the unclaimed
+  corpus equality against the committed residue, the empty-UNDECLARED assertion,
+  and the residue's own admissibility check (AC-6).
+- **CREATES** `tests/specLint/acAmbiguousCorpus.test.ts (new)` — the AMBIGUOUS
+  declaring-line equality against the committed record (AC-10). A separate file
+  from the one above deliberately, for the reason Task 5 gives.
+- **CREATES** `tests/specLint/acUnclaimedResidue.ts (new)` and
+  `tests/specLint/acAmbiguousRecord.ts (new)` — the two committed records, typed
+  TypeScript modules the tests IMPORT rather than markdown tables they parse.
+- **CREATES** `tests/docs/_metaSpecLintDocs.test.ts (new)` — the convention
+  paragraph's prose pin (AC-11).
+- **EXTENDS** `tests/specLint/taskContract.test.ts` (the recognizer's unit cases
+  and the deciding cases for both new codes) and
+  `tests/specLint/taskContractWiring.test.ts` (two `CODE_FIXTURES` rows, the
+  derived cover, the count in the title).
+- **No advisory-lock surface, no Supabase call boundary, no mutation surface.**
+  Invariants 2, 9 and 10 have nothing to register.
+
+**Everything the mutation harness scores lives in `lib/specLint/taskContract.ts`.**
+`tests/mutation/source/registry.ts:812-820` runs exactly three deciding suites —
+`taskContract.test.ts`, `taskContractFindingOrder.test.ts` and
+`taskContractV2Grammar.test.ts` — so a case that must kill a mutant lives in one
+of those three, or the registry row grows by that file. The two corpus tests are
+deciding suites for the CORPUS, not for the recognizer. That is why Task 1 EXPORTS
+the recognizer's analysis and unit-pins it in the scored suite, and why the corpus
+tests consume that export instead of reimplementing it.
 
 ---
 
 <!-- tasks: depth=2 red-contract -->
 
-## Task 1: TASK_AC_UNCLAIMED and the disposition grammar
+## Task 1: TASK_AC_UNCLAIMED, the v4 recognizer, and the disposition grammar
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts -t unclaimed` red-state=authored red-target=`lib/specLint/taskContract.ts:373` why=`the loop at :373-377 walks marker-cited ids only and there is no traversal in the other direction anywhere in the file, so a declared id nothing cites draws nothing; the new case asserting TASK_AC_UNCLAIMED on such a plan fails` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` red-state=authored red-target=`lib/specLint/taskContract.ts:373` why=`the loop at :373-377 walks marker-cited ids only and there is no traversal in the other direction anywhere in the file, so a declared id nothing cites draws nothing; the cases this task adds fail against that production absence` ac=AC-4 -->
 
-Collect the ids the plan declares, per spec §4.1's **v4** recognizer, and this
-task implements v4 in full rather than the leading-id rule v3 shipped:
+**What is red and why:** the file has exactly one AC traversal, at lines 373-377,
+and it reads marker-cited ids only. Nothing in it reads the plan's body for
+declarations, so the new cases fail on a production absence rather than on
+anything test-local. The red command is the WHOLE FILE with **no `-t` name
+filter**: a filter that matches nothing exits 0 and reports green from the moment
+it is written (`docs/agents/writing-plans.md:26`), and a plan cannot pin a title
+it has not authored yet.
+
+Collect the ids the plan declares, per spec §4.1's **v4** recognizer, implementing
+v4 in full rather than the leading-id rule v3 shipped:
 
 1. Elide fenced blocks first. A declaration inside one is inert — the witness is
    the shell comment at
    `docs/superpowers/plans/2026-08-21-control-outline-forward-guard.md:326`.
 2. A candidate is a list item or ATX heading whose content begins with an id,
-   that id's end anchored so the range form `AC-1..AC-7` declares nothing.
-3. **Count every id on the candidate line.** Exactly one makes it CERTAIN.
+   after at most one emphasis run, with the id's end anchored so the range form
+   `AC-1..AC-7` declares nothing.
+3. **Count the DISTINCT ids on the candidate line.** Exactly one makes it CERTAIN.
    More than one makes the line AMBIGUOUS: the arm declines both directions on it
    and the line is recorded.
 
+**Distinct, not occurrences, and the corpus decides it.**
+`docs/superpowers/plans/2026-08-07-ops-log-code-emits.md:56` writes `AC-2` twice on
+one declaring line while explaining its proof, and that line is a single
+criterion. Counting occurrences would classify it AMBIGUOUS and silently exempt a
+real id; the ordinary mistake it models is repeating the id while explaining it.
+
+**The end boundary rejects a CONTINUING dot, not every dot.** v3 passed on
+`AC-1..AC-7` because the character after `AC-1` is a dot followed by another dot
+rather than by an alphanumeric. v4 rejects a following dot when it continues into
+an id segment (`AC-1.1`) or into the range form's second dot, and accepts it
+otherwise — so the live `- **AC-2.** …` spelling still declares. Rejecting every
+following dot was measured against the corpus and drops real declarations in four
+plans, which is v3's silent-loss defect returning under a different rule.
+
 Then collect the ids every `ac=` cites and report the certain-and-uncited
-difference, unless the declaring line carries a disposition.
+difference, unless the declaring line carries a disposition. A FENCED marker
+cannot claim, mirroring the existing rule that a fenced marker cannot resolve.
 
-The count in step 3 is the whole termination argument (spec §4.1), and this task
-owns its UNIT cases: a fixture whose declaring line carries two ids draws nothing
-in either direction. Task 4 then asserts the LIVE ambiguous set against the
-committed record (AC-10, spec §7 limit 7). The two are not interchangeable — 14
-ambiguous lines across 12 plans existed at the 101-plan snapshot, so a Task 4
-that asserted only the unclaimed equality would commit green while classifying
-inputs v4 must decline, and a Task 1 that never exercised a two-id line would
-leave the count cut itself unpinned.
-
-Both narrowings are corpus-forced and were refuted into existence across two
-review rounds (spec §4.1): secondary-id collection read four other documents'
-criteria as these plans', and an unanchored id matched inside `AC-1..AC-7`.
-
-**The disposition set is an ACCEPT-set with a stated lexical grammar** (spec §4.3):
-parenthesised and end-anchored, `RETIRED` case-sensitive, owner a token list and
-never free prose. The anchoring is load-bearing and has a live witness —
+**The disposition set is an ACCEPT-set with a stated lexical grammar** (spec
+§4.3): parenthesised and end-anchored, `RETIRED` case-sensitive, owner a token
+list and never free prose. The anchoring is load-bearing and has a live witness —
 `docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28` already ends with
-"Task 10.", so a loose matcher exempts a real unclaimed id silently.
-
-An unrecognised disposition REPORTS the id; it never exempts it. A deny-set would
+"Task 10.", so a loose matcher exempts a real unclaimed id silently. An
+unrecognised disposition REPORTS the id; it never exempts it. A deny-set would
 fail open on the case nobody modelled, which is the direction this arm cannot
 afford: to a plan author, silence and clean are indistinguishable.
 
-`checkTaskContract` already receives the whole `DocModel`
-(`lib/specLint/taskContract.ts:313`), so this is self-contained in a file the
-mutation registry already covers (`tests/mutation/source/registry.ts:805`).
+**The recognizer's analysis is EXPORTED from `lib/specLint/taskContract.ts`**, as
+one function returning the certain declarations, the ambiguous lines and the
+declined lines. Two structural reasons: the mutation registry scores this file and
+only this file, so a mutant that drops the ambiguous record must be killable by a
+case in `tests/specLint/taskContract.test.ts`; and the corpus tests in Tasks 4 and
+5 must assert THE ARM'S OWN OUTPUT, which a locally reimplemented recognizer would
+not be. `checkTaskContract` already receives the whole `DocModel`
+(`lib/specLint/taskContract.ts:313`), so the export is self-contained.
 
-## Task 2: TASK_AC_UNDECLARED, and the three-code partition
+The unit cases for the count cut are this task's, not Task 5's. Task 5 asserts the
+LIVE ambiguous set against the committed record; this task asserts that a two-id
+line draws nothing in either direction and that a disposition on such a line
+disposes nothing. Both are needed: 13 ambiguous lines exist in the corpus today,
+and a Task 5 that asserted only equality would pass over a recognizer that had
+stopped declining.
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts -t undeclared` red-state=authored red-target=`lib/specLint/taskContract.ts:118` why=`resolvesId at :118-126 is a word-boundaried regex over every non-marker line, so any prose occurrence satisfies a citation and a merely-mentioned id draws nothing; the new case asserting TASK_AC_UNDECLARED against a plan that mentions but does not declare the id fails` ac=AC-5 -->
+## Task 2: TASK_AC_UNDECLARED, the symmetric decline, and the three-code partition
+
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` red-state=authored red-target=`lib/specLint/taskContract.ts:118` why=`resolvesId at :118-126 is a word-boundaried regex over every non-marker line, so any prose occurrence satisfies a citation and a merely-mentioned id draws nothing; the cases this task adds fail against that production absence` ac=AC-5 -->
+
+**What is red and why:** `resolvesId` accepts any prose occurrence, so a marker
+citing an id the plan never declares draws nothing today. The failure is at that
+production line, not in a fixture the test controls. Whole file, no `-t` filter,
+for the reason Task 1 gives.
 
 Fires only in a plan that declares at least one id, so the 42 spec-side plans are
-untouched. The partition test is the point of this task and is asserted directly:
-one id never draws two of the three codes. `UNRESOLVED` needs no occurrence,
-`UNDECLARED` needs an occurrence that is not a declaration, `UNCLAIMED` needs a
-declaration. The fixture that proves it declares one id, mentions a second in
-prose, and cites both.
+untouched (spec §7 limit 5) — **and, per §1.1, never on an id sitting on a line
+the arm declines.** That second cut is what keeps the code off the 9 plans / 71
+ids the opt-in rule alone leaves exposed.
+
+The partition test is the point of this task and is asserted directly: one id
+never draws two of the three codes. `UNRESOLVED` needs no occurrence, `UNDECLARED`
+needs an occurrence that is neither a declaration nor on a declined line, and
+`UNCLAIMED` needs a declaration. The fixture that proves it declares one id,
+mentions a second in prose, and cites both.
+
+**The decline path must be provably live, not merely present.** This task also
+authors the fixture Task 4's premise rests on: a plan that declares one id in a
+list item and cites a second id whose ONLY occurrence is ordinary prose — no table
+row, no heading, no multi-id line — must draw `TASK_AC_UNDECLARED`. Without that
+case, an implementation whose decline predicate is always true satisfies every
+other assertion in this plan, including the corpus's empty-set equality.
 
 ## Task 3: wire the codes
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContractWiring.test.ts -t derived-cover` red-state=authored red-target=`lib/specLint/taskContract.ts:373` why=`the derived-cover case this task writes parses every fail() call's first-argument literal out of lib/specLint/taskContract.ts and asserts set equality with the CODE_FIXTURES keys. Once Tasks 1 and 2 add their codes at the production sites, the production set contains codes the fixture set does not, and the case fails on that inequality. The it() title at :180 is prose and asserts nothing, so it is NOT the red-target` ac=AC-4,AC-5 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContractWiring.test.ts` red-state=authored red-target=`lib/specLint/taskContract.ts:373` why=`Tasks 1 and 2 add two fail() sites in production; the derived-cover case this task writes parses every fail() call first-argument literal out of lib/specLint/taskContract.ts and asserts set equality with the CODE_FIXTURES keys, so it fails on the two production codes the fixture registry does not carry. The it() title at :180 is prose and asserts nothing, so it is NOT the red-target` ac=AC-4,AC-5 -->
 
-One `CODE_FIXTURES` row per new code, single-finding each per the file's own
-comment at `tests/specLint/taskContractWiring.test.ts:69`, and the count in the title moves from ten to twelve.
+**What is red and why:** after Tasks 1 and 2, production raises two codes the
+fixture registry does not know. The failure derives from those production lines,
+not from anything test-local.
+
+**Whole file, no `-t derived-cover` filter.** The filter would exclude the
+existing all-codes behavioural case at
+`tests/specLint/taskContractWiring.test.ts:180`, and that exclusion is exactly
+what makes an empty fixture a viable escape: `TASK_AC_UNCLAIMED: ""` satisfies a
+key-set equality while emitting nothing. Under the whole-file command that case
+runs each fixture through the CLI and asserts exit 1 and a rendered `FAIL <code>`,
+so a fixture that does not actually emit its code fails there. One `CODE_FIXTURES`
+row per new code, single-finding each per the file's own comment at
+`tests/specLint/taskContractWiring.test.ts:69`, and the count in the title moves
+from ten to twelve.
 
 The all-codes cover is derived from the production source alone, PARSED rather
 than grepped — every string literal in first-argument position of a `fail` call —
@@ -125,75 +277,122 @@ circular — the registry would supply the very member the census failed to find
 
 ## Task 4: the corpus migration
 
-<!-- task: red=`pnpm vitest run tests/specLint/acUnclaimedCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28` why=`AC-3 is declared at :28 with no disposition on the line and no marker cites it, so the corpus test this task writes reports a non-empty unclaimed set and fails; it passes only once every such line carries its plan own disposition` ac=AC-6,AC-10 -->
+<!-- task: red=`pnpm vitest run tests/specLint/acUnclaimedCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28` why=`AC-3 is declared at :28 as a CERTAIN line carrying no disposition and no marker cites it, so at this head the arm reports 34 unclaimed ids across 19 plans while the committed residue holds only the pairs no disposition can honestly express; the equality this task writes fails on that difference until every settleable pair is migrated` ac=AC-6 -->
+
+**What is red and why:** the live unclaimed set (34 ids across 19 plans) is not
+equal to the residue (the unsettleable pairs only). The gap is the migration.
 
 The corpus test is `tests/specLint/acUnclaimedCorpus.test.ts (new)`. It walks every
-enrolled plan from disk and asserts TWO exact equalities, with a `premise()`
-guard so an empty walk cannot satisfy either vacuously
-(`tests/_shared/premise.ts`, and `tests/specLint/acCoverageCorpus.test.ts` is the
-shape):
+enrolled plan from disk, calls the recognizer Task 1 EXPORTS, and asserts:
 
-- the live unclaimed set against `tests/specLint/acUnclaimedResidue.ts (new)`, which
-  exports `AC_UNCLAIMED_RESIDUE` — one typed row per UNSETTLED pair carrying the
-  plan path, the id, and what was searched (AC-6);
-- the live AMBIGUOUS declaring-line set against
-  `tests/specLint/acAmbiguousRecord.ts (new)`, which exports `AC_AMBIGUOUS_RECORD` —
-  one typed row per multi-id declaring line carrying the plan path, the 1-based
-  line number, and the ids on it (AC-10, spec §7 limit 7).
-
-Both are TypeScript modules the test IMPORTS, not markdown tables it parses, so
-the assertion reads a typed list and a row cannot be added by prose. Both are
-fail-closed in the same direction: a pair or a line absent from its record reds.
+1. **Equality.** The live unclaimed set equals `AC_UNCLAIMED_RESIDUE` from
+   `tests/specLint/acUnclaimedResidue.ts (new)`, exactly, in both directions.
+2. **The live `TASK_AC_UNDECLARED` set is EMPTY**, after the two plans named in
+   §1.1 are migrated into v4 declaration form. There is no UNDECLARED residue and
+   none is created; a plan that cannot be migrated without a product decision is
+   declined with a recorded limit in §12 and escalated, never given a row.
+3. **A premise on the empty-set assertion itself, because an empty set is what a
+   dead code path also produces.** Two guards, both required: `premise()` that the
+   DECLINED set over the live corpus is non-zero, so the symmetric cut is
+   observably doing work here; and the Task 2 fixture in which a cited id is
+   neither declared nor declined, which must RED. Assertion 2 without both is
+   satisfied by a decline predicate that returns true unconditionally.
+4. **Residue admissibility, so the list cannot become an allowlist.** Each row is
+   typed and carries a quotation plus the line it came from, and the test asserts
+   THAT LINE OF THAT PLAN ACTUALLY CONTAINS THAT TEXT. A row cannot be added by
+   asserting a pair; it can only be added by pointing at a real line and quoting
+   it. Two row kinds, discriminated:
+   - `unsettled` — the plan's prose does not settle the disposition. Carries
+     `searched` (what was looked for) and `nearMiss` (the quoted line that came
+     closest, with its line number).
+   - `owner-inexpressible` — the plan's prose DOES settle it, but the closed owner
+     set cannot name the owner (the five ids in §1.1). Carries `quote` and
+     `quotedAt`, the settling sentence and its line.
+5. **A `premise()` guard on the walk**, so an empty or shrunken walk cannot satisfy
+   any of the above vacuously (`tests/_shared/premise.ts`, and
+   `tests/specLint/acCoverageCorpus.test.ts` is the shape).
 
 **The unit is a declaring LINE, not a plan**, and under v4 one line disposes
 exactly one id, because a line carrying more than one is AMBIGUOUS and the arm
-declines it (spec §4.2.1). So the count is one line per id. Measured at plan time:
-19 plans, **31 ids**, hence 31 declaring lines. `app-e2e-batch2` alone needs six,
-at `docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28-34` — plan review R1
-finding 4 measured that against the earlier "five" and was right. Per spec §4.2 constraint 1 each edit states ONLY
-what that plan's prose already says, cited from its own line; per constraint 2 a
-plan whose prose settles nothing gets NO disposition and goes on the residue list
-instead, with what was searched. The per-plan classification with quoted evidence
-is committed at `docs/superpowers/specs/probes/2026-08-26-ac-disposition-classification.md`
-and is this task's input.
+declines it (spec §4.2.1). So the count is one line per id: **34 ids at this
+head**, of which the residue keeps the unsettleable ones and the rest are
+migrated. `app-e2e-batch2` needs **five** edits, not six — its line 29 is AMBIGUOUS,
+so AC-4 is declined rather than unclaimed. Per spec §4.2 constraint 1 each edit
+states ONLY what that plan's prose already says, cited from its own line; per
+constraint 2 a plan whose prose settles nothing gets NO disposition and goes on the
+residue instead. The per-plan classification with quoted evidence is committed at
+`docs/superpowers/specs/probes/2026-08-26-ac-disposition-classification.md` and is
+this task's input.
 
 **Two rows carry into the migration verbatim** (spec §4.4), because on both the
 obvious disposition would be a lie.
 `docs/superpowers/plans/2026-08-16-server-action-origin-sweep.md` AC-8 is settled
 by the plan's own "no task (a spec-time derivation)" clause, re-exercised by its
-Task 5, so the disposition quotes that clause rather than writing a bare
-discharge. `docs/superpowers/plans/2026-08-22-mutation-score-jurisdiction-gap.md`
-AC-8 is discharged by a task the plan marks retired — the TASK is retired, not
-the criterion, so `RETIRED` there would be false.
+Task 5, so the disposition quotes that clause rather than writing a bare discharge.
+`docs/superpowers/plans/2026-08-22-mutation-score-jurisdiction-gap.md` AC-8 is
+discharged by a task the plan marks retired — the TASK is retired, not the
+criterion, so `RETIRED` there would be false.
 
 The residue is fail-closed and is a number that may go DOWN as owning arcs resolve
-their own plans, never up.
+their own plans, never up. **Re-measure at the shipping head before the final
+push**, because the population moves: §0.1 records 108 enrolled plans against the
+snapshot's 101, and a plan enrolled since is handled under the same four
+constraints. A migration edit touches a file another live arc may also be editing,
+so per the fleet rule a plan whose owning arc is mid-flight gets its disposition
+here only if the line is unchanged on origin at push time; otherwise it goes on the
+residue with "owning arc live" as the searched note.
 
-**The snapshot's lists are where the migration STARTS, not where it ends.** The
-101-plan measurement has no re-runnable producer — no probe script is committed
-and the `.report.txt` carries no provenance header — so this task's own arm is
-the instrument from here on. `grep -rl '<!-- tasks: depth=' docs/superpowers/plans
-| wc -l` returns 106 on the live tree against the 101 measured. Re-measure with
-the arm first and migrate what IT reports; the report's detail sections are the
-starting list. A plan enrolled since the snapshot that flags is handled under the
-same four constraints. One snapshot discrepancy settles at measurement time and
-not by hand:
-`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:29` appears in the report's
-AMBIGUOUS list while that plan's AC-4 appears in its UNCLAIMED list, and under v4
-a line is CERTAIN or AMBIGUOUS and never both.
+**The negative controls are part of the done condition, not extras.** Three, each
+run once and quoted. (a) Append one undisposed `- AC-99: planted` line to any
+enrolled plan in the worktree, run the corpus test, observe RED naming that plan
+and `AC-99`, revert. (b) Add
+`{ plan, id: "AC-99", kind: "unsettled", searched: "", nearMiss: "" }` to the
+residue and observe assertion 4 RED rather than the equality going green — this is
+what stops the residue becoming an allowlist. (c) Make the decline predicate
+unconditionally true and observe assertion 3 RED. A corpus test that survives any
+of the three is not the gate.
 
-**The negative control is part of the done condition, not an extra.** Append one
-undisposed `- AC-99: planted` line to any enrolled plan in the worktree, run the
-corpus test, observe RED naming that plan and `AC-99`, revert. A corpus test that
-stays green on the plant is not the gate.
+## Task 5: the ambiguous record
 
-## Task 5: the convention paragraph
+<!-- task: red=`pnpm vitest run tests/specLint/acAmbiguousCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-15-diagram-demote-notice/plan.md:39` why=`:39 declares AC-2 and AC-2b on one line, which v4 declines in both directions; the arm records it and this task asserts the live ambiguous set equals the committed record, so the assertion fails against an empty record file until every one of the 13 live lines is written into it` ac=AC-10 -->
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaSpecLintDocs.test.ts` red-state=authored red-target=`docs/agents/writing-plans.md:26` why=`writing-plans.md documents the red= and gate-command contract at :26 and says nothing about acceptance-criterion dispositions, so a plan author has no statement of the convention the arm now enforces; the docs assertion this task writes fails against the current file` ac=AC-6 -->
+**What is red and why:** the record file starts empty while 13 live multi-id
+declaring lines exist, so the equality fails on that difference. Its own file and
+its own command, because Task 4's red is satisfied by the unclaimed set alone: an
+implementation that shipped the unclaimed half and forgot the ambiguous half would
+show Task 4's full red-then-green cycle and pass its `AC-99` plant, which is
+precisely the silent decline AC-10 forbids.
+
+The record is `tests/specLint/acAmbiguousRecord.ts (new)`, exporting
+`AC_AMBIGUOUS_RECORD` — one typed row per multi-id declaring line, carrying the
+plan path, the 1-based line number and the ids on it. The test walks every enrolled
+plan from disk, calls Task 1's exported recognizer, and asserts exact equality in
+both directions under the same `premise()` guard. Fail-closed: a new multi-id
+declaring line is not in the record and reds until someone looks at it (spec §7
+limit 7).
+
+Its own negative control: change one recorded row's line number by one, observe RED
+naming that plan, revert.
+
+## Task 6: the convention paragraph
+
+<!-- task: red=`pnpm vitest run tests/docs/_metaSpecLintDocs.test.ts` red-state=authored red-target=`docs/agents/writing-plans.md:26` why=`writing-plans.md documents the red= and gate-command contract at :26 and says nothing about acceptance-criterion dispositions, so a plan author has no statement of the convention the arm now enforces; the docs assertion this task writes fails against the current file` ac=AC-11 -->
 
 ONE paragraph in `docs/agents/writing-plans.md` per spec §4.2 constraint 3 — NOT
-`AGENTS.md`. It states the convention, the accept-set direction, and that a
-disposition may only say what the plan already says.
+`AGENTS.md`. It states the convention, the accept-set direction, that a disposition
+may only say what the plan already says, that the arm declines rather than guesses
+on a line carrying more than one id, and — per §1.1 — that the decline is silent by
+design, carrying the measured reason (1078 rows across 96 plans for a full record,
+609 across 73 even when bounded to suppressing declines, because 42 enrolled plans
+declare in a table or a coverage map).
+
+Pinned on parsed properties of the paragraph, never on a substring of it —
+`tests/docs/agentsHeavyPhaseRule.test.ts` and
+`tests/docs/_metaAgentsMarkerContract.test.ts` are the shapes. Note for the
+insertion and not for repair: lines 26 and 28 are two near-identical copies of the
+red-contract bullet, and lines 27 and 29 two copies of the reconciliation bullet.
+Add one paragraph and leave the duplicates alone; they are a documented limit of
+that file and a note in the PR body, not this arc's repair.
 
 <!-- tasks: end -->
 
@@ -201,11 +400,37 @@ disposition may only say what the plan already says.
 ## 6. Acceptance criteria, inlined from spec §10
 
 - AC-4: `TASK_AC_UNCLAIMED` fires on a declared id no marker cites whose declaring line carries no disposition; hard, exit 1, rendered `FAIL`. A disposition on that line exempts it and nothing else, and an unrecognised disposition still reports.
-- AC-5: `TASK_AC_UNDECLARED` fires on a marker citing an id the plan does not declare, in a plan that declares at least one; no id ever draws two of the three codes.
-- AC-6: the corpus's unclaimed set equals the committed residue list exactly, walked from disk, fail-closed.
+- AC-5: `TASK_AC_UNDECLARED` fires on a marker citing an id the plan does not declare, in a plan that declares at least one and on an id no declined line carries; no id ever draws two of the three codes.
+- AC-6: the corpus's unclaimed set equals the committed residue list exactly, its `TASK_AC_UNDECLARED` set is empty over a provably non-empty declined set, and every residue row's quoted evidence is found at the line it names.
 - AC-10: the live AMBIGUOUS declaring-line set equals the committed record exactly; a new multi-id declaring line reds until someone looks at it.
 - AC-9: `taskContract` scores at or above its `scoreFloor` of 0.95 with zero unaccepted survivors at the shipping head (discharged by closeout)
+- AC-11: `docs/agents/writing-plans.md` carries one paragraph stating the convention, the accept-set direction, the decline on a multi-id line with its measured reason, and that a disposition may only say what the plan already says; pinned on parsed properties (plan-local, from spec §4.2 constraint 3 rather than from spec §10)
 
 ## 12. Closeout
+
+**AC-9 is a step, not a hope.** After Task 4, with the orchestrator's take on the
+single-slot mutation class lock, run `pnpm heavy:mutation pnpm mutation:guards`
+against the `taskContract` row at `tests/mutation/source/registry.ts:805`. The
+floor stays at `0.95` and `accepted` stays empty unless a survivor is genuinely
+equivalent, in which case its row carries `siteId`, `kind` and `reason` in the
+shape that registry already uses. Record `k/n` and the unaccepted-survivor count
+here and in the readiness message, and re-run at the shipping head if production
+changed after the first run.
+
+**The UNDECLARED sequence, recorded because it is this arc's own measurement:** the
+code reds 9 plans / 71 ids under the opt-in rule alone, 2 plans / 5 ids once the
+count cut is applied symmetrically (§1.1), and 0 after those two plans are migrated
+in Task 4.
+
+**Documented limit — the symmetric decline is silent, and here is the number that
+bought it.** A per-row record of declined lines measures 1078 rows across 96 plans,
+or 609 across 73 bounded to declines that suppress a finding, because 42 enrolled
+plans declare their criteria in a table or a coverage map. An exact-equality record
+that size reds on any routine plan edit anywhere in the corpus, so the loudness is
+placed on the empty-`TASK_AC_UNDECLARED` assertion instead. Restated in the archive
+entry and in the `docs/agents/writing-plans.md` paragraph.
+
+**No `BL-`/`DEF-` row is filed, of any facing.** A peer defect goes in the PR body
+under "Unfixed peers" and to the orchestrator in the readiness message.
 
 impeccable-gate: N/A — no UI surface
