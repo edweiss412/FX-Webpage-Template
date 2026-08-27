@@ -1,3 +1,85 @@
+## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** XS · **Shipped by:** `chore/private-image-postmerge-probe` · **Class:** VERIFICATION DEBT · **Evidence:** https://github.com/edweiss412/FX-Webpage-Template/pull/761#issuecomment-5441921368
+
+Plan Task 11 step 6 (`docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md`) requires one
+validation-project sync of a diagram-bearing show showing (a) variant objects in storage and (b) no
+module-resolution telemetry, recorded as a comment on the merged PR (#761, merged
+`8739556586e5441d1b4f3fb905fe580c58b19b4e`). It was NOT run.
+
+**Why it could not be run at close-out, and this is measured rather than assumed:** the probe
+exercises the DEPLOYED validation app — `scripts/validation-smoke.ts` is deployed-side by
+construction ("agent smoke test of the DEPLOYED validation app", and its prerequisites are Vercel
+validation-project env vars). At merge time Vercel refused deployments account-wide:
+`Deployment rate limited — retry in 24 hours`, visible on PR #761's checks. No deploy, no sync, no
+evidence. The half that needs no deploy — that `sharp` resolves under a production-only install —
+WAS run pre-merge and is recorded in the arc (`pnpm install --prod && node -e "require('sharp')"`,
+resolving 0.34.5 after the dependency move).
+
+**The probe, verbatim, so this is a step rather than an intention:**
+
+1. Confirm the validation deployment carries the merge commit above.
+2. Trigger one sync of a diagram-bearing show against validation.
+3. `select name from storage.objects where bucket_id='diagram-snapshots'` — assert `@<width>.webp`
+   objects sit beside their originals under the show's current `snapshot_revision_id` prefix.
+4. `pnpm observe --env validation` — assert no module-resolution fault, and specifically no
+   `DIAGRAM_VARIANT_GENERATION_FAILED` row whose `error` names a missing module.
+5. Post the transcript as a comment on PR #761 and replace this entry's pointer in the plan's §12.
+
+**Why it is filed rather than left in the plan:** its only record was a step inside Task 11 of a plan
+whose other ten tasks are done. §12 was supposed to pre-carry a pointer and did not — that omission
+is the reason this row exists, and §12 now points here.
+
+**What is at risk if it is never run:** low but real. The failure it would catch is `sharp` failing to
+resolve or produce variants in the deployed Node runtime, which degrades silently — originals still
+render, so the only signal is telemetry nobody is reading. The production defect this arc already
+found by probe (sharp sitting in `devDependencies`) is exactly that shape, which is the argument for
+finishing the check rather than assuming the fix held.
+
+**It ran on 2026-08-27, and it passes.** Both numbers land. Fact (a): **5** `@<width>.webp` variant
+objects sit beside their **2** originals under the synced show's current `snapshot_revision_id`
+prefix (`shows/66d06361-…/1b950325-6f83-4988-94d3-240bcfa91b4d/`), 7 objects in total. Fact (b): **0**
+`DIAGRAM_VARIANT_GENERATION_FAILED` rows for all time, so none naming a missing module. `sharp`
+resolves and produces variants on the deployed runtime, which is the half a production-only install
+could only approximate. Transcript, with the baseline and every command:
+https://github.com/edweiss412/FX-Webpage-Template/pull/761#issuecomment-5441921368
+
+**The count was predicted before the sync, which is what makes it evidence.** The ladder emits a
+width only when strictly less than the original's, so measuring the two live originals (791x857 and
+1202x928) fixed the answer at 5 in advance. A pass is a match against that prediction rather than a
+reading of whatever turned up. The manifest's `variantWidths` agree with the storage listing, and its
+`intrinsicWidth`/`intrinsicHeight` match the two originals measured from their bytes before the sync;
+both queries are in the transcript.
+
+**Why seventeen days of deployment produced zero variants, which is the part worth keeping.**
+Between PR #761's merge (`8739556586`, 2026-08-10T09:17:15-05:00) and the manual sync, `sync_log`
+holds **4826** rows for this show and every one of them is `watermark`, with no row of any other
+status in the window. The watermark skip is reachable only in automatic mode
+(`lib/sync/perFileProcessor.ts:276-278`; `isAutomaticMode` is `cron | push`), and manual mode
+re-applies even an unchanged sheet (`lib/sync/runManualSyncForShow.ts:538`).
+
+State it no more strongly than the code allows: the cron skip is NOT unconditional. The same file
+carries three escapes that proceed on an unchanged sheet, at `:322` (`last_sync_status =
+'sheet_unavailable'`, proceeds in `recovery`), `:327` (`snapshot_status = 'partial_failure'`,
+proceeds in `asset_recovery`) and `:341` (cron with `roleVocabDriftEligible` and no live pending
+sync). None applied, because the show was healthy on both fields those escapes read
+(`last_sync_status = 'ok'`, `snapshot_status = 'complete'`). So the claim that holds is the narrow
+one: for a HEALTHY show whose sheet has not changed, no scheduled path reaches the snapshot stage,
+and this show was in that state for all 4826 polls. A show sitting in `sheet_unavailable` or
+`partial_failure` would have been picked up by a recovery path automatically.
+
+The row's "degrades silently" worry was right about the mechanism and understated the reach: for a
+healthy show the evidence was not merely unread, it was unproducible by waiting.
+
+**One side effect, named rather than tidied away.** The resync raised one new alert,
+`RESYNC_QUALITY_REGRESSED` (16:09:18Z, on this show). Attributing it to the sheet's pre-existing
+`#REF!` breakage rather than to this pipeline is an INFERENCE from the `REF_ERROR_LITERAL` warnings
+the same sync returned, not something a query establishes. It is left standing rather than resolved,
+because it is a real signal about the sheet. It reaches nobody by email: `SYNC_PROBLEM_CODES`
+(`lib/notify/constants.ts:2-8`) does not include it and `lib/notify/monitorDigest.ts:164` skips a
+quality regression outright. `pending_syncs` was queried either side of the sync and held 0 both
+times.
+
 ## BL-SPECLINT-AC-UNCLAIMED — a plan could declare an acceptance criterion that no task was scheduled to prove — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** M · **Shipped by:** `feat/speclint-ac-unclaimed-arm` · **Spec:** `docs/superpowers/specs/2026-08-26-speclint-dispatch-gates-design.md` §4.2 branch (A) · **Plan:** `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md`
@@ -13181,3 +13263,28 @@ five further legs in the warn band (>75% of 3600 s)
 **What is genuinely closed here** is the row as filed: the `budget` job failed on four of four legs at `N = 4`, and at `N = 8` it passes on six of eight with one over. That is a repair, not a fiction. What is NOT closed is the growth curve underneath it, which is why this row graduates with the breach recorded instead of a clean subsumption.
 
 **Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`**, and the distinction held all the way to closure: that row is the source gate's COVERAGE failure set and explicitly disclaims the budget half. This was the `budget` job — a different job, a different failure, a different repair, closed by a different PR.
+
+## BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION — a clip ancestor that starts clipping is never observed, and the stale cap is silent — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 by `fix/fitwithinclip-stale-clip-subscription` · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, spec review R12 finding 1) · **Facing:** product · **Severity (as filed):** MEDIUM · **Class:** subscription freshness · **Effort (as shipped):** M · **Reachability:** PROBED, and the probe is the acceptance evidence below.
+
+`useFitWithinClip` resolved its observed ancestors once per ATTACH and wired its `ResizeObserver` from that one resolution. `apply()` re-walked on every invocation so the CAP was always recomputed, but the SUBSCRIPTION set never was, so an ancestor that started clipping after the attach was never observed and its resizes delivered nothing: neither correct nor signaled.
+
+**The done condition, as the row asked for it.** The filed transcript re-run against the shipped hook, same fixture, same geometry:
+
+```
+STALE   NEW_CLIP_RESIZE cap="322px" targets=[["inner"]]  deliverable=0 expectedCap="222px" diagnostics=0
+SHIPPED NEW_CLIP_RESIZE cap="222px" targets=[["outer"]]  deliverable=1 expectedCap="222px" diagnostics=0
+```
+
+The cap now equals the expected cap and the new clip ancestor's own resize is deliverable. `(h25)` in `tests/components/admin/useFitWithinClip.test.tsx` is that transcript as a deciding case; the suite went 33 to 47.
+
+**What shipped, beyond the row.** Three things the row did not name and the arc found:
+
+1. **The two roles alias.** `ResizeObserver` stores element TARGETS, not role-scoped subscriptions, so reconciling the clip and positioned roles independently makes one role's `unobserve` remove an element the other still wants. That is the likely shape of a `position: relative; overflow: clip` modal panel, which is where the one live consumer sits. The observer's target set is now DERIVED from the roles and reconciled by set difference, which cannot express the mistake. Five cases, `(h27)` to `(h31)`.
+2. **The wrong box.** `observe()` defaults to the CONTENT box while the cap is computed from two `getBoundingClientRect()` reads, which are border-box rectangles. Padding toggled from state on an auto-height ancestor moved the clip edge with the content box unchanged, so nothing was delivered and nothing warned. Pre-existing since the hook was written; every `observe()` now passes `{ box: "border-box" }`.
+3. **The positioned ancestor had the same defect as the clip one**, resolved once at the attach with its `transitionend` listener filtering against that attach-time value. Repaired under the class-sweep default rather than filed.
+
+**Not closed, and deliberately.** The cap arithmetic mixes coordinate spaces: `getBoundingClientRect()` reports post-transform viewport coordinates while `max-height` is an untransformed length, so a persistent scale on the chain writes a silently wrong cap. It is the MEASURE path, pre-existing on every version of the hook, and its repair is a coordinate-space redesign this branch does not open. Ratified 2026-08-27 as a documented limit rather than a row, recorded as L-8 in the spec with a re-file trigger: a consumer whose clip ancestor carries a CSS transform.
+
+**Spec:** `docs/superpowers/specs/admin/2026-08-27-fitwithinclip-clip-subscription.md` (limits L-1 to L-9). **Plan:** `docs/superpowers/plans/2026-08-27-fitwithinclip-clip-subscription.md`. **Review rounds:** `docs/review-rounds/fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md`, four spec and four plan rounds, nineteen findings, all accepted.

@@ -8,6 +8,30 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
+## BL-SPECLINT-EXPECT-N-EXIT-STATUS — a plan command's stated expectation is not enforced by its exit status
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`docs/ledger-lim-mechanization-rows`; owner-directed 2026-08-27 from the `docs/lim-slug-convention` session, which is the scheduling decision) · **Facing:** process · **Mint-exception:** product-blocked · **Severity:** MEDIUM (a declared gate that collects nothing reads as green) · **Class:** spec-lint mechanization · **Effort:** S · **Incident:** `fix/fitwithinclip-stale-clip-subscription` (product-facing, `BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION`), plan round 2 P1, 2026-08-27: a declared Playwright regression gate collected `0 tests in 0 files` because the command omitted `--config tests/e2e/standalone.config.ts`, and nothing in the plan's command enforced its expectation; caught by the reviewer at round 2, not at authoring time (filing `docs/review-rounds/fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md`, plan section, second note). · **Reachability:** PROBED — the filing quotes the command and its collection count.
+
+Index entry: `LIM-EXPECT-N-COMMENT` in `docs/review-rounds/LIMITS.md` (named by `fix/premisescan-registrar-accept-sets` and `ci/app-e2e-batch2`; its own re-file trigger was "a second arc burns review rounds on this class", met by the app-e2e-batch2 filing and now by a product arc). The shape: a `# expect 0` comment beside a `grep -c` that prints and moves on, a deliberately red proof whose nonzero exit is masked by a pipe, a measurement selector that can print nothing and still exit 0, and the Playwright form above (a gate whose `--list` collects zero tests). Nothing is mechanized today; `spec:lint --exec-red` derives a `vitest list` probe for vitest-shaped `red=` targets and has no Playwright or `# expect N` arm.
+
+**Done condition, as a number outside the process:** the clipsub plan's round-2 command, re-run through `spec:lint`, is flagged at authoring time (zero collection named, not believed), and a `# expect N` comment beside a command whose exit status does not encode N is flagged the same way; measured on the live plans corpus with zero false advisories (the same closable form the AC arm used). This is the cheaper, sharper first target of the two rows minted 2026-08-27.
+
+**Trigger:** owner-directed; schedule as the next process arc.
+
+---
+
+## BL-SPECLINT-RED-TRUTH-PROBE — a declared `red=` that cannot be red for its stated reason, and nothing executes it to find out
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`docs/ledger-lim-mechanization-rows`; owner-directed 2026-08-27 from the `docs/lim-slug-convention` session, which is the scheduling decision) · **Facing:** process · **Mint-exception:** product-blocked · **Severity:** MEDIUM (a task whose red can never turn green burns a review round per instance and stalls the arc that owns it) · **Class:** spec-lint mechanization · **Effort:** M · **Incident:** `fix/mi11-removal-fallback-live-row` (product-facing, `BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE`), plan round 1 BLOCKING/8 on 2026-08-27: two tasks could not turn green at all, both the same shape (the test writes state where the code does not read it: Task 2 diverged the crew member's database row while `applyParseResult` reads `previousCrewMembers` from the `snapshot()` argument; Task 3 set the transaction role to `authenticated` for the reject RPC and never restored it, and `sync_holds` revokes all from that role, so the hold read died on a permission error before reaching the site under test). Corpus row `docs/review-rounds/fix/mi11-removal-fallback-live-row/4cb585b3508a.jsonl`, stage plan, round 1. · **Reachability:** PROBED — the two findings are quoted in that arc's plan repair commit history.
+
+Index entry: `LIM-AUTHORED-RED` in `docs/review-rounds/LIMITS.md`, named by six arcs (the strongest recurrence in the corpus) and fenced out of scope by `docs/superpowers/specs/2026-08-15-spec-lint-intent-red-arms.md` (mechanizing existence-of-declaration is that arm; truth-of-claim is not). Collectability is already mechanized in `lib/specLint/redContract.ts`; this row is the unmechanized truth half: a plan `red=` already green at the merge base, or a killing case that passes against clean production the moment it is written. The index's own re-file trigger ("a product-facing arc measurably blocked by a red that could not fire") is met by the incident above.
+
+**Done condition, as a number outside the process:** for every `red=` target in a plan under review, `spec:lint --exec-red` (or its successor) runs the target against the merge base and reports GREEN-AT-BASE when it passes, so the holdstale round-1 pair is flagged before dispatch; measured on the live plans corpus with the false-advisory count at zero. Rounds per product-arc plan stage is the number that should move.
+
+**Trigger:** owner-directed; schedule after `BL-SPECLINT-EXPECT-N-EXIT-STATUS`.
+
+---
+
 ## BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG — a hung switch-person clear dims the menu row for good
 
 **Status:** OPEN · **Filed:** 2026-08-25 (`feat/switch-person-google-signout`, impeccable critique P1 at the invariant-8 gate) · **Facing:** product · **Severity:** LOW (needs a server action that never settles; a reload recovers) · **Class:** UX resilience · **Effort:** S · **Reachability:** INFERRED, NOT PROBED — reachable when the `clearIdentity` server action never settles (a stalled sign-out round trip, now part of that action); the probe that settles it is a `deferred()` clear in `tests/components/auth/avatarMenu.test.tsx` left unresolved past the timeout under fake timers, asserting the row re-enables and the status region clears. That probe is the first scheduled step.
@@ -26,44 +50,6 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 **Class-sweep exception (c).** The repair is an emit in `lib/admin/**`, which pulls application review
 surface into a PR whose brief scopes it to workflow, scripts and docs.
-
-## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
-
-**Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
-
-Plan Task 11 step 6 (`docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md`) requires one
-validation-project sync of a diagram-bearing show showing (a) variant objects in storage and (b) no
-module-resolution telemetry, recorded as a comment on the merged PR (#761, merged
-`8739556586e5441d1b4f3fb905fe580c58b19b4e`). It was NOT run.
-
-**Why it could not be run at close-out, and this is measured rather than assumed:** the probe
-exercises the DEPLOYED validation app — `scripts/validation-smoke.ts` is deployed-side by
-construction ("agent smoke test of the DEPLOYED validation app", and its prerequisites are Vercel
-validation-project env vars). At merge time Vercel refused deployments account-wide:
-`Deployment rate limited — retry in 24 hours`, visible on PR #761's checks. No deploy, no sync, no
-evidence. The half that needs no deploy — that `sharp` resolves under a production-only install —
-WAS run pre-merge and is recorded in the arc (`pnpm install --prod && node -e "require('sharp')"`,
-resolving 0.34.5 after the dependency move).
-
-**The probe, verbatim, so this is a step rather than an intention:**
-
-1. Confirm the validation deployment carries the merge commit above.
-2. Trigger one sync of a diagram-bearing show against validation.
-3. `select name from storage.objects where bucket_id='diagram-snapshots'` — assert `@<width>.webp`
-   objects sit beside their originals under the show's current `snapshot_revision_id` prefix.
-4. `pnpm observe --env validation` — assert no module-resolution fault, and specifically no
-   `DIAGRAM_VARIANT_GENERATION_FAILED` row whose `error` names a missing module.
-5. Post the transcript as a comment on PR #761 and replace this entry's pointer in the plan's §12.
-
-**Why it is filed rather than left in the plan:** its only record was a step inside Task 11 of a plan
-whose other ten tasks are done. §12 was supposed to pre-carry a pointer and did not — that omission
-is the reason this row exists, and §12 now points here.
-
-**What is at risk if it is never run:** low but real. The failure it would catch is `sharp` failing to
-resolve or produce variants in the deployed Node runtime, which degrades silently — originals still
-render, so the only signal is telemetry nobody is reading. The production defect this arc already
-found by probe (sharp sitting in `devDependencies`) is exactly that shape, which is the argument for
-finishing the check rather than assuming the fix held.
 
 ## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
 
@@ -418,51 +404,3 @@ that shows open-time reflow cost is material on the shows dashboard.
 `tests/e2e/rowactions-geometry.spec.ts`, to establish whether the third run's placement is ever
 DIFFERENT from the second's — if it never is, the convergence step is dead weight and the repair
 narrows to the gated effect.
-
----
-
-## BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION — a clip ancestor that starts clipping is never observed, and the stale cap is silent
-
-**Status:** OPEN · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, spec review R12 finding 1) · **Facing:** product · **Severity:** MEDIUM (a wrong cap on a shipped admin overlay with no diagnostic; reachable only when an ancestor's overflow changes without a re-attach) · **Class:** subscription freshness · **Effort:** M · **Reachability:** PROBED — the transcript below, and it is IDENTICAL on the current hook and on the refactor, so this is pre-existing and not introduced.
-
-`useFitWithinClip` resolves the clip ancestor once per ATTACH and wires its `ResizeObserver` from that
-result. `apply()` re-walks on every invocation, so the CAP is recomputed correctly on every signal —
-but the SUBSCRIPTION set is never updated. If an ancestor starts clipping after the attach, the
-overlay's cap corrects on the next signal and then goes stale, because the newly-clipping ancestor is
-not observed and its resizes deliver nothing.
-
-Probed on the existing two-ancestor unit topology: mount unclipped, make `outer` clip, deliver a
-window resize, then resize only the new clip ancestor. Byte-identical on both hooks:
-
-```
-STALE ATTACH_UNCLIPPED   cap=""      liveObservers=1 targets=[["inner"]]
-STALE RERENDER_NOW_CLIPS cap=""      liveObservers=1 targets=[["inner"]]
-STALE AFTER_SIGNAL       cap="322px" liveObservers=1 targets=[["inner"]]
-STALE NEW_CLIP_RESIZE    cap="322px" liveObservers=1 targets=[["inner"]] deliverable=0 expectedCap="222px" diagnostics=0
-```
-
-The last line is the defect: the correct cap is 222px, the written cap is 322px, nothing was
-delivered, and the floor-clamp diagnostic did not fire because the geometry is not floor-clamped. So
-the outcome is **neither correct nor signaled** — the one outcome the hook's own consequence bound
-forbids.
-
-**Why it is not repaired in the arc that found it.** That arc's subject is the MEASURE path: how many
-times `apply()` runs and how many times the chain is walked. This is the SUBSCRIPTION path, a
-different mechanism with no overlap in the diff, and the repair is a behaviour change to a path the
-arc never touches — re-resolving the observed set when the resolved clip differs, which needs its own
-cases and its own mutant. Repairing it there would have been an unreviewed behaviour change smuggled
-into a measure-count refactor. **Class-sweep exception (c):** a redesign of a surface the PR does not
-otherwise change, in a different class from the one being swept.
-
-**Reachability bound, stated so the severity is not overread.** An ancestor's `overflow` changing
-without a re-attach is uncommon: on the three shipped consumers the clip ancestor is the review-modal
-panel, which is `overflow-clip` for its whole life. The probe constructs the transition directly. No
-live surface is known to take it today, which is why this is MEDIUM rather than HIGH — but the
-consequence when it is taken is a silently wrong cap, which is why it is filed rather than demoted.
-
-**Trigger:** any consumer whose clip ancestor's `overflow` becomes non-`visible` from state, or a
-fourth consumer whose ancestor chain is not the review-modal panel.
-
-**First scheduled step:** decide between re-resolving the observed set inside the coalesced path
-(cheap, but adds a disconnect/rebuild per signal that finds a different clip) and observing the whole
-ancestor chain up to the clip (steadier, more observers). Both need the probe above as their red.
