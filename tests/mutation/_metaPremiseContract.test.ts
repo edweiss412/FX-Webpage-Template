@@ -74,6 +74,17 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // must classify at least one test" case below is what keeps this zero from being
   // satisfied vacuously by a file the scanner cannot parse.
   "tests/mutationWeight/instrument.test.ts": 0,
+  // The two observe deciding suites, enrolled 2026-08-27 by fix/observe-error-telemetry.
+  // Both MEASURED with classifyTests against this tree (32 and 12 cases classified,
+  // 0 environment-touching), not reasoned about. Both are pure projection tests: the
+  // transport suite drives an injected `sendBeacon`/`fetch` pair and the value suite
+  // calls a total function on literals, so neither spawns a child nor reads
+  // `process.env` — the only two things the classifier counts as touching
+  // (tests/mutation/source/premiseScan.test.ts:70-113). The 32 and 12 are what keeps
+  // these zeros attributable: the "every enrolled suite must classify at least one
+  // test" case below reds if the scanner ever stops reading either file.
+  "tests/observe/clientErrorTransport.test.ts": 0,
+  "tests/observe/describeClientValue.test.ts": 0,
   // The AC coverage suites, enrolled 2026-08-25. Counts are MEASURED against this
   // tree rather than reasoned about: the CLI suite's two are what the classifier
   // reports, and the other three declare 0. The corpus suite reads the plan tree

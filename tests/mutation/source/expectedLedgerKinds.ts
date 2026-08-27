@@ -27,6 +27,24 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // surface's first and owes its own argument — the module is 60 lines of straight-line transport
   // handling, so an equivalence claim on it should be viewed with suspicion rather than accepted.
   observeTransport: {},
+  // The client crash transport, enrolled 2026-08-27 by fix/observe-error-telemetry.
+  // Declares an EMPTY ledger: 55/55, every mutant killed, no proven equivalence and no
+  // accepted gap. It did not start there — the first run was 41/64 with 23 survivors,
+  // on a surface three adversarial diff rounds had already cleared — and the repairs
+  // that closed the gap were tests plus the DELETION of three branches whose mutants
+  // nothing could kill: an encoded-form scrub pass (hex never percent-encodes, so it
+  // could not fire), a length guard the token's shape test made redundant, and a
+  // re-scrub sweep that was a no-op on every reachable input. A row appearing here
+  // later should be read against that history: on this surface an unkillable mutant
+  // has twice meant dead code rather than a proven equivalence.
+  clientErrorTransport: {},
+  // The non-Error crash projection, enrolled the same day. ONE equivalent row, for the
+  // `catch { detail = "" }` arm: `tag` is total and `render` walks a value
+  // serializeError has already reduced to primitives, so nothing reaches it. Probed
+  // directly with a throwing `toString` and a throwing `valueOf`, both of which degrade
+  // to `{}` first. The arm stays as the module's totality guarantee — it runs on a
+  // crash path, where being the thing that breaks is the one unacceptable outcome.
+  describeClientValue: { equivalent: 1 },
   // The invariant-10 discovery engine, enrolled 2026-08-17. The first scored run
   // reported 64 survivors on `enumerate.ts` (score 0.6168) and 5 on totality.ts
   // (0.75); the module had one deciding suite and a large pre-existing surface
