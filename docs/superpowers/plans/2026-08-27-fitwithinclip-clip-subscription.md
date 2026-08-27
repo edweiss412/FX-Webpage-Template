@@ -56,7 +56,7 @@ The criteria are declared in the spec's §8 and are not re-declared here, so the
 | AC-5 positioned role and listener follow | 2 | A positioned swap with no re-attach. |
 | AC-6 a resolved null retains that role and its target | 4 | Both roles, each with its own plant. |
 | AC-7 no ResizeObserver: no throw, window resize still correct | 4 | The existing `(f)` extended to the new transition and to every reconcile site. |
-| AC-8 one extra apply when the reconcile adds a target WITH A BOX, zero otherwise | 4 | The existing counting cases `(h)`, `(h8)`, `(h15)`, `(h17)`, `(h13)` stay green, plus apply-count and walk-count deltas across all four delta classes: adds-with-a-box, adds-only-0x0, removes-only, neither. Run with `deliverInitial: true`. |
+| AC-8 one extra apply when the reconcile adds a target WITH A BOX, zero otherwise | 4 | The existing counting cases `(h)`, `(h8)`, `(h15)`, `(h17)`, `(h13)` stay green, plus apply-count and walk-count deltas across all four delta classes: adds-with-a-box, adds-only-0x0, removes-only, neither. Expected deltas 1, 0, 0, 0 for BOTH counts, since a walk rides every apply. Run with `deliverInitial: true`. |
 | AC-10 every observe requests `{ box: "border-box" }` | 1 | The recorded observe calls, at attach and after a reconcile. Argument-level, with its limit stated: jsdom computes no layout. |
 | AC-9 both halves: nothing wanted is unobserved, nothing held is re-observed | 3, 4 | Task 3 asserts the first half on every arrangement where a role re-targets away from an element the other role still wants; task 4 asserts the second from the observe log, which is the only place it is visible. |
 
@@ -72,17 +72,31 @@ The criteria are declared in the spec's §8 and are not re-declared here, so the
 
 ## The real-browser half, which no jsdom case can carry
 
-Spec §4.3 claims that conditional re-targeting is what makes the coalesced path terminate, because `ResizeObserver.observe()` delivers an initial observation. **Every stub in the unit suite fires only when a test tells it to, so no unit case can observe that delivery, and therefore no unit case can prove or refute the termination claim.** A unit suite that appeared to prove it would be proving a property of the stub.
+Spec §4.3 claims that conditional re-targeting is what makes the coalesced path terminate, because `ResizeObserver.observe()` delivers an initial observation.
+
+**What a stub can and cannot settle, stated precisely, because round 1's repair changed the answer and round 2 caught the two halves contradicting each other.** Task 4's four AC-8 cases run the stub with `deliverInitial: true`, so they DO observe an initial delivery and they are the actual proof of AC-8's arithmetic. What they cannot do is check the MODELLING ASSUMPTION underneath: that the real platform delivers once for an added target with a box, and stays silent for one that is 0x0. A unit suite asserting against its own model proves the model is self-consistent and nothing else.
 
 The real cover already exists: `tests/e2e/popover-clip-fit.spec.ts` drives the one live consumer in a real browser, including the settled fit, the animated path that awaits `transitionend`, containment against the clip edge, and the held-open flip that lands mid-entrance (`tests/e2e/popover-clip-fit.spec.ts:271`, `tests/e2e/popover-clip-fit.spec.ts:308`, `tests/e2e/popover-clip-fit.spec.ts:332`, `tests/e2e/popover-clip-fit.spec.ts:409`, `tests/e2e/popover-clip-fit.spec.ts:447`). Under a non-terminating re-measure loop those cases do not fail subtly; they thrash and time out.
 
-**What it does and does not verify, stated so the plan does not overclaim.** It verifies TERMINATION, because a non-terminating re-measure loop makes those cases thrash and time out rather than fail subtly. It does NOT verify AC-8's exact apply count and it does not induce a subscription addition at all: no shipped consumer takes the transition, which is the row's own reachability bound. The apply-count arithmetic is proved by the unit cases with `deliverInitial: true`, and this suite is the regression gate around them. Plan review round 1 was right to catch the earlier wording implying otherwise.
+**What it does and does not verify, stated so the plan does not overclaim.** It verifies TERMINATION on the real platform, because a non-terminating re-measure loop makes those cases thrash and time out rather than fail subtly. It does NOT verify AC-8's exact apply count, and it induces no subscription addition at all: no shipped consumer takes the transition, which is the row's own reachability bound. AC-8's arithmetic is task 4's; this suite is the regression gate around it and the only place the stub's modelling assumption meets a real `ResizeObserver`.
 
 So the termination claim is verified by running that suite on the shipping head, wrapped, since a non-interactive Playwright run is a heavy phase:
 
-`pnpm heavy pnpm exec playwright test tests/e2e/popover-clip-fit.spec.ts`
+`pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts`
 
 It is stated here rather than as a `red=` because it is green before this arc and must stay green after. It is a regression gate, not a red-then-green cycle, and pretending otherwise would manufacture a red the branch does not have.
+
+**The `--config` is load-bearing and the earlier draft omitted it, which made this a fail-open gate.** `popover-clip-fit` appears only in the standalone config's `testMatch` (`tests/e2e/standalone.config.ts:86`), and the suite's own header says so (`tests/e2e/popover-clip-fit.spec.ts:26`). Run at plan time under both, because a declared gate is verified by RUNNING it and never by reading it:
+
+```
+$ pnpm heavy pnpm exec playwright test tests/e2e/popover-clip-fit.spec.ts --list
+Total: 0 tests in 0 files
+$ pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts \
+    tests/e2e/popover-clip-fit.spec.ts --list
+Total: 34 tests in 1 file
+```
+
+Zero collected is the whole failure: a gate that collects nothing observes nothing, and 34 is the number the closeout must see.
 
 <!-- tasks: depth=2 -->
 
@@ -171,7 +185,9 @@ Cases, one per row of spec §5 plus the three invariants:
   3. only removes: zero;
   4. neither: zero.
 
-  Walk counts unchanged in all four. **These four are the only cases in the suite that run the stub with `deliverInitial: true`**, and the case body says why: the criterion is ABOUT the initial observation, and the default stub emits none, so plan round 1 was right that the previous draft's addition case could not prove the follow-up apply it promised. With the flag off, class 1 and class 2 are indistinguishable, which is precisely the distinction the spec's cost rule turns on.
+  **Walk counts TRACK apply counts exactly: 1, 0, 0, 0, not "unchanged".** `apply()` walks the chain on every invocation (`components/admin/useFitWithinClip.ts:81`), so the one extra apply in class 1 necessarily carries one extra walk, and an expectation of "unchanged" could not go green after a correct implementation. Round 2 caught it; the earlier wording would have made this task unpassable. The walk assertion is kept rather than dropped because it is what pins the ratio: one apply, one walk, and never an apply that walks twice.
+
+  **These four are the only cases in the suite that run the stub with `deliverInitial: true`**, and the case body says why: the criterion is ABOUT the initial observation, and the default stub emits none, so plan round 1 was right that the previous draft's addition case could not prove the follow-up apply it promised. With the flag off, class 1 and class 2 are indistinguishable, which is precisely the distinction the spec's cost rule turns on.
 
   Plants: call `apply()` twice in the coalesced path (catches all four); drop the difference guard so the follow-up re-observes (catches class 1, and it is §4.3's loop caught at one frame's remove); make `observe()` deliver unconditionally in the stub's model (catches class 2, and it is the plant that proves the 0x0 arm is not decorative).
 
@@ -190,7 +206,9 @@ This task's `red=` greps for a `| plant-N |` row rather than for the heading abo
 
 **What is red and why.** Before the task the closeout marker line is absent, the row is still open in `BACKLOG.md` carrying its IN PROGRESS marker, the archive holds nothing under this id, and `BACKLOG_GRADUATED` has no row for it. Each is a non-zero exit; all four hold after, on the same command. Run against the live tree at plan time, and each half was confirmed red: the marker regex misses (no marker line exists), the open-queue grep HITS at `BACKLOG.md` heading level 2 and so takes the `exit 1`, and the archive extraction yields zero lines.
 
-Run `pnpm heavy pnpm exec playwright test tests/e2e/popover-clip-fit.spec.ts` at the shipping head and record the counts, per the section above. **That is why this task cites AC-8** and not the row's own AC-4: the apply-count bound rests on a real `ResizeObserver` delivering an initial observation, which no stub in the unit suite delivers, so the closeout run is the only executable check the bound gets. Task 1 discharges AC-4. The hook file lives under `components/admin/`, so the invariant-8 dual gate runs on the diff even though no render path changes. The gate command accepts only the RAN form and NOT the `N/A` one, deliberately: this arc runs the pair, so accepting `N/A` would be grammar the closeout can never legally use, and a gate that accepts an outcome the task forbids is a gate with a hole in it. Expect "no visual change" dispositions; record them rather than skipping the gate.
+Run `pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts` at the shipping head and record the counts (34 collected, per the probe above), per the section above.
+
+**Why this task cites AC-8, restated after round 2 caught the earlier rationale being false.** It is NOT that no stub can deliver an initial observation; task 4's stub does, and task 4 is where AC-8's arithmetic is proved. It is that task 4 proves the arithmetic against a MODEL of the platform, and this run is the only executable check that the model matches a real `ResizeObserver`: a hook that loops against the real one cannot pass these cases. Task 5 discharges AC-8's modelling premise, task 4 discharges its count, and task 1 discharges AC-4. The hook file lives under `components/admin/`, so the invariant-8 dual gate runs on the diff even though no render path changes. The gate command accepts only the RAN form and NOT the `N/A` one, deliberately: this arc runs the pair, so accepting `N/A` would be grammar the closeout can never legally use, and a gate that accepts an outcome the task forbids is a gate with a hole in it. Expect "no visual change" dispositions; record them rather than skipping the gate.
 
 The ledger row graduates into `BACKLOG-archive.md` and its IN PROGRESS marker comes off in this branch's LAST commit, before readiness, so no marker reaches main. The archived section names `fix/fitwithinclip-stale-clip-subscription` in its own prose, because the marker was the section's only mention of the branch and the graduation guard asserts the replacement rather than the deletion.
 
