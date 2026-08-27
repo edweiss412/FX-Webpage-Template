@@ -41,13 +41,6 @@ Design ratified at `docs/superpowers/specs/2026-08-26-speclint-dispatch-gates-de
 
 **The reverse direction is a second real defect,** not a symmetry nicety. `TASK_AC_UNRESOLVED` fires on an id absent from the plan's TEXT, which a passing mention in prose satisfies — so a marker may cite `ac=AC-9` against a plan that merely mentions AC-9 in a sentence, without AC-9 ever being a declared criterion.
 
-## BL-ADMIN-LOADER-INFRA-ERROR-TELEMETRY-SILENT — the loader is telemetry-silent on the fault this instrument measures
-
-**Status:** IN PROGRESS · **Branch:** fix/observe-error-telemetry · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** MEDIUM (a diagnosable fault leaves no trace in the job log) · **Class:** observability · **Effort:** S · **Incident:** this arc's own diagnosis. `lib/admin/loadRecentAutoApplied.ts` imports `log` (`:28`) and none of its five `infra_error` return sites (`:145`, `:170`, `:176`, `:231`, `:241`) emit anything, so attributing run 32528532727 required downloading the failure artifact inside its 7-day retention window rather than reading a log. A code-carrying emit would have named it from the log. · **Reachability:** PROBED — the five return sites are read directly.
-
-**Class-sweep exception (c).** The repair is an emit in `lib/admin/**`, which pulls application review
-surface into a PR whose brief scopes it to workflow, scripts and docs.
-
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
 **Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
@@ -302,16 +295,6 @@ Promotion path these were filed under, retained: spec at `docs/superpowers/specs
 plan tree at `docs/superpowers/plans/<date>-<name>/`, a milestone number, then list it in
 `docs/superpowers/plans/README.md`. Promotion is gated like any milestone — brainstorming, spec
 self-review, adversarial review, planning, adversarial review.
-
-### BL-REPORT-CLIENT-ERROR-NON-ERROR-MESSAGE-ONLY — client boundary crashes collapse non-Error values to String(e)
-
-**Status:** IN PROGRESS · **Branch:** fix/observe-error-telemetry · **Severity:** LOW (client-only mirror; server logging is structural since `fix/serialize-error-structure`) · **Class:** observability · **Effort:** S · **Filed:** 2026-08-16 (`fix/serialize-error-structure` spec §1.1.5)
-
-**Probe evidence.** `lib/observe/reportClientError.ts:11-14` — `toError` returns `{ message: String(e) }` for non-`Error` values, so a plain-object boundary crash reports `message: "[object Object]"` on the client-error wire. Same defect shape the serializeError arc repaired server-side.
-
-**Why filed rather than fixed in that arc (class-sweep exception (c)).** The client wire is its own surface: `clientErrorTransport` CAPS, the dedup signature (`lib/observe/clientErrorTransport.ts:32`), and the `/api/observe/client-error` route contract would all move — a redesign of a surface the serializeError PR does not otherwise touch.
-
-**Shape of the fix, when scheduled.** Reuse the structural posture: serialize non-`Error` crash values to bounded structure (or at minimum their own enumerable fields flattened into `detail`), respecting the wire CAPS.
 
 ### BL-PICKER-LOCK-ICON-LUCIDIFY — replace U+1F512 emoji with lucide-react Lock in PickerInterstitial
 
