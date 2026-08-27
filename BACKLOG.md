@@ -29,7 +29,7 @@ surface into a PR whose brief scopes it to workflow, scripts and docs.
 
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
-**Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
+**Status:** IN PROGRESS · **Branch:** chore/private-image-postmerge-probe · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
 
 Plan Task 11 step 6 (`docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md`) requires one
 validation-project sync of a diagram-bearing show showing (a) variant objects in storage and (b) no
