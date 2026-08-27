@@ -158,19 +158,21 @@ other ten tasks are done, which is why it was filed as
 `BL-PRIVATE-IMAGE-POSTMERGE-PROBE` and scheduled from the open queue rather than
 left here.
 
-Worth keeping, because it explains why the gap stayed invisible. Between this PR's
-merge and the manual sync, `sync_log` holds 4826 rows for the show and every one is
-`watermark`, with no row of any other status in the window. The watermark skip is
-reachable only in automatic mode (`lib/sync/perFileProcessor.ts:276-278`) and manual
-mode re-applies even an unchanged sheet (`lib/sync/runManualSyncForShow.ts:538`).
+Worth keeping. Between this PR's merge and the manual sync, `sync_log` holds
+4826 rows for the show and every one records the outcome `watermark`, with no row
+of any other status in the window. Manual mode bypasses the watermark gate
+unconditionally (`lib/sync/perFileProcessor.ts:276-278`, pinned as leg (c) of
+`tests/sync/perFileProcessor.test.ts:357`), which is why the probe's instrument had
+to be a manual sync.
 
-The skip is not unconditional, and the claim is kept to what the code supports: the
-same file proceeds on an unchanged sheet at `:322` (`sheet_unavailable`, recovery),
-`:327` (`partial_failure`, asset recovery) and `:341` (cron drift resync). None
-applied, because the show was healthy on both fields those escapes read
-(`last_sync_status = 'ok'`, `snapshot_status = 'complete'`). For a HEALTHY show whose
-sheet has not changed, no scheduled path reaches the snapshot stage; a show in
-`sheet_unavailable` or `partial_failure` would have been picked up automatically.
+Stated no more strongly than that, deliberately. It does NOT establish that polling
+was continuous, nor the show's `last_sync_status` / `snapshot_status` at any point
+inside the window (both were read after the sync), nor that no automatic path could
+have produced variants: `perFileProcessor` proceeds past the watermark at `:322`,
+`:327` and `:341`, the drift arm at `:341` reads neither health field, and several
+earlier gates can skip before any of them is reached. The comparison that carries the
+finding needs none of that: 4826 logged automatic outcomes produced no variants, and
+one manual sync produced 5.
 
 ### Invariant-8 dual gate — findings and dispositions
 
