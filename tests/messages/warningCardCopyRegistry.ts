@@ -49,9 +49,15 @@ export const WARNING_CARD_COPY_CODES: ReadonlySet<string> = new Set([
   "VENUE_GEOCODE_UNRESOLVED",
   "VENUE_TIMEZONE_UNRESOLVED",
   "ORPHANED_CREW_ROWS",
+  // Appended, not inserted alphabetically: this list is deliberately not globally sorted —
+  // the original sweep runs alphabetically and every later addition was appended, which is
+  // what the copy-restore spec's provenance chain tracks against the §4.2 row numbering.
+  "TYPO_NORMALIZED",
 ]);
 
 export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
+  TYPO_NORMALIZED:
+    "Appears when a row's label matches one of the alternate spellings we keep for a field.",
   AGENDA_BLOCK_UNRESOLVED: "Appears when a day in the AGENDA tab has no readable date above it.",
   HOTEL_INLINE_GROUP_OWN_HOTEL: "Appears when one hotel line seems to book more than one hotel.",
   HOTEL_INLINE_GROUP_HOTEL_SUSPECTED:
@@ -130,6 +136,7 @@ export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
 };
 
 export const EXPECTED_TITLE_CHANGES: Readonly<Record<string, string>> = {
+  TYPO_NORMALIZED: "Label we matched to a known field",
   FIELD_UNREADABLE: "Phone or email we couldn't use",
   SECTION_HEADER_NO_FIELDS: "Section with nothing under it",
   UNKNOWN_SECTION_HEADER: "Section we didn't recognize",
@@ -174,6 +181,8 @@ export const EXPECTED_LONG_EXPLANATION: Readonly<Record<string, string>> = {
  * WARNING_CARD_COPY_CODES.
  */
 export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
+  TYPO_NORMALIZED:
+    "A row's label in your sheet matched one of the alternate spellings we keep for a field, so it wasn't listed as a row we didn't recognize. This is a record for us; there is nothing for you to fix.",
   AGENDA_BLOCK_UNRESOLVED:
     "One run-of-show day couldn't be matched to a calendar date, so that day shows the standard schedule. Check that day's date banner in the AGENDA tab; it's usually missing or showing an error like #REF!.",
   AGENDA_DAY_AMBIGUOUS:

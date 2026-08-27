@@ -7,7 +7,7 @@
 // spec §4.2 table is frozen for triggerContext AND helpfulContext on EVERY
 // registry code (rows 1-42 back-filled by spec
 // 2026-08-01-card-copy-parity-sync-job-name; BL-CARD-COPY-HELPFULCONTEXT-PARITY
-// graduated), and for the changed titles (seven as of 2026-08-15) plus the
+// graduated), and for the changed titles (eight as of 2026-08-27) plus the
 // longExplanation bodies enrolled in EXPECTED_LONG_EXPLANATION — the two fields
 // no other gate governs (§12.4 parity compares four fields; §4.2 has no
 // longExplanation column). The corpus oracle parses the
@@ -27,6 +27,7 @@ import { parseSheet } from "@/lib/parser";
 import { OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
 import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
 import { premise } from "../_shared/premise";
+import { CARD_SURFACED_LOG_ONLY } from "@/lib/messages/cardSurfacedLogOnly";
 import {
   WARNING_CARD_COPY_CODES,
   EXPECTED_TRIGGER_CONTEXT,
@@ -70,6 +71,26 @@ describe("warning-card copy registry (spec 2026-07-20-warning-card-copy-restore 
         `${code}.triggerContext cap`,
       ).toBe(true);
     }
+  });
+
+  it("every card-surfaced admin-log-only code carries card copy (AC-V11)", () => {
+    // Nothing enforced this implication before. CARD_SURFACED_LOG_ONLY is imported by four
+    // test modules and by NONE of them for registry membership, so the three members being
+    // registered was a coincidence rather than a rule. Without this, a contributor can drop a
+    // code from WARNING_CARD_COPY_CODES while leaving it card-surfaced, and its copy escapes
+    // the banned-vocabulary regex, the caps and the byte-fidelity freeze while still
+    // rendering to an operator.
+    //
+    // Structural defense taken at FIRST occurrence rather than after a recurrence proves it:
+    // docs/superpowers/specs/parser/2026-08-27-venue-block-predicate-design.md AC-V11.
+    //
+    // The floor is 0, not the current size: `premise` requires actual > mustExceed STRICTLY
+    // ("Equal is not past"), so a floor equal to the membership count would throw on every
+    // run. What is guarded against here is emptiness, which would make the filter below
+    // trivially empty and the assertion meaningless.
+    premise("card-surfaced log-only codes", CARD_SURFACED_LOG_ONLY.size, 0);
+    const missing = [...CARD_SURFACED_LOG_ONLY].filter((c) => !WARNING_CARD_COPY_CODES.has(c));
+    expect(missing, "card-surfaced but carrying no card copy").toEqual([]);
   });
 
   it("banned vocabulary + em-dash absent from the three authored fields", () => {
