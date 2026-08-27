@@ -948,9 +948,9 @@ function isInScope(tag: string, attributes: ts.JsxAttributes, options: ScanOptio
  * class string. It reads a VALUE; a component INVOCATION is a different edge,
  * resolved by `importedComponentDeclaration`.
  */
-const jsxDeclarationCache = new WeakMap<ts.SourceFile, Map<string, ts.Node | null>>();
+const jsxDeclarationCache = new WeakMap<ts.SourceFile, Map<string, readonly ts.Node[]>>();
 
-function localJsxDeclaration(name: string, sf: ts.SourceFile): ts.Node | null {
+function localJsxDeclarations(name: string, sf: ts.SourceFile): readonly ts.Node[] {
   // Memoised per source file: the walk below is O(file), and a control's
   // subtree asks for the same handful of names once per capitalised tag it
   // contains. Without this the residue suite's scratch-corpus cases, which copy
@@ -963,7 +963,6 @@ function localJsxDeclaration(name: string, sf: ts.SourceFile): ts.Node | null {
   const cached = perFile.get(name);
   if (cached !== undefined) return cached;
 
-  let found: ts.Node | null = null;
   const holdsJsx = (n: ts.Node): boolean => {
     if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n)) return true;
     let hit = false;
@@ -972,8 +971,20 @@ function localJsxDeclaration(name: string, sf: ts.SourceFile): ts.Node | null {
     });
     return hit;
   };
+  // EVERY declaration of the name, not the first one. The walk used to stop at
+  // the first hit and return it, which is a silently WRONG answer under lexical
+  // shadowing: a nested `Visual` rendering `border-border` was reported as the
+  // top-level `Visual` rendering `border-text-faint`, and because a declaration
+  // WAS found the unresolved sink never fired either. Diff review round 3
+  // probed both shapes — a shadowed component tag and a shadowed JSX binding.
+  //
+  // Resolving the shadowing properly means scope analysis, which is the resolver
+  // growth this arc has declined twice. Counting is the narrowing answer: one
+  // declaration is unambiguous and followed, two or more cannot be told apart
+  // from here and are DECLINED, which routes them to the same sink as a name the
+  // resolver never found. Fewer follows, never a wrong one.
+  const hits: ts.Node[] = [];
   const walk = (n: ts.Node): void => {
-    if (found !== null) return;
     if (
       ts.isVariableDeclaration(n) &&
       ts.isIdentifier(n.name) &&
@@ -981,18 +992,40 @@ function localJsxDeclaration(name: string, sf: ts.SourceFile): ts.Node | null {
       n.initializer &&
       holdsJsx(n.initializer)
     ) {
-      found = n.initializer;
+      hits.push(n.initializer);
       return;
     }
     if (ts.isFunctionDeclaration(n) && n.name?.text === name && n.body && holdsJsx(n.body)) {
-      found = n.body;
+      hits.push(n.body);
       return;
     }
     ts.forEachChild(n, walk);
   };
   walk(sf);
-  perFile.set(name, found);
-  return found;
+  perFile.set(name, hits);
+  return hits;
+}
+
+/**
+ * The single declaration of `name` in this file that holds JSX, or null when
+ * there is none — or when there is more than one and this resolver therefore
+ * cannot tell which the use site reaches.
+ */
+function localJsxDeclaration(name: string, sf: ts.SourceFile): ts.Node | null {
+  const hits = localJsxDeclarations(name, sf);
+  return hits.length === 1 ? (hits[0] ?? null) : null;
+}
+
+/**
+ * TRUE only for the shadowed case: two or more declarations hold JSX under one
+ * name. Distinct from "none", and the distinction is load-bearing — the
+ * `{binding}` branch fires for every bare identifier in JSX, and most of those
+ * are strings and numbers that were never follow candidates. Reporting absence
+ * there would bury the signal under 128 interpolated labels; reporting
+ * AMBIGUITY reports exactly the defect.
+ */
+function localJsxAmbiguous(name: string, sf: ts.SourceFile): boolean {
+  return localJsxDeclarations(name, sf).length > 1;
 }
 
 /**
@@ -1158,6 +1191,16 @@ export function scanInteractiveElements(rootDir: string, options: ScanOptions = 
         const key = `${ctx.file}#${node.expression.text}`;
         if (!followed.has(key)) {
           const binding = localJsxDeclaration(node.expression.text, sf);
+          if (binding === null && localJsxAmbiguous(node.expression.text, sf)) {
+            // AMBIGUITY only, never absence. This branch sees every bare
+            // identifier in JSX and most are plain values, so reporting absence
+            // here buries the signal; a shadowed JSX binding is the defect.
+            options.onUnresolvedComponent?.({
+              file: ctx.file,
+              line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+              tag: node.expression.text,
+            });
+          }
           if (binding) {
             followed.add(key);
             visit(binding);

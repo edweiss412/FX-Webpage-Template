@@ -2685,43 +2685,43 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "lengthPx's zero-length return value is only ever null-checked or compared against FLOOR_PX=44 (the `spacingTokens` map build, `tokenIsFloor`, and both arms of `tokenIsDefeater`). 0 and 1 are both non-null and both under 44, and no consumer does arithmetic on it",
       },
       {
-        siteId: "statement-removal:938:5:jsxDeclarationCache.set(sf, perFile);>(removed)",
+        siteId: "statement-removal:961:5:jsxDeclarationCache.set(sf, perFile);>(removed)",
         kind: "equivalent",
         reason:
           "the per-file map is built and then never installed, so every call re-walks the file. `localJsxDeclaration` is a pure function of (name, sourceFile), so a memo write cannot move its answer; only wall clock. Probed: the full corpus scan with both axes on is byte-identical under this mutant, all 767 elements including their resolved class strings",
       },
       {
-        siteId: "statement-removal:971:3:perFile.set(name, found);>(removed)",
+        siteId: "statement-removal:1005:3:perFile.set(name, hits);>(removed)",
         kind: "equivalent",
         reason:
-          "the installed map never gains an entry, so `perFile.get(name)` misses forever and the walk below runs every time. The other half of the same memo as the row above, and unobservable for the same reason: it writes a cache, it does not compute an answer. Probed byte-identical on the corpus",
+          "the installed map never gains an entry, so `perFile.get(name)` misses forever and the walk below runs every time. The cached value is the HITS ARRAY since diff round 3 — the walk now counts declarations so a shadowed name can be declined rather than guessed — and the memo is unobservable for the same reason either way. The other half of the same memo as the row above, and unobservable for the same reason: it writes a cache, it does not compute an answer. Probed byte-identical on the corpus",
       },
       {
-        siteId: "statement-removal:998:9:break;>(removed)",
+        siteId: "statement-removal:1054:9:break;>(removed)",
         kind: "equivalent",
         reason:
           "the default-import scan keeps reading statements after it has found its match. Only a LATER import declaration binding the same local name could overwrite `specifier`, and two imports binding one name is a TypeScript redeclaration error, so no module the corpus can hold has one. The condition is false for every other import, named or side-effect-only, so `specifier` keeps the value the match gave it",
       },
       {
-        siteId: "statement-removal:1053:15:followed.delete(key);>(removed)",
+        siteId: "statement-removal:1109:15:followed.delete(key);>(removed)",
         kind: "equivalent",
         reason:
           "the LOCAL-declaration branch: the key stays in `followed` for the rest of the scan, so a component declared in this file is followed once per file rather than once per call site. The branch re-visits one declaration under an UNCHANGED ctx, so a second follow yields the same elements at the same (file, line, tag) with the same resolution, and the scan's de-duplication drops them regardless",
       },
       {
-        siteId: "statement-removal:1069:15:followed.delete(key);>(removed)",
+        siteId: "statement-removal:1132:15:followed.delete(key);>(removed)",
         kind: "equivalent",
         reason:
           "the IMPORTED-declaration branch. Unlike the local branch this one does rewrite ctx, but it rewrites it to a value derived entirely from `imported`, which is a pure function of the tag and the current source file, so within one file a repeated follow of one key reaches one declaration under one ctx. The elements are location-keyed and de-duplicated, so suppressing the repeat removes nothing",
       },
       {
-        siteId: "statement-removal:1134:13:followed.delete(key);>(removed)",
+        siteId: "statement-removal:1207:13:followed.delete(key);>(removed)",
         kind: "equivalent",
         reason:
           "the JSX-EXPRESSION branch, `{binding}`. Its resolver is `localJsxDeclaration`, which never leaves the current file, so both follows of one key read one declaration under one ctx by construction. Same location-keyed de-duplication as the two rows above",
       },
       {
-        siteId: "relational-boundary:1123:23:>>>=",
+        siteId: "relational-boundary:1186:23:>>>=",
         kind: "equivalent",
         reason:
           "the guard on the `{binding}` follow, made true outside any control. Following there re-visits a declaration in the SAME file under the SAME ctx, and admission still needs either in-scope-ness, which that file's own walk already grants at the same location, or `insideInScope > 0` at the admission site, which following does not change. Contrast the twin guard on the component-tag follow one branch up: THAT one rewrites ctx and so spends an import hop, which is why its `>`->`>=` and `&&`->`||` are both killed by tests and this one cannot be. Probed: corpus output identical under this mutant even unsorted, so element order does not distinguish it either",

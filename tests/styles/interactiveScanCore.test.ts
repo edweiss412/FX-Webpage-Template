@@ -600,6 +600,59 @@ describe("what the first score of this surface found unpinned", () => {
     expect(seen).toEqual(["first-control", "followed-paint", "second-control-after-the-follow"]);
   });
 
+  it("DECLINES a shadowed component tag and reports it, rather than following the wrong one", () => {
+    // Diff review round 3's probe, as a fixture. Two declarations share a name;
+    // the render reaches the NESTED one, painting `border-border`, while a
+    // first-hit walk returns the top-level one painting `border-text-faint`.
+    // That is worse than missing it — it is a wrong answer that reads as a
+    // clean one, and because a declaration WAS found the unresolved sink stayed
+    // quiet too. Counting the declarations is what makes it declinable.
+    const reports: string[] = [];
+    const els = scanFixtureFiles(
+      {
+        "components/Shadowed.tsx": `function Visual() {
+            return <span className="outer-visual-border-text-faint" />;
+          }
+          export function Host() {
+            function Visual() {
+              return <span className="inner-visual-border-border" />;
+            }
+            return <button className="host"><Visual /></button>;
+          }`,
+      },
+      { ...ON, onUnresolvedComponent: (i) => reports.push(`${i.file}:${i.line} <${i.tag}>`) },
+    );
+    // Neither visual is admitted: the outer one is not what renders, and the
+    // inner one is not something this resolver can prove it reached.
+    expect(painted(els)).toEqual([]);
+    expect(
+      reports.some((r) => r.includes("<Visual>")),
+      reports.join(", "),
+    ).toBe(true);
+  });
+
+  it("DECLINES a shadowed JSX binding and reports it too", () => {
+    // The same shape on the `{binding}` branch, which had no sink at all: round
+    // 3's second probe. `body` is declared twice, and the one in scope at the
+    // use site is the inner one.
+    const reports: string[] = [];
+    const els = scanFixtureFiles(
+      {
+        "components/ShadowedBinding.tsx": `const body = <span className="outer-body-border-text-faint" />;
+          export function Host() {
+            const body = <span className="inner-body-border-border" />;
+            return <button className="host">{body}</button>;
+          }`,
+      },
+      { ...ON, onUnresolvedComponent: (i) => reports.push(`${i.file}:${i.line} <${i.tag}>`) },
+    );
+    expect(painted(els)).toEqual([]);
+    expect(
+      reports.some((r) => r.includes("<body>")),
+      reports.join(", "),
+    ).toBe(true);
+  });
+
   it("terminates on a MUTUAL import cycle (kills followed.add removal on the import path)", () => {
     // A renders B, B renders A. The local-declaration guard cannot catch this:
     // the two names live in different files, so only the import path's own
