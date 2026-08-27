@@ -185,14 +185,12 @@ export function AnchoredPortal({
     });
   }, [anchorRef, align, preferredSide, commit]);
 
-  // Subscriptions only. This effect does NOT place: the every-commit effect
-  // below is the sole measurer, and it covers the open commit because it has no
-  // dependency array, not because of where it is declared (spec §3).
-  //
-  // An earlier version measured here too. That measure and the ungated effect's
-  // were the same computation on the same DOM — no re-render intervenes and
-  // nothing paints between them — so one of the two was always redundant
-  // (BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN).
+  // Subscriptions only. This effect does NOT place on the open commit: the
+  // every-commit effect below is the sole measurer THERE, and it covers that
+  // commit because it has no dependency array, not because of where it is
+  // declared (spec §3). It is not the only caller of `measureAndApply` in
+  // general — the coalescer below invokes it on every scroll, resize and
+  // ResizeObserver frame.
   //
   // The open-gate stays at the CALL SITE: a listener firing from a stale capture
   // after a close must not schedule.

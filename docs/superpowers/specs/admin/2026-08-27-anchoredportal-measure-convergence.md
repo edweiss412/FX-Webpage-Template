@@ -99,6 +99,25 @@ the layout-effect state update flushes after the current commit phase, so no
 in-scope DOM mutation or render can interleave — and that confirmation is
 recorded as corroboration rather than as the claim's only support.
 
+### 2.2.1 Yes, the count test freezes 2 as a contract, deliberately
+
+The design critique asked it directly: if two measures per open is still one more
+than strictly needed, what makes the second load-bearing, and does INV-3 now
+freeze that number as a contract?
+
+**It does, and that is the intent.** C is not a spare measure kept for safety. It
+is the ungated effect's first evaluation after the placement, and that effect is
+the position-only guarantee (§2.1) — the same code path, not a second copy of it.
+Freezing the count at 2 therefore pins that the guarantee still evaluates exactly
+once per open, which is precisely what a future optimization would break by
+gating the effect.
+
+The number is not permanent, and the route to changing it is named rather than
+left to be rediscovered: reaching 1 requires the `MutationObserver` redesign in
+§2.4, which is conceded as plausible and declined for scope. An arc that takes it
+updates INV-3's expected count in the same commit that changes the mechanism, and
+the count test failing is how that arc learns it has changed the mechanism.
+
 ### 2.3 IntersectionObserver, killed on one reason
 
 Two forms were considered. Of the three reasons an earlier draft gave against

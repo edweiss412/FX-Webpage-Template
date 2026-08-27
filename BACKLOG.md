@@ -393,3 +393,43 @@ already drives both surfaces and is the natural home for it.
 **Predates `perf/anchoredportal-measure-convergence` and is unchanged by it.**
 That arc removes a duplicate measure inside a single commit; it does not touch
 the cross-instance path, in either direction.
+
+---
+
+## BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES — the placement path measures twice per gesture frame, and twice more on two smaller sites
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`perf/anchoredportal-measure-convergence`, invariant-8 impeccable audit) · **Facing:** product · **Severity:** LOW-MEDIUM (redundant forced reflows at gesture frame rate on a shipped admin surface; correct output, wasted work) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — the repair is a memoisation of the placement path's measure cadence, a surface the measure-convergence arc does not otherwise touch: that arc's subject is the OPEN COMMIT, and the gesture path needs its own probe and its own review. · **Reachability:** INFERRED, NOT PROBED.
+
+**This is the same shape as the defect `BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN` just closed, differing only in trigger** — open commit there, scroll or pinch frame here.
+
+Three sites, filed as one row because they are one class rather than three defects:
+
+1. **Every placement-CHANGING frame during a scroll or pinch costs TWO measures.**
+   The coalescer's rAF calls `measureAndApply`
+   (`components/admin/AnchoredPortal.tsx:199`); the placement it commits produces
+   a React commit; the ungated every-commit effect
+   (`components/admin/AnchoredPortal.tsx:261`) then measures again. At gesture
+   frame rate that is the open-time waste this arc removed, repeating. Candidate
+   repair: memoise the last trigger rect and skip `withNaturalSize` when it is
+   unchanged — safe, because a capped panel's `maxHeight` is a function of the
+   space on its side rather than of natural height, and `ResizeObserver` covers
+   uncapped size changes.
+2. **`lib/popover/naturalSize.ts:70-71` reads `el.scrollTop` AFTER the
+   cap-restore writes**, forcing a reflow on every measurement including the
+   common unscrolled case. A `heldScrollTop !== 0` short-circuit removes the read
+   entirely on that path.
+3. **`lib/popover/place.ts:120-122` can run `computePopoverPlacement` twice** on
+   the zoom-hidden fallback path, each call potentially invoking
+   `wrappedHeightAt`, so up to two extra write-read reflow pairs on that path.
+
+**Reachability is INFERRED from reading the code, not measured.** An audit
+reading source is not a measurement. **The first scheduled step is therefore the
+probe, not the memoisation** — and the instrument already exists: the
+measure-counting probe this arc built for the open commit
+(`tests/e2e/rowactions-geometry.spec.ts`, the `PROBE:` case) pointed at a scroll
+or pinch interaction instead of an open transition counts measures per
+placement-changing frame directly. It either shows two or it does not.
+
+**Predates `perf/anchoredportal-measure-convergence` and is unchanged by it.**
+That arc removed a duplicate measure inside the open commit; it does not touch
+the gesture path, `naturalSize.ts` or `place.ts` in either direction.

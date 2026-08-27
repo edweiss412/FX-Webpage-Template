@@ -275,4 +275,110 @@ PR's last commit so it never reaches main.
 
 ## 12. Impeccable dispositions
 
-Written by task 2. No marker line exists until then, deliberately.
+Invariant-8 dual gate, run on the diff scoped to `components/admin/AnchoredPortal.tsx`.
+Both halves ran as isolated sub-agents, which the skill makes a hard invariant; an
+inline run is DEGRADED and must say so, and that shortcut was not taken.
+
+**critique — zero P0, zero P1.**
+
+Assessment A (design review): NOT SLOP. It independently verified that the P0
+this gate exists to catch is unreachable: the deleted call and the surviving
+ungated effect ran in the SAME commit under the SAME `!open || !mounted` gate,
+both before paint, so the deleted one was never the pre-paint guarantee and
+wrong-row anchoring cannot follow from removing it.
+
+Assessment B (detector + evidence): 0 detector findings, and the detector was
+validated against a synthetic positive before its zero was trusted. The rendered
+block is byte-identical to base. JSX, `className`, inline `style` keys, `data-*`,
+user-visible copy and design tokens are all unchanged; em dashes appear only in
+comments; `z-overlay`, `overflow-y-auto` and `overscroll-contain` are untouched.
+
+| Finding | Tier | Disposition |
+| --- | --- | --- |
+| Pre-paint now rests on ONE ungated effect; "the redundant belt is gone" | P2, **partly refuted by the same assessment** | Accepted in its narrow form only. There was no belt. See below. |
+| 11 lines of history and ledger-slug comment above a 50-line effect | P3 | Accepted. It matches this file's existing comment density, and the prose states the MECHANISM (no dependency array) rather than a position, so it survives a reorder. |
+| `data-portal-side` has no CSS or JS consumer — a test-only contract | P3, pre-existing | Not this arc's. The attribute predates the diff and the diff does not change it. Recorded so it is attributed correctly rather than picked up as new. |
+
+**On the P2, whose wording claims more than the evidence supports — including in
+the orchestrator's own restatement of it, corrected here.**
+
+The finding reads as though pre-paint had belt and braces: two effects, either of
+which could place before paint, one now removed. **That is not what the code
+did.** Assessment A established it in the course of clearing the P0: both effects
+ran in the SAME commit, under the SAME `!open || !mounted` gate, both before
+paint. They were never independent redundancy across different conditions — they
+were two runs of one mechanism inside one commit. The deleted call was therefore
+never a fallback and was never load-bearing for the pre-paint guarantee, which is
+the same fact that makes the P0 unreachable.
+
+What survives of the finding is narrower and still worth stating: pre-paint now
+depends on ONE named property of ONE effect — the ungated effect having no
+dependency array. That is a smaller surface to break than two call sites, and a
+reader could plausibly break it by adding a dependency array as an optimization.
+It is a single-point-of-failure note, not a lost redundancy.
+
+What makes it a good trade is where the redundancy now lives. The runtime
+duplicate bought nothing — a second run of one mechanism in one commit, computing
+the identical placement from identical inputs and dropped by `commit`. The
+protection that replaced it is two guards that RED when the remaining mechanism
+breaks: redundancy moved from runtime, where it was unobservable and inert, to
+test time, where it fails loudly. INV-3 pins the count and INV-1 pins the pre-paint ORDERING, each with an
+executed discriminating mutant (spec §4), so a regression that re-introduces the
+fragility fails a test instead of shipping.
+
+**And that trade has its own premise: it holds only while those guards RUN.** If
+`admin-layout-e2e.yml` stops firing on `components/admin/AnchoredPortal.tsx`,
+INV-1 goes dark, the guard passes by not running, and the fragility becomes
+unguarded silently — the same dark-gate shape the guards exist to prevent, one
+level up. Nothing in the repo pinned that: the e2e-coverage walker asserts every
+SPEC is PR-covered, and says nothing about which SOURCE paths a workflow filters
+on.
+
+So this arc pins it inside its own spec, in two parts, because either alone
+closes half the hole: that `AnchoredPortal.tsx` appears as an entry in the
+workflow's `pull_request.paths`, AND that the workflow INVOKES this spec in a
+`run:` step — a filter that fires a workflow which never runs the spec is equally
+dark. Both are anchored to their YAML role rather than matched as substrings,
+because the spec's own path appears three times in that file in three different
+roles. Each has an executed discriminating mutant (spec §4, `M-paths` and
+`M-run2`).
+
+Stated at the size the evidence supports: this diff **removed a duplicate that
+could not have served as a fallback**, and INV-1 and INV-3 pin the remaining
+path. The path-filter premise still matters — it is what keeps those two pins
+from going dark — it is simply guarding a smaller claim than "we gave up a safety
+net".
+
+No P0 or P1 findings, so no `DEFERRED.md` entry is owed.
+
+**The marker reads `dispositions=none`, and that is not in tension with the
+tables above.** The guard cross-checks the field against the P0/P1 COUNT
+(`tests/docs/_invariant8Closeout.ts:141-142`): zero findings at those tiers means
+there are no tier-gated dispositions to record, and `recorded` there would assert
+something this gate did not produce. The P2 and P3 dispositions above are
+recorded because they are worth recording, not because the marker owes them.
+
+**audit — zero P0, zero P1.** A11y 4 · Performance 4 · Theming 4 · Responsive 4 ·
+Anti-patterns 3.
+
+It reached the P0 clearance INDEPENDENTLY of critique and by the same mechanism:
+both measurers were `useLayoutEffect` in one commit with no re-render or paint
+between them, and placement depends only on the anchor rect and the panel's
+natural size, neither of which the deleted call mutated. Two isolated assessments
+agreeing on the MECHANISM rather than only the verdict is what the isolation is
+for.
+
+| Finding | Tier | Disposition |
+| --- | --- | --- |
+| The comment called the ungated effect "the sole measurer" while the coalescer also invokes `measureAndApply` on every scroll, resize and ResizeObserver frame | P3, introduced by this diff | **FIXED, not deferred.** Scoped to "sole measurer on the open commit", with the coalescer named as the other caller. This is the claim-more-than-is-true shape the arc spent three rounds removing; leaving it in the comment that documents the repair would have been the same defect one layer out. |
+| The comment narrated the change history ("An earlier version measured here too…") | P3, introduced by this diff | **FIXED.** Comments describing a diff age badly once the diff is history, and the `BL-` reference carries the provenance. The comment is eight lines shorter. |
+| Every placement-CHANGING frame during a scroll or pinch costs TWO measures: the coalescer's rAF calls `measureAndApply`, the resulting commit re-fires the ungated effect, which measures again | P2, **pre-existing** | Out of scope for this arc; FILED as `BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES` on the orchestrator's call, product-facing, with the two P3 notes below folded into it as one class rather than three rows. Marked `Reachability: INFERRED, NOT PROBED` — an audit reading code is not a measurement — so its first scheduled step is the probe, and the probe is this arc's own measure-counting instrument pointed at a scroll interaction instead of an open commit. It is the same shape as the open-time waste this arc fixed, at gesture frame rate; the candidate repair is memoising the last trigger rect and skipping `withNaturalSize` when it is unchanged. Not touched here: this arc's subject is the open transition, and a gesture-path change would need its own probe and its own review. |
+| `lib/popover/naturalSize.ts:70-71` reads `el.scrollTop` after the cap-restore writes, forcing a reflow on every measure including the common unscrolled case | P3, pre-existing | Folded into `BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES` as a named site. Not in this diff. |
+| `lib/popover/place.ts:120-122` can run `computePopoverPlacement` twice on the zoom-hidden fallback path | P3, pre-existing | Folded into `BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES` as a named site. Not in this diff. |
+
+The `ResizeObserver` initial-observation measure the audit checked for is already
+documented in spec §1 as the reason the count is scoped to commit-driven
+measures; the audit agreed it is not a finding.
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none
+
