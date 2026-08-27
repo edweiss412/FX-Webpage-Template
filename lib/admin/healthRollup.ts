@@ -8,6 +8,7 @@
 // is validated SOLELY on `typeof count === "number"` (a head probe returns
 // data:null by design — that is NORMAL, not an integrity failure).
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 import { HEALTH_CODES, DEGRADED_HEALTH_CODES, dougSummaryFor } from "@/lib/adminAlerts/audience";
 
 export type HealthSummaryLine = { text: string; count: number };
@@ -28,7 +29,12 @@ export async function fetchHealthRollup(): Promise<HealthStatus> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
-  } catch {
+  } catch (err) {
+    void log.error("health-rollup client construction failed", {
+      source: "admin.healthRollup",
+      code: "HEALTH_ROLLUP_CLIENT_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 
@@ -43,9 +49,24 @@ export async function fetchHealthRollup(): Promise<HealthStatus> {
       .in("code", HEALTH_CODES);
     const { data: _total, count, error } = await query; // invariant 9: destructure { data, error }
     void _total;
-    if (error || typeof count !== "number") return { kind: "infra_error" };
+    if (error || typeof count !== "number") {
+      // One branch, two faults: a returned error, or a head probe that came back
+      // without a number. `error` carries whichever it was — the count when the
+      // read succeeded and the integrity check did not.
+      void log.error("admin_alerts health total count failed", {
+        source: "admin.healthRollup",
+        code: "HEALTH_ROLLUP_TOTAL_COUNT_FAILED",
+        error: error ?? { received: count },
+      });
+      return { kind: "infra_error" };
+    }
     totalCount = count;
-  } catch {
+  } catch (err) {
+    void log.error("admin_alerts health total count threw", {
+      source: "admin.healthRollup",
+      code: "HEALTH_ROLLUP_TOTAL_COUNT_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
   if (totalCount === 0) return { kind: "ok" };
@@ -61,9 +82,21 @@ export async function fetchHealthRollup(): Promise<HealthStatus> {
       .in("code", DEGRADED_HEALTH_CODES);
     const { data: _deg, count, error } = await query; // invariant 9
     void _deg;
-    if (error || typeof count !== "number") return { kind: "infra_error" };
+    if (error || typeof count !== "number") {
+      void log.error("admin_alerts degraded count failed", {
+        source: "admin.healthRollup",
+        code: "HEALTH_ROLLUP_DEGRADED_COUNT_FAILED",
+        error: error ?? { received: count },
+      });
+      return { kind: "infra_error" };
+    }
     kind = count > 0 ? "degraded" : "notice";
-  } catch {
+  } catch (err) {
+    void log.error("admin_alerts degraded count threw", {
+      source: "admin.healthRollup",
+      code: "HEALTH_ROLLUP_DEGRADED_COUNT_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 
@@ -85,7 +118,14 @@ export async function fetchHealthRollup(): Promise<HealthStatus> {
         return { code, count };
       }),
     );
-  } catch {
+  } catch (err) {
+    // The per-code probes throw on their own fault (above) so the whole
+    // Promise.all rejects; this is where every one of them arrives.
+    void log.error("admin_alerts per-code counts failed", {
+      source: "admin.healthRollup",
+      code: "HEALTH_ROLLUP_PER_CODE_COUNTS_FAILED",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 

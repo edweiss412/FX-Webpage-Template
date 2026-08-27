@@ -29,7 +29,19 @@ export function clientErrorTransport(input: {
   try {
     if (typeof fetch === "undefined") return;
     const message = input.message.slice(0, CAPS.message);
-    const signature = `${input.source}|${input.level}|${message}|${(input.stack ?? "").slice(0, 200)}`;
+    // `detail` is in the key, and that is the second half of the repair. A
+    // non-`Error` value has no stack, so before this the key reduced to
+    // `source|level|message` — and `message` is a LABEL: two crashes with the same
+    // name/code/message but different contents share it, and the rejection
+    // listener sends a fixed message for every rejection it ever handles. Sliced at
+    // 200 to match the `stack` term beside it and to bound a Set that lives as long
+    // as the page.
+    //
+    // The `Error` path's key gains a trailing separator over an empty term. That is
+    // constant across every Error call, so no two previously-distinct keys merge
+    // and no two previously-equal keys split: the BEHAVIOUR is preserved even
+    // though the bytes are not.
+    const signature = `${input.source}|${input.level}|${message}|${(input.stack ?? "").slice(0, 200)}|${(input.detail ?? "").slice(0, 200)}`;
     if (seen.has(signature)) return;
     seen.add(signature);
     const payload: Record<string, string> = { source: input.source, level: input.level, message };

@@ -7,6 +7,7 @@ const clientLogMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/observe/clientLog", () => ({ clientLog: clientLogMock }));
 
 import { GlobalErrorListener } from "@/components/observe/GlobalErrorListener";
+import { describeClientValue } from "@/lib/observe/describeClientValue";
 
 function dispatchRejection(reason: unknown): void {
   const evt = new Event("unhandledrejection") as PromiseRejectionEvent;
@@ -43,13 +44,16 @@ describe("GlobalErrorListener", () => {
     render(<GlobalErrorListener />);
     const reason = "promise blew up";
     dispatchRejection(reason);
+    // The detail gains the projection's runtime type tag, which is what separates
+    // a rejection with the string "0" from one with the number 0. Derived from the
+    // projection so the two cannot drift apart into a hardcoded expectation.
     expect(clientLogMock).toHaveBeenCalledWith(
       "error",
       "client.root",
       "unhandled promise rejection",
       undefined,
       "CLIENT_UNHANDLED_REJECTION",
-      reason,
+      describeClientValue(reason).detail,
     );
   });
 
@@ -61,7 +65,66 @@ describe("GlobalErrorListener", () => {
     expect(call).toBeDefined();
     const detail = call![5] as string;
     expect(detail.length).toBeLessThanOrEqual(300);
-    expect(detail).toBe(reason.slice(0, 300));
+    // Still derived from the fixture, so the cap assertion fails if DETAIL_CAP
+    // moves. The tag occupies the first characters, so fewer of the reason survive.
+    expect(detail).toBe(describeClientValue(reason).detail.slice(0, 300));
+  });
+
+  test("a plain-object rejection reason persists its OWN fields, not [object Object]", () => {
+    render(<GlobalErrorListener />);
+    const reason = { code: "PGRST301", message: "planted" };
+    dispatchRejection(reason);
+    const call = clientLogMock.mock.calls.find((c) => c[4] === "CLIENT_UNHANDLED_REJECTION");
+    expect(call).toBeDefined();
+    const detail = call![5] as string;
+    expect(detail).not.toBe("[object Object]");
+    expect(detail).toContain(reason.code);
+    expect(detail).toContain(reason.message);
+  });
+
+  test("null and undefined reasons still yield an empty detail (limit 9)", () => {
+    // Preserved deliberately: routing them through the projection would send the
+    // strings "null" and "undefined", which reads worse in app_events than an
+    // empty field and changes behaviour the row does not ask about.
+    render(<GlobalErrorListener />);
+    dispatchRejection(null);
+    const call = clientLogMock.mock.calls.find((c) => c[4] === "CLIENT_UNHANDLED_REJECTION");
+    expect(call![5]).toBe("");
+  });
+
+  test("a non-Error window throw persists event.error's fields beside file:line", () => {
+    // The third dark site, which the row named neither of. The handler never read
+    // event.error at all, so a plain object thrown at the window lost its fields
+    // entirely — not collapsed to "[object Object]" like the other two paths,
+    // simply absent.
+    render(<GlobalErrorListener />);
+    const thrown = { code: "E_CHUNK", message: "load failed" };
+    const evt = new ErrorEvent("error", {
+      message: "boom",
+      filename: "https://x.test/chunk.js",
+      lineno: 42,
+    });
+    Object.defineProperty(evt, "error", { value: thrown, configurable: true });
+    window.dispatchEvent(evt);
+    const call = clientLogMock.mock.calls.find((c) => c[4] === "CLIENT_WINDOW_ERROR");
+    expect(call).toBeDefined();
+    const detail = call![5] as string;
+    expect(detail).toContain("https://x.test/chunk.js:42");
+    expect(detail).toContain(thrown.code);
+    expect(detail).toContain(thrown.message);
+  });
+
+  test("an Error window throw keeps today's exact file:line detail", () => {
+    render(<GlobalErrorListener />);
+    const evt = new ErrorEvent("error", {
+      message: "boom",
+      filename: "https://x.test/a.js",
+      lineno: 7,
+    });
+    Object.defineProperty(evt, "error", { value: new Error("boom"), configurable: true });
+    window.dispatchEvent(evt);
+    const call = clientLogMock.mock.calls.find((c) => c[4] === "CLIENT_WINDOW_ERROR");
+    expect(call![5]).toBe("https://x.test/a.js:7");
   });
 
   test("unmount removes the listeners (dispatch after unmount does not log)", () => {

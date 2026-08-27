@@ -20,6 +20,7 @@
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+import { log } from "@/lib/log";
 
 export type StagedRow = {
   stagedId: string;
@@ -49,7 +50,14 @@ export async function lookupStagedRow(stagedId: string): Promise<StagedRowLookup
       .maybeSingle();
 
     // RETURNED error: an infra fault that resolved rather than threw.
-    if (error) return { kind: "infra_error" };
+    if (error) {
+      void log.error("pending_syncs staged-row read returned error", {
+        source: "admin.lookupStagedRow",
+        code: "STAGED_ROW_READ_RETURNED_ERROR",
+        error,
+      });
+      return { kind: "infra_error" };
+    }
     // HEALTHY miss: no row for this staged id. NOT an infra fault.
     if (!data) return { kind: "not_found" };
 
@@ -73,8 +81,13 @@ export async function lookupStagedRow(stagedId: string): Promise<StagedRowLookup
           typeof row.staged_modified_time === "string" ? row.staged_modified_time : null,
       },
     };
-  } catch {
+  } catch (err) {
     // THROWN: token expiry mid-query, network reset, client construction fault.
+    void log.error("pending_syncs staged-row read threw", {
+      source: "admin.lookupStagedRow",
+      code: "STAGED_ROW_READ_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 }

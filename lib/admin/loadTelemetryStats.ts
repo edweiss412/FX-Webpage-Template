@@ -15,7 +15,9 @@ export async function loadTelemetryStats(now: Date): Promise<LoadTelemetryStatsR
       void log.error("admin_event_stats_24h returned error", {
         source: "admin.telemetry.stats",
         code: "TELEMETRY_STATS_READ_RETURNED_ERROR",
-        error: error.message,
+        // `error`, not `error.message`: serializeError captures the returned
+        // error's own code/details/hint (lib/log/logger.ts:38).
+        error,
       });
       return FAIL;
     }
@@ -24,6 +26,9 @@ export async function loadTelemetryStats(now: Date): Promise<LoadTelemetryStatsR
       void log.error("admin_event_stats_24h malformed row", {
         source: "admin.telemetry.stats",
         code: "TELEMETRY_STATS_READ_RETURNED_ERROR",
+        // A data-integrity fault has no error object, so the evidence IS the
+        // payload: what came back instead of a row.
+        error: { received: data },
       });
       return FAIL;
     }
@@ -44,6 +49,7 @@ export async function loadTelemetryStats(now: Date): Promise<LoadTelemetryStatsR
       void log.error("admin_event_stats_24h malformed row", {
         source: "admin.telemetry.stats",
         code: "TELEMETRY_STATS_READ_RETURNED_ERROR",
+        error: { total, errorCount, warnCount, infoCount, buckets },
       });
       return FAIL;
     }

@@ -68,9 +68,9 @@ Replace the four-way table at `tests/admin/loadRecentAutoApplied.test.ts:299-318
 
 
 <!-- spec-lint: ignore — this file is created by this plan's implementation and is not tracked yet -->
-Create `tests/admin/infraEmitScan.ts` (pure functions over a parsed source file plus a resolver parameter) with its eighteen-case unit suite from spec §5.7, fourteen expecting a report. Create `tests/admin/_metaInfraEmitCover.test.ts` (builds a `ts.Program`, supplies real resolution, applies the core, asserts the reported set is **empty**). Repair all 85.
+Create `tests/admin/infraEmitScan.ts` (pure functions over a parsed source file plus a resolver parameter) with its twenty-one-case unit suite from spec §5.7, fifteen expecting a report. Create `tests/admin/_metaInfraEmitCover.test.ts` (builds a `ts.Program`, supplies real resolution, applies the core, asserts the reported set is **empty**). Repair all 85.
 
-**RED anchor:** the 85 unrepaired sites in `lib/admin/**`. Write the cover test first, watch it report 85 with file and reason, then repair. No edit to any test file turns that red green. The eighteen unit cases are written in the same commit and are the scanner's own coverage, not its red.
+**RED anchor:** the 85 unrepaired sites in `lib/admin/**`. Write the cover test first, watch it report 85 with file and reason, then repair. No edit to any test file turns that red green. The twenty-one unit cases are written in the same commit and are the scanner's own coverage, not its red; each is mutation-checked against the shipped core rather than trusted for passing.
 
 **No expected count is pinned.** The walker's output is the derivation; a number in the assertion is a second source that goes stale (spec §7.1).
 
@@ -213,7 +213,7 @@ Naming those gaps is the repair. Adding cases to cover them would be building a 
 
 ## Acceptance criteria
 
-- **AC-1** the scanner core classifies each of the eighteen spec §5.7 cases with the right reason
+- **AC-1** the scanner core classifies each of the twenty-one spec §5.7 cases with the right reason, and four mutations of the core each kill at least one case
 - **AC-2** no `lib/admin` construction of an `infra_error` lacks a code-carrying object-payload emit, derived from disk, with all five premises met
 - **AC-3** the `show_change_log` returned-error branch emits `SHOW_CHANGE_LOG_READ_RETURNED_ERROR`
 - **AC-4** every loader emit's `context.error` carries the PostgREST fields, not a bare message

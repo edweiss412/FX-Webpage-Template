@@ -20,6 +20,7 @@
 // Registered in tests/admin/_metaInfraContract.test.ts (invariant 9 registry).
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 import { getActiveWatchedFolder } from "@/lib/appSettings/getWatchedFolderId";
 import { nowDate } from "@/lib/time/now";
 import type { MessageCode } from "@/lib/messages/lookup";
@@ -97,7 +98,16 @@ const INFRA_ERROR: DriveConnectionHealth = { kind: "infra_error" };
 export async function fetchDriveConnectionHealth(): Promise<DriveConnectionHealth> {
   // 1. Resolve the configured folder. infra_error short-circuits.
   const folder = await getActiveWatchedFolder();
-  if ("kind" in folder && folder.kind === "infra_error") return INFRA_ERROR;
+  if ("kind" in folder && folder.kind === "infra_error") {
+    // getActiveWatchedFolder lives outside lib/admin, so the sweep does not reach
+    // its arrival site. Recorded here, which is where it reaches this cover.
+    void log.error("watched-folder read failed", {
+      source: "admin.driveConnectionHealth",
+      code: "DRIVE_HEALTH_WATCHED_FOLDER_READ_FAILED",
+      error: folder,
+    });
+    return INFRA_ERROR;
+  }
 
   const folderId = "folderId" in folder ? folder.folderId : null;
   const folderName = "folderName" in folder ? folder.folderName : null;
@@ -105,7 +115,12 @@ export async function fetchDriveConnectionHealth(): Promise<DriveConnectionHealt
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
-  } catch {
+  } catch (err) {
+    void log.error("drive-health client construction failed", {
+      source: "admin.driveConnectionHealth",
+      code: "DRIVE_HEALTH_CLIENT_THREW",
+      error: err,
+    });
     return INFRA_ERROR;
   }
 
@@ -147,9 +162,21 @@ export async function fetchDriveConnectionHealth(): Promise<DriveConnectionHealt
         .order("expires_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (error) return INFRA_ERROR;
+      if (error) {
+        void log.error("drive_watch_channels read returned error", {
+          source: "admin.driveConnectionHealth",
+          code: "DRIVE_HEALTH_WATCH_ROW_READ_RETURNED_ERROR",
+          error,
+        });
+        return INFRA_ERROR;
+      }
       watchRow = (data as typeof watchRow) ?? null;
-    } catch {
+    } catch (err) {
+      void log.error("drive_watch_channels read threw", {
+        source: "admin.driveConnectionHealth",
+        code: "DRIVE_HEALTH_WATCH_ROW_READ_THREW",
+        error: err,
+      });
       return INFRA_ERROR;
     }
 
@@ -290,7 +317,12 @@ export async function fetchDriveConnectionHealth(): Promise<DriveConnectionHealt
 
     // ✓ positive
     return { health: "positive", folderName, folderId, syncingCount, lastReadAt };
-  } catch {
+  } catch (err) {
+    void log.error("drive-health rollup threw", {
+      source: "admin.driveConnectionHealth",
+      code: "DRIVE_HEALTH_ROLLUP_THREW",
+      error: err,
+    });
     return INFRA_ERROR;
   }
 }
@@ -347,10 +379,29 @@ async function countActive(
       error: unknown;
     }>);
     void _d;
-    if (error) return null;
-    if (typeof count !== "number") return null;
+    if (error) {
+      void log.error("shows active-count returned error", {
+        source: "admin.driveConnectionHealth",
+        code: "DRIVE_HEALTH_ACTIVE_COUNT_RETURNED_ERROR",
+        error,
+      });
+      return null;
+    }
+    if (typeof count !== "number") {
+      void log.error("shows active-count returned a non-number", {
+        source: "admin.driveConnectionHealth",
+        code: "DRIVE_HEALTH_ACTIVE_COUNT_NOT_NUMBER",
+        error: { received: count },
+      });
+      return null;
+    }
     return count;
-  } catch {
+  } catch (err) {
+    void log.error("shows active-count threw", {
+      source: "admin.driveConnectionHealth",
+      code: "DRIVE_HEALTH_ACTIVE_COUNT_THREW",
+      error: err,
+    });
     return null;
   }
 }
@@ -368,10 +419,22 @@ async function readMaxLastCheckedAt(
       .eq("archived", false)
       .order("last_checked_at", { ascending: false, nullsFirst: false })
       .limit(1);
-    if (error) return undefined;
+    if (error) {
+      void log.error("shows last_checked_at read returned error", {
+        source: "admin.driveConnectionHealth",
+        code: "DRIVE_HEALTH_LAST_CHECKED_READ_RETURNED_ERROR",
+        error,
+      });
+      return undefined;
+    }
     const rows = (data as Array<{ last_checked_at: string | null }> | null) ?? [];
     return rows[0]?.last_checked_at ?? null;
-  } catch {
+  } catch (err) {
+    void log.error("shows last_checked_at read threw", {
+      source: "admin.driveConnectionHealth",
+      code: "DRIVE_HEALTH_LAST_CHECKED_READ_THREW",
+      error: err,
+    });
     return undefined;
   }
 }

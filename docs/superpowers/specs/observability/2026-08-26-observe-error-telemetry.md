@@ -344,7 +344,7 @@ A premise failure reads "premise not met" and says explicitly that it is not a c
 
 ### 5.7 The positive control
 
-The core's own suite feeds it source strings. Every case is a string literal in the test file, so it is immune to both the disk and the module graph. Eighteen cases, of which fourteen expect a report:
+The core's own suite feeds it source strings. Every case is a string literal in the test file, so it is immune to both the disk and the module graph. Twenty-one cases, of which fifteen expect a report:
 
 | case | expected |
 | --- | --- |
@@ -365,9 +365,15 @@ The core's own suite feeds it source strings. Every case is a string literal in 
 | `logAdminOutcome(...)` before the return | reported — not a sink here (§5.3) |
 | `log.error({ code, error })` before the return | satisfied |
 | propagation guard, consequent, callee inside the cover | accepted |
-| propagation guard, consequent, `opts.x ?? coverFn` callee | accepted |
+| propagation guard, consequent, callee declared LOCALLY in the cover | accepted |
+| propagation guard, callee the resolver cannot resolve at all | reported — never waved through |
+| `return FAIL` where `FAIL` is a const alias | in the population, shape `const-alias` |
+| `return makeFail()` whose type mentions the arm | reported — unclassifiable, never skipped |
+| `return { kind: "ok" }` | not a site |
 
-Fourteen of eighteen assert a *report*. That ratio is the point: the accept-set is two forms and everything else is named. The cases that need symbol or type resolution are driven through a stub resolver the core takes as a parameter, so the core stays a function of text and the resolving layer is exercised separately by §5.6's premises. They mirror fixtures in `docs/superpowers/specs/observability/probes/2026-08-26-emit-payload-predicate.ts`, where the same predicate runs against a real checker over all seventeen forms.
+Fifteen of twenty-one assert a *report*. That ratio is the point: the accept-set is two forms and everything else is named.
+
+**The suite's discriminating power is measured, not assumed.** A positive control that passes on its first run is exactly the shape that can be vacuous, so four mutations were applied to the shipped core and each was killed: removing the `else`-arm rejection (1 failure), disabling the object-payload test (5), removing the lexical-precedence check (1), and removing the nested-closure exclusion (1). The cases that need symbol or type resolution are driven through a stub resolver the core takes as a parameter, so the core stays a function of text and the resolving layer is exercised separately by §5.6's premises. They mirror fixtures in `docs/superpowers/specs/observability/probes/2026-08-26-emit-payload-predicate.ts`, where the same predicate runs against a real checker over all seventeen forms.
 
 ## 6. Deliverable C — the client wire projection
 
