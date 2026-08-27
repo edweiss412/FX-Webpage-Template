@@ -158,13 +158,19 @@ other ten tasks are done, which is why it was filed as
 `BL-PRIVATE-IMAGE-POSTMERGE-PROBE` and scheduled from the open queue rather than
 left here.
 
-Worth keeping, because it explains why the gap was invisible for eighteen days:
-the scheduled cron sync had been polling the show every five minutes and returning
-`skipped:watermark` every time. The watermark gate is reachable only in automatic
-mode (`lib/sync/perFileProcessor.ts:276-278`), so an unchanged sheet never reaches
-the snapshot path under cron, and no amount of waiting would have produced a single
-variant. Only a manual sync re-applies an unchanged sheet
-(`lib/sync/runManualSyncForShow.ts:538`).
+Worth keeping, because it explains why the gap stayed invisible. Between this PR's
+merge and the manual sync, `sync_log` holds 4826 rows for the show and every one is
+`watermark`, with no row of any other status in the window. The watermark skip is
+reachable only in automatic mode (`lib/sync/perFileProcessor.ts:276-278`) and manual
+mode re-applies even an unchanged sheet (`lib/sync/runManualSyncForShow.ts:538`).
+
+The skip is not unconditional, and the claim is kept to what the code supports: the
+same file proceeds on an unchanged sheet at `:322` (`sheet_unavailable`, recovery),
+`:327` (`partial_failure`, asset recovery) and `:341` (cron drift resync). None
+applied, because the show was healthy on both fields those escapes read
+(`last_sync_status = 'ok'`, `snapshot_status = 'complete'`). For a HEALTHY show whose
+sheet has not changed, no scheduled path reaches the snapshot stage; a show in
+`sheet_unavailable` or `partial_failure` would have been picked up automatically.
 
 ### Invariant-8 dual gate — findings and dispositions
 

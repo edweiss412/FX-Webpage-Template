@@ -47,24 +47,38 @@ https://github.com/edweiss412/FX-Webpage-Template/pull/761#issuecomment-54419213
 **The count was predicted before the sync, which is what makes it evidence.** The ladder emits a
 width only when strictly less than the original's, so measuring the two live originals (791x857 and
 1202x928) fixed the answer at 5 in advance. A pass is a match against that prediction rather than a
-reading of whatever turned up. The manifest agrees with storage and its intrinsic dimensions match
-the bytes measured independently.
+reading of whatever turned up. The manifest's `variantWidths` agree with the storage listing, and its
+`intrinsicWidth`/`intrinsicHeight` match the two originals measured from their bytes before the sync;
+both queries are in the transcript.
 
-**Why eighteen days of deployment produced zero variants, which is the part worth keeping.** The
-scheduled cron sync had been polling the show every five minutes and returning `skipped:watermark`
-every time. The watermark gate is reachable only in automatic mode
-(`lib/sync/perFileProcessor.ts:276-278`; `isAutomaticMode` is `cron | push`), so an unchanged sheet
-never reaches the snapshot path under cron and no amount of waiting could have produced a single
-variant. Only a manual sync re-applies an unchanged sheet (`lib/sync/runManualSyncForShow.ts:538`).
-The row's "degrades silently" worry was right about the mechanism and understated the reach: the
-evidence was not merely unread, it was unproducible by any scheduled path.
+**Why seventeen days of deployment produced zero variants, which is the part worth keeping.**
+Between PR #761's merge (`8739556586`, 2026-08-10T09:17:15-05:00) and the manual sync, `sync_log`
+holds **4826** rows for this show and every one of them is `watermark`, with no row of any other
+status in the window. The watermark skip is reachable only in automatic mode
+(`lib/sync/perFileProcessor.ts:276-278`; `isAutomaticMode` is `cron | push`), and manual mode
+re-applies even an unchanged sheet (`lib/sync/runManualSyncForShow.ts:538`).
 
-**One side effect, named rather than tidied away.** The resync raised a new `RESYNC_QUALITY_REGRESSED`
-alert driven by pre-existing `#REF!` breakage in the sheet, unrelated to this pipeline. It is left
-standing because it is a real signal. It reaches nobody by email: `SYNC_PROBLEM_CODES`
+State it no more strongly than the code allows: the cron skip is NOT unconditional. The same file
+carries three escapes that proceed on an unchanged sheet, at `:322` (`last_sync_status =
+'sheet_unavailable'`, proceeds in `recovery`), `:327` (`snapshot_status = 'partial_failure'`,
+proceeds in `asset_recovery`) and `:341` (cron with `roleVocabDriftEligible` and no live pending
+sync). None applied, because the show was healthy on both fields those escapes read
+(`last_sync_status = 'ok'`, `snapshot_status = 'complete'`). So the claim that holds is the narrow
+one: for a HEALTHY show whose sheet has not changed, no scheduled path reaches the snapshot stage,
+and this show was in that state for all 4826 polls. A show sitting in `sheet_unavailable` or
+`partial_failure` would have been picked up by a recovery path automatically.
+
+The row's "degrades silently" worry was right about the mechanism and understated the reach: for a
+healthy show the evidence was not merely unread, it was unproducible by waiting.
+
+**One side effect, named rather than tidied away.** The resync raised one new alert,
+`RESYNC_QUALITY_REGRESSED` (16:09:18Z, on this show). Attributing it to the sheet's pre-existing
+`#REF!` breakage rather than to this pipeline is an INFERENCE from the `REF_ERROR_LITERAL` warnings
+the same sync returned, not something a query establishes. It is left standing rather than resolved,
+because it is a real signal about the sheet. It reaches nobody by email: `SYNC_PROBLEM_CODES`
 (`lib/notify/constants.ts:2-8`) does not include it and `lib/notify/monitorDigest.ts:164` skips a
-quality regression outright. Both notification queues were snapshotted either side of the sync;
-`pending_syncs` stayed at 0.
+quality regression outright. `pending_syncs` was queried either side of the sync and held 0 both
+times.
 
 ## BL-SPECLINT-AC-UNCLAIMED — a plan could declare an acceptance criterion that no task was scheduled to prove — CLOSED 2026-08-27
 
