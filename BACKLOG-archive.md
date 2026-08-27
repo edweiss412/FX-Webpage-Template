@@ -13150,10 +13150,12 @@ five further legs in the warn band (>75% of 3600 s)
 | — object literals                                  | 77      |
 | — const aliases (`FAIL`, `INFRA_ERROR`)            | 23      |
 | files holding one / files parsed                   | 19 / 61 |
-| already satisfied                                  | 9       |
+| already satisfied — before Task 1                  | 9       |
 | exempt as propagation                              | 4       |
-| **reported, and repaired here**                    | **85**  |
+| **reported, and repaired here**                    | **87**  |
 | repaired that the walker did not name              | **0**   |
+
+That table is stated at ONE moment — before any repair — because the two figures that move are easy to mix: Task 1 repaired the loader's 2 sites first, so when the walker ran for Task 2 it reported **85** and the satisfied count had risen to 11. 9 + 4 + 87 = 100 at the start; 11 + 4 + 85 = 100 after Task 1. An earlier version of this table mixed the two moments and summed to 98.
 
 The 23 const-alias sites are why the derivation is checker-backed rather than syntactic: an object-literal rule missed all of them, in three files, and looked complete while doing it.
 
@@ -13179,10 +13181,10 @@ No `BL-`/`DEF-` row was filed in either direction (Eric's directive, 2026-08-25)
 
 **The projection is measured, not argued**, because the design survived three adversarial rounds and the repo's three-round cap says to stop patching prose and build it. `docs/superpowers/specs/observability/probes/2026-08-26-client-value-projection.ts` runs it over every collision pair the rounds produced and reports `COLLISIONS: 4 of 25`. `render` writes leaves with `String()` rather than `JSON.stringify`, whose number grammar maps `NaN` and both infinities to `null` and collapsed `{ a: NaN }` into `{ a: null }`. A runtime-derived type tag separates the number `0` from the string `"0"`.
 
-**The four remaining collisions are limits of text, not defects**, and each is recorded in `lib/observe/describeClientValue.ts`: `-0` against `0` has no distinct string form in any renderer, and a `Date` inside one second or a `RegExp` differing only in `lastIndex` arrives already flattened by `serializeError`'s ratified §4 limit 5. Chasing them means a precision rule per built-in type, which is the per-round widening this arc refused everywhere else.
+**The remaining collisions are limits of text, not defects**, and each is recorded in `lib/observe/describeClientValue.ts` and asserted AS a collision in the suite. Two families: `-0` against `0`, which has no distinct string form in any renderer; and every value `serializeError` stringifies during its own traversal — a `Date` inside one second, a `RegExp` differing only in `lastIndex`, and any nested `bigint`/`Map`/`Set`/`Date`/`RegExp`/`URL` against its own string form, because the runtime type tag reaches depth 0 only. Chasing the nested family means editing the ratified helper or re-implementing its traversal; chasing the rest means a precision rule per built-in type, which is the per-round widening this arc refused everywhere else.
 
 **§9 limit 10, recorded here as the spec assigns it: the `context`-only `clientLog` callers are outside the wire.** `components/realtime/ShowRealtimeBridge.tsx` (four sites) and `components/admin/dev/DevCaptureControl.tsx` pass their value as `context`, which `lib/observe/clientLog.ts` never mirrors to `app_events`. They cannot produce an `"[object Object]"` row because they produce no row at all. Nothing to repair, and the reason is worth keeping so a later reader does not re-derive it.
 
-**The `Error` path is byte-identical on the wire and its dedup behaviour is unchanged.** The key gains a trailing separator over an empty term, which is constant across every `Error` call, so no two previously-distinct keys merge and no two previously-equal keys split. The tests assert that behaviour rather than the key's bytes, because byte-identity is impossible here and asserting it would be asserting a falsehood.
+**The `Error` path's dedup behaviour is unchanged, and its bytes are unchanged EXCEPT where they carried a secret.** The share-token scrub added late in review rewrites any field — `url`, `message`, `stack`, `componentStack` — that contains a crew URL, on every path including this one. That is the point of it. Absent a crew URL the bytes are identical. The key gains a trailing separator over an empty term, which is constant across every `Error` call, so no two previously-distinct keys merge and no two previously-equal keys split. The tests assert that behaviour rather than the key's bytes, because byte-identity is impossible here and asserting it would be asserting a falsehood.
 
 **Neither `CAPS` copy moved and the route did not change.** `detail` already existed on the transport and the route with a 500 cap; the projection rides the field that was already there.

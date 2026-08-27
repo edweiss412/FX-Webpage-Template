@@ -30,42 +30,68 @@ export function __resetClientTransportDedupForTests(): void {
 }
 
 /**
- * The crew share token is a SECRET, and it travels further than the address bar.
+ * The crew share token is a SECRET, and scrubbing it by PATTERN does not converge.
  *
- * `/show/<slug>/<shareToken>` is the only share-token-bearing route, but the token
- * appears in at least three shapes on the wire:
- *   - the crew page's own `location.href`;
- *   - percent-encoded inside `/auth/sign-in?next=…`, which
- *     `lib/auth/picker/selectIdentity.ts` generates on every gated crew visit;
- *   - inside any FIELD a crash carries — a thrown `{ url: location.href }` lands in
- *     `detail`, a referrer lands in `message`, a component stack can carry either.
+ * Two review rounds produced a P0 on this one axis. The first version redacted the
+ * pathname of `payload.url`, and missed `/auth/sign-in?next=%2Fshow%2F…` — a route
+ * `lib/auth/picker/selectIdentity.ts` generates on every gated crew visit — plus
+ * every field that is not `url`. The second matched the route shape anywhere in a
+ * string, and missed a second copy of the same token in a query parameter or a
+ * fragment. A third would miss the next spelling. That is a recognizer over an open
+ * input space, and this repo's round-economy rule says to narrow rather than widen
+ * it again.
  *
- * A first version redacted the pathname of `payload.url` only. It missed both of
- * the other two, which is the whole class: a secret does not respect the field you
- * expected it in. So the scrub is applied to EVERY string on the wire, and it
- * matches the token wherever it sits in the text rather than only at a path
- * position.
+ * So the PRIMARY mechanism is not a pattern at all: on a crew page the browser
+ * already knows the token — it is a path segment of `location` — so the exact
+ * literal is scrubbed from every string, in raw and percent-encoded form. Exact
+ * replacement over a known value has no grammar to get wrong and nothing left to
+ * widen.
  *
- * AGENTS.md invariant 10: secrets are never logged — `rotateShareToken` emits
- * `epoch_<n>` for exactly this reason — and `lib/log/sanitize.ts` redacts emails
- * only, so nothing downstream catches this.
+ * The route-shape pass is kept only as a BACKSTOP for a crew URL belonging to some
+ * OTHER show appearing in free text, where the literal is unknowable. Its residual
+ * gap is a documented limit rather than a defect to chase: see the header note on
+ * `scrubShareTokens`.
+ *
+ * AGENTS.md invariant 10: secrets are never logged.
  */
 const REDACTED_TOKEN = "[share-token-redacted]";
 
+/** The current page's share token, when the page is a crew page. "" otherwise. */
+function currentShareToken(): string {
+  try {
+    if (typeof location === "undefined") return "";
+    const parts = location.pathname.split("/"); // ["", "show", slug, token, ...]
+    return parts[1] === "show" && parts.length > 3 ? (parts[3] ?? "") : "";
+  } catch {
+    return "";
+  }
+}
+
 /**
- * `/show/<slug>/<token>` in raw or percent-encoded form, anywhere in a string.
+ * `/show/<slug>/<token>` in raw or percent-encoded form. BACKSTOP ONLY.
  *
- * Keyed on the ROUTE SHAPE, never on what a token looks like: a shape rule fails
- * open the day the token format changes. The slug is kept because it is what makes
- * the row diagnosable; everything after it in that path position is replaced.
- * `%2F` covers the encoded form the sign-in redirect produces.
+ * DOCUMENTED LIMIT: this catches a token at a path position. A token belonging to a
+ * DIFFERENT crew page, copied into free text somewhere that is not a path position
+ * — a query parameter of a foreign URL, say — is not matched, because its literal
+ * value is unknowable from this page. The exact-literal pass below covers the token
+ * of the page the crash actually happened on, which is the one that appears in that
+ * page's own URLs and stack frames.
  */
 const SHOW_TOKEN_RE = /(\/|%2F)show(\/|%2F)([^/?#&%\s]+)((?:\/|%2F)[^?#&\s]*)/gi;
 
-/** Total: never throws, returns the input unchanged when there is nothing to scrub. */
+/** Total: never throws. Scrubs the known literal everywhere, then the route shape. */
 export function scrubShareTokens(text: string): string {
   try {
-    return text.replace(
+    let out = text;
+    const tok = currentShareToken();
+    if (tok.length > 0) {
+      // Every occurrence, raw and encoded — a second copy in a query parameter or a
+      // fragment is the same literal, which is exactly what the pattern pass missed.
+      out = out.split(tok).join(REDACTED_TOKEN);
+      const enc = encodeURIComponent(tok);
+      if (enc !== tok) out = out.split(enc).join(REDACTED_TOKEN);
+    }
+    return out.replace(
       SHOW_TOKEN_RE,
       (_m, a, b, slug) => `${a}show${b}${slug}${b}${REDACTED_TOKEN}`,
     );
@@ -75,14 +101,14 @@ export function scrubShareTokens(text: string): string {
 }
 
 /**
- * The address-bar case, kept as its own function because it can also drop the
- * query and fragment wholesale rather than scrubbing them — on the crew route
- * itself there is nothing in either worth keeping.
+ * The address-bar case. Drops query and fragment wholesale on the crew route —
+ * on that route there is nothing in either worth keeping — then scrubs whatever
+ * remains.
  */
 export function redactShareToken(href: string): string {
   try {
     const u = new URL(href);
-    const parts = u.pathname.split("/"); // ["", "show", slug, token, ...]
+    const parts = u.pathname.split("/");
     if (parts[1] === "show" && parts.length > 3) {
       u.pathname = `/show/${parts[2]}/${REDACTED_TOKEN}`;
       u.search = "";

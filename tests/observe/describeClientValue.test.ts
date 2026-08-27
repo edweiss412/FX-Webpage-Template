@@ -4,9 +4,11 @@
 // adversarial round produced (spec §6.2), ported from the committed probe at
 // docs/superpowers/specs/observability/probes/2026-08-26-client-value-projection.ts.
 //
-// FOUR of the 25 pairs assert their COLLISION rather than discrimination: they are
+// 15 of the 34 pairs assert their COLLISION rather than discrimination: they are
 // documented limits 6 and 7, and a test asserting they discriminate would assert a
-// falsehood. Every other pair asserts two distinct signatures.
+// falsehood that fails the moment anyone checks. Every other pair asserts two
+// distinct signatures. The counts here are the counts of the tables below — an
+// earlier version said "four of 25" after the tables had grown.
 import { describe, expect, test } from "vitest";
 import { describeClientValue } from "@/lib/observe/describeClientValue";
 
@@ -197,6 +199,14 @@ describe("describeClientValue — the collision corpus (spec §6.2)", () => {
     ["nested Map against its string", { v: new Map() }, { v: "[object Map]" }],
     ["nested RegExp against its string", { v: /re/ }, { v: "/re/" }],
     ["array bigint against its string", [BigInt(1)], ["1"]],
+    ["nested Set against its string", { v: new Set() }, { v: "[object Set]" }],
+    ["nested Date against its string", { v: new Date(0) }, { v: new Date(0).toString() }],
+    ["nested URL against its string", { v: new URL("https://x.test/") }, { v: "https://x.test/" }],
+    ["array Map against its string", [new Map()], ["[object Map]"]],
+    ["array Set against its string", [new Set()], ["[object Set]"]],
+    ["array Date against its string", [new Date(0)], [new Date(0).toString()]],
+    ["array RegExp against its string", [/re/], ["/re/"]],
+    ["array URL against its string", [new URL("https://x.test/")], ["https://x.test/"]],
   ] as const)("%s COLLIDES — documented limits 6 and 7", (_label, a, b) => {
     // Asserted as collisions on purpose. String(-0) is "0"; serializeError
     // degrades a key-less object to String(value), which is second-resolution for

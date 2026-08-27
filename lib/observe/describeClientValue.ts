@@ -111,7 +111,14 @@ export function describeClientValue(value: unknown): { message: string; detail: 
   }
   let detail: string;
   try {
-    detail = render(s);
+    // A structured result is tagged when its constructor is NOT plain Object or
+    // Array. `new Uint8Array([1])` and `new Uint16Array([1])` both serialize to
+    // {"0":1} and shared a whole dedup signature without this; so does any pair of
+    // distinct classes with identical enumerable fields. Plain objects and arrays
+    // stay unprefixed, so the common case carries no extra noise.
+    const t = tag(value);
+    const body = render(s);
+    detail = t === "Object" || t === "Array" ? body : `${t} ${body}`;
   } catch {
     detail = "";
   }

@@ -289,12 +289,22 @@ premiseHolds(
 // A broken program yields `any`, which the POSITIVE object test reports rather than
 // accepts — but say so out loud instead of leaving a wall of reports to read as real.
 {
-  const probe = ts.createSourceFile(
-    "premise-probe.ts",
-    `declare const o: { a: number }; declare const s: string;\nfunction f(){ log.error("m", { code: C, error: o }); log.error("m", { code: C, error: s }); }`,
-    ts.ScriptTarget.Latest,
-    true,
-  );
+  // PREMISE 5: the checker resolved USEFULLY, not merely answered. An earlier
+  // version parsed two expressions and asserted it had found two AST nodes — it
+  // never called the resolver, so it proved nothing about the thing it named. It
+  // now runs the real predicate over a known object and a known scalar and
+  // requires opposite answers.
+  const probeSrc = `declare const o: { a: number }; declare const s: string;
+function f(){ log.error("m", { code: "C", error: o }); log.error("m", { code: "C", error: s }); }`;
+  const probePath = join(ROOT, "lib/admin/__premise_probe__.ts");
+  const probeProgram = ts.createProgram([probePath], tsconfigOptions(), {
+    ...ts.createCompilerHost(tsconfigOptions()),
+    getSourceFile: (name, lang) =>
+      name === probePath
+        ? ts.createSourceFile(name, probeSrc, lang, true)
+        : ts.createCompilerHost(tsconfigOptions()).getSourceFile(name, lang),
+  });
+  const probeResolver = makeResolver(probeProgram.getTypeChecker());
   const args: ts.Expression[] = [];
   const walk = (n: ts.Node): void => {
     if (ts.isPropertyAssignment(n) && ts.isIdentifier(n.name) && n.name.text === "error") {
@@ -302,8 +312,16 @@ premiseHolds(
     }
     ts.forEachChild(n, walk);
   };
-  walk(probe);
+  walk(probeProgram.getSourceFile(probePath)!);
   premiseHolds("the premise probe found both payload expressions", args.length === 2);
+  premiseHolds(
+    "the resolver ACCEPTS a known object payload",
+    probeResolver.isObjectPayload(args[0]!),
+  );
+  premiseHolds(
+    "the resolver REJECTS a known scalar payload",
+    !probeResolver.isObjectPayload(args[1]!),
+  );
 }
 
 describe("lib/admin infra-emit cover", () => {
@@ -331,19 +349,30 @@ describe("lib/admin infra-emit cover", () => {
     ).toEqual([]);
   });
 
-  it("every code the scanner saw in a lib/admin log.* span is registered forensic", () => {
+  it("every code the scanner saw is registered forensic, and every emit stamps a literal", () => {
+    // DERIVED FROM THE WALK, not from a second regex over the same files. An
+    // earlier version re-scanned with a regex that only understood
+    // `code: "LITERAL"`, so `const code = "X"; log.error(m, { code, error })`
+    // satisfied the walker and registered nothing — the "derived, not listed"
+    // claim failing quietly, which is the one failure mode a derived check exists
+    // to prevent.
     const seen = new Set<string>();
-    for (const rel of scanned) {
-      const src = readFileSync(join(ROOT, rel), "utf8");
-      for (const m of src.matchAll(
-        /log\.(?:error|warn|info|debug)\((?:[^;])*?code:\s*"([A-Z][A-Z0-9_]*)"/g,
-      )) {
-        seen.add(m[1]!);
+    const nonLiteral: string[] = [];
+    for (const [rel, sites] of sitesByFile) {
+      for (const s of sites) {
+        if (s.verdict.kind !== "satisfied") continue;
+        if (s.verdict.code === null) nonLiteral.push(`${rel}:${s.line}`);
+        else seen.add(s.verdict.code);
       }
     }
+    // A non-literal code cannot be checked against the registry at all, so it is
+    // refused rather than skipped: the guard must not go quiet on the one shape it
+    // cannot verify.
+    expect(nonLiteral, "emits whose `code` is not a string literal").toEqual([]);
     expect(
       [...seen].filter((c) => !NEW_FORENSIC_CODES.has(c)).sort(),
       "unregistered codes",
     ).toEqual([]);
+    premise("the walk saw codes to check", seen.size, 0);
   });
 });

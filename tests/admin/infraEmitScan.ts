@@ -71,11 +71,23 @@ export type Reason =
   | "unclassifiable-construction";
 
 export type Verdict =
-  | { kind: "satisfied" }
+  | { kind: "satisfied"; code: CodeLiteral }
   | { kind: "exempt-propagation"; origin: "imported" | "local" }
   | { kind: "reported"; reason: Reason };
 
 export type Shape = "literal" | "const-alias" | "unclassified";
+
+/**
+ * What the satisfying emit stamped as its `code`, when the scanner could read it as
+ * a string literal. `null` means an emit satisfied the predicate but its code is not
+ * a literal — a shorthand `{ code }` or a `code: SOME_CONST`.
+ *
+ * Carried on the Site so registry completeness is DERIVED FROM THIS WALK rather than
+ * from a second regex over the same files. A separate extractor that only understood
+ * `code: "LITERAL"` let a shorthand emit satisfy the walker while registering
+ * nothing, which is precisely the "derived, not listed" claim failing quietly.
+ */
+export type CodeLiteral = string | null;
 
 export interface Site {
   line: number;
@@ -164,12 +176,14 @@ export function guardScope(n: ts.Node): Scope {
 export function propagationSubject(test: ts.Expression | null): ts.Identifier | null {
   if (!test || !ts.isBinaryExpression(test)) return null;
   const op = test.operatorToken.kind;
-  const isEquality =
-    op === ts.SyntaxKind.EqualsEqualsEqualsToken ||
-    op === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
-    op === ts.SyntaxKind.EqualsEqualsToken ||
-    op === ts.SyntaxKind.ExclamationEqualsToken;
-  if (!isEquality) return null;
+  // POSITIVE equality only. Polarity is the whole meaning here: in
+  // `if (sub.kind !== "infra_error")` the consequent is the NON-fault branch, so a
+  // return there is a locally created fault and exempting it leaves that fault
+  // dark. An earlier version accepted `!==` and `!=` alongside `===` and `==`,
+  // which handed the exemption to exactly the branch that must not have it.
+  const isPositiveEquality =
+    op === ts.SyntaxKind.EqualsEqualsEqualsToken || op === ts.SyntaxKind.EqualsEqualsToken;
+  if (!isPositiveEquality) return null;
   const left = strip(test.left);
   const right = strip(test.right);
 
@@ -208,8 +222,9 @@ export function findEmit(
   returnPos: number,
   sf: ts.SourceFile,
   r: Resolver,
-): { ok: true } | { ok: false; reason: Reason } {
+): { ok: true; code: CodeLiteral } | { ok: false; reason: Reason } {
   let satisfied = false;
+  let satisfiedCode: CodeLiteral = null;
   let sawLogCall = false;
   let sawCode = false;
   let sawErrorField = false;
@@ -235,15 +250,20 @@ export function findEmit(
       sawLogCall = true;
       const late = n.getStart(sf) >= returnPos;
       let code = false;
+      let codeLiteral: CodeLiteral = null;
       let errExpr: ts.Expression | null = null;
       for (const a of n.arguments) {
         if (!ts.isObjectLiteralExpression(a)) continue;
         for (const p of a.properties) {
           if (ts.isShorthandPropertyAssignment(p)) {
-            if (p.name.text === "code") code = true;
+            if (p.name.text === "code") code = true; // shorthand: no literal to read
             if (p.name.text === "error") errExpr = p.name;
           } else if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name)) {
-            if (p.name.text === "code") code = true;
+            if (p.name.text === "code") {
+              code = true;
+              const init = p.initializer;
+              codeLiteral = ts.isStringLiteral(init) ? init.text : null;
+            }
             if (p.name.text === "error") errExpr = p.initializer;
           }
         }
@@ -256,6 +276,7 @@ export function findEmit(
         else if (!r.isObjectPayload(errExpr)) sawScalarPayload = true;
         else {
           satisfied = true;
+          satisfiedCode = codeLiteral;
           return;
         }
       }
@@ -264,7 +285,7 @@ export function findEmit(
   };
   ts.forEachChild(scope, (c) => scan(c, false));
 
-  if (satisfied) return { ok: true };
+  if (satisfied) return { ok: true, code: satisfiedCode };
   if (sawScalarPayload) return { ok: false, reason: "emit-payload-not-object" };
   if (sawLate) return { ok: false, reason: "emit-after-return" };
   if (sawNested) return { ok: false, reason: "emit-in-nested-function" };
@@ -296,7 +317,9 @@ export function classify(ret: ts.ReturnStatement, sf: ts.SourceFile, r: Resolver
     }
   }
   const emit = findEmit(g.node, ret.getStart(sf), sf, r);
-  return emit.ok ? { kind: "satisfied" } : { kind: "reported", reason: emit.reason };
+  return emit.ok
+    ? { kind: "satisfied", code: emit.code }
+    : { kind: "reported", reason: emit.reason };
 }
 
 /** Every population site in one file, with its shape and verdict. Pure over (sf, resolver). */
