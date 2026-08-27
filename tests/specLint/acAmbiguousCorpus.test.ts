@@ -10,6 +10,11 @@ import { AC_AMBIGUOUS_RECORD } from "./acAmbiguousRecord";
 import { enrolledPlans } from "./acCorpusWalk";
 
 const key = (plan: string, line: number, ids: string[]) => `${plan}:${line} ${ids.join(" ")}`;
+/** The arm's own id boundary, so a claimed `AC-1` is not satisfied by `AC-1b`. */
+const ID_BOUNDARY = "(?![A-Za-z0-9-])(?!\\.[A-Za-z0-9.])";
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const carriesId = (line: string, id: string) =>
+  new RegExp(`(?<![A-Za-z0-9.-])${escape(id)}${ID_BOUNDARY}`).test(line);
 
 describe("the AMBIGUOUS declaring lines over the live corpus (AC-10)", () => {
   const docs = enrolledPlans();
@@ -54,8 +59,12 @@ describe("the AMBIGUOUS declaring lines over the live corpus (AC-10)", () => {
     for (const row of AC_AMBIGUOUS_RECORD) {
       const lines = readFileSync(row.plan, "utf8").replace(/\r\n/g, "\n").split("\n");
       for (const id of row.ids) {
+        // Boundaried, not `includes`. A substring check lets a row claiming
+        // `AC-1` pass against a line whose only id is `AC-1b`, which is the
+        // exact confusion the recognizer's own boundary exists to prevent —
+        // and both ids are live in this corpus.
         expect(`${row.plan}:${row.line} carries ${id}`).toBe(
-          `${row.plan}:${row.line} carries ${lines[row.line - 1]?.includes(id) ? id : "NOTHING"}`,
+          `${row.plan}:${row.line} carries ${carriesId(lines[row.line - 1] ?? "", id) ? id : "NOTHING"}`,
         );
       }
     }
