@@ -116,6 +116,13 @@ export type SheetCounts = {
    * without anybody lying. So it is an error row instead.
    */
   hardErrors: string[];
+  /**
+   * Every `flight_info` value counted on this sheet, verbatim. The report quotes the
+   * corpus and claims the validation deployment holds the SAME itineraries; both are
+   * set comparisons, and neither is checkable from aggregate counts, which agree just
+   * as readily when one itinerary is swapped for another (diff review R2 F2).
+   */
+  itineraries: string[];
   /** Every date-only segment's raw text, so the report shows what the crew member sees. */
   dateOnlyExamples: string[];
   /** Itineraries where EVERY segment is date-only — the whole card is unlabeled lines. */
@@ -157,6 +164,7 @@ function emptyCounts(fileId: string, name: string): SheetCounts {
     dateOnlyDateUnresolved: 0,
     unparsed: 0,
     hardErrors: [],
+    itineraries: [],
     dateOnlyExamples: [],
     allDateOnlyItineraries: [],
   };
@@ -165,6 +173,7 @@ function emptyCounts(fileId: string, name: string): SheetCounts {
 /** Classify one itinerary string into an existing counter. Shared by the sheet walk and `--validation`. */
 export function countItinerary(counts: SheetCounts, flightInfo: string, year: number): void {
   counts.crewWithFlightInfo += 1;
+  counts.itineraries.push(flightInfo);
   const { segments } = parseFlightItinerary(flightInfo, year);
   if (segments.length === 0) return;
   let dateOnlyHere = 0;
@@ -214,6 +223,12 @@ const has = (flag: string) => process.argv.includes(flag);
  * which on this repo points at the validation project (see `pnpm preflight`).
  * A missing URL is announced and returns null; it never degrades to a zero,
  * which would be the same manufactured clean zero `hardErrors` exists to stop.
+ *
+ * The itinerary TEXTS are retained, not just their counts. The only thing this
+ * second source rules out is a show that reached the database without passing
+ * through the folder the probe walks, and aggregates cannot rule it out: swap one
+ * folder itinerary for one outside-folder itinerary and every count still agrees.
+ * Set identity is the check; `itinerariesMatchCorpus` below is where it is made.
  */
 async function readValidation(): Promise<SheetCounts | null> {
   const url = argValue("--db") ?? process.env["TEST_DATABASE_URL"];
@@ -244,6 +259,19 @@ async function readValidation(): Promise<SheetCounts | null> {
   } finally {
     await sql.end({ timeout: 5 });
   }
+}
+
+/**
+ * Do the validation deployment's itineraries and the Drive corpus's hold the same
+ * multiset of `flight_info` values? This, not the agreeing totals, is what supports
+ * the report's "the same five itineraries" and is what would catch a database-only
+ * show. Sorted rather than set-reduced, so a duplicated itinerary is a difference.
+ */
+export function itinerariesMatchCorpus(corpus: SheetCounts[], validation: SheetCounts): boolean {
+  const sort = (xs: string[]) => [...xs].sort();
+  const a = sort(corpus.flatMap((r) => r.itineraries));
+  const b = sort(validation.itineraries);
+  return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
 function line(r: SheetCounts): string {
@@ -318,6 +346,11 @@ async function main(): Promise<void> {
     if (validation) {
       console.log(
         `\nVALIDATION crew_members.flight_info — crew ${validation.crewTotal}, with flight_info ${validation.crewWithFlightInfo}, segments ${validation.segmentsTotal}, populated ${validation.populated}, DATE-ONLY ${validation.dateOnly}, unparsed ${validation.unparsed}`,
+      );
+      console.log(
+        itinerariesMatchCorpus(corpus, validation)
+          ? `  itineraries: IDENTICAL to the corpus (${validation.itineraries.length} values, compared verbatim)`
+          : `  itineraries: DIFFER from the corpus — the database holds an itinerary the folder does not, or the reverse`,
       );
     }
   }

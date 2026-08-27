@@ -28,6 +28,7 @@ import {
   dateResolved,
   inCorpus,
   isUnmeasured,
+  itinerariesMatchCorpus,
 } from "@/scripts/probe-flight-date-only-legs";
 
 const ROOT = join(__dirname, "..", "..");
@@ -164,10 +165,29 @@ describe("report numbers", () => {
   // Every number the report states about the corpus comes out of the probe run
   // committed alongside it. Transcription is the drift this removes: the report's
   // table is parsed here and asserted equal to the JSON, so a hand-edited cell fails.
+  type Row = Record<string, number> & { name: string; itineraries: string[] };
   const json = JSON.parse(readFileSync(join(ROOT, REPORT_JSON_PATH), "utf8")) as {
-    rows: { name: string; crewTotal: number; segmentsTotal: number; dateOnly: number }[];
+    rows: Row[];
     totals: Record<string, number>;
-    validation: { crewTotal: number; crewWithFlightInfo: number; dateOnly: number } | null;
+    validation: (Row & { crewWithFlightInfo: number }) | null;
+  };
+
+  /**
+   * The report's table columns, keyed by the HEADER TEXT the report itself prints.
+   *
+   * Derived rather than enumerated at the assertion site: round 2 finding 1 was that
+   * three of the six columns were asserted and three were not, so 24 cells could be
+   * hand-edited with the suite still green. The loop below reads the header out of the
+   * markdown and fails on any column this map does not name, so a column ADDED to the
+   * report is asserted or the suite goes red — a new column cannot arrive unpinned.
+   */
+  const COLUMN_FIELD: Record<string, string> = {
+    crew: "crewTotal",
+    "with flight_info": "crewWithFlightInfo",
+    segments: "segmentsTotal",
+    populated: "populated",
+    "date-only": "dateOnly",
+    unparsed: "unparsed",
   };
   const md = readFileSync(
     join(ROOT, "docs/superpowers/specs/crew/2026-08-27-flight-date-only-leg-probe.md"),
@@ -200,8 +220,22 @@ describe("report numbers", () => {
   });
 
   it("prints the same numbers in the report's markdown table as the probe produced", () => {
-    const cell = (row: string, i: number) =>
-      Number(row.split("|").map((c) => c.trim().replace(/\*\*/g, ""))[i + 2]);
+    const cells = (row: string) => row.split("|").map((c) => c.trim().replace(/\*\*/g, ""));
+    const cell = (row: string, i: number) => Number(cells(row)[i + 2]);
+
+    // The columns come out of the report's own header, so the assertion ranges over
+    // what the report actually prints rather than over a list kept in step by hand.
+    const header = md.match(/^\| sheet \|.*$/m);
+    expect(header, "report has no corpus table header").not.toBeNull();
+    const columns = cells(header![0]).slice(2, -1);
+    expect(columns.length, "report table header has no columns").toBeGreaterThan(0);
+    for (const name of columns) {
+      expect(
+        COLUMN_FIELD[name],
+        `report table column ${JSON.stringify(name)} is not pinned`,
+      ).toBeDefined();
+    }
+
     for (const r of json.rows) {
       const escaped = r.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       if (isUnmeasured(r as never)) {
@@ -216,15 +250,32 @@ describe("report numbers", () => {
       }
       const line = md.match(new RegExp(`^\\| ${escaped} \\|.*$`, "m"));
       expect(line, `report has no table row for ${r.name}`).not.toBeNull();
-      expect(cell(line![0], 0), `${r.name} crew`).toBe(r.crewTotal);
-      expect(cell(line![0], 2), `${r.name} segments`).toBe(r.segmentsTotal);
-      expect(cell(line![0], 4), `${r.name} date-only`).toBe(r.dateOnly);
+      columns.forEach((name, i) => {
+        expect(cell(line![0], i), `${r.name} ${name}`).toBe(r[COLUMN_FIELD[name]!]);
+      });
     }
     const total = md.match(/^\| \*\*corpus total\*\* \|.*$/m);
     expect(total).not.toBeNull();
-    expect(cell(total![0], 0)).toBe(json.totals["crewTotal"]);
-    expect(cell(total![0], 2)).toBe(json.totals["segmentsTotal"]);
-    expect(cell(total![0], 4)).toBe(json.totals["dateOnly"]);
+    columns.forEach((name, i) => {
+      expect(cell(total![0], i), `corpus total ${name}`).toBe(json.totals[COLUMN_FIELD[name]!]);
+    });
+  });
+
+  it("quotes the corpus itineraries verbatim rather than approximately", () => {
+    // The report prints the whole flight corpus in a fenced block and calls it
+    // verbatim. Without this the block is prose: a segment could be tidied, dropped,
+    // or invented and every count above would still agree, because the counts were
+    // produced before the transcription.
+    const corpusItineraries = json.rows
+      .filter((r) => inCorpus(r as never))
+      .flatMap((r) => r.itineraries);
+    expect(corpusItineraries.length, "committed run recorded no itineraries").toBe(
+      json.totals["crewWithFlightInfo"],
+    );
+    const fences = [...md.matchAll(/^```\n([\s\S]*?)^```$/gm)].map((m) => m[1]!.trim().split("\n"));
+    const quoted = fences.find((block) => block.length === corpusItineraries.length);
+    expect(quoted, "report quotes no block matching the corpus itinerary count").toBeDefined();
+    expect([...quoted!].sort()).toEqual([...corpusItineraries].sort());
   });
 
   it("backs the validation claim with a run rather than a recollection", () => {
@@ -233,7 +284,24 @@ describe("report numbers", () => {
     // with every provided verification still green. `--validation` now produces it.
     expect(json.validation, "run the probe with --validation --report-json").not.toBeNull();
     expect(json.validation!.crewTotal).toBeGreaterThan(0);
-    expect(json.validation!.dateOnly).toBe(json.totals["dateOnly"]);
-    expect(json.validation!.crewWithFlightInfo).toBe(json.totals["crewWithFlightInfo"]);
+    for (const key of Object.values(COLUMN_FIELD)) {
+      expect(json.validation![key], `validation ${key}`).toBe(json.totals[key]);
+    }
+  });
+
+  it("establishes the validation claim by itinerary identity, not by agreeing totals", () => {
+    // Round 2 finding 2: the aggregate agreement above is compatible with a database
+    // that lost one folder itinerary and gained one from outside the folder — the very
+    // show the cross-check exists to rule out. Only the texts settle it.
+    expect(json.validation).not.toBeNull();
+    const corpus = json.rows.filter((r) => inCorpus(r as never));
+    expect(itinerariesMatchCorpus(corpus as never, json.validation as never)).toBe(true);
+
+    // And the comparison discriminates: swapping one itinerary keeps every count equal.
+    const swapped = {
+      ...json.validation!,
+      itineraries: [...json.validation!.itineraries.slice(1), "5/1 AA1 JFK - LAX 9:00am - 12:00pm"],
+    };
+    expect(itinerariesMatchCorpus(corpus as never, swapped as never)).toBe(false);
   });
 });

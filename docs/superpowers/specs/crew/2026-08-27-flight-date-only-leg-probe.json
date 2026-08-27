@@ -13,6 +13,7 @@
       "dateOnlyDateUnresolved": 0,
       "unparsed": 0,
       "hardErrors": [],
+      "itineraries": [],
       "dateOnlyExamples": [],
       "allDateOnlyItineraries": []
     },
@@ -28,6 +29,7 @@
       "dateOnlyDateUnresolved": 0,
       "unparsed": 0,
       "hardErrors": [],
+      "itineraries": [],
       "dateOnlyExamples": [],
       "allDateOnlyItineraries": []
     },
@@ -43,6 +45,11 @@
       "dateOnlyDateUnresolved": 0,
       "unparsed": 0,
       "hardErrors": [],
+      "itineraries": [
+        "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ",
+        "JFK-FLL JETBLUE 5/13 - 11:15am - 2:18pm CGTTLO | FLL-JFK JETBLUE 5/15 - 8:59pm - 11:55pm CGTTLO",
+        "ORD-FLL SPIRIT 5/13 - 10:58am - 3:05pm OWJ1PK | FLL-ORD SPIRIT 5/15 - 9:16pm - 11:29pm OWJ1PK"
+      ],
       "dateOnlyExamples": [],
       "allDateOnlyItineraries": []
     },
@@ -58,6 +65,9 @@
       "dateOnlyDateUnresolved": 0,
       "unparsed": 0,
       "hardErrors": [],
+      "itineraries": [
+        "5/2 AA1080 LGA - ORD 12:00pm - 1:00pm | 5/7 AA3237 ORD - LGA 10:02am - 1:17pm"
+      ],
       "dateOnlyExamples": [],
       "allDateOnlyItineraries": []
     },
@@ -73,6 +83,7 @@
       "dateOnlyDateUnresolved": 0,
       "unparsed": 0,
       "hardErrors": [],
+      "itineraries": [],
       "dateOnlyExamples": [],
       "allDateOnlyItineraries": []
     },
@@ -88,6 +99,9 @@
       "dateOnlyDateUnresolved": 0,
       "unparsed": 0,
       "hardErrors": [],
+      "itineraries": [
+        "GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am"
+      ],
       "dateOnlyExamples": [],
       "allDateOnlyItineraries": []
     },
@@ -103,6 +117,7 @@
       "dateOnlyDateUnresolved": 0,
       "unparsed": 0,
       "hardErrors": [],
+      "itineraries": [],
       "dateOnlyExamples": [],
       "allDateOnlyItineraries": []
     },
@@ -120,6 +135,7 @@
       "hardErrors": [
         "VERSION_AMBIGUOUS"
       ],
+      "itineraries": [],
       "dateOnlyExamples": [],
       "allDateOnlyItineraries": []
     }
@@ -154,6 +170,13 @@
     "dateOnlyDateUnresolved": 0,
     "unparsed": 0,
     "hardErrors": [],
+    "itineraries": [
+      "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ",
+      "JFK-FLL JETBLUE 5/13 - 11:15am - 2:18pm CGTTLO | FLL-JFK JETBLUE 5/15 - 8:59pm - 11:55pm CGTTLO",
+      "ORD-FLL SPIRIT 5/13 - 10:58am - 3:05pm OWJ1PK | FLL-ORD SPIRIT 5/15 - 9:16pm - 11:29pm OWJ1PK",
+      "5/2 AA1080 LGA - ORD 12:00pm - 1:00pm | 5/7 AA3237 ORD - LGA 10:02am - 1:17pm",
+      "GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am"
+    ],
     "dateOnlyExamples": [],
     "allDateOnlyItineraries": []
   }
