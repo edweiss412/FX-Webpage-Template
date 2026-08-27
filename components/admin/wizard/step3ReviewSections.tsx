@@ -3856,6 +3856,34 @@ export function DiagramTile({
   hasPreviewSource: boolean;
 }) {
   const [failed, setFailed] = useState(!hasPreviewSource);
+  /**
+   * Reconcile the failure state when the tile's SOURCE changes under a stable
+   * React key.
+   *
+   * The grid keys tiles by `${stub.objectId}-${i}`, so a manifest change
+   * re-renders the same component instance rather than remounting it. `failed`
+   * is seeded once and the only other write sets it true, so without this the
+   * tile is a one-way trapdoor: an unavailable diagram that becomes available
+   * stays a placeholder forever, an available one that becomes unavailable keeps
+   * requesting bytes until something 4xxs, and a tile that failed on one source
+   * stays failed when handed a good one — including when a show's next snapshot
+   * lands a variant ladder, where serving variants exist and none renders.
+   *
+   * Adjust-state-during-render rather than an effect: React's documented form
+   * for derived state, and it re-renders before paint instead of after, so no
+   * stale frame is shown. `sourceKey` is the comparison and the loader is not —
+   * the loader is a fresh closure every render, so comparing it would clear a
+   * genuine failure on every parent re-render.
+   */
+  const [lastSource, setLastSource] = useState({ hasPreviewSource, href, sourceKey });
+  if (
+    lastSource.hasPreviewSource !== hasPreviewSource ||
+    lastSource.href !== href ||
+    lastSource.sourceKey !== sourceKey
+  ) {
+    setLastSource({ hasPreviewSource, href, sourceKey });
+    setFailed(!hasPreviewSource);
+  }
   const strippedAlt = stripNewTabSuffix(alt);
   if (failed) {
     return (
