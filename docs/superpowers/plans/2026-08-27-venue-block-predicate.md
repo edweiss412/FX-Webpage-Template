@@ -94,7 +94,7 @@ PASSES all four semantic classes + mechanical gates
 **Transition-audit task:** N/A — no `AnimatePresence`, ternary render, or conditional block is added or modified; spec §1.4.
 **e2e harness readiness:** N/A — no Playwright test is attached.
 **Advisory-lock holder topology:** N/A — §0.4.
-**Mutation-family closure:** the surface is enrolled with `operators: [...OPERATOR_NAMES]` (all), so the closure set is the registry's full operator set applied to `lib/parser/fieldNearMiss.ts`, scored in Task 4. A reviewer-proposed new family is admissible only with a live escaping mutant against the shipped code.
+**Mutation-family closure:** the surface is enrolled with `operators: [...OPERATOR_NAMES]` (all), so the closure set is the registry's full operator set applied to `lib/parser/fieldNearMiss.ts`, scored in Task 5. A reviewer-proposed new family is admissible only with a live escaping mutant against the shipped code.
 
 ### 0.6 Declared-limit pins over the surfaces this plan moves
 
@@ -108,15 +108,15 @@ Restated from the spec so every `ac=` id resolves in this document, and so a rea
 | --- | --- | --- |
 | AC-V1 | a typo alias in a v4 `VENUE NAME` table emits exactly one `TYPO_NORMALIZED` | 1 |
 | AC-V2 | one predicate, two callers; `SECTION_HEADER_TOKENS` still `["VENUE"]` | 1 |
-| AC-V3 | corpus `TYPO_NORMALIZED` census 0 before and 0 after | 2 |
-| AC-V4 | the two swap suites green UNCHANGED | 2 |
-| AC-V5 | the 65-row baseline does not move; `EXPECTED_TOTAL` stays 65 | 2 |
-| AC-V6 | the four old-direction pins re-derived, not deleted or folded to constants | 2 |
-| AC-V7 | a REAL near-miss (`Diagrams?`) in a v4 venue table resolves to its own cell | 3 |
-| AC-V8 | Doug reads catalog copy, not an internal key; carve-out 3 to 4 members | 4 |
-| AC-V9 | `fieldNearMiss` scored at the shipping head, floor 0.95, 0 unaccepted survivors | 5 |
+| AC-V3 | corpus `TYPO_NORMALIZED` census 0 before and 0 after | 1 |
+| AC-V4 | the two swap suites green UNCHANGED | 1 |
+| AC-V5 | the 65-row baseline does not move; `EXPECTED_TOTAL` stays 65 | 1 |
+| AC-V6 | the four old-direction pins re-derived, not deleted or folded to constants | 1 |
+| AC-V7 | a REAL near-miss (`Diagrams?`) in a v4 venue table resolves to its own cell | 2 |
+| AC-V8 | Doug reads catalog copy, not an internal key; carve-out 3 to 4 members | 3 |
+| AC-V9 | `fieldNearMiss` scored on the shipping head (the head Task 4 produced), floor 0.95, 0 unaccepted survivors | 5 |
 | AC-V10 | no UI surface touched; invariant 8 marker is N/A | all |
-| AC-V11 | `CARD_SURFACED_LOG_ONLY` is asserted a subset of `WARNING_CARD_COPY_CODES` | 4 |
+| AC-V11 | `CARD_SURFACED_LOG_ONLY` is asserted a subset of `WARNING_CARD_COPY_CODES` | 3 |
 
 ---
 
@@ -153,7 +153,7 @@ it("FIRES for a typo-alias row inside a v4 VENUE NAME-opened block", () => {
 
 Both premises execute unconditionally relative to what they guard (no `.each` callback). The second is the one that makes this case discriminating rather than a duplicate of the v2 witness: it proves the opener really is outside the old token set, so a green here can only come from the new predicate.
 
-**Why the four-mutant procedure does NOT apply to this witness, stated rather than silently skipped.** The rule binds any test asserting "this string appears in this output". Task 4's copy assertions are exactly that and get all four. This one is a different shape: `rawSnippet === "Hotal Contact Info"` compares against a label the test itself writes into the input markdown, so it identifies WHICH row produced the warning rather than proving a string exists. Its discriminating power is carried by `toHaveLength(1)` under the second premise (that the opener is outside the old token set) — together those make the case fail on the live tree for the one reason the change exists to fix. Running four mutants against a value the test supplies end to end would prove only that the test controls its own input.
+**Why the four-mutant procedure does NOT apply to this witness, stated rather than silently skipped.** The rule binds any test asserting "this string appears in this output". Task 3's copy assertions are exactly that and get all four. This one is a different shape: `rawSnippet === "Hotal Contact Info"` compares against a label the test itself writes into the input markdown, so it identifies WHICH row produced the warning rather than proving a string exists. Its discriminating power is carried by `toHaveLength(1)` under the second premise (that the opener is outside the old token set) — together those make the case fail on the live tree for the one reason the change exists to fix. Running four mutants against a value the test supplies end to end would prove only that the test controls its own input.
 
 **Two imports this file does not yet have** (verified at plan time — `grep -n 'matchesSectionHeader\|VENUE_SECTION_HEADER_TOKENS' tests/parser/fieldNearMissBaseline.test.ts` returns nothing): add `matchesSectionHeader` from `@/lib/parser/blocks/_sectionHeaderMatch` and `VENUE_SECTION_HEADER_TOKENS` from `@/lib/parser/sectionHeaderTokens`. Both still exist after Task 1 — Task 1 removes only `fieldNearMiss.ts`'s use of the token set, not the export. `holdsTypoRow` is a hoisted function declaration at the bottom of the file and needs no import.
 
@@ -162,7 +162,17 @@ Observe red. Record the failure text in the commit.
 **A second RED in the same task: the whitespace-parity cases.** Beside the witness, assert the predicate accepts the ordinary whitespace variants of the v4 opener, which the unwrapped arm rejects:
 
 ```ts
-it.each([["double space", "VENUE  NAME"], ["tab", "VENUE\tNAME"], ["non-breaking space", "VENUE\u00a0NAME"]])(   // escape, never a literal
+// ONE binding, referenced by BOTH the .each and its non-vacuity guard below. An inline
+// array in the .each with a separate list in the guard is the "premise validates something
+// ADJACENT" defect: the real list could empty out while the duplicate stayed non-empty, and
+// the guard would keep passing over zero executed cases.
+const OPENER_VARIANTS: ReadonlyArray<readonly [string, string]> = [
+  ["double space", "VENUE  NAME"],
+  ["tab", "VENUE\tNAME"],
+  ["non-breaking space", "VENUE\u00a0NAME"],   // escape, never a literal
+];
+
+it.each(OPENER_VARIANTS)(
   "FIRES for a typo-alias row under an ordinary %s variant of the v4 opener",
   (_label, opener) => { /* … exactly one TYPO_NORMALIZED, blockRef.kind === "venue" … */ },
 );
@@ -170,7 +180,7 @@ it.each([["double space", "VENUE  NAME"], ["tab", "VENUE\tNAME"], ["non-breaking
 
 **Write the non-breaking space as `\u00a0`, never as a literal character.** A literal nbsp is invisible in the source, survives no review, and a formatter or an editor's whitespace normalisation silently turns it into an ordinary space — at which point the case still passes and proves nothing, which is exactly the tautology shape the anti-tautology rule exists to catch. The premise below is what makes that failure loud.
 
-**Premise placement.** A `premise` inside an `it.each` callback is unreachable when the case list is empty — the documented fifth shape of vacuous premise. So the non-vacuity check goes in a plain `it` BESIDE the `.each`: assert the case list is non-empty, and assert each variant really differs from the canonical `"VENUE NAME"` spelling, so a green cannot come from three copies of the already-passing string.
+**Premise placement, and the binding it must read.** A `premise` inside an `it.each` callback is unreachable when the case list is empty — the documented fifth shape of vacuous premise — so the non-vacuity check goes in a plain `it` beside the `.each`. That guard MUST read the same `OPENER_VARIANTS` binding the `.each` consumes, never a second list written out again: a guard over a duplicate proves something about the duplicate. It asserts the binding is non-empty and that each variant really differs from the canonical `"VENUE NAME"` spelling, so a green cannot come from three copies of the already-passing string or from zero executed cases.
 
 Observe red. Record the failure text in the commit.
 
@@ -214,7 +224,7 @@ A comment that survives its own repair is the next reviewer's finding.
    **State the generator's limit in that comment rather than overclaiming it.** Only ONE of the four registered typo aliases is venue-scoped (`hotal contact info` -> `venue.contact_info`; `diagrams`, `virtaul audience` and `goosneck` all resolve to `details.*`, measured at plan time). So the `LOADING DOCK` arm carries no typo alias and its silence holds whatever the predicate says: it is a NON-REGRESSION check, not a discriminating one. The discriminating silence witness is the byte-identical `| HOTEL |` case at `tests/parser/fieldNearMissBaseline.test.ts:294-307` — same row, same parser, same position, only the opener differs. The comment says which arm does which job, so the next reader does not mistake exhaustiveness for discrimination.
 2. `tests/parser/warnings.test.ts:168-207` — the comment at `tests/parser/warnings.test.ts:171-174` asserts a v4 typo row "is deliberately silent". Rewrite it, and add the v4 twin beside the existing v2 positive.
 3. `tests/parser/fieldNearMissBaseline.test.ts` AC-N8 census block `tests/parser/fieldNearMissBaseline.test.ts:248-271` — unchanged in expectation (still 0) but its comment names the v2 shape as the only firing one; correct it.
-4. `lib/parser/blocks/venue.ts:99-109` — handled in Task 1, in the same commit as the code it describes (invariant 7), cross-referenced here so the sweep reads as complete rather than partial.
+4. `lib/parser/blocks/venue.ts:99-109` — handled above in this same task, under **Ratified text**, cross-referenced here so the sweep reads as complete rather than partial.
 
 **Anti-tautology.** The generator's expectation stays DERIVED from the document under test. Folding it to `true`/`false` would make it pass for the wrong reason and would not red if the predicate regressed — which is precisely the property its own comment claims for it.
 
@@ -230,7 +240,7 @@ Folded into this task rather than standing alone, because it has **no honest RED
 3. Row-level count: `git diff --numstat` on that path, plus a diff of the parsed `rows` arrays if `--stat` is non-empty.
 4. `EXPECTED_TOTAL` stays 65 (`tests/parser/fieldNearMissBaseline.test.ts:41`).
 **Stop condition, per Eric's condition 1.** If the diff is NOT empty, do not commit. Report to bl-orch with the moved rows enumerated, and wait. A non-zero count contradicts spec §2.2's measurement and means either the predicate or the measurement is wrong; either way it is not a number to absorb quietly.
-**Commit:** only if the regen is a no-op — folded into Task 2's commit rather than an empty commit of its own, with the `--stat` output pasted in the message.
+**Lands in:** Task 1's commit — it has none of its own, by construction — with the `--stat` output pasted in that message.
 
 
 **Commit:** `feat(parser): one venue-block predicate, so a v4 typo stops being silent`
@@ -254,7 +264,22 @@ Without them the RED is a COLLECTION failure, not the behavioural one this task 
 
 - **The repair case.** A workbook built via the file's existing `buildInfoWorkbook` helper, whose venue table opens on `VENUE NAME`. **The witness row is `Diagrams?`, NOT `Venu Notes`** — measured at plan time, `Venu Notes` is RECOVERED by `parseVenue`'s scoped fuzzy path (`FIELD_LABEL_AUTOCORRECTED`, `raw_unrecognized=[]`), so it never becomes an `UNKNOWN_FIELD` and an anchor assertion over it would pass without exercising the routing key this arc changes. `Diagrams?` yields a real `UNKNOWN_FIELD(kind="venue name")` — literally the value predicate A moves to `"venue"`.
 
-  Two premises, both before the resolution assertion: that the scan produced at least one venue anchor (a null resolution over an empty anchor set is null for the wrong reason), and — through `parseSheet` on the same two rows — that the witness really is an `UNKNOWN_FIELD` rather than a consumed row. Then assert `resolveUnknownFieldCell(anchors, "venue", "Diagrams?", <value>)` is the expected cell. Measured before and after the widening: 0 anchors and null, then 2 anchors and `A3`; v2 unchanged at 2 and `A3`.
+  **The anchor count is an ASSERTION, not a premise, and getting that backwards breaks the RED.** An earlier draft premised "the scan
+  produced at least one venue anchor" before asserting resolution. That condition IS the behaviour this task implements: on the RED it
+  is false, so the case stops at "premise not met" and never reaches the resolution assertion the marker's `why=` describes. The test
+  would then fail for a different reason than it claims, which is the same defect class as a red that goes green for the wrong reason.
+  Probed on the base tree: `venueAnchors=0, resolved=null`.
+
+  So the shape is:
+
+  - **Premise (independent of the surface under test):** through `parseSheet` on the same two rows, the witness really is an
+    `UNKNOWN_FIELD` and not a consumed row. This reads the PARSER, not the anchor scanner, so it holds identically before and after
+    Task 2's change — which is exactly what makes it a premise rather than a restatement of the goal. Probed: it emits one
+    `UNKNOWN_FIELD` with `kind: "venue name"`.
+  - **Assertions:** the venue anchor count is non-zero AND `resolveUnknownFieldCell(anchors, "venue", "Diagrams?", <value>)` is the
+    expected cell. Both are false on the base tree and true after, which is the red-then-green the marker claims.
+
+  Measured before and after the widening: 0 anchors and null, then 2 anchors and `A3`; v2 unchanged at 2 and `A3`.
 - **The false-early guard**, modelled on the existing exact-header case at `tests/drive/unknownFieldAnchors.test.ts:119-132`, which proves a `Details Notes` field row above the real `DETAILS` header is not mistaken for it. A workbook carrying BOTH a bare `VENUE` block and a later `VENUE NAME` reference table, asserting the scan selects the bare `VENUE` row — so the widening cannot silently re-point v2 sheets at a reference table.
 
 **GREEN.** `lib/drive/unknownFieldAnchors.ts:41`:
@@ -343,7 +368,14 @@ Site 8 is its own commit deliberately: it touches a different document from the 
 
 <!-- tasks: end -->
 
-## Task 4 — score fieldNearMiss at the shipping head
+## Task 4 — archive the row and take the marker off
+
+**No RED.** Archiving a row is bookkeeping, not a red-green cycle; it sits OUTSIDE the `red-contract` region. `tests/docs/_metaLedgerInProgress.test.ts` is still run as a gate — it is what makes a marker that outlives its branch fail — but it is green before and after, so declaring it as a red would be a manufactured one.
+
+Archive `BL-TYPO-NORMALIZED-V4-VENUE-SHAPE` into `BACKLOG-archive.md` in the heading form of the newest entry, read at plan time from the newest archive entry:
+
+```
+## Task 5 — score fieldNearMiss on the shipping head
 
 **No RED, and that is the honest declaration.** This is a verification step, not a red-green cycle: the score either holds at the floor or it does not, and there is no failing state to author first. It sits OUTSIDE the plan's `red-contract` region for that reason.
 
@@ -372,13 +404,6 @@ GUARD SURFACE: fieldNearMiss, MUTATION SCORE: <killed>/<total>, 0 unaccepted sur
 
 **Commit:** only if a registry row changed; otherwise the score is a readiness artifact, not a commit.
 
-## Task 5 — archive the row, marker off in the PR's last commit
-
-**No RED.** Archiving a row is bookkeeping, not a red-green cycle; it sits OUTSIDE the `red-contract` region. `tests/docs/_metaLedgerInProgress.test.ts` is still run as a gate — it is what makes a marker that outlives its branch fail — but it is green before and after, so declaring it as a red would be a manufactured one.
-
-Archive `BL-TYPO-NORMALIZED-V4-VENUE-SHAPE` into `BACKLOG-archive.md` in the heading form of the newest entry, read at plan time from the newest archive entry:
-
-```
 ## BL-<ID> — <one-line summary> — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** S · **Shipped by:** `fix/typo-v4-venue-shape` · **Spec:** `docs/superpowers/specs/parser/2026-08-27-venue-block-predicate-design.md`
@@ -403,19 +428,35 @@ The entry records: the decision, its author and date (Eric, 2026-08-26 05:05); t
 - [ ] Task 3 — operator copy, eight sites (incl. the AC-V11 assertion and the dependent-claim sweep)
 - [ ] Self-review
 - [ ] **Adversarial review (cross-model)** — Codex, to APPROVE
-- [ ] Task 4 — mutation score at the shipping head (scoped; class lock from bl-orch first)
-- [ ] **Task 5 — archive the row, marker off. This is the PR's LAST commit.**
-- [ ] Whole-diff cross-model review to APPROVE — dispatched on the head Task 5 produced
-- [ ] CI: twelve required checks green ON THAT SAME HEAD, on a non-stale base
+- [ ] **Task 4 — archive the row, marker off.** (Renamed from Task 5; see the ordering note.)
+- [ ] Task 5 — scoped mutation score, ON THE HEAD TASK 4 PRODUCED (class lock from bl-orch first)
+- [ ] Whole-diff cross-model review to APPROVE — on that same head
+- [ ] CI: twelve required checks green — on that same head, on a non-stale base
 - [ ] READINESS to bl-orch at `wP:p1A`. **The arc never merges on its own.**
 
-### Why the archive commit comes BEFORE the whole-diff review and CI
+### The archive lands before the score, the review and CI — all three measure the shipping head
 
-An earlier ordering ran the whole-diff review and CI first and made the archive the last commit after them. That is the "review covers what merges" defect: the reviewed and CI-tested SHA would not be the SHA that merges, and this plan's own §4 says local green is not sufficient because a CI-only class remains. A ledger commit is not exempt from that — `BACKLOG.md` and `BACKLOG-archive.md` are both walked by structural gates (`tests/docs/_metaLedgerInProgress.test.ts`, the referential-integrity guard), so an archive edit can red CI on its own.
+**Why not last.** An earlier ordering ran review and CI first and archived afterward, so the reviewed and CI-tested SHA was not the SHA that merges. A ledger commit is not exempt from that: both ledger files are walked by structural gates, so an archive edit can red CI by itself.
 
-**Invariant 12 is satisfied either way and is not in tension here.** It requires the marker to come off in the PR's last commit, before the merge — not after the review. Task 5 IS the last commit; the review and CI then run on it.
+**Why the score moved too (AC-V9).** The score previously ran before the archive, which attached the measurement to a different SHA than the criterion names. The archive is docs-only and cannot move a mutation score, but "scored at the shipping head" has to be true rather than nearly true, so the score now runs after it.
 
-**If the whole-diff review returns findings**, the repair commits after Task 5, which makes Task 5 no longer last. Then the marker removal is re-done as a fresh final commit and the review re-runs on the new head. That is the cost of the correct ordering and it is stated here rather than discovered at readiness.
+**Invariant 12 is satisfied, and this is the ratified reading.** It requires the marker off before the MERGE, not before the review; the orchestrator ruled exactly this on 2026-08-18 (marker off before the merge, the review's corpus row may land after). **If a reviewer relitigates the literal "last commit" phrasing, cite that ruling — do not reorder back**, because reordering recreates the reviewed-SHA-is-not-the-merged-SHA defect this ordering exists to remove.
+
+### If anything after Task 4 forces another commit
+
+Two ways it happens and they resolve identically: the whole-diff review returns a finding, or CI goes red. In both, the repair commits normally on top and Task 4 is no longer the final commit.
+
+**There is nothing to "re-do".** An earlier draft said marker removal would be repeated in a fresh final commit. That is impossible and the draft was wrong: after Task 4 the marker is already gone and the row is archived, so no marker-removal mutation remains to commit. Archives categorically reject in-progress entries, so the marker cannot be reinstated either.
+
+What invariant 12 actually protects is that **no in-progress marker reaches main**, and once Task 4 has removed it every later commit satisfies that trivially. So the repair path is:
+
+1. Commit the repair.
+2. Re-run the whole-diff review on the new head, to APPROVE.
+3. Re-run CI on the new head, twelve green.
+4. Re-run the score only if the repair touched `lib/parser/fieldNearMiss.ts` or `lib/parser/blocks/_rowScan.ts`; a docs or test-only repair cannot move it, and the readiness report says which case applied.
+5. Confirm `BACKLOG.md` carries no `**Status:** IN PROGRESS` row for this id and the archive holds it exactly once.
+
+Readiness requires all of: review APPROVE on the final head, twelve green on the final head, marker absent, archive holding the row once, and `git merge-base origin/main HEAD` == `git rev-parse origin/main`.
 
 ## 3. Order and why
 
