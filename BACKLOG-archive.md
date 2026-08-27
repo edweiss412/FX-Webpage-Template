@@ -12965,3 +12965,88 @@ baseline and an enrolled mutation surface.
 computed and attached but NOTHING renders it" and that rendering it "is filed as
 BL-NEARMISS-CANDIDATE-RENDER". Both stopped being true in this arc and were rewritten in the same
 commit that made them false; no suite can read a comment, so that phrase is in the copy task's red.
+
+## BL-MUTATION-HARNESS-MAIN-RED — the source-mutation gate is red on main, every PR inherits it, and the failure set turns over faster than a row can name it — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM · **Class:** CI gate fidelity · **Shipped by:** `fix/mutation-gate-fidelity`, head `a210448e0`, PR #908
+
+**VERIFICATION OUTSTANDING, and owned.** This row's own body required a clean `workflow_dispatch` on `main` and explicitly excluded a PR run: "a PR run's head is the PR branch". That observation lands on the **first scheduled `mutation-harness` run on `main` after this arc merges** — after the shipping PR's last commit, and after a merge this arc does not perform. **bl-orch owns observing that nightly and writing the merge sha and the outcome into this entry.** The alternative, leaving the row open, was ruled against on 2026-08-26: a row whose only remaining step is watching a cron is the stale-queue shape the in-progress convention exists to prevent, and a handoff carries a watch better than a ledger row does.
+
+**The row's own thesis about itself held, and that is why the closing evidence is a re-measurement rather than its named list.** Between filing and repair the failure set turned over completely. All three of its named mechanical repairs had already landed on `main`, re-verified at `75b8f7a3e`:
+
+- The ledger-kind class (`rowScanOpener`, `fieldNearMiss`) is closed by the row's own derivation, re-run over the live registry: **52 surfaces, 0 mismatches.** Landed at `a66f465c7`.
+- The `destructiveFileAnalysis` re-key is done; every accepted row resolves against the live `tests/db/_destructiveFileAnalysis.ts`.
+- Both `shardBudget` survivors are killed by ASSERTIONS, not blessed by rows, which is what the row demanded.
+
+**The set as it actually stood, read per-annotation off run [32958581720](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32958581720) (head `929368bf3`, the merged content at `SOURCE_SHARD_COUNT` 8): two surfaces, neither one the row names.**
+
+1. **`retryableRpcVolatilityScan` — `BaselineNotGreenError`, a shape the row never named.** Its deciding suite opens a real Postgres connection and FAILS rather than skipping when the catalog is unreachable, which is ratified in that suite's own header because a skip would leave the retry set unverified while reporting pass. The `source-shards` job stood up no database.
+2. **`connectionCensus` — one unaccepted survivor**, `statement-removal:1641:7:withSites.add(record.file);>(removed)`.
+
+**What the repair actually was, and why it is not the repair the row implies.** The obvious reading of (1) is "surfaces needing an environment the job lacks", repairable by enumeration. Two candidate recognizers were built and both refuted by probe before either shipped: parallel-project membership over-fires on 77 suitePaths across more than twenty healthy surfaces, and lexical connection markers over-fire on the static analyzers whose SUBJECT MATTER is connection code.
+
+The class is the mechanism. `evaluateSurface` ran at module scope inside `describe.each`, so a throw during one surface's evaluation aborted vitest COLLECTION for the whole shard file. **On that run, leg 5 held 8 surfaces and SEVEN produced no gate verdict.** A second, independent channel pins it to the exact surface: the run uploaded 50 records for 52 enrolled surfaces, and the two absent are `retryableRpcVolatilityScan` and `replacementString` — the surface that threw and the one after it in slice order.
+
+So the repair is per-surface fault isolation, which ranges over every surface present and future without anyone maintaining a list: a faulted surface now registers the same seven cases (all failing and naming it), emits a `SURFACE-FAULT` notice, and writes a run record carrying the cause. The instance was repaired alongside it — `source-shards` gains the shared Supabase bring-up at a measured 84 s per leg — and the `connectionCensus` survivor was killed with an assertion rather than ledgered, because it changes observable output.
+
+**Traps this row recorded remain true and are not superseded**: a shard job fails wholesale, a leg that hits `timeout-minutes` reports nothing at all, leg NUMBER is not a stable name for a surface, and `source-shards` is invisible to a poller filtered to the twelve required contexts.
+
+## BL-MUTATION-HARNESS-PR-TRIGGER-FANOUT — the harness's path-filtered PR trigger runs the whole matrix on every harness-touching PR, and those legs compete with that PR's own required checks — CLOSED 2026-08-26
+
+**Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** S · **Severity (as filed):** MEDIUM · **Class:** CI capacity · **Shipped by:** `fix/mutation-gate-fidelity`, head `a210448e0`, PR #908
+
+**Ruled by the repo owner 2026-08-26 04:53**, choosing the third of the three directions this row states without implementing: keep the fast structural signal on pull requests and move the long legs to the nightly.
+
+**Measured before and after, by CONCLUSION rather than by row, with the same command both times.** The two differ and conflating them was a defect caught in review: `notify` is gated to `schedule` or a default-branch dispatch, so it occupies a check row and no runner on every PR.
+
+| event                                   | rows | runner jobs |
+| --------------------------------------- | ---- | ----------- |
+| pull request, before                    | 20   | **19**      |
+| pull request, after                     | 20   | **2**       |
+| schedule on `main`                      | 20   | 20          |
+| `workflow_dispatch` on a feature branch | 20   | 19          |
+
+The before figure is read off run [32958581720](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32958581720); the after off this arc's own pull request. The row's own 2026-08-16 measurement of 16 jobs was taken at `SOURCE_SHARD_COUNT` 4, and it warned that both shard counts are tunable and raising either makes the fan-out worse — which #902 then did.
+
+**The pressure was real and current, not historical.** On 2026-08-26 alone, before this arc existed: `feat/speclint-dispatch-gates` fired 5 runs, `fix/mutation-shard-weight-seconds` 5, `fix/supabase-upstream-fault-class` 3, `fix/mutation-shard-budget-six` 3. **Sixteen full-matrix fan-outs in one day, eleven cancelled by the next push before producing any verdict.**
+
+**The narrowing is at the JOB, and the trigger is untouched — deliberately, and against the row's own first two directions.** `parser-shards`, `source-shards` and `budget` carry `github.event_name != 'pull_request'`; `budget`'s condition is COMPOSED so its load-bearing `always()` survives. The ten path globs stay exactly as they are: each covers a path whose edit can change a verdict, three are pinned by name in the integrity meta-test, and dropping globs would trade a capacity problem for a coverage hole. The `concurrency` block's PR-only `cancel-in-progress` is untouched, as this row requires of every candidate direction.
+
+**What a harness-touching PR now loses, named because it does lose something.** The mutation SCORES; anything existing only in a shard job's setup; artifact upload actually working, whose hidden-file exclusion is observable only in a real Actions run; `elapsed.txt` production; and `budget` plus the rate-drift report executing at all. A suite weakened so a guard stops pinning what it claims reds on the next nightly, after merge, rather than at PR time. `workflow_dispatch` is the escape and is now named in the workflow itself so the next arc does not rediscover it.
+
+## BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH — the source shards blew the 3600s budget on main, four days after the row that closed the wall-clock ceiling was archived — CLOSED 2026-08-26, NOT CLEANLY
+
+**Status:** SUBSUMED 2026-08-26, WITH THE BREACH RECURRING · **Effort (as shipped):** S · **Severity (as filed):** MEDIUM · **Class:** CI capacity · **Facing:** process · **Closed by:** #902 `fix/mutation-shard-budget-six`, verified by `fix/mutation-gate-fidelity` (#908), which ALSO OBSERVED THE BREACH RETURN — read the next section before treating this row as settled
+
+**Closed by another arc, verified by this one, with the arithmetic written out rather than asserted.** The row's repair is the one the workflow's own triage copy prescribes and the one it names as the only sanctioned response: raise `SOURCE_SHARD_COUNT`. #902 took it from 4 to 8.
+
+At `N = 4`, scheduled run [32943869448](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32943869448): four legs at 6176 + 5393 + 3995 + 4138 = **19,702 s**, every one over the 3600 s budget, `budget` job **FAILED** on all four.
+
+At `N = 8`, run [32958581720](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32958581720) (head `929368bf3`, the branch tip that merged as `060f5c7d8`): eight legs at 3165 + 2494 + 1720 + 3260 + 2873 + 2726 + 2807 + 3113 = **22,158 s**, binding leg **3260 s = 90.6% of budget**, `budget` job **SUCCESS** with six warn-band warnings and zero failures.
+
+Total seconds rose about 12.5%, because each added leg pays its own setup and boot. Makespan fell 47%, and makespan is what the budget bounds.
+
+**Residue, stated as a documented limit rather than re-filed** (owner directive 2026-08-25: this arc closes its rows and files none). Two numbers a future reader needs:
+
+- **Six of eight legs sit in the warn band**, so the margin on the binding leg is about 340 s. `fix/mutation-gate-fidelity` adds a database bring-up to every source leg at a measured 84 s, which takes the binding leg to roughly 3344 s, or **92.9%** of budget. Inside it, and thinner than before.
+- **The mechanism `N` does not touch is the one this row itself named.** The partition is LPT over MODELLED CHILD BOOTS while the budget bounds SECONDS, and the archived wall-clock row measured that model 3.8x miscalibrated (1.4 s/boot against 5.3 s/boot at `c5518dfab`). Raising the count rebalances boots. Bounding wall clock needs a weight calibrated to seconds, which is `BL-MUTATION-WEIGHT-MODEL-BOOT-COUNT-ONLY`, not this row.
+
+**THE RE-FILE TRIGGER FIRED BEFORE THIS ROW WAS EVEN ARCHIVED, and pretending otherwise is what this section exists to prevent.**
+
+The trigger written here was "a `budget` job FAILURE on a scheduled `main` run — any leg crossing 3600 s, including the 84 s bring-up pushing the binding leg over." It fired on `fix/mutation-gate-fidelity`'s own `workflow_dispatch` validation run, [33012322613](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/33012322613), while that arc was closing this row:
+
+```
+leg source-shards-4 took 3788s, over the 3600s budget     <- FAILURE
+elapsed, all eight legs: 3290 2755 2553 3309 3788 3405 2995 2560
+five further legs in the warn band (>75% of 3600 s)
+```
+
+**The arc that observed it is a PASSENGER, not the cause, and the arithmetic says so rather than the author.** Leg 4 is 3788 s. Subtract that arc's database bring-up, measured at 84 s per leg, and the leg is **3704 s — still over budget**. The binding leg moved from 3260 s to 3788 s, a delta of **528 s, of which 84 s is the bring-up and 444 s is enrolment growth**: the registry went from 52 to 54 surfaces when that branch absorbed `main`. So the breach would have happened with no part of that arc present.
+
+**Which is this row's own mechanism, firing again.** The row's body already says raising the count rebalances MODELLED BOOTS while the budget bounds SECONDS, and that the archived wall-clock row measured that model 3.8x miscalibrated. `N = 8` bought headroom; two more enrolled surfaces spent most of it. The pattern the row documents — a margin a single enrolment can erase — is intact and is now on its second observed cycle.
+
+**Documented limit, and the next lever named rather than filed** (mint freeze, and this arc files no row of any facing): the sanctioned response remains the one the workflow's own triage copy prescribes — raise `SOURCE_SHARD_COUNT` in `tests/mutation/source/shardPartition.ts`, never `timeout-minutes`. It was 4, is 8, and the measurement above is the input to whoever takes it to the next value. **Re-file trigger for that lever:** a `budget` job FAILURE on a SCHEDULED `main` run, which is the observation this arc could not make because it does not merge. Note the distinction that made this section necessary: the run above is a feature-branch dispatch, so it is evidence the mechanism is live, and it is NOT the scheduled-main evidence the original trigger asks for.
+
+**What is genuinely closed here** is the row as filed: the `budget` job failed on four of four legs at `N = 4`, and at `N = 8` it passes on six of eight with one over. That is a repair, not a fiction. What is NOT closed is the growth curve underneath it, which is why this row graduates with the breach recorded instead of a clean subsumption.
+
+**Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`**, and the distinction held all the way to closure: that row is the source gate's COVERAGE failure set and explicitly disclaims the budget half. This was the `budget` job — a different job, a different failure, a different repair, closed by a different PR.

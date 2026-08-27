@@ -63,6 +63,53 @@ export const WATCHDOG_ARGV = ["-e", WATCHDOG_SCRIPT, "--"] as const;
  *
  * 180s against a ~2s healthy suite run locally is generous enough that a
  * timeout means a hang rather than a slow machine.
+ *
+ * ---------------------------------------------------------------------------
+ * MEASURED 2026-08-26, and the measurement REFUSED a proposal to lower this.
+ *
+ * The proposal was 30s, argued from a bimodal distribution with an empty gulf:
+ * on `connectionCensus`, eight TIMEOUT-KILLs at the ceiling, 325 non-timeout
+ * kills at median 1586ms / p95 2102ms / max 3691ms, and nothing between 10s and
+ * 180s. That is true OF THAT SURFACE and false of the pool. Over the 50 records
+ * run 32958581720 uploaded (6961 non-timeout children, 16 timeouts):
+ *
+ *     pooled median 1519ms   p95 4523ms   MAX 103,143ms
+ *     children in the 10s..180s "gulf": 215
+ *     children above 30s: 128, of which 51 EXITED ZERO
+ *     `psqlStartupScan` alone has a MEDIAN of 31,054ms
+ *
+ * A 30s ceiling would not merely blur 77 genuine kills into timeouts; it would
+ * convert 51 genuine SURVIVORS into false kills, and a false kill is a survivor
+ * the gate stops reporting. `gate.ts` says what a timeout is worth in its own
+ * TIMEOUT-KILL notice: it "scores KILLED, which is the standard verdict, but it
+ * is NOT evidence the suite rejected the mutant." Lowering the ceiling would
+ * therefore hide real coverage gaps behind a perfect-looking score.
+ *
+ * DOCUMENTED LIMIT L-2, so the thin margin is on the record rather than
+ * rediscovered: 180,000ms is 1.75x the pooled measured maximum, where the
+ * browser-side constant is pinned at >= 10x its own pool
+ * (`tests/mutation/browser/timeout.test.ts`). If this constant is wrong it is
+ * wrong by being TIGHT, not loose. The source side has no executable derivation
+ * pin — `childRun.test.ts` only asserts the timeout exceeds zero. Baseline
+ * 1.75x; re-file if the ratio falls below 1.5x, which means the pooled max
+ * crossing 120,000ms or someone lowering this number.
+ *
+ * DOCUMENTED LIMIT L-3: sixteen non-terminating mutants per nightly each burn
+ * the full 180s — eight on `connectionCensus`, four on `sendAuthScan`, one each
+ * on `acCoverage`, `interactiveScanCore`, `modal-wait-helper-scan` and
+ * `mutationSurfaceEnumerate`. Measured share of leg elapsed time: shard 1
+ * 57.8%, shard 4 25.1%, shard 5 19.8%, shard 7 5.8%, the rest zero. The cheap
+ * lever is recognising a removed sole loop advance at GENERATION time, which is
+ * a generator change and not this constant's business. Baseline is those four
+ * figures; re-file when the timeout count exceeds 20 in one run, when any leg's
+ * timeout share exceeds 65%, or when a leg's timeout seconds alone would breach
+ * SHARD_BUDGET_SECONDS.
+ *
+ * Neither limit is a fidelity defect, which is why recording is the honest
+ * disposition rather than a dodge: a TIMEOUT-KILL emits its own notice naming
+ * the mutant and the deciding suite, so a triager can act on it. What these
+ * record is COST, not a wrong verdict.
+ * ---------------------------------------------------------------------------
  */
 export const MUTANT_TIMEOUT_MS = 180_000;
 

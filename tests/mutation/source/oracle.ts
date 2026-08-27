@@ -29,7 +29,17 @@ export class BaselineNotGreenError extends Error {
   }
 }
 
-/** Abort the run unless the unmutated source passes its own suite. */
-export function assertCleanBaseline(exitCode: number, suite: string): void {
-  if (exitCode !== 0) throw new BaselineNotGreenError(suite);
+/**
+ * Abort the run unless the unmutated source passes its own suite.
+ *
+ * `surfaceId` is REQUIRED and leads the message. The annotation this produces is
+ * read off a shard leg holding several surfaces, and the leg number is not a
+ * stable name for any of them -- the partition is recomputed from the registry
+ * on every runner -- so a message naming only the suites costs the triager a
+ * partition derivation before triage can start. The browser runner already
+ * composes the surface into its own construction of this error; this is the
+ * source side catching up, not a new idea.
+ */
+export function assertCleanBaseline(exitCode: number, suite: string, surfaceId: string): void {
+  if (exitCode !== 0) throw new BaselineNotGreenError(`${surfaceId}: ${suite}`);
 }

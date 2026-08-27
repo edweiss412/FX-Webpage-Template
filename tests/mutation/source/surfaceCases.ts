@@ -75,17 +75,117 @@ export function evaluateSurface(
   return { run, result };
 }
 
+/**
+ * The registrar the seven cases are declared through.
+ *
+ * ONE resolution point, and the identifiers SHADOW this module's vitest imports
+ * inside `registerSurfaceCases`, so the injected registrar and the production
+ * default are the same code after the `??`. That is deliberate and it is the
+ * repair for a defect four review rounds kept finding: any design with two
+ * paths lets an implementation register seven cases on the observed one and
+ * return early on the other, which is the silent drop this whole mechanism
+ * exists to prevent. There is no branch for it to hide in.
+ *
+ * Shadowing rather than renaming, because `guardSurfaces.gates.test.ts` counts
+ * bare `it(` literals in this file and expects exactly 7 -- its enrolment
+ * arithmetic reads a run's surface count as `(tests - 2) / 7`. Writing
+ * `registrar.it(` would zero that count and red the corpus-wide gates file,
+ * which is one half of the pull-request smoke leg.
+ */
+export type CaseRegistrar = { describe: typeof describe; it: typeof it };
+const VITEST_REGISTRAR: CaseRegistrar = { describe, it };
+
+/** What a surface's evaluation produced, or why it produced nothing. */
+type SurfaceOutcome =
+  | { kind: "evaluated"; before: Buffer; run: RunResult; result: GateResult }
+  | { kind: "faulted"; error: unknown };
+
+/**
+ * Evaluate one surface without letting its failure reach the caller.
+ *
+ * `evaluateSurface` runs at describe-callback time, which is vitest COLLECTION,
+ * and a throw there aborts the whole shard file. Measured on run 32958581720:
+ * leg 5 held 8 surfaces, one of them needed a database the job does not
+ * provide, and SEVEN produced no gate verdict at all. The records channel pins
+ * it to the exact surface -- 50 records for 52 enrolled surfaces, the two
+ * absent being the surface that threw and the one after it in slice order.
+ */
+function evaluateSurfaceOutcome(
+  surface: GuardSurface,
+  options: { write?: (text: string) => void; root?: string; recordDir?: string },
+): SurfaceOutcome {
+  try {
+    const before = readFileSync(surface.sourcePath);
+    const { run, result } = evaluateSurface(surface, options);
+    return { kind: "evaluated", before, run, result };
+  } catch (error) {
+    return { kind: "faulted", error };
+  }
+}
+
+const faultText = (error: unknown): string =>
+  error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+
 export function registerSurfaceCases(
   surfaces: readonly GuardSurface[],
-  options: { write?: (text: string) => void } = {},
+  options: {
+    write?: (text: string) => void;
+    recordDir?: string;
+    register?: CaseRegistrar;
+  } = {},
 ): void {
-  describe.each(surfaces.map((s) => [s.id, s] as const))(
-    "source-mutation gate — %s",
-    (_id, surface) => {
-      const before = readFileSync(surface.sourcePath);
-      const { run, result } = evaluateSurface(surface, options);
+  const { describe, it } = options.register ?? VITEST_REGISTRAR;
+  for (const surface of surfaces) {
+    describe(`source-mutation gate — ${surface.id}`, () => {
+      const outcome = evaluateSurfaceOutcome(surface, options);
+
+      if (outcome.kind === "faulted") {
+        // The fault reports on three channels, none asked to carry the proof
+        // alone. (1) The NOTICE, through the same sink the TIMEOUT-KILL notices
+        // use, emitted here at collection scope so it appears whether or not a
+        // case runs. (2) The RECORD, so the leg's artifact upload is not empty
+        // -- `if-no-files-found: error` is licensed by the premise that every
+        // surface emits one, and leg 0 holds exactly one surface today, so a
+        // faulted-only leg writing nothing would red the upload with "no files
+        // found", a second red saying nothing about the cause. (3) The seven
+        // cases below, registered unconditionally.
+        const detail = faultText(outcome.error);
+        const write = options.write ?? ((text: string) => process.stdout.write(text));
+        write(
+          `SURFACE-FAULT ${surface.id}: could not be evaluated -- ${detail}\n` +
+            `Every other surface on this leg still reported; this one did not run.\n`,
+        );
+        void emitRunRecord({
+          surfaceId: surface.id,
+          passed: false,
+          score: 0,
+          outcomes: [],
+          fault: `${detail} [${surface.suitePaths.join(", ")}]`,
+          ...(options.recordDir === undefined ? {} : { dir: options.recordDir }),
+        });
+      }
+
+      // REGISTERED UNCONDITIONALLY. No branch sits between here and the seven
+      // `it(` calls, so a faulted surface contributes exactly seven cases just
+      // as an evaluated one does. That keeps the gates file's `(tests - 2) / 7`
+      // arithmetic exact AND makes "the fault was reported but its cases were
+      // skipped" unreachable rather than merely untaken. Each body consults the
+      // outcome first; a faulted surface fails all seven, and seven truthful
+      // failures beat one failure plus six cases reporting green for a surface
+      // that never ran.
+      const faulted = outcome.kind === "faulted" ? faultText(outcome.error) : null;
+      const failFault = (): never => {
+        throw new Error(
+          `${surface.id} could not be evaluated: ${faulted}. ` +
+            `Every other surface on this leg still reported; this one did not run.`,
+        );
+      };
+      const before = outcome.kind === "evaluated" ? outcome.before : Buffer.alloc(0);
+      const run = outcome.kind === "evaluated" ? outcome.run : ({} as RunResult);
+      const result = outcome.kind === "evaluated" ? outcome.result : ({} as GateResult);
 
       it("passes every gate condition", () => {
+        if (faulted !== null) failFault();
         expect(
           result.failures.map((f) => `${f.condition}: ${f.detail}`).join("\n"),
           "gate failures",
@@ -94,6 +194,7 @@ export function registerSurfaceCases(
       });
 
       it("holds the exact ledger-kind counts declared for THIS surface (AC-13)", () => {
+        if (faulted !== null) failFault();
         // The score floor is deliberately COARSE (spec §4.3): from the shipping
         // state it takes three further blessed gaps to breach 0.95, so the floor
         // cannot detect one or two rows silently migrating between kinds.
@@ -108,6 +209,7 @@ export function registerSurfaceCases(
       });
 
       it("classifies every generated mutant exactly once", () => {
+        if (faulted !== null) failFault();
         // The consequence bound in one assertion: killed + survivors must account
         // for every mutant produced. A dropped outcome leaves the gate green while
         // the run tested less than it claims.
@@ -117,6 +219,7 @@ export function registerSurfaceCases(
       });
 
       it("generated mutants at all, and none was a no-op", () => {
+        if (faulted !== null) failFault();
         // Guards the vacuity hole from the other side: a run that silently
         // produced nothing would satisfy the ledger and floor conditions.
         expect(run.mutantCount).toBeGreaterThan(0);
@@ -124,10 +227,12 @@ export function registerSurfaceCases(
       });
 
       it("scores at or above the surface's floor", () => {
+        if (faulted !== null) failFault();
         expect(result.score.value).toBeGreaterThanOrEqual(surface.scoreFloor);
       });
 
       it("leaves the tracked source byte-identical (AC-4)", () => {
+        if (faulted !== null) failFault();
         // The overlay serves mutant text from memory. If this ever fails, the
         // harness has been rewritten to patch files in place and a crashed run
         // can leave a mutant on disk.
@@ -135,6 +240,7 @@ export function registerSurfaceCases(
       });
 
       it("kills THIS surface's own control mutant, proving the overlay is live (AC-3)", () => {
+        if (faulted !== null) failFault();
         // Without this, a harness whose overlay silently failed to apply reports a
         // PERFECT score -- every mutant running against clean source -- and every
         // other assertion here still passes.
@@ -167,6 +273,6 @@ export function registerSurfaceCases(
         // locally at ~33s and RED on CI's slower runner, which is the whole
         // reason "real CI green" is a separate gate from "local green".
       }, 600_000);
-    },
-  );
+    });
+  }
 }
