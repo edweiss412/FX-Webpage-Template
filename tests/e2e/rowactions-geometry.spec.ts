@@ -413,4 +413,113 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
     await expect(menu).toHaveCount(0);
     await expect(page.locator('[data-testid^="row-actions-portal-"]')).toHaveCount(0);
   });
+
+  /**
+   * TASK 1 PROBE (BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN). The jsdom probe
+   * establishes the COUNT (`measureRunsOnOpenCommit=3`); it cannot establish
+   * whether those runs AGREE, because jsdom computes no layout and every rect
+   * is a stub. This case answers the row's first scheduled step on the live
+   * surface: is the third run's placement ever DIFFERENT from the second's?
+   *
+   * It reads the panel's applied placement history rather than counting rect
+   * reads. Counting reads here would be contaminated — Playwright's own
+   * actionability checks call `getBoundingClientRect` on the trigger. `left`
+   * and `top` are written ONLY by React from `applied`; `withNaturalSize`
+   * touches only `maxWidth`/`maxHeight`. So the distinct `left`/`top` values
+   * the attribute holds are exactly the placement commits, and nothing else.
+   */
+  test("PROBE: a closed → open transition applies its placement once, and the convergence run agrees", async ({
+    page,
+  }) => {
+    test.setTimeout(CASE_TIMEOUT_MS);
+    const trigger = await lastSeededTrigger(page);
+    await trigger.scrollIntoViewIfNeeded();
+
+    // Installed BEFORE the click, and as a SUBTREE attribute observer on the
+    // body rather than a per-node one. A node-scoped observer can only be
+    // attached once the node exists, and by then its childList callback is a
+    // microtask late: React has already written the style. A subtree observer
+    // registered first covers descendants added afterwards, so the first write
+    // it reports carries the unplaced origin as its `oldValue`.
+    await page.evaluate(() => {
+      const state = { writes: [] as { old: string; now: string }[] };
+      (window as unknown as { __portalProbe: typeof state }).__portalProbe = state;
+      new MutationObserver((recs) => {
+        for (const r of recs) {
+          const t = r.target;
+          if (!(t instanceof HTMLElement)) continue;
+          if (!t.matches('[data-testid^="row-actions-portal-"]')) continue;
+          state.writes.push({ old: r.oldValue ?? "", now: t.getAttribute("style") ?? "" });
+        }
+      }).observe(document.body, {
+        attributes: true,
+        subtree: true,
+        attributeFilter: ["style"],
+        attributeOldValue: true,
+      });
+    });
+
+    await trigger.click();
+    await expect(page.locator('[data-testid^="row-actions-panel-"]')).toBeVisible();
+    // Two frames past the commit: any scheduled re-measure has run, so the
+    // history below is the DURABLE one rather than a race.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+
+    const probe = await page.evaluate(
+      () =>
+        (window as unknown as { __portalProbe: { writes: { old: string; now: string }[] } })
+          .__portalProbe,
+    );
+
+    // PREMISE (own inputs), executed before anything it guards: the observer
+    // must actually have seen the portal. A silent zero here would satisfy
+    // "the placement settled once" without observing a placement at all, which
+    // is how the first cut of this probe passed its own premise vacuously.
+    expect(
+      probe.writes.length,
+      "premise not met: the observer recorded no style write on the portal, so it proves nothing",
+    ).toBeGreaterThan(0);
+
+    // `left`/`top` are written ONLY by React from `applied`; withNaturalSize
+    // touches only the max-* caps. So the distinct left/top values the
+    // attribute holds are exactly the placement commits.
+    const coord = (style: string) => {
+      const left = /(?:^|;)\s*left:\s*([^;]+)/.exec(style)?.[1]?.trim() ?? "";
+      const top = /(?:^|;)\s*top:\s*([^;]+)/.exec(style)?.[1]?.trim() ?? "";
+      return `${left}|${top}`;
+    };
+    const held = [probe.writes[0]!.old, ...probe.writes.map((w) => w.now)];
+    const placements: string[] = [];
+    for (const style of held) {
+      const c = coord(style);
+      if (placements[placements.length - 1] !== c) placements.push(c);
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `PROBE-LIVE styleWrites=${probe.writes.length} placements=${placements.length} ` +
+        `sequence=${JSON.stringify(placements)} ` +
+        `held=${JSON.stringify(held)}`,
+    );
+
+    const last = placements[placements.length - 1] ?? "";
+    expect(
+      last,
+      "premise not met: the panel never left its unplaced origin, so this case would pass vacuously",
+    ).not.toBe("0px|0px");
+
+    // The row's question, answered on the live surface: the open transition
+    // commits ONE placement. A further entry would mean the third measure
+    // computed something the second did not.
+    expect(
+      placements.length,
+      `the open transition must apply exactly one placement (origin → placed); ` +
+        `got ${JSON.stringify(placements)}`,
+    ).toBe(2);
+  });
 });
