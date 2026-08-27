@@ -228,6 +228,16 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Re-file trigger:** named by a 3rd distinct arc
 
+## LIM-AFTEREACH-ASSERT-BEFORE-TEARDOWN
+
+**Shape:** An `expect(...)` evaluated inside an `afterEach` BEFORE that hook's own teardown call. The failure aborts the hook, the teardown never runs, and the NEXT case fails for a reason that has nothing to do with it, so the corruption is not local to the failing case. Statically detectable as one AST walk over `tests/**`; the repair is uniform, tear down first and assert last on a captured copy.
+
+**Named by:** 1 arc — fix/fitwithinclip-stale-clip-subscription/5fccaaac7804.md (diff), where it left a failing case's DOM mounted, killed the next case with `Found multiple elements`, and recorded that case as reddening a mutant it had never detected: a false certificate in the artifact the plan offers as proof
+
+**Owning record:** none — this index is the record
+
+**Re-file trigger:** a second arc whose recorded evidence, a mutant table or a coverage claim, is falsified by a teardown that did not run
+
 ## LIM-ADVISORY-UNDISPOSITIONED
 
 **Shape:** A lint advisory whose reasoning is correct is dismissed as noise because nothing requires it to be dispositioned before the artifact is dispatched for review, and it returns as a paid review finding. Distinct from LIM-RED-NAME-FILTER-SEVERITY, where the advisory's severity is the defect: here the severity is arguably right, since the arm genuinely cannot tell a stale claim from a drifted line anchor, and what is missing is a dispatch-time obligation to say which it is. Repairable without a new detector: one line per advisory in the brief, saying why it is noise.
