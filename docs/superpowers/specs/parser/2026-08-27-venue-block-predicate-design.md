@@ -104,9 +104,24 @@ A new exported predicate lives in `lib/parser/blocks/venue.ts` beside the tokens
 
 ```
 isVenueBlockOpener(opener) :=
-  matchesSectionHeader(opener, SECTION_HEADER_TOKENS)   // the v2 standalone VENUE cell
-  OR resolveAlias(opener) === "venue.name"              // the v4 VENUE NAME opener
+  matchesSectionHeader(opener, SECTION_HEADER_TOKENS)        // the v2 standalone VENUE cell
+  OR resolveAlias(normalizeHeader(opener)) === "venue.name"  // the v4 VENUE NAME opener
 ```
+
+**Both arms normalize through `normalizeHeader`, and that is the point rather than a detail.** `matchesSectionHeader` normalizes its input internally (`lib/parser/blocks/_sectionHeaderMatch.ts:45`); a bare `resolveAlias` does not. Without the wrap the two arms disagree about what counts as the same string, which is two definitions wearing one name — the drift this arc exists to remove. The disagreement is not theoretical: a two-word opener admits whitespace variation that a one-word token cannot, and `VENUE  NAME` (double space), `VENUE\tNAME` (tab) and `VENUE\u00a0NAME` (non-breaking space) each fail the unwrapped arm. Each would leave a typo row inside that table silent, which is this arc's own defect class rather than a benign one.
+
+Measured, with a genuinely two-word token (`EVENT DETAILS`) as the arm-1 control, because `VENUE` is one word and cannot exhibit internal-whitespace variation at all (§8, probe 5):
+
+| perturbation of the opener | arm 1 on `EVENT DETAILS` | arm 2 bare | arm 2 wrapped |
+| --- | --- | --- | --- |
+| identity, lowercased, leading/trailing space | true | true | true |
+| double internal space | true | **false** | true |
+| tab internal | true | **false** | true |
+| non-breaking space internal | true | **false** | true |
+| newline entity (`&#10;`) | false | false | false |
+| trailing colon | false | false | false |
+
+**Parity is the criterion, not permissiveness.** Wrapping in `decodeEntities` as well would additionally accept the `&#10;` form, but arm 1 REJECTS that form, so it would make arm 2 strictly more permissive than arm 1 and reopen the asymmetry in the other direction. The wrap stops at `normalizeHeader`, where the two arms agree column for column. Corpus cost of the wrap: none — 21 tables before and after, zero disagreements.
 
 Both arms are content-keyed on the opener text, which moves with its rows, so the predicate is swap-invariant by construction — the property AC-N2's 497-swap sweep pins.
 
@@ -122,7 +137,16 @@ Both arms are content-keyed on the opener text, which moves with its rows, so th
 
 `resolveUnknownFieldCell` joins on the `(kind, normalized label, normalized value)` triple and returns the anchor only on EXACTLY ONE match; zero or two or more yield null (`unknownFieldAnchors.ts:186-197`). That is the never-wrong-cell guarantee.
 
-**Before this arc, a v4 venue table has no anchors of any kind.** Probed by resolution (§8, probe 2): a workbook whose venue table opens on `VENUE NAME` yields **0** anchors total, and `resolveUnknownFieldCell` returns null for a near-miss row in it under BOTH `kind: "venue"` and `kind: "venue name"`. The same rows under a `VENUE` opener yield 2 anchors and resolve to `A3`.
+**Before this arc, a v4 venue table has no anchors of any kind.** Probed by resolution (§8, probe 2): a workbook whose venue table opens on `VENUE NAME` yields **0** anchors total, and `resolveUnknownFieldCell` returns null for a row in it under BOTH `kind: "venue"` and `kind: "venue name"`. The same rows under a `VENUE` opener yield 2 anchors and resolve to `A3`.
+
+**The witness row must be one the parser actually leaves unresolved.** An earlier draft of this spec used `Venu Notes`, which is wrong in a way worth recording so it is not reintroduced: `parseVenue`'s scoped fuzzy path RECOVERS that label, emits `FIELD_LABEL_AUTOCORRECTED`, and consumes the row, so `raw_unrecognized` is empty and no `UNKNOWN_FIELD` exists to anchor. An anchor assertion over it would pass without ever exercising the routing key this arc changes. Probed (§8, probe 6):
+
+```
+Venu Notes:   warnings=[FIELD_LABEL_AUTOCORRECTED(kind=venue)]   raw_unrecognized=[]
+Diagrams?:    warnings=[UNKNOWN_FIELD(kind="venue name")]        raw_unrecognized=[{block:"venue name",key:"Diagrams?",...}]
+```
+
+**`Diagrams?` is the witness this spec uses**, in §4 and AC-V7 alike. It is a real near-miss on the live tree, it is already a calibrated member of the 65-row baseline's residual set, and its `kind` today is literally `"venue name"` — the value predicate A moves to `"venue"`. So the assertion fails for exactly the reason the change exists to fix, which `Venu Notes` could never have shown.
 
 This corrects a claim on the record. The arc-nearmiss readiness note said a `VENUE NAME` block's anchor "degrades to null" and "silently drops the Open in Sheet deep link." There is no link to drop: the v4 shape never had one. Under A with the scanner untouched the outcome is null before and null after. Nothing regresses; something becomes possible. Recorded once here so no later round re-derives it.
 
@@ -152,7 +176,7 @@ Eric put the anchor in scope. §3.1 establishes it is absent rather than broken,
 { kind: "venue", header: /^VENUE$/i }          ->  { kind: "venue", header: /^VENUE(\s+NAME)?$/i }
 ```
 
-Measured (§8, probe 4 — a throwaway patch, run, and revert on this head): the v4 workbook goes from **0 venue anchors and a null resolution** to **2 venue anchors and `A3`**, and the v2 workbook is **unchanged** at 2 anchors and `A3`.
+Measured (§8, probe 4 — a throwaway patch, run, and revert on this head), with the real `Diagrams?` near-miss as the witness row: the v4 workbook goes from **0 venue anchors and a null resolution** to **2 venue anchors and `A3`**, and the v2 workbook is **unchanged** at 2 anchors and `A3`.
 
 ### 4.2 Why widening this regex does not break the never-wrong-cell guarantee
 
@@ -218,8 +242,10 @@ The prose at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2771` says
 Authored copy, which the implementation uses verbatim and the tests derive from the catalog rather than restate:
 
 - **title:** `Misspelled label we recognized`
-- **helpfulContext:** `A row's label in your sheet is misspelled, so we read it as the field it was meant to be and the row still shows on the crew page. Nothing is broken and no action is needed; fix the spelling in the sheet whenever it's convenient.`
-- **triggerContext:** `Appears when a row's label is a known misspelling of a field we read.`
+- **helpfulContext:** `A row's label in your sheet is misspelled, and we recognized which field was meant, so the misspelling itself cost nothing. This is a record for us rather than something to fix; correct the spelling in the sheet whenever it suits you.`
+- **triggerContext:** `Appears when a row's label is a known misspelling of a field we recognize.`
+
+**The copy asserts nothing about the crew page, deliberately.** An earlier draft said "the row still shows on the crew page." That is FALSE, and recording why keeps it from being reintroduced: probed across all four registered typo aliases under a v4 venue table, every one produced empty contacts and no event output (§8, probe 8). `venue.contact_info` in particular is a field `parseVenue` never writes — the near-miss spec's §2.1 says so in as many words, which is why a store-gated emission there would have been dead code. The predicate change adds an info warning; it does not publish a row that was not being published. Copy passing the banned-vocabulary regex and the caps is necessary and not sufficient: a sentence can clear every mechanical gate and still tell Doug something untrue, and only a probe against the rendered payload catches that.
 
 ---
 
@@ -244,8 +270,10 @@ This spec gets a row in `docs/superpowers/specs/parser/README.md`'s index table 
 - **AC-V3 — the corpus census is unchanged.** `TYPO_NORMALIZED` over the 17 fixtures is 0 before and 0 after, including under the adjacent-block swap AC-N8 already sweeps.
 - **AC-V4 — the swap suites are green UNCHANGED.** `mutationHarness.venueSwapSweep` and `venueSwapInvariance` are not edited.
 - **AC-V5 — the 65-row baseline does not move.** Regenerated with `UPDATE_NEAR_MISS_BASELINE=1`, the diff is empty and `EXPECTED_TOTAL` stays 65. A non-empty diff stops the arc and goes to bl-orch with the rows, per Eric's condition 1.
-- **AC-V6 — the old-direction pins are RE-DERIVED, not deleted.** Four sites: the 8453-case generator at `venue.test.ts:426-434` switches its derivation to the shared predicate and thereby pins the FIRING direction on the `VENUE NAME` anchor row and silence on the `LOADING DOCK` one; `warnings.test.ts:168-207`'s comment states what is now true and gains a v4 twin; AC-N8's census block keeps its two v2 cases and gains the v4 direction. No expectation is folded to a constant.
-- **AC-V7 — a near-miss in a v4 venue table resolves to its own cell.** On a `VENUE NAME`-headed workbook, venue anchors go from 0 to 2 and `resolveUnknownFieldCell` goes from null to a cell; the v2 workbook is unchanged. Plus a false-early guard case in the spirit of `tests/drive/unknownFieldAnchors.test.ts:119`. The case asserts the workbook produced a header row before asserting resolution.
+- **AC-V6 — the old-direction pins are RE-DERIVED, not deleted.** Four sites: the 8453-case generator at `venue.test.ts:426-434` switches its derivation to the shared predicate; `warnings.test.ts:168-207`'s comment states what is now true and gains a v4 twin; AC-N8's census block keeps its two v2 cases and gains the v4 direction; `venue.ts:99-109` is rewritten in §6. No expectation is folded to a constant.
+
+  **What the generator can and cannot discriminate, stated rather than overclaimed.** Only ONE of the four registered typo aliases is venue-scoped — `hotal contact info` → `venue.contact_info`; the other three (`diagrams`, `virtaul audience`, `goosneck`) resolve to `details.*` (§8, probe 7). So the generator's `LOADING DOCK` arm carries no typo alias at all, and its silence there holds regardless of the predicate. That arm is a NON-REGRESSION check, not a discriminating one, and this spec does not claim otherwise. **The discriminating silence witness is the existing byte-identical `| HOTEL |` case at `fieldNearMissBaseline.test.ts:294-307`**: same row, same parser, same position, only the opener differs, so its silence can only be the membership gate. AC-V1's v4 witness and that case are the two directions that actually bound the predicate; the generator's value is exhaustiveness over the alias table, not discrimination.
+- **AC-V7 — a REAL near-miss in a v4 venue table resolves to its own cell.** The witness row is `Diagrams?`, which the parser genuinely leaves unresolved (§3.1) — never `Venu Notes`, which the fuzzy path consumes. On a `VENUE NAME`-headed workbook, venue anchors go from 0 to 2 and `resolveUnknownFieldCell` goes from null to a cell; the v2 workbook is unchanged. Plus a false-early guard case in the spirit of `tests/drive/unknownFieldAnchors.test.ts:119`. The case asserts the workbook produced a header row before asserting resolution, and asserts through `parseSheet` that the witness row really is an `UNKNOWN_FIELD` — an anchor test over a consumed row is vacuous however it resolves.
 - **AC-V8 — Doug reads copy, not an internal key.** `reviewWarningTitle` on a `TYPO_NORMALIZED` warning returns the catalog title rather than the message containing `venue.contact_info`, and `notePopoverParts` returns non-null copy. Expected strings are derived from the catalog, never hardcoded. `CARD_SURFACED_LOG_ONLY` goes from 3 members to 4.
 - **AC-V9 — the score holds at the shipping head.** `fieldNearMiss` scored under `pnpm heavy:mutation` with bl-orch's class-lock take, floor 0.95, the two accepted rows re-keyed if lines moved, 0 unaccepted survivors.
 - **AC-V10 — no UI surface is touched.** No file under `app/` or `components/` changes. Invariant 8's closeout marker is `N/A`.
@@ -262,10 +290,14 @@ Measured on `44b0d74b1`:
    `current: tables=14 typoAliasRowsInside=0 baselineRowsMoved=0`
    `A: tables=21 typoAliasRowsInside=0 baselineRowsMoved=0`
    `B: tables=33 typoAliasRowsInside=6 baselineRowsMoved=0`
-2. **probe 2, `anchor-shapes`** — §3.1, resolution on both shapes.
-   `v4 venue anchors 0 null` · `v4 all kinds []` · `v2 venue anchors 2 {"title":"INFO","gid":0,"a1":"A3"}`
+2. **probe 2, `anchor-real-witness`** — §3.1 and §4.1, resolution on both shapes, using the REAL near-miss witness `Diagrams?` (probe 6 is why it is not `Venu Notes`).
+   Before: `v4 venue anchors 0, resolve null` · `v4 all kinds []` · `v2 venue anchors 2, resolve {"title":"INFO","gid":0,"a1":"A3"}`
 3. **probe 3, `anchor-order`** — §4.2, the false-early question. Prints the first bare-`VENUE` row and the first `VENUE NAME` row per fixture. No fixture has `VENUE NAME` preceding `VENUE`.
-4. **The §4.1 widening, verified by throwaway patch.** Apply the regex change, run probe 2, revert. Result under the widening: `v4 venue anchors 2 {…"a1":"A3"}` · `v2 venue anchors 2 {…"a1":"A3"}`.
+4. **The §4.1 widening, verified by throwaway patch.** Apply the regex change, run probe 2, revert (`git diff --stat` confirms the revert). Under the widening, with the `Diagrams?` witness: `v4 venue anchors 2, resolve {"title":"INFO","gid":0,"a1":"A3"}` · `v4 all kinds ["venue"]` · `v2 venue anchors 2, resolve {…"a1":"A3"}` — v4 repaired, v2 untouched.
+5. **probe 5, `arm-divergence2`** — §2.3's parity table. Compares both arms across eight ordinary-authoring perturbations, using `EVENT DETAILS` as the arm-1 control because `VENUE` is one word and cannot exhibit internal-whitespace variation. Also prints the corpus cost: `A=21 tables, A+decode+normalize=21 tables, disagreements=0`. (Its first version used `VENUE` for the control column and was therefore vacuously true for every internal-whitespace row; the probe itself was a spec input and got its own review, per the probe-mini-review rule.)
+6. **probe 6, `finding-repairs`** — §3.1's witness question. `Venu Notes` yields `FIELD_LABEL_AUTOCORRECTED` and `raw_unrecognized=[]`; `Diagrams?` yields `UNKNOWN_FIELD(kind="venue name")` and a real `raw_unrecognized` row.
+7. **probe 7, same script** — AC-V6's discrimination question. The four registered typo aliases are `hotal contact info` → `venue.contact_info`, `diagrams` → `details.diagrams`, `virtaul audience` → `details.virtual_audience`, `goosneck` → `details.gooseneck`. One of four is venue-scoped.
+8. **probe 8, same script** — §5's copy claim. Every registered typo alias under a v4 venue table yields `contacts=[]` and no event output, which is what refuted the "still shows on the crew page" draft.
 
 The 65-row baseline's kind census, for §3.3's vacuity claim: `timestamp` 30, `client` 24, `client contact` 4, `details` 4, `console` 2, `joann` 1. No block in that set normalizes to a `venue.*` alias, so no row's `kind` or `block` can move under A.
 
@@ -275,6 +307,7 @@ The 65-row baseline's kind census, for §3.3's vacuity claim: `timestamp` 30, `c
 
 - **A v4 venue scan over-includes rows below the 4-row table** until the next real terminator, because `TERMINATORS` carries `VENUE` and not `VENUE NAME` (§4.3). Bounded by the collision rule: extra anchors can only yield null, never another row's cell. Widening `TERMINATORS` is a separate change with unbounded v2 blast radius and is not taken here.
 - **A sheet whose venue reference table precedes its real venue table** would have the reference table selected as the anchor header. No corpus fixture has this ordering (§8, probe 3) and it is one ordinary edit away from none of them. Files here rather than as a finding.
+- **An opener carrying a newline entity between its words** (`VENUE&#10;NAME`) is not the venue block. BOTH arms reject it, together, which is the parity §2.3 chose over permissiveness; and the parser surfaces `FIELD_LABEL_AUTOCORRECTED` on such an opener row anyway, so the shape is conservative-plus-surfaced rather than silent. Closing it would mean wrapping arm 2 in `decodeEntities`, which arm 1 does not do — making the arms disagree again in the opposite direction.
 - **Adversarial sheet content** constructed to collide a `(kind,label,value)` triple across two tables, or to defeat `normalizeHeader`, is out of scope — the threat model is Doug typing an ordinary misspelling into the current template, and an ordinary contributor editing a block parser or a copy site.
 - **Persisted rows written before this change keep their `block` value** (§3.3). No backfill, by Eric's condition 2.
 
