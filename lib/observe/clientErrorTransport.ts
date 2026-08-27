@@ -30,32 +30,66 @@ export function __resetClientTransportDedupForTests(): void {
 }
 
 /**
- * The crew page's URL carries a SECRET in its path: `/show/<slug>/<shareToken>`
- * is the only share-token-bearing route in the app. `location.href` went onto the
- * wire unmodified, so any client crash on a crew page persisted that token
- * verbatim into `app_events`, where the developer telemetry console renders it.
- * AGENTS.md invariant 10 is explicit that secrets are never logged — `rotateShareToken`
- * emits `epoch_<n>` precisely so the token itself never appears — and
- * `lib/log/sanitize.ts` redacts emails only, so nothing downstream was going to
- * catch this.
+ * The crew share token is a SECRET, and it travels further than the address bar.
  *
- * Keyed on the route shape rather than on what a token looks like: guessing at
- * token SHAPE is a recognizer that fails open on the next format. This keeps
- * `/show/<slug>` — which is what makes the row diagnosable — and masks every
- * segment after it. It fails SAFE: an unexpected extra segment is masked too.
+ * `/show/<slug>/<shareToken>` is the only share-token-bearing route, but the token
+ * appears in at least three shapes on the wire:
+ *   - the crew page's own `location.href`;
+ *   - percent-encoded inside `/auth/sign-in?next=…`, which
+ *     `lib/auth/picker/selectIdentity.ts` generates on every gated crew visit;
+ *   - inside any FIELD a crash carries — a thrown `{ url: location.href }` lands in
+ *     `detail`, a referrer lands in `message`, a component stack can carry either.
  *
- * Total function. A malformed URL returns the input's origin-less path or "", never throws.
+ * A first version redacted the pathname of `payload.url` only. It missed both of
+ * the other two, which is the whole class: a secret does not respect the field you
+ * expected it in. So the scrub is applied to EVERY string on the wire, and it
+ * matches the token wherever it sits in the text rather than only at a path
+ * position.
+ *
+ * AGENTS.md invariant 10: secrets are never logged — `rotateShareToken` emits
+ * `epoch_<n>` for exactly this reason — and `lib/log/sanitize.ts` redacts emails
+ * only, so nothing downstream catches this.
+ */
+const REDACTED_TOKEN = "[share-token-redacted]";
+
+/**
+ * `/show/<slug>/<token>` in raw or percent-encoded form, anywhere in a string.
+ *
+ * Keyed on the ROUTE SHAPE, never on what a token looks like: a shape rule fails
+ * open the day the token format changes. The slug is kept because it is what makes
+ * the row diagnosable; everything after it in that path position is replaced.
+ * `%2F` covers the encoded form the sign-in redirect produces.
+ */
+const SHOW_TOKEN_RE = /(\/|%2F)show(\/|%2F)([^/?#&%\s]+)((?:\/|%2F)[^?#&\s]*)/gi;
+
+/** Total: never throws, returns the input unchanged when there is nothing to scrub. */
+export function scrubShareTokens(text: string): string {
+  try {
+    return text.replace(
+      SHOW_TOKEN_RE,
+      (_m, a, b, slug) => `${a}show${b}${slug}${b}${REDACTED_TOKEN}`,
+    );
+  } catch {
+    return REDACTED_TOKEN;
+  }
+}
+
+/**
+ * The address-bar case, kept as its own function because it can also drop the
+ * query and fragment wholesale rather than scrubbing them — on the crew route
+ * itself there is nothing in either worth keeping.
  */
 export function redactShareToken(href: string): string {
   try {
     const u = new URL(href);
     const parts = u.pathname.split("/"); // ["", "show", slug, token, ...]
     if (parts[1] === "show" && parts.length > 3) {
-      u.pathname = `/show/${parts[2]}/[share-token-redacted]`;
+      u.pathname = `/show/${parts[2]}/${REDACTED_TOKEN}`;
       u.search = "";
       u.hash = "";
+      return u.href;
     }
-    return u.href;
+    return scrubShareTokens(u.href);
   } catch {
     return "";
   }
@@ -101,6 +135,13 @@ export function clientErrorTransport(input: {
     if (input.detail) payload.detail = input.detail.slice(0, CAPS.detail);
     if (typeof location !== "undefined") {
       payload.url = redactShareToken(location.href).slice(0, CAPS.url);
+    }
+    // Every string on the wire, not just `url`. A secret does not respect the
+    // field you expected it in: a thrown `{ url: location.href }` reaches `detail`,
+    // a referrer reaches `message`, a component stack can carry either.
+    for (const k of Object.keys(payload)) {
+      const v = payload[k];
+      if (typeof v === "string") payload[k] = scrubShareTokens(v);
     }
     void fetch("/api/observe/client-error", {
       method: "POST",

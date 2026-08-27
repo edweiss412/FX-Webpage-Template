@@ -77,11 +77,13 @@ describe("describeClientValue — the guard table (spec §6.3)", () => {
     expect(JSON.stringify({ a: NaN })).toBe('{"a":null}'); // the behaviour being avoided
   });
 
-  test("a Map degrades to its type name and is still separable from that string", () => {
-    // serializeError §4 limit 5, inherited. The tag is what keeps the Map itself
-    // distinct from a string that happens to read "[object Map]".
+  test("a ROOT Map degrades to its type name and is still separable from that string", () => {
+    // serializeError §4 limit 5, inherited. The tag keeps a root Map distinct from
+    // a string reading "[object Map]" — and only at the root: the nested pair is
+    // in the collision table below, under limit 7.
     expect(describeClientValue(new Map()).message).toBe("[object Map]");
     expect(collides(new Map(), "[object Map]")).toBe(false);
+    expect(collides({ v: new Map() }, { v: "[object Map]" })).toBe(true);
   });
 });
 
@@ -191,11 +193,17 @@ describe("describeClientValue — the collision corpus (spec §6.2)", () => {
         return r;
       })(),
     ],
+    ["nested bigint against its string", { v: BigInt(1) }, { v: "1" }],
+    ["nested Map against its string", { v: new Map() }, { v: "[object Map]" }],
+    ["nested RegExp against its string", { v: /re/ }, { v: "/re/" }],
+    ["array bigint against its string", [BigInt(1)], ["1"]],
   ] as const)("%s COLLIDES — documented limits 6 and 7", (_label, a, b) => {
-    // Asserted as a collision on purpose. String(-0) is "0", and serializeError
+    // Asserted as collisions on purpose. String(-0) is "0"; serializeError
     // degrades a key-less object to String(value), which is second-resolution for
-    // a Date and ignores lastIndex. Claiming these discriminate would be a lie,
-    // and a test that made that claim would fail the moment someone checked.
+    // a Date and ignores lastIndex; and the runtime tag reaches DEPTH 0 ONLY, so
+    // a nested value serializeError stringified during its traversal has lost its
+    // type before render sees it. Claiming any of these discriminate would be a
+    // lie, and a test making that claim would fail the moment someone checked.
     expect(collides(a, b)).toBe(true);
   });
 });

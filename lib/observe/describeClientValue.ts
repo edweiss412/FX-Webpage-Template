@@ -12,8 +12,8 @@
 //  - limit 1: `serializeError`'s ratified §4 limit 5 travels with the helper. An
 //    object with no own enumerable keys and no informative `String()` form
 //    degrades to its type name — a `Map` becomes "[object Map]". A surfaced type
-//    name is not a silent loss, and the tag below separates it from the STRING
-//    "[object Map]".
+//    name is not a silent loss. The tag below separates a ROOT `Map` from the
+//    STRING "[object Map]"; it does NOT do so nested — see limit 7.
 //  - limit 2: `detail` is plain-sliced at the wire's cap, so a truncated value is
 //    no longer parseable JSON. The route re-caps with its own plain slice
 //    (app/api/observe/client-error/route.ts:51), so a marker appended here would
@@ -21,9 +21,17 @@
 //  - limit 6: `-0` and `0` share a row. `String(-0)` is "0" and so is
 //    `JSON.stringify(-0)`; only `Object.is` or `1 / x` separates them and neither
 //    survives a JSON wire body.
-//  - limit 7: a `Date` inside one second, and a `RegExp` differing only in
-//    `lastIndex`, share a row. Both reach this module as strings already, because
-//    serializeError degraded them via `String(value)`.
+//  - limit 7: THE TAG REACHES DEPTH 0 ONLY, so any value serializeError
+//    stringifies during its own traversal has already lost its type by the time
+//    `render` sees it. Measured collisions, all well under the caps:
+//      root:   a `Date` inside one second; a `RegExp` differing only in `lastIndex`
+//      nested: `{v: 1n}` / `{v: "1"}`, `{v: new Map()}` / `{v: "[object Map]"}`,
+//              and the `Set` / `Date` / `RegExp` / `URL` pairs, in objects and arrays
+//    Fixing the nested case means either editing `serializeError` — ratified and
+//    fenced (spec §1.1 item 2) — or walking the original value in parallel with
+//    the serialized one, which re-implements its traversal. Neither is worth a
+//    conservative degrade: the worst case is one row where two crashes occurred,
+//    both reading identically to whoever opens it.
 //  - limit 8: two crashes identical for their first 200 `detail` characters and
 //    first 1000 `message` characters dedup to one POST.
 // Re-run trigger for 6, 7 and the discrimination claim generally:

@@ -643,6 +643,7 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   // (lib/messages/__internal__/stripLogEmissionCalls.ts:4-11), so none of these is
   // a catalog row and Assertion 4 pins that they never become one.
   "ALERT_SUMMARY_READ_RETURNED_ERROR",
+  "ALERT_SUMMARY_MALFORMED_ROW",
   "ALERT_SUMMARY_READ_THREW",
   "BELL_FEED_BOUNDS_READ_RETURNED_ERROR",
   "BELL_FEED_BOUNDS_READ_THREW",
@@ -721,6 +722,7 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   "SYNC_PROBLEM_READ_RETURNED_ERROR",
   "SYNC_PROBLEM_READ_THREW",
   "TELEMETRY_STATS_READ_RETURNED_ERROR",
+  "TELEMETRY_STATS_MALFORMED_ROW",
   "TELEMETRY_STATS_READ_THREW",
   "WATCH_SURFACE_STATE_READ_RETURNED_ERROR",
   "WATCH_SURFACE_STATE_READ_THREW",

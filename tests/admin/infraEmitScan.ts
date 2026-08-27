@@ -163,13 +163,34 @@ export function guardScope(n: ts.Node): Scope {
  */
 export function propagationSubject(test: ts.Expression | null): ts.Identifier | null {
   if (!test || !ts.isBinaryExpression(test)) return null;
+  const op = test.operatorToken.kind;
+  const isEquality =
+    op === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+    op === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+    op === ts.SyntaxKind.EqualsEqualsToken ||
+    op === ts.SyntaxKind.ExclamationEqualsToken;
+  if (!isEquality) return null;
   const left = strip(test.left);
-  // `X.kind === "..."` — the subject is X.
-  if (ts.isPropertyAccessExpression(left) && ts.isIdentifier(strip(left.expression))) {
-    return strip(left.expression) as ts.Identifier;
+  const right = strip(test.right);
+
+  // `X.kind === "infra_error"` — the callee reported a typed fault.
+  if (ts.isPropertyAccessExpression(left) && left.name.text === "kind") {
+    const obj = strip(left.expression);
+    if (!ts.isIdentifier(obj)) return null;
+    return ts.isStringLiteral(right) && right.text === "infra_error" ? obj : null;
   }
-  // `X === null`, `X !== undefined`, `X === false` — the subject is X.
-  if (ts.isIdentifier(left)) return left;
+
+  // `X === null` / `X === undefined` — the nullish sentinel a swallowing helper
+  // returns. Compared against a NULLISH literal specifically: an earlier version
+  // accepted any binary test whose left side was an identifier, so `if (count > 5)`
+  // and `if (rows.length === 0)` were exempted as propagations while being
+  // ordinary business logic returning a locally created fault.
+  if (ts.isIdentifier(left)) {
+    const nullish =
+      right.kind === ts.SyntaxKind.NullKeyword ||
+      (ts.isIdentifier(right) && right.text === "undefined");
+    return nullish ? left : null;
+  }
   return null;
 }
 
@@ -203,7 +224,14 @@ export function findEmit(
       ts.isArrowFunction(n) ||
       ts.isFunctionExpression(n) ||
       ts.isMethodDeclaration(n);
-    if (ts.isCallExpression(n) && /^log\.(error|warn|info|debug)$/.test(n.expression.getText(sf))) {
+    // NOT `debug`. lib/log/logger.ts refuses to persist a debug record
+    // unconditionally — even with a code, even with persist:true — so a
+    // debug-only emit leaves NO app_events row, and the consequence bound is
+    // about a PERSISTED record. An earlier version accepted debug on the
+    // reasoning that the contract was "attributable, not persisted"; that
+    // reasoning was wrong about its own contract, and it let a future loader
+    // pass this guard while staying dark.
+    if (ts.isCallExpression(n) && /^log\.(error|warn|info)$/.test(n.expression.getText(sf))) {
       sawLogCall = true;
       const late = n.getStart(sf) >= returnPos;
       let code = false;

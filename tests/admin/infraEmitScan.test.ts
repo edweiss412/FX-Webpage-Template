@@ -160,6 +160,53 @@ describe("infraEmitScan — reported cases", () => {
     ).toBe("no-emit");
   });
 
+  test("log.debug is NOT a satisfying sink — it never persists", () => {
+    // lib/log/logger.ts refuses to persist a debug record unconditionally, even
+    // with a code. An earlier version accepted debug, which let a loader pass this
+    // guard while leaving no app_events row — the exact outcome the bound forbids.
+    // The reason is `no-emit` rather than a level-specific one: debug is not
+    // matched as a sink at all, so from the guard's view no qualifying emit
+    // exists. Deliberately not given its own Reason variant — nothing in
+    // lib/admin uses log.debug on an infra path, and the enum is already nine
+    // values wide.
+    expect(
+      reason(only(`function f(){ if (error) { log.debug("m", { code: C, error }); ${RET} } }`)),
+    ).toBe("no-emit");
+  });
+
+  test("a non-equality guard is NOT propagation, even from an in-cover callee", () => {
+    // `if (count > 5)` is ordinary business logic returning a locally created
+    // fault. An earlier version accepted any binary test whose left side was an
+    // identifier, so this was exempted and left dark.
+    expect(
+      reason(
+        only(`function f(){ if (count > 5) { ${RET} } }`, {
+          calleeOrigin: () => ({ inCover: true, origin: "local" }),
+        }),
+      ),
+    ).toBe("no-emit");
+  });
+
+  test("an equality guard against a NON-nullish value is NOT propagation", () => {
+    expect(
+      reason(
+        only(`function f(){ if (rows.length === 0) { ${RET} } }`, {
+          calleeOrigin: () => ({ inCover: true, origin: "local" }),
+        }),
+      ),
+    ).toBe("no-emit");
+  });
+
+  test("a kind guard against a DIFFERENT kind is NOT propagation", () => {
+    expect(
+      reason(
+        only(`function f(){ if (sub.kind === "not_found") { ${RET} } }`, {
+          calleeOrigin: () => ({ inCover: true, origin: "local" }),
+        }),
+      ),
+    ).toBe("no-emit");
+  });
+
   test("logAdminOutcome is not a sink here — no lib/admin read calls it", () => {
     expect(
       reason(only(`function f(){ if (error) { logAdminOutcome({ code: C, error }); ${RET} } }`)),
@@ -185,6 +232,13 @@ describe("infraEmitScan — satisfied and exempt cases", () => {
       calleeOrigin: () => ({ inCover: true, origin: "imported" }),
     });
     expect(s.verdict).toEqual({ kind: "exempt-propagation", origin: "imported" });
+  });
+
+  test("an `=== undefined` guard is propagation too — the other nullish sentinel", () => {
+    const s = only(`function f(){ if (row === undefined) { ${RET} } }`, {
+      calleeOrigin: () => ({ inCover: true, origin: "local" }),
+    });
+    expect(s.verdict).toEqual({ kind: "exempt-propagation", origin: "local" });
   });
 
   test("a null guard over a value from a cover callee is propagation too", () => {

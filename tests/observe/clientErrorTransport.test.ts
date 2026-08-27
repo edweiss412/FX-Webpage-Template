@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   clientErrorTransport,
   redactShareToken,
+  scrubShareTokens,
   __resetClientTransportDedupForTests,
 } from "@/lib/observe/clientErrorTransport";
 
@@ -176,6 +177,51 @@ describe("clientErrorTransport — optional code/detail", () => {
 
     test("a malformed URL yields an empty string rather than throwing", () => {
       expect(redactShareToken("not a url")).toBe("");
+    });
+
+    test("the token is scrubbed from a sign-in next= param, encoded and raw", () => {
+      // lib/auth/picker/selectIdentity.ts redirects every gated crew visit to
+      // /auth/sign-in?next=<encoded crew URL>. A pathname-only redactor returns
+      // this untouched — the first version of this did exactly that.
+      const SECRET = "zzq9-secret";
+      for (const href of [
+        `https://x.test/auth/sign-in?next=%2Fshow%2Fgala%2F${SECRET}`,
+        `https://x.test/auth/sign-in?next=/show/gala/${SECRET}`,
+      ]) {
+        expect(redactShareToken(href), href).not.toContain(SECRET);
+      }
+    });
+
+    test("scrubShareTokens finds the token anywhere in a string, not just at a path position", () => {
+      const SECRET = "zzq9-secret";
+      const out = scrubShareTokens(`failed loading https://x.test/show/gala/${SECRET} at line 4`);
+      expect(out).not.toContain(SECRET);
+      expect(out).toContain("show/gala");
+    });
+
+    test("EVERY string field on the wire is scrubbed, not just url", () => {
+      // The class the first version missed: a secret does not respect the field
+      // you expected it in. A thrown { url: location.href } reaches `detail`; a
+      // referrer reaches `message`.
+      const SECRET = "zzq9-secret";
+      const crewUrl = `https://x.test/show/gala/${SECRET}`;
+      clientErrorTransport({
+        source: "client.crew",
+        level: "error",
+        message: `navigation to ${crewUrl} failed`,
+        stack: `at load (${crewUrl}:1:1)`,
+        componentStack: `in Page (${crewUrl})`,
+        detail: `{"url":"${crewUrl}"}`,
+      });
+      const body = JSON.parse(
+        ((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit)
+          .body as string,
+      ) as Record<string, string>;
+      for (const [k, v] of Object.entries(body)) {
+        expect(v, `field ${k} still carries the secret`).not.toContain(SECRET);
+      }
+      // and it is still diagnosable
+      expect(body.message).toContain("show/gala");
     });
 
     test("the POST body carries the redacted url, not location.href", () => {
