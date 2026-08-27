@@ -192,27 +192,57 @@ than the argument.** Under the passive-measurer plant, INV-1 red — mount at fr
 defeats one pin while leaving the other passing settles the question of whether
 either subsumes the other, which is why INV-1 needs its own case.
 
-**Execution status, stated per mutant rather than as a blanket claim.** An
+**Execution status, GENERATED from sweep output rather than authored.** An
 earlier draft of this section asserted that every mutant here had been executed
-when only one had. That is the same defect class as the orphaned plant it was
-written to prevent, committed by the document that states the rule, so the
-status is now a column rather than a sentence:
+when only one had — twice, in two consecutive rounds. Remembering the rule did
+not work, so the table below is emitted by a script reading the sweep's result
+files, which makes the claim unwriteable ahead of the run that produces it.
 
-| Mutant | Status |
-| --- | --- |
-| M2 — the sole measurer made passive | **RUN**, red observed, transcript in appendix A.4 |
-| M1 — restore the deleted `measureAndApply()` call | scheduled in the plan's task 1; its result lands in that task's commit |
-| M3 — delete the ungated effect | scheduled in the plan's task 1; its result lands in that task's commit |
+| Assertion | Mutant | Result |
+| --- | --- | --- |
+| A2 paths-entry | `M-paths` | **RED** |
+| A3 run-step | `M-run2` | **RED** |
+| B2/B3 origin premises | `M-noplace` | **RED** |
+| B5 right-edge alignment | `M-left1` | **RED** |
+| B7 adjacency-on-reported-side | `M-side2` | **RED** |
+| B9 caps-empty | `M-cap` | **RED** |
+| B13 frame-ordering (repair applied) | `M-passive2` | **RED** |
 
-The ordering rule this arc now follows: EXECUTE, then write the claim from the
-result. Never write the claim and schedule the execution.
+7 assertions, 7 discriminating.
 
-**The design-alternative rejections in §2.3 and §3 are ARGUMENTS, not
-executions**, and are labelled so here because the sweep that governs mutants
-does not reach them. There is no mutant for "IntersectionObserver instead of a
-layout effect" or "a ref flag instead of a deletion"; those rest on cited engine
-and framework behaviour, which a reviewer checks by reading the citation rather
-than by running anything.
+Superseded by a corrected mutant, kept because a GREEN here reads as a
+non-discriminating assertion and was not one:
+
+| Assertion | Invalid mutant | Result | Why it was invalid |
+| --- | --- | --- | --- |
+| B13 frame-ordering | `M-passive` | GREEN | applied without the repair, so the gated effect still placed pre-paint |
+
+**Design-alternative rejections in §2.3 and §3 are ARGUMENTS, not executions.**
+There is no mutant for "IntersectionObserver instead of a layout effect" or "a
+ref flag instead of a deletion"; those rest on cited engine and framework
+behaviour, which a reviewer checks by reading the citation.
+
+### The instrument's own fix, verified by its own plant
+
+`attributeFilter` carries `style` AND `data-portal-side`, and the observer
+originally treated every record's `oldValue` as a style string. A `side` change
+therefore reconstructed the origin as `"||||top"` — garbage — and the defect was
+invisible on clean source because `side` never changes there.
+
+It surfaced only because `M-side` red on the ORIGIN PREMISE rather than the
+adjacency assertion it was aimed at. A mutant redding the WRONG assertion is
+information; one redding the right assertion tells you less.
+
+The fix — ignore records whose `attributeName` is not `style` — is verified by
+that same mutant across the two sweeps, which is the plant the fix needs:
+
+| Tree | Mutant | Red on |
+| --- | --- | --- |
+| before the fix | `M-side` | the origin premise, reporting `"||||top"` |
+| after the fix | `M-side2` | `side=top: the panel's bottom must sit GAP above the trigger's top` |
+
+Same mutation, same assertion set; only the instrument changed, and the failure
+moved from a corrupted premise to the assertion that should catch it.
 
 ## 5. Why INV-1 cannot live in jsdom
 

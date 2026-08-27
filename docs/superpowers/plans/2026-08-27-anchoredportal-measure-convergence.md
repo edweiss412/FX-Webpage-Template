@@ -121,6 +121,27 @@ such rather than skipped:
 Expected impeccable outcome is therefore "no visual change", and a P0 or P1 that
 is visual would mean the repair did something it was not supposed to.
 
+## Why this plan is red until Task 2, deliberately
+
+`tests/docs/_metaInvariant8Closeout.test.ts` fails on this branch with:
+
+> `2026-08-27-anchoredportal-measure-convergence.md: declares the invariant-8 dual
+> gate but carries no valid impeccable-gate marker line`
+
+**That is correct behaviour and must not be silenced.** This plan names both gate
+halves in Task 2, so the guard requires the marker; the marker records what
+`/impeccable critique` and `/impeccable audit` FOUND, and they have not run. It
+cannot be written truthfully before Task 2 executes them, and writing it early to
+turn the suite green would be editing a gate so it passes.
+
+`PRE_GUARD_DEBT` does not apply either: it exists for pre-guard history, and
+using a debt allowlist to silence a red that is telling the truth is the same
+move wearing different clothes.
+
+So the red is Task 2's red, and Task 2's gate command asserts exactly the state
+that clears it. Recorded here because a takeover session reading a red tree with
+no explanation cannot tell an expected red from a regression.
+
 ## Acceptance criteria
 
 - AC-1 One closed to open transition runs `measureAndApply` exactly twice, counting the measures React commits drive, in the jsdom harness whose `ResizeObserver` is a no-op stub. A browser adds observer-delivery measures this count deliberately does not cover (spec §1).
