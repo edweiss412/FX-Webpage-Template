@@ -95,7 +95,7 @@ Cost checked before deciding, not asserted afterwards:
 
 - **No screenshot baseline moves.** `grep -c telemetry scripts/help-screenshots.manifest.ts` is 0, so the byte-comparison gate cannot see any of this and nothing is regenerated from this arm64 host.
 - **No test asserts either peer's copy.** `grep -rn "Refresh in a moment\|load activity right now" tests/` returns nothing.
-- **The render-fault instrument is unaffected.** Sites 2 and 3 carry `data-render-fault`; `scripts/capture-render-fault.ts:28` reads the ATTRIBUTE, so a new child of a fault-marked element is invisible to it. Site 1 carries no such attribute, an asymmetry that predates this arc and is a different class.
+- **The render-fault instrument is unaffected.** Sites 2 and 3 carry `data-render-fault`; `scripts/capture-render-fault.ts:45` and `scripts/capture-render-fault.ts:51` read the ATTRIBUTE, so a new child of a fault-marked element is invisible to it. Site 1 carries no such attribute, an asymmetry that predates this arc and is a different class.
 
 | Site | `what` | `testId` |
 | --- | --- | --- |
@@ -212,30 +212,16 @@ Fourteen files, one animated, and it is the one the audit already exempts. So th
 
 ### Task 1b — the other two fallbacks of the same shape
 
-<!-- task: red=`pnpm vitest run tests/components/telemetry/eventTimeline.test.tsx tests/components/healthAlertsPanel.test.tsx` red-state=authored red-target=`components/admin/telemetry/EventTimeline.tsx:17` why=`both suites render their degraded branch with no next/navigation mock, so the moment the branch contains a control calling useRouter their existing infra_error cases throw the Next router invariant; the red is those two shipped cases, and only mounting the control plus adding the mock the repo already uses turns the SAME command green` ac=AC-10,AC-11 -->
+<!-- task: red=`pnpm vitest run tests/components/telemetry/eventTimeline.test.tsx tests/components/healthAlertsPanel.test.tsx` red-state=authored red-target=`components/admin/telemetry/EventTimeline.tsx:17` why=`step 1b.1 adds the router mock and the control assertions with NO production change, so both suites fail because event-timeline-retry and health-alerts-retry are absent from the rendered tree; only mounting the control at EventTimeline.tsx:17 and HealthAlertsPanel.tsx:283 turns the SAME command green. Deliberately NOT the earlier ordering, where the red came from a missing mock and the green came from adding one` ac=AC-10,AC-11 -->
 
 The ledger row names one instance. §2a's sweep found three, all on this page, all the same
 shape, and the class-sweep default is every instance in the same PR.
 
-- [ ] **1b.1** Mount the control in `components/admin/telemetry/EventTimeline.tsx:17` with
-      `what="activity"` and `testId="event-timeline-retry"`. Copy unchanged.
-- [ ] **1b.2** Mount it in `components/admin/telemetry/HealthAlertsPanel.tsx:283` with
-      `what="system-health alerts"` and `testId="health-alerts-retry"`, and **delete that
-      fallback's trailing "Refresh in a moment." sentence**. A manual instruction sitting
-      beside the button that performs it is copy this arc makes wrong, and copy an arc makes
-      wrong is that arc's defect. Both other sites keep every word.
-- [ ] **1b.3** The red is already shipped: `tests/components/telemetry/eventTimeline.test.tsx:50`
-      and `tests/components/healthAlertsPanel.test.tsx:206` render these exact branches and
-      mock no router. Run them BEFORE the mock is added and record the router-invariant throw
-      in the commit body; that is the observed red, and it is the peers' own existing cases
-      rather than anything this task writes.
-- [ ] **1b.4** GREEN: add the `next/navigation` mock those two suites lack, in the shape
-      `tests/components/telemetry/transitionAudit.test.tsx:10-14` already uses, then extend
-      each existing case to assert its retry control is present INSIDE its own degraded
-      testid via `within`, and that activating it calls `refresh` exactly once.
-- [ ] **1b.5** Assert the three sites do not collide: each control's `data-testid` is distinct,
-      and each announcement names its own `what`. Derived by rendering all three and comparing
-      the set size to three, not by three separate literal checks.
+- [ ] **1b.1** **RED first, and the ordering is itself the repair.** An earlier draft mounted the controls, watched the two peer suites fail for want of a `next/navigation` mock, then added the mock to go green. That transition proves harness repair, not implementation: red because the suite lacked a mock, green because the suite gained one, with the production change riding along invisibly. So the mock and the assertions land FIRST, in one commit, with NO production change: add the `next/navigation` mock those two suites lack, in the shape `tests/components/telemetry/transitionAudit.test.tsx:10-14` already uses, and extend `tests/components/telemetry/eventTimeline.test.tsx:50` and `tests/components/healthAlertsPanel.test.tsx:206` to assert a retry control inside their own degraded testid via `within`.
+- [ ] **1b.2** Run and record the red. Both suites fail because `event-timeline-retry` and `health-alerts-retry` are absent from the rendered tree, which is the production absence this task closes, and nothing else in either suite fails.
+- [ ] **1b.3** GREEN: mount the control in `components/admin/telemetry/EventTimeline.tsx:17` with `what="activity"` and `testId="event-timeline-retry"`, copy unchanged; and in `components/admin/telemetry/HealthAlertsPanel.tsx:283` with `what="system-health alerts"` and `testId="health-alerts-retry"`.
+- [ ] **1b.4** In the same GREEN step, **delete site 3's trailing "Refresh in a moment." sentence**. A manual instruction sitting beside the button that performs it is copy this arc makes wrong, and copy an arc makes wrong is that arc's defect. Sites 1 and 2 keep every word.
+- [ ] **1b.5** Assert the three sites do not collide: render all three, collect their testids and their announcements, and assert each set has size three with no empty member. A set size, not three literal comparisons, so a copy-paste duplicating a `what` or a `testId` fails here rather than shipping two identically-announced controls.
 - [ ] **1b.6** Commit `feat(admin): the activity and system-health fallbacks offer a retry too`.
 
 ### Task 2 — success replaces the fallback, repeated failure keeps it
@@ -258,8 +244,11 @@ shape, and the class-sweep default is every instance in the same PR.
 - [ ] **3.4** Case 3: after a second click the region's text DIFFERS from the value captured after the first click, while still containing the announcement. Compared against the captured value, not against a literal carrying a specific whitespace character, so the case states the property (a repeat is distinguishable) rather than the current encoding of it.
 - [ ] **3.5** Case 4: the accessible name contains the visible text (WCAG 2.5.3), both read off the rendered button rather than off the constants.
 - [ ] **3.6** Case 5: `router.refresh` called once per click; `push` and `replace` never.
-- [ ] **3.7** Case 6, the reload pin, and the reason it is static rather than behavioural. Read the component's own source, strip comments with `stripCommentsForFile` from `tests/_shared/stripComments` (the single source `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` requires; do not hand-roll a stripper), and assert it contains none of a closed set of navigation APIs: `location.reload`, `location.assign`, `location.replace`, `location.href`, `document.location`, `window.open`. **The set is closed and small because the subject is one file of about seventy lines, not a corpus** — this is a total check over a tiny surface, not a recognizer, and it must not grow into one. Comments are stripped so the JSDoc paragraph explaining why there is no reload cannot satisfy or trip it.
-- [ ] **3.7** **The four pre-dispatch mutants, run and recorded before any review dispatch**, because cases 2 and 3 are string-presence assertions: (a) `retryAnnouncement(what)` emptied; (b) the announcement with an appended suffix, which must still pass case 2 and must still pass case 3, confirming neither case is pinned to an exact-equality it does not claim; (c) the announcement present in the file but not live, moved into an `aria-hidden` sibling outside the status region, which must red case 2; (e) `window.location.reload()` added to the click handler beside the refresh, which must red case 6 and would pass every other case in this file; this is the mutant plan round 3 probed and it is the reason case 6 exists. (d) the discriminating parameter of the region's text varied: the parity alternation replaced by an unconditional suffix (`${retryAnnouncement(what)}\u00A0` on every attempt), which makes attempts one and two identical and must red case 3. **The click count is NOT mutant (d)** — an earlier draft named it, and it is an input case 3 already ranges over rather than a variation of the production code. Each result in the commit body.
+- [ ] **3.7** Case 6, the navigation pin, stated as a NAMESPACE ban rather than an API list. Read the component's own source, strip comments with `stripCommentsForFile` from `tests/_shared/stripComments` (the single source `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` requires; do not hand-roll a stripper), and assert the stripped text matches none of `window`, `location`, `history`, `document` as whole words. The component legitimately needs none of them: it uses `useState`, `useRouter` and JSX, and every navigation it performs goes through the router object.
+
+      **This replaces an enumerated API list, and the replacement is a narrowing rather than a widening — which is the whole point.** Plan round 3 probed `location.reload()`; plan round 4 probed `history.go(0)`, and named `history.back`, `history.forward` and assignments to `location.pathname` / `search` / `hash` / `protocol` / `host` / `hostname` / `port` behind it. Both escape a list and both are invisible to behavioural assertions, because jsdom logs "Not implemented" and returns for each. A list answers one probe per round forever; banning the four namespaces answers all of them at once and cannot be extended by naming another API, because there is no fifth namespace a navigation can come from. One rule, total over a seventy-line file. It is a total check over a tiny surface, not a recognizer, and it must not grow into one: if this file ever legitimately needs one of those globals, the answer is an inline exemption with a reason, never a longer pattern.
+
+- [ ] **3.8** **The pre-dispatch mutants, run and recorded before any review dispatch**, because cases 2 and 3 are string-presence assertions and case 6 is a source-presence one: (a) `retryAnnouncement`'s text emptied, which must red case 2's non-empty half; (b) the announcement with an appended suffix, which must still pass cases 2 and 3, confirming neither is pinned to an equality it does not claim; (c) the announcement present in the file but not live, moved into an `aria-hidden` sibling outside the status region, which must red case 2; (d) the parity alternation replaced by an unconditional suffix, which makes attempts one and two identical and must red case 3; (e) `window.location.reload()` added to the click handler beside the refresh; (f) `window.history.go(0)` in the same position. (e) and (f) must both red case 6 and both pass every other case in this file, and the pair is exactly why case 6 bans namespaces instead of listing APIs: a list built after round 3 would have caught (e) and missed (f). Each result in the commit body.
 - [ ] **3.8** Observe RED by planting the seq toggle away (`{attempts === 0 ? "" : retryAnnouncement(what)}`), which reds case 3 alone. That mutant is the whole point of the case: it is the exact shape that ships a silent second attempt.
 - [ ] **3.9** Commit `test(admin): the retry announcement survives a repeated failure`.
 
@@ -291,7 +280,7 @@ shape, and the class-sweep default is every instance in the same PR.
 | --- | --- | --- |
 | AC-1 | The fallback renders exactly one retry control | Task 1, queried with `within(cron-health-degraded)` |
 | AC-2 | One tap re-invokes the health loader, its call count reaching `before + 1` | Task 1, asserted on the `loadCronHealth` spy |
-| AC-3 | The retry never navigates and never reloads | Task 1 asserts `push` and `replace` uncalled and the control `type="button"` with no `href`; Task 3 case 5 asserts `refresh` fires once per click, and case 6 pins the absence of every other navigation API statically, because jsdom swallows a real `location.reload()` |
+| AC-3 | The retry never navigates and never reloads | Task 1 asserts `push` and `replace` uncalled and the control `type="button"` with no `href`; Task 3 case 5 asserts `refresh` fires once per click, and case 6 bans the `window`, `location`, `history` and `document` namespaces from the component outright, which is what makes the claim total rather than a list that the next probe extends. Stated this way because an earlier wording claimed an API list covered "every other navigation API" and plan round 4 refuted it with `history.go(0)` |
 | AC-4 | A retry that succeeds replaces the fallback with the job list | Task 2, success case, label read off the fixture |
 | AC-5 | A retry that fails again leaves the copy and the control unchanged | Task 2, repeat-failure case, both sentences asserted |
 | AC-6 | Every activation is announced, including a repeat of an identical outcome | Task 3, cases 1 through 3 |
