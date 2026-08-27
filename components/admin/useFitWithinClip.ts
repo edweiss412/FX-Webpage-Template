@@ -207,48 +207,70 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
       const resolved = apply();
 
       // The two ROLES, held rather than captured, because the attach-time
-      // resolution is exactly what used to outlive its truth.
+      // resolution is exactly what used to outlive its truth. Roles are one
+      // level; what the observer is told is another, and keeping them apart is
+      // what makes this correct rather than merely plausible.
       let observedClip: HTMLElement | null = null;
       let observedPositioned: Element | null = null;
       let observer: ResizeObserver | null = null;
+      // What the observer currently holds. A `ResizeObserver` stores element
+      // TARGETS, not role-scoped subscriptions, so this is a SET and the
+      // reconcile below is a set difference over it.
+      const heldTargets = new Set<Element>();
 
       /**
-       * Re-target the clip role, and only on a resolved NON-NULL change.
+       * Re-derive the roles, then reconcile the target set by DIFFERENCE.
        *
-       * Conditional is not an optimisation. `observe()` delivers an initial
-       * observation, so a reconcile that re-observes on every measure feeds its
-       * own next measure and never reaches a fixed point (spec §4.3).
+       * Roles re-target only on a resolved NON-NULL change. Retain-on-null is
+       * asymmetric on purpose: an observed ancestor is a SIGNAL SOURCE, and a
+       * null resolution means "cannot resolve right now", never "there is
+       * none". `offsetParent` reads null for a `display: none` subtree, so
+       * dropping the subscription there would silence every overlay that is
+       * hidden and shown again — the exact stale cap this hook is being
+       * repaired for (spec §4.1).
        *
-       * Non-null because an observed ancestor is a SIGNAL SOURCE, and a null
-       * resolution means "nothing clips right now", never "this source is
-       * gone": keeping it costs one redundant `apply()` on its resizes, while
-       * dropping it costs a signal that may never come back (spec §4.1).
+       * Targets are NOT reconciled per role. One element can hold both roles at
+       * once, which is the likely shape of a `position: relative; overflow:
+       * clip` modal panel, and a per-role `unobserve` then removes a target the
+       * other role still wants. Set difference cannot express that mistake: an
+       * element wanted by either role is in the desired set, so it is never in
+       * the removal difference, and additions are exactly what is not already
+       * held so a live target is never re-observed.
+       *
+       * Conditional additions are also the termination proof, not an
+       * optimisation. `observe()` delivers an initial observation, so a
+       * reconcile that re-observes on every measure feeds its own next measure
+       * and never reaches a fixed point (spec §4.3).
        */
-      const subscribeClip = (clip: HTMLElement | null): void => {
-        if (clip === null || clip === observedClip) return;
-        if (observer !== null) {
-          if (observedClip !== null) observer.unobserve(observedClip);
-          observer.observe(clip, OBSERVE_OPTIONS);
+      const reconcile = ({ clip, positioned }: ResolvedAncestors): void => {
+        if (clip !== null && clip !== observedClip) observedClip = clip;
+        if (positioned !== null && positioned !== observedPositioned) {
+          // The listener is bound per node and its filter compares against the
+          // CURRENT role, so it has to move with the role or it rejects the
+          // real settle event and accepts nothing.
+          if (observedPositioned !== null)
+            observedPositioned.removeEventListener("transitionend", onTransitionEnd);
+          positioned.addEventListener("transitionend", onTransitionEnd);
+          observedPositioned = positioned;
         }
-        observedClip = clip;
-      };
 
-      /**
-       * Re-target the positioned role by the same rule, and move its listener
-       * with it. The listener is bound per node and its filter compares against
-       * the CURRENT role, so leaving it on the old ancestor would both reject
-       * the real settle event and accept a stale one.
-       */
-      const subscribePositioned = (positioned: Element | null): void => {
-        if (positioned === null || positioned === observedPositioned) return;
-        if (observer !== null) {
-          if (observedPositioned !== null) observer.unobserve(observedPositioned);
-          observer.observe(positioned, OBSERVE_OPTIONS);
+        if (observer === null) return;
+        const desired = new Set<Element>();
+        // Clip first: insertion order is the observe order, which the attach
+        // cases pin.
+        if (observedClip !== null) desired.add(observedClip);
+        if (observedPositioned !== null) desired.add(observedPositioned);
+
+        for (const target of [...heldTargets]) {
+          if (desired.has(target)) continue;
+          observer.unobserve(target);
+          heldTargets.delete(target);
         }
-        if (observedPositioned !== null)
-          observedPositioned.removeEventListener("transitionend", onTransitionEnd);
-        positioned.addEventListener("transitionend", onTransitionEnd);
-        observedPositioned = positioned;
+        for (const target of desired) {
+          if (heldTargets.has(target)) continue;
+          observer.observe(target, OBSERVE_OPTIONS);
+          heldTargets.add(target);
+        }
       };
 
       // `apply()` forces a synchronous reflow (write, read, read, read, write),
@@ -256,9 +278,7 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
       // fires continuously, and a ResizeObserver can fire for both observed
       // nodes at once. Leading-edge throttle to one apply per frame.
       const coalescer = createRafCoalescer(() => {
-        const next = apply();
-        subscribeClip(next.clip);
-        subscribePositioned(next.positioned);
+        reconcile(apply());
       });
 
       // A resize observation fires while a transition is still running, when the
@@ -290,13 +310,13 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
         typeof ResizeObserver === "function" ? new ResizeObserver(coalescer.schedule) : null;
       // Called even with no observer, so the ROLES are current either way, which
       // is what keeps the transitionend listener following in jsdom.
-      subscribeClip(resolved.clip);
-      subscribePositioned(resolved.positioned);
+      reconcile(resolved);
 
       window.addEventListener("resize", coalescer.schedule);
 
       return () => {
         observer?.disconnect();
+        heldTargets.clear();
         // Removed from the CURRENT positioned role, not the attach-time value,
         // and BEFORE the cancel, so a late event cannot schedule a frame after
         // the frame has been cancelled.

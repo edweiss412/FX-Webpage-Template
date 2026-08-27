@@ -26,6 +26,12 @@ const FITTED_TOP = 230;
 const CLIP_BOTTOM = 560;
 /** Second geometry, used by every re-measure case. */
 const CLIP_BOTTOM_AFTER = 460;
+/**
+ * How much roomier the ALIAS fixture's outer node is than its shared one.
+ * Non-zero on purpose: with equal bottoms a clip-role move produces the same
+ * cap and no aliasing case could tell a re-target from a no-op.
+ */
+const ALIAS_OUTER_SLACK = 100;
 
 type Geometry = { fittedTop: number; clipBottom: number };
 let geometry: Geometry;
@@ -65,13 +71,17 @@ function rectFor(el: Element): DOMRect {
   const box =
     id === "outer"
       ? { top: 0, bottom: geometry.clipBottom }
-      : id === "mid"
-        ? { top: 50, bottom: geometry.clipBottom }
-        : id === "inner"
-          ? { top: 100, bottom: geometry.clipBottom }
-          : id === "fitted"
-            ? { top: geometry.fittedTop, bottom: geometry.fittedTop + 100 }
-            : { top: 0, bottom: 0 };
+      : id === "other"
+        ? { top: 0, bottom: geometry.clipBottom + ALIAS_OUTER_SLACK }
+        : id === "shared"
+          ? { top: 0, bottom: geometry.clipBottom }
+          : id === "mid"
+            ? { top: 50, bottom: geometry.clipBottom }
+            : id === "inner"
+              ? { top: 100, bottom: geometry.clipBottom }
+              : id === "fitted"
+                ? { top: geometry.fittedTop, bottom: geometry.fittedTop + 100 }
+                : { top: 0, bottom: 0 };
   return {
     left: 0,
     right: 300,
@@ -253,6 +263,59 @@ function ThreeLevelHarness({
       </div>
     </div>
   );
+}
+
+/**
+ * ONE element holds BOTH roles. Three nodes, not two: `shared` is the clip
+ * ancestor and the positioned one at the same time, and `other` exists so a
+ * role can move OFF the shared node without leaving the tree.
+ *
+ * The default `Harness` cannot express this and must not be made to: it keeps
+ * its two ancestors distinct on purpose, and collapsing them is what made case
+ * (d) tautological in the first place.
+ *
+ * `ResizeObserver` stores element TARGETS, not role-scoped subscriptions, so a
+ * per-role `unobserve` here removes a target the other role still wants. That
+ * is the whole subject of these cases.
+ */
+function AliasHarness({
+  reapplyKey,
+  clipOn = "shared",
+  positionedOn = "shared",
+}: {
+  reapplyKey?: unknown;
+  clipOn?: "shared" | "other";
+  positionedOn?: "shared" | "other";
+}) {
+  const fitRef = useFitWithinClip(reapplyKey);
+  return (
+    <div
+      data-testid="other"
+      data-clips={clipOn === "other" ? "true" : undefined}
+      data-positioned={positionedOn === "other" ? "true" : undefined}
+    >
+      <div
+        data-testid="shared"
+        data-clips={clipOn === "shared" ? "true" : undefined}
+        data-positioned={positionedOn === "shared" ? "true" : undefined}
+      >
+        <div data-testid="fitted" ref={fitRef} />
+      </div>
+    </div>
+  );
+}
+
+/** Its own mount helper: `mount()` calls `getByTestId("inner")`, which this
+ *  tree has no node for, so reusing it would throw before the first assertion
+ *  and a case that throws in setup pins nothing. */
+function mountAlias(props: Parameters<typeof AliasHarness>[0] = {}) {
+  const view = render(<AliasHarness {...props} />);
+  return {
+    view,
+    other: screen.getByTestId("other"),
+    shared: screen.getByTestId("shared"),
+    fitted: screen.getByTestId("fitted"),
+  };
 }
 
 beforeEach(() => {
@@ -1081,6 +1144,157 @@ describe("useFitWithinClip", () => {
       flushFrames();
       fireEvent(inner, transitionEnd("transform"));
       expect(frames.size, "the FORMER positioned ancestor still schedules").toBe(0);
+    });
+  });
+
+  // ---- aliasing: ONE element holding both roles (spec §5.2) ----
+  //
+  // These five are drawn from the spec's derivation, not from a family count:
+  // a per-role reconcile diverges from a set difference whenever a role is
+  // touched while another role holds the same element. They assert the two
+  // properties directly, so an arrangement the spec's table does not list
+  // fails them too.
+
+  test("(h27) (A,A) to (B,A): the clip role leaves an element the positioned role still holds", () => {
+    const { state, resize } = installTargetTrackingObserver();
+    withMarkedOffsetParent(() => {
+      const { view, shared, other } = mountAlias({
+        reapplyKey: "k",
+        clipOn: "shared",
+        positionedOn: "shared",
+      });
+
+      // PREMISE (own inputs): both roles really are on ONE element and it is
+      // the only target. Without the aliasing this is an ordinary re-target and
+      // pins nothing a per-role reconcile gets wrong.
+      premiseHolds(
+        "one element holds both roles and is the sole target",
+        state.targets.has(shared) && !state.targets.has(other) && state.targets.size === 1,
+      );
+
+      view.rerender(<AliasHarness reapplyKey="k" clipOn="other" positionedOn="shared" />);
+      fireEvent(window, new Event("resize"));
+      flushFrames();
+
+      // A per-role reconcile issues unobserve(shared) for the CLIP role, and
+      // `shared` is the element the POSITIONED role still wants.
+      expect(state.targets.has(shared), "the shared element was unobserved").toBe(true);
+      expect(state.targets.has(other), "the new clip ancestor is not observed").toBe(true);
+
+      // ...and still DELIVERING, which is what a target set is for.
+      const before = applyCount;
+      expect(resize(shared), "the shared element's resize was not deliverable").toBe(true);
+      flushFrames();
+      expect(applyCount - before, "a deliverable resize did not re-measure").toBe(1);
+    });
+  });
+
+  test("(h28) (A,A) to (A,B): the positioned role leaves an element the clip role still holds", () => {
+    const { state, resize } = installTargetTrackingObserver();
+    withMarkedOffsetParent(() => {
+      const { view, shared, other } = mountAlias({
+        reapplyKey: "k",
+        clipOn: "shared",
+        positionedOn: "shared",
+      });
+      premiseHolds(
+        "one element holds both roles and is the sole target",
+        state.targets.has(shared) && !state.targets.has(other) && state.targets.size === 1,
+      );
+
+      view.rerender(<AliasHarness reapplyKey="k" clipOn="shared" positionedOn="other" />);
+      fireEvent(window, new Event("resize"));
+      flushFrames();
+
+      expect(state.targets.has(shared), "the shared element was unobserved").toBe(true);
+      expect(state.targets.has(other), "the new positioned ancestor is not observed").toBe(true);
+      expect(resize(shared), "the shared element's resize was not deliverable").toBe(true);
+    });
+  });
+
+  test("(h29) (A,B) to (B,A): the roles swap and the target set does not", () => {
+    const { state, resize } = installTargetTrackingObserver();
+    withMarkedOffsetParent(() => {
+      const { view, shared, other } = mountAlias({
+        reapplyKey: "k",
+        clipOn: "other",
+        positionedOn: "shared",
+      });
+      premiseHolds(
+        "the two roles start on DIFFERENT elements, both observed",
+        state.targets.has(other) && state.targets.has(shared),
+      );
+      const o0 = state.observeLog.length;
+      const u0 = state.unobserveLog.length;
+
+      view.rerender(<AliasHarness reapplyKey="k" clipOn="shared" positionedOn="other" />);
+      fireEvent(window, new Event("resize"));
+      flushFrames();
+
+      // The desired set is unchanged, so the difference is empty. A sequential
+      // per-role reconcile ends holding ONE target whichever order it runs in.
+      expect(state.observeLog.length - o0, "a swap that changes no target re-observed").toBe(0);
+      expect(state.unobserveLog.length - u0, "a swap that changes no target unobserved").toBe(0);
+      expect(resize(other), "`other` stopped being deliverable across the swap").toBe(true);
+      expect(resize(shared), "`shared` stopped being deliverable across the swap").toBe(true);
+    });
+  });
+
+  test("(h30) (A,B) to (A,A): the roles collapse, and nothing already held is re-observed", () => {
+    const { state, resize } = installTargetTrackingObserver();
+    withMarkedOffsetParent(() => {
+      const { view, shared, other } = mountAlias({
+        reapplyKey: "k",
+        clipOn: "other",
+        positionedOn: "shared",
+      });
+      premiseHolds(
+        "the two roles start on DIFFERENT elements, both observed",
+        state.targets.has(other) && state.targets.has(shared),
+      );
+      const o0 = state.observeLog.length;
+      const u0 = state.unobserveLog.length;
+
+      // Both roles land on `other`, so `shared` is wanted by neither.
+      view.rerender(<AliasHarness reapplyKey="k" clipOn="other" positionedOn="other" />);
+      fireEvent(window, new Event("resize"));
+      flushFrames();
+
+      // The OBSERVE LOG carries this case's whole discriminating power. The
+      // defective sequence is unobserve(shared) then observe(other), which
+      // leaves the right SET and re-observes a live target: invisible to
+      // deliverability, and invisible to any apply count, because a redundant
+      // observe delivers nothing in this stub.
+      expect(state.observeLog.length - o0, "an already-held target was re-observed").toBe(0);
+      expect(state.unobserveLog.slice(u0), "the wrong element was unobserved").toEqual(["shared"]);
+      expect(resize(other), "the surviving target stopped being deliverable").toBe(true);
+      expect(state.targets.has(shared), "an unwanted target survived").toBe(false);
+    });
+  });
+
+  test("(h31) (A,B) to (B,B): the mirrored collapse, onto the other element", () => {
+    const { state, resize } = installTargetTrackingObserver();
+    withMarkedOffsetParent(() => {
+      const { view, shared, other } = mountAlias({
+        reapplyKey: "k",
+        clipOn: "other",
+        positionedOn: "shared",
+      });
+      premiseHolds(
+        "the two roles start on DIFFERENT elements, both observed",
+        state.targets.has(other) && state.targets.has(shared),
+      );
+      const o0 = state.observeLog.length;
+      const u0 = state.unobserveLog.length;
+
+      view.rerender(<AliasHarness reapplyKey="k" clipOn="shared" positionedOn="shared" />);
+      fireEvent(window, new Event("resize"));
+      flushFrames();
+
+      expect(state.observeLog.length - o0, "an already-held target was re-observed").toBe(0);
+      expect(state.unobserveLog.slice(u0), "the wrong element was unobserved").toEqual(["other"]);
+      expect(resize(shared), "the surviving target stopped being deliverable").toBe(true);
+      expect(state.targets.has(other), "an unwanted target survived").toBe(false);
     });
   });
 });
