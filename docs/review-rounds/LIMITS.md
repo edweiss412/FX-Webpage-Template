@@ -223,3 +223,13 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 **Owning record:** none — this index is the record
 
 **Re-file trigger:** named by a 3rd distinct arc
+
+## LIM-INDEX-RESTATEMENT-DRIFT
+
+**Shape:** Advisory index or pointer prose restating a cited artifact (an implementation file, a filing, a note) and misstating it: an overstated coverage claim, a miscounted line count, two source instances fused into one. The convention that owns this index declines any index-vs-artifact comparison lint by design, so the class is repaired by narrowing claims and citing rather than restating.
+
+**Named by:** 1 arc — docs/lim-slug-convention/4cb585b3508a.md (diff)
+
+**Owning record:** the no-gate fence in the README's parked-class-slugs paragraph, plus this index
+
+**Re-file trigger:** named by a 3rd distinct arc
