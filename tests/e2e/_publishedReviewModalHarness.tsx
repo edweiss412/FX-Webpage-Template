@@ -126,7 +126,7 @@ function snapshot(): ShowReviewSnapshot {
       event_details: { theme: "Annual Summit", notes: "Formal evening program." },
       agenda_links: [],
       coi_status: "received",
-      diagrams: null,
+      diagrams: harnessDiagrams(),
       pull_sheet: [],
       source_anchors: {},
       drive_file_id: MODAL_DFID,
@@ -416,7 +416,56 @@ export function modalElement(
 }
 
 /** The open modal rendered to static markup (fixed overlay — no page shell). */
-export function renderModalHtml(
+export /**
+ * The published diagrams manifest, carrying the FULL ingest ladder.
+ *
+ * The `sizes` oracle lives in this harness and nowhere else, because it is the
+ * only real-browser surface with a variant ladder: the STAGED harness's loader
+ * is width-independent by construction, so every srcset descriptor there maps to
+ * one URL and `img.currentSrc` names no tier at all.
+ *
+ * The ladder is the ingest stage's own `DIAGRAM_VARIANT_WIDTHS`, not a reduced
+ * copy. A two-tier fixture has no 512-to-1024 transition, which silently deletes
+ * six points from the derived boundary set and makes the over-declaration mutant
+ * unable to fire — measured, which is why the spec asserts the count against the
+ * constant rather than trusting this comment.
+ */
+const HARNESS_DIAGRAM = {
+  showId: "77777777-7777-4777-8777-777777777777",
+  rev: "cccccccc-dddd-4eee-8fff-000000000000",
+  assetKey: "embedded-harness-plot.png",
+  widths: [256, 512, 1024] as const,
+};
+
+function harnessDiagrams() {
+  return {
+    current: {
+      snapshot_revision_id: HARNESS_DIAGRAM.rev,
+      snapshot_status: "complete" as const,
+      linkedFolder: null,
+      embeddedImages: [
+        {
+          sheetTab: "DIAGRAMS",
+          objectId: "harness-plot",
+          mimeType: "image/png",
+          alt: "Harness stage plot",
+          sheetsRevisionId: "harness-sr-1",
+          embeddedFingerprint: "harness-fp-1",
+          recovery_disposition: "normal" as const,
+          snapshotPath: `diagram-snapshots/shows/${HARNESS_DIAGRAM.showId}/${HARNESS_DIAGRAM.rev}/${HARNESS_DIAGRAM.assetKey}`,
+          variants: HARNESS_DIAGRAM.widths.map((w) => ({
+            width: w,
+            key: `${HARNESS_DIAGRAM.assetKey}@${w}.webp`,
+          })),
+        },
+      ],
+      linkedFolderItems: [],
+    },
+    pending: null,
+  };
+}
+
+function renderModalHtml(
   alertCount: number = HARNESS_ALERT_COUNT,
   state: HarnessStateOverrides = {},
 ): string {
@@ -435,6 +484,7 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
     outPath,
     JSON.stringify({
       dfid: MODAL_DFID,
+      diagram: HARNESS_DIAGRAM,
       normal: renderModalHtml(),
       // §6.6 cap page — same tree, an over-cap alert count (T-ALERT-CAP).
       capped: renderModalHtml(HARNESS_CAPPED_ALERT_COUNT),

@@ -59,6 +59,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
 import sharp from "sharp";
+import { imageConfigDefault } from "next/dist/shared/lib/image-config";
+import { DIAGRAM_VARIANT_WIDTHS } from "@/lib/sync/diagramVariants";
+import { diagramTileWidthAt } from "@/components/admin/wizard/step3ReviewSections";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
 import {
   scanForPhantomGaps,
@@ -99,6 +102,8 @@ const MODES = [
 ] as const;
 
 let server: Server;
+const diagramBytes = new Map<string, Buffer>();
+let diagramConst: { showId: string; rev: string; assetKey: string; widths: readonly number[] };
 let baseUrl: string;
 let workDir: string;
 
@@ -127,6 +132,7 @@ test.beforeAll(async () => {
   );
   const pages = JSON.parse(readFileSync(pagesJson, "utf8")) as {
     dfid: string;
+    diagram: { showId: string; rev: string; assetKey: string; widths: readonly number[] };
     normal: string;
     capped: string;
     notLive: string;
@@ -136,6 +142,15 @@ test.beforeAll(async () => {
     saturatedTitle: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
+  diagramConst = pages.diagram;
+  // The fixture must carry the FULL ingest ladder. A reduced one deletes tier
+  // transitions from the derived boundary set below, silently shrinking the
+  // cover rather than failing — asserted against the ingest constant, never a
+  // literal, so widening the ladder widens this too.
+  expect(
+    [...diagramConst.widths],
+    "harness ladder IS the ingest ladder (a reduced fixture cannot exhibit every tier transition)",
+  ).toEqual([...DIAGRAM_VARIANT_WIDTHS]);
 
   writeFileSync(join(workDir, "harness.html"), pageHtml("out.css", pages.normal));
   // §6.6 cap page: the same tree with an over-cap alert count (T-ALERT-CAP).
@@ -173,8 +188,43 @@ test.beforeAll(async () => {
   );
   compileEntryCss({ entryCss: entryCss, outFile: join(workDir, "out.css") });
 
+  // Real bytes for the diagram original and for EVERY variant key, each at its
+  // OWN intrinsic width. The widths matter: the oracle reads `img.currentSrc`,
+  // which is the candidate the browser actually chose, and a browser handed
+  // identically-sized images for every descriptor is not making the choice this
+  // test claims to observe.
+  for (const w of [...diagramConst.widths, 0]) {
+    const px = w === 0 ? 2048 : w;
+    const key = w === 0 ? diagramConst.assetKey : `${diagramConst.assetKey}@${w}.webp`;
+    diagramBytes.set(
+      key,
+      await sharp({
+        create: {
+          width: px,
+          height: Math.round((px * 3) / 4),
+          channels: 3,
+          background: { r: 230, g: 232, b: 240 },
+        },
+      })
+        .png()
+        .toBuffer(),
+    );
+  }
+
   server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0] ?? "/";
+    if (url.startsWith("/api/asset/diagram/")) {
+      const key = decodeURIComponent(url.split("/").pop() ?? "");
+      const bytes = diagramBytes.get(key);
+      if (!bytes) {
+        res.statusCode = 404;
+        res.end("unknown diagram key");
+        return;
+      }
+      res.setHeader("content-type", "image/png");
+      res.end(bytes);
+      return;
+    }
     const file = url === "/" || url === "" ? "harness.html" : url.replace(/^\//, "");
     try {
       const bodyBuf = readFileSync(join(workDir, file));
@@ -1846,5 +1896,139 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
         ).toEqual([]);
       });
     }
+  }
+});
+
+// ── BL-ADMIN-DIAGRAM-NEXT-IMAGE: the `sizes` oracle ─────────────────────────
+//
+// This is the ONLY real-browser surface with a variant ladder, which is why the
+// oracle lives here rather than in the staged step-3 harness: a width-independent
+// loader maps every srcset descriptor to one URL, so `img.currentSrc` there names
+// no tier and the assertion would be vacuous.
+//
+// Nothing below re-implements the selection. The BROWSER picks a candidate from
+// the declared `sizes` string, and the test reads which one it picked. The only
+// arithmetic here is the ladder tier a MEASURED width warrants, which is what the
+// declared string is being judged against.
+const ALL_CANDIDATE_WIDTHS = [
+  ...imageConfigDefault.imageSizes,
+  ...imageConfigDefault.deviceSizes,
+].sort((a, b) => a - b);
+
+/** The tier a request of `needPx` device pixels must land on: the smallest
+ *  next/image candidate that covers it, clamped up to a ladder tier. */
+function tierFor(needPx: number): number {
+  const candidate = ALL_CANDIDATE_WIDTHS.find((w) => w >= needPx) ?? ALL_CANDIDATE_WIDTHS.at(-1)!;
+  return (
+    [...DIAGRAM_VARIANT_WIDTHS].find((w) => w >= candidate) ?? [...DIAGRAM_VARIANT_WIDTHS].at(-1)!
+  );
+}
+
+/**
+ * Every viewport at which the tier CHANGES, plus the pixel before each — the
+ * two-sidedness is the point. A one-sided set samples the transition and not its
+ * predecessor, so a boundary that fires one pixel early passes unseen; probed,
+ * nudging the >=640px slot by +0.25px moves exactly the two viewports only a
+ * predecessor sample can catch.
+ *
+ * DERIVED from the shipped model and the shipped ladder, never pasted, so a
+ * layout change moves the cover with it.
+ */
+function boundaryViewports(dpr: number): number[] {
+  const points: number[] = [];
+  let prev: number | null = null;
+  for (let vw = 320; vw <= 1600; vw += 1) {
+    const tier = tierFor(diagramTileWidthAt(vw) * dpr);
+    if (tier !== prev) {
+      if (vw > 320) points.push(vw - 1);
+      points.push(vw);
+      prev = tier;
+    }
+  }
+  return points;
+}
+
+test.describe("diagram tile sizes oracle (published manifest, real ladder)", () => {
+  // DPR is a browser-context option, so each one costs its own context. 1 and 2
+  // get the whole derived set; 3 gets only its sub-640 points, because DPR 3 on a
+  // desktop admin surface is the phone-width case. DOCUMENTED LIMIT: the DPR-3
+  // points at and above 640 are not covered.
+  for (const dpr of [1, 2, 3]) {
+    test(`declared sizes selects the tier the measured width warrants @ dpr ${dpr}`, async ({
+      browser,
+    }) => {
+      const all = boundaryViewports(dpr);
+      const viewports = dpr === 3 ? all.filter((vw) => vw < 640) : all;
+
+      // The cover must be non-empty, or the loop below proves nothing.
+      expect(viewports.length, `derived boundary set is non-empty @ dpr ${dpr}`).toBeGreaterThan(0);
+      // Two-sidedness is the point WHERE A TRANSITION EXISTS. At DPR 1 the tile
+      // never exceeds 256 device pixels anywhere in 320-1600, so the tier is
+      // constant and there is no boundary to sample either side of — asserted
+      // rather than assumed, so a layout change that introduces one is caught by
+      // the pair requirement instead of silently skipping it.
+      const hasTransition = viewports.some((vw) => viewports.includes(vw + 1));
+      if (hasTransition) {
+        expect(
+          hasTransition,
+          `derived set contains a predecessor/transition PAIR @ dpr ${dpr}`,
+        ).toBe(true);
+      } else {
+        const tiers = new Set(viewports.map((vw) => tierFor(diagramTileWidthAt(vw) * dpr)));
+        expect(
+          [...tiers],
+          `no tier transition exists @ dpr ${dpr}, so the tier must be constant across the range`,
+        ).toHaveLength(1);
+      }
+
+      const context = await browser.newContext({ deviceScaleFactor: dpr });
+      const page = await context.newPage();
+      try {
+        for (const vw of viewports) {
+          await openHarness(page, { width: vw, height: 900 });
+          const tile = page
+            .locator(`[data-testid^="wizard-step3-card-${HARNESS_DFID}-diagram-tile-"]`)
+            .first();
+          // next/image is lazy by default, so an off-screen tile has selected
+          // nothing and `currentSrc` is "". Scroll it in and wait for the decode
+          // to finish: the browser's CHOICE is what this test reads, and an
+          // unloaded image has not made one.
+          await tile.scrollIntoViewIfNeeded();
+          await expect
+            .poll(
+              async () => await tile.evaluate((el) => el.querySelector("img")?.complete ?? false),
+              { message: `tile image finished loading @ ${vw}px dpr ${dpr}` },
+            )
+            .toBe(true);
+          const observed = await tile.evaluate((el) => {
+            const img = el.querySelector("img");
+            if (!img) return null;
+            return { width: el.getBoundingClientRect().width, currentSrc: img.currentSrc };
+          });
+
+          expect(
+            observed,
+            `the published tile mounted an image @ ${vw}px dpr ${dpr}`,
+          ).not.toBeNull();
+          const { width: measured, currentSrc } = observed!;
+
+          // 1. The shipped model describes the real layout. If this drifts, the
+          //    `sizes` string is being judged against the wrong number.
+          expect(
+            Math.abs(measured - diagramTileWidthAt(vw)),
+            `measured tile ${measured} === diagramTileWidthAt(${vw}) ${diagramTileWidthAt(vw)}`,
+          ).toBeLessThanOrEqual(0.5);
+
+          // 2. The browser's OWN choice names the tier that width warrants.
+          const wanted = tierFor(measured * dpr);
+          expect(
+            currentSrc,
+            `browser chose the ${wanted}px tier @ ${vw}px dpr ${dpr} (measured ${measured})`,
+          ).toContain(`@${wanted}.webp`);
+        }
+      } finally {
+        await context.close();
+      }
+    });
   }
 });

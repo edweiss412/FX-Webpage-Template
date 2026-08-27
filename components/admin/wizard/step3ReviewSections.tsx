@@ -89,6 +89,7 @@ import {
   resolveCurrentDiagrams,
 } from "@/lib/data/diagrams";
 import Image, { type ImageLoader } from "next/image";
+import { diagramAssetUrl, makeDiagramLoader } from "@/lib/images/diagramLoader";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
@@ -4122,6 +4123,30 @@ export function RoomsDiagramsSubBlock({ data }: { data: SectionData }): React.Re
  * NO staged-diagram route → zero `/api/admin/onboarding/*` traffic. Owns its
  * own §6.4 "Diagrams" sub-heading chrome so it reads as part of Rooms & scope.
  */
+/**
+ * The identity of the bytes a published tile can serve: its asset key plus the
+ * manifest ladder that selects within it. The tile reconciles its failure state
+ * on this string, so a ladder arriving at a show's next snapshot must move it —
+ * the asset key alone would not, and a failed tile would then never recover the
+ * variants it could now serve.
+ *
+ * `variants` is untrusted persisted JSONB and reaches this function raw, so it
+ * NEVER throws: a non-array degrades to the key alone, and a malformed row is
+ * stringified rather than dereferenced. This is an IDENTITY, not an accept-set —
+ * `makeDiagramLoader` owns which rows are servable (lib/images/diagramLoader.ts).
+ * Over-including a rejected row only means reconciliation fires on a change that
+ * selects nothing new, which is harmless; throwing at a render boundary is not.
+ */
+function variantIdentity(assetKey: string, variants: unknown): string {
+  if (!Array.isArray(variants)) return assetKey;
+  const rows = variants.map((row) => {
+    if (typeof row !== "object" || row === null) return String(row);
+    const { width, key } = row as { width?: unknown; key?: unknown };
+    return `${String(width)}:${String(key)}`;
+  });
+  return [assetKey, ...rows].join("|");
+}
+
 export function PublishedDiagramsBreakdown({
   showId,
   driveFileId,
@@ -4134,8 +4159,12 @@ export function PublishedDiagramsBreakdown({
   const persisted = resolveCurrentDiagrams(diagrams);
   if (!hasDiagramSignal(persisted)) return null;
   // `snapshot_revision_id` is required on PersistedDiagrams; "" only if a
-  // malformed persisted row slipped the resolver gate — the asset route 410s it.
+  // malformed persisted row slipped the resolver gate. The tile no longer asks
+  // for such a row's bytes — see `previewSourceFor` below.
   const rev = persisted?.snapshot_revision_id ?? "";
+  /** The asset key, derived ONCE so the href and the loader cannot disagree. */
+  const keyOf = (stub: EmbeddedImageStub) =>
+    diagramAssetKeyFromPath((stub as PersistedEmbeddedImage).snapshotPath, stub.objectId);
   return (
     <Step3SectionChromeContext.Provider
       value={{ Icon: Images, label: "Diagrams", flagged: false, headingLevel: 4 }}
@@ -4143,13 +4172,30 @@ export function PublishedDiagramsBreakdown({
       <DiagramsBreakdown
         dfid={driveFileId}
         diagrams={persisted}
-        buildSrc={(stub) =>
-          `/api/asset/diagram/${showId}/${rev}/${diagramAssetKeyFromPath(
-            (stub as PersistedEmbeddedImage).snapshotPath,
-            stub.objectId,
-          )}`
+        buildSrc={(stub) => diagramAssetUrl(showId, rev, keyOf(stub))}
+        buildLoader={(stub) =>
+          makeDiagramLoader({
+            showId,
+            rev,
+            key: keyOf(stub),
+            variants: (stub as PersistedEmbeddedImage).variants,
+          })
+        }
+        // The bytes this tile can serve, as ONE string: the asset key plus the
+        // ladder that selects within it. The tile reconciles its failure state
+        // on this, so a ladder arriving at the show's next snapshot has to move
+        // it — the asset key alone would not, and a failed tile would then never
+        // recover the variants it could now serve.
+        buildSourceKey={(stub) =>
+          variantIdentity(keyOf(stub), (stub as PersistedEmbeddedImage).variants)
         }
         previewSourceFor={(stub) =>
+          // `rev` is required on PersistedDiagrams and is "" only for a malformed
+          // row that slipped the resolver gate. Such a row has no fetchable bytes
+          // at ANY width, and building a URL for it yields a doubled slash — a
+          // malformed src, which this surface's contract forbids outright. So the
+          // tile takes the placeholder branch instead of asking.
+          rev !== "" &&
           (stub as PersistedEmbeddedImage).snapshotPath !== null &&
           isAllowedDiagramMime(stub.mimeType)
         }
