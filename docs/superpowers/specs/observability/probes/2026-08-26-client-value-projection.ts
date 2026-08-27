@@ -83,7 +83,7 @@ const R2: Pair[] = [
   ["boolean/string", false, "false"],
   ["null/string", null, "null"],
   ["undefined/string", undefined, "undefined"],
-  ["bigint/number", 1n, 1],
+  ["bigint/number", BigInt(1), 1],
   ["NaN/string", NaN, "NaN"],
   ["symbol/string", Symbol("x"), "Symbol(x)"],
   ["Date/string", new Date(0), new Date(0).toString()],
@@ -122,7 +122,7 @@ for (const [round, pairs] of [["R1", R1], ["R2", R2], ["R3", R3], ["R4", R4]] as
   }
 }
 console.log(`\n── guard-condition table (spec §6.3) ${"─".repeat(24)}`);
-for (const v of [{ code: "PGRST301", message: "planted" }, {}, [1, 2], "x", "", 0, false, NaN, 1n,
+for (const v of [{ code: "PGRST301", message: "planted" }, {}, [1, 2], "x", "", 0, false, NaN, BigInt(1),
                  null, undefined, Symbol("x"), new Map(), new Set(), new Date(0)]) {
   const d = describeClientValue(v);
   console.log(`  ${String(tag(v)).padEnd(9)} message=${JSON.stringify(d.message).padEnd(24)} detail=${JSON.stringify(d.detail)}`);
