@@ -94,7 +94,7 @@ describe("readShowReviewSnapshot", () => {
     expect(result).toEqual({ kind: "not_admin_or_missing" });
   });
 
-  test("returned error → infra_error (never ok), logged with a source and NO code", async () => {
+  test("returned error → infra_error (never ok), logged with a source AND a forensic code", async () => {
     logError.mockClear();
     const { client } = clientReturning({
       data: null,
@@ -122,13 +122,28 @@ describe("readShowReviewSnapshot", () => {
     // holds a RETAINED site-local extraction choice (spec
     // docs/superpowers/specs/observability/2026-08-16-serialize-error-structure-design.md §1.1.6):
     // it asserts `fields.error` BEFORE serialization, so it is untouched either way.
-    expect(fields.error).toBe("permission denied");
+    // `error` is now the raw object, not error.message. serializeError captures
+    // its own code/details/hint (lib/log/logger.ts), which is strictly more than
+    // the extracted string kept — and the flat pgrst* fields stay as the stable
+    // named slots this site chose, now redundant rather than load-bearing.
+    expect(fields.error).toMatchObject({
+      message: "permission denied",
+      code: "42501",
+      details: "fixture details",
+      hint: "fixture hint",
+    });
     expect(fields.pgrstCode).toBe("42501");
     expect(fields.pgrstDetails).toBe("fixture details");
     expect(fields.pgrstHint).toBe("fixture hint");
-    // Zero-new-codes constraint: this read path does not stamp a §12.4 code
-    // (the SQLSTATE rides under pgrstCode, never the telemetry `code` slot).
-    expect(fields).not.toHaveProperty("code");
+    // The zero-new-codes constraint this used to pin rested on a premise that is
+    // false: it read `code` as the §12.4 telemetry slot, so stamping one here
+    // would owe a catalog row. It does not.
+    // lib/messages/__internal__/stripLogEmissionCalls.ts strips `log.*` spans
+    // BEFORE the §12.4 producer scan, so a code literal inside one never reaches
+    // x1/x2 — verified by running both against this arc's 82 new forensic codes,
+    // which pass. Meanwhile `observe events --code` filters on exactly this field,
+    // so leaving it unstamped made this fault findable only by source.
+    expect(fields.code).toBe("SHOW_REVIEW_SNAPSHOT_READ_RETURNED_ERROR");
   });
 
   test("truthy data alongside a returned error still yields infra_error (error checked first, no bare-data destructure)", async () => {
@@ -139,7 +154,7 @@ describe("readShowReviewSnapshot", () => {
     expect(result.kind).toBe("infra_error");
   });
 
-  test("rpc throws (auth-token expiry / network reset) → infra_error, logged", async () => {
+  test("rpc throws (auth-token expiry / network reset) → infra_error, logged with its own code", async () => {
     logError.mockClear();
     const { client } = clientThrowing(new Error("network reset mid-await"));
     const result = await readShowReviewSnapshot(client, SHOW_ID);
@@ -151,6 +166,9 @@ describe("readShowReviewSnapshot", () => {
     if (!call) throw new Error("expected a log.error call");
     const fields = call[1] as Record<string, unknown>;
     expect(fields.source).toBe("admin.showReview.snapshot");
-    expect(fields).not.toHaveProperty("code");
+    // Same reasoning as the returned-error branch above: a forensic code inside a
+    // log.* span is not a §12.4 producer, and it is what `observe events --code`
+    // filters on.
+    expect(fields.code).toBe("SHOW_REVIEW_SNAPSHOT_READ_THREW");
   });
 });

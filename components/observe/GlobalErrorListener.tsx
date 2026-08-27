@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 
 import { clientLog } from "@/lib/observe/clientLog";
+import { describeClientValue } from "@/lib/observe/describeClientValue";
+import { scrubShareTokens } from "@/lib/observe/clientErrorTransport";
 
 const DETAIL_CAP = 300;
 
@@ -25,7 +27,26 @@ export function GlobalErrorListener(): null {
     registered = true;
 
     const onError = (event: ErrorEvent): void => {
-      const detail = `${event.filename ?? ""}:${event.lineno ?? ""}`.slice(0, DETAIL_CAP);
+      // event.error is where the DOM puts the thrown value, and this handler never
+      // read it: a plain object thrown at the window lost its fields entirely —
+      // not collapsed to "[object Object]" like the other two wire paths, simply
+      // absent. An Error keeps today's exact bytes, because its own message is
+      // already the clientLog message below.
+      const where = `${event.filename ?? ""}:${event.lineno ?? ""}`;
+      const from =
+        event.error == null || event.error instanceof Error
+          ? ""
+          : describeClientValue(event.error).detail;
+      // The thrown value goes FIRST. Both parts share one 300-char budget, and a
+      // filename can consume all of it on its own — a `data:` or `blob:` URL, or a
+      // webpack `eval` sourceURL, is routinely longer than the cap. With file:line
+      // leading, exactly the new information this handler exists to capture is what
+      // the slice drops. Leading with the value means the truncation costs the
+      // cheaper half.
+      // SCRUBBED BEFORE THE CAP. filename is a URL and on a crew page it carries
+      // the share token; slicing first would cut the token into a fragment the
+      // transport's exact-literal pass can no longer match (diff review R3 P0).
+      const detail = scrubShareTokens(from ? `${from} ${where}` : where).slice(0, DETAIL_CAP);
       clientLog(
         "error",
         "client.root",
@@ -38,10 +59,24 @@ export function GlobalErrorListener(): null {
 
     const onRejection = (event: PromiseRejectionEvent): void => {
       const reason = event.reason;
-      const detail = String(reason instanceof Error ? reason.message : (reason ?? "")).slice(
-        0,
-        DETAIL_CAP,
-      );
+      // An Error reason keeps `reason.message`. null and undefined keep the empty
+      // string the `?? ""` produced — routing them through the projection would
+      // send "null" and "undefined", which reads worse in app_events and changes
+      // behaviour this arc's row does not ask about (spec §9 limit 9). Everything
+      // else goes through the projection, which is what stops a plain object
+      // persisting as "[object Object]".
+      //
+      // The message stays the fixed "unhandled promise rejection", so `detail` in
+      // the dedup signature is the ONLY thing separating two rejections. That is
+      // why lib/observe/clientErrorTransport.ts had to change too.
+      // Scrubbed before the cap, same reason as the window handler above.
+      const detail = scrubShareTokens(
+        reason instanceof Error
+          ? reason.message
+          : reason == null
+            ? ""
+            : describeClientValue(reason).detail,
+      ).slice(0, DETAIL_CAP);
       clientLog(
         "error",
         "client.root",

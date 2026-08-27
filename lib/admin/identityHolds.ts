@@ -73,6 +73,11 @@ export async function loadOpenIdentityHolds(deps?: {
     try {
       supabase = createSupabaseServiceRoleClient();
     } catch (err) {
+      void log.error("identity-holds client construction failed", {
+        source: "admin.loadOpenIdentityHolds",
+        code: "IDENTITY_HOLDS_CLIENT_THREW",
+        error: err,
+      });
       return {
         kind: "infra_error",
         message: `service-role client construction failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -92,10 +97,20 @@ export async function loadOpenIdentityHolds(deps?: {
       .order("id", { ascending: true })
       .limit(HOLDS_ROW_CAP + 1);
     if (error) {
+      void log.error("sync_holds read returned error", {
+        source: "admin.loadOpenIdentityHolds",
+        code: "IDENTITY_HOLDS_READ_RETURNED_ERROR",
+        error,
+      });
       return { kind: "infra_error", message: `sync_holds query failed: ${error.message}` };
     }
     rows = (data ?? []) as RawHoldRow[];
   } catch (err) {
+    void log.error("sync_holds read threw", {
+      source: "admin.loadOpenIdentityHolds",
+      code: "IDENTITY_HOLDS_READ_THREW",
+      error: err,
+    });
     return {
       kind: "infra_error",
       message: `sync_holds query threw: ${err instanceof Error ? err.message : String(err)}`,
@@ -112,6 +127,11 @@ export async function loadOpenIdentityHolds(deps?: {
   try {
     return { kind: "ok", groups: groupHoldRows(normalizeHoldRows(rows)) };
   } catch (err) {
+    void log.error("sync_holds shaping threw", {
+      source: "admin.loadOpenIdentityHolds",
+      code: "IDENTITY_HOLDS_SHAPING_THREW",
+      error: err,
+    });
     return {
       kind: "infra_error",
       message: `sync_holds shaping threw: ${err instanceof Error ? err.message : String(err)}`,

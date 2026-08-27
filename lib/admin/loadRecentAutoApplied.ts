@@ -172,6 +172,18 @@ export async function loadRecentAutoApplied(deps: {
       .order("occurred_at", { ascending: false })
       .limit(STRIP_RENDER_CAP);
     if (error) {
+      // The last dark arm of this loader's two-by-two. #882 repaired the other
+      // three; this one is a .from() table read, and its title scoped that PR to
+      // the RPC boundary. The observer installed by #899 records a 5xx here at
+      // debug, which never persists (lib/log/logger.ts:29) — and a sub-500
+      // returned error (42501, 42P01, a schema-cache miss) is below its threshold
+      // entirely. This emit is the persisted record for the first and the ONLY
+      // record for the second.
+      void log.error("show_change_log read returned error", {
+        source: "admin.recentAutoApplied",
+        code: "SHOW_CHANGE_LOG_READ_RETURNED_ERROR",
+        error,
+      });
       return { kind: "infra_error", message: `show_change_log read failed: ${error.message}` };
     }
     rawRows = (data ?? []) as RawRow[];
@@ -244,7 +256,11 @@ export async function loadRecentAutoApplied(deps: {
       void log.error("roster_shift_counts rpc failed", {
         source: "admin.recentAutoApplied",
         code: "ROSTER_SHIFT_COUNTS_READ_RETURNED_ERROR",
-        error: error.message,
+        // `error`, not `error.message`: buildRecord runs serializeError on this
+        // field (lib/log/logger.ts:38), which captures a PostgREST returned-error's
+        // own code/details/hint. Those three tell 42501 from 42P01 from a
+        // schema-cache miss, and flattening to the message discards all of them.
+        error,
       });
       return { kind: "infra_error", message: `roster_shift_counts rpc failed: ${error.message}` };
     }

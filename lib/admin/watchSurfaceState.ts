@@ -8,6 +8,7 @@
 // "line hidden" at their render boundary, deliberately: a failed bookkeeping
 // read must never break the feed or the panel.
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 
 export type WatchSurfaceState = {
   nextAttemptAt: string | null;
@@ -31,7 +32,14 @@ export async function readWatchSurfaceState(
       .select("next_attempt_at, consecutive_failures, last_attempt_outcome")
       .eq("watched_folder_id", folderId)
       .maybeSingle();
-    if (error) return { kind: "infra_error" };
+    if (error) {
+      void log.error("drive_watch_reconcile_state read returned error", {
+        source: "admin.watchSurfaceState",
+        code: "WATCH_SURFACE_STATE_READ_RETURNED_ERROR",
+        error,
+      });
+      return { kind: "infra_error" };
+    }
     if (!data) return null;
     const row = data as StateRow;
     return {
@@ -39,7 +47,12 @@ export async function readWatchSurfaceState(
       consecutiveFailures: row.consecutive_failures,
       lastAttemptOutcome: row.last_attempt_outcome,
     };
-  } catch {
+  } catch (err) {
+    void log.error("drive_watch_reconcile_state read threw", {
+      source: "admin.watchSurfaceState",
+      code: "WATCH_SURFACE_STATE_READ_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 }
