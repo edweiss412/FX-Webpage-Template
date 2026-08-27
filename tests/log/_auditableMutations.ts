@@ -598,59 +598,36 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
 // cron file-loop skip persists via the cataloged CONCURRENT_SYNC_SKIPPED; the
 // DASHBOARD Apply skip (finding #12) now carries its own forensic
 // STAGED_APPLY_CONCURRENT_SKIPPED (info-with-code, inside a log.* span; NOT cataloged).
-export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
-  ...SANCTIONED_CODES,
-  // sync-cron surface (2026-07-03): audit findings #12/#16 — dashboard-apply
-  // lock-contention durable skip + agenda successful-refresh trace persistence
-  // (download/extracted info emits now info-WITH-code so the refresh persists).
-  "STAGED_APPLY_CONCURRENT_SKIPPED",
-  "AGENDA_PDF_DOWNLOADED",
-  "AGENDA_EXTRACTED",
-  "AGENDA_EXTRACT_STALE",
-  "AGENDA_EXTRACT_SESSION_GONE",
-  // Carve-out (2026-07-02) plain-log forensic codes (inside log.* spans; NOT cataloged).
-  // AGENDA_SCHEDULE_LOW_CONFIDENCE is deliberately EXCLUDED — it is a REUSED §12.4
-  // catalog code, so it is (correctly) a producer and must not be leak-checked here.
-  "AGENDA_GETFILE_GONE",
-  "AGENDA_GETFILE_FAULT",
-  "AGENDA_TOO_MANY_PAGES",
-  "AGENDA_PDFJS_THREW",
-  "AGENDA_SCHEDULE_HIGH_CONFIDENCE",
-  "HOTELS_PARSE_WARNING",
-  "ADMIN_ACCESS_DENIED",
-  // Completion (2026-07-02) plain-log + client forensic codes (inside log.*/clientLog spans
-  // or components/ (unscanned) or runtime variables; NOT cataloged). The 4 SHOW_* lifecycle
-  // codes are admin-outcome (already in SANCTIONED above via spread).
-  "REALTIME_UNKNOWN_SYSTEM_EVENT",
-  "CLIENT_WINDOW_ERROR",
-  "CLIENT_UNHANDLED_REJECTION",
-  "OAUTH_CLAIM_RPC_FAILED",
-  "OAUTH_CLAIM_STAMP_FAILED",
-  "AGENDA_EXTRACT_REGION_FAILED",
-  "AGENDA_EXTRACT_PREEXTRACT_FAILED",
-  "DRIVE_WEBHOOK_RECEIVED",
-  "DRIVE_WEBHOOK_HEADERS_INCOMPLETE",
-  "DRIVE_WEBHOOK_CHANNEL_INACTIVE",
-  "DRIVE_WEBHOOK_INFRA_FAULT",
-  "DRIVE_WATCH_RENEWAL_FAILED",
-  "DRIVE_WATCH_INFRA_FAULT",
-  // lib/admin infra-emit sweep (fix/observe-error-telemetry, 2026-08-26): every
-  // code-carrying emit that guards an `infra_error` return in lib/admin/**.
-  // NOT a hand-kept list — tests/admin/_metaInfraEmitCover.test.ts derives the
-  // set from the scanner and fails on any code here that it does not see, and on
-  // any code it sees that is not here. Forensic-only: a `code:` literal inside a
-  // log.* span is stripped before the §12.4 producer scan
-  // (lib/messages/__internal__/stripLogEmissionCalls.ts:4-11), so none of these is
-  // a catalog row and Assertion 4 pins that they never become one.
-  "ALERT_SUMMARY_READ_RETURNED_ERROR",
+/**
+ * Every code-carrying emit that guards an `infra_error` return in `lib/admin/**`
+ * (fix/observe-error-telemetry, 2026-08-26).
+ *
+ * NOT a hand-kept list, and the check runs BOTH WAYS.
+ * `tests/admin/_metaInfraEmitCover.test.ts` derives the cover's emitted codes from
+ * its own AST walk and asserts SET EQUALITY against this array: a code emitted in
+ * the cover and missing here fails, and a code here that no emit in the cover
+ * stamps fails too. The reverse arm is the one that was claimed and absent until
+ * diff review R3 — without it, deleting an emit outright left this row behind as a
+ * registration for something that no longer exists.
+ *
+ * Forensic-only: a `code:` literal inside a log.* span is stripped before the
+ * §12.4 producer scan (lib/messages/__internal__/stripLogEmissionCalls.ts:4-11), so
+ * none of these is a catalog row, and Assertion 4 pins that they never become one.
+ */
+export const LIB_ADMIN_INFRA_CODES: readonly string[] = [
   "ALERT_SUMMARY_MALFORMED_ROW",
+  "ALERT_SUMMARY_READ_RETURNED_ERROR",
   "ALERT_SUMMARY_READ_THREW",
+  "APP_EVENTS_READ_RETURNED_ERROR",
+  "APP_EVENTS_READ_THREW",
   "BELL_FEED_BOUNDS_READ_RETURNED_ERROR",
   "BELL_FEED_BOUNDS_READ_THREW",
   "BELL_FEED_CLIENT_THREW",
   "BELL_FEED_ROWS_READ_RETURNED_ERROR",
   "BELL_FEED_ROWS_READ_THREW",
   "BELL_FEED_SHAPING_THREW",
+  "CRON_HEALTH_APP_EVENTS_READ_RETURNED_ERROR",
+  "CRON_HEALTH_APP_EVENTS_READ_THREW",
   "DRIVE_HEALTH_ACTIVE_COUNT_NOT_NUMBER",
   "DRIVE_HEALTH_ACTIVE_COUNT_RETURNED_ERROR",
   "DRIVE_HEALTH_ACTIVE_COUNT_THREW",
@@ -721,149 +698,129 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   "SYNC_PROBLEM_COUNT_THREW",
   "SYNC_PROBLEM_READ_RETURNED_ERROR",
   "SYNC_PROBLEM_READ_THREW",
-  "TELEMETRY_STATS_READ_RETURNED_ERROR",
   "TELEMETRY_STATS_MALFORMED_ROW",
+  "TELEMETRY_STATS_READ_RETURNED_ERROR",
   "TELEMETRY_STATS_READ_THREW",
   "WATCH_SURFACE_STATE_READ_RETURNED_ERROR",
   "WATCH_SURFACE_STATE_READ_THREW",
-  // supabase upstream-retry surface (2026-08-25): the wrapper's per-retry record. Forensic-only —
-  // it is not a §12.4 catalog row because nothing user-visible reads it; it exists so an absorbed
-  // transient fault leaves a durable trace instead of vanishing, which is the whole point of
-  // absorbing it. Registered here because the plan requires it and because omission is otherwise
-  // invisible: the producer scan would simply never see the code.
-  "SUPABASE_UPSTREAM_RETRY",
-  // Drive-webhook telemetry completeness (2026-07-03): findings #17/#18/#19/#6 —
-  // token-invalid per-event forensic warn on the security-relevant 401 ingress,
-  // channel activation + stop-failure lifecycle events, and the stale-pending
-  // sweep downgraded warn→info-with-code (inside log.* spans; NOT cataloged).
-  "DRIVE_WEBHOOK_TOKEN_INVALID",
-  "DRIVE_WATCH_ACTIVATED",
-  "DRIVE_WATCH_STOP_FAILED",
-  "DRIVE_WATCH_STALE_PENDING_SWEPT",
-  "MANUAL_RESYNC_CLEARED_STANDING_IGNORE",
-  // Observability PR-2 (2026-07-03) forensic infra codes (inside log.* spans; NOT cataloged).
-  "UNPUBLISH_INFRA_FAILED",
+];
+
+export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
+  ...SANCTIONED_CODES,
+  // sync-cron surface (2026-07-03): audit findings #12/#16 — dashboard-apply
+  // lock-contention durable skip + agenda successful-refresh trace persistence
+  // (download/extracted info emits now info-WITH-code so the refresh persists).
+  "STAGED_APPLY_CONCURRENT_SKIPPED",
+  "AGENDA_PDF_DOWNLOADED",
+  "AGENDA_EXTRACTED",
+  "AGENDA_EXTRACT_STALE",
+  "AGENDA_EXTRACT_SESSION_GONE",
+  // Carve-out (2026-07-02) plain-log forensic codes (inside log.* spans; NOT cataloged).
+  // AGENDA_SCHEDULE_LOW_CONFIDENCE is deliberately EXCLUDED — it is a REUSED §12.4
+  // catalog code, so it is (correctly) a producer and must not be leak-checked here.
+  "AGENDA_GETFILE_GONE",
+  "AGENDA_GETFILE_FAULT",
+  "AGENDA_TOO_MANY_PAGES",
+  "AGENDA_PDFJS_THREW",
+  "AGENDA_SCHEDULE_HIGH_CONFIDENCE",
+  "HOTELS_PARSE_WARNING",
+  "ADMIN_ACCESS_DENIED",
+  // Completion (2026-07-02) plain-log + client forensic codes (inside log.*/clientLog spans
+  // or components/ (unscanned) or runtime variables; NOT cataloged). The 4 SHOW_* lifecycle
+  // codes are admin-outcome (already in SANCTIONED above via spread).
+  "REALTIME_UNKNOWN_SYSTEM_EVENT",
+  "CLIENT_WINDOW_ERROR",
+  "CLIENT_UNHANDLED_REJECTION",
+  "OAUTH_CLAIM_RPC_FAILED",
+  "OAUTH_CLAIM_STAMP_FAILED",
+  "AGENDA_EXTRACT_REGION_FAILED",
+  "AGENDA_EXTRACT_PREEXTRACT_FAILED",
+  "DRIVE_WEBHOOK_RECEIVED",
+  "DRIVE_WEBHOOK_HEADERS_INCOMPLETE",
+  "DRIVE_WEBHOOK_CHANNEL_INACTIVE",
+  "DRIVE_WEBHOOK_INFRA_FAULT",
+  "DRIVE_WATCH_RENEWAL_FAILED",
+  "DRIVE_WATCH_INFRA_FAULT",
+  ...LIB_ADMIN_INFRA_CODES,
   "ADMIN_ALERT_RESOLVE_FAILED",
-  "PENDING_INGESTION_DISCARD_FAILED",
-  "PENDING_INGESTION_ACTION_FAILED",
-  "RESCAN_INFRA_ERROR",
-  "FINALIZE_CLEANUP_FAILED",
-  "STAGE_DISCARD_FAILED",
-  // S4 — OAuth callback session-exchange leg (all log.error/info, strip-exempt).
-  "OAUTH_CLIENT_CONSTRUCTION_FAILED",
-  "OAUTH_EXCHANGE_THREW",
-  "OAUTH_EXCHANGE_REJECTED",
-  "OAUTH_IS_ADMIN_INFRA_ERROR",
-  "OAUTH_SIGN_IN_SUCCEEDED",
-  // S5/S6/S8 — agenda enrichment + extraction forensic codes (inside log.* spans).
+  "ADMIN_RESOLVE_CANONICAL_EMAIL_NULL",
+  "ADMIN_SHOW_CHANGE_FEED_READ_FAILED",
+  "ADMIN_SHOW_CLIENT_CONSTRUCTION_FAILED",
+  "ADMIN_SHOW_CREW_ROSTER_OVERFLOW",
+  "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED",
+  "ADMIN_SHOW_LOOKUP_FAILED",
+  "ADMIN_SHOW_LOOKUP_THREW",
+  "ADMIN_SHOW_TOKEN_READ_FAILED",
+  "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
   "AGENDA_ENRICH_THREW",
   "AGENDA_EXTRACT_TIMEOUT",
   "AGENDA_LINK_UNRESOLVED",
-  // S7 — eight auth-boundary null-code stamps (pure code-stamps + one new silent-500 emission).
-  "REALTIME_JWT_SECRET_TOO_SHORT",
-  "REALTIME_TOKEN_SHOW_LOOKUP_FAILED",
-  "OAUTH_GETUSER_FAILED",
-  "OAUTH_CLAIM_ALERT_FAILED",
-  "PICKER_BOOTSTRAP_RESOLVE_ALERT_FAILED",
-  "PICKER_BOOTSTRAP_CLAIM_ALERT_FAILED",
-  "AUTH_SIGNOUT_FAILED",
-  "SYNC_SLUG_LOOKUP_FAILED",
-  "LIVE_STAGED_APPLY_LOOKUP_FAILED",
-  // BL-NULLCODE-STAMP-BATCH-2 (2026-07-03) — 35 forensic infra codes stamped on
-  // previously null-code log.error/log.warn sites (inside log.* spans; NOT cataloged).
-  "CLIENT_ERROR_MIRROR_RATE_CAPPED",
-  "IGNORED_SHEET_UNIGNORE_FAILED",
-  "LIVE_STAGED_DISCARD_CLIENT_CONSTRUCTION_FAILED",
-  "LIVE_STAGED_DISCARD_GETUSER_THREW",
-  "LIVE_STAGED_DISCARD_GETUSER_FAILED",
-  "REAP_STALE_SESSIONS_INFRA_FAILED",
-  "LIVE_STAGED_APPLY_FAILED",
-  "LIVE_STAGED_APPLY_SNAPSHOT_PROMOTION_FAILED",
-  "WIZARD_IGNORE_SUPERSEDED_ALERT_WRITE_FAILED",
-  "FINALIZE_CAS_UNEXPECTED_FAILURE",
-  "FINALIZE_CAS_STREAM_UNEXPECTED_FAILURE",
-  "FINALIZE_UNEXPECTED_FAILURE",
-  "WIZARD_STAGED_APPLY_SUPERSEDED_ALERT_WRITE_FAILED",
-  "WIZARD_STAGED_APPLY_FAILED",
-  "WIZARD_STAGED_APPROVE_FAILED",
-  "WIZARD_STAGED_UNAPPROVE_FAILED",
-  "WIZARD_STAGED_DISCARD_SUPERSEDED_ALERT_WRITE_FAILED",
-  "WIZARD_STAGED_DISCARD_FAILED",
-  // ONBOARDING_SCAN_FAILED graduated OUT of this set (BL-SCAN-SSE-BODY-NULL-CODE):
-  // it is now a cataloged §12.4 code whose scan-route SSE result body is a
-  // legitimate producer. The forensic log.error stamp remains and is still
-  // pinned by NULLCODE_BATCH2_STAMPS in _metaAdminOutcomeContract.test.ts.
-  "PENDING_INGESTION_RETRY_SUPERSEDED_ALERT_WRITE_FAILED",
-  "ADMIN_RESOLVE_CANONICAL_EMAIL_NULL",
-  "ADMIN_SHOW_CLIENT_CONSTRUCTION_FAILED",
-  "ADMIN_SHOW_LOOKUP_FAILED",
-  "ADMIN_SHOW_LOOKUP_THREW",
-  "ADMIN_SHOW_CHANGE_FEED_READ_FAILED",
-  "ADMIN_SHOW_CREW_ROSTER_OVERFLOW",
-  // Realtime-refresh (2026-07-19): loader viewer_version_token read fault —
-  // fail-open (render without bridge), log-only (inside log.* span; NOT cataloged).
-  "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
-  // Task 13 retired ADMIN_SHOW_CREW_LOOKUP_FAILED/THREW +
-  // ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_FAILED/THREW — those direct reads
-  // moved into the snapshot RPC (readShowReviewSnapshot logs its own faults).
-  "CREW_PROJECTION_ALERT_UPSERT_FAILED",
-  "CREW_PROJECTION_ALERT_RESOLVE_FAILED",
-  "APP_EVENTS_READ_RETURNED_ERROR",
-  "APP_EVENTS_READ_THREW",
-  "CRON_HEALTH_APP_EVENTS_READ_RETURNED_ERROR",
-  "CRON_HEALTH_APP_EVENTS_READ_THREW",
-  // P1 dark-path telemetry (2026-07-03) — forensic infra/denial codes on previously
-  // unlogged fault + credential-denial paths (inside log.* spans; NOT cataloged).
-  "PENDING_INGESTION_RETRY_FAILED",
-  "SNAPSHOT_ROLLBACK_REPAIR_FAILED",
-  "REALTIME_TOKEN_DENIED",
-  "REALTIME_TOKEN_INFRA_ERROR",
-  // Asset correlation (2026-07-03) — audit finding #8: the DEBUGGABLE-410
-  // breadcrumb emitted (fail-open, inside a log.info span; NOT cataloged) by the
-  // reel/diagram/agenda asset proxy routes so a crew-reported broken asset leaves
-  // a server trace of which show/asset/why.
-  "ASSET_UNAVAILABLE",
-  // Correlation/coverage tail (2026-07-03) — low/info correlation + genuinely-silent
-  // branches given forensic codes (all inside log.* spans; NOT cataloged).
-  // ADMIN_ALERT_RESOLVE_FAILED is REUSED (already registered above) by the
-  // resolveAdminAlertFormAction throws; not re-listed.
-  "WATCH_RETRY_NO_FOLDER_SKIPPED",
-  // Per-show admin page (page.tsx) two silent catch blocks → fail-open warns.
-  "ADMIN_SHOW_TOKEN_READ_FAILED",
-  "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED",
-  // Finalize + finalize-cas non-convergent 409 precondition refusals → ONE code
-  // with a `result` discriminator (ONBOARDING_NOT_RESOLVED / ONBOARDING_LEGACY_ROW_AMBIGUOUS).
-  "FINALIZE_PRECONDITION_REFUSED",
-  // Wizard staged-approve dirty-rescan refusal (returns 200 + cataloged code, was unlogged).
-  "STAGE_APPROVE_RESCAN_REQUIRED",
-  // OAuth callback: exchange succeeded but getUser resolved no email → silent no-op → anomaly warn.
-  "OAUTH_NO_EMAIL_RESOLVED",
-  // Live pending-ingestion retry: the two inner route-level Drive-fetch catches that
-  // return 502 (distinct from the PR-1 outer PENDING_INGESTION_RETRY_FAILED throw guard).
-  "PENDING_INGESTION_RETRY_DRIVE_FETCH_FAILED",
-  // Cleanup tail (2026-07-03) — final logging-audit stragglers (all inside log.* spans;
-  // NOT cataloged). S1: live-staged discard bare-requireAdmin AdminInfraError → typed 500
-  // forensic breadcrumb. S3: report-submission 201-created success breadcrumb (crew/user
-  // submit — NOT an admin mutation, so a plain log.info not logAdminOutcome). S4:
-  // ambiguous-email terminal (alert-SUCCEEDED path) durable warn — DISTINCT from the §12.4
-  // user-facing AMBIGUOUS_EMAIL_BINDING catalog code (kept as the return value).
-  "LIVE_STAGED_DISCARD_AUTH_INFRA",
-  "CREW_REPORT_SUBMITTED",
   "AMBIGUOUS_EMAIL_BINDING_DETECTED",
-  // Crew-picker observability (2026-07-05) — non-admin crew coded log.info emits at the
-  // picker mutation boundaries (BL-CREW-PICKER-OBSERVABILITY; inside log.* spans, NOT
-  // cataloged, NOT logAdminOutcome — the actor is an anonymous crew member on an emailed link).
-  "PICKER_IDENTITY_SELECTED",
-  // BL-PICKER-TAMPER-ADMIN-ALERT (PR5): emitted when the tamper-branch admin
-  // alert upsert itself fails; log-only inside a log.error span, never cataloged.
+  "ASSET_UNAVAILABLE",
+  "AUTH_SIGNOUT_FAILED",
+  "CLIENT_ERROR_MIRROR_RATE_CAPPED",
+  "CREW_PROJECTION_ALERT_RESOLVE_FAILED",
+  "CREW_PROJECTION_ALERT_UPSERT_FAILED",
+  "CREW_REPORT_SUBMITTED",
+  "DRIVE_WATCH_ACTIVATED",
+  "DRIVE_WATCH_STALE_PENDING_SWEPT",
+  "DRIVE_WATCH_STOP_FAILED",
+  "DRIVE_WEBHOOK_TOKEN_INVALID",
+  "FINALIZE_CAS_STREAM_UNEXPECTED_FAILURE",
+  "FINALIZE_CAS_UNEXPECTED_FAILURE",
+  "FINALIZE_CLEANUP_FAILED",
+  "FINALIZE_PRECONDITION_REFUSED",
+  "FINALIZE_UNEXPECTED_FAILURE",
+  "IGNORED_SHEET_UNIGNORE_FAILED",
+  "LIVE_STAGED_APPLY_FAILED",
+  "LIVE_STAGED_APPLY_LOOKUP_FAILED",
+  "LIVE_STAGED_APPLY_SNAPSHOT_PROMOTION_FAILED",
+  "LIVE_STAGED_DISCARD_AUTH_INFRA",
+  "LIVE_STAGED_DISCARD_CLIENT_CONSTRUCTION_FAILED",
+  "LIVE_STAGED_DISCARD_GETUSER_FAILED",
+  "LIVE_STAGED_DISCARD_GETUSER_THREW",
+  "MANUAL_RESYNC_CLEARED_STANDING_IGNORE",
+  "OAUTH_CLAIM_ALERT_FAILED",
+  "OAUTH_CLIENT_CONSTRUCTION_FAILED",
+  "OAUTH_EXCHANGE_REJECTED",
+  "OAUTH_EXCHANGE_THREW",
+  "OAUTH_GETUSER_FAILED",
+  "OAUTH_IS_ADMIN_INFRA_ERROR",
+  "OAUTH_NO_EMAIL_RESOLVED",
+  "OAUTH_SIGN_IN_SUCCEEDED",
+  "PENDING_INGESTION_ACTION_FAILED",
+  "PENDING_INGESTION_DISCARD_FAILED",
+  "PENDING_INGESTION_RETRY_DRIVE_FETCH_FAILED",
+  "PENDING_INGESTION_RETRY_FAILED",
+  "PENDING_INGESTION_RETRY_SUPERSEDED_ALERT_WRITE_FAILED",
   "PICKER_ALERT_FAILED",
+  "PICKER_BOOTSTRAP_CLAIM_ALERT_FAILED",
+  "PICKER_BOOTSTRAP_RESOLVE_ALERT_FAILED",
   "PICKER_IDENTITY_CLEARED",
+  "PICKER_IDENTITY_SELECTED",
   "PICKER_STALE_ENTRY_CLEANED",
-  // Pull-sheet override route (spec §5.4, Task 8) — forensic infra/fault codes emitted
-  // inside log.error spans (NOT logAdminOutcome, NOT cataloged): a post-commit re-scan
-  // failure, and an RPC returned/thrown non-40001 error.
   "PULL_SHEET_OVERRIDE_RESCAN_FAILED",
   "PULL_SHEET_OVERRIDE_RPC_FAILED",
+  "REALTIME_JWT_SECRET_TOO_SHORT",
+  "REALTIME_TOKEN_DENIED",
+  "REALTIME_TOKEN_INFRA_ERROR",
+  "REALTIME_TOKEN_SHOW_LOOKUP_FAILED",
+  "REAP_STALE_SESSIONS_INFRA_FAILED",
+  "RESCAN_INFRA_ERROR",
+  "SNAPSHOT_ROLLBACK_REPAIR_FAILED",
+  "STAGE_APPROVE_RESCAN_REQUIRED",
+  "STAGE_DISCARD_FAILED",
+  "SUPABASE_UPSTREAM_RETRY",
+  "SYNC_SLUG_LOOKUP_FAILED",
+  "UNPUBLISH_INFRA_FAILED",
+  "WATCH_RETRY_NO_FOLDER_SKIPPED",
+  "WIZARD_IGNORE_SUPERSEDED_ALERT_WRITE_FAILED",
+  "WIZARD_STAGED_APPLY_FAILED",
+  "WIZARD_STAGED_APPLY_SUPERSEDED_ALERT_WRITE_FAILED",
+  "WIZARD_STAGED_APPROVE_FAILED",
+  "WIZARD_STAGED_DISCARD_FAILED",
+  "WIZARD_STAGED_DISCARD_SUPERSEDED_ALERT_WRITE_FAILED",
+  "WIZARD_STAGED_UNAPPROVE_FAILED",
 ]);
 
 // Codes stamped by BL-NULLCODE-STAMP-BATCH-2 that have since GRADUATED into the

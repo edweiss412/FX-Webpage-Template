@@ -39,7 +39,9 @@ export interface Resolver {
    * the two propagation sites it exists to exempt (plan R2 F3). Returns null when
    * the symbol does not resolve at all.
    */
-  calleeOrigin(callee: ts.Identifier): { inCover: boolean; origin: "imported" | "local" } | null;
+  calleeOrigin(
+    callee: ts.Identifier,
+  ): { inCover: boolean; origin: "imported" | "local"; emits: boolean } | null;
   /**
    * Is every constituent of this expression's type an object type (or `unknown`)?
    * POSITIVE, not "is it not one of these scalars": a denylist accepts `any` and the
@@ -56,7 +58,9 @@ export interface Resolver {
    * propagation form makes, without the `kind` test in front of it. Sound only
    * because the sweep is total.
    */
-  callProducedInCover(expr: ts.Expression): { origin: "imported" | "local" } | null;
+  callProducedInCover(
+    expr: ts.Expression,
+  ): { origin: "imported" | "local"; producesInfra: boolean; emits: boolean } | null;
 }
 
 export type Reason =
@@ -68,6 +72,7 @@ export type Reason =
   | "emit-in-nested-function"
   | "propagation-else-arm"
   | "propagation-callee-outside-cover"
+  | "propagation-callee-does-not-emit"
   | "unclassifiable-construction";
 
 export type Verdict =
@@ -96,7 +101,7 @@ export interface Site {
   text: string;
 }
 
-const strip = (e: ts.Expression): ts.Expression => {
+export const strip = (e: ts.Expression): ts.Expression => {
   while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) {
     e = e.expression;
   }
@@ -310,9 +315,19 @@ export function classify(ret: ts.ReturnStatement, sf: ts.SourceFile, r: Resolver
       // would let `if (error || typeof count !== "number")` skip the emit check
       // it already satisfies.
       if (origin !== null) {
-        return origin.inCover
+        if (!origin.inCover) {
+          return { kind: "reported", reason: "propagation-callee-outside-cover" };
+        }
+        // The exemption's whole premise is that the CALLEE recorded the fault. An
+        // earlier version asserted that premise in a comment and never checked it,
+        // so deleting a helper's emit left the cover green — and
+        // lib/admin/watchSurfaceState.ts returns an unlogged `null` for "no row"
+        // perfectly legitimately, which a caller could translate into an
+        // infra_error and be exempted for. The callee must actually contain a
+        // code-carrying emit.
+        return origin.emits
           ? { kind: "exempt-propagation", origin: origin.origin }
-          : { kind: "reported", reason: "propagation-callee-outside-cover" };
+          : { kind: "reported", reason: "propagation-callee-does-not-emit" };
       }
     }
   }
@@ -333,18 +348,35 @@ export function scanSourceFile(sf: ts.SourceFile, r: Resolver): Site[] {
       if (shape) {
         out.push({ line, shape, verdict: classify(n, sf, r), text });
       } else if (r.typeMentionsInfra(n.expression)) {
-        // A call-produced value is the CALLEE's responsibility, guarded or not.
-        // lib/admin/driveConnectionHealth.ts has eleven `return warn(...)` sites
-        // whose helper is declared to return the whole union and constructs only
-        // the warn arm; reporting them would be the type-mention over-collection
-        // the spec named at §3.2, and allow-listing them would be a case list.
+        // A call whose DECLARED type mentions the infra arm. The type is the
+        // reason we look; it is not the reason to report. Which of these is a
+        // site is settled by what the callee actually CONSTRUCTS, and the two
+        // wrong answers on this branch are both cheap to fall into:
+        //
+        //   - Report every one. lib/admin/driveConnectionHealth.ts returns
+        //     `warn(...)` eleven times; the helper is declared over the whole
+        //     union and constructs only the warn arm, so all eleven are the
+        //     type-mention over-collection the spec named at §3.2.
+        //   - Exempt every one, which is what this branch did until diff review
+        //     R3. "The callee records it" was asserted in a comment and never
+        //     checked, so deleting a helper's emit left the cover green.
+        //
+        // Resolving the callee's own body answers both without a case list.
         const produced = r.callProducedInCover(n.expression);
+        if (produced !== null && !produced.producesInfra) {
+          // The callee cannot return the arm we are looking for. Not a site.
+          ts.forEachChild(n, visit);
+          return;
+        }
         out.push({
           line,
           shape: "unclassified",
-          verdict: produced
-            ? { kind: "exempt-propagation", origin: produced.origin }
-            : { kind: "reported", reason: "unclassifiable-construction" },
+          verdict:
+            produced === null
+              ? { kind: "reported", reason: "unclassifiable-construction" }
+              : produced.emits
+                ? { kind: "exempt-propagation", origin: produced.origin }
+                : { kind: "reported", reason: "propagation-callee-does-not-emit" },
           text,
         });
       }

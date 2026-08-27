@@ -19,7 +19,7 @@ import { scanSourceFile, type Resolver, type Site } from "./infraEmitScan";
 function stub(over: Partial<Resolver> = {}): Resolver {
   return {
     isConstAlias: (id) => id.text === "FAIL" || id.text === "INFRA_ERROR",
-    calleeOrigin: () => ({ inCover: true, origin: "imported" }),
+    calleeOrigin: () => ({ inCover: true, origin: "imported", emits: true }),
     isObjectPayload: (expr) => {
       // The stub stands in for the type checker: anything spelled like a flattening
       // is a scalar. The REAL predicate is a positive object-type test; its fidelity
@@ -144,7 +144,7 @@ describe("infraEmitScan — reported cases", () => {
     expect(
       reason(
         only(`function f(){ if (sub.kind === "infra_error") { ${RET} } }`, {
-          calleeOrigin: () => ({ inCover: false, origin: "imported" }),
+          calleeOrigin: () => ({ inCover: false, origin: "imported", emits: false }),
         }),
       ),
     ).toBe("propagation-callee-outside-cover");
@@ -181,7 +181,7 @@ describe("infraEmitScan — reported cases", () => {
     expect(
       reason(
         only(`function f(){ if (count > 5) { ${RET} } }`, {
-          calleeOrigin: () => ({ inCover: true, origin: "local" }),
+          calleeOrigin: () => ({ inCover: true, origin: "local", emits: true }),
         }),
       ),
     ).toBe("no-emit");
@@ -191,7 +191,7 @@ describe("infraEmitScan — reported cases", () => {
     expect(
       reason(
         only(`function f(){ if (rows.length === 0) { ${RET} } }`, {
-          calleeOrigin: () => ({ inCover: true, origin: "local" }),
+          calleeOrigin: () => ({ inCover: true, origin: "local", emits: true }),
         }),
       ),
     ).toBe("no-emit");
@@ -201,7 +201,7 @@ describe("infraEmitScan — reported cases", () => {
     expect(
       reason(
         only(`function f(){ if (sub.kind === "not_found") { ${RET} } }`, {
-          calleeOrigin: () => ({ inCover: true, origin: "local" }),
+          calleeOrigin: () => ({ inCover: true, origin: "local", emits: true }),
         }),
       ),
     ).toBe("no-emit");
@@ -229,14 +229,14 @@ describe("infraEmitScan — satisfied and exempt cases", () => {
 
   test("a propagation guard, consequent, callee IMPORTED from inside the cover", () => {
     const s = only(`function f(){ if (sub.kind === "infra_error") { ${RET} } }`, {
-      calleeOrigin: () => ({ inCover: true, origin: "imported" }),
+      calleeOrigin: () => ({ inCover: true, origin: "imported", emits: true }),
     });
     expect(s.verdict).toEqual({ kind: "exempt-propagation", origin: "imported" });
   });
 
   test("an `=== undefined` guard is propagation too — the other nullish sentinel", () => {
     const s = only(`function f(){ if (row === undefined) { ${RET} } }`, {
-      calleeOrigin: () => ({ inCover: true, origin: "local" }),
+      calleeOrigin: () => ({ inCover: true, origin: "local", emits: true }),
     });
     expect(s.verdict).toEqual({ kind: "exempt-propagation", origin: "local" });
   });
@@ -247,9 +247,22 @@ describe("infraEmitScan — satisfied and exempt cases", () => {
     // app_events rows for one fault, which is what the exemption prevents. The
     // helper is where the fault arrives and where it is recorded.
     const s = only(`function f(){ if (count === null) { ${RET} } }`, {
-      calleeOrigin: () => ({ inCover: true, origin: "local" }),
+      calleeOrigin: () => ({ inCover: true, origin: "local", emits: true }),
     });
     expect(s.verdict).toEqual({ kind: "exempt-propagation", origin: "local" });
+  });
+
+  test("a null guard is REPORTED when the cover callee it names does not emit", () => {
+    // Not every unlogged null is a swallowed fault. lib/admin/watchSurfaceState.ts
+    // returns null for "no row", which is an ANSWER, not an infrastructure
+    // failure — nothing was swallowed there and nothing was recorded. A caller
+    // that turns that sentinel into an infra_error is the first place the fault
+    // exists, so it owes the emit and cannot inherit an exemption from a helper
+    // that never made one.
+    const s = only(`function f(){ if (row === null) { ${RET} } }`, {
+      calleeOrigin: () => ({ inCover: true, origin: "local", emits: false }),
+    });
+    expect(reason(s)).toBe("propagation-callee-does-not-emit");
   });
 
   test("a guard the resolver cannot trace falls through to the emit check", () => {
@@ -275,7 +288,7 @@ describe("infraEmitScan — satisfied and exempt cases", () => {
     // runBellPipeline (lib/admin/bellFeed.ts:191) is the live witness. An
     // imported-only rule reports this and its "repair" is a duplicate emit.
     const s = only(`function f(){ if (sub.kind === "infra_error") { ${RET} } }`, {
-      calleeOrigin: () => ({ inCover: true, origin: "local" }),
+      calleeOrigin: () => ({ inCover: true, origin: "local", emits: true }),
     });
     expect(s.verdict).toEqual({ kind: "exempt-propagation", origin: "local" });
   });
@@ -305,9 +318,34 @@ describe("infraEmitScan — the population accept-set", () => {
     // the type-mention over-collection; allow-listing them would be a case list.
     const s = only(`function f(){ return warn(a, b); }`, {
       typeMentionsInfra: () => true,
-      callProducedInCover: () => ({ origin: "local" }),
+      callProducedInCover: () => ({ origin: "local", producesInfra: true, emits: true }),
     });
     expect(s.verdict).toEqual({ kind: "exempt-propagation", origin: "local" });
+  });
+
+  test("a call-produced value is REPORTED when the callee in the cover does not itself emit", () => {
+    // The exemption's premise is that the callee recorded the fault. Where it did
+    // not, exempting the caller means nobody records it. lib/admin/watchSurfaceState.ts
+    // returns an unlogged `null` for "no row" quite legitimately; a caller that
+    // translates that sentinel into an infra_error must not inherit an exemption
+    // from it.
+    const s = only(`function f(){ return quiet(); }`, {
+      typeMentionsInfra: () => true,
+      callProducedInCover: () => ({ origin: "local", producesInfra: true, emits: false }),
+    });
+    expect(reason(s)).toBe("propagation-callee-does-not-emit");
+  });
+
+  test("a call to a cover helper that never constructs the arm is NOT a site", () => {
+    // driveConnectionHealth's eleven `return warn(...)` returns. The helper is
+    // declared over the whole union and builds only the warn arm, so the type
+    // mention that made us look is the only thing infra about it.
+    expect(
+      scan(`function f(){ return warn(a, b); }`, {
+        typeMentionsInfra: () => true,
+        callProducedInCover: () => ({ origin: "local", producesInfra: false, emits: false }),
+      }),
+    ).toHaveLength(0);
   });
 
   test("a call-produced value whose callee is OUTSIDE the cover is still reported", () => {

@@ -19,12 +19,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { premise, premiseHolds } from "../_shared/premise";
-import { isInfraLiteral, scanSourceFile, type Resolver, type Site } from "./infraEmitScan";
-import { NEW_FORENSIC_CODES } from "../log/_auditableMutations";
+import { isInfraLiteral, scanSourceFile, strip, type Resolver, type Site } from "./infraEmitScan";
+import { LIB_ADMIN_INFRA_CODES, NEW_FORENSIC_CODES } from "../log/_auditableMutations";
 // The registry is DATA, in its own module: importing a `.test.ts` runs that
 // suite's describes inside this one. Reading the same rows rather than
 // duplicating a list is what makes the completeness check below derived.
@@ -117,17 +117,82 @@ function tsconfigOptions(): ts.CompilerOptions {
   return { ...parsed.options, noEmit: true };
 }
 
+/**
+ * Does this declaration's body contain a code-carrying emit?
+ *
+ * This is what makes the propagation exemption's premise CHECKED rather than
+ * asserted: exempting a caller because "the callee records it" is only sound if
+ * the callee does. Deleting a helper's emit must red the cover, and before this
+ * it did not.
+ */
+/**
+ * Does this declaration ever construct the infra arm?
+ *
+ * A helper declared over the whole union is not thereby a producer of every arm
+ * in it — `warn` in driveConnectionHealth.ts builds the warn arm and nothing
+ * else. Reading the body instead of the signature is what keeps the type-mention
+ * sweep from collecting eleven health-status returns as infrastructure faults.
+ */
+function declarationConstructsInfra(decl: ts.Declaration | undefined): boolean {
+  if (!decl) return false;
+  const sf = decl.getSourceFile();
+  const local = new Set<string>();
+  sf.forEachChild((n) => {
+    if (!ts.isVariableStatement(n)) return;
+    for (const d of n.declarationList.declarations) {
+      if (ts.isIdentifier(d.name) && d.initializer && isInfraLiteral(strip(d.initializer))) {
+        local.add(d.name.text);
+      }
+    }
+  });
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isReturnStatement(n) && n.expression) {
+      const e = strip(n.expression);
+      if (isInfraLiteral(e) || (ts.isIdentifier(e) && local.has(e.text))) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(decl);
+  return found;
+}
+
+function declarationEmits(decl: ts.Declaration | undefined): boolean {
+  if (!decl) return false;
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isCallExpression(n) && /^log\.(error|warn|info)$/.test(n.expression.getText())) {
+      for (const a of n.arguments) {
+        if (!ts.isObjectLiteralExpression(a)) continue;
+        if (
+          a.properties.some(
+            (pr) =>
+              (ts.isPropertyAssignment(pr) || ts.isShorthandPropertyAssignment(pr)) &&
+              ts.isIdentifier(pr.name) &&
+              pr.name.text === "code",
+          )
+        ) {
+          found = true;
+          return;
+        }
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(decl);
+  return found;
+}
+
 export function makeResolver(checker: ts.TypeChecker): Resolver {
   const declOf = (id: ts.Identifier): ts.Declaration | undefined => {
     const sym = checker.getSymbolAtLocation(id);
     const s = sym && sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
     return s?.valueDeclaration ?? s?.declarations?.[0];
-  };
-  const strip = (e: ts.Expression): ts.Expression => {
-    while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) {
-      e = e.expression;
-    }
-    return e;
   };
   const mentionsInfra = (t: ts.Type): boolean => {
     for (const p of t.isUnion() ? t.types : [t]) {
@@ -172,7 +237,11 @@ export function makeResolver(checker: ts.TypeChecker): Resolver {
       const cd = declOf(callee);
       const file = cd?.getSourceFile().fileName;
       if (!file) return null;
-      return { inCover: file.startsWith(COVER + "/"), origin: wasImported ? "imported" : "local" };
+      return {
+        inCover: file.startsWith(COVER + "/"),
+        origin: wasImported ? "imported" : "local",
+        emits: declarationEmits(cd),
+      };
     },
     isObjectPayload(expr) {
       const t = checker.getTypeAtLocation(expr);
@@ -200,8 +269,13 @@ export function makeResolver(checker: ts.TypeChecker): Resolver {
       const sym = checker.getSymbolAtLocation(callee);
       const wasImported = !!sym && (sym.flags & ts.SymbolFlags.Alias) !== 0;
       const file = declOf(callee)?.getSourceFile().fileName;
+      const cd2 = declOf(callee);
       if (!file || !file.startsWith(COVER + "/")) return null;
-      return { origin: wasImported ? "imported" : "local" };
+      return {
+        origin: wasImported ? "imported" : "local",
+        producesInfra: declarationConstructsInfra(cd2),
+        emits: declarationEmits(cd2),
+      };
     },
   };
 }
@@ -374,5 +448,52 @@ describe("lib/admin infra-emit cover", () => {
       "unregistered codes",
     ).toEqual([]);
     premise("the walk saw codes to check", seen.size, 0);
+  });
+
+  it("every registered lib/admin code is stamped by an emit that still exists", () => {
+    // The REVERSE arm. The forward check above only catches a code the scanner
+    // sees and the registry lacks; the registry's own comment claimed both
+    // directions and only one was written, so deleting an emit outright left its
+    // row behind, registering something no longer in the tree.
+    //
+    // Derived from a second walk, deliberately WIDER than `seen`: `seen` holds
+    // only codes at satisfied construction sites, while a helper that swallows a
+    // fault and returns null emits under a propagation exemption and appears at
+    // no site at all. Scoping the reverse arm to `seen` would have demanded the
+    // deletion of every such helper's row. This walk collects every code-carrying
+    // emit in the cover, which is the set the registry actually claims to hold.
+    const emitted = new Set<string>();
+    for (const rel of scanned) {
+      const sf = program.getSourceFile(join(ROOT, rel));
+      if (!sf) continue;
+      const visit = (n: ts.Node): void => {
+        if (ts.isCallExpression(n) && /^log\.(error|warn|info)$/.test(n.expression.getText(sf))) {
+          for (const a of n.arguments) {
+            if (!ts.isObjectLiteralExpression(a)) continue;
+            for (const pr of a.properties) {
+              if (
+                ts.isPropertyAssignment(pr) &&
+                ts.isIdentifier(pr.name) &&
+                pr.name.text === "code" &&
+                ts.isStringLiteral(pr.initializer)
+              ) {
+                emitted.add(pr.initializer.text);
+              }
+            }
+          }
+        }
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
+    }
+    premise("the reverse walk found emits", emitted.size, 0);
+    expect(
+      LIB_ADMIN_INFRA_CODES.filter((c) => !emitted.has(c)).sort(),
+      "registered codes no emit in lib/admin stamps",
+    ).toEqual([]);
+    expect(
+      [...emitted].filter((c) => !LIB_ADMIN_INFRA_CODES.includes(c)).sort(),
+      "lib/admin emits missing from the registry",
+    ).toEqual([]);
   });
 });
