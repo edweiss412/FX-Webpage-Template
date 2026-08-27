@@ -199,9 +199,11 @@ Cases, one per row of spec §5 plus the three invariants:
 
 **It took three rounds to get here and the intermediate step is the lesson.** Round 1's version asserted the property per site, which whole-diff round 2 defeated by naming four ADDITION paths that had not called it. The round-2 repair added the helper at those four sites and claimed it was called at every reconcile; a sweep afterwards found four more sites that still had not, and round 3 named three of them independently. A per-site assertion cannot cover a site that forgot it, and each repair that added more call sites was the same bet again at longer odds. Moving the check into the stub ends it.
 
-The per-site `expectObservedExactly(log, before, added)` calls stay, at every reconcile in the file, because they assert exactly WHICH targets a reconcile added, which is strictly more than "none was re-observed". They are now a sharpening rather than the guarantee.
+The per-site calls stay as a sharpening rather than the guarantee, and they are now TWO-SIDED: `expectReconciled(state, mark, { added, removed })` asserts both logs. Round 4 found no case proving the REMOVAL half of a mixed remove-and-add reconcile, so an implementation performing its additions and skipping its removals whenever both happened would have satisfied every membership, deliverability and apply assertion in the file while retaining a stale signal source. plant-14 is that mutant and reds `(h26)` and `(h38)`, the two mixed shapes.
 
-Plants: re-observe an already-held target (plant-1, reds the unchanged, swap and removal paths); re-observe every desired target whenever the set GREW (plant-10, reds exactly the four addition paths); re-observe retained targets when a role resolves null (plant-11, reds seven cases including `(h25)`, `(h34)` and `(h35)`, the three that no per-site call reached).
+**Scope, stated because round 4 caught it overstated:** these calls cover every reconcile driven through the tracking stub. `(h12)` and `(h33)` install their OWN stubs for their own subjects and are outside both the helper and the structural recorder. That is a real gap and it is named rather than papered over; neither case's subject is the subscription set.
+
+Plants: re-observe an already-held target (plant-1, reds the unchanged, swap and removal paths); re-observe every desired target whenever the set GREW (plant-10, reds exactly the four addition paths); re-observe retained targets when a role resolves null (plant-11, reds six cases including `(h25)`, `(h34)` and `(h35)`, the three that no per-site call reached).
 - **AC-3, attach invariance.** Target set, ORDER and observer count on the clipping and non-clipping non-aliasing fixtures, read from the observe LOG rather than from the target set, since a set has no order to assert. `(d)`, `(h21)` and `(h22)` pin three of the four; this case adds the order. Plant: reverse the desired-set insertion order.
 - **AC-6, retain on null, clip role.** A clip ancestor that stops clipping keeps its target, so its clipping again is still delivered. Plant: re-target the role to null.
 - **AC-6, retain on null, positioned role.** `positioned="none"` mid-life keeps the target and the listener, so showing the overlay again still delivers. Plant: re-target the role to null. This is the one that matters most: `offsetParent` reads null for a `display: none` subtree, so the naive repair converts every hide-then-show into the silent stale cap this arc exists to remove.
@@ -227,21 +229,30 @@ This task's `red=` greps for a `| plant-N |` row rather than for the heading abo
 
 | Plant | Edit | Cases that went red |
 | --- | --- | --- |
-| plant-1 | drop the "already held" guard on additions, so every reconcile re-observes | (h29) (h30) (h31) (h32) (h37) |
+| plant-1 | drop the "already held" guard on additions, so every reconcile re-observes | (h25) (h26) (h27) (h28) (h29) (h30) (h31) (h32) (h34) (h35) (h37) (h38) |
 | plant-2 | reverse the desired-set insertion order | (h33b) |
 | plant-3 | clip role re-targets on null too, dropping retain-on-null | (h34) |
 | plant-4 | positioned role re-targets on null too | (h35) |
 | plant-5 | reconcile without the `observer === null` guard | (h36), and (f) |
-| plant-6 | call `apply()` twice in the coalesced path | (h27) (h37) |
+| plant-6 | call `apply()` twice in the coalesced path | (h27) (h37), and (g) |
 | plant-7 | skip `observe()` when the resolved target is currently 0x0 | (h37) |
 | plant-8 | teardown removes the listener from the ATTACH-TIME node instead of the current role | (h38) |
 | plant-9 | `reconcile` returns before updating the roles when there is no observer | (h36) |
-| plant-10 | re-observe every desired target whenever the set GREW | (h26) (h27) (h28) (h37) |
-| plant-11 | re-observe retained targets when either role resolves null | (h21) (h22) (h25) (h33) (h33b) (h34) (h35) |
+| plant-10 | re-observe every desired target whenever the set GREW | (h26) (h27) (h28) (h37) (h38) |
+| plant-11 | re-observe retained targets when either role resolves null | (h21) (h22) (h25) (h33b) (h34) (h35) |
 | plant-12 | pass `{ box: "border-box" }` at the attach only, not on later reconciles | (h26) |
 | plant-13 | construct a second `ResizeObserver` at the attach | (h21) (h22) (h33b) |
+| plant-14 | perform the additions and SKIP the removals whenever a reconcile does both | (h26) (h38) |
 
-Command for every row: `pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx`, with the plant applied to `components/admin/useFitWithinClip.ts` and reverted after. Baseline with no plant: 48 passed.
+Command for every row: `pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx --reporter=json`, with the plant applied to `components/admin/useFitWithinClip.ts` and reverted after, reading the failing titles out of the JSON. Baseline with no plant: 48 passed.
+
+**The whole table was re-measured after round 4, and it changed.** Two things were wrong with the earlier one, and the second is the more useful.
+
+The first is method: the red list had been read by grepping the reporter's output for `(hNN)`, which cannot tell a failing case from a name that merely appears. The JSON reporter's failing titles are read now.
+
+The second is a real defect in this suite's own teardown, found by chasing round 4's dispute of one row. The `afterEach` asserted the no-reobserve record BEFORE calling `cleanup()`, and an assertion that throws skips everything after it, so a failing case left its DOM mounted and the NEXT case died of `Found multiple elements by: [data-testid="outer"]`. Cases were being recorded as reddening a plant when they had merely inherited a previous case's DOM. `(h33)` under plant-11 was exactly that, which is what round 4 disputed; it was right, for a reason neither of us had found yet. Teardown now runs first and the assertion runs last on a captured copy, and plant-1's list went from fourteen entries to twelve.
+
+Worth keeping as a rule rather than a fix: **an assertion in `afterEach` must come after the teardown it shares the hook with**, or a failure there corrupts the next case rather than only the current one.
 
 **plants 11 to 13 are whole-diff round 3's findings.** plant-12 is the sharpest of the three because it isolates something no earlier case could see: AC-10 was checked by `(h33)`, which moves `reapplyKey`, and a `reapplyKey` change TEARS DOWN and re-attaches the ref, so every call that case ever recorded was an attach call. The stub now records the box option and `(h26)` asserts it on a live reconcile, and plant-12, which passes the option at the attach and drops it afterwards, reds `(h26)` alone. plant-13 covers the other half of AC-3: the observe LOG is satisfied by two observers logging one target each, so the observer COUNT is asserted too.
 
