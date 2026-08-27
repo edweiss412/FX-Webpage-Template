@@ -70,10 +70,14 @@ task implements v4 in full rather than the leading-id rule v3 shipped:
 Then collect the ids every `ac=` cites and report the certain-and-uncited
 difference, unless the declaring line carries a disposition.
 
-The count in step 3 is the whole termination argument (spec §4.1) and its cases
-are this task's, not Task 10's: 14 ambiguous lines across 12 plans exist in the
-live corpus today, so a Task 7 that omits them commits green while classifying
-inputs v4 must decline.
+The count in step 3 is the whole termination argument (spec §4.1), and this task
+owns its UNIT cases: a fixture whose declaring line carries two ids draws nothing
+in either direction. Task 4 then asserts the LIVE ambiguous set against the
+committed record (AC-10, spec §7 limit 7). The two are not interchangeable — 14
+ambiguous lines across 12 plans existed at the 101-plan snapshot, so a Task 4
+that asserted only the unclaimed equality would commit green while classifying
+inputs v4 must decline, and a Task 1 that never exercised a two-id line would
+leave the count cut itself unpinned.
 
 Both narrowings are corpus-forced and were refuted into existence across two
 review rounds (spec §4.1): secondary-id collection read four other documents'
@@ -121,12 +125,25 @@ circular — the registry would supply the very member the census failed to find
 
 ## Task 4: the corpus migration
 
-<!-- task: red=`pnpm vitest run tests/specLint/acUnclaimedCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28` why=`AC-3 is declared at :28 with no disposition on the line and no marker cites it, so the corpus test this task writes reports a non-empty unclaimed set and fails; it passes only once every such line carries its plan own disposition` ac=AC-6 -->
+<!-- task: red=`pnpm vitest run tests/specLint/acUnclaimedCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28` why=`AC-3 is declared at :28 with no disposition on the line and no marker cites it, so the corpus test this task writes reports a non-empty unclaimed set and fails; it passes only once every such line carries its plan own disposition` ac=AC-6,AC-10 -->
 
-The corpus test walks every enrolled plan from disk and asserts the unclaimed set
-equals the committed residue list EXACTLY, with a `premise()` guard so an empty
-walk cannot satisfy it vacuously (`tests/_shared/premise.ts`, and
-`tests/specLint/acCoverageCorpus.test.ts` is the shape).
+The corpus test is `tests/specLint/acUnclaimedCorpus.test.ts (new)`. It walks every
+enrolled plan from disk and asserts TWO exact equalities, with a `premise()`
+guard so an empty walk cannot satisfy either vacuously
+(`tests/_shared/premise.ts`, and `tests/specLint/acCoverageCorpus.test.ts` is the
+shape):
+
+- the live unclaimed set against `tests/specLint/acUnclaimedResidue.ts (new)`, which
+  exports `AC_UNCLAIMED_RESIDUE` — one typed row per UNSETTLED pair carrying the
+  plan path, the id, and what was searched (AC-6);
+- the live AMBIGUOUS declaring-line set against
+  `tests/specLint/acAmbiguousRecord.ts (new)`, which exports `AC_AMBIGUOUS_RECORD` —
+  one typed row per multi-id declaring line carrying the plan path, the 1-based
+  line number, and the ids on it (AC-10, spec §7 limit 7).
+
+Both are TypeScript modules the test IMPORTS, not markdown tables it parses, so
+the assertion reads a typed list and a row cannot be added by prose. Both are
+fail-closed in the same direction: a pair or a line absent from its record reds.
 
 **The unit is a declaring LINE, not a plan**, and under v4 one line disposes
 exactly one id, because a line carrying more than one is AMBIGUOUS and the arm
@@ -138,10 +155,37 @@ what that plan's prose already says, cited from its own line; per constraint 2 a
 plan whose prose settles nothing gets NO disposition and goes on the residue list
 instead, with what was searched. The per-plan classification with quoted evidence
 is committed at `docs/superpowers/specs/probes/2026-08-26-ac-disposition-classification.md`
-and is this task input.
+and is this task's input.
+
+**Two rows carry into the migration verbatim** (spec §4.4), because on both the
+obvious disposition would be a lie.
+`docs/superpowers/plans/2026-08-16-server-action-origin-sweep.md` AC-8 is settled
+by the plan's own "no task (a spec-time derivation)" clause, re-exercised by its
+Task 5, so the disposition quotes that clause rather than writing a bare
+discharge. `docs/superpowers/plans/2026-08-22-mutation-score-jurisdiction-gap.md`
+AC-8 is discharged by a task the plan marks retired — the TASK is retired, not
+the criterion, so `RETIRED` there would be false.
 
 The residue is fail-closed and is a number that may go DOWN as owning arcs resolve
 their own plans, never up.
+
+**The snapshot's lists are where the migration STARTS, not where it ends.** The
+101-plan measurement has no re-runnable producer — no probe script is committed
+and the `.report.txt` carries no provenance header — so this task's own arm is
+the instrument from here on. `grep -rl '<!-- tasks: depth=' docs/superpowers/plans
+| wc -l` returns 106 on the live tree against the 101 measured. Re-measure with
+the arm first and migrate what IT reports; the report's detail sections are the
+starting list. A plan enrolled since the snapshot that flags is handled under the
+same four constraints. One snapshot discrepancy settles at measurement time and
+not by hand:
+`docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:29` appears in the report's
+AMBIGUOUS list while that plan's AC-4 appears in its UNCLAIMED list, and under v4
+a line is CERTAIN or AMBIGUOUS and never both.
+
+**The negative control is part of the done condition, not an extra.** Append one
+undisposed `- AC-99: planted` line to any enrolled plan in the worktree, run the
+corpus test, observe RED naming that plan and `AC-99`, revert. A corpus test that
+stays green on the plant is not the gate.
 
 ## Task 5: the convention paragraph
 
@@ -160,6 +204,7 @@ disposition may only say what the plan already says.
 - AC-5: `TASK_AC_UNDECLARED` fires on a marker citing an id the plan does not declare, in a plan that declares at least one; no id ever draws two of the three codes.
 - AC-6: the corpus's unclaimed set equals the committed residue list exactly, walked from disk, fail-closed.
 - AC-10: the live AMBIGUOUS declaring-line set equals the committed record exactly; a new multi-id declaring line reds until someone looks at it.
+- AC-9: `taskContract` scores at or above its `scoreFloor` of 0.95 with zero unaccepted survivors at the shipping head (discharged by closeout)
 
 ## 12. Closeout
 
