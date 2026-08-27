@@ -15,15 +15,26 @@
  * last 109px of its scroll range sits in the hidden strip, and the shrink
  * confirm's decision buttons become unreachable at full scroll.
  *
- * Three signals re-measure, because three independent things move the box:
+ * Four signals re-measure, because four independent things move the box:
  *   - the clip ancestor resizes (the panel is viewport-derived),
  *   - the POSITIONED ancestor resizes (`offsetParent`) — a heading mounting or
  *     unmounting inside it moves the overlay's top without touching the clip,
  *   - a transition on that positioned ancestor SETTLES, which is when its final
- *     geometry first exists.
+ *     geometry first exists,
+ *   - the WINDOW resizes, which moves a viewport-derived clip edge without
+ *     necessarily resizing anything this hook observes.
  *
  * Plus `reapplyKey`: a caller-supplied value in the effect deps, for state the
  * DOM cannot announce (an entrance flag flipping pre-frame to entered).
+ *
+ * The window listener was always here and this comment used to say "three",
+ * which mattered once a spec quoted the list as the declared signal set
+ * (spec admin/2026-08-27-fitwithinclip-clip-subscription §1.1, limit L-7).
+ *
+ * The observed SET is re-derived on every measure, not fixed at the attach.
+ * `apply()` already walks the chain each time, so the cap has always been
+ * right; before this it was the SUBSCRIPTION that went stale, and an ancestor
+ * which started clipping after the attach was never observed at all (§1).
  */
 
 import { useCallback, useRef, type RefCallback } from "react";
@@ -59,6 +70,29 @@ function findClippingAncestor(node: HTMLElement): HTMLElement | null {
  */
 const warned = new WeakSet<HTMLElement>();
 
+/** The ancestors one measurement resolved. `positioned` is normalised through
+ *  `instanceof Element` at the point of resolution, so nothing downstream ever
+ *  sees the `undefined` an unstubbed jsdom returns for `offsetParent`. */
+type ResolvedAncestors = { clip: HTMLElement | null; positioned: Element | null };
+
+const NOTHING_RESOLVED: ResolvedAncestors = { clip: null, positioned: null };
+
+/**
+ * BORDER box, not the platform default of `"content-box"`.
+ *
+ * The cap is computed from two `getBoundingClientRect()` reads, which are
+ * border-box viewport rectangles. Watching the content box means padding or a
+ * border toggled from state on an auto-height ancestor moves the clip edge, or
+ * this element's own top, while the observed box does not change at all: no
+ * callback, no re-measure, and no diagnostic, since `apply()` never runs
+ * (spec §4.1a). Module-level so the observe sites cannot drift apart.
+ *
+ * An engine with `ResizeObserver` but without the `box` option ignores the
+ * dictionary and observes the content box, which is the previous behaviour, so
+ * the floor here is the status quo rather than a throw.
+ */
+const OBSERVE_OPTIONS: ResizeObserverOptions = { box: "border-box" };
+
 /**
  * Returns a callback ref: measurement has to happen once the node is in the
  * document, and these overlays mount and unmount with their own state.
@@ -78,9 +112,9 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
   /** Measures and caps, and RETURNS the clip ancestor it resolved so the caller
    *  that triggered this walk does not have to repeat it. Still walks on EVERY
    *  invocation: the ancestor chain can change between measures. */
-  const apply = useCallback((): HTMLElement | null => {
+  const apply = useCallback((): ResolvedAncestors => {
     const el = nodeRef.current;
-    if (el === null) return null;
+    if (el === null) return NOTHING_RESOLVED;
 
     // withNaturalSize owns the clear and restore (spec §4.2) so the CSS cap is
     // what we measure, not last pass's result — and it restores the element's
@@ -91,9 +125,14 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     // it after the caps are restored would read a different element.
     const measured = withNaturalSize(el, () => {
       const clip = findClippingAncestor(el);
-      // nothing clips: the CSS cap already governs. The clip still rides out,
+      // Resolved in the SAME measurement window as the clip, so a subscription
+      // can never be synced from a different pass than the cap it was measured
+      // against. It costs no extra reflow: this callback already forces one.
+      const offset = el.offsetParent;
+      const positioned = offset instanceof Element ? offset : null;
+      // nothing clips: the CSS cap already governs. The pair still rides out,
       // so the caller learns there is nothing to observe.
-      if (clip === null) return { clip: null, fit: null };
+      if (clip === null) return { clip: null, positioned, fit: null };
 
       const declaredCap = parseFloat(getComputedStyle(el).maxHeight);
       const geometry = {
@@ -102,14 +141,18 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
         // `max-height: none` parses as NaN; Infinity means "only the clip binds".
         cap: Number.isFinite(declaredCap) ? declaredCap : Number.POSITIVE_INFINITY,
       };
-      return { clip, fit: { geometry, fitted: computeFittedMaxHeight(geometry) } };
+      return { clip, positioned, fit: { geometry, fitted: computeFittedMaxHeight(geometry) } };
     });
     // Both branches are written (spec §4.3, R1 F1). The helper restored the PRIOR
     // inline fit; on the nothing-clips path this site must end UNCAPPED, so the
     // stale fit is removed rather than left to survive the early return.
+    const resolved: ResolvedAncestors = {
+      clip: measured.clip,
+      positioned: measured.positioned,
+    };
     if (measured.fit === null) {
       el.style.removeProperty("max-height");
-      return null;
+      return resolved;
     }
     const { geometry, fitted } = measured.fit;
     el.style.maxHeight = `${fitted}px`;
@@ -133,7 +176,7 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
         el,
       );
     }
-    return measured.clip;
+    return resolved;
   }, []);
 
   // The ref callback owns the wiring and RETURNS the teardown (React 19). It is
@@ -159,29 +202,55 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
       // callback exists to prevent. Only the EVENT-driven re-measures below are
       // coalesced, because only those arrive in bursts.
       //
-      // `apply()` already walked to the clip ancestor, so its return value is
-      // used here rather than walking again. `null` means "nothing clips" — the
-      // node is non-null by the guard above.
-      const clip = apply();
+      // `apply()` already walked to the clip ancestor and read `offsetParent`,
+      // so its return value is used here rather than resolving again.
+      const resolved = apply();
+
+      // The clip ROLE, held rather than captured, because the attach-time
+      // resolution is exactly what used to outlive its truth.
+      let observedClip: HTMLElement | null = null;
+      let observer: ResizeObserver | null = null;
+
+      /**
+       * Re-target the clip role, and only on a resolved NON-NULL change.
+       *
+       * Conditional is not an optimisation. `observe()` delivers an initial
+       * observation, so a reconcile that re-observes on every measure feeds its
+       * own next measure and never reaches a fixed point (spec §4.3).
+       *
+       * Non-null because an observed ancestor is a SIGNAL SOURCE, and a null
+       * resolution means "nothing clips right now", never "this source is
+       * gone": keeping it costs one redundant `apply()` on its resizes, while
+       * dropping it costs a signal that may never come back (spec §4.1).
+       */
+      const subscribeClip = (clip: HTMLElement | null): void => {
+        if (clip === null || clip === observedClip) return;
+        if (observer !== null) {
+          if (observedClip !== null) observer.unobserve(observedClip);
+          observer.observe(clip, OBSERVE_OPTIONS);
+        }
+        observedClip = clip;
+      };
 
       // `apply()` forces a synchronous reflow (write, read, read, read, write),
       // and every signal below can arrive many times per frame — a drag-resize
       // fires continuously, and a ResizeObserver can fire for both observed
       // nodes at once. Leading-edge throttle to one apply per frame.
-      const coalescer = createRafCoalescer(apply);
+      const coalescer = createRafCoalescer(() => {
+        subscribeClip(apply().clip);
+      });
 
       // The positioned ancestor is a SEPARATE node from the clip ancestor, and
       // it is the one whose content changes move this overlay's top edge.
-      const positioned = node.offsetParent;
+      const positioned = resolved.positioned;
       // Feature-detected, not assumed: a missing ResizeObserver must degrade to
       // "measured once on attach, re-measured on viewport resize", never throw
       // during render of the overlay it is trying to size (jsdom has none).
-      const observer =
+      observer =
         typeof ResizeObserver === "function" ? new ResizeObserver(coalescer.schedule) : null;
-      if (observer !== null) {
-        if (clip !== null) observer.observe(clip);
-        if (positioned instanceof Element) observer.observe(positioned);
-      }
+      // Called even with no observer, so the ROLE is current either way.
+      subscribeClip(resolved.clip);
+      if (observer !== null && positioned !== null) observer.observe(positioned, OBSERVE_OPTIONS);
 
       // A resize observation fires while a transition is still running, when the
       // geometry is mid-flight; the settle is when the final numbers exist.
@@ -201,16 +270,14 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
         if ((event as TransitionEvent).propertyName !== "transform") return;
         coalescer.schedule();
       };
-      if (positioned instanceof Element)
-        positioned.addEventListener("transitionend", onTransitionEnd);
+      if (positioned !== null) positioned.addEventListener("transitionend", onTransitionEnd);
       window.addEventListener("resize", coalescer.schedule);
 
       return () => {
         observer?.disconnect();
         // Removed BEFORE the cancel, so a late event cannot schedule a frame
         // after the frame has been cancelled.
-        if (positioned instanceof Element)
-          positioned.removeEventListener("transitionend", onTransitionEnd);
+        if (positioned !== null) positioned.removeEventListener("transitionend", onTransitionEnd);
         window.removeEventListener("resize", coalescer.schedule);
         // A frame scheduled just before detach would otherwise run `apply()`
         // against a node that is gone.

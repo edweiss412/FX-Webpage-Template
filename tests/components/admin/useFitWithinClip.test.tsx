@@ -143,6 +143,64 @@ function withOffsetParent<T>(fn: () => T): T {
   }
 }
 
+/**
+ * A `ResizeObserver` stub that models the one part of the platform contract
+ * every other stub in this file leaves out: it delivers ONLY to targets it is
+ * actually observing.
+ *
+ * The others accept a callback and let the test fire it at whatever node it
+ * names, so a case that resizes an UNOBSERVED ancestor re-measures anyway and
+ * any subscription assertion built on it is decorative. `resize()` returns
+ * whether the target was live, which is the backlog row's transcript field
+ * `deliverable` promoted from a log line to an assertion.
+ *
+ * The call LOGS are recorded separately from the target set, because a set
+ * cannot answer "was an already-held target re-observed" or "in what order did
+ * the attach observe" -- and neither question is visible in any apply count,
+ * since a redundant `observe()` here delivers nothing at all.
+ */
+function installTargetTrackingObserver() {
+  const state = {
+    targets: new Set<Element>(),
+    observeLog: [] as string[],
+    unobserveLog: [] as string[],
+    disconnects: 0,
+    callbacks: [] as ResizeObserverCallback[],
+  };
+  const idOf = (el: Element): string => (el as HTMLElement).dataset["testid"] ?? "?";
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(cb: ResizeObserverCallback) {
+        state.callbacks.push(cb);
+      }
+      observe(t: Element) {
+        state.targets.add(t);
+        state.observeLog.push(idOf(t));
+      }
+      unobserve(t: Element) {
+        state.targets.delete(t);
+        state.unobserveLog.push(idOf(t));
+      }
+      disconnect() {
+        state.targets.clear();
+        state.disconnects += 1;
+      }
+    },
+  );
+  /** Fires a resize for `target`, or returns false without firing when it is
+   *  not observed. The LAST callback is the live one: a torn-down earlier
+   *  instance must never be fired. */
+  const resize = (target: Element): boolean => {
+    if (!state.targets.has(target)) return false;
+    const fire = state.callbacks[state.callbacks.length - 1];
+    if (fire === undefined) return false;
+    fire([{ target } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+    return true;
+  };
+  return { state, resize };
+}
+
 beforeEach(() => {
   geometry = { fittedTop: FITTED_TOP, clipBottom: CLIP_BOTTOM };
   frames = new Map();
@@ -848,6 +906,84 @@ describe("useFitWithinClip", () => {
     fireEvent(inner, transitionEnd("transform"));
     flushFrames();
     expect(fitted.style.maxHeight).toBe(expectedPx());
+  });
+
+  test("(h25) a clip ancestor that STARTS clipping is subscribed by the correcting signal", () => {
+    const { state, resize } = installTargetTrackingObserver();
+    // No offsetParent stub, matching `(h19)`: unstubbed jsdom leaves the
+    // positioned role unresolved, so the target set is exactly the clip role
+    // and nothing below can be satisfied by the other slot.
+    const { view, outer, fitted } = mount({ clips: false, reapplyKey: "k" });
+
+    // PREMISE (this case's own inputs): nothing may be capped, and the ancestor
+    // that WILL clip must not already be a target. Without both, every
+    // assertion below is about nothing.
+    premiseHolds(
+      "nothing clips at attach and `outer` is not observed",
+      fitted.style.maxHeight === "" && !state.targets.has(outer),
+    );
+
+    view.rerender(<Harness reapplyKey="k" clips />);
+    expect(
+      fitted.style.maxHeight,
+      "a stable-ref re-render must not re-measure, even as the clip status changes",
+    ).toBe("");
+
+    // One BRIDGING signal, from a source already observed at attach. `(h19)`
+    // stops here; the defect is everything after it.
+    fireEvent(window, new Event("resize"));
+    flushFrames();
+    const afterBridge = fitted.style.maxHeight;
+    expect(afterBridge, "the bridging signal must write a cap where none existed").toBe(
+      expectedPx(),
+    );
+
+    // THE DEFECT. `apply()` re-walks on every signal so the CAP corrects, but
+    // the subscription set is resolved once at attach, so the newly clipping
+    // ancestor is never observed and stays dark for the overlay's whole life.
+    expect(state.targets.has(outer), "the newly clipping ancestor was not subscribed").toBe(true);
+
+    geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
+    expect(resize(outer), "the new clip ancestor's own resize was not deliverable").toBe(true);
+    flushFrames();
+
+    expect(fitted.style.maxHeight).toBe(expectedPx());
+    expect(fitted.style.maxHeight, "the geometry move did not take").not.toBe(afterBridge);
+  });
+
+  test("(h33) every observe requests the BORDER box", () => {
+    const boxes: (string | undefined)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(_cb: ResizeObserverCallback) {}
+        observe(_t: Element, opts?: ResizeObserverOptions) {
+          boxes.push(opts?.box);
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+
+    const { view } = withOffsetParent(() => mount({ clips: true, reapplyKey: "k" }));
+    withOffsetParent(() => view.rerender(<Harness reapplyKey="k2" clips />));
+
+    // PREMISE (own inputs): observe must actually have been called, or "every
+    // call passes border-box" is vacuously true over an empty list.
+    premiseHolds("the hook issued at least one observe", boxes.length > 0);
+
+    // The cap comes from two `getBoundingClientRect()` reads, which are
+    // BORDER-box viewport rectangles, while `observe()` defaults to the CONTENT
+    // box. Padding toggled on an auto-height ancestor then moves the clip edge
+    // with its content box unchanged, and nothing is delivered at all.
+    //
+    // LIMIT, stated here rather than left for a reader to find: jsdom computes
+    // no layout, so this asserts the ARGUMENT, not the delivery it buys. The
+    // behavioural cover is the real-browser suite.
+    expect(
+      boxes.every((b) => b === "border-box"),
+      `observe boxes: ${boxes.join(",")}`,
+    ).toBe(true);
   });
 });
 
