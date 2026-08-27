@@ -9,6 +9,11 @@
  * reload. One of the three even says "Refresh in a moment.", instructing the reader to do
  * by hand what this button does.
  *
+ * The treatment is `SECONDARY_ACTION_ON_TINTED_CLASS` (`lib/ui/actionClass.ts:78`), taken
+ * rather than rewritten: that constant exists so "the next tinted-plate caller finds a
+ * treatment instead of inventing a sixth one", and an earlier draft of this file invented
+ * the sixth, diverging on padding and on the disabled states.
+ *
  * It is the manual-refresh idiom this page already carries: same rotate icon, same one-tap
  * contract, same `router.refresh()` (`AutoRefreshControl.tsx:19`). Deliberately NOT the
  * same border token. That button stands on `bg-surface`; all three fallbacks are
@@ -32,6 +37,8 @@
 import { RotateCw } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { cn } from "@/lib/ui/cn";
+import { SECONDARY_ACTION_ON_TINTED_CLASS } from "@/lib/ui/actionClass";
 
 /** The visible label, identical at every site: the button does the same thing everywhere,
  *  and the accessible name carries the site-specific half. */
@@ -55,7 +62,17 @@ export function TelemetryRetryButton({ what, testId }: { what: string; testId: s
           setAttempts((n) => n + 1);
           router.refresh();
         }}
-        className="inline-flex min-h-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm border border-control-outline-tinted bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg"
+        className={cn(
+          SECONDARY_ACTION_ON_TINTED_CLASS,
+          // Placement and the plate-specific focus offset are the CALLER's, per that
+          // module's own contract: it omits `ring-offset-*` because one constant cannot
+          // carry a correct offset COLOUR across the surfaces it lands on. Keeping the
+          // offset here is also what keeps this control inside the DERIVED population of
+          // tests/styles/tintedPlateOutline.test.ts, which filters on a tinted ring-offset
+          // plus a resting outline. Dropping it would make the control invisible to that
+          // scan and oblige a registry row in the same chain RescanSheetButton sits in.
+          "gap-1.5 focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg",
+        )}
       >
         <RotateCw className="size-4" aria-hidden />
         {TELEMETRY_RETRY_TEXT}

@@ -69,4 +69,34 @@ describe("TelemetryRetryButton call sites", () => {
     expect(new Set(found.map((s) => s.what)).size).toBe(found.length);
     expect(found.filter((s) => s.what.trim() === "")).toEqual([]);
   });
+
+  // The impeccable gate caught this one as a live defect, and it is the reason the check
+  // exists rather than the reason it was written afterwards: the class sweep that added the
+  // control repaired the container at two of the three sites and missed the third, so a
+  // 44px control abutted its paragraph at 0px where the peers got 8px. Two of three is the
+  // exact drip a derived check turns into a red.
+  it("every site's fallback plate carries the same container layout", () => {
+    for (const site of found) {
+      const src = stripCommentsForFile(readFileSync(join(ROOT, site.file), "utf8"), site.file);
+      const plate = src.match(/className="([^"]*bg-warning-bg[^"]*)"/);
+      expect(plate, `${site.file} has no warning-plate className`).not.toBeNull();
+      for (const cls of ["flex", "flex-col", "items-start", "gap-2"]) {
+        expect(plate![1], `${site.file} plate is missing ${cls}`).toContain(cls);
+      }
+    }
+  });
+
+  // The control hardcodes `focus-visible:ring-offset-warning-bg` while its API takes only
+  // `{ what, testId }`, so a site on an info or danger plate would ship a mismatched offset
+  // colour and nothing would say so. Today every site is a warning plate; this is what makes
+  // that hardcoding correct, and it turns "a non-warning caller ships a silent mismatch"
+  // into a red at the moment such a caller is added.
+  it("every site stands on the warning plate the control's focus offset assumes", () => {
+    for (const site of found) {
+      const src = stripCommentsForFile(readFileSync(join(ROOT, site.file), "utf8"), site.file);
+      const plate = src.match(/className="([^"]*bg-(?:warning|info|danger)-bg[^"]*)"/);
+      expect(plate, `${site.file} has no tinted plate`).not.toBeNull();
+      expect(plate![1], `${site.file} is not on the warning plate`).toContain("bg-warning-bg");
+    }
+  });
 });

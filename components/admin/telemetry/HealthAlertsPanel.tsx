@@ -284,7 +284,7 @@ export async function HealthAlertsPanel({ searchParams }: { searchParams: Search
         data-testid="health-alerts-panel-degraded"
         data-render-fault="health-alerts-load"
         aria-labelledby="health-alerts-heading"
-        className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
+        className="flex flex-col items-start gap-2 rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
       >
         <h2 id="health-alerts-heading" className="text-base font-semibold">
           System health
