@@ -36,7 +36,7 @@ The three findings share one root, which is worth naming because it is what the 
 
 BLOCKING again, six findings, and four of them are the kind that only show up when someone drives the state rather than reads about it.
 
-**F1 (P1) — batching does not make the states exclusive; the callback's own predicate does.** A watchdog callback can already be QUEUED when the settle schedules its update, and `clearTimeout` in the effect cleanup cannot unfire it. The reviewer probed `Open-timedout` with `Open-error`, the exact combination the table calls impossible. Reproduced here, then closed with two guards inside the callback: an attempt ordinal, and a functional read that refuses to leave `pending` unless it finds `pending`. Both are separately necessary and the probe shows why. AC-12 and AC-13 drive the two interleavings.
+**F1 (P1) — batching does not make the states exclusive; the callback's own predicate does.** A watchdog callback can already be QUEUED when the settle schedules its update, and `clearTimeout` in the effect cleanup cannot unfire it. The reviewer probed `Open-timedout` with `Open-error`, the exact combination the table calls impossible. Reproduced here, then closed with a functional read inside the callback that refuses to leave `pending` unless it finds `pending`. AC-12 drives the interleaving. A second guard, an attempt ordinal in the callback, was added in the same repair and REMOVED in round 3: see that section, and the mechanism, for why running its mutant beat defending it.
 
 **F2 (P1) — a string `digest` is not Next control flow.** Next stamps ORDINARY server failures with an opaque string digest too; the reviewer's probe on the installed Next 16.3.0 returned `"3693416880"` for one. The digest sniff would therefore rethrow exactly the failures the catch exists to report, and AC-10's plain `Error("network")` passed while the production shape still escaped. Replaced with `unstable_rethrow` from `next/navigation`, which is Next's own classifier: probed returning for the opaque digest and rethrowing `NEXT_REDIRECT`. AC-14 asserts both directions, because a case with only a bare `Error` passes under either implementation and proves neither.
 
@@ -49,6 +49,20 @@ BLOCKING again, six findings, and four of them are the kind that only show up wh
 **F6 (P2) — the GREEN checklist still said `switchTimedOut`**, the first draft's boolean, contradicting the mechanism section twenty lines above it and capable of recreating the states round 1 removed.
 
 Both rounds share a root worth naming, and it is not the same one round 1 had. Round 1's findings were states the tests never entered. Round 2's are states the tests never entered *because the plan believed a general mechanism made them unreachable* — batching, a cleanup, a type test. Each time, the belief was about a mechanism rather than about this code, and each time the probe was one interleaving away. The rule the next round should apply to itself: when a plan says a combination is impossible, the sentence has to name the LINE that refuses it, not the framework behaviour that usually would.
+
+## Round 3 review, and what it changed
+
+BLOCKING, five findings, and the useful thing about them is that four are about MY CASES rather than about the mechanism. The mechanism has been stable since round 2's repair; what kept moving was whether the cases could see it.
+
+**F1 (P1) — AC-13 never queued the stale callback it claimed to catch**, so removing the attempt ordinal left it green and the mandated mutant would have proved nothing. The honest follow-up was to run the mutant rather than rewrite the case, and it settled the question the other way: three interleavings, with the ordinal and without, identical output. With the effect keyed on the phase, every phase change cancels the previous timer before a later attempt can exist, so no interleaving reaches the callback with a stale ordinal. The ordinal is gone, AC-13 is gone, its mutant is gone. Two rounds asserted that guard was load-bearing on the strength of a probe that never tested it.
+
+**F2 (P1) — AC-14's redirect half could not go green.** Calling `unstable_rethrow` in the test asserts Next's classifier, not this component, and letting the control-flow rejection escape a bare `act` fails the case rather than proving the rethrow. Replaced with an error-boundary harness: one helper rejects a clear with a given throwable and reports what the boundary caught. Probed before it was written: `REDIRECT boundaryCaught=true rowPresent=false` against `OPAQUE boundaryCaught=false rowPresent=true status=error`. AC-10 moved onto the same harness.
+
+**F3 (P1) — the five-state model was still false, and this time the reason is a node rather than a race.** The announcer is outside the popover and always mounted, so closed-while-pending and closed-while-timed-out differ observably and there is a reachable transition between them. Rounds 1 to 3 each patched a model that collapsed `Closed` into one state. The inventory is now a PRODUCT of two independent axes with one stated coupling, which is both true and shorter, and AC-6 was rewritten into the case that proves the independence rather than assuming it: close while PENDING, cross the window while still closed, read the announcer without reopening.
+
+**F4 (P1)** — a RED-step line still told the implementer to import the constant two other sections said had been removed, and omitted the import the harness needs. **F5 (P2)** — the unmount guard promised "no setState on an unmounted node", which the plan's own queued-callback analysis disproves; React discards the update, but the guarantee was not this mechanism's to give.
+
+The pattern across three rounds, stated so round 4 can check itself against it: every finding has been a claim the plan made about a mechanism it did not own, believed because the mechanism usually behaves that way. React's pending flag, batching, `clearTimeout`, a digest's type, and a state model that quietly assumed a node was inside the popover. In each case the code was fine and the SENTENCE was wrong. The check that would have caught all five: for every "cannot", name the line that refuses it, and for every "proved", name the mutant that reds.
 
 ## Citation drift, swept and bounded
 
@@ -360,15 +374,13 @@ const switchBusy = switchPhase === "pending";
 
 useEffect(() => {
   if (switchPhase !== "pending") return;
-  const attempt = switchAttempt.current;
   const timer = setTimeout(() => {
-    // BOTH guards are load-bearing, and neither is the cleanup's job. A
-    // callback that is already QUEUED when the settle schedules its update
-    // cannot be cancelled: clearTimeout on an already-fired timer does
-    // nothing. The ordinal stops such a callback from ending a LATER attempt's
-    // window; the functional read stops it from re-entering timed-out after a
-    // settle has already returned the phase to idle. Round 2 F1, probed.
-    if (switchAttempt.current !== attempt) return;
+    // The guard is the callback's own, and it is not the cleanup's job: a
+    // callback already QUEUED when the settle schedules its update cannot be
+    // cancelled, because clearTimeout on an already-fired timer does nothing.
+    // Reading the phase functionally means such a callback finds "idle" and
+    // returns. Round 2 F1, reproduced without it at phase=timedout with an
+    // error on screen, and closed with it.
     setSwitchPhase((phase) => (phase === "pending" ? "timedout" : phase));
   }, PENDING_TIMEOUT_MS);
   return () => clearTimeout(timer);
@@ -376,6 +388,8 @@ useEffect(() => {
 ```
 
 The retry arms a fresh window for free: it moves the phase `timedout` to `pending`, the effect's only dependency changes, and a new timer is armed. Unmount and an ordinary settle both clear the old one through the cleanup. What the cleanup cannot do is unfire a callback that has already run, which is why the callback carries its own predicate rather than trusting that it was cancelled.
+
+**There was a SECOND guard here and round 3 removed it.** Rounds 2 and 3 both stated that an attempt ordinal inside the callback was load-bearing, stopping a stale callback from ending a later attempt's window. Round 3 pointed out that the case meant to prove it never queued a stale callback at all, and the honest follow-up was to run the mutant instead of rewriting the case. Three interleavings, each with the ordinal and without it, produced identical output: with the effect keyed on the phase, every phase change cancels the previous timer before a later attempt exists, so no interleaving reaches the callback with a stale ordinal. The ordinal was defensive code with no failing case behind it, so it is gone, along with the acceptance criterion that claimed to prove it and the mutant that claimed to check it. The ordinal in the SETTLE path stays, because AC-5 does demonstrate that one.
 
 The announcement is derived from the phase, one branch each, so no state can hold pending text while the row is enabled:
 
@@ -448,7 +462,7 @@ The first round-2 line is the fault reproduced: `Open-timedout` and `Open-error`
 | `clearAction` settles inside the window (the ordinary case) | unchanged from today in every observable: `aria-busy` set then removed, announcer `Switching person` then empty, no timeout copy ever rendered |
 | `clearAction` never settles | at `PENDING_TIMEOUT_MS` the row re-enables, `aria-busy` is removed, the announcer changes to the timeout notice |
 | `clearAction` rejects | caught: the phase returns to idle and the generic failure alert renders, the same copy a `{ ok: false }` produces. NOT the same as never settling, and the first draft said it was: a rejected async transition action surfaces as a render error, so without the catch the nearest error boundary replaces the component and the watchdog never gets to run (round 1 F2, probed against React 19.2.4) |
-| The component unmounts mid-window | the effect cleanup clears the timer; no setState on an unmounted node |
+| The component unmounts mid-window | the effect cleanup clears a timer that has not fired. A callback ALREADY QUEUED at that moment still runs and still calls the state setter, and React discards an update to an unmounted component without warning since React 18. Round 3 F5 was right that the earlier wording, "no setState on an unmounted node", promised something this mechanism does not provide; nothing is broken by it, and claiming a guarantee the code does not give is how the next reader gets misled |
 | `clearAction` throws Next control flow (a redirect, a not-found) | rethrown untouched by `unstable_rethrow`. `clearIdentity` does not redirect today, but its sibling `clearIdentityAndSkip` in the same module does, and a catch that swallowed a redirect would be a live bug |
 | `clearAction` rejects with a SERVER-shaped error carrying an opaque digest | reported inline like any other failure. This is the realistic production shape and the naive `typeof digest === "string"` test would have sent it to the error boundary (round 2 F2) |
 | A superseded attempt settles, either way | reports nothing at all: the live attempt reports itself |
@@ -458,35 +472,43 @@ The first round-2 line is the fault reproduced: `Open-timedout` and `Open-error`
 
 ## Transition inventory
 
-Five states now: **Closed**, **Open-idle**, **Open-pending**, **Open-timedout**, **Open-error**. Success unmounts and is not a state, as before. Open-timedout is genuinely distinct from Open-idle: the row is enabled in both, but in Open-timedout a clear is still in flight and the status region is announcing, so a settle can still land.
+**Round 3 replaced the five-state model, and the reason is one node.** The announcer is deliberately OUTSIDE the popover and always mounted, so it renders the phase's text whether the menu is open or closed. "Closed" is therefore not one state: closed-while-pending says `Switching person` and closed-while-timed-out says the notice, and there is a reachable transition between them that nobody has to open the menu to observe. Rounds 1 through 3 each patched a model that collapsed those, and a model that collapses an observable difference will keep producing findings, because the findings are correct.
 
-**Five is a claim the mechanism has to earn, and it took two rounds to earn it.** Round 1 showed the first draft did not: it derived the phase from `useTransition`'s entangled flag. Round 2 showed the second draft still did not, for a different reason, and this is the sharper one because batching looks like it settles the question and does not. `setSwitchPhase("idle")` and `setSwitchStatus("error")` do land in one update, so a settle can never leave error on a busy row. What batching says nothing about is a timer callback that was ALREADY QUEUED when that update was scheduled: `clearTimeout` in the effect cleanup cannot unfire it, and an unguarded callback then writes `timedout` on top of the settled state. Probed: `phase=timedout status=error`, which is precisely the combination the table calls impossible.
+So the state is a PAIR, and saying so makes the table smaller rather than larger. The menu is `closed` or `open`. The switch is `idle`, `pending`, `timedout`, or `error`. They are INDEPENDENT, with exactly one coupling, and the independence is the claim worth testing rather than asserting:
 
-So the impossibility is a property of the callback's own predicate, not of batching and not of the cleanup. `Open-timedout` and `Open-error` cannot coexist because the callback refuses to leave `pending` unless it finds `pending`; a queued callback cannot end a later attempt's window because it refuses unless the attempt ordinal is still its own; and no state at all can be entered by a SUPERSEDED attempt, which returns before touching anything. Each of those three is a line of code with a probe behind it, and the same probe run without the guards reaches the state the table forbids. Ten unordered pairs, one row each, both directions stated on every row: the six that predate this arc are unchanged and carried here so the table is complete rather than a diff, and the four that involve Open-timedout are new.
+- The phase, its timer and its announcer all live on the always-mounted root, so opening and closing neither advances nor cancels anything. C4 is the case that proves it, by letting the window expire while the menu is CLOSED and reading the announcer without reopening.
+- The one coupling is `openAt`, which resets `switchStatus` to idle and touches nothing else (`components/auth/AvatarMenu.tsx:185`). So `error` cannot survive a reopen, which is why closed-while-error is not an observable configuration: the alert lives inside the popover, and the reopen that would reveal it clears it first.
+- `error` excludes `pending` and `timedout` on the switch axis, because the settle writes the phase back to idle in the same batched update that sets the error.
+
+That leaves seven observable configurations rather than five: `closed × {idle, pending, timedout}` and `open × {idle, pending, timedout, error}`. Enumerating all twenty-one pairs would be a table nobody reads and the code does not need, because the two axes are independent: what needs enumerating is each axis's own transitions, plus the cases where they interact. Both are below, and the interactions are the compounds.
+
+**Switch-axis transitions**, which are the same whether the menu is open or closed:
+
 
 | Pair | Direction and treatment |
 | --- | --- |
-| Closed ↔ Open-idle | unchanged (`avatar-menu-in` enter, `motion-reduce` instant; close is an unmount) |
-| Closed ↔ Open-pending | unchanged; pending survives close and reopen |
-| Closed ↔ Open-error | unchanged; `openAt` resets to idle, so Closed→Open-error stays impossible |
-| Open-idle ↔ Open-pending | unchanged; submit is instant, the row becomes `aria-disabled` and stays focusable |
-| Open-idle ↔ Open-error | unchanged; error is only reachable through pending |
-| Open-pending ↔ Open-error | unchanged; instant, the alert appears as a sibling of `role="menu"` |
-| **Open-pending ↔ Open-timedout** | **Open-pending→Open-timedout:** the watchdog fires; instant, `aria-disabled` false, `aria-busy` removed, the announcer swaps to the timeout notice. No animation, because the row is returning to its resting appearance. **Open-timedout→Open-pending:** a retry; instant, busy again, and a FRESH window arms |
-| **Open-idle ↔ Open-timedout** | **Open-timedout→Open-idle:** the hung clear finally settles ok with no retry; instant, the announcer empties, the row was already enabled. **Open-idle→Open-timedout: IMPOSSIBLE, and by the callback's predicate rather than by argument** — reaching timed-out needs a clear in flight, so it passes through Open-pending; and the one path that would violate that, a queued watchdog firing after a settle, is refused by the functional read (round 2 F1, probed both ways) |
-| **Open-timedout ↔ Open-error** | **Open-timedout→Open-error:** the hung clear settles `{ ok: false }` with no retry in flight; instant, the alert appears and the announcer empties. **Open-error→Open-timedout: IMPOSSIBLE, same predicate** — a retry out of error goes to Open-pending first and only then times out; a queued watchdog arriving after a failed settle finds the phase at idle and returns |
-| **Closed ↔ Open-timedout** | **Open-timedout→Closed:** ordinary close; the timer and the announcer are both on the always-mounted root, so they survive. **Closed→Open-timedout:** reopen during the window; `openAt` resets `switchStatus` only, so the row is enabled and the notice still reads |
+| idle ↔ pending | **idle→pending:** submit; instant, the row becomes `aria-disabled` and stays focusable, and the announcer says `Switching person`. **pending→idle:** the clear settles ok without unmount; instant, the announcer empties |
+| pending ↔ timedout | **pending→timedout:** the watchdog fires; instant, `aria-disabled` false, `aria-busy` removed, the announcer swaps to the notice. No animation, because the row is returning to its resting appearance. **timedout→pending:** a retry; instant, busy again, and a FRESH window arms |
+| idle ↔ timedout | **timedout→idle:** the hung clear finally settles ok; instant, the announcer empties, the row was already enabled. **idle→timedout: IMPOSSIBLE, by the callback's own predicate** — reaching timed-out needs a clear in flight, and the one path that would violate that, a queued watchdog firing after a settle, finds the phase at idle and returns (round 2 F1, probed both ways) |
+| idle ↔ error | **idle→error: IMPOSSIBLE directly** — error is only reachable through a submit. **error→idle:** the first step of a retry, or a retry that then succeeds without unmount |
+| pending ↔ error | **pending→error:** the clear settles `{ ok: false }`; instant, and the phase returns to idle in the same batched update, which is why error is never observed on a busy row. **error→pending:** retry; instant, the error clears at the start |
+| timedout ↔ error | **timedout→error:** the hung clear settles `{ ok: false }` with no retry in flight; instant, the alert appears and the announcer empties. **error→timedout: IMPOSSIBLE directly** — a retry out of error goes to pending first |
+
+**Menu-axis transitions**, which carry the switch state untouched:
+
+| Pair | Direction and treatment |
+| --- | --- |
+| closed ↔ open | **closed→open:** `avatar-menu-in` enter per DESIGN §5, `motion-reduce` instant; `openAt` resets `switchStatus` to idle and touches no other switch state. **open→closed:** an unmount of the popover; the phase, its timer and the announcer are all on the root and survive |
 
 Compounds, which is where this class of bug actually lives:
 
 - **C1 — the settle lands after the watchdog re-enabled the row, with no retry.** The announcer must empty rather than hold the timeout notice, and the row must not bounce back to disabled.
 - **C2 — a retry starts while the first clear is still in flight.** `clearAction` is called a second time, the row is busy again, and the new window is a full `PENDING_TIMEOUT_MS` rather than the remainder of the old one.
 - **C3 — the first attempt fails after the retry started.** No alert paints; the ordinal drops the superseded result and the live attempt keeps the row busy.
-- **C4 — closed during the window, reopened after the watchdog fired.** Row enabled, notice intact.
+- **C4 — the menu is closed WHILE PENDING and the window expires while it is still closed.** This is the independence claim made executable, and round 3 was right that the earlier version did not test it: advancing past the window and only then closing proves that a timed-out phase survives a close, which is a much weaker statement and cannot detect a watchdog that was cancelled by the close or conditioned on `open`. The announcer is outside the popover, so the flip from `Switching person` to the notice is observable WITHOUT reopening, and the case reads it there. Reopening afterwards must then show the row enabled.
 - **C5 — a theme flip while timed out.** Independent state; the menu stays open and the switch row keeps its own state.
 - **C6 — the INVERSE settlement order: the retry settles while the first attempt is still hung** (round 1 F1). Both directions of it, because they fail differently. Retry succeeds: the row returns to enabled and the region empties, rather than staying busy until a second watchdog fires. Retry fails: exactly one alert, the row enabled, the region empty, and it must STAY that way past the moment the retry's own watchdog would have fired, since a phase that never returned to idle would paint the timeout notice on top of the alert. The stale first attempt then settling adds nothing in either direction.
 - **C8 — the settle and the watchdog come due together** (round 2 F1). The queued callback must not write `timedout` over a phase the settle already returned to idle, and the error the settle reported must stand alone.
-- **C9 — a watchdog queued for a SETTLED attempt arrives during a LATER attempt's window** (round 2 F1). It must not end that window early. This is the sibling's bfcache stale-timer shape (`app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx:87-91` records it there) reaching this component through a different door.
 - **C10 — the action rejects with a SERVER-shaped error carrying an opaque digest** (round 2 F2). Reported inline like any other failure, because an opaque digest is what an ordinary server-action failure looks like; only real Next control flow is rethrown.
 - **C7 — the action REJECTS rather than resolving** (round 1 F2). The component stays mounted, the row returns to enabled, the region empties, and the generic failure alert renders. Without the catch the nearest error boundary replaces the component and none of the above is observable.
 
@@ -502,7 +524,7 @@ components/shared/pendingTimeout.ts (new), `components/auth/AvatarMenu.tsx`, `ap
 
 ## Task 1 — the watchdog, on one shared constant
 
-<!-- task: red=`pnpm vitest run tests/components/auth/avatarMenu.test.tsx` red-state=authored red-target=`components/auth/AvatarMenu.tsx:108` why=`switchPending comes straight from useTransition with no watchdog beside it and onSwitchSubmit guards re-entry on that raw flag, so every new case asserting the row re-enables at 8s, that a retry reaches clearAction a second time, that the announcer swaps to the timeout notice, or that a rejected clear leaves the component mounted with an alert, fails until the switchPhase machine, its timer and its catch land` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7,AC-8,AC-9,AC-10,AC-11,AC-12,AC-13,AC-14,AC-15,AC-16 -->
+<!-- task: red=`pnpm vitest run tests/components/auth/avatarMenu.test.tsx` red-state=authored red-target=`components/auth/AvatarMenu.tsx:108` why=`switchPending comes straight from useTransition with no watchdog beside it and onSwitchSubmit guards re-entry on that raw flag, so every new case asserting the row re-enables at 8s, that a retry reaches clearAction a second time, that the announcer swaps to the timeout notice, or that a rejected clear leaves the component mounted with an alert, fails until the switchPhase machine, its timer and its catch land` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7,AC-8,AC-9,AC-10,AC-11,AC-12,AC-14,AC-15,AC-16 -->
 
 **What is red and why.** A new describe in `tests/components/auth/avatarMenu.test.tsx` holds a `clearAction` unresolved and advances fake timers past 8,000 ms. On the live tree `switchPending` is the raw `useTransition` flag (`components/auth/AvatarMenu.tsx:108`) and the re-entry guard reads it (`components/auth/AvatarMenu.tsx:116`), so the row stays `aria-disabled="true"`, `aria-busy="true"`, the announcer keeps reading `Switching person`, and the second tap never reaches `clearAction`. That was measured, not predicted: the reachability probe above ran exactly this shape against the unmodified component and passed. Every new case therefore fails until the implementation lands.
 
@@ -513,15 +535,14 @@ components/shared/pendingTimeout.ts (new), `components/auth/AvatarMenu.tsx`, `ap
 - AC-3: a clear that settles at 500 ms behaves exactly as today: busy then not, announcer `Switching person` then empty, and the timeout notice never appears in the document. The existing cases at `tests/components/auth/avatarMenu.test.tsx:647` and `tests/components/auth/avatarMenu.test.tsx:674` pass with no edit. (discharged by Task 1)
 - AC-4: compound C1. The clear settles at 20,000 ms with no retry: the announcer is empty, the row is enabled, and `clearAction` was called exactly once. (discharged by Task 1)
 - AC-5: compound C3. The first attempt resolves `{ ok: false }` AFTER a retry has started: no `role="alert"` is in the document and the row is still busy for the live attempt. When the retry then fails on its own, the alert DOES appear, so the case cannot pass by the component having stopped reporting failures at all. (discharged by Task 1)
-- AC-6: compound C4. Closing and reopening during the timed-out window leaves the row enabled and the announcer text unchanged. Its premise is on its own inputs: `clearAction` ran, and the timeout notice is present BEFORE the close, so the assertion after the reopen is about survival rather than about a notice the close itself could have produced (round 1 F3). (discharged by Task 1)
+- AC-6: compound C4, and it is the independence claim rather than a survival claim. The menu is closed while the row is PENDING, the clock then crosses the window with the menu still closed, and the announcer, which is outside the popover, is read there: it must have flipped from `Switching person` to the notice with nobody reopening anything. Reopening then shows the row enabled. Round 3 F3: the earlier version advanced past the window BEFORE closing, which proves only that an already-timed-out phase survives a close and cannot detect a watchdog cancelled by the close or conditioned on `open`. (discharged by Task 1)
 - AC-7: `PENDING_TIMEOUT_MS` has exactly one declaration and both consumers import it. **Discharged entirely by `tests/docs/_metaInteractionTimingInventory.test.ts`, with NO embedded case, and round 2 F4 is why.** A case that advances the imported constant and asserts the row flips cannot tell the shared constant from a component-local `8_000`: both produce the same behaviour, so it would pass by numeric coincidence while claiming to pin linkage. The derived guard genuinely pins it, because a second declaration anywhere under `app/**` or `components/**` (a named constant, or a bare literal delay the scanner reports as `timer(8000)`) becomes a new scanner row and reds the parity test until `DESIGN.md` lists it. Dropping the case also removes the test file's import of a module the GREEN step creates, which is what made the declared RED unreproducible in TDD order (round 2 F3). (discharged by Task 1)
 - AC-8: `tests/show/pickerAffordance.test.tsx` and `tests/show/claimedRowTransitionAudit.test.ts` pass with no edit, so the hoist changed the sibling's behaviour and its conditional census not at all. Verified at plan time: the census counts `? (`, `&& (` and `if (` and totals 7 before the hoist and 7 after, against `DECLARED.length` of 7. (discharged by Task 1)
 - AC-9: compound C6, both directions. With the first attempt still hung, a retry that RESOLVES ok leaves the row enabled, the announcer empty and no alert, and the stale first settle changes nothing. A retry that FAILS leaves the row enabled, the announcer empty and exactly ONE alert, and it is still exactly that 30,000 ms later, so a phase that never returned to idle would paint the timeout notice over the alert and fail here. The stale first failure adds no second alert. (discharged by Task 1)
-- AC-10: compound C7. A `clearAction` that REJECTS leaves the component mounted, the row enabled, the announcer empty and the generic alert rendered. The premise is the rejection actually reaching the component, asserted by the action having been called; the discriminating half is `screen.getByTestId("avatar-menu")` still resolving, which is what an error boundary would take away. (discharged by Task 1)
+- AC-10: compound C7, on the same boundary harness. A rejection with NO digest at all (`new Error("network")`, a transport fault rather than a server-reported one) leaves the boundary untouched, the component mounted, the row enabled, the announcer empty and the generic alert rendered. Kept alongside AC-14 because it is the shape with no digest to classify, and because it is the case round 1 filed. (discharged by Task 1)
 - AC-11: `tests/styles/tapTargetCensus.ts`'s row for the sibling names line 87 rather than 101, and `tests/styles/interactiveScanCore.test.ts` passes. The census is DERIVED from a scan, so the row must follow the button the hoist moved. (discharged by Task 1)
 - AC-12: compound C8. With the settle resolved and the watchdog due in the same flush, the phase ends `idle` and the alert stands alone. **Green before and after, and mutant-directed rather than tree-directed:** with no watchdog at all nothing writes over the settled state either, so this case does not discriminate against today's tree. It discriminates against the shipped mechanism with the functional read removed, which is the mutant that reintroduces round 2 F1. That mutant is MANDATED in the task's mutant list, not assumed: the standalone probe reported `phase=timedout status=error` without the guard and `phase=idle status=error` with it, and the same must be observed on the real component before the diff is dispatched. (discharged by Task 1)
-- AC-13: compound C9. Attempt 1 settles, attempt 2 starts immediately, and attempt 1's queued watchdog arrives inside attempt 2's window: the row is still busy one tick before attempt 2's own deadline. **Green before and after, mutant-directed like AC-12**, and its mutant is the ordinal removed while the functional read stays. Also mandated in the task's mutant list; the standalone probe reported the window intact with the ordinal, ended early without it. (discharged by Task 1)
-- AC-14: compound C10, both directions of the classifier. A rejection carrying an opaque string digest (`"3693416880"`, the shape the installed Next 16.3.0 produced for an ordinary server failure) is reported INLINE with the component still mounted; a rejection carrying `"NEXT_REDIRECT;replace;/x;307;"` is rethrown, asserted by the transition's rejection escaping rather than an alert appearing. The two together are what distinguish `unstable_rethrow` from the digest sniff round 2 refuted; a case with only a bare `Error` passes under both and proves neither. (discharged by Task 1)
+- AC-14: compound C10, both directions of the classifier, asserted THROUGH THE COMPONENT rather than through Next's classifier. The menu renders inside a test error boundary and the same harness runs twice. A rejection carrying `"NEXT_REDIRECT;replace;/x;307;"` must reach the boundary: `boundaryCaught` true, the row gone. A rejection carrying the opaque `"3693416880"`, the shape the installed Next 16.3.0 produced for an ordinary server failure, must NOT: boundary untouched, row present and enabled, the generic alert rendered. Probed on that harness before it was written down, and the two lines are the whole finding: `REDIRECT boundaryCaught=true rowPresent=false` against `OPAQUE boundaryCaught=false rowPresent=true status=error`. Round 3 F2: the earlier version called `unstable_rethrow` directly, which tests Next's classifier and not this component, and then let the redirect reject inside a bare `act`, where the rethrow fails the case rather than being asserted. (discharged by Task 1)
 - AC-15: tests/components/auth/avatarMenuTransitionAudit.test.ts exists and passes: every ternary, `&&` guard and `if` in `components/auth/AvatarMenu.tsx` carries a DECLARED row with a §4.6 treatment, and the totality assertion pins the count against `DECLARED.length` so a branch added later fails rather than passing silently. Round 2 F5: the component gained a state and a Transition Inventory amendment with no structural audit, which the mandatory writing-plans contract requires, and the only audit in the gate list was the sibling's. (discharged by Task 1)
 - AC-16: compound C5, which round 2 F5 correctly observed had no case. A theme flip performed while the row is TIMED OUT leaves the menu open, the row enabled and the timeout notice intact, and the theme change survives. The existing compound at `tests/components/auth/avatarMenu.test.tsx:305` runs from open-idle and does not reach this state. (discharged by Task 1)
 
@@ -531,27 +552,26 @@ components/shared/pendingTimeout.ts (new), `components/auth/AvatarMenu.tsx`, `ap
 
 ```
  × re-enables the row at the timeout and says so (AC-1)     re-enabled just after 8s: expected 'true' to be 'false'
- × admits a retry after the timeout (AC-2)                  timed out, not merely idle: expected 'Switching person' to be 'Still switching. Try again.'
+ × admits a retry after the timeout (AC-2)                  timed out, not merely idle
  × COMPOUND C1 (AC-4)                                       timed out, waiting on the stale settle
  × COMPOUND C3 (AC-5)                                       two attempts in flight: expected 2 times, got 1
- × COMPOUND C4 (AC-6)                                       the notice exists before the close
+ × COMPOUND C4 window expires while CLOSED (AC-6)           the watchdog fired while closed
  × COMPOUND C6 ok-order (AC-9)                              two attempts in flight, the older one hung
  × COMPOUND C6 fail-order (AC-9)                            two attempts in flight, the older one hung
- × COMPOUND C7 rejection (AC-10)                            Error: network
- × COMPOUND C10 opaque digest (AC-14)                       Error: server
- × COMPOUND C10 NEXT_REDIRECT (AC-14)                       Error: NEXT_REDIRECT
  × COMPOUND C5 theme flip while timed out (AC-16)           timed out before the theme flip
- Tests  11 failed | 40 passed (51)
+ × COMPOUND C7 transport rejection (AC-10)                  not framework control flow: expected true to be false
+ × COMPOUND C10 opaque digest (AC-14)                       an opaque digest is not control flow: expected true to be false
+ Tests  10 failed | 40 passed (50)
 
  tests/components/auth/avatarMenuTransitionAudit.test.ts
  Tests  10 failed | 16 passed (26)   totality: expected 19 to be 24
 ```
 
-Eleven red in the behavioural suite and ten in the audit, each on its own first assertion, with the 38 existing cases untouched. **This run had NO components/shared/pendingTimeout.ts on disk**, which is the point of round 2 F3: the cases no longer import a module the GREEN step creates, so the RED is reproducible in the order the plan states rather than only with the implementation half-landed. `pnpm typecheck` was clean over the splice.
+Ten red in the behavioural suite and ten in the audit, each on its own first assertion, with the 38 existing cases untouched. The two rejection reds are the fault stated as a boundary observation rather than as an escaping error: today there is no catch, so BOTH a transport rejection and an opaque server digest reach the boundary, and `expected true to be false` is that. The third rejection case, the real `NEXT_REDIRECT`, is green in this run and stays green, because reaching the boundary is what SHOULD happen to control flow; it is the invariant the repair must not break. **This run had NO components/shared/pendingTimeout.ts on disk**, which is the point of round 2 F3: the cases no longer import a module the GREEN step creates, so the RED is reproducible in the order the plan states rather than only with the implementation half-landed. `pnpm typecheck` was clean over the splice.
 
 Three of the four rejection-shaped reds are the fault itself escaping: `Error: network`, `Error: server` and `Error: NEXT_REDIRECT` are unhandled rejections leaving the transition, which is exactly what the catch converts into the inline alert for the first two and deliberately preserves for the third.
 
-**AC-3, AC-12 and AC-13 are green in this run and stay green after**, and each says so at its own site. AC-3 is the unchanged-behaviour guard. AC-12 and AC-13 are mutant-directed: with no watchdog at all, nothing writes over a settled state and nothing ends a later attempt's window either, so neither discriminates against today's tree. Their mutants are mandated below rather than assumed. **AC-3 is GREEN today and that is its job:** it is the unchanged-behaviour guard, green before the change and green after, and it is the case that would go red if the watchdog leaked into the ordinary path. `pnpm typecheck` was clean over the spliced file, so the snippets compile under `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` as written. The splice and the constant module were then reverted; the tree is back to the plan commit.
+**AC-3, AC-12 and AC-14's redirect half are green in this run and stay green after**, and each says so at its own site. AC-3 is the unchanged-behaviour guard: green before, green after, red if the watchdog ever leaks into the ordinary path. AC-12 is mutant-directed, because with no watchdog nothing writes over a settled state either. AC-14's redirect half is the preserved invariant. All three have mandated mutants below rather than assumed ones. `pnpm typecheck` was clean over the spliced file, so the snippets compile under `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` as written. The splice was then reverted; the tree is back to the plan commit.
 
 ```tsx
 describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", () => {
@@ -788,7 +808,13 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
     expect(screen.getByRole("alert")).toBeTruthy();
   });
 
-  it("COMPOUND C4: closing and reopening during the window keeps the row enabled and the notice (AC-6)", () => {
+  it("COMPOUND C4: the window expires while the menu is CLOSED (AC-6)", () => {
+    // Round 3 F3. The earlier version timed out BEFORE closing, which proves
+    // only that a timed-out phase survives a close: it cannot tell a live
+    // watchdog from one the close cancelled or that was conditioned on `open`.
+    // Here the menu is closed while PENDING and the clock crosses the window
+    // with it still closed. The announcer sits outside the popover, so the flip
+    // is observable without reopening, and that is the independence claim.
     vi.useFakeTimers();
     const first = held();
     const action = vi.fn(() => first.promise);
@@ -796,24 +822,29 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
     act(() => {
       fireEvent.click(item);
     });
+    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
+    expect(region.textContent, "pending, not yet timed out, before the close").toBe(
+      "Switching person",
+    );
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-trigger")); // close, still pending
+    });
+    expect(screen.queryByTestId("avatar-menu-popover"), "the menu really is closed").toBeNull();
+    expect(
+      screen.getByTestId("avatar-menu-switch-announcer").textContent,
+      "still pending while closed",
+    ).toBe("Switching person");
+
     act(() => {
       vi.advanceTimersByTime(8_100);
     });
-    // Premise on this case's own inputs: the clear ran, and the notice is
-    // present BEFORE the close. Asserting only that the row reads enabled would
-    // be equally true of ordinary idle, and the post-reopen notice assertion
-    // could not then tell survival from something the close itself produced
-    // (round 1 F3).
-    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
-    expect(region.textContent, "the notice exists before the close").toBe(NOTICE);
-    expect(item.getAttribute("aria-disabled"), "timed out before the close").toBe("false");
-
-    act(() => {
-      fireEvent.click(screen.getByTestId("avatar-menu-trigger")); // close
-    });
-    expect(screen.queryByTestId("avatar-menu-popover")).toBeNull();
-    // The announcer is on the always-mounted root, so it survives the close.
-    expect(screen.getByTestId("avatar-menu-switch-announcer").textContent).toBe(NOTICE);
+    // The whole case: the watchdog ran while the menu was closed, and the
+    // always-mounted announcer says so without anyone reopening it.
+    expect(
+      screen.getByTestId("avatar-menu-switch-announcer").textContent,
+      "the watchdog fired while closed",
+    ).toBe(NOTICE);
 
     openMenu();
     expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
@@ -909,33 +940,6 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
     expect(screen.queryAllByRole("alert"), "the stale failure adds nothing").toHaveLength(1);
   });
 
-  it("COMPOUND C7: a REJECTED clear reports inline instead of reaching an error boundary (AC-10)", async () => {
-    // Round 1 F2, probed by the reviewer against React 19.2.4: a rejected async
-    // transition action surfaces as a render error, so without the catch the
-    // nearest boundary replaces this component and there is no row left for the
-    // watchdog to re-enable.
-    const attempt = rejectable();
-    const action = vi.fn(() => attempt.promise);
-    const { item, region } = mount(action);
-    act(() => {
-      fireEvent.click(item);
-    });
-    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
-    expect(item.getAttribute("aria-disabled"), "busy before the rejection").toBe("true");
-
-    await act(async () => {
-      attempt.reject(new Error("network"));
-      await attempt.promise.catch(() => {});
-    });
-    // The discriminating assertion: an error boundary would have taken this
-    // node away entirely.
-    expect(screen.queryByTestId("avatar-menu"), "the component is still mounted").not.toBeNull();
-    expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
-      "false",
-    );
-    expect(region.textContent).toBe("");
-  });
   it("COMPOUND C8: a settle and a due watchdog in one flush leave the alert standing alone (AC-12)", async () => {
     // Round 2 F1. The callback is already QUEUED when the settle schedules its
     // update, and clearTimeout cannot unfire it. Probed without the callback's
@@ -969,96 +973,8 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
     expect(screen.getByRole("alert")).toBeTruthy(); // getBy: fake timers, see AC-5
   });
 
-  it("COMPOUND C9: a watchdog queued for a SETTLED attempt does not end the next one's window (AC-13)", async () => {
-    // Round 2 F1, the other half. The ordinal is what refuses this; a callback
-    // carrying only the functional read finds the phase at "pending" (the NEW
-    // attempt's) and ends a window that is not its own.
-    //
-    // GREEN BEFORE AND AFTER, deliberately: with no watchdog at all nothing
-    // ends attempt 2's window either, so this case does not discriminate
-    // against today's tree. It discriminates against the ONE mutant that
-    // matters, a callback with the functional read and no ordinal, and that was
-    // run: without the ordinal the probe reported the window ended early, with
-    // it the phase stayed "pending". Stated rather than left for a reviewer to
-    // rediscover.
-    vi.useFakeTimers();
-    const { first, second, action } = twoAttempts();
-    const { item } = mount(action);
-    act(() => {
-      fireEvent.click(item);
-    });
-    await act(async () => {
-      first.resolve({ ok: true });
-      await first.promise;
-    });
-    // Premise: attempt 1 really did settle, so the timer now in flight belongs
-    // to nobody, which is the whole point of the case.
-    expect(item.getAttribute("aria-disabled"), "attempt 1 settled").toBe("false");
 
-    act(() => {
-      fireEvent.click(item);
-    });
-    expect(action, "attempt 2 started").toHaveBeenCalledTimes(2);
-    act(() => {
-      vi.advanceTimersByTime(PENDING_WINDOW_MS - 1);
-    });
-    expect(item.getAttribute("aria-disabled"), "attempt 2's window is intact").toBe("true");
 
-    await act(async () => {
-      second.resolve({ ok: true });
-      await second.promise;
-    });
-  });
-
-  it("COMPOUND C10: an opaque server digest reports inline, and real Next control flow is rethrown (AC-14)", async () => {
-    // Round 2 F2. Both directions, because a case using a bare Error passes
-    // under the digest sniff AND under unstable_rethrow and proves neither.
-    const ordinary = rejectable();
-    const action = vi.fn(() => ordinary.promise);
-    const { item, region } = mount(action);
-    act(() => {
-      fireEvent.click(item);
-    });
-    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
-
-    // The shape the installed Next produced for an ORDINARY server failure.
-    await act(async () => {
-      ordinary.reject(Object.assign(new Error("server"), { digest: "3693416880" }));
-      await ordinary.promise.catch(() => {});
-    });
-    expect(screen.queryByTestId("avatar-menu"), "still mounted, not on a boundary").not.toBeNull();
-    expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
-      "false",
-    );
-    expect(region.textContent).toBe("");
-  });
-
-  it("COMPOUND C10: a NEXT_REDIRECT digest is rethrown rather than reported (AC-14)", async () => {
-    const control = rejectable();
-    const action = vi.fn(() => control.promise);
-    const { item } = mount(action);
-    act(() => {
-      fireEvent.click(item);
-    });
-    const redirect = Object.assign(new Error("NEXT_REDIRECT"), {
-      digest: "NEXT_REDIRECT;replace;/x;307;",
-    });
-    // Asserted through the classifier the component uses, on this case's own
-    // input, rather than by waiting for a boundary jsdom has no way to show:
-    // control flow rethrows, the ordinary digest above does not.
-    expect(() => unstable_rethrow(redirect), "real control flow rethrows").toThrow();
-    expect(
-      () => unstable_rethrow(Object.assign(new Error("server"), { digest: "3693416880" })),
-      "an opaque server digest does not",
-    ).not.toThrow();
-
-    await act(async () => {
-      control.reject(redirect);
-      await control.promise.catch(() => {});
-    });
-    expect(action).toHaveBeenCalledTimes(1);
-  });
 
   it("COMPOUND C5: a theme flip while TIMED OUT leaves the row and the notice alone (AC-16)", () => {
     // Round 2 F5: C5 was declared with no case that ever enters timed-out. The
@@ -1089,10 +1005,97 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
     );
     expect(screen.getByTestId("avatar-menu-switch-announcer").textContent).toBe(NOTICE);
   });
+  /**
+   * The rejection cases render the menu inside an error boundary, because
+   * "did the component rethrow" is only answerable by asking what the boundary
+   * caught. Round 3 F2: calling `unstable_rethrow` directly in the test asserts
+   * Next's classifier rather than this component, and letting a control-flow
+   * rejection escape a bare `act` fails the case instead of proving anything.
+   */
+  class CatchBoundary extends Component<{ children: ReactNode }, { caught: boolean }> {
+    // `override` on both: this repo's tsconfig sets noImplicitOverride, and
+    // without it typecheck fails TS4114 while vitest passes, which is the
+    // strip-types trap the writing-plans rule exists for.
+    override state = { caught: false };
+    static getDerivedStateFromError() {
+      return { caught: true };
+    }
+    override render() {
+      return this.state.caught ? <div data-testid="switch-boundary" /> : this.props.children;
+    }
+  }
+
+  /** Reject one clear with `thrown`, and report what the boundary saw. */
+  async function rejectWith(thrown: unknown) {
+    const attempt = rejectable();
+    const action = vi.fn(() => attempt.promise);
+    render(
+      <CatchBoundary>
+        <AvatarMenu name="Doug L." role="Lead" {...ROUTE} clearAction={action} />
+      </CatchBoundary>,
+    );
+    openMenu();
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+    });
+    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
+    // React logs a caught boundary error; silence it so a PASSING case is quiet.
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await act(async () => {
+        attempt.reject(thrown);
+        await attempt.promise.catch(() => {});
+      });
+    } catch {
+      // A rethrown control-flow error surfaces here. That it surfaced is not
+      // the assertion; what the boundary caught is.
+    }
+    logged.mockRestore();
+    return { caught: screen.queryByTestId("switch-boundary") !== null };
+  }
+
+  it("COMPOUND C7: a transport rejection with no digest reports inline (AC-10)", async () => {
+    const { caught } = await rejectWith(new Error("network"));
+    expect(caught, "not framework control flow, so nothing reaches the boundary").toBe(false);
+    expect(screen.queryByTestId("avatar-menu"), "the component is still mounted").not.toBeNull();
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
+      "false",
+    );
+    expect(screen.getByTestId("avatar-menu-switch-announcer").textContent).toBe("");
+  });
+
+  it("COMPOUND C10: an OPAQUE server digest reports inline, it does not reach the boundary (AC-14)", async () => {
+    // "3693416880" is the shape the installed Next produced for an ORDINARY
+    // server failure. The digest test round 2 refuted would send this one to
+    // the boundary, which is the fault the catch exists to prevent.
+    const { caught } = await rejectWith(Object.assign(new Error("server"), { digest: "3693416880" }));
+    expect(caught, "an opaque digest is not control flow").toBe(false);
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
+      "false",
+    );
+  });
+
+  it("COMPOUND C10: a NEXT_REDIRECT digest DOES reach the boundary (AC-14)", async () => {
+    // The other direction, and the pair is the point: a case that only ever
+    // rejects a bare Error passes under the refuted digest test and under
+    // `unstable_rethrow` alike, and so distinguishes nothing.
+    //
+    // GREEN BEFORE AND AFTER: today there is no catch at all, so control flow
+    // reaches the boundary by default. This case is the invariant that the
+    // repair must not break, and it is mutant-directed against a catch that
+    // swallows everything, which is mandated below.
+    const { caught } = await rejectWith(
+      Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;replace;/x;307;" }),
+    );
+    expect(caught, "real control flow is rethrown untouched").toBe(true);
+    expect(screen.queryByTestId("avatar-menu-switch-person"), "the row went with it").toBeNull();
+  });
 });
 ```
 
-`PENDING_TIMEOUT_MS` and `ClearIdentityResult` are imported at the top of the file; `ClearIdentityResult` already is (`tests/components/auth/avatarMenu.test.tsx:27`).
+The file needs two new imports for these cases: `Component` and `type ReactNode` from `react`, for the boundary harness; `ClearIdentityResult` is already imported (`tests/components/auth/avatarMenu.test.tsx:27`). `unstable_rethrow` is NOT imported by the test at all any more (round 3 F2: asserting through Next's classifier tests Next, not this component). It must NOT import `PENDING_TIMEOUT_MS` either: that module does not exist until GREEN, and importing it is what made the declared RED unreproducible in TDD order (round 2 F3). Round 3 F4 caught this line still instructing the opposite.
 
 **GREEN — the implementation.**
 
@@ -1118,7 +1121,7 @@ pnpm format:check
 
 String-presence, per the standing four: (a) `SWITCH_TIMEOUT_NOTICE` emptied; (b) the notice with an appended suffix; (c) the notice present in the module but not rendered, the announcer left on the old two-branch text; (d) the discriminating parameter varied, `PENDING_TIMEOUT_MS` set to 4,000 and to 12,000 in turn.
 
-Mechanism, one per guard the plan claims is load-bearing: (e) the watchdog callback's functional read replaced by a bare `setSwitchPhase("timedout")`, which must red AC-12; (f) the callback's attempt-ordinal check deleted, which must red AC-13; (g) `unstable_rethrow(error)` replaced by the `typeof digest === "string"` test round 2 refuted, which must red AC-14's opaque-digest case; (h) the ordinal check in the SETTLE path deleted, which must red AC-5. A guard whose mutant reds nothing is a guard the suite does not actually hold, and it is better to learn that here than from the next reviewer.
+Mechanism, one per guard the plan claims is load-bearing: (e) the watchdog callback's functional read replaced by a bare `setSwitchPhase("timedout")`, which must red AC-12; (f) `unstable_rethrow(error)` replaced by the `typeof digest === "string"` test round 2 refuted, which must red AC-14's opaque-digest case; (h) the ordinal check in the SETTLE path deleted, which must red AC-5. A guard whose mutant reds nothing is a guard the suite does not actually hold, and it is better to learn that here than from the next reviewer.
 
 **Anti-tautology.** Every case states its premise on its OWN inputs before the assertion that rests on it: the tap reached `clearAction`; the watchdog fired before the retry; the settle landed inside the window; two attempts really were in flight. AC-5 carries the live-failure half specifically so a component that stopped reporting failures at all cannot pass it, and AC-1 pins the window from both sides so a shorter timeout cannot pass by also ending enabled.
 
