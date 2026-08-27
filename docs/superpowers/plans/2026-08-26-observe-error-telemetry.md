@@ -62,7 +62,7 @@ Replace the four-way table at `tests/admin/loadRecentAutoApplied.test.ts:299-318
 
 ## Task 2 — the walker and the remaining 85 sites, in one commit
 
-<!-- task: red=`pnpm exec vitest run tests/admin/_metaInfraEmitCover.test.ts` ac=AC-1,AC-2,AC-5 -->
+<!-- task: red=`pnpm exec vitest run tests/admin/_metaInfraEmitCover.test.ts` ac=AC-1,AC-2,AC-5,AC-6 -->
 
 **One task, not three, and the scanner is inside it.** Splitting the walker from the sweep left the cover test red at every intermediate commit; splitting the scanner out gave that task a module-absence red. Both are cured the same way: the scanner, its unit suite, the cover meta-test and the 85 repairs land together, and the red is production.
 
@@ -85,7 +85,9 @@ Sites, for sequencing only — the walker's output is authoritative:
 **Two completeness claims are DERIVED here, not asserted by adding rows.** An earlier draft named the two missing registry rows and left AC-5 and AC-6 resting on that list, which is the case-list repair the orchestrator's condition forbids and which goes stale the moment a file is added. Both are now computed from the same walk that produces the reported set:
 
 - **`infraRegistry` completeness.** Every file the walk found a construction in must appear as some `infraRegistry` entry's `path` (`tests/admin/_metaInfraContract.test.ts`). The cover file set is already in hand; the assertion is a subset check whose failure names the unregistered files. `roleTokenMappings` and `embeddedAdminEmails` are what it reports today — a result, not a list to maintain.
-- **`NEW_FORENSIC_CODES` completeness.** Every `code:` string literal the scanner saw inside a `log.*` span in `lib/admin/**` must be a member of `NEW_FORENSIC_CODES` (`tests/log/_auditableMutations.ts`). The scanner already parses those object literals to find `code`; collecting the literal costs nothing, and the subset check turns Task 3's "omission is invisible" into "omission is a named failure".
+- **`NEW_FORENSIC_CODES` completeness.** Every `code:` string literal the scanner saw inside a `log.*` span in `lib/admin/**` must be a member of `NEW_FORENSIC_CODES` (`tests/log/_auditableMutations.ts`). The scanner already parses those object literals to find `code`; collecting the literal costs nothing, and the subset check turns "omission is invisible to the leak check" into "omission is a named failure".
+
+  **The registry edit lands in THIS commit, and an earlier draft scheduled it into the next one.** That draft put the subset check here and the `NEW_FORENSIC_CODES` rows in a following task, which cannot work: the four #882 codes are already absent from the registry today (`grep -n 'RECENT_AUTO_APPLIED_CLIENT_THREW' tests/log/_auditableMutations.ts` returns nothing), so this task's own named red command would still be failing at its commit boundary. A task that adds an assertion and defers what satisfies it has moved its red into the next commit rather than discharged it. Every code this arc introduces — the five loader codes and every code the 85 repairs add — is registered here, in one edit with one comment block naming the arc.
 
 Both are subset assertions over sets the walk derives, so a file or code added later is covered without an edit here.
 
@@ -99,15 +101,7 @@ Both are subset assertions over sets the walk derives, so a file or code added l
 4. **Both propagation callee categories witnessed** — ≥1 exemption whose callee is an imported identifier (`loadOpenIdentityHolds`), and ≥1 whose callee is a function declared in the same file (`runBellPipeline` in `lib/admin/bellFeed.ts:191`). A resolver that resolves imports but not local declarations satisfies a one-witness premise while reporting the two `bellFeed` sites, and the repair for a reported propagation is a duplicate emit — the exact fault the exemption exists to prevent. The core's own fixture cannot catch this: its resolver answer is test-controlled.
 5. **The checker resolved usefully**, not merely answered: a known object-typed payload must satisfy the positive object test and a known scalar payload must fail it. A broken program yields `any`, which the positive predicate reports rather than accepts (spec §5.4), but this premise says so out loud instead of leaving a wall of reports to read as real findings.
 
-## Task 3 — register every new forensic code
-
-<!-- task: red=`pnpm exec vitest run tests/log/_metaAdminOutcomeContract.test.ts` ac=AC-6 -->
-
-Add every code this arc introduces to `NEW_FORENSIC_CODES` (`tests/log/_auditableMutations.ts`), in one edit with one comment block naming the arc.
-
-**REGRESSION PIN for the leak check; the completeness half is a real RED in Task 2.** Assertion 4 at `tests/log/_metaAdminOutcomeContract.test.ts:87-91` is a leak check — registered codes must never appear in the §12.4 producer set — and it cannot see an omission. That gap is why an earlier draft's AC-6 was unsupported. Task 2's derived subset check now fails on any `lib/admin` code missing from the registry, so this task's edit is what turns that red green, and this suite pins the other direction: that none of them leaks into the catalog.
-
-## Task 4 — the client projection and the boundary wire
+## Task 3 — the client projection and the boundary wire
 
 <!-- task: red=`pnpm exec vitest run tests/observe/reportClientError.test.ts` ac=AC-7,AC-8 -->
 
@@ -123,7 +117,7 @@ The projection's own suite ports `docs/superpowers/specs/observability/probes/20
 
 **Anti-tautology.** Expected values are derived from the fixture: the test builds `{ code, message }` from local constants and asserts the projected message equals those two joined, so dropping either field fails. The two-distinct-objects test asserts `fetch` was called twice **and** that the bodies differ in `detail` — a projection returning a constant non-empty string satisfies the weaker form and fails this one.
 
-## Task 5 — the dedup signature gains `detail`
+## Task 4 — the dedup signature gains `detail`
 
 <!-- task: red=`pnpm exec vitest run tests/observe/clientErrorTransport.test.ts` ac=AC-9 -->
 
@@ -140,7 +134,7 @@ Add the `detail` term to the signature at `lib/observe/clientErrorTransport.ts:3
 
 **The `Error` path's key changes shape, and it is the behaviour that is preserved.** The current key ends after the stack term; a fifth term appends a `|` even when `detail` is empty. That empty term is constant across every `Error` call, so no two previously-distinct keys merge and no two previously-equal keys split. The test asserts that — an `Error` deduped once still dedups once, two distinct `Error`s still produce two POSTs — never key bytes.
 
-## Task 6 — GlobalErrorListener, both handlers
+## Task 5 — GlobalErrorListener, both handlers
 
 <!-- task: red=`pnpm exec vitest run tests/observe/globalErrorListener.test.tsx` ac=AC-10,AC-11 -->
 
@@ -152,7 +146,7 @@ Update the two existing string-reason assertions at `tests/observe/globalErrorLi
 
 **Concrete failure mode caught:** a component throws a plain object at the window and its fields vanish entirely — not collapsed to `"[object Object]"` like the other two paths, simply absent.
 
-## Task 7 — headers and documented limits
+## Task 6 — headers and documented limits
 
 <!-- task: red=`pnpm exec vitest run tests/docs/_metaLedgerMintBar.test.ts` ac=AC-12 -->
 
@@ -171,15 +165,15 @@ Write each spec §9 limit into the header of the surface that owns it, with its 
 <!-- spec-lint: ignore — this file is created by this plan's implementation and is not tracked yet -->
 | 5 injected `loadHolds` double, 11 reconstructed partial object, 12 no value or control-flow resolution | `tests/admin/infraEmitScan.ts` header |
 | 9 `null`/`undefined` reasons collapse | beside the `== null` branch in `components/observe/GlobalErrorListener.tsx` |
-| 10 `context`-only `clientLog` callers | row 2's archive entry, written in Task 9 |
+| 10 `context`-only `clientLog` callers | row 2's archive entry, written in Task 8 |
 
 **No executable assertion observes this task, and the earlier draft's claim that one did was false.** `tests/docs/_metaLedgerMintBar.test.ts` does not assert that no row was filed — it constrains rows that exist, admitting product-facing rows and process-facing rows that qualify. This arc files none, so that suite stays green vacuously, and no header edit can move it either way. It is named as this task's command because it is the suite this task must not break, not because it verifies the work.
 
 The limits themselves are verified by review at closeout, against the mapping table above. That is a weaker guarantee than the rest of the plan carries, and it is stated rather than dressed up: building a guard that parses spec §9 and checks each named file for its limit would be new guard surface for a documentation task, which the process mint freeze exists to refuse.
 
-Limit 10 is deliberately not written here — spec §12 assigns it to the archive entry, so AC-12 is met only once Task 9 has run.
+Limit 10 is deliberately not written here — spec §12 assigns it to the archive entry, so AC-12 is met only once Task 8 has run.
 
-## Task 8 — impeccable dual gate
+## Task 7 — impeccable dual gate
 
 <!-- task: red=`pnpm exec vitest run tests/docs/_metaInvariant8Closeout.test.ts` ac=AC-13 -->
 
@@ -199,7 +193,7 @@ Run both halves of the impeccable v3 dual gate — the critique command, then th
 
 The `N/A` form is **not** taken: invariant 8 defines a UI surface by path (`AGENTS.md:20`), and the grammar test validates syntax rather than authorizing an exemption (spec §12).
 
-## Task 9 — archive both rows
+## Task 8 — archive both rows
 
 <!-- task: red=`pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts` ac=AC-14 -->
 
@@ -232,11 +226,11 @@ Naming those gaps is the repair. Adding cases to cover them would be building a 
 - **AC-11** a non-`Error` window throw persists `event.error`'s fields
 - **AC-12** every spec §9 limit is recorded on its owning surface with a re-run trigger, verified by review against Task 7's mapping table — no executable assertion observes this one, which Task 7 states plainly
 - **AC-13** the impeccable dual gate ran, its dispositions are recorded, and the marker parses
-- **AC-14** both rows are archived with the evidence spec §12 requires, and neither `IN PROGRESS` marker survives into main. The suite observes the archive constraint and the live-branch constraint; commit ordering is procedure, not an assertion (Task 9)
+- **AC-14** both rows are archived with the evidence spec §12 requires, and neither `IN PROGRESS` marker survives into main. The suite observes the archive constraint and the live-branch constraint; commit ordering is procedure, not an assertion (Task 8)
 
 ## Checklist
 
-- [ ] Tasks 1-9 (TDD per invariant 1; whole tree green under `pnpm heavy` before every push)
+- [ ] Tasks 1-8 (TDD per invariant 1; whole tree green under `pnpm heavy` before every push)
 - [ ] Plan self-review
 - [ ] **Adversarial review (cross-model)** — Codex, plan stage. Brief carries the closed criterion and `PROBE DOMAIN: lib/admin/**` plus the walker, per bl-orch's condition of 2026-08-27. A same-class finding is repaired by DECLINING or by a type category, never by a wider recognizer.
 - [ ] Whole-diff adversarial review to APPROVE
