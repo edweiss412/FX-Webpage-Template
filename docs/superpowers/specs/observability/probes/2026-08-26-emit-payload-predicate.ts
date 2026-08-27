@@ -69,6 +69,9 @@ const FIXTURES: Fixture[] = [
     src: `function f() { const error = () => {}; log.error("m", { code: CODE, error }); return { kind: "infra_error" as const }; }` },
   // The one the tightened rule still accepts, and §9 records it: a reconstructed partial object
   // is an object, and no static rule distinguishes it from the whole fault.
+  // Plan R1 F3: the checker failing to resolve must REPORT, never satisfy.
+  { name: "any-typed payload (unresolvable)", whole: false,
+    src: `function f() { const error = JSON.parse("{}") as any; log.error("m", { code: CODE, error }); return { kind: "infra_error" as const }; }` },
   { name: "partial object literal (DOCUMENTED LIMIT)", whole: false,
     src: `function f() { const error = { message: raw.message }; log.error("m", { code: CODE, error }); return { kind: "infra_error" as const }; }` },
 ];
@@ -108,23 +111,22 @@ function analyse(src: string): { syntactic: boolean; typed: boolean } {
         if (!hasCode || !errExpr) continue;
         // R2 predicate: bare identifier, not a `.message` member access.
         syntactic = ts.isIdentifier(errExpr);
-        // R3 repair: the type must not be a string. R4 showed that is too narrow —
-        // `error: raw.status` is a number and sails through. The rule is now the
-        // category, not the member: every part of the type must be an OBJECT type.
-        // One rule, not a growing list of rejected scalars.
+        // R3 repair: not a `string`. R4: too narrow -- `error: raw.status` is a number.
+        // Plan R1 F3: a NEGATIVE test over a scalar list also accepts `any` and the error
+        // type, so a checker that failed to resolve made every site "satisfied" -- a false
+        // pass in the one situation where the walker knows least. The test is therefore
+        // POSITIVE: every constituent must BE an object type (or `unknown`, which is what a
+        // `catch` binding is). An accept-set, not a denylist; anything the checker cannot
+        // type is reported rather than waved through.
         const t = checker.getTypeAtLocation(errExpr);
         const parts = t.isUnion() ? t.types : [t];
-        const SCALAR =
-          ts.TypeFlags.String | ts.TypeFlags.StringLike | ts.TypeFlags.Number | ts.TypeFlags.NumberLike |
-          ts.TypeFlags.Boolean | ts.TypeFlags.BooleanLike | ts.TypeFlags.BigIntLike |
-          ts.TypeFlags.ESSymbolLike | ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void |
-          ts.TypeFlags.Never | ts.TypeFlags.Enum | ts.TypeFlags.EnumLike;
-        typed = parts.length > 0 && !parts.some((p) => {
-          if (p.flags & SCALAR) return true;
-          // a function type is callable, not a payload
-          if (p.getCallSignatures().length > 0) return true;
-          return false;
-        });
+        typed =
+          parts.length > 0 &&
+          parts.every((p) => {
+            if (p.flags & ts.TypeFlags.Unknown) return true; // catch binding: the whole value
+            if (!(p.flags & ts.TypeFlags.Object)) return false; // scalars, any, error type
+            return p.getCallSignatures().length === 0; // a callable is not a payload
+          });
       }
     }
     ts.forEachChild(n, visit);

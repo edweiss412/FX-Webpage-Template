@@ -280,7 +280,7 @@ A returned expression that is neither, but whose type mentions an `infra_error` 
 **Satisfied (emit present):** the scope contains, lexically before the return and not inside a nested function body, a call to `log.error` / `log.warn` / `log.info` / `log.debug` one of whose arguments is an object literal carrying **both**:
 
 - a `code` property, and
-- an `error` property whose expression's **type is an object type** — every constituent of it, if a union — and which is not absent. Scalars (`string`, `number`, `boolean`, `bigint`, `symbol`, `null`, `undefined`, `void`, `never`, enums) and callables are rejected; `unknown` is accepted, because a `catch` binding is the whole thrown value.
+- an `error` property, not absent, **every constituent of whose type IS an object type** — a positive test, not the absence of a scalar. `unknown` is accepted, because that is what a `catch` binding is. Everything else is reported: scalars, callables, and — the reason the test is positive — `any` and the error type, which is what the checker yields when it could not resolve. A denylist over named scalars accepts `any`, so a checker that silently failed would mark every site satisfied, a false pass in the one situation where the walker knows least.
 
 **Everything else is reported by name** — file, line, and the reason it was reported.
 
@@ -305,17 +305,19 @@ The first is live at `lib/admin/loadRecentAutoApplied.ts:247` and at three more 
 
 **Two earlier drafts narrowed this the wrong way, and each left a hole one line wide.** The first required `error` to be a bare identifier — but `const error = raw.message` is a bare identifier. The second required its type not to be `string` — but `error: raw.status` is a number, and sails through. Rejecting `.message`, then `String(...)`, then a destructured binding, then a status code is a case per round, which is the widening this repo's round-economy rules exist to refuse.
 
-**The rule is the type CATEGORY, not a list of rejected members: the payload must be an object.** A fault worth recording is a structure; every way of flattening one — a member access, a `String()` call, a template, a destructured field, a status code, a boolean flag — produces a scalar, whatever the spelling. One question closes the whole family, and a scalar type nobody has thought of is rejected by the same rule rather than needing a new clause.
+**The rule is the type CATEGORY, and it is stated positively: the payload must BE an object.** A fault worth recording is a structure; every way of flattening one — a member access, a `String()` call, a template, a destructured field, a status code, a boolean flag — produces a scalar, whatever the spelling. One question closes the whole family, and a scalar type nobody has thought of is rejected by the same rule rather than needing a new clause.
 
-Measured at `docs/superpowers/specs/observability/probes/2026-08-26-emit-payload-predicate.ts` over seventeen fixtures — two whole forms, fourteen flattenings, and one absent field:
+**Positively, because a denylist has one more hole than a list can close.** An earlier draft asked "is it NOT one of these scalars", which accepts `any` and the error type — the values a checker produces when resolution fails. That inverts the guard exactly where it is least able to help.
+
+Measured at `docs/superpowers/specs/observability/probes/2026-08-26-emit-payload-predicate.ts` over eighteen fixtures — two whole forms, fifteen flattenings (including an `any`-typed payload), and one absent field:
 
 ```
 node --import tsx docs/superpowers/specs/observability/probes/2026-08-26-emit-payload-predicate.ts
 ...
-string-only predicate wrong on 13/17; object-rule predicate wrong on 1/17
+string-only predicate wrong on 14/18; object-rule predicate wrong on 1/18
 ```
 
-**What the predicate proves, stated honestly, because "whole fault" overstates it.** It proves the payload is an object rather than a scalar. It cannot prove the object is the *entire* fault: `error: { message: raw.message }` is a reconstructed partial, it is an object, and no static rule distinguishes it from the real thing. That is the one fixture the object rule still gets wrong, it is in the probe under its own name, and §9 limit 11 records it. Under the threat fence — an ordinary contributor adding a loader branch — reconstructing a partial object by hand is not a mistake anyone makes by accident; flattening to `.message` is, and that is closed.
+**What the predicate proves, stated honestly, because "whole fault" overstates it.** It proves the payload is an object rather than a scalar, an `any`, or a callable. It cannot prove the object is the *entire* fault: `error: { message: raw.message }` is a reconstructed partial, it is an object, and no static rule distinguishes it from the real thing. That is the one fixture the object rule still gets wrong, it is in the probe under its own name, and §9 limit 11 records it. Under the threat fence — an ordinary contributor adding a loader branch — reconstructing a partial object by hand is not a mistake anyone makes by accident; flattening to `.message` is, and that is closed.
 
 This is why the resolving layer exists (§5.1): the question needs a checker, and the syntactic core cannot answer it alone.
 
@@ -650,15 +652,19 @@ Each is recorded on the surface that owns it, per Eric's directive. None becomes
 
 
 <!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
-6. **`-0` and `0` share a row, and no textual rendering can separate them.** `String(-0)` is `"0"` and `JSON.stringify(-0)` is `"0"`; only `Object.is` or `1 / x` distinguishes the two, and neither survives a JSON wire body. So `{ a: -0 }` and `{ a: 0 }` — and `[-0]` against `[0]` — produce one row where two crashes occurred. These are the only two of the 22 pairs in `docs/superpowers/specs/observability/probes/2026-08-26-client-value-projection.ts` that collide; every `NaN`, `Infinity` and `-Infinity` pair discriminates, because `render` writes leaves with `String()` rather than JSON's number grammar (§6.2). Recorded in the header of `lib/observe/describeClientValue.ts`, with the re-run trigger being the probe itself.
+6. **`-0` and `0` share a row, and no textual rendering can separate them.** `String(-0)` is `"0"` and `JSON.stringify(-0)` is `"0"`; only `Object.is` or `1 / x` distinguishes the two, and neither survives a JSON wire body. So `{ a: -0 }` and `{ a: 0 }`, and `[-0]` against `[0]`, produce one row where two crashes occurred. Two of the four collisions in `docs/superpowers/specs/observability/probes/2026-08-26-client-value-projection.ts`; every `NaN`, `Infinity` and `-Infinity` pair discriminates, because `render` writes leaves with `String()` rather than JSON's number grammar (§6.2). Recorded in the header of `lib/observe/describeClientValue.ts`, with the re-run trigger being the probe itself.
 
 
 <!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
-7. **Two crashes identical for their first 200 `detail` characters and first 1000 `message` characters dedup to one POST.** The §6.4 signature slices `detail` at 200 to match the `stack` term beside it and to bound a `Set` that lives as long as the page. The worst case is one row where two were due — a conservative degrade, never a wrong row. Recorded in the header of `lib/observe/describeClientValue.ts`.
+7. **A `Date` inside one second, and a `RegExp` differing only in `lastIndex`, share a row.** Both reach the projection as strings before it can tag them: `serializeError` degrades an object with no own enumerable keys to `String(value)` (its ratified §4 limit 5), and `String()` is second-resolution for a `Date` and ignores `lastIndex` for a `RegExp`. The other two collisions in the same probe, whose `Date`-a-second-apart control proves the claim is about resolution rather than about `Date`. Repairing it means a precision rule per built-in type — `toISOString()`, then `lastIndex`, then the next one — which is the case-per-round widening this arc refused three times, and it would change what the ratified helper captures (§1.1 item 2). Recorded in the header of `lib/observe/describeClientValue.ts`, re-run trigger the probe.
 
-8. **`null` and `undefined` rejection reasons collapse to one row.** Both produce `detail = ""` at `components/observe/GlobalErrorListener.tsx`, so they share a signature. Distinguishing them would mean sending `"null"` and `"undefined"` as detail text, which changes behavior the row does not ask about and which reads worse in `app_events` than an empty field. Recorded beside the `== null` branch.
 
-9. **`context`-only `clientLog` callers are outside the wire.** `ShowRealtimeBridge.tsx:503`, `components/realtime/ShowRealtimeBridge.tsx:755`, `components/realtime/ShowRealtimeBridge.tsx:786`, `components/realtime/ShowRealtimeBridge.tsx:821` and `DevCaptureControl.tsx:126` pass their value as `context`, which `lib/observe/clientLog.ts:17-18` never mirrors. They cannot produce an `"[object Object]"` in `app_events` because they produce nothing in `app_events`. Recorded in row 2's archive entry.
+<!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
+8. **Two crashes identical for their first 200 `detail` characters and first 1000 `message` characters dedup to one POST.** The §6.4 signature slices `detail` at 200 to match the `stack` term beside it and to bound a `Set` that lives as long as the page. The worst case is one row where two were due — a conservative degrade, never a wrong row. Recorded in the header of `lib/observe/describeClientValue.ts`.
+
+9. **`null` and `undefined` rejection reasons collapse to one row.** Both produce `detail = ""` at `components/observe/GlobalErrorListener.tsx`, so they share a signature. Distinguishing them would mean sending `"null"` and `"undefined"` as detail text, which changes behavior the row does not ask about and which reads worse in `app_events` than an empty field. Recorded beside the `== null` branch.
+
+10. **`context`-only `clientLog` callers are outside the wire.** `ShowRealtimeBridge.tsx:503`, `components/realtime/ShowRealtimeBridge.tsx:755`, `components/realtime/ShowRealtimeBridge.tsx:786`, `components/realtime/ShowRealtimeBridge.tsx:821` and `DevCaptureControl.tsx:126` pass their value as `context`, which `lib/observe/clientLog.ts:17-18` never mirrors. They cannot produce an `"[object Object]"` in `app_events` because they produce nothing in `app_events`. Recorded in row 2's archive entry.
 
 
 <!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
@@ -666,7 +672,7 @@ Each is recorded on the surface that owns it, per Eric's directive. None becomes
 
 
 <!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
-12. **The walker resolves types and symbols, but not values.** It proves an emit's `error` expression is not a `string` and that a propagation's callee is declared inside the cover. It does not prove the emit runs on the returning branch when both sit in one scope, and it does not follow a fault through a helper that emits on the caller's behalf. The threat fence is an ordinary contributor adding a loader branch, not an author routing around a guard. A code-carrying emit anywhere in the guard scope satisfies it, including one that runs on a different branch within the same scope, and an emit reached through a helper function is not seen. The threat fence is an ordinary contributor adding a loader branch, not an author routing around a guard. Recorded in the header of `tests/admin/infraEmitScan.ts`.
+12. **The walker resolves types and symbols, but not values or control flow.** It proves an emit's `error` expression is an object type and that a propagation's callee is declared inside the cover. It does not prove the emit runs on the returning branch when both sit in one guard scope, and it does not follow a fault through a helper that emits on the caller's behalf. The threat fence is an ordinary contributor adding a loader branch, not an author routing around a guard. Recorded in the header of `tests/admin/infraEmitScan.ts`.
 
 ---
 
