@@ -139,16 +139,38 @@ Task ordering note (plan R1 F1): there is NO standalone manifest-types task — 
 
 impeccable-gate: critique=RAN audit=RAN p0=0 p1=5 dispositions=recorded
 
-post-merge validation probe: NOT YET RUN — see `BL-PRIVATE-IMAGE-POSTMERGE-PROBE`.
+post-merge validation probe: RAN 2026-08-27, PASSES. Evidence:
+https://github.com/edweiss412/FX-Webpage-Template/pull/761#issuecomment-5441921368
 
-Task 11 step 6 requires this evidence to live in a comment on the merged PR,
-which is why it could not ride a pre-merge commit. It did not get run at
-close-out: the probe drives the DEPLOYED validation app (`pnpm validation:smoke`
-is deployed-side by construction), and Vercel refused deployments at merge time
-under an account-level 24h rate limit. The step was left recorded only in Task
-11's own text, which is a step in a plan whose other ten tasks are done and which
-nobody re-reads — so it is filed in the open queue instead, where it is actually
-schedulable.
+Both numbers Task 11 step 6 asked for land. Fact (a): 5 `@<width>.webp` variant
+objects sit beside their 2 originals under the synced show's current
+`snapshot_revision_id` prefix, matching a variant count predicted from the source
+dimensions BEFORE the sync ran. Fact (b): 0 `DIAGRAM_VARIANT_GENERATION_FAILED`
+rows for all time, so none naming a missing module, which is the deployed-runtime
+half of the `sharp` resolution check that a production-only install could only
+approximate.
+
+It could not run at close-out. The probe drives the DEPLOYED validation app
+(`pnpm validation:smoke` is deployed-side by construction) and Vercel refused
+deployments at merge time under an account-level 24h rate limit, so there was no
+app to sync against. The step survived only as text inside Task 11 of a plan whose
+other ten tasks are done, which is why it was filed as
+`BL-PRIVATE-IMAGE-POSTMERGE-PROBE` and scheduled from the open queue rather than
+left here.
+
+Worth keeping, because it explains why the gap stayed invisible. Between this PR's
+merge and the manual sync, `sync_log` holds 4826 rows for the show and every one is
+`watermark`, with no row of any other status in the window. The watermark skip is
+reachable only in automatic mode (`lib/sync/perFileProcessor.ts:276-278`) and manual
+mode re-applies even an unchanged sheet (`lib/sync/runManualSyncForShow.ts:538`).
+
+The skip is not unconditional, and the claim is kept to what the code supports: the
+same file proceeds on an unchanged sheet at `:322` (`sheet_unavailable`, recovery),
+`:327` (`partial_failure`, asset recovery) and `:341` (cron drift resync). None
+applied, because the show was healthy on both fields those escapes read
+(`last_sync_status = 'ok'`, `snapshot_status = 'complete'`). For a HEALTHY show whose
+sheet has not changed, no scheduled path reaches the snapshot stage; a show in
+`sheet_unavailable` or `partial_failure` would have been picked up automatically.
 
 ### Invariant-8 dual gate — findings and dispositions
 

@@ -14,6 +14,8 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Re-file trigger:** a product-facing arc measurably blocked by a red that could not fire (stated verbatim in the review-modal-strip-dock and nearmiss-surface filings)
 
+**Filed 2026-08-27** as `BL-SPECLINT-RED-TRUTH-PROBE` (owner-directed; incident: `fix/mi11-removal-fallback-live-row` plan round 1).
+
 ## LIM-NUMERIC-TABLE-PROVENANCE
 
 **Shape:** A numeric table or blast-radius transcript stated in a spec with no command producing it, so nothing can compare the table to the tree: `spec:lint` parses numerics and parses fenced commands without relating them, and a hand-maintained transcript of a command's output drifts in every direction. The sibling form is a plan that quotes a command's output without that command being re-run (a claimed 106 enrolled plans where the quoted command returns 108).
@@ -33,6 +35,8 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 **Owning record:** none — this index is the record (the premisescan filing recorded it as that surface's documented limit)
 
 **Re-file trigger:** the premisescan filing stated "if a second arc burns review rounds on this class, it has an incident and it should be filed then"; the app-e2e-batch2 filing (2026-08-22) is arguably that second arc, so the trigger may already be met
+
+**Filed 2026-08-27** as `BL-SPECLINT-EXPECT-N-EXIT-STATUS` (owner-directed; incident: `fix/fitwithinclip-stale-clip-subscription` plan round 2).
 
 ## LIM-TASK-MENTION-RESOLUTION
 

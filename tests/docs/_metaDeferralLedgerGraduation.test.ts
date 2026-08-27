@@ -1754,6 +1754,23 @@ describe("supabase-upstream-fault-class: graduation carries its limits, and mint
       ).toEqual(LEDGERS.map(() => true));
       return;
     }
+    // SCOPE (owner decision 2026-08-27): the directive was given to the graduating ARC, not to
+    // the repo. Once both ARC_IDS are archived on origin/main that arc has merged and there is
+    // no branch left for "this arc mints nothing" to bind; read repo-wide it reds EVERY later
+    // filing, including the ones AGENTS.md's freeze admits (`invariant`, `product-blocked`),
+    // which is what happened to the first owner-directed filing after it landed
+    // (`docs/ledger-lim-mechanization-rows`; measured: zero ids reached main between the guard's
+    // merge in #899 and that branch, so nothing was silently lost). The live comparison therefore
+    // runs only while the graduation is still in flight; afterwards the arm asserts the state it
+    // was written to reach and stops. The positive control above keeps the comparison honest.
+    const archiveOnMain = baseTexts[1] as string;
+    const graduatedOnMain = ARC_IDS.every((id) => archiveOnMain.includes(`## ${id}`));
+    if (graduatedOnMain) {
+      expect(ARC_IDS.map((id) => archiveOnMain.includes(`## ${id}`))).toEqual(
+        ARC_IDS.map(() => true),
+      );
+      return;
+    }
     const before = new Set(
       LEDGERS.flatMap(([, opts], i) => [...ledgerIds(baseTexts[i] as string, opts)]),
     );
