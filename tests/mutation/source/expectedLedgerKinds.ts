@@ -163,7 +163,10 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // comparator also moved into `compareFindings`, whose own mutants split into
   // four sign-not-magnitude and two guarded-branch equivalents — all six with
   // control-flow arguments, which is why the surface now carries NO accepted gap.
-  taskContract: { equivalent: 22 },
+  // 22 -> 25 with the AC arm (feat/speclint-ac-unclaimed-arm): the defensive
+  // `lastIndex` reset, the declaration loop's bound, and STRUCTURED's heading
+  // bound. All three equivalent; none is an accepted gap.
+  taskContract: { equivalent: 25 },
   // The 2026-08-15 arms surfaces, enrolled with EMPTY ledgers. Both are pure
   // classifiers over literal fixtures, so every survivor is repayable by a test
   // rather than blessable: a row appearing here later is a coverage regression
