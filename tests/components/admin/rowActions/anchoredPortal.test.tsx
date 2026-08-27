@@ -391,3 +391,62 @@ describe("AnchoredPortal — natural-size measurement + self-origin filter (scro
     expect(frames.length, "a dismissal schedules nothing").toBe(0);
   });
 });
+
+/**
+ * INV-3 / AC-1 (BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN).
+ *
+ * The count is of measures REACT COMMITS DRIVE. jsdom's `ResizeObserver` is a
+ * no-op stub (`tests/setup.ts:70-81`), so observer-delivery measures do not
+ * appear here — which is exactly what makes the commit-driven count observable
+ * in isolation, and exactly why it is not a browser total (spec §1).
+ */
+describe("AnchoredPortal — the converged measure count on an open transition", () => {
+  test("one closed → open transition runs measureAndApply exactly twice", () => {
+    const anchor: StubRect = { left: 1100, top: 200, width: 44, height: 44 };
+    stubbed.set('[data-testid="anchor"]', anchor);
+    stubbed.set('[data-testid="portal-panel"]', { left: 0, top: 0, width: 260, height: 300 });
+
+    let reads = 0;
+    const prev = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
+      if (this.matches('[data-testid="anchor"]')) reads += 1;
+      return prev.call(this) as DOMRect;
+    };
+    try {
+      const { rerender } = render(<Harness open={false} />);
+
+      // PREMISE (own inputs): the CLOSED render must measure nothing, or the
+      // count below is not the cost of a transition.
+      premiseHolds("the closed render measures nothing", reads === 0);
+
+      reads = 0;
+      rerender(<Harness open />);
+      const openReads = reads;
+
+      // PREMISE (own inputs): one measure must be one anchor read, or the
+      // counted unit is ambiguous and this case would red on a refactor that
+      // changes nothing observable. Established by driving exactly ONE measure:
+      // a single window resize schedules through
+      // createRafCoalescer(measureAndApply) (AnchoredPortal.tsx:194, :223),
+      // which is a leading-edge throttle and so runs it once per flushed frame.
+      // Catches a second rect read added inside measureAndApply, which would
+      // silently double every count this case makes.
+      reads = 0;
+      window.dispatchEvent(new Event("resize"));
+      flushFrames();
+      premiseHolds("one measure is one anchor read", reads === 1);
+
+      // PREMISE (own inputs): the transition must have PLACED the panel, or a
+      // count of 2 could be two runs that both bailed out early.
+      const panel = panelNode()!;
+      premiseHolds(
+        "the transition actually placed the panel",
+        panel.style.top === `${anchor.top + anchor.height + GAP}px`,
+      );
+
+      expect(openReads).toBe(2);
+    } finally {
+      Element.prototype.getBoundingClientRect = prev;
+    }
+  });
+});

@@ -185,12 +185,19 @@ export function AnchoredPortal({
     });
   }, [anchorRef, align, preferredSide, commit]);
 
-  // Pre-paint placement on open, then re-place from every source that can move
-  // the anchor under the panel. The open-gate stays at the CALL SITE: a
-  // listener firing from a stale capture after a close must not schedule.
+  // Subscriptions only. This effect does NOT place: the every-commit effect
+  // below is the sole measurer, and it covers the open commit because it has no
+  // dependency array, not because of where it is declared (spec §3).
+  //
+  // An earlier version measured here too. That measure and the ungated effect's
+  // were the same computation on the same DOM — no re-render intervenes and
+  // nothing paints between them — so one of the two was always redundant
+  // (BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN).
+  //
+  // The open-gate stays at the CALL SITE: a listener firing from a stale capture
+  // after a close must not schedule.
   useLayoutEffect(() => {
     if (!open || !mounted) return;
-    measureAndApply();
     const coalescer = createRafCoalescer(measureAndApply);
     const schedule = () => {
       if (!open) return;
