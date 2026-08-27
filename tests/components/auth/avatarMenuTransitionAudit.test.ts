@@ -160,6 +160,13 @@ const DECLARED = [
     treatment: "instant; a sibling of role=menu, and the menu stays open behind it",
   },
   {
+    id: "C24",
+    what: "the visible timeout note renders only in the timed-out phase",
+    marker: /\{switchPhase === "timedout" \? \(/,
+    treatment:
+      "instant; a sibling of role=menu, aria-hidden so the sr-only region stays the single AT channel",
+  },
+  {
     // The census is a REGEX over the whole source, prose included, so the
     // module header's "`Not you?` button" reads as a ternary. Declared rather
     // than carved out: an exception for comments would also hide a real branch

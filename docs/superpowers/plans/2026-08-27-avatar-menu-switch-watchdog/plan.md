@@ -261,6 +261,12 @@ const DECLARED = [
     treatment: "instant; a sibling of role=menu, and the menu stays open behind it",
   },
   {
+    id: "C24",
+    what: "the visible timeout note renders only in the timed-out phase",
+    marker: /\{switchPhase === "timedout" \? \(/,
+    treatment: "instant; a sibling of role=menu, aria-hidden so the sr-only region stays the single AT channel",
+  },
+  {
     // The census is a REGEX over the whole source, prose included, so the
     // module header's "`Not you?` button" reads as a ternary. Declared rather
     // than carved out: an exception for comments would also hide a real branch
@@ -554,7 +560,7 @@ components/shared/pendingTimeout.ts (new), `components/auth/AvatarMenu.tsx`, `ap
 
 ## Task 1 — the watchdog, on one shared constant
 
-<!-- task: red=`pnpm vitest run tests/components/auth/avatarMenu.test.tsx` red-state=authored red-target=`components/auth/AvatarMenu.tsx:108` why=`switchPending comes straight from useTransition with no watchdog beside it and onSwitchSubmit guards re-entry on that raw flag, so every new case asserting the row re-enables at 8s, that a retry reaches clearAction a second time, that the announcer swaps to the timeout notice, or that a rejected clear leaves the component mounted with an alert, fails until the switchPhase machine, its timer and its catch land` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7,AC-8,AC-9,AC-10,AC-11,AC-12,AC-13,AC-14,AC-15,AC-16 -->
+<!-- task: red=`pnpm vitest run tests/components/auth/avatarMenu.test.tsx` red-state=authored red-target=`components/auth/AvatarMenu.tsx:108` why=`switchPending comes straight from useTransition with no watchdog beside it and onSwitchSubmit guards re-entry on that raw flag, so every new case asserting the row re-enables at 8s, that a retry reaches clearAction a second time, that the announcer swaps to the timeout notice, or that a rejected clear leaves the component mounted with an alert, fails until the switchPhase machine, its timer and its catch land` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7,AC-8,AC-9,AC-10,AC-11,AC-12,AC-13,AC-14,AC-15,AC-16,AC-17 -->
 
 **What is red and why.** A new describe in `tests/components/auth/avatarMenu.test.tsx` holds a `clearAction` unresolved and advances fake timers past 8,000 ms. On the live tree `switchPending` is the raw `useTransition` flag (`components/auth/AvatarMenu.tsx:108`) and the re-entry guard reads it (`components/auth/AvatarMenu.tsx:116`), so the row stays `aria-disabled="true"`, `aria-busy="true"`, the announcer keeps reading `Switching person`, and the second tap never reaches `clearAction`. That was measured, not predicted: the reachability probe above ran exactly this shape against the unmodified component and passed. Every new case therefore fails until the implementation lands.
 
@@ -575,6 +581,7 @@ components/shared/pendingTimeout.ts (new), `components/auth/AvatarMenu.tsx`, `ap
 - AC-13: compound C9, and it exists because a mutant said it had to. Round 3 deleted an earlier AC-13 whose target turned out not to be load-bearing; running the mandated mutant list at implementation found the reverse case, the effect's `clearTimeout` cleanup, reddening NOTHING. Attempt 1 settles well inside its window so its timer is still armed, the retry starts before that timer is due, and the stale callback would find the phase at `"pending"` (the NEW attempt's) and end a window that is not its own. Verified: with the cleanup deleted this is the one case that reds. (discharged by Task 1)
 - AC-14: compound C10, both directions of the classifier, asserted THROUGH THE COMPONENT rather than through Next's classifier. The menu renders inside a test error boundary and the same harness runs twice. A rejection carrying `"NEXT_REDIRECT;replace;/x;307;"` must reach the boundary: `boundaryCaught` true, the row gone. A rejection carrying the opaque `"3693416880"`, the shape the installed Next 16.3.0 produced for an ordinary server failure, must NOT: boundary untouched, row present and enabled, the generic alert rendered. Probed on that harness before it was written down, and the two lines are the whole finding: `REDIRECT boundaryCaught=true rowPresent=false` against `OPAQUE boundaryCaught=false rowPresent=true status=error`. Round 3 F2: the earlier version called `unstable_rethrow` directly, which tests Next's classifier and not this component, and then let the redirect reject inside a bare `act`, where the rethrow fails the case rather than being asserted. (discharged by Task 1)
 - AC-15: tests/components/auth/avatarMenuTransitionAudit.test.ts exists and passes: every ternary, `&&` guard and `if` in `components/auth/AvatarMenu.tsx` carries a DECLARED row with a §4.6 treatment, and the totality assertion pins the count against `DECLARED.length` so a branch added later fails rather than passing silently. Round 2 F5: the component gained a state and a Transition Inventory amendment with no structural audit, which the mandatory writing-plans contract requires, and the only audit in the gate list was the sibling's. (discharged by Task 1)
+- AC-17: the impeccable critique's P1, fixed in-branch. The timed-out phase renders a VISIBLE note as a sibling of `role="menu"`, carrying the same sentence the announcer does, `aria-hidden` so exactly one node speaks. Absent while merely pending. The critique's finding was that a sighted crew member otherwise watches the row silently un-dim after eight seconds with nothing explaining it, which for a glancing one-handed reader is close to no state change at all. (discharged by Task 1)
 - AC-16: compound C5, which round 2 F5 correctly observed had no case. A theme flip performed while the row is TIMED OUT leaves the menu open, the row enabled and the timeout notice intact, and the theme change survives. The existing compound at `tests/components/auth/avatarMenu.test.tsx:305` runs from open-idle and does not reach this state. (discharged by Task 1)
 
 **RED — write the cases.** A new describe at the end of `tests/components/auth/avatarMenu.test.tsx`, using the module-level `deferredPending` (`tests/components/auth/avatarMenu.test.tsx:49`) and `openMenu` (`tests/components/auth/avatarMenu.test.tsx:54`).
@@ -1148,6 +1155,38 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
       second.resolve({ ok: true });
       await second.promise;
     });
+  });
+
+  it("the timeout is VISIBLE, not only announced, and does not double-announce (AC-17)", () => {
+    // Impeccable critique P1. A sighted person otherwise watches the row
+    // silently un-dim after eight seconds with nothing saying why. The note is
+    // aria-hidden so the always-mounted status region stays the single channel
+    // to assistive tech; two nodes carrying this sentence would announce twice.
+    vi.useFakeTimers();
+    const first = held();
+    const action = vi.fn(() => first.promise);
+    const { item, region } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByTestId("avatar-menu-switch-timeout-note"),
+      "no note while merely pending",
+    ).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(8_100);
+    });
+    const note = screen.getByTestId("avatar-menu-switch-timeout-note");
+    expect(note.textContent).toBe(NOTICE);
+    expect(note.getAttribute("aria-hidden"), "hidden from AT, seen by eyes").toBe("true");
+    // A sibling of role=menu, never a child: a non-item child of a menu role is
+    // invalid ARIA, the same reason the alert sits outside it.
+    expect(screen.getByRole("menu").contains(note)).toBe(false);
+    // And exactly ONE node speaks: the sr-only region.
+    expect(region.textContent).toBe(NOTICE);
+    expect(region.getAttribute("aria-hidden")).toBeNull();
   });
 
   it("COMPOUND C10: a NEXT_REDIRECT digest DOES reach the boundary (AC-14)", async () => {

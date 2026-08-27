@@ -516,6 +516,29 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
           </div>
 
           {/*
+            The timeout, made VISIBLE (impeccable critique P1). Without this a
+            sighted person taps, waits eight seconds, and watches the row
+            silently un-dim with nothing saying the switch is still running or
+            that tapping again is now sensible; the crew persona is glancing and
+            one-handed on a venue floor, where a state change nobody sees is
+            close to no state change at all.
+
+            `aria-hidden` because the always-mounted status region below is the
+            single channel to assistive tech: two nodes carrying this sentence
+            would announce it twice. Same split the identity header already uses
+            for its middot.
+          */}
+          {switchPhase === "timedout" ? (
+            <p
+              aria-hidden="true"
+              data-testid="avatar-menu-switch-timeout-note"
+              className="mt-1 px-3 py-2 text-xs/relaxed text-text-subtle"
+            >
+              {SWITCH_TIMEOUT_NOTICE}
+            </p>
+          ) : null}
+
+          {/*
             OUTSIDE the `role="menu"` element, for the same reason the identity
             header is: an alert is not a menu item, and a non-item child of a
             `menu` role is invalid ARIA. It is not focusable and takes no place

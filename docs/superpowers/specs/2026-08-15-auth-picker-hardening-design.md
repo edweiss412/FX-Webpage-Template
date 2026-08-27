@@ -296,7 +296,11 @@ Two independent axes, not one. The MENU is `closed` or `open`. The SWITCH is
 error}`. Success still unmounts and is still not a state.
 
 `timedout` is the new one: a clear is still in flight, the row is enabled again,
-and the status region is announcing. The mechanism is a three-valued
+the status region is announcing, and a visible note carrying the same sentence
+renders as a sibling of `role="menu"` (`aria-hidden`, so exactly one node speaks
+to assistive tech). The visible half is the invariant-8 critique's P1: without it
+a sighted crew member watches the row silently un-dim after eight seconds with
+nothing explaining why it is tappable again. The mechanism is a three-valued
 `switchPhase` the component owns; React's `useTransition` pending flag is not
 read by anything rendered, and `PENDING_TIMEOUT_MS` (8,000 ms) is the same
 constant the same-route `_ClaimedRowButton` uses, now shared at

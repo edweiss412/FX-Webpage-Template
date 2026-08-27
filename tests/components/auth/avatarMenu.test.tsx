@@ -1387,6 +1387,38 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
     });
   });
 
+  it("the timeout is VISIBLE, not only announced, and does not double-announce (AC-17)", () => {
+    // Impeccable critique P1. A sighted person otherwise watches the row
+    // silently un-dim after eight seconds with nothing saying why. The note is
+    // aria-hidden so the always-mounted status region stays the single channel
+    // to assistive tech; two nodes carrying this sentence would announce twice.
+    vi.useFakeTimers();
+    const first = held();
+    const action = vi.fn(() => first.promise);
+    const { item, region } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByTestId("avatar-menu-switch-timeout-note"),
+      "no note while merely pending",
+    ).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(8_100);
+    });
+    const note = screen.getByTestId("avatar-menu-switch-timeout-note");
+    expect(note.textContent).toBe(NOTICE);
+    expect(note.getAttribute("aria-hidden"), "hidden from AT, seen by eyes").toBe("true");
+    // A sibling of role=menu, never a child: a non-item child of a menu role is
+    // invalid ARIA, the same reason the alert sits outside it.
+    expect(screen.getByRole("menu").contains(note)).toBe(false);
+    // And exactly ONE node speaks: the sr-only region.
+    expect(region.textContent).toBe(NOTICE);
+    expect(region.getAttribute("aria-hidden")).toBeNull();
+  });
+
   it("COMPOUND C10: a NEXT_REDIRECT digest DOES reach the boundary (AC-14)", async () => {
     // The other direction, and the pair is the point: a case that only ever
     // rejects a bare Error passes under the refuted digest test and under
