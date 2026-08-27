@@ -51,44 +51,6 @@ Index entry: `LIM-AUTHORED-RED` in `docs/review-rounds/LIMITS.md`, named by six 
 **Class-sweep exception (c).** The repair is an emit in `lib/admin/**`, which pulls application review
 surface into a PR whose brief scopes it to workflow, scripts and docs.
 
-## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
-
-**Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
-
-Plan Task 11 step 6 (`docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md`) requires one
-validation-project sync of a diagram-bearing show showing (a) variant objects in storage and (b) no
-module-resolution telemetry, recorded as a comment on the merged PR (#761, merged
-`8739556586e5441d1b4f3fb905fe580c58b19b4e`). It was NOT run.
-
-**Why it could not be run at close-out, and this is measured rather than assumed:** the probe
-exercises the DEPLOYED validation app — `scripts/validation-smoke.ts` is deployed-side by
-construction ("agent smoke test of the DEPLOYED validation app", and its prerequisites are Vercel
-validation-project env vars). At merge time Vercel refused deployments account-wide:
-`Deployment rate limited — retry in 24 hours`, visible on PR #761's checks. No deploy, no sync, no
-evidence. The half that needs no deploy — that `sharp` resolves under a production-only install —
-WAS run pre-merge and is recorded in the arc (`pnpm install --prod && node -e "require('sharp')"`,
-resolving 0.34.5 after the dependency move).
-
-**The probe, verbatim, so this is a step rather than an intention:**
-
-1. Confirm the validation deployment carries the merge commit above.
-2. Trigger one sync of a diagram-bearing show against validation.
-3. `select name from storage.objects where bucket_id='diagram-snapshots'` — assert `@<width>.webp`
-   objects sit beside their originals under the show's current `snapshot_revision_id` prefix.
-4. `pnpm observe --env validation` — assert no module-resolution fault, and specifically no
-   `DIAGRAM_VARIANT_GENERATION_FAILED` row whose `error` names a missing module.
-5. Post the transcript as a comment on PR #761 and replace this entry's pointer in the plan's §12.
-
-**Why it is filed rather than left in the plan:** its only record was a step inside Task 11 of a plan
-whose other ten tasks are done. §12 was supposed to pre-carry a pointer and did not — that omission
-is the reason this row exists, and §12 now points here.
-
-**What is at risk if it is never run:** low but real. The failure it would catch is `sharp` failing to
-resolve or produce variants in the deployed Node runtime, which degrades silently — originals still
-render, so the only signal is telemetry nobody is reading. The production defect this arc already
-found by probe (sharp sitting in `devDependencies`) is exactly that shape, which is the argument for
-finishing the check rather than assuming the fix held.
-
 ## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
 
 **Status:** OPEN — filed at private-image-pipeline close-out · **Severity:** low · **Class:** PERF / consistency · **Effort:** M
