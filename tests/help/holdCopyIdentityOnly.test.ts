@@ -78,9 +78,10 @@ describe("help copy says a hold freezes identity, not the whole row", () => {
     // identity sentence would satisfy the positive assertion below while
     // nobody could read it on the page.
     for (const [path, text] of helpPages) {
-      expect(text, `${path} uses a comment syntax the shared stripper leaves in place`).not.toContain(
-        "<!" + "--",
-      );
+      expect(
+        text,
+        `${path} uses a comment syntax the shared stripper leaves in place`,
+      ).not.toContain("<!" + "--");
     }
   });
 
