@@ -33,12 +33,13 @@ const regrowSlice = (): string => {
 
 /**
  * Characters after an arming site within which its retry must appear. Measured
- * against the real file, not guessed: the two sites put `.toPass(` at +734 and
- * +735, so 900 clears both by ~165 while staying far short of the 2,304 that
- * separate the sites. A 600-char window would REJECT the correct implementation —
- * that was measured too. When prose pushed a site past the window, the comment
- * moved above the arming click rather than the window widening: a window that
- * grows to accommodate comments stops being a guard.
+ * against the real file, not guessed: the single surviving site puts `.toPass(`
+ * at +827, so 900 clears it by 73. A 600-char window would REJECT the correct
+ * implementation — that was measured too. When prose pushed a site past the
+ * window, the comment moved above the arming click rather than the window
+ * widening: a window that grows to accommodate comments stops being a guard, and
+ * that is exactly what happened when T-REGROW was re-derived for the docked
+ * anchor — the explanation of each assertion sits above the arming click.
  */
 const ARM_WINDOW = 900;
 
@@ -47,9 +48,24 @@ const CALLBACK_OPENER = "expect(async () => {";
 
 /**
  * Per arming site, the measurement fields whose presence inside the retry callback
- * is what makes the retry REAL. Site 1 is the ladder sweep, which settles on the
- * armed body having grown past the idle one; site 2 is the real run, which asserts
- * the clip-rect invariant and that placement re-ran.
+ * is what makes the retry REAL.
+ *
+ * ONE ARMING site since the dock, plus a CANCEL site. T-REGROW used to arm
+ * twice: once in a ladder that swept viewports for a height where the idle body
+ * fit its side uncapped and the armed body did not, and once in the real run.
+ * That state occurs at no MEASURED height — the room on the chosen side grows
+ * with viewport height faster than the capped body does, so the room outruns it.
+ * That is a fitted observation over eight measurements, NOT a proof over the
+ * unsampled domain, which is why nothing here rests on it: the case asserts the
+ * module's contract instead (spec
+ * docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md §2-§3).
+ * The ladder went with it. The surviving site carries every field the two used
+ * to split PLUS `gapToTrigger`, which is the assertion the old case never had:
+ * `lib/popover/position.ts:135` places a `top` body at
+ * `trigger.top - GAP - effectiveHeight`, so a body that grows without re-placing
+ * keeps its old `y` and eats the gap. Containment cannot see that — the overhang
+ * is into the trigger, not out of the clip rect. That is why this list got
+ * LONGER as it got shorter by one row.
  *
  * DOCUMENTED LIMIT, stated so it is not rediscovered: this is a source-text
  * TRIPWIRE, not a proof of semantics. It cannot tell an assertion from the same
@@ -61,9 +77,38 @@ const CALLBACK_OPENER = "expect(async () => {";
  * these tokens from the callback body. What ultimately proves the retry works is
  * the case itself running in `lifecycle-layout-e2e`.
  */
-const ARM_SITE_REQUIRED_FIELDS: readonly (readonly string[])[] = [
-  ["natural", "idle.natural"],
-  ["bodyTop", "bodyBottom", "boundsTop", "boundsBottom", "inlineMaxHeight"],
+const TRANSITION_SITES: ReadonlyArray<{
+  name: string;
+  token: string;
+  fields: readonly string[];
+}> = [
+  {
+    name: "arming (idle -> armed, the body GROWS)",
+    token: "archive-show-confirm-button",
+    fields: [
+      "scrollHeight",
+      "idle!.scrollHeight",
+      "gapToTrigger",
+      "roomOnChosenSide",
+      "natural",
+      "inlineMaxHeight",
+      "bodyTop",
+      "bodyBottom",
+      "boundsTop",
+      "boundsBottom",
+    ],
+  },
+  {
+    // Added round 3. Cancel takes the body back from 476/480 to 471, so the box
+    // SHRINKS and a stale placement OPENS the gap instead of closing it — the
+    // mirror of the arming defect, and invisible to the arming site because
+    // every assertion there ran while the body was still large. An ordinary
+    // edit that schedules the body observer only when `scrollHeight` INCREASES
+    // breaks exactly this leg and nothing else.
+    name: "cancel (armed -> idle, the body SHRINKS)",
+    token: "archive-show-cancel-button",
+    fields: ["scrollHeight", "gapToTrigger", "bodyTop", "bodyBottom", "boundsTop", "boundsBottom"],
+  },
 ];
 
 describe("T-REGROW settle contract", () => {
@@ -83,16 +128,22 @@ describe("T-REGROW settle contract", () => {
     ).toBe(false);
   });
 
-  it("anchors a retry at EACH arming site, not merely somewhere in the body", () => {
+  it("anchors a retry at EACH transition site, not merely somewhere in the body", () => {
     const slice = regrowSlice();
-    const sites: number[] = [];
-    for (let i = slice.indexOf("archive-show-confirm-button"); i !== -1; ) {
-      sites.push(i);
-      i = slice.indexOf("archive-show-confirm-button", i + 1);
-    }
-    expect(sites.length, "T-REGROW should arm the confirm exactly twice (ladder + real run)").toBe(
-      2,
-    );
+    // Each site's control is expected EXACTLY ONCE, as an equality and not a
+    // floor: a re-added ladder would arm a second time and must come back
+    // through this guard rather than past it. Exactness is also what lets the
+    // offsets below be measured against the real file — a second occurrence
+    // would silently re-anchor the window on whichever came first.
+    const sites = TRANSITION_SITES.map((site) => {
+      const found: number[] = [];
+      for (let i = slice.indexOf(site.token); i !== -1; ) {
+        found.push(i);
+        i = slice.indexOf(site.token, i + 1);
+      }
+      expect(found.length, `T-REGROW should use ${site.token} exactly once (${site.name})`).toBe(1);
+      return found[0]!;
+    });
     sites.forEach((at, n) => {
       const window = slice.slice(at, at + ARM_WINDOW);
       // Proximity alone would accept a one-shot measurement followed by an
@@ -142,10 +193,10 @@ describe("T-REGROW settle contract", () => {
       // none of them retries the thing under test. Requiring the fields the
       // measurement actually returns is what a hollow callback cannot supply, and
       // it fails just as loudly if the real assertions are moved back outside.
-      for (const field of ARM_SITE_REQUIRED_FIELDS[n]!) {
+      for (const field of TRANSITION_SITES[n]!.fields) {
         expect(
           callbackBody.includes(field),
-          `arming site ${n + 1}: the retry callback must assert on \`${field}\` — without it the ` +
+          `${TRANSITION_SITES[n]!.name}: the retry callback must assert on \`${field}\` — without it the ` +
             "retry is decorative and the invariant is being read once, outside the retry",
         ).toBe(true);
       }

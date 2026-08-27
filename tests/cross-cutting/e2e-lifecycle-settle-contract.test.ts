@@ -69,14 +69,62 @@ const SITES: ReadonlyArray<{
   },
   {
     name: "T-TRANSITION",
-    anchor: "await page.setViewportSize({ width: 390, height: 560 });",
+    // 420, not 560. The case used to resize ACROSS THE SIDE FLIP, and the dock
+    // retired that boundary: ShareHub's trigger sits on the panel floor, so the
+    // module answers `top` at every height and no viewport pair flips it. The
+    // resize now crosses the CAP boundary between 460 and 560 instead — a
+    // measured bracket, not an exact threshold (derivation:
+    // docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md §2),
+    // which is a boundary of the same kind and the one witness left that proves
+    // placement re-ran.
+    anchor: "await page.setViewportSize({ width: 390, height: 420 });",
     slice: {
       from: 'test("T-TRANSITION:',
       to: 'test("T-CARET-OPENER',
     },
-    // The case asserts the side flipped, the confirm node SURVIVED (not
-    // remounted), and the panel-containment maths.
-    forbidden: ["data-transition-probe", "sameConfirmNode", "popoverStillOpen", "withinBounds"],
+    // The case asserts the cap crossing, that the cap equals the room, that the
+    // confirm node SURVIVED (not remounted), and the panel-containment maths.
+    // `after.cap` and `roomOnChosenSide` join the list with the new witness: the
+    // predicate may watch the styles settle, it may not read the answer the case
+    // is there to check.
+    forbidden: [
+      "data-transition-probe",
+      "sameConfirmNode",
+      "popoverStillOpen",
+      "withinBounds",
+      "after.cap",
+      "after.gapToTrigger",
+      "roomOnChosenSide",
+    ],
+  },
+  {
+    // Added round 3. T-TRANSITION resizes BACK to 844 to reach ShareHub's cap-
+    // CLEAR branch (`removeProperty("max-height")`, ShareHub.tsx:354), and that
+    // second settle was invisible to this guard: deleting the retry, or folding
+    // `restored.cap` into it as the settle condition, left every row green.
+    // Those are the two failures this file exists to prevent, so the leg that
+    // reopened them is registered rather than trusted.
+    //
+    // The anchor is TWO LINES on purpose. The resize-back literal is identical
+    // to the case's OPENING viewport, so the one-line form would anchor on the
+    // opening one and measure the wrong window; the opening resize is followed
+    // by `ensureWatchedFolder()`, not by a retry, so the pair is unique.
+    name: "T-TRANSITION-CLEAR",
+    anchor:
+      "await page.setViewportSize({ width: 390, height: 844 });\n    await expect(async () => {",
+    slice: {
+      from: 'test("T-TRANSITION:',
+      to: 'test("T-CARET-OPENER',
+    },
+    // The case asserts the cap was CLEARED and that clearing it kept the body
+    // inside the clip rect. The predicate may watch the styles stop moving; it
+    // may not read either of those.
+    forbidden: [
+      "restored.cap",
+      "restored.gapToTrigger",
+      "restored.withinBounds",
+      "was not CLEARED",
+    ],
   },
 ];
 
@@ -121,7 +169,7 @@ describe("lifecycle-layout settle contract (BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE)", 
     // below vacuously. Assert the corpus is real before asserting anything about
     // it (tests/_shared/premise.ts shape).
     expect(SOURCE.length).toBeGreaterThan(10_000);
-    expect(SITES.length).toBe(3);
+    expect(SITES.length).toBe(4);
     for (const site of SITES) expect(sliceOf(site).length).toBeGreaterThan(200);
   });
 
