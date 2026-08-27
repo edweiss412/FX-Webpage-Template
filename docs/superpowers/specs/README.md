@@ -53,6 +53,7 @@ Feedback-driven specs created after the v1 bundle are grouped into **subsystem f
 | [`data-quality/`](./data-quality/) | Data-quality & resync — badge warn-class, resync gate, version-detection, empty-drive, finalize races |
 | [`crew/`](./crew/) | Crew page — picker, partial-attendance chip, client-section toggle, transport, redesigns |
 | [`admin/`](./admin/) | Admin surfaces — developer tier, dev-gate, shows status/table, published toggle, validation reset |
+| [`sync/`](./sync/) | Sheet sync & hold-aware apply — hold retains, release conditions, snapshot-replace interaction |
 
 Each folder has its own `README.md` index listing every entry. The `v1-pre-deployment-amendments/` subdir is frozen at v1 launch; it's a historical artifact of the launch bundle, distinct from these subsystem folders.
 

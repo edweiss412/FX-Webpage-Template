@@ -147,11 +147,13 @@ export type HoldAwareApplyArgs = {
    * `previousCrewNames` on purpose: the `crew_email` reject branch must retain
    * the row the sheet last had, and a name alone cannot reconstruct one.
    *
-   * Deliberately NOT `rowFromHeldValue(held)` — the held value is a FROZEN
-   * SNAPSHOT taken when the hold was opened, and the upsert writes every column,
-   * so retaining it reverts every live field edited since. Optional: with no
-   * snapshot there is no live row to retain and the branch keeps today's
-   * behaviour (spec §4 limit 4, a documented degrade rather than a silent one).
+   * Every retain in this file prefers it over `held_value`, which is a copy of
+   * a PRIOR live row (writeMi11Holds reads it from liveCrewByName, the
+   * pre-apply snapshot) and so is never fresher. Optional: with no snapshot
+   * there is no live row to prefer and every retain falls back to `held_value`
+   * -- a documented degrade rather than a silent one, and still better than the
+   * no-retain-at-all the crew_email branch used to take
+   * (BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE spec §3.6).
    */
   previousCrewMembers?: CrewMemberRow[];
 };
@@ -209,6 +211,45 @@ export async function planHoldAwareApply(
   // non-identity field overrides to apply onto a pinned held row (from a folded rename row).
   const nonIdentityOverride = new Map<string, CrewMemberRow>();
 
+  // Prior live crew rows, keyed by name, built ONCE (BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE).
+  // Was rebuilt per undo_override hold; every retain in this file needs it now.
+  const previousByName = new Map((args.previousCrewMembers ?? []).map((m) => [m.name, m]));
+
+  /**
+   * The row to retain for a held member: the member's OWN live non-identity,
+   * the held snapshot's identity.
+   *
+   * WHY LIVE WINS, EVERYWHERE. A held entity_key's live crew_members row is
+   * written by exactly two things: this sync's own upsert for that key -- the
+   * sheet row with the identity pin, or this retain -- and operator edits. A
+   * rejected rename's replacement is suppressed by BOTH name and canonical
+   * email (see applyUndoOverrideToMaps below) so it never enters
+   * plan.crewMembers, and the upsert keys on (show_id, name) so it could not
+   * land here anyway. Meanwhile held_value is a COPY of a prior live row:
+   * writeMi11Holds reads it from liveCrewByName, the pre-apply snapshot
+   * (phase2.ts:122). So live is never older than the snapshot, in any hold
+   * kind, any baseline, any sheet state -- which is why this needs no argument
+   * about WHEN the retain is consulted.
+   *
+   * WHY IDENTITY STILL COMES FROM THE SNAPSHOT. The build loop below reads
+   * `pin?.email ?? row.email`. pinnedIdentity is set to `held.email ?? null`, so
+   * a hold whose held_value.email is null would fall through to the RETAINED
+   * row's email -- and returning the live row unmodified would put the live
+   * email onto a row the hold pins to none, which is the identity move the hold
+   * exists to prevent. Taking name and email from the snapshot closes that
+   * before the loop ever sees it.
+   *
+   * A SPREAD, not a field-by-field pick and not a falsey coalesce: a live value
+   * that is null, "" or [] is the operator's latest word too.
+   *
+   * Spec: docs/superpowers/specs/sync/2026-08-27-mi11-removal-fallback-live-row.md
+   */
+  function retainRowFor(entityKey: string, heldValue: Record<string, unknown>): CrewMemberRow {
+    const snapshot = rowFromHeldValue(heldValue);
+    const live = previousByName.get(entityKey);
+    return live ? { ...live, name: snapshot.name, email: snapshot.email } : snapshot;
+  }
+
   // Per-hold in-place mutations to perform POST-plan (re-target/fold + reservation), collected here.
   type HoldMutation =
     | {
@@ -236,7 +277,8 @@ export async function planHoldAwareApply(
         pinnedIdentity,
         // WM-F4: same prior-live snapshot the rename-fold (WM-F3) + reservation (P2-F4) guards use.
         previousCrewNames: new Set(args.previousCrewNames ?? []),
-        previousByName: new Map((args.previousCrewMembers ?? []).map((m) => [m.name, m])),
+        previousByName,
+        retainRowFor,
       });
       continue;
     }
@@ -281,7 +323,10 @@ export async function planHoldAwareApply(
       //     person's fields). The rename retarget would also let Approve land the rename onto the live
       //     owner's identity instead of blocking.
       // For a live-owner target the fold is NEUTERED: the held crew stays pinned to its OWN held
-      // identity + held non-identity (retainRows), proposed_value keeps the original MI-11 email-change
+      // identity and keeps its OWN non-identity -- its live row's, via retainRowFor, never the live
+      // owner's. (It read the HELD snapshot's until BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE; what
+      // WM-F6 protects is that the OTHER person's fields never land here, which is unchanged.)
+      // proposed_value keeps the original MI-11 email-change
       // (no retarget), and the collision surfaces via reservation_collisions (computeReservations falls
       // back to hold.proposed_value, records the live owner, → Approve blocks IDENTITY_WOULD_COLLIDE).
       // The GENUINE added-rename case keeps the full fold (suppress + override + rename retarget).
@@ -297,7 +342,12 @@ export async function planHoldAwareApply(
         }
         consumed.add(renameRow.name);
         nonIdentityOverride.set(hold.entity_key, renameRow);
-        retainRows.set(hold.entity_key, rowFromHeldValue(held));
+        // Behaviour-inert, and moved anyway. The override set on the line above
+        // is unconditional on this branch, so the build loop takes it as the
+        // base and this value is never read. Moving it makes the rule uniform
+        // across all five retains, which is what lets the class guard be one
+        // assertion instead of four line numbers that go stale.
+        retainRows.set(hold.entity_key, retainRowFor(hold.entity_key, held));
         mutations.push({
           kind: "retarget",
           holdId: hold.id,
@@ -310,7 +360,8 @@ export async function planHoldAwareApply(
         });
         folded = true;
       } else if (renameRow) {
-        // WM-F6 live-owner target: retain the held crew's OWN row (held identity + held non-identity);
+        // WM-F6 live-owner target: retain the held crew's OWN row -- held identity, and its OWN live
+        // non-identity via retainRowFor (the held snapshot only if it has no live row);
         // do NOT override with the live owner's fields, do NOT suppress/consume, do NOT fold the
         // proposed_value into a rename ONTO the live owner. The held crew stays pinned to ITS OWN held
         // identity; the proposed_value KEEPS its original (pre-fold) MI-11 disposition so reservations
@@ -318,7 +369,7 @@ export async function planHoldAwareApply(
         // We DO re-anchor base_modified_time to the current sheet (PF40 staleness anchor must track the
         // observed revision even though the proposed value is unchanged); pass the existing proposed
         // value back unchanged so only the base time moves.
-        retainRows.set(hold.entity_key, rowFromHeldValue(held));
+        retainRows.set(hold.entity_key, retainRowFor(hold.entity_key, held));
         const existingProposed = (hold.proposed_value as Record<string, unknown> | null) ?? {
           disposition: "email_change",
           name: hold.entity_key,
@@ -334,7 +385,7 @@ export async function planHoldAwareApply(
       }
       if (!folded) {
         // Genuine removal (2.6): keep old row pinned/retained, fold proposed_value → removal.
-        retainRows.set(hold.entity_key, rowFromHeldValue(held));
+        retainRows.set(hold.entity_key, retainRowFor(hold.entity_key, held));
         mutations.push({
           kind: "retarget",
           holdId: hold.id,
@@ -433,6 +484,8 @@ function applyUndoOverrideToMaps(
   parseByName: Map<string, CrewMemberRow>,
   _parseByEmail: Map<string, CrewMemberRow>,
   maps: {
+    /** planHoldAwareApply's retainRowFor: live non-identity, held identity. */
+    retainRowFor: (entityKey: string, heldValue: Record<string, unknown>) => CrewMemberRow;
     protectedNames: Set<string>;
     suppressedNames: Set<string>;
     suppressedEmails: Set<string>;
@@ -450,7 +503,7 @@ function applyUndoOverrideToMaps(
       name: String(held.name ?? hold.entity_key),
       email: (held.email as string | null) ?? null,
     });
-    // RETAIN THE LIVE ROW — the asymmetry this branch used to carry
+    // RETAIN — the asymmetry this branch used to carry
     // (BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE). Every sibling branch
     // adds a retain row; this one added `protectedNames` and returned, so the
     // name was excluded from the delete but never put back into
@@ -458,12 +511,17 @@ function applyUndoOverrideToMaps(
     // member who was still very much alive, and the capability-loss notice told
     // the operator a live LEAD had lost LEAD access.
     //
-    // The retained row is the LIVE one, never `rowFromHeldValue(held)`: the
-    // upsert writes every column, so retaining the frozen snapshot would revert
-    // every field edited since the hold opened. No matching live row means no
-    // retain — today's behaviour, and the documented degrade.
-    const live = maps.previousByName.get(hold.entity_key);
-    if (live) maps.retainRows.set(hold.entity_key, live);
+    // Through retainRowFor, which closes the two things arc C left here
+    // (BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE):
+    //   - it retained the live row RAW, and `pinnedIdentity` above is set to
+    //     `held.email ?? null`, so for a hold whose held email is null the build
+    //     loop's `pin?.email ?? row.email` fallback put the LIVE email onto a row
+    //     the hold pins to none. Identity now comes from the snapshot.
+    //   - the retain was guarded on `live`, so a member with no live row got
+    //     protectedNames and NO row -- the exact shape described above. It is
+    //     unconditional now: the snapshot is a worse source than the live row and
+    //     a better one than nothing.
+    maps.retainRows.set(hold.entity_key, maps.retainRowFor(hold.entity_key, held));
     return;
   }
   // crew_identity
@@ -472,9 +530,18 @@ function applyUndoOverrideToMaps(
     maps.suppressedNames.add(String((held as Record<string, unknown>).name ?? ""));
     return;
   }
-  // Held-present (restore): retain/re-insert the held row + exclude from delete.
+  // Held-present (restore): retain/re-insert the row + exclude from delete.
+  //
+  // This branch serves TWO producers with one persisted shape: undo_change, and
+  // mi11_reject_hold on a rejected rename or removal (20260608000002:83-98),
+  // which writes the same kind/domain and never touches crew_members. On the
+  // Reject path the live row is CURRENT and held_value lags it, so retaining the
+  // snapshot reproduced the very defect this arc closes. readOpenHolds carries
+  // no origin discriminator and none is needed: live-row presence already is
+  // one. Undo is unaffected because it re-inserted the row FROM held_value, so
+  // live equals the snapshot there and the rule returns the same row either way.
   maps.protectedNames.add(hold.entity_key);
-  maps.retainRows.set(hold.entity_key, rowFromHeldValue(held));
+  maps.retainRows.set(hold.entity_key, maps.retainRowFor(hold.entity_key, held));
   const baseline = baselineOf(held);
   if (baseline?.kind === "rename" && baseline.suppressed_added) {
     // Suppress the replacement by name AND email (resolution #16): a re-named replacement carrying
