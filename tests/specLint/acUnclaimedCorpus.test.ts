@@ -8,6 +8,7 @@ import { acAnalysis, acceptsDisposition, checkTaskContract } from "../../lib/spe
 import { premise, premiseHolds } from "../_shared/premise";
 import { AC_UNCLAIMED_RESIDUE } from "./acUnclaimedResidue";
 import { enrolledPlans } from "./acCorpusWalk";
+import { AC_AMBIGUOUS_RECORD } from "./acAmbiguousRecord";
 
 const key = (plan: string, id: string) => `${plan} ${id}`;
 /** The owner words the classification rule looks for beside an id. */
@@ -27,6 +28,8 @@ describe("the AC arm over the live plans corpus (AC-6)", () => {
   const emissionDrift: string[] = [];
   let declinedLines = 0;
   let plansEmittingAcFindings = 0;
+  let noCertain = 0;
+  const declinedPlanPaths: string[] = [];
   for (const f of docs) {
     const model = parseDoc(readFileSync(f, "utf8"));
     // The ids come off the analysis STRUCTURE, not out of the finding message.
@@ -37,6 +40,8 @@ describe("the AC arm over the live plans corpus (AC-6)", () => {
     for (const u of ac.unclaimed) unclaimed.push(key(f, u.id));
     for (const u of ac.undeclared) undeclared.push(key(f, u.id));
     declinedLines += ac.declined.length;
+    if (ac.declined.length > 0) declinedPlanPaths.push(f);
+    if (ac.certain.size === 0) noCertain += 1;
     // And the emission is pinned to that structure, which is what makes the
     // equalities above claims about what the ARM REPORTS rather than about a
     // classification only this file can see. `checkTaskContract` renders from
@@ -125,6 +130,31 @@ describe("the AC arm over the live plans corpus (AC-6)", () => {
     expect(undeclared.slice().sort()).toEqual([]);
   });
 
+  it("AC-11: every count the convention paragraph quotes is checked against this walk", () => {
+    // `_metaSpecLintDocs` pins the two counts it can reach — the residue and the
+    // record are committed modules it can import. The other two, `51 of the 108`
+    // and `1089 rows across 97 plans`, are LIVE measurements, and nothing
+    // checked them: changing them to `50 of 108` and `1088 rows across 96 plans`
+    // satisfied every assertion (diff review R3 finding 3). They are checked
+    // HERE because this is where the walk that produces them already happens.
+    premise("enrolled plans walked from disk", docs.length, 90);
+    const paragraph = readFileSync("docs/agents/writing-plans.md", "utf8")
+      .split("\n")
+      .filter((l) => l.includes("TASK_AC_UNCLAIMED"))
+      .join(" ");
+    premiseHolds("the convention paragraph was located", paragraph !== "");
+    const declinedPlans = new Set(declinedPlanPaths).size;
+    for (const [label, quoted] of [
+      ["enrolled", `${docs.length} enrolled plans`],
+      ["no-certain", `${noCertain} of the ${docs.length}`],
+      ["declined", `${declinedLines} rows across ${declinedPlans} plans`],
+      ["residue", `${AC_UNCLAIMED_RESIDUE.length} rows today`],
+      ["ambiguous", `${AC_AMBIGUOUS_RECORD.length} lines today`],
+    ] as const) {
+      expect(`${label}: ${paragraph.includes(quoted)}`).toBe(`${label}: true`);
+    }
+  });
+
   it("AC-6: owner normalisation is asserted DIRECTLY, on the forms that flip", () => {
     // A residue plant cannot demonstrate this. The owner-on-line check above
     // fires first on any planted owner the quoted line does not contain, so the
@@ -203,6 +233,16 @@ describe("the AC arm over the live plans corpus (AC-6)", () => {
         // The mirror: the quoted line DOES settle it, it names the owner the row
         // claims, and the grammar rejects that owner.
         expect(settling.length > 0).toBe(true);
+        // The quoted line must carry the ROW'S ID, not merely an owner word.
+        // Without this, pointing the quotation at a DIFFERENT line that happens
+        // to name the same owner passes every other check — the settling scan
+        // is satisfied by the real line elsewhere in the plan, and the owner and
+        // quotation are satisfied here. That is an ordinary mistake when
+        // updating evidence:selecting the wrong same-owner occurrence (diff review R3
+        // finding 1).
+        expect(`${row.plan}:${at} carries ${row.id}`).toBe(
+          `${row.plan}:${at} carries ${idHit.test(lines[at - 1] ?? "") ? row.id : "NO SUCH ID"}`,
+        );
         expect(OWNER_WORD.test(lines[at - 1] ?? "")).toBe(true);
         // The owner must be ON the quoted line. Without this, a row naming an
         // owner that appears nowhere — `Step 5` where the plan says `Step 4` —

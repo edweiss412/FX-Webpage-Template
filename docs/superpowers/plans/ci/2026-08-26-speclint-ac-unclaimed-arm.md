@@ -525,7 +525,7 @@ ONE paragraph in `docs/agents/writing-plans.md` per spec §4.2 constraint 3 — 
 may only say what the plan already says, that the arm declines rather than guesses
 on a line carrying more than one id, and — per §1.1 — that the decline is silent by
 design, carrying the measured reason (1089 rows across 97 plans for a full record,
-609 across 73 even when bounded to suppressing declines, because 42 enrolled plans
+609 across 73 even when bounded to suppressing declines, because 51 enrolled plans
 declare in a table or a coverage map).
 
 Pinned on parsed properties of the paragraph, never on a substring of it —
@@ -622,7 +622,7 @@ in Task 4.
 
 **Documented limit — the symmetric decline is silent, and here is the number that
 bought it.** A per-row record of declined lines measures 1089 rows across 97 plans,
-or 609 across 73 bounded to declines that suppress a finding, because 42 enrolled
+or 609 across 73 bounded to declines that suppress a finding, because 51 enrolled
 plans declare their criteria in a table or a coverage map. An exact-equality record
 that size reds on any routine plan edit anywhere in the corpus, so the loudness is
 placed on the empty-`TASK_AC_UNDECLARED` assertion instead. Restated in the archive
