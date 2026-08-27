@@ -423,10 +423,15 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
    *
    * It reads the panel's applied placement history rather than counting rect
    * reads. Counting reads here would be contaminated — Playwright's own
-   * actionability checks call `getBoundingClientRect` on the trigger. `left`
-   * and `top` are written ONLY by React from `applied`; `withNaturalSize`
-   * touches only `maxWidth`/`maxHeight`. So the distinct `left`/`top` values
-   * the attribute holds are exactly the placement commits, and nothing else.
+   * actionability checks call `getBoundingClientRect` on the trigger.
+   *
+   * The history is sampled per CALLBACK BATCH and compares the WHOLE placement
+   * tuple (left, top, max-height, max-width). Per batch because React assigns
+   * each style property separately, so one placement emits a record for `left`
+   * and another for `top` and a per-write reading reports it as two; a batch
+   * ends at a microtask checkpoint, so its end state is a settled commit. The
+   * whole tuple because a wrong side, a changed cap or a transient extra
+   * placement must not survive this case.
    */
   test("PROBE: a closed → open transition applies its placement once, and the convergence run agrees", async ({
     page,
@@ -435,23 +440,69 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
     const trigger = await lastSeededTrigger(page);
     await trigger.scrollIntoViewIfNeeded();
 
-    // Installed BEFORE the click, and as a SUBTREE attribute observer on the
-    // body rather than a per-node one. A node-scoped observer can only be
-    // attached once the node exists, and by then its childList callback is a
-    // microtask late: React has already written the style. A subtree observer
-    // registered first covers descendants added afterwards, so the first write
-    // it reports carries the unplaced origin as its `oldValue`.
+    // Installed BEFORE the click, and as a SUBTREE observer on the body rather
+    // than a per-node one. A node-scoped observer can only be attached once the
+    // node exists, and by then its childList callback is a microtask late:
+    // React has already written the style. A subtree observer registered first
+    // covers descendants added afterwards, so the first write it reports
+    // carries the unplaced origin as its `oldValue`.
+    //
+    // It also counts animation frames, which is what makes the pre-paint claim
+    // testable. Microtasks run before the rendering update, so a placement
+    // applied in the same commit that mounts the panel is observed at the SAME
+    // frame count as the mount; one applied after paint cannot be.
     await page.evaluate(() => {
-      const state = { writes: [] as { old: string; now: string }[] };
+      const state = {
+        writes: [] as { old: string; now: string }[],
+        batches: [] as { start: string; end: string }[],
+        frames: 0,
+        framesAtMount: null as number | null,
+        framesAtPlacement: null as number | null,
+      };
       (window as unknown as { __portalProbe: typeof state }).__portalProbe = state;
+      const tick = () => {
+        state.frames += 1;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
       new MutationObserver((recs) => {
+        // Sampled per CALLBACK BATCH, never per attribute write. React assigns
+        // each changed style property separately, so one placement emits a
+        // record for `left` and another for `top`, and the intermediate
+        // `left: 695px; top: 0px` is a half-applied write rather than a
+        // placement the panel was ever laid out at. A batch runs at a microtask
+        // checkpoint, so its end state is a settled commit.
+        let batchStart: string | null = null;
+        let target: HTMLElement | null = null;
         for (const r of recs) {
+          if (r.type === "childList") {
+            for (const n of Array.from(r.addedNodes)) {
+              if (!(n instanceof HTMLElement)) continue;
+              if (!n.matches('[data-testid^="row-actions-portal-"]')) continue;
+              if (state.framesAtMount === null) state.framesAtMount = state.frames;
+            }
+            continue;
+          }
           const t = r.target;
           if (!(t instanceof HTMLElement)) continue;
           if (!t.matches('[data-testid^="row-actions-portal-"]')) continue;
-          state.writes.push({ old: r.oldValue ?? "", now: t.getAttribute("style") ?? "" });
+          const old = r.oldValue ?? "";
+          if (batchStart === null) batchStart = old;
+          target = t;
+          state.writes.push({ old, now: t.getAttribute("style") ?? "" });
+          if (state.framesAtPlacement === null && /left:\s*0px/.test(old)) {
+            // The first write leaving the unplaced origin IS the placement.
+            state.framesAtPlacement = state.frames;
+          }
+        }
+        if (target !== null) {
+          state.batches.push({
+            start: batchStart ?? "",
+            end: target.getAttribute("style") ?? "",
+          });
         }
       }).observe(document.body, {
+        childList: true,
         attributes: true,
         subtree: true,
         attributeFilter: ["style"],
@@ -472,8 +523,17 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
 
     const probe = await page.evaluate(
       () =>
-        (window as unknown as { __portalProbe: { writes: { old: string; now: string }[] } })
-          .__portalProbe,
+        (
+          window as unknown as {
+            __portalProbe: {
+              writes: { old: string; now: string }[];
+              batches: { start: string; end: string }[];
+              frames: number;
+              framesAtMount: number | null;
+              framesAtPlacement: number | null;
+            };
+          }
+        ).__portalProbe,
     );
 
     // PREMISE (own inputs), executed before anything it guards: the observer
@@ -481,26 +541,36 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
     // "the placement settled once" without observing a placement at all, which
     // is how the first cut of this probe passed its own premise vacuously.
     expect(
-      probe.writes.length,
-      "premise not met: the observer recorded no style write on the portal, so it proves nothing",
+      probe.batches.length,
+      "premise not met: the observer recorded no style batch on the portal, so it proves nothing",
     ).toBeGreaterThan(0);
 
     // `left`/`top` are written ONLY by React from `applied`; withNaturalSize
     // touches only the max-* caps. So the distinct left/top values the
     // attribute holds are exactly the placement commits.
+    // The WHOLE applied placement, not just left/top: a wrong side, a changed
+    // cap or a transient extra placement must not survive this case.
     const coord = (style: string) => {
-      const left = /(?:^|;)\s*left:\s*([^;]+)/.exec(style)?.[1]?.trim() ?? "";
-      const top = /(?:^|;)\s*top:\s*([^;]+)/.exec(style)?.[1]?.trim() ?? "";
-      return `${left}|${top}`;
+      const prop = (name: string) =>
+        new RegExp(`(?:^|;)\\s*${name}:\\s*([^;]+)`).exec(style)?.[1]?.trim() ?? "";
+      return [prop("left"), prop("top"), prop("max-height"), prop("max-width")].join("|");
     };
-    const held = [probe.writes[0]!.old, ...probe.writes.map((w) => w.now)];
+    // The placement sequence is the state each BATCH settled at, preceded by the
+    // state the first batch started from.
+    //
+    // Reconstructing it from per-write `now` values instead loses intermediates,
+    // because every `now` is read during the eventual callback and so reports
+    // the final value: a synchronous A -> B -> C reads back A, C, C. Doing it
+    // per WRITE has the opposite fault and reports React's half-applied
+    // `left` -> `top` pair as two placements. Per batch is the grain that
+    // matches a commit.
+    const held = [probe.batches[0]!.start, ...probe.batches.map((b) => b.end)];
     const placements: string[] = [];
     for (const style of held) {
       const c = coord(style);
       if (placements[placements.length - 1] !== c) placements.push(c);
     }
 
-    // eslint-disable-next-line no-console
     console.log(
       `PROBE-LIVE styleWrites=${probe.writes.length} placements=${placements.length} ` +
         `sequence=${JSON.stringify(placements)} ` +
@@ -521,5 +591,42 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
       `the open transition must apply exactly one placement (origin → placed); ` +
         `got ${JSON.stringify(placements)}`,
     ).toBe(2);
+
+    // ── INV-1: the placement is applied BEFORE paint ───────────────────────
+    // This cannot be pinned in jsdom. Under Testing Library's `act`, passive
+    // effects flush synchronously before `render()` returns, so a jsdom
+    // assertion reads the same placed value whether the effect is
+    // `useLayoutEffect` or `useEffect` — measured, not assumed. Such a pin is
+    // green for the wrong reason forever, which is worse than no pin because it
+    // reads as covered.
+    //
+    // Here the discriminator is frame ordering. Microtasks run before the
+    // rendering update, so a placement applied in the commit that mounts the
+    // panel is observed at the SAME frame count as the mount. One applied after
+    // paint has a rendering update between it and the mount, so it cannot be.
+
+    // PREMISE (own inputs), on the instrument itself: a counter that never
+    // advanced makes `placement === mount` true for every implementation, which
+    // is the tautology this whole case exists to avoid.
+    expect(
+      probe.frames,
+      "premise not met: the animation-frame counter never advanced, so equal frame " +
+        "counts would prove nothing about ordering",
+    ).toBeGreaterThan(0);
+    expect(
+      probe.framesAtMount,
+      "premise not met: the observer never saw the portal mount",
+    ).not.toBeNull();
+    expect(
+      probe.framesAtPlacement,
+      "premise not met: the observer never saw a write leaving the unplaced origin",
+    ).not.toBeNull();
+
+    expect(
+      probe.framesAtPlacement,
+      `the placement must land in the commit that mounts the panel, before paint; ` +
+        `mount was at frame ${probe.framesAtMount} and the placement at ` +
+        `${probe.framesAtPlacement}, so a rendering update ran in between`,
+    ).toBe(probe.framesAtMount);
   });
 });
