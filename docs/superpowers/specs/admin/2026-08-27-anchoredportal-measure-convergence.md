@@ -331,6 +331,36 @@ state to interrupt.
   does not rest on more than that: the A-and-B redundancy is analytic (§2.2), and
   C — the measure that would catch a disagreement — is the one that stays.
 
+## 9.2 Two more limits of the live pins
+
+**The pins' CI coverage rests on one unguarded line.** `admin-layout-e2e.yml:64`
+lists `components/admin/AnchoredPortal.tsx` in the workflow's `pull_request.paths`,
+which is what makes INV-1 and INV-4 run on a PR touching this component. That
+fact is true and was verified directly. **Nothing pins it.**
+`tests/ci/_metaE2eWorkflowCoverage.test.ts:260` asserts that every e2e SPEC is
+PR-covered or allowlisted; it makes no claim about which SOURCE paths a
+workflow's filter names, and the `AnchoredPortal` text at
+`tests/ci/_metaE2eWorkflowCoverage.test.ts:138` is a comment rather than an
+assertion. So deleting that one line would leave this gate dark against the exact
+file it guards — the class that workflow's own header was written about.
+
+Recorded rather than pinned: the guard would be a one-line walker over one file
+whose done condition is a property of the walker, which is the shape the
+2026-08-25 process mint freeze declines, and the same reason this arc declined a
+walker for the dependency-array property. **Re-file trigger:** the line is
+actually deleted, or a second arc finds its own gate dark the same way.
+
+**Cap VALUE is not oracle-checked, only cap STABILITY.** `maxHeight` and
+`maxWidth` are members of the placement key, so a cap that changed mid-sequence
+would produce a third distinct key and red the count. Nothing compares either to
+an expected value, so a wrong-but-constant cap passes. Checking the value would
+need the placement algebra as its oracle, and re-deriving that in the test would
+pass whenever the test and the code share a mistake — the tautology this arc has
+been removing rather than adding. The fixture also applies no cap at all
+(`maxH=none` in every recorded run), so a value assertion here would assert
+emptiness and discriminate nothing. Cap behaviour is exercised by the containment
+and flip cases in the same spec.
+
 ## 9.1 Documented coverage boundary: one of the two render sites
 
 `AnchoredPortal` is rendered from exactly one file, at two sites, both in

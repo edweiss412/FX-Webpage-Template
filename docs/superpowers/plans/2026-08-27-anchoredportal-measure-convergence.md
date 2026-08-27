@@ -8,10 +8,10 @@ Every task is TDD per invariant 1: failing test, minimal implementation, passing
 
 ## Pre-draft code-verification pass
 
-Run on this base before drafting. All 15 `file:line` citations in the spec were re-read and matched. Four things the pass established that changed the plan:
+Run on this base before drafting. Every `file:line` citation in the spec was re-read and matched. The count is DERIVED rather than written down, because a hand-authored one stops tracking its source the moment the document grows — an earlier draft said 15 while the spec had grown to 22 occurrences across 19 distinct citations. To re-derive: `grep -oE '`[a-zA-Z0-9_./-]+\.(ts|tsx):[0-9]+(-[0-9]+)?`' <spec> | sort -u | wc -l`. Four things the pass established that changed the plan:
 
 - **The suite baseline is 12 passed.** `pnpm vitest run tests/components/admin/rowActions/anchoredPortal.test.tsx` on `66c9857f5`.
-- **INV-2 already has a case.** `tests/components/admin/rowActions/anchoredPortal.test.tsx:266` moves the anchor's position with its size held and asserts the panel follows, with `premiseHolds` on both halves of its own inputs. Task 3 does not write a new fixture; it proves that case discriminates, which nothing currently does.
+- **INV-2 already has a case.** `tests/components/admin/rowActions/anchoredPortal.test.tsx:266` moves the anchor's position with its size held and asserts the panel follows, with `premiseHolds` on both halves of its own inputs. Task 1's M3 plant does not write a new fixture; it proves that case discriminates, which nothing currently does.
 - **`AnchoredPortal.tsx` is not an enrolled mutation surface, and cannot be one today.** See the documented limit below. Probed, not assumed.
 - **Three walkers cover the touched file and are checked rather than extended**, because none of their populations changes. RUN at plan time rather than asserted, per this arc's own sweep standard (`pnpm vitest run tests/components/admin/_metaPopoverViewportSource.test.ts tests/components/_metaScrollNeutralMeasurement.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts` = 3 files, 118 tests, all passing on the pre-repair tree). Task 1 re-runs them at the repaired head, since a population claim proved before the change is not a claim about the change. `tests/components/admin/_metaPopoverViewportSource.test.ts:170` asserts set equality over the files calling `placeWithinVisibleViewport`; `measureAndApply` keeps that call, so the set is unchanged. `tests/components/_metaScrollNeutralMeasurement.test.ts` walks `components/` from disk for cap clearing outside `withNaturalSize`; this diff adds none. `tests/ci/_metaE2eWorkflowCoverage.test.ts:260` asserts that every e2e spec is PR-covered by some workflow or reason-allowlisted; `rowactions-geometry.spec.ts` is covered by `admin-layout-e2e.yml`, and this diff adds a CASE to that existing spec rather than a new spec file, so the walked population is unchanged. (An earlier draft said this walker pins that the workflow's PATH FILTER names `AnchoredPortal.tsx`. It does not — that is a comment at `tests/ci/_metaE2eWorkflowCoverage.test.ts:138`, and the path-filter fact was verified directly against `.github/workflows/admin-layout-e2e.yml` instead.)
 
@@ -135,7 +135,7 @@ is visual would mean the repair did something it was not supposed to.
 | AC-2 | 1 | `PROBE:` frame ordering, `tests/e2e/rowactions-geometry.spec.ts` | M2: make the sole measurer a `useEffect` | **RUN**, red observed, transcript in spec appendix A.4 |
 | AC-3 | 2 | `tests/components/admin/rowActions/anchoredPortal.test.tsx:266` | M3: delete the ungated effect | to run in task 2 |
 | AC-4 | 1 | `PROBE:` placement sequence at per-batch grain, PLUS the geometric oracle (right-edge alignment and adjacency on the reported side) | a one-line `left + 1`, which the count alone does not catch | oracle RUN green; the mutant is task 1's |
-| AC-5 | 2 | the closeout gate command, every conjunct red today | n/a — the gate IS the check |
+| AC-5 | 2 | the closeout gate command, every conjunct red today | n/a — the gate IS the mutant: each conjunct is independently false now and true only at closeout | RUN, exit 1 observed on the live tree |
 
 AC-2's pin and its plant are already committed and proved: clean gives mount
 frame 2 and placement frame 2, the plant gives placement at frame 3 and reds.
@@ -184,16 +184,6 @@ GREEN: delete `measureAndApply();` at `components/admin/AnchoredPortal.tsx:193`,
 leaving the gated effect's subscription wiring and teardown untouched. Rewrite
 its lead comment so it no longer claims to place.
 
-PLANT M1: restore the deleted call, run the command, record the observed failure
-and the count it reported, revert. **An orphaned plant is a hard failure of this
-task, not a line to drop** — round 1 shipped a plant that could not red, and the
-whole point of planting is to catch that before it ships.
-
-THEN: re-run the `PROBE:` e2e case at the repaired head. AC-2 and AC-4 must both
-still be green. The repair removes a measure, not a placement, so a change in the
-placement sequence here is a defect rather than an expected difference. Record
-the output beside the pre-repair figure.
-
 **Ordering rule for every plant below: EXECUTE, then write the claim from the
 result. Never write the claim and schedule the execution.** Spec round 2 found
 this arc's §4 asserting that every mutant had been run when one had; the document
@@ -229,11 +219,19 @@ THEN, in the same task:
 
 ## Task 2 — close out
 
-<!-- task: red=`sh -c 'P=docs/superpowers/plans/2026-08-27-anchoredportal-measure-convergence.md; grep -qE "^impeccable-gate: critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=(0|[1-9][0-9]*) p1=(0|[1-9][0-9]*) dispositions=(recorded|none)$" $P || exit 1; grep -qE "^#{2,3} BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN" BACKLOG.md && exit 1; awk "/^#+ BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN/{f=1;next} f&&/^#/{f=0} f" BACKLOG-archive.md > /tmp/apm-entry.txt; test -s /tmp/apm-entry.txt || exit 1; grep -q "IN PROGRESS" /tmp/apm-entry.txt && exit 1; grep -q "perf/anchoredportal-measure-convergence" /tmp/apm-entry.txt || exit 1; grep -q "BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN" tests/docs/_metaDeferralLedgerGraduation.test.ts || exit 1; exit 0'` ac=AC-5 -->
+<!-- task: red=`sh -c 'P=docs/superpowers/plans/2026-08-27-anchoredportal-measure-convergence.md; grep -qE "^impeccable-gate: critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=(0|[1-9][0-9]*) p1=(0|[1-9][0-9]*) dispositions=(recorded|none)$" $P || exit 1; grep -qE "^#{2,3} BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN" BACKLOG.md && exit 1; awk "/^#+ BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN/{f=1;next} f&&/^#/{f=0} f" BACKLOG-archive.md > /tmp/apm-entry.txt; test -s /tmp/apm-entry.txt || exit 1; grep -q "IN PROGRESS" /tmp/apm-entry.txt && exit 1; grep -q "perf/anchoredportal-measure-convergence" /tmp/apm-entry.txt || exit 1; pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts >/dev/null 2>&1 || exit 1; exit 0'` ac=AC-5 -->
 
 **What is red and why.** Every conjunct fails on the live tree today: this plan
 carries no `impeccable-gate:` line, the row is still a heading in `BACKLOG.md`,
 it is absent from `BACKLOG-archive.md`, and it has no `BACKLOG_GRADUATED` row.
+
+**The registry conjunct RUNS the meta-test rather than grepping the file that
+contains it.** An earlier draft grepped
+`tests/docs/_metaDeferralLedgerGraduation.test.ts` for the backlog id, which a
+comment or an unrelated fixture mentioning the id satisfies without a
+`BACKLOG_GRADUATED` row ever being added — and which never executes the
+structural check whose validity is the thing being claimed. Running the suite is
+the only conjunct that proves the extension holds.
 The command goes green only when all four are true together.
 
 Invariant 8 applies, because `components/admin/AnchoredPortal.tsx` is a UI

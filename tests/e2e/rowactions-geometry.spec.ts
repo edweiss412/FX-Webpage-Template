@@ -35,6 +35,7 @@ import { signInAs, signOut } from "./helpers/signInAs";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { GAP } from "@/lib/popover/position";
+import { readFileSync } from "node:fs";
 
 const TOL = 0.5;
 /** Enough rows that the document scrolls at the viewport below, with margin. */
@@ -491,6 +492,13 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
           const t = r.target;
           if (!(t instanceof HTMLElement)) continue;
           if (!t.matches('[data-testid^="row-actions-portal-"]')) continue;
+          // `attributeFilter` carries TWO attributes, so `oldValue` is a style
+          // string on some records and a side token on others. Treating every
+          // record's oldValue as a style makes the reconstructed origin garbage
+          // the moment `side` changes — found by the M-side mutant, which red on
+          // the origin premise reading "||||top" instead of on the adjacency
+          // assertion it was aimed at.
+          if (r.attributeName !== "style") continue;
           const old = r.oldValue ?? "";
           if (batchStart === null) batchStart = old;
           target = t;
@@ -609,6 +617,16 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
       "premise not met: the panel never left its unplaced origin, so this case would pass vacuously",
     ).not.toBe(origin);
 
+    // INV-4's deciding assertion. The round-2 repair rewrote this tail and
+    // dropped it, which left the case checking only that the first and last
+    // states differ — so any number of intermediate placements passed as long
+    // as the final geometry was right. Restored, and stated as the count it is.
+    expect(
+      placements.length,
+      `the open transition must apply exactly one placement (origin → placed); ` +
+        `got ${JSON.stringify(placements)}`,
+    ).toBe(2);
+
     // ── The placement is CORRECT, not merely singular ──────────────────────
     // Counting placements says nothing about where the panel went. Without an
     // oracle a one-line `left + 1` still produces exactly one non-origin
@@ -644,6 +662,36 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
         `side=top: the panel's bottom must sit GAP above the trigger's top`,
       ).toBeLessThanOrEqual(TOL);
     }
+
+    // Caps, asserted rather than only deduplicated on. Membership in the
+    // placement key catches a cap that CHANGES mid-sequence and nothing else: a
+    // wrong-but-constant `maxHeight` preserves the geometry above, produces one
+    // settled placement, and escapes every other assertion here.
+    //
+    // The oracle is that a panel which FITS takes no cap at all. That is a
+    // property of the placement contract rather than a re-derivation of its
+    // algebra, so it does not pass when the test and the code share a mistake.
+    const vp = await viewportSize(page);
+    const room = side === "bottom" ? vp.height - (triggerRect.bottom + GAP) : triggerRect.top - GAP;
+
+    // PREMISE (own inputs): this fixture must be one where the panel FITS, or
+    // "no cap" is the wrong expectation and the assertion below would be
+    // asserting the contract is violated.
+    expect(
+      room,
+      `premise not met: the panel (${panelRect.height}px) must fit its side's room (${room}px) ` +
+        "for an uncapped placement to be the correct expectation",
+    ).toBeGreaterThanOrEqual(panelRect.height - TOL);
+
+    const caps = await panel.evaluate((el) => ({
+      maxHeight: (el as HTMLElement).style.maxHeight,
+      maxWidth: (el as HTMLElement).style.maxWidth,
+    }));
+    expect(
+      [caps.maxHeight, caps.maxWidth],
+      "a panel that fits must carry no cap; a non-binding wrong cap preserves geometry and would " +
+        "otherwise escape every assertion in this case",
+    ).toEqual(["", ""]);
 
     // ── INV-1: the placement is applied BEFORE paint ───────────────────────
     // This cannot be pinned in jsdom. Under Testing Library's `act`, passive
@@ -682,4 +730,58 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
         `${probe.framesAtPlacement}, so a rendering update ran in between`,
     ).toBe(probe.framesAtMount);
   });
+});
+
+/**
+ * The PREMISE of every live pin in this file, stated executably.
+ *
+ * `PROBE:` below asserts that the panel is placed before paint and that one
+ * settled placement is applied. Both claims are about
+ * `components/admin/AnchoredPortal.tsx`, and both are worth nothing if the
+ * workflow carrying this spec stops firing when that file changes: the pin
+ * would then pass BY NOT RUNNING, which is the dark-gate shape rather than a
+ * failure anyone would see.
+ *
+ * Nothing else pins this. `tests/ci/_metaE2eWorkflowCoverage.test.ts:260`
+ * asserts that every e2e SPEC is PR-covered or allowlisted; it makes no claim
+ * about which SOURCE paths a workflow's filter names.
+ *
+ * Deliberately scoped to THIS spec's own premise — the two paths it actually
+ * depends on — rather than being a repo-wide walker over workflows, which
+ * would be a guard-on-guard surface for someone else to maintain.
+ */
+test("the workflow that runs this spec fires on the file this spec guards", () => {
+  const wf = readFileSync(".github/workflows/admin-layout-e2e.yml", "utf8");
+
+  // PREMISE (own inputs): the file must have been read as YAML with a paths
+  // block at all, or both assertions below would pass on an empty string.
+  expect(
+    /^\s*paths:/m.test(wf),
+    "premise not met: admin-layout-e2e.yml has no paths: block, so this case " +
+      "cannot distinguish a missing entry from a missing file",
+  ).toBe(true);
+
+  // Anchored to a list ITEM, for the same reason as the run-step assertion
+  // below: a substring test over a structured file cannot tell a comment from
+  // a paths entry from a run step, and this workflow's header names several
+  // of the files it filters on.
+  expect(
+    /^\s+-\s+"components\/admin\/AnchoredPortal\.tsx"\s*$/m.test(wf),
+    "admin-layout-e2e.yml must list components/admin/AnchoredPortal.tsx as an " +
+      "entry in its pull_request.paths, or a PR changing that component never " +
+      "runs the pins in this file and they pass by not running",
+  ).toBe(true);
+
+  // Anchored to a `run:` line, NOT a bare substring search. This spec's own
+  // path appears in the workflow TWICE — once in `pull_request.paths` and once
+  // in the step that executes it — so `wf.includes(...)` is satisfied by the
+  // paths entry alone and would still pass if the run step were deleted. That
+  // is the half-closed hole: the workflow fires, reports success, and asserts
+  // nothing.
+  expect(
+    /^\s+run:.*rowactions-geometry\.spec\.ts/m.test(wf),
+    "admin-layout-e2e.yml must INVOKE this spec in a run step, not merely name " +
+      "it in paths, or the trigger above fires a workflow that never executes " +
+      "these assertions",
+  ).toBe(true);
 });
