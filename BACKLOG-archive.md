@@ -1,3 +1,49 @@
+## BL-SPECLINT-AC-UNCLAIMED — a plan could declare an acceptance criterion that no task was scheduled to prove — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** M · **Shipped by:** `feat/speclint-ac-unclaimed-arm` · **Spec:** `docs/superpowers/specs/2026-08-26-speclint-dispatch-gates-design.md` §4.2 branch (A) · **Plan:** `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md`
+
+**Read this before the row above it: the row's own premise is false on this corpus.** It read every unclaimed pair as "no task is scheduled to prove this criterion". Classified against each plan's own prose, the 40 flagged pairs were DISCHARGED 28, UNSETTLED 7, FOREIGN-ID 4, RETIRED 1, and **zero** were a criterion nobody had scheduled. The dominant case is a documented convention: a trailing criterion discharged by a task OUTSIDE the marker region, with the plan saying so in prose. So the arm that shipped is built from the measurement and not from the sentence that filed it. Transcript: `docs/superpowers/specs/probes/2026-08-26-ac-disposition-classification.md`.
+
+**What ships.** Two hard codes in `lib/specLint/taskContract.ts`, both rendered from one exported classification (`acAnalysis`), so the finding a reader sees and the set a test asserts cannot disagree:
+
+- `TASK_AC_UNCLAIMED` — a declared id no marker claims, whose declaring line carries no disposition.
+- `TASK_AC_UNDECLARED` — a marker citing an id the plan mentions but never declares, **opt-in by shape**: it fires only in a plan that already declares at least one criterion, because 52 of the 109 enrolled plans keep their criteria in a sibling spec and carry a coverage map instead.
+
+A disposition is an ACCEPT-set with a closed grammar (spec §4.3): parenthesised, end-anchored, `RETIRED` case-sensitive, the owner a closed token list. A near miss REPORTS rather than exempting, since to a plan author silence and clean are indistinguishable. The corpus forced that: `2026-08-21-app-e2e-batch2.md:28` already ends "Task 10.", so a loose matcher would have silently exempted a genuinely unclaimed id.
+
+**Why the grammar stopped, after three of them did not.** Four generations; review refuted the first three on live inputs, each time by finding one more lexical class. v4 takes the cut from a COUNT instead of a pattern: a declaring line yields a criterion only when it carries exactly ONE distinct id, and a line with more is declined and RECORDED. A count has no next grammar corner, which is the property the three pattern generations could not have. Measurements: `docs/superpowers/specs/probes/2026-08-26-ac-declaration-grammar-probe.report.txt`.
+
+The same cut is applied SYMMETRICALLY to the undeclared direction, by orchestrator ruling, and the sequence is the argument for it: without the cut the code reds on **9 plans / 71 ids**, because one incidental list item beginning with an id opts an entire plan in while its real criteria sit in a table. With the cut, **2 plans / 5 ids**. After migration, **0**.
+
+**Live at the shipping head** (post-absorb of `8be90aba7`; the plan required a re-measure here and two figures had already moved):
+
+| measure                            | value                                     |
+| ---------------------------------- | ----------------------------------------- |
+| enrolled plans walked              | 109                                       |
+| plans with a certain declaration   | 57                                        |
+| `TASK_AC_UNCLAIMED`                | 12, equal to the committed residue        |
+| `TASK_AC_UNDECLARED`               | 0, over a provably non-empty declined set |
+| AMBIGUOUS declaring lines          | 13, equal to the committed record         |
+| declined lines (the symmetric cut) | 1114 across 98 plans                      |
+
+Residue: `tests/specLint/acUnclaimedResidue.ts` (12 rows — 10 `unsettled`, 2 `owner-inexpressible`). Ambiguous record: `tests/specLint/acAmbiguousRecord.ts` (13 rows). The done condition is residue EQUALITY and fail-closed, never a flat zero: a zero and the "unsettled pairs stay flagged" constraint could not both hold.
+
+**Why the decline is silent, and the number that bought it.** Recording each declined line would commit 1114 rows across 98 plans, and an exact-equality record that size reds on any routine plan edit anywhere in the corpus. The loudness sits instead on the corpus assertion that the live `TASK_AC_UNDECLARED` set is empty.
+
+**Migration:** 20 disposition lines across 12 plans, plus 2 plans edited into v4 declaration form. Every one states only what its plan's prose already says. All 20 were constructed and run against the grammar BEFORE any was written: each is accepted and leaves its line certain.
+
+**Mutation score at the shipping head: 1.0, 191 sites, 166 killed, 25 survivors all ledgered, 0 unaccepted** (`taskContract.20260827-113613-16480-0001.json`). Scoring was not a formality — the first two runs returned 0.7906 and 0.9116, both real, both repaired rather than argued down. Three of the gaps were exactly what plan review predicted: the `declined` and `ambiguous` accumulators were asserted only by the corpus suites, which the registry does not run, so deleting either push left the gate green.
+
+**Documented limits, none of them filed as rows** (process mint freeze, and this arc's own no-new-rows constraint):
+
+1. **The residue list IS the limits record** (spec §7 limit 8). It holds only pairs no disposition can honestly express, may shrink as owning arcs settle their own plans, and may never grow to make a red go away.
+2. **A residue row makes its plan un-dispatchable through the lint gate, and that is the design working.** Eight plans hold one, so they report `TASK_AC_UNCLAIMED` at hard severity indefinitely; the #904 lint gate then refuses a `--stage spec|plan` dispatch naming them, and `--no-lint-gate` is the intended escape (spec §7 limit 3). An id whose disposition would be a lie stays flagged, and staying flagged is what flagged means.
+3. **A `RETIRED` reason may not name another id, and spec §4.3's own example does.** The reason sits on the declaring line, so `(RETIRED: superseded by AC-4)` puts two ids there and the count cut declines it. The criterion is still exempted, by the decline rather than by the disposition. Two ratified things conflict and the count cut wins, because it is the terminating decision three refuted grammars bought. `docs/agents/writing-plans.md` advertises an id-free reason instead, and both halves are pinned.
+
+**Review:** plan stage 4 rounds (10/5/7/2 findings), diff stage 4 rounds (5/4/3/1), all accepted, none disputed. Filing: `docs/review-rounds/feat/speclint-ac-unclaimed-arm/44b0d74b1107.md`, whose diff section records the one thing worth carrying forward — three of the four diff rounds landed on a single class, because the round-1 repair named fields one at a time instead of deriving over them.
+
+**No `BL-`/`DEF-` row is filed by this arc, of any facing.**
+
 ## BL-TYPO-NORMALIZED-V4-VENUE-SHAPE — the venue gate could not see the current template, and the miss was silent — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** S · **Shipped by:** `fix/typo-v4-venue-shape` · **Spec:** `docs/superpowers/specs/parser/2026-08-27-venue-block-predicate-design.md`
@@ -13053,6 +13099,8 @@ commit that made them false; no suite can read a comment, so that phrase is in t
 
 **VERIFICATION OUTSTANDING, and owned.** This row's own body required a clean `workflow_dispatch` on `main` and explicitly excluded a PR run: "a PR run's head is the PR branch". That observation lands on the **first scheduled `mutation-harness` run on `main` after this arc merges** — after the shipping PR's last commit, and after a merge this arc does not perform. **bl-orch owns observing that nightly and writing the merge sha and the outcome into this entry.** The alternative, leaving the row open, was ruled against on 2026-08-26: a row whose only remaining step is watching a cron is the stale-queue shape the in-progress convention exists to prevent, and a handoff carries a watch better than a ledger row does.
 
+**OBSERVED 2026-08-27, recorded by bl-orch.** The 07:00 UTC schedule did not fire on 2026-08-27 (no `schedule` run exists after 2026-08-26 07:40Z, which ran on `9a621a579`, pre-merge), so bl-orch dispatched the workflow on `main` by hand at 08:07 CDT: run [33075218642](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/33075218642), `workflow_dispatch`, head `4cb585b35` (main after #910; #908 merged as `87bff7470` on 2026-08-26). Result, read per job: **19 of 20 jobs success, every `source-shards` leg included, plus `source-gates`, both parser jobs and `notify`; the one failure is `budget`.** So the coverage half this row is about is GREEN on main: no `BaselineNotGreenError`, no aborted collection, no unaccepted survivor on any leg. The `budget` failure is the shard wall-clock, which this row disclaims and `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH` records (its entry below carries the leg timings). This is the `workflow_dispatch` on `main` the row's body asked for.
+
 **The row's own thesis about itself held, and that is why the closing evidence is a re-measurement rather than its named list.** Between filing and repair the failure set turned over completely. All three of its named mechanical repairs had already landed on `main`, re-verified at `75b8f7a3e`:
 
 - The ledger-kind class (`rowScanOpener`, `fieldNearMiss`) is closed by the row's own derivation, re-run over the live registry: **52 surfaces, 0 mismatches.** Landed at `a66f465c7`.
@@ -13127,6 +13175,8 @@ five further legs in the warn band (>75% of 3600 s)
 **Which is this row's own mechanism, firing again.** The row's body already says raising the count rebalances MODELLED BOOTS while the budget bounds SECONDS, and that the archived wall-clock row measured that model 3.8x miscalibrated. `N = 8` bought headroom; two more enrolled surfaces spent most of it. The pattern the row documents — a margin a single enrolment can erase — is intact and is now on its second observed cycle.
 
 **Documented limit, and the next lever named rather than filed** (mint freeze, and this arc files no row of any facing): the sanctioned response remains the one the workflow's own triage copy prescribes — raise `SOURCE_SHARD_COUNT` in `tests/mutation/source/shardPartition.ts`, never `timeout-minutes`. It was 4, is 8, and the measurement above is the input to whoever takes it to the next value. **Re-file trigger for that lever:** a `budget` job FAILURE on a SCHEDULED `main` run, which is the observation this arc could not make because it does not merge. Note the distinction that made this section necessary: the run above is a feature-branch dispatch, so it is evidence the mechanism is live, and it is NOT the scheduled-main evidence the original trigger asks for.
+
+**Observed again 2026-08-27 on MAIN content, recorded by bl-orch.** Run [33075218642](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/33075218642) on `main` at `4cb585b35` (a `workflow_dispatch` by bl-orch, because the 07:00 UTC schedule did not fire that day; the head is main's own content, which is what the trigger is about, and the event name is the only respect in which it is not the scheduled run the sentence above names): `budget` FAILURE, `leg source-shards-0 took 4089s, over the 3600s budget`; legs 1, 2, 3, 5, 6, 7 in the warn band at 2767, 2758, 3492, 3467, 3205, 3154 s; leg 4 under it. Every leg passed on content. Second breach at `N = 8` after the 3788 s one above, now on the binding leg 0 rather than leg 4, so the shape is the row's own mechanism (LPT over modelled boots, budget over seconds) and not one leg's population. The lever stays `SOURCE_SHARD_COUNT` (8 today) in `tests/mutation/source/shardPartition.ts`; no row is filed (process mint freeze); whoever takes it starts from these two runs.
 
 **What is genuinely closed here** is the row as filed: the `budget` job failed on four of four legs at `N = 4`, and at `N = 8` it passes on six of eight with one over. That is a repair, not a fiction. What is NOT closed is the growth curve underneath it, which is why this row graduates with the breach recorded instead of a clean subsumption.
 

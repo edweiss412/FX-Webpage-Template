@@ -18,6 +18,20 @@ This plan touches `docs/superpowers/specs/ci/`, `docs/superpowers/plans/`, `BACK
 
 ## 0. Pre-draft code-verification pass — authored AND RUN
 
+## Acceptance criteria
+
+One line per criterion, restating what step 5 and step 2 below already say about each. Added by
+`feat/speclint-ac-unclaimed-arm`: this plan's task marker cites AC-1 through AC-7 while the criteria
+were written inside a wrapped list item, so the ids were cited and never declared.
+
+- AC-1: the README carries `## Stating a figure` naming both binding forms and the header-line shortcut.
+- AC-2: the census script runs with no arguments from a clean checkout and exits 0, printing all four sections.
+- AC-3: the probe record states its base and command, and every figure in it reproduces at that base.
+- AC-4: the probe record has its index row.
+- AC-5: the count's evidence and its one outstanding re-open trigger are recorded, the second trigger being discharged rather than recorded.
+- AC-6: `BL-LEDGER-FIGURE-PROVENANCE` carries `**Facing:** process`, an `**Incident:**`, a `**Reachability:** PROBED`, and the fence sentence against `BL-CLOSEOUT-COUNT-PROSE-DRIFT`.
+- AC-7: the archive move lands in step 2 rather than in a later commit, per invariant 12.
+
 Docs-only arc, so the verification surface is the gates that walk this corpus rather than a citation
 table over source. Every one below was RUN, not resolved by reading.
 

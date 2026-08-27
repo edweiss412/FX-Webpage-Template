@@ -359,7 +359,7 @@ This diff touches `tests/**` and `docs/**` only: no file under `app/`, `componen
 `tailwind.config.*` or `DESIGN.md`, so invariant 8's dual gate does not apply. Advisory-lock topology:
 not touched, no `pg_advisory*` call in scope. DB layers: none.
 
-### AC-6 — the mutation score, pasted with its counts
+### AC-6 — the mutation score, pasted with its counts (discharged by Task 6)
 
 Scoped single-surface shard, `pnpm heavy`, foreground, on this branch:
 

@@ -40,7 +40,7 @@
 - **AC-2:** the layout spec passes 8/8 locally in both projects using the helper.
 - **AC-3:** the fatal snapshot log context carries `error`/`pgrstCode`/`pgrstDetails`/`pgrstHint` and still no `code` property.
 - **AC-4:** workflow run list + oracle row + allowlist removal + comment refresh land in the same PR.
-- **AC-5:** five consecutive green `pull_request` runs of `app-e2e.yml`, `--retries=0`, oracle floors enforced.
+- **AC-5:** five consecutive green `pull_request` runs of `app-e2e.yml`, `--retries=0`, oracle floors enforced (discharged by Task 5)
 - **AC-6:** every `infra-recovery` annotation in those runs is reported in the PR from the job-log oracle print; the print seam is pinned end-to-end by a child-process vitest case.
 
 ---

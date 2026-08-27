@@ -47,7 +47,7 @@ summarised at the top of that follow-on so it is not re-derived.
 - AC-4: `TASK_AC_UNCLAIMED` fires on a declared id no marker cites whose declaring line carries no disposition; hard, exit 1, rendered `FAIL`.
 - AC-5: `TASK_AC_UNDECLARED` fires on a marker citing an id the plan does not declare, in a plan that declares at least one; no id ever draws two of the three codes.
 - AC-6: the corpus's unclaimed set equals the committed residue list exactly, walked from disk, fail-closed.
-- AC-9: `taskContract` scores at or above `scoreFloor` 0.95 with zero unaccepted survivors at the shipping head (discharged by the closeout, not by a task).
+- AC-9: `taskContract` scores at or above `scoreFloor` 0.95 with zero unaccepted survivors at the shipping head (discharged by the closeout)
 
 These four were previously named only in a prose sentence, which this arc's own arm correctly flags
 as UNDECLARED — the plan cited them from markers without declaring them. Fixed by declaring them.

@@ -352,7 +352,7 @@ each is probed against a failing input rather than trusted:
 | AC-8 `node docs/superpowers/specs/ci/probes/2026-08-22-seam-check.mjs` | this arc's diff | **RUN. Two earlier versions of this gate could not fail; the third is proved against a deletion and against the outer walk.** See below. |
 | AC-10 `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts` | the corpus after Task 3 | Gates the script's `DECLARED` list, every site of which is unmarked before the repair, so it exits 1 today. Self-tests the matcher against that same list and exits 2 on a miss. Narrowing the matcher back to an earlier version aborts naming the site lost, so the self-test is non-vacuous. |
 
-### AC-8: three denylists, then an allowlist
+### AC-8: three denylists, then an allowlist (discharged by closeout)
 
 This gate was found vacuous three times, each in a new direction, and plan review round 4 caught a
 fourth hole in the first allowlist. Recording all of it, because the pattern is the point.
