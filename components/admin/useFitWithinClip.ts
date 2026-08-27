@@ -206,9 +206,10 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
       // so its return value is used here rather than resolving again.
       const resolved = apply();
 
-      // The clip ROLE, held rather than captured, because the attach-time
+      // The two ROLES, held rather than captured, because the attach-time
       // resolution is exactly what used to outlive its truth.
       let observedClip: HTMLElement | null = null;
+      let observedPositioned: Element | null = null;
       let observer: ResizeObserver | null = null;
 
       /**
@@ -232,25 +233,33 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
         observedClip = clip;
       };
 
+      /**
+       * Re-target the positioned role by the same rule, and move its listener
+       * with it. The listener is bound per node and its filter compares against
+       * the CURRENT role, so leaving it on the old ancestor would both reject
+       * the real settle event and accept a stale one.
+       */
+      const subscribePositioned = (positioned: Element | null): void => {
+        if (positioned === null || positioned === observedPositioned) return;
+        if (observer !== null) {
+          if (observedPositioned !== null) observer.unobserve(observedPositioned);
+          observer.observe(positioned, OBSERVE_OPTIONS);
+        }
+        if (observedPositioned !== null)
+          observedPositioned.removeEventListener("transitionend", onTransitionEnd);
+        positioned.addEventListener("transitionend", onTransitionEnd);
+        observedPositioned = positioned;
+      };
+
       // `apply()` forces a synchronous reflow (write, read, read, read, write),
       // and every signal below can arrive many times per frame — a drag-resize
       // fires continuously, and a ResizeObserver can fire for both observed
       // nodes at once. Leading-edge throttle to one apply per frame.
       const coalescer = createRafCoalescer(() => {
-        subscribeClip(apply().clip);
+        const next = apply();
+        subscribeClip(next.clip);
+        subscribePositioned(next.positioned);
       });
-
-      // The positioned ancestor is a SEPARATE node from the clip ancestor, and
-      // it is the one whose content changes move this overlay's top edge.
-      const positioned = resolved.positioned;
-      // Feature-detected, not assumed: a missing ResizeObserver must degrade to
-      // "measured once on attach, re-measured on viewport resize", never throw
-      // during render of the overlay it is trying to size (jsdom has none).
-      observer =
-        typeof ResizeObserver === "function" ? new ResizeObserver(coalescer.schedule) : null;
-      // Called even with no observer, so the ROLE is current either way.
-      subscribeClip(resolved.clip);
-      if (observer !== null && positioned !== null) observer.observe(positioned, OBSERVE_OPTIONS);
 
       // A resize observation fires while a transition is still running, when the
       // geometry is mid-flight; the settle is when the final numbers exist.
@@ -265,19 +274,34 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
       // `transition-[opacity,transform]`, so EVERY entrance fires two
       // transitionend events on this same node. Only the transform carries the
       // geometry this hook measures.
-      const onTransitionEnd = (event: Event) => {
-        if (event.target !== positioned) return;
+      //
+      // A function declaration, so `subscribePositioned` above can reference it:
+      // it is the listener that has to follow the role.
+      function onTransitionEnd(event: Event): void {
+        if (event.target !== observedPositioned) return;
         if ((event as TransitionEvent).propertyName !== "transform") return;
         coalescer.schedule();
-      };
-      if (positioned !== null) positioned.addEventListener("transitionend", onTransitionEnd);
+      }
+
+      // Feature-detected, not assumed: a missing ResizeObserver must degrade to
+      // "measured once on attach, re-measured on viewport resize", never throw
+      // during render of the overlay it is trying to size (jsdom has none).
+      observer =
+        typeof ResizeObserver === "function" ? new ResizeObserver(coalescer.schedule) : null;
+      // Called even with no observer, so the ROLES are current either way, which
+      // is what keeps the transitionend listener following in jsdom.
+      subscribeClip(resolved.clip);
+      subscribePositioned(resolved.positioned);
+
       window.addEventListener("resize", coalescer.schedule);
 
       return () => {
         observer?.disconnect();
-        // Removed BEFORE the cancel, so a late event cannot schedule a frame
-        // after the frame has been cancelled.
-        if (positioned !== null) positioned.removeEventListener("transitionend", onTransitionEnd);
+        // Removed from the CURRENT positioned role, not the attach-time value,
+        // and BEFORE the cancel, so a late event cannot schedule a frame after
+        // the frame has been cancelled.
+        if (observedPositioned !== null)
+          observedPositioned.removeEventListener("transitionend", onTransitionEnd);
         window.removeEventListener("resize", coalescer.schedule);
         // A frame scheduled just before detach would otherwise run `apply()`
         // against a node that is gone.

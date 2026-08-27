@@ -65,11 +65,13 @@ function rectFor(el: Element): DOMRect {
   const box =
     id === "outer"
       ? { top: 0, bottom: geometry.clipBottom }
-      : id === "inner"
-        ? { top: 100, bottom: geometry.clipBottom }
-        : id === "fitted"
-          ? { top: geometry.fittedTop, bottom: geometry.fittedTop + 100 }
-          : { top: 0, bottom: 0 };
+      : id === "mid"
+        ? { top: 50, bottom: geometry.clipBottom }
+        : id === "inner"
+          ? { top: 100, bottom: geometry.clipBottom }
+          : id === "fitted"
+            ? { top: geometry.fittedTop, bottom: geometry.fittedTop + 100 }
+            : { top: 0, bottom: 0 };
   return {
     left: 0,
     right: 300,
@@ -199,6 +201,58 @@ function installTargetTrackingObserver() {
     return true;
   };
   return { state, resize };
+}
+
+/**
+ * Resolves `offsetParent` to the nearest ancestor carrying `data-positioned`,
+ * so a case can MOVE the positioned ancestor, or remove it, without a
+ * re-attach. `withOffsetParent` (plain `parentElement`) is left exactly as it
+ * is: every existing case keeps its own stub.
+ */
+function withMarkedOffsetParent<T>(fn: () => T): T {
+  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetParent");
+  Object.defineProperty(HTMLElement.prototype, "offsetParent", {
+    get() {
+      return (this as HTMLElement).parentElement?.closest('[data-positioned="true"]') ?? null;
+    },
+    configurable: true,
+  });
+  try {
+    return fn();
+  } finally {
+    if (original) Object.defineProperty(HTMLElement.prototype, "offsetParent", original);
+    else Reflect.deleteProperty(HTMLElement.prototype, "offsetParent");
+  }
+}
+
+/**
+ * THREE levels, so the positioned role can move between two nodes NEITHER of
+ * which is the clip. On the two-level `Harness` the only other node is `outer`,
+ * which is already held for the CLIP role, so moving the positioned role onto
+ * it proves nothing: "outer is observed" and its deliverability are both
+ * satisfied by the clip subscription (plan review round 1).
+ *
+ * A separate fixture rather than a level added to `Harness`: under
+ * `withOffsetParent` the offsetParent IS `parentElement`, so a third level
+ * would silently rewrite (d), (h12), (h21) and (h22).
+ */
+function ThreeLevelHarness({
+  reapplyKey,
+  positionedOn = "inner",
+}: {
+  reapplyKey?: unknown;
+  positionedOn?: "inner" | "mid" | "none";
+}) {
+  const fitRef = useFitWithinClip(reapplyKey);
+  return (
+    <div data-testid="outer" data-clips="true">
+      <div data-testid="mid" data-positioned={positionedOn === "mid" ? "true" : undefined}>
+        <div data-testid="inner" data-positioned={positionedOn === "inner" ? "true" : undefined}>
+          <div data-testid="fitted" ref={fitRef} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 beforeEach(() => {
@@ -984,6 +1038,50 @@ describe("useFitWithinClip", () => {
       boxes.every((b) => b === "border-box"),
       `observe boxes: ${boxes.join(",")}`,
     ).toBe(true);
+  });
+
+  test("(h26) the positioned role is re-resolved, between two NON-clip ancestors", () => {
+    const { state, resize } = installTargetTrackingObserver();
+    // The WHOLE body runs inside the stub: `withMarkedOffsetParent` restores the
+    // prototype descriptor in its `finally`, so a re-render or an event fired
+    // outside it reads jsdom's real `offsetParent` and the case tests nothing.
+    withMarkedOffsetParent(() => {
+      const view = render(<ThreeLevelHarness reapplyKey="k" positionedOn="inner" />);
+      const outer = screen.getByTestId("outer");
+      const mid = screen.getByTestId("mid");
+      const inner = screen.getByTestId("inner");
+
+      // PREMISE (this case's own inputs). The middle clause is the one that
+      // makes this case discriminating: if `mid` were already a target, every
+      // assertion below would be satisfied by the CLIP role and would prove
+      // nothing about the positioned one.
+      premiseHolds(
+        "inner holds the positioned role, mid is not a target, outer is the clip",
+        state.targets.has(inner) && !state.targets.has(mid) && state.targets.has(outer),
+      );
+
+      view.rerender(<ThreeLevelHarness reapplyKey="k" positionedOn="mid" />);
+      fireEvent(window, new Event("resize"));
+      flushFrames();
+
+      expect(state.targets.has(mid), "the new positioned ancestor is not observed").toBe(true);
+
+      geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
+      const before = screen.getByTestId("fitted").style.maxHeight;
+      expect(resize(mid), "the new positioned ancestor's resize was not deliverable").toBe(true);
+      flushFrames();
+      const fitted = screen.getByTestId("fitted");
+      expect(fitted.style.maxHeight).toBe(expectedPx());
+      expect(fitted.style.maxHeight, "the geometry move did not take").not.toBe(before);
+
+      // The listener follows the ROLE, or the identity check rejects the real
+      // settle event and accepts nothing.
+      fireEvent(mid, transitionEnd("transform"));
+      expect(frames.size, "the new positioned ancestor's settle did not schedule").toBe(1);
+      flushFrames();
+      fireEvent(inner, transitionEnd("transform"));
+      expect(frames.size, "the FORMER positioned ancestor still schedules").toBe(0);
+    });
   });
 });
 
