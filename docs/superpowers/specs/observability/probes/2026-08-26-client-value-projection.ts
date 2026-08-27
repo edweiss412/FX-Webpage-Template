@@ -1,64 +1,23 @@
 /**
  * Probe: does the client-value projection discriminate every collision family
- * three adversarial rounds have produced?
+ * the adversarial rounds have produced?
  *
  * Written because the projection vector survived spec rounds 1, 2 and 3, which is
  * the three-round cap in docs/agents/spec-self-review.md: stop patching prose,
- * build the thing and measure it. The design in the spec's §6.2 is the code below,
- * and the corpus is every pair a reviewer has actually constructed.
+ * build the thing and measure it. The corpus is every pair a reviewer has
+ * actually constructed.
+ *
+ * IMPORTS THE SHIPPED FUNCTION. It carried its own copy of the projection until
+ * diff review R3, which is a probe that measures a design rather than a program:
+ * the copy still reported the Uint8Array/Uint16Array collision for two commits
+ * after `lib/observe/describeClientValue.ts` had fixed it, so the probe was
+ * evidence about code that no longer existed. A probe kept as a durable record
+ * has to be wired to the thing it claims to be about, or it decays into a
+ * confident wrong answer.
  *
  * Run: node --import tsx docs/superpowers/specs/observability/probes/2026-08-26-client-value-projection.ts
  */
-import { serializeError } from "../../../../../lib/log/serializeError";
-
-// ── the projection under test (spec §6.2) ─────────────────────────────────────
-
-/** Runtime-derived type tag. Never an enumerated list: an unforeseen type gets its own tag. */
-function tag(value: unknown): string {
-  if (value === null) return "null";
-  const t = typeof value;
-  if (t !== "object") return t;
-  const ctor = (value as object).constructor;
-  return typeof ctor === "function" && ctor.name ? ctor.name : "object";
-}
-
-/**
- * Renders serializeError's bounded output to text. NOT JSON.stringify: JSON maps
- * NaN, Infinity and -Infinity to null, so it destroys distinctions serializeError
- * deliberately preserved. Every leaf goes through String(), which keeps them.
- * One rule at every leaf, not a list of special cases.
- */
-function render(node: unknown): string {
-  if (typeof node === "string") return JSON.stringify(node);
-  if (node === null) return "null";
-  if (Array.isArray(node)) return `[${node.map(render).join(",")}]`;
-  if (typeof node === "object") {
-    const o = node as Record<string, unknown>;
-    return `{${Object.keys(o).map((k) => `${JSON.stringify(k)}:${render(o[k])}`).join(",")}}`;
-  }
-  return String(node); // number (NaN/Infinity survive), boolean, bigint
-}
-
-export function describeClientValue(value: unknown): { message: string; detail: string } {
-  let s: ReturnType<typeof serializeError>;
-  try {
-    s = serializeError(value);
-  } catch {
-    return { message: "(no message)", detail: `${tag(value)} [Unserializable]` };
-  }
-  if (typeof s === "string") {
-    return { message: s || "(no message)", detail: `${tag(value)} ${s}` };
-  }
-  const detail = render(s);
-  const parts: string[] = [];
-  if (!Array.isArray(s)) {
-    for (const k of ["name", "code", "message"] as const) {
-      const v = (s as Record<string, unknown>)[k];
-      if (typeof v === "string" && v !== "") parts.push(v);
-    }
-  }
-  return { message: parts.length ? parts.join(": ") : "(no message)", detail };
-}
+import { describeClientValue, tag } from "../../../../../lib/observe/describeClientValue";
 
 // ── the signature under test (spec §6.4) ──────────────────────────────────────
 const CAP_MESSAGE = 1000;
