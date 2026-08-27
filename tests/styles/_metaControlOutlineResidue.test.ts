@@ -2035,3 +2035,110 @@ describe("AC-9b: the EventFilters text input resolves, and no caller can repaint
     expect(body, "it takes the layout boolean instead").toMatch(/\bgrow\s*\??\s*:/);
   });
 });
+
+/**
+ * The consequence bound applied to the FOLLOW branch, closed by signal rather
+ * than by a wider resolver.
+ *
+ * Whole-diff review round 2 found the silent half: a capitalised tag inside a
+ * control that `importedComponentDeclaration` cannot name is skipped, and it is
+ * skipped in SILENCE — no `unresolved`, no row, the rendered child simply gone
+ * from the cover. The named shapes were import ALIASES, defaults whose local
+ * name differs from the exported declaration, anonymous defaults, one-hop barrel
+ * re-exports, and same-file lexical shadowing.
+ *
+ * The repair is NOT to teach the resolver those five shapes. That is parser
+ * growth, and a wider recognizer is a bigger target for the next round; this
+ * repo's same-axis rule says so in as many words. The scanner now REPORTS what
+ * it cannot name, and this guard turns the report into a closed class:
+ *
+ *   an unnamed component tag is admissible only if its local binding comes from
+ *   OUTSIDE the corpus — a bare package specifier, which the resolver is not
+ *   expected to follow into and which cannot carry a corpus control's outline.
+ *
+ * A tag bound from `./`, `../` or `@/` is the reviewer's class exactly: a corpus
+ * component the resolver failed to name. There are none today, and an alias
+ * refactor of `EventRow.tsx`'s `CronRunSummaryCard` — the reviewer's own worked
+ * example — fails this loudly instead of vanishing.
+ */
+describe("no corpus component escapes the follow branch unnamed", () => {
+  const reported: { file: string; line: number; tag: string }[] = [];
+  scanInteractiveElements(ROOT, {
+    textEntry: true,
+    paintedChildren: true,
+    onUnresolvedComponent: (info) => reported.push(info),
+  });
+
+  /**
+   * The in-corpus tags the resolver correctly declines to name. THREE, and each
+   * is a non-follow for a reason no resolver can fix rather than one this arc
+   * chose not to fix:
+   *
+   * - the two `<Icon />` sites render a component read out of a TABLE at
+   *   runtime (`const Icon = SECTION_ICON[id]`, and an `Icon: LucideIcon` field
+   *   on a section record). Which component that is depends on a value, so no
+   *   static resolver can name it — limit L1, stated as a registry row rather
+   *   than left to the prose.
+   * - `ZoomController` is a local function that renders NO JSX; it drives a zoom
+   *   surface through effects. `localJsxDeclaration` requires a declaration that
+   *   holds JSX, so declining it is correct: there is nothing to follow and
+   *   nothing it can paint.
+   *
+   * Sorted, file-relative, and compared as a SET: a fourth member fails here,
+   * which is the whole point. An alias refactor of a real corpus component lands
+   * in this list and reds instead of vanishing.
+   */
+  const UNNAMABLE_IN_CORPUS = [
+    "components/admin/wizard/step3ReviewSections.tsx <Icon>",
+    "components/crew/CrewSubNav.tsx <Icon>",
+    "components/diagrams/GalleryLightbox.tsx <ZoomController>",
+  ];
+
+  /** Every module specifier that binds `local` in `src`, alias forms included. */
+  function specifiersBinding(src: string, local: string): string[] {
+    const out: string[] = [];
+    const importRe = /import\s+([^;]*?)\s+from\s+["']([^"']+)["']/g;
+    for (const m of src.matchAll(importRe)) {
+      const clause = m[1] ?? "";
+      const spec = m[2] ?? "";
+      // default, namespace, named, and named-with-alias all reduce to "does the
+      // LOCAL name appear as a binding", which is what the resolver needed.
+      const bindings = [
+        ...clause
+          .replace(/\{[^}]*\}/g, "")
+          .matchAll(/(?:^|,)\s*(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)/g),
+      ].map((b) => b[1]);
+      const named = [...(clause.match(/\{([^}]*)\}/)?.[1] ?? "").split(",")]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => (part.includes(" as ") ? part.split(" as ")[1]!.trim() : part));
+      if ([...bindings, ...named].includes(local)) out.push(spec);
+    }
+    return out;
+  }
+
+  // covers: spec §5.1
+  it("the sink actually fires, so the assertion below is about something", () => {
+    // Icons alone put this in three figures; a zero here would mean the sink was
+    // never wired, and every claim under it would be vacuous.
+    premise("the follow branch reports tags it cannot name", reported.length, 50);
+  });
+
+  // covers: spec §5.1
+  it("every unnamed tag is bound from OUTSIDE the corpus", () => {
+    const inCorpus = reported.filter((r) => {
+      const rel = r.file.startsWith(ROOT) ? r.file.slice(ROOT.length + 1) : r.file;
+      const specs = specifiersBinding(
+        stripCommentsForFile(readFileSync(join(ROOT, rel), "utf8"), rel),
+        r.tag,
+      );
+      // No binding at all is ALSO in-corpus for this purpose: that is the
+      // lexical-shadowing shape, where the tag names something declared nearby.
+      return specs.length === 0 || specs.some((sp) => /^(\.\.?\/|@\/)/.test(sp));
+    });
+    expect(
+      [...new Set(inCorpus.map((r) => `${r.file.replace(`${ROOT}/`, "")} <${r.tag}>`))].sort(),
+      "a corpus component the resolver could not name is the silent-miss class round 2 found",
+    ).toEqual(UNNAMABLE_IN_CORPUS);
+  });
+});

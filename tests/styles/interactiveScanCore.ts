@@ -888,6 +888,29 @@ export type ScanOptions = {
    * element, `admittedAs: "painted-child"`, anchored on its own opening tag.
    */
   readonly paintedChildren?: boolean;
+  /**
+   * Called for a CAPITALISED tag inside an in-scope ancestor that the resolver
+   * could not name — no local declaration, and no import it can follow.
+   *
+   * The follow branch used to skip such a tag in SILENCE, and silence is the one
+   * outcome the consequence bound forbids: a component whose root paints a weak
+   * outline simply vanished from the cover with nothing reported anywhere.
+   *
+   * A sink rather than a wider resolver, deliberately. Teaching
+   * `importedComponentDeclaration` about aliases, anonymous defaults, barrel
+   * re-exports and lexical shadowing makes it a bigger recognizer with a bigger
+   * surface for the next miss, which is the growth direction this repo's
+   * same-axis rule warns against. Reporting what it cannot name closes the class
+   * instead: the set becomes reviewable, and a new member fails a guard loudly.
+   *
+   * Every existing consumer omits it, so the default path is byte-identical and
+   * AC-1 still holds.
+   */
+  readonly onUnresolvedComponent?: (info: {
+    readonly file: string;
+    readonly line: number;
+    readonly tag: string;
+  }) => void;
 };
 
 const TEXT_ENTRY_TAGS = new Set(["textarea", "select"]);
@@ -1051,7 +1074,14 @@ export function scanInteractiveElements(rootDir: string, options: ScanOptions = 
               followed.add(key);
               visit(local);
               followed.delete(key);
-            } else if (imported !== null) {
+            } else if (imported === null) {
+              // The class the sink exists for: named, and therefore no longer silent.
+              options.onUnresolvedComponent?.({
+                file: ctx.file,
+                line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+                tag,
+              });
+            } else {
               followed.add(key);
               const heldSf = sf;
               const heldCtx = ctx;

@@ -1,6 +1,19 @@
 /**
  * tests/e2e/control-outline-dimensions.layout.spec.ts
  *
+ * §14 pair 5, the ReSync mobile skin, is NOT here, and the reason is a probe
+ * rather than a preference. `ReSyncButton` mounts in exactly one place —
+ * `components/admin/showpage/StatusStrip.tsx:422`, inside the per-show published
+ * review strip — and nowhere on `/admin`. A case that navigated to `/admin` and
+ * waited for `admin-resync-button` could only ever fail on visibility, which is
+ * what it did the first time anything ran it; it survived unnoticed because the
+ * spec was DARK, wired into no workflow. Reaching the real mount needs a staged
+ * show and an opened modal (`tests/e2e/admin-parse-panel.spec.ts:125,278` is the
+ * route), which is a different spec's setup. Recorded as a documented limit with
+ * its probe rather than left as a case that asserts nothing; the pair keeps its
+ * source-level pin in `tests/components/ReSyncButton.test.tsx`, which renders
+ * the component directly and asserts the exact skin classes.
+ *
  * Spec: docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md
  * §14 (Dimensional Invariants), AC-13.
  *
@@ -27,13 +40,16 @@
  * Requires the e2e env (server per playwright.config.ts + seeded Supabase).
  * Auth: ADMIN_FIXTURE via signInAs, matching admin-layout-dimensions.spec.ts.
  */
-import { test, expect, type Page, type Locator } from "@playwright/test";
+import { test, expect, type Locator } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
+import { settleDashboardAdminState } from "./helpers/dashboardState";
 
 const MOBILE = { width: 390, height: 900 } as const;
 const TOL = 0.5;
 const TAP_MIN = 44;
+/** The painted visual inside a tap target: `size-8` / `h-8`, spec §14. */
+const VISUAL = 32;
 
 type Rect = {
   top: number;
@@ -43,26 +59,6 @@ type Rect = {
   width: number;
   height: number;
 };
-
-/**
- * Detach-safe: reads the rect in ONE evaluate against a resolved handle rather
- * than through an auto-waiting locator call that hangs on an unmounted node.
- */
-async function rectOf(page: Page, testId: string): Promise<Rect | null> {
-  return page.evaluate((tid) => {
-    const el = document.querySelector(`[data-testid="${tid}"]`);
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return {
-      top: r.top,
-      bottom: r.bottom,
-      left: r.left,
-      right: r.right,
-      width: r.width,
-      height: r.height,
-    };
-  }, testId);
-}
 
 /** The child's box is inside the parent's, within tolerance. */
 function expectContained(child: Rect, parent: Rect, label: string): void {
@@ -94,6 +90,21 @@ async function hydrated(locator: Locator): Promise<void> {
 }
 
 test.describe("control-outline sweep: the painted child still sits where §14 says", () => {
+  // Both pairs measured here live on the DASHBOARD, and `/admin` renders the
+  // onboarding wizard instead while onboarding is incomplete — which is the
+  // state a fresh `pnpm db:seed` leaves behind. This spec used to sign in and
+  // navigate without establishing that state, so it measured whatever the
+  // database happened to hold and failed with "Expected: visible" on a seeded
+  // box. It went unnoticed because the spec was DARK: no workflow ran it, which
+  // is the other half of what whole-diff round 1 found. Establish, then restore.
+  let restore: (() => Promise<void>) | undefined;
+  test.beforeAll(async () => {
+    restore = await settleDashboardAdminState();
+  });
+  test.afterAll(async () => {
+    if (restore) await restore();
+  });
+
   test.beforeEach(async ({ page }) => {
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
@@ -138,30 +149,17 @@ test.describe("control-outline sweep: the painted child still sits where §14 sa
       // The PARENT carries the tap floor; the child is deliberately smaller.
       expect(parent.height).toBeGreaterThanOrEqual(TAP_MIN - TOL);
       expect(parent.width).toBeGreaterThanOrEqual(TAP_MIN - TOL);
-      expect(child!.height).toBeLessThan(parent.height + TOL);
+      // The child's EXACT size, both axes, not merely "smaller and contained".
+      // Whole-diff review round 2, P2: deleting `size-8` leaves an intrinsic box
+      // around the 16px icon that is still smaller and still contained, so the
+      // weaker predicate accepts the very defect §14's row exists to catch. The
+      // repaired §14 pairs in the contrast spec already bound their child this
+      // way; these two older cases did not, and that inconsistency was the tell.
+      expect(child!.height).toBeGreaterThanOrEqual(VISUAL - TOL);
+      expect(child!.height).toBeLessThanOrEqual(VISUAL + TOL);
+      expect(child!.width).toBeGreaterThanOrEqual(VISUAL - TOL);
+      expect(child!.width).toBeLessThanOrEqual(VISUAL + TOL);
       expectContained(child!, parent, "row-actions trigger");
-    });
-
-    test(`${theme}: the resync mobile skin sits inside the button's real rect`, async ({
-      page,
-    }) => {
-      await page.emulateMedia({ colorScheme: theme });
-      await page.goto("/admin");
-      const button = page.locator('[data-testid="admin-resync-button"]');
-      await hydrated(button);
-
-      const parent = await rectOf(page, "admin-resync-button");
-      const skin = await rectOf(page, "admin-resync-mobile-label");
-      expect(parent, "the resync button is on the dashboard at 390px").not.toBeNull();
-      expect(skin, "the max-sm skin renders below 640px").not.toBeNull();
-
-      // §14: the BUTTON keeps its real 44px rect and the skin is the 32px
-      // visual inside it. This is the pair the sweep's `border-text-faint`
-      // now paints, so a skin that had grown to fill the rect would mean the
-      // colour swap moved layout.
-      expect(parent!.height).toBeGreaterThanOrEqual(TAP_MIN - TOL);
-      expect(skin!.height).toBeLessThan(parent!.height + TOL);
-      expectContained(skin!, parent!, "resync mobile skin");
     });
   }
 });
