@@ -1,4 +1,4 @@
-<!-- spec-lint: not-ui — waives the Dimensional Invariants and Transition Inventory sections only. The one components/ file, GlobalErrorListener.tsx, is declared `: null` with one render return, so there is no fixed-dimension parent, no flex or grid child, and no visual state pair to inventory. This is NOT an invariant-8 exemption: the impeccable dual gate runs on that file, per Task 12. -->
+<!-- spec-lint: not-ui — waives the Dimensional Invariants and Transition Inventory sections only. The one components/ file, GlobalErrorListener.tsx, is declared `: null` with one render return, so there is no fixed-dimension parent, no flex or grid child, and no visual state pair to inventory. This is NOT an invariant-8 exemption: the impeccable dual gate runs on that file, per Task 8. -->
 
 # Plan — observe error telemetry
 
@@ -50,7 +50,7 @@ Tasks whose assertions pass on day one are labelled REGRESSION PIN, and each say
 
 <!-- task: red=`pnpm exec vitest run tests/admin/loadRecentAutoApplied.test.ts` ac=AC-3,AC-4 -->
 
-**Runs first, and the ordering is load-bearing.** Task 2 repairs every site the walker reports; if it ran first it would repair the loader's two and Task 3's red would already be green. So the loader is repaired here, and Task 2's red is the remaining 85. 2 + 85 = 87.
+**Runs first, and the ordering is load-bearing.** Task 2 repairs every site the walker reports; if it ran first it would repair the loader's two and this task's red would already be green. So the loader is repaired here, and Task 2's red is the remaining 85. 2 + 85 = 87.
 
 Replace the four-way table at `tests/admin/loadRecentAutoApplied.test.ts:299-318` with the five-row derived table of spec §4.3, driven through `setLogSink` so assertions read the record after `buildRecord` has run `serializeError` (`lib/log/logger.ts:38`). Add the emit at `lib/admin/loadRecentAutoApplied.ts:174-176`; pass `error` whole at `lib/admin/loadRecentAutoApplied.ts:247`.
 
@@ -82,11 +82,18 @@ Sites, for sequencing only — the walker's output is authoritative:
 
 40 + 45 = 85. `readShowReviewSnapshot`, `loadAlertSummary` and `loadTelemetryStats` each also hold an `error: X.message` site, reported for the same reason the loader's was (spec §9 limit 3).
 
-Add `infraRegistry` rows to `tests/admin/_metaInfraContract.test.ts` for any swept file lacking one — `roleTokenMappings` and `embeddedAdminEmails` are known missing; re-grep the rest rather than trusting that list.
+**Two completeness claims are DERIVED here, not asserted by adding rows.** An earlier draft named the two missing registry rows and left AC-5 and AC-6 resting on that list, which is the case-list repair the orchestrator's condition forbids and which goes stale the moment a file is added. Both are now computed from the same walk that produces the reported set:
+
+- **`infraRegistry` completeness.** Every file the walk found a construction in must appear as some `infraRegistry` entry's `path` (`tests/admin/_metaInfraContract.test.ts`). The cover file set is already in hand; the assertion is a subset check whose failure names the unregistered files. `roleTokenMappings` and `embeddedAdminEmails` are what it reports today — a result, not a list to maintain.
+- **`NEW_FORENSIC_CODES` completeness.** Every `code:` string literal the scanner saw inside a `log.*` span in `lib/admin/**` must be a member of `NEW_FORENSIC_CODES` (`tests/log/_auditableMutations.ts`). The scanner already parses those object literals to find `code`; collecting the literal costs nothing, and the subset check turns Task 3's "omission is invisible" into "omission is a named failure".
+
+Both are subset assertions over sets the walk derives, so a file or code added later is covered without an edit here.
 
 **Premises, executable and unconditional** (spec §5.6), with `premise`/`premiseHolds` from `tests/_shared/premise.ts`, at the top level of the suite body and never inside a `.each` callback. Each binds a CATEGORY the resolving layer must handle, because an earlier draft's premises were satisfied by a resolver that handled one member of a category and dropped the rest:
 
-1. **Acquisition, derived twice by independent means.** The file list from a recursive `readdirSync` walk must equal the list from `git ls-files lib/admin`, filtered identically. A shared walk that misses a subdirectory satisfies any premise computed from it, and `lib/admin/__generated__/devPanelPresent.ts` is a live nested file proving the shape is not hypothetical. The failure prints the symmetric difference.
+1. **Acquisition, derived twice by independent means, and partitioned rather than filtered.** The file list from a recursive `readdirSync` walk must equal the list from `git ls-files lib/admin`. `lib/admin/__generated__/devPanelPresent.ts` is a live nested file proving a missed subdirectory is not hypothetical, and the failure prints the symmetric difference.
+
+   **Equality of two lists says nothing if both apply the same wrong filter**, which is what an earlier draft's "filtered identically" allowed: a shared `.ts`-only predicate satisfies the premise while every `.tsx` loader disappears, and `lib/admin/**` has no `.tsx` today to witness the gap. So acquisition takes **every tracked file** and partitions it, with the partition asserted exhaustive: `all = scanned ∪ tests ∪ notTypeScript`. Membership in `notTypeScript` is decided by `ts.getScriptKindFromFileName(f) === ts.ScriptKind.Unknown` — TypeScript's own classification of what it can parse, not a list of extensions this plan maintains. A `.tsx` file classifies as `TSX` and is therefore scanned by construction; a `.mts` file likewise; a `.md` file is `Unknown` and is excluded with that reason recorded. Adding `.tsx` as another named case would be the list widening the orchestrator's condition forbids.
 2. **Population, derived twice by independent means.** The checker-resolved population must equal one computed by a syntax-only pass sharing no resolution code: object-literal returns, plus identifier returns whose name binds to a module-level const initialized to an infra literal, resolved by name within the file. Failure prints the symmetric difference by file and line. "At least one site per matching file" was the earlier form, and a resolver keeping one site per file satisfies it.
 3. **Both construction shapes witnessed** — ≥1 `literal`, ≥1 `const-alias`.
 4. **Both propagation callee categories witnessed** — ≥1 exemption whose callee is an imported identifier (`loadOpenIdentityHolds`), and ≥1 whose callee is a function declared in the same file (`runBellPipeline` in `lib/admin/bellFeed.ts:191`). A resolver that resolves imports but not local declarations satisfies a one-witness premise while reporting the two `bellFeed` sites, and the repair for a reported propagation is a duplicate emit — the exact fault the exemption exists to prevent. The core's own fixture cannot catch this: its resolver answer is test-controlled.
@@ -98,7 +105,7 @@ Add `infraRegistry` rows to `tests/admin/_metaInfraContract.test.ts` for any swe
 
 Add every code this arc introduces to `NEW_FORENSIC_CODES` (`tests/log/_auditableMutations.ts`), in one edit with one comment block naming the arc.
 
-**REGRESSION PIN.** Assertion 4 at `tests/log/_metaAdminOutcomeContract.test.ts:87-91` is a leak check: it asserts registered codes never appear in the §12.4 producer set, so omitting a code is invisible to it. Registration is the assertion "this code must never become a catalog row" — worth making, and not something a test currently fails without.
+**REGRESSION PIN for the leak check; the completeness half is a real RED in Task 2.** Assertion 4 at `tests/log/_metaAdminOutcomeContract.test.ts:87-91` is a leak check — registered codes must never appear in the §12.4 producer set — and it cannot see an omission. That gap is why an earlier draft's AC-6 was unsupported. Task 2's derived subset check now fails on any `lib/admin` code missing from the registry, so this task's edit is what turns that red green, and this suite pins the other direction: that none of them leaks into the catalog.
 
 ## Task 4 — the client projection and the boundary wire
 
@@ -166,7 +173,11 @@ Write each spec §9 limit into the header of the surface that owns it, with its 
 | 9 `null`/`undefined` reasons collapse | beside the `== null` branch in `components/observe/GlobalErrorListener.tsx` |
 | 10 `context`-only `clientLog` callers | row 2's archive entry, written in Task 9 |
 
-**REGRESSION PIN.** Nothing currently fails; the named suite only proves no ledger row was filed, which is the directive this task honours by writing limits instead of rows. Limit 10 is deliberately not written here — spec §12 assigns it to the archive entry, so AC-12 is met only once Task 9 has run.
+**No executable assertion observes this task, and the earlier draft's claim that one did was false.** `tests/docs/_metaLedgerMintBar.test.ts` does not assert that no row was filed — it constrains rows that exist, admitting product-facing rows and process-facing rows that qualify. This arc files none, so that suite stays green vacuously, and no header edit can move it either way. It is named as this task's command because it is the suite this task must not break, not because it verifies the work.
+
+The limits themselves are verified by review at closeout, against the mapping table above. That is a weaker guarantee than the rest of the plan carries, and it is stated rather than dressed up: building a guard that parses spec §9 and checks each named file for its limit would be new guard surface for a documentation task, which the process mint freeze exists to refuse.
+
+Limit 10 is deliberately not written here — spec §12 assigns it to the archive entry, so AC-12 is met only once Task 9 has run.
 
 ## Task 8 — impeccable dual gate
 
@@ -194,7 +205,15 @@ The `N/A` form is **not** taken: invariant 8 defines a UI surface by path (`AGEN
 
 Graduate both rows to `BACKLOG-archive.md` with the evidence spec §12 requires, including limit 10 in row 2's entry. Remove both `IN PROGRESS` markers **in the PR's last commit**, before the merge, so no marker reaches main (invariant 12).
 
-**REGRESSION PIN.** The suite is green today and stays green through the correct atomic edit; it reds only if the archive move and the marker removal are split across commits. What it pins is that ordering constraint — an archive holding an in-flight entry, or a marker reaching main — which is worth pinning even though the happy path never reds.
+**REGRESSION PIN, and what it actually observes is narrower than an earlier draft claimed.** `tests/docs/_metaLedgerInProgress.test.ts` asserts two things this task can trip: an archive may not hold an in-flight entry (`tests/docs/_metaLedgerInProgress.test.ts:77`), and an in-progress entry must name a branch that still exists on origin (`tests/docs/_metaLedgerInProgress.test.ts:112`).
+
+Three claims the earlier draft made are **declined**, because the suite does not observe them:
+
+- it does not catch marker-removal-first-then-archive, which stays green throughout — only archive-first reds;
+- it cannot tell which commit an edit landed in, so "in the PR's last commit" is procedure this task follows, not something any assertion checks;
+- a marker merged to main stays green while its branch still exists on origin, so the guard against a marker reaching main is the ordering discipline of invariant 12, not this suite.
+
+Naming those gaps is the repair. Adding cases to cover them would be building a commit-ordering guard, which is not this arc's work.
 
 <!-- tasks: end -->
 
@@ -204,16 +223,16 @@ Graduate both rows to `BACKLOG-archive.md` with the evidence spec §12 requires,
 - **AC-2** no `lib/admin` construction of an `infra_error` lacks a code-carrying object-payload emit, derived from disk, with all five premises met
 - **AC-3** the `show_change_log` returned-error branch emits `SHOW_CHANGE_LOG_READ_RETURNED_ERROR`
 - **AC-4** every loader emit's `context.error` carries the PostgREST fields, not a bare message
-- **AC-5** every swept file has an `infraRegistry` row
-- **AC-6** every new forensic code is in `NEW_FORENSIC_CODES`
+- **AC-5** every file the walker finds a construction in appears as an `infraRegistry` entry's `path`, asserted as a subset check over the walk's own file set rather than against a maintained list
+- **AC-6** every `code:` literal the scanner sees inside a `log.*` span in `lib/admin/**` is a member of `NEW_FORENSIC_CODES`, asserted as a subset check over the codes the walk collected, and none of them appears in the §12.4 producer set
 - **AC-7** `describeClientValue` satisfies the spec §6.3 table and the 25-pair corpus, four of which assert their documented collision
 - **AC-8** no non-`Error` crash reaches the wire as `"[object Object]"`
 - **AC-9** two inputs differing only in `detail` produce two POSTs, and the `Error` path's dedup **behaviour** is unchanged — one `Error` still dedups once, two distinct `Error`s still produce two POSTs. The key's bytes are not asserted: a fifth term appends a separator even when empty, so byte-identity is impossible and asserting it would be asserting a falsehood.
 - **AC-10** a plain-object rejection reason persists its own fields in `detail`
 - **AC-11** a non-`Error` window throw persists `event.error`'s fields
-- **AC-12** every spec §9 limit is recorded on its owning surface with a re-run trigger
+- **AC-12** every spec §9 limit is recorded on its owning surface with a re-run trigger, verified by review against Task 7's mapping table — no executable assertion observes this one, which Task 7 states plainly
 - **AC-13** the impeccable dual gate ran, its dispositions are recorded, and the marker parses
-- **AC-14** both rows are archived and no `IN PROGRESS` marker reaches main
+- **AC-14** both rows are archived with the evidence spec §12 requires, and neither `IN PROGRESS` marker survives into main. The suite observes the archive constraint and the live-branch constraint; commit ordering is procedure, not an assertion (Task 9)
 
 ## Checklist
 
