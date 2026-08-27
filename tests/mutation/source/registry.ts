@@ -840,95 +840,114 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // the variables they were about no longer exist: the old `regionStart` /
       // `regionEnd` pass-1 state became `openStart` / `openDepth`. Their new
       // arguments rest on the region-list model, not on the retired `openCount`.
+      // ---- equivalent, added with the AC arm (feat/speclint-ac-unclaimed-arm)
       {
-        siteId: "regex-quantifier-bound:51:6:{0,3}>{0,4}",
+        siteId: "statement-removal:111:3:ID_ANYWHERE.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason:
+          "the while loop below runs the global regex to exhaustion, and a failing exec resets lastIndex to 0 itself, so the assignment is defensive and never observable; idsOn is the regex's only consumer",
+      },
+      {
+        siteId: "relational-boundary:466:21:<><=",
+        kind: "equivalent",
+        reason:
+          "the extra iteration reads model.lines[length] === undefined; DECLARING_PREFIX.exec coerces it to the string 'undefined', which matches no list or heading prefix, and idsOn finds no id in it",
+      },
+      {
+        siteId: "regex-quantifier-bound:71:50:{1,6}>{1,7}",
+        kind: "equivalent",
+        reason:
+          "STRUCTURED ends in an OPTIONAL [ \\t]?, so a run of six or more hashes matches whether the bound reads six or seven; unlike DECLARING_PREFIX, which requires [ \\t]+ and is discriminated by the seven-hash case in taskContract.test.ts",
+      },
+      {
+        siteId: "regex-quantifier-bound:156:6:{0,3}>{0,4}",
         kind: "equivalent",
         reason:
           "MARKER only ever runs on lines already admitted by MARKER_ANY (taskContract.ts:22, itself {0,3}), so every candidate has <=3 leading spaces and widening this bound admits nothing",
       },
       {
-        siteId: "regex-quantifier-bound:59:6:{0,3}>{0,4}",
+        siteId: "regex-quantifier-bound:164:6:{0,3}>{0,4}",
         kind: "equivalent",
         reason:
           "same reachability argument as MARKER; MARKER_AC_ABSENT runs only on MARKER_ANY hits",
       },
       {
-        siteId: "relational-boundary:121:21:<><=",
+        siteId: "relational-boundary:226:21:<><=",
         kind: "equivalent",
         reason:
           "the extra iteration reads lines[i] === undefined; RegExp.test coerces it to the string 'undefined', which no AC-id pattern matches",
       },
       {
-        siteId: "integer-literal:159:19:0>1",
+        siteId: "integer-literal:264:19:0>1",
         kind: "equivalent",
         reason:
           "openDepth's initial value is dead: it is read only where a region is pushed, and both push sites are guarded by `open`, which is set true only by the OPEN branch that assigns openDepth two lines later (taskContract.ts:97-101)",
       },
       {
-        siteId: "integer-literal:160:19:0>1",
+        siteId: "integer-literal:265:19:0>1",
         kind: "equivalent",
         reason:
           "openStart's initial value is dead by the same guarded-by-`open` argument as openDepth: it is assigned in the branch that sets `open`, and read only where `open` is true",
       },
       {
-        siteId: "relational-boundary:165:21:<><=",
+        siteId: "relational-boundary:270:21:<><=",
         kind: "equivalent",
         reason:
           "the extra iteration reads model.lines[i] === undefined; OPEN/END/TASKS_ANY/MARKER_ANY all fail against the coerced string 'undefined'",
       },
       {
-        siteId: "statement-removal:215:7:continue;>(removed)",
+        siteId: "statement-removal:320:7:continue;>(removed)",
         kind: "equivalent",
         reason:
           "falling through reaches MARKER_ANY, which cannot match a '<!-- tasks:' line: after '<!-- task' the next character is 's', not ':'",
       },
       {
-        siteId: "integer-literal:225:16:0>1",
+        siteId: "integer-literal:330:16:0>1",
         kind: "equivalent",
         reason:
           "a marker-shaped line on document line 1 cannot be fenced (no fence opens before line 1, and a fence-opening line is backticks/tildes so it is never marker-shaped), so it is already in markerLines from pass 1",
       },
       {
-        siteId: "relational-boundary:225:21:<><=",
+        siteId: "relational-boundary:330:21:<><=",
         kind: "equivalent",
         reason: "extra iteration reads undefined; MARKER_ANY.test('undefined') is false",
       },
       {
-        siteId: "integer-literal:234:33:1>2",
+        siteId: "integer-literal:339:33:1>2",
         kind: "equivalent",
         reason:
           "the EOF-closed region's end: no heading or marker can exist at length+1, so '< length+1' and '< length+2' select identically",
       },
       {
-        siteId: "relational-boundary:255:49:>>>=",
+        siteId: "relational-boundary:360:49:>>>=",
         kind: "equivalent",
         reason: "a heading cannot occupy the same line as the '<!-- tasks: depth=N -->' opening",
       },
       {
-        siteId: "relational-boundary:255:74:<><=",
+        siteId: "relational-boundary:360:74:<><=",
         kind: "equivalent",
         reason:
           "a heading cannot occupy the same line as '<!-- tasks: end -->', and for the one region that can be unclosed, region.end is past EOF",
       },
       {
-        siteId: "statement-removal:280:11:break;>(removed)",
+        siteId: "statement-removal:385:11:break;>(removed)",
         kind: "equivalent",
         reason:
           "model.headings is built by one ascending loop (lib/specLint/parse.ts:86, push at :134), so with end = Math.min(end, h.line) the first match is already the minimum and continuing cannot lower it",
       },
       {
-        siteId: "relational-boundary:290:40:>>>=",
+        siteId: "relational-boundary:395:40:>>>=",
         kind: "equivalent",
         reason: "a marker line can never equal a heading line",
       },
       {
-        siteId: "relational-boundary:290:58:<><=",
+        siteId: "relational-boundary:395:58:<><=",
         kind: "equivalent",
         reason:
           "an extent's end is either the next heading line or its own region's close; a marker can occupy neither",
       },
       {
-        siteId: "statement-removal:329:7:continue;>(removed)",
+        siteId: "statement-removal:561:7:continue;>(removed)",
         kind: "equivalent",
         reason:
           "ms.length === 0 makes the following 'ms.length > 1' false and the for-of over ms empty",
@@ -939,34 +958,34 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // the rows below, which now cover the same mutants at the new coordinates
       // — and cover the message tiebreak the old comparator did not have.
       {
-        siteId: "integer-literal:408:52:1>2",
+        siteId: "integer-literal:660:52:1>2",
         kind: "equivalent",
         reason:
           "Array.prototype.sort observes a comparator result's SIGN, never its magnitude; -1 and -2 are indistinguishable to it",
       },
       {
-        siteId: "integer-literal:408:56:1>2",
+        siteId: "integer-literal:660:56:1>2",
         kind: "equivalent",
         reason: "same sign-not-magnitude argument: 1 and 2 are indistinguishable to sort",
       },
       {
-        siteId: "integer-literal:409:64:1>2",
+        siteId: "integer-literal:661:64:1>2",
         kind: "equivalent",
         reason: "same sign-not-magnitude argument, on the message tiebreak",
       },
       {
-        siteId: "integer-literal:409:68:1>2",
+        siteId: "integer-literal:661:68:1>2",
         kind: "equivalent",
         reason: "same sign-not-magnitude argument, on the message tiebreak",
       },
       {
-        siteId: "relational-boundary:408:40:<><=",
+        siteId: "relational-boundary:660:40:<><=",
         kind: "equivalent",
         reason:
           "the branch is guarded by `a.code !== b.code`, so `<` and `<=` are only ever evaluated on UNEQUAL operands, where they agree. Unlike the old accepted-gap rows this rests on control flow in the function itself, not on V8's sort being stable",
       },
       {
-        siteId: "relational-boundary:409:49:<><=",
+        siteId: "relational-boundary:661:49:<><=",
         kind: "equivalent",
         reason:
           "same guarded-branch argument on the message tiebreak: `a.message !== b.message` has already excluded the only inputs on which `<` and `<=` differ",

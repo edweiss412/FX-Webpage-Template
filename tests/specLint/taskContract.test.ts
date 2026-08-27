@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseDoc } from "../../lib/specLint/parse";
-import { checkTaskContract } from "../../lib/specLint/taskContract";
+import { acAnalysis, checkTaskContract } from "../../lib/specLint/taskContract";
 
 /** Codes only, sorted — the shape every case asserts as a FULL list. */
 const codes = (text: string): string[] =>
@@ -940,5 +940,130 @@ describe("checkTaskContract — the undeclared direction and the three-code part
     const text = plan("AC-1,AC-2", DECLARED, "AC-2 appears in this sentence.");
     expect(checkTaskContract(parseDoc(text), "spec")).toEqual([]);
     expect(codes(text)).toEqual(["TASK_AC_UNDECLARED"]);
+  });
+});
+
+describe("checkTaskContract — the AC classification's own structure (spec §4.1)", () => {
+  // Every case here exists to kill a mutant the source-mutation gate left
+  // surviving. `tests/specLint/taskContract.test.ts` is one of three deciding
+  // suites the registry runs, and the corpus tests are not among them, so
+  // behaviour asserted only there is unscored — which is exactly how the
+  // declined and ambiguous accumulators could be deleted with the gate green.
+  const marker = (ac: string) => `<!-- task: red=\`pnpm test\` ac=${ac} -->`;
+  const MARKER_LINE = 5;
+  const plan = (ac: string, ...body: string[]) =>
+    doc(OPEN, "", "## Task 1", "", marker(ac), "", ...body, "", END);
+  const DECLARED = "- AC-1 declared as a criterion of this plan.";
+  const analysisOf = (text: string) => acAnalysis(parseDoc(text));
+
+  it("structure: the AMBIGUOUS list is populated, and each row carries its own line and ids", () => {
+    const ac = analysisOf(plan("AC-1", DECLARED, "- AC-2 with AC-2b, its sibling."));
+    expect(ac.ambiguous).toEqual([{ line: 8, ids: ["AC-2", "AC-2b"] }]);
+  });
+
+  it("structure: the DECLINED list is populated, and each row carries its own line and ids", () => {
+    // Task 4's corpus premise rests on this list being non-empty, and that
+    // premise lives in an unscored suite. Asserted here on its own line number,
+    // so neither deleting the push nor moving the row off its line survives.
+    const ac = analysisOf(plan("AC-1", DECLARED, "| AC-2 | in a table | Task 3 |"));
+    expect(ac.declined).toEqual([{ line: 8, ids: ["AC-2"] }]);
+  });
+
+  it("structure: an unestablished enrollment classifies NOTHING, even with a declaration present", () => {
+    // `sawTasksLine` is true and `enrolled` is false. The arm must return early:
+    // a plan whose region never opened has no markers to claim with, so reading
+    // its declarations would report every criterion it has.
+    const text = doc("<!-- tasks: depth=x -->", "", "## A", "", "- AC-2 declared.", "");
+    expect(analysisOf(text).certain.size).toBe(0);
+    expect(codes(text)).toEqual(["TASK_ENROLL_MALFORMED"]);
+  });
+
+  it("structure: a declaration on DOCUMENT LINE 1 is read", () => {
+    const text = doc(
+      "- AC-2 declared on the very first line.", OPEN, "", "## Task 1", "",
+      marker("AC-1"), "", DECLARED, "", END,
+    );
+    const found = checkTaskContract(parseDoc(text), "plan");
+    expect(found.map((f) => [f.code, f.docLine])).toEqual([["TASK_AC_UNCLAIMED", 1]]);
+  });
+
+  it("boundary: 1-3 spaces of indentation declare, 4 do not — and the same for the decline", () => {
+    expect(codes(plan("AC-1", DECLARED, "   - AC-2 three spaces."))).toEqual(["TASK_AC_UNCLAIMED"]);
+    expect(codes(plan("AC-1", DECLARED, "    - AC-2 four spaces."))).toEqual([]);
+    // The decline path carries its own copy of the bound, so it needs its own
+    // case: at four spaces the table row is not structured, the id is not
+    // declined, and the citation reports.
+    expect(codes(plan("AC-1,AC-2", DECLARED, "   | AC-2 | three spaces |"))).toEqual([]);
+    expect(codes(plan("AC-1,AC-2", DECLARED, "    | AC-2 | four spaces |"))).toEqual([
+      "TASK_AC_UNDECLARED",
+    ]);
+  });
+
+  it("boundary: an ordered marker of 9 digits declares, 10 does not — and the same for the decline", () => {
+    expect(codes(plan("AC-1", DECLARED, "123456789. AC-2 nine digits."))).toEqual([
+      "TASK_AC_UNCLAIMED",
+    ]);
+    expect(codes(plan("AC-1", DECLARED, "1234567890. AC-2 ten digits."))).toEqual([]);
+    expect(codes(plan("AC-1,AC-2", DECLARED, "123456789. mentions AC-2 in nine digits."))).toEqual(
+      [],
+    );
+    expect(codes(plan("AC-1,AC-2", DECLARED, "1234567890. mentions AC-2 in ten digits."))).toEqual([
+      "TASK_AC_UNDECLARED",
+    ]);
+  });
+
+  it("boundary: a 6-hash heading declares, 7 do not — and the same for the decline", () => {
+    expect(codes(plan("AC-1", DECLARED, "###### AC-2 six hashes"))).toEqual(["TASK_AC_UNCLAIMED"]);
+    expect(codes(plan("AC-1", DECLARED, "####### AC-2 seven hashes"))).toEqual([]);
+    // The decline path gets no companion case for the heading bound, and that
+    // is a fact about the code rather than an omission: `STRUCTURED` ends in
+    // `[ \t]?`, which is OPTIONAL, so a run of six or more hashes is structured
+    // whether the bound reads six or seven. The mutant is equivalent there and
+    // carries a registry row saying so.
+    expect(codes(plan("AC-1,AC-2", DECLARED, "###### heading mentioning AC-2"))).toEqual([]);
+    expect(codes(plan("AC-1,AC-2", DECLARED, "####### heading mentioning AC-2"))).toEqual([]);
+  });
+
+  it("disposal: an id declared TWICE and disposed NEITHER time still reports", () => {
+    // The disposed flag is OR'd across a criterion's declaring lines. A mutant
+    // that ORs the wrong operands marks a twice-declared id disposed and the
+    // finding vanishes.
+    expect(codes(plan("AC-1", DECLARED, "- AC-2 first statement.", "- AC-2 restated."))).toEqual([
+      "TASK_AC_UNCLAIMED",
+    ]);
+  });
+
+  it("undeclared: a MALFORMED marker in a declaring plan is skipped, not dereferenced", () => {
+    const text = doc(
+      OPEN, "", "## Task 1", "", "<!-- task: red=`x` ac= -->", "",
+      DECLARED, "", END,
+    );
+    // `ac=` present but empty is TASK_AC_MISSING, and AC-1 is then claimed by
+    // nothing. What matters for the mutant is that the undeclared loop SKIPS a
+    // marker with no `ac=` list rather than dereferencing it.
+    expect(codes(text).sort()).toEqual(["TASK_AC_MISSING", "TASK_AC_UNCLAIMED"]);
+  });
+
+  it("undeclared: one finding per (id, marker) — a duplicated citation reports ONCE", () => {
+    const found = checkTaskContract(
+      parseDoc(plan("AC-1,AC-2,AC-2", DECLARED, "AC-2 appears in this sentence.")),
+      "plan",
+    );
+    expect(found.map((f) => [f.code, f.docLine])).toEqual([
+      ["TASK_AC_UNDECLARED", MARKER_LINE],
+    ]);
+  });
+
+  it("undeclared: two DIFFERENT undeclared ids on one marker report TWICE", () => {
+    // The companion to the case above, and the one that discriminates the
+    // dedup's conjunction: a mutant matching on line alone would collapse these
+    // two into one.
+    const found = checkTaskContract(
+      // On SEPARATE lines deliberately: two ids on one line is a multi-id line,
+      // which the symmetric cut declines, and both would be exempt.
+      parseDoc(plan("AC-1,AC-2,AC-3", DECLARED, "AC-2 is discussed here.", "AC-3 is discussed here.")),
+      "plan",
+    );
+    expect(found.map((f) => f.code)).toEqual(["TASK_AC_UNDECLARED", "TASK_AC_UNDECLARED"]);
   });
 });
