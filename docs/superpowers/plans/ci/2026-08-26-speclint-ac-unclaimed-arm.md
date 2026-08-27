@@ -252,8 +252,28 @@ task asserts the behaviour that record rests on. At minimum:
   regression is a non-equivalent survivor AC-9 discovers at closeout;
 - the range form declares nothing, the `**AC-2.**` spelling does declare, and a
   fenced declaration and a fenced marker are both inert;
-- every accepted disposition form exempts, each asserted on its own, and every
-  near-miss form still REPORTS.
+- every accepted disposition form exempts, each asserted on its own:
+  `(RETIRED)`, `(RETIRED: superseded by AC-4)`, `(discharged by Task 10)`,
+  `(discharged by Task 3 and Task 6)`, `(discharged by Task 3, Task 6)`,
+  `(discharged by Task 3 + 6)`, `(discharged by Task N2b)`,
+  `(discharged by closeout)`, `(discharged by the closeout)` and
+  `(discharged by the PR's last commit)`;
+- **every near-miss form still REPORTS, enumerated rather than described**, because
+  "every near-miss form" is not a case specification and an implementation that
+  tolerates one of them passes a list that never names it. The list, each asserted
+  on its own: `(discharged by Task 10).` — **a trailing period AFTER the closing
+  parenthesis, which is the near miss an ordinary contributor writes when starting
+  from the live DISCHARGED line at
+  `docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28`, and which the existing
+  bare `Task 10.` witness does NOT cover, since that one tests the parenthesis
+  requirement rather than end anchoring after an otherwise valid disposition**;
+  `(retired)` (RETIRED is case-sensitive); `(RETIRED)!`;
+  `(discharged by the closeout, not by a task).` (free prose after the owner, and
+  the live shape this arc repairs in the shipped plan);
+  `(discharged by a later arc)` (owner outside the token list);
+  `(handled by Task 10)` (wrong verb); and an unparenthesised
+  `discharged by Task 10`. Each of these must leave `TASK_AC_UNCLAIMED` reported;
+  the accept-set fails toward the finding, never toward silence.
 
 ## Task 2: TASK_AC_UNDECLARED, the symmetric decline, and the three-code partition
 
@@ -365,11 +385,21 @@ straight off the single exported classification Task 1 adds — the same value
      id beside an owner, the row names that owner verbatim in an `owner` field,
      and the test asserts the grammar REJECTS `(discharged by <owner>)`. That is
      the claim "the closed owner set cannot name this" stated as an assertion
-     rather than as a comment. Run live: `Step 4` and
-     `no task (a spec-time derivation, re-exercised by Task 5)` are both rejected
-     by the grammar, while `Task 5` and `closeout` are accepted — so a row whose
-     owner the grammar CAN express fails admissibility and must be migrated
-     instead. Exactly two live members, both named in §1.1.
+     rather than as a comment. **The owner is NORMALISED before that test —
+     surrounding whitespace and trailing sentence punctuation (`.`, `,`, `;`)
+     stripped — and the normalised form is what must be rejected.** Without it the
+     kind admits every settled row in the corpus: `app-e2e-batch2` line 28 carries
+     the verbatim substring `Task 10.`, an `owner` of `Task 10.` passes the
+     line-membership check, and `(discharged by Task 10.)` fails the grammar only
+     because `ident` cannot end in a dot — so a criterion the plan assigns to Task
+     10 would be exempted as inexpressible. The same route exists on the four other
+     `app-e2e-batch2` edits (`Task 12.`, `Task 10.`, `Task 11.`, `Task 11.`).
+     Normalised, `Task 10.` becomes `Task 10`, the grammar accepts it, and the row
+     is refused. Run live on the normalised form: `Step 4` and
+     `no task (a spec-time derivation, re-exercised by Task 5)` are rejected by the
+     grammar, while `Task 5` and `closeout` are accepted — so a row whose owner the
+     grammar CAN express fails admissibility and must be migrated instead. Exactly
+     two live members, both named in §1.1.
 5. **A walk-COMPLETENESS guard, not a walk-size guard**
    (`tests/_shared/premise.ts`, and `tests/specLint/acCoverageCorpus.test.ts` is
    the shape for the one-pass read). A numeric `premise()` on the document count
@@ -434,7 +464,12 @@ and `AC-99`, revert. (b) Move a SETTLED pair onto the residue — `app-e2e-batch
 `unsettled` row, quoting its line 28 verbatim so every receipt-style check is
 satisfied — and observe assertion 4 RED on the predicate, naming the lines that
 settle it. A plant with empty strings is NOT this control: it may be rejected by
-the type or by a non-empty check and so prove nothing about the predicate. (c) Make the decline predicate
+the type or by a non-empty check and so prove nothing about the predicate.
+(b2) The same plant against the OTHER kind, which control (b) does not reach: add
+`app-e2e-batch2` AC-3 as an `owner-inexpressible` row with `owner: "Task 10."`,
+copied verbatim off line 28 so the line-membership check is satisfied, and observe
+RED on the normalisation — un-normalised, that row passes and silently exempts a
+settled criterion. (c) Make the decline predicate
 unconditionally true and observe assertion 3 RED. A corpus test that survives any
 of the three is not the gate.
 
