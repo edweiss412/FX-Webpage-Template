@@ -69,7 +69,8 @@ across those 4826 rows is not settled here, and the probe does not need it settl
 
 What it does establish is the comparison that matters: 4826 logged automatic outcomes produced no
 variant objects, and one manual sync produced 5. The row's "degrades silently" worry named the right
-mechanism, and the reach it understated is that waiting was not going to surface this.
+mechanism; what it understated is that there was no telemetry to go unread, because across those
+4826 outcomes the generating code did not run.
 
 **One side effect, named rather than tidied away.** The resync raised one new alert,
 `RESYNC_QUALITY_REGRESSED` (16:09:18Z, on this show). Attributing it to the sheet's pre-existing
