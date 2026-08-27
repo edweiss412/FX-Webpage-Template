@@ -1,0 +1,183 @@
+{
+  "folderId": "1iU80Y2mqYmkCuBQYer0TEF1fta6fDp1C",
+  "rows": [
+    {
+      "fileId": "1XQ44uxc44pToYxQnYw4OG9V6DjE7bC5EU08o5iFpxz4",
+      "name": "AII/III - Consultants Roundtable 2025",
+      "realShow": true,
+      "crewTotal": 7,
+      "crewWithFlightInfo": 0,
+      "segmentsTotal": 0,
+      "populated": 0,
+      "dateOnly": 0,
+      "dateOnlyDateUnresolved": 0,
+      "unparsed": 0,
+      "hardErrors": [],
+      "itineraries": [],
+      "dateOnlyExamples": [],
+      "allDateOnlyItineraries": []
+    },
+    {
+      "fileId": "1HHw7vqCpnuxeDQDU5Gyxl70kyYV5-q6OFhcH_slXTcg",
+      "name": "II -  Redefining Fixed Income Forum /  Private Credit Forum 2025",
+      "realShow": true,
+      "crewTotal": 5,
+      "crewWithFlightInfo": 0,
+      "segmentsTotal": 0,
+      "populated": 0,
+      "dateOnly": 0,
+      "dateOnlyDateUnresolved": 0,
+      "unparsed": 0,
+      "hardErrors": [],
+      "itineraries": [],
+      "dateOnlyExamples": [],
+      "allDateOnlyItineraries": []
+    },
+    {
+      "fileId": "1N1PKmhcvLAn5UwHLn4Rplm1yeVeYMvwfL3eOzB4McnY",
+      "name": "II - East Coast Single Family Office Symposium - Fort Lauderdale, FL - 5/13 - 5/15  ",
+      "realShow": true,
+      "crewTotal": 3,
+      "crewWithFlightInfo": 3,
+      "segmentsTotal": 6,
+      "populated": 6,
+      "dateOnly": 0,
+      "dateOnlyDateUnresolved": 0,
+      "unparsed": 0,
+      "hardErrors": [],
+      "itineraries": [
+        "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ",
+        "JFK-FLL JETBLUE 5/13 - 11:15am - 2:18pm CGTTLO | FLL-JFK JETBLUE 5/15 - 8:59pm - 11:55pm CGTTLO",
+        "ORD-FLL SPIRIT 5/13 - 10:58am - 3:05pm OWJ1PK | FLL-ORD SPIRIT 5/15 - 9:16pm - 11:29pm OWJ1PK"
+      ],
+      "dateOnlyExamples": [],
+      "allDateOnlyItineraries": []
+    },
+    {
+      "fileId": "1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY",
+      "name": "II - FinTech Forum CTO Summit 2026",
+      "realShow": true,
+      "crewTotal": 3,
+      "crewWithFlightInfo": 1,
+      "segmentsTotal": 2,
+      "populated": 2,
+      "dateOnly": 0,
+      "dateOnlyDateUnresolved": 0,
+      "unparsed": 0,
+      "hardErrors": [],
+      "itineraries": [
+        "5/2 AA1080 LGA - ORD 12:00pm - 1:00pm | 5/7 AA3237 ORD - LGA 10:02am - 1:17pm"
+      ],
+      "dateOnlyExamples": [],
+      "allDateOnlyItineraries": []
+    },
+    {
+      "fileId": "1xBbpHi_InDDC3V7Urg4LzA3NMD0qXOxJF0bKbw7Yt-4",
+      "name": "II - Fixed Income Trading Summit 2025",
+      "realShow": true,
+      "crewTotal": 5,
+      "crewWithFlightInfo": 0,
+      "segmentsTotal": 0,
+      "populated": 0,
+      "dateOnly": 0,
+      "dateOnlyDateUnresolved": 0,
+      "unparsed": 0,
+      "hardErrors": [],
+      "itineraries": [],
+      "dateOnlyExamples": [],
+      "allDateOnlyItineraries": []
+    },
+    {
+      "fileId": "1vyZMRTqeFAJgocbSJM2_HDDMsUUJFBiLKk6WKq-dUYo",
+      "name": "II - Retirement Plan Advisor Institute - Central 2026",
+      "realShow": true,
+      "crewTotal": 4,
+      "crewWithFlightInfo": 1,
+      "segmentsTotal": 2,
+      "populated": 2,
+      "dateOnly": 0,
+      "dateOnlyDateUnresolved": 0,
+      "unparsed": 0,
+      "hardErrors": [],
+      "itineraries": [
+        "GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am"
+      ],
+      "dateOnlyExamples": [],
+      "allDateOnlyItineraries": []
+    },
+    {
+      "fileId": "1Ll_fx6Q24y6aTSqIV7YiruDKrYtezkkKrVCXVc4Cwkw",
+      "name": "II - RIA Investment Forum - Central 2025",
+      "realShow": true,
+      "crewTotal": 3,
+      "crewWithFlightInfo": 0,
+      "segmentsTotal": 0,
+      "populated": 0,
+      "dateOnly": 0,
+      "dateOnlyDateUnresolved": 0,
+      "unparsed": 0,
+      "hardErrors": [],
+      "itineraries": [],
+      "dateOnlyExamples": [],
+      "allDateOnlyItineraries": []
+    },
+    {
+      "fileId": "1Now2iJ_7fsCxg26m9AlY9DbPdtrjtJnHKfeuvj1wyY0",
+      "name": "TRANSPORTATION DETAILS FOR CJ",
+      "realShow": false,
+      "crewTotal": 0,
+      "crewWithFlightInfo": 0,
+      "segmentsTotal": 0,
+      "populated": 0,
+      "dateOnly": 0,
+      "dateOnlyDateUnresolved": 0,
+      "unparsed": 0,
+      "hardErrors": [
+        "VERSION_AMBIGUOUS"
+      ],
+      "itineraries": [],
+      "dateOnlyExamples": [],
+      "allDateOnlyItineraries": []
+    }
+  ],
+  "corpus": [
+    "AII/III - Consultants Roundtable 2025",
+    "II -  Redefining Fixed Income Forum /  Private Credit Forum 2025",
+    "II - East Coast Single Family Office Symposium - Fort Lauderdale, FL - 5/13 - 5/15  ",
+    "II - FinTech Forum CTO Summit 2026",
+    "II - Fixed Income Trading Summit 2025",
+    "II - Retirement Plan Advisor Institute - Central 2026",
+    "II - RIA Investment Forum - Central 2025"
+  ],
+  "totals": {
+    "crewTotal": 30,
+    "crewWithFlightInfo": 5,
+    "segmentsTotal": 10,
+    "populated": 10,
+    "dateOnly": 0,
+    "dateOnlyDateUnresolved": 0,
+    "unparsed": 0
+  },
+  "validation": {
+    "fileId": "validation",
+    "name": "validation crew_members.flight_info",
+    "realShow": false,
+    "crewTotal": 30,
+    "crewWithFlightInfo": 5,
+    "segmentsTotal": 10,
+    "populated": 10,
+    "dateOnly": 0,
+    "dateOnlyDateUnresolved": 0,
+    "unparsed": 0,
+    "hardErrors": [],
+    "itineraries": [
+      "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ",
+      "JFK-FLL JETBLUE 5/13 - 11:15am - 2:18pm CGTTLO | FLL-JFK JETBLUE 5/15 - 8:59pm - 11:55pm CGTTLO",
+      "ORD-FLL SPIRIT 5/13 - 10:58am - 3:05pm OWJ1PK | FLL-ORD SPIRIT 5/15 - 9:16pm - 11:29pm OWJ1PK",
+      "5/2 AA1080 LGA - ORD 12:00pm - 1:00pm | 5/7 AA3237 ORD - LGA 10:02am - 1:17pm",
+      "GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am"
+    ],
+    "dateOnlyExamples": [],
+    "allDateOnlyItineraries": []
+  }
+}
