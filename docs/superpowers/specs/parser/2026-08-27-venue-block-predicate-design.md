@@ -232,6 +232,29 @@ The worked precedent is `SECTION_HEADER_NO_FIELDS`, verified at each site.
 | 4 | `pnpm gen:spec-codes` | regenerate `lib/messages/__generated__/spec-codes.ts`, SAME commit as 2 and 3 |
 | 5 | `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:144` §4.2 table | a new row, byte-compared by `_metaWarningCardCopy.test.ts:88-92` |
 | 6 | `tests/messages/warningCardCopyRegistry.ts` | membership `tests/messages/warningCardCopyRegistry.ts:32`, `EXPECTED_TRIGGER_CONTEXT` `tests/messages/warningCardCopyRegistry.ts:98`, `EXPECTED_TITLE_CHANGES` `tests/messages/warningCardCopyRegistry.ts:134`, `EXPECTED_HELPFUL_CONTEXT` `tests/messages/warningCardCopyRegistry.ts:245` |
+| 7 | the copy-restore spec's DEPENDENT COUNT CLAIMS (§5.4) | every claim whose truth is a function of the registry's size or membership |
+
+### 5.4 Site 7: the dependent claims, derived rather than listed
+
+**Adding a row to that registry is not a six-site edit.** The copy-restore spec states the registry's size, its parser-emitter subset, its all-null-copy carve-out, its changed-title count and its provenance chain as prose, and every one of those goes false the moment a code joins. An enumerated list of them re-opens the instant someone adds an eighth site, so the cover is a SCAN kept as `.probe/copy-claim-sweep` and rerun after the edit, not a longer table.
+
+Confirmed dependents, each read at authoring time. The scan also surfaces row numbers, clock times and section references that merely contain the digits; those are not claims and are left alone.
+
+| site | today | becomes |
+| --- | --- | --- |
+| `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:44` §3.1 heading | `(47 codes)` | 48 |
+| `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:53` | `// the 47 below` | 48 |
+| `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:61` | `Parser emitters (34)` plus its alphabetical list | 35, with `TYPO_NORMALIZED` inserted |
+| `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:65` | `All 47 verified present`; `Three carry all-null copy today` | 48; **Four**, naming `TYPO_NORMALIZED` |
+| `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:104` | `Sync/enrichment producers (13 of the 47)` | 13 of the 48 |
+| `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:105` | `the 47 triggerContext strings and the changed titles (seven as of 2026-08-15)` | 48; eight, redated |
+| `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:167` | §4.2's last row is numbered 47 | the new row is 48 |
+| `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:169` | the title-exception roster | append a dated `UPDATE 2026-08-27` line, the form that line already uses twice |
+| `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:171` | provenance chain ending `bringing it to 47` | append the next link, `bringing it to 48`. The chain records how the table GREW, so it is extended, never rewritten |
+| `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:177` | the per-code emitter census | add `TYPO_NORMALIZED` with its emit site in `lib/parser/blocks/venue.ts` |
+| `tests/messages/_metaWarningCardCopy.test.ts:10` | `the changed titles (seven as of 2026-08-15)` | eight, redated |
+
+**One claim deliberately does NOT move.** `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:104`'s corpus oracle asserts that every emitted **warn-severity** code is in the registry. `TYPO_NORMALIZED` is `severity: "info"`, so the oracle neither covers it nor needs to. Only that bullet's parenthetical count changes; its contract does not.
 
 Sites 2, 3 and 4 land in ONE commit (invariant 5 lockstep; `x1-catalog-parity` at `tests/cross-cutting/codes.test.ts:69-92` compares `helpfulContext`). The §12.4 table row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2947` keeps its "(admin log only …)" Doug cell so the extractor (`scripts/extract-spec-codes.ts:173-180`) keeps `dougFacing` null.
 
@@ -242,8 +265,12 @@ The prose at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2771` says
 Authored copy, which the implementation uses verbatim and the tests derive from the catalog rather than restate:
 
 - **title:** `Misspelled label we recognized`
-- **helpfulContext:** `A row's label in your sheet is misspelled, and we recognized which field was meant, so the misspelling itself cost nothing. This is a record for us rather than something to fix; correct the spelling in the sheet whenever it suits you.`
+- **helpfulContext:** `A row's label in your sheet is misspelled, and we recognized which field it was meant to be, so we read the row as intended. This is a record of what we read; there is nothing for you to fix.`
 - **triggerContext:** `Appears when a row's label is a known misspelling of a field we recognize.`
+
+**The copy invites no correction, and that is forced by the registry rather than chosen.** `INFO_CODE_ACTIONABILITY` holds exactly two rows, and it states the criterion in its own comments: `DAY_RESTRICTION_DOUBLE_LOCATION` is `actionable` because "Catalog copy directs a sheet edit", and `TYPO_NORMALIZED` is `not-actionable` because "The parser already fixed it; nothing for the operator to do" (`lib/admin/infoCodeActionability.ts:13-16`). So copy that directs a sheet edit is precisely what would make this code actionable. A second draft of this spec said "correct the spelling in the sheet whenever it suits you" and was wrong for that reason — it cleared the banned-vocabulary regex and the caps while contradicting the classification the same section ratifies. Recorded so the invitation is not reintroduced as a kindness.
+
+`SECTION_HEADER_NO_FIELDS` does direct an edit ("Add the rows back, or delete the leftover header") and is NOT a counter-precedent: it carries no `INFO_CODE_ACTIONABILITY` row at all, so nothing classifies it as not-actionable.
 
 **The copy asserts nothing about the crew page, deliberately.** An earlier draft said "the row still shows on the crew page." That is FALSE, and recording why keeps it from being reintroduced: probed across all four registered typo aliases under a v4 venue table, every one produced empty contacts and no event output (§8, probe 8). `venue.contact_info` in particular is a field `parseVenue` never writes — the near-miss spec's §2.1 says so in as many words, which is why a store-gated emission there would have been dead code. The predicate change adds an info warning; it does not publish a row that was not being published. Copy passing the banned-vocabulary regex and the caps is necessary and not sufficient: a sentence can clear every mechanical gate and still tell Doug something untrue, and only a probe against the rendered payload catches that.
 
@@ -297,7 +324,8 @@ Measured on `44b0d74b1`:
 5. **probe 5, `arm-divergence2`** — §2.3's parity table. Compares both arms across eight ordinary-authoring perturbations, using `EVENT DETAILS` as the arm-1 control because `VENUE` is one word and cannot exhibit internal-whitespace variation. Also prints the corpus cost: `A=21 tables, A+decode+normalize=21 tables, disagreements=0`. (Its first version used `VENUE` for the control column and was therefore vacuously true for every internal-whitespace row; the probe itself was a spec input and got its own review, per the probe-mini-review rule.)
 6. **probe 6, `finding-repairs`** — §3.1's witness question. `Venu Notes` yields `FIELD_LABEL_AUTOCORRECTED` and `raw_unrecognized=[]`; `Diagrams?` yields `UNKNOWN_FIELD(kind="venue name")` and a real `raw_unrecognized` row.
 7. **probe 7, same script** — AC-V6's discrimination question. The four registered typo aliases are `hotal contact info` → `venue.contact_info`, `diagrams` → `details.diagrams`, `virtaul audience` → `details.virtual_audience`, `goosneck` → `details.gooseneck`. One of four is venue-scoped.
-8. **probe 8, same script** — §5's copy claim. Every registered typo alias under a v4 venue table yields `contacts=[]` and no event output, which is what refuted the "still shows on the crew page" draft.
+8. **probe 8, same script** — §5's copy claim.
+9. **probe 9, `copy-claim-sweep`** — §5.4's derived cover. Scans the copy-restore spec, its meta-test and its registry for every line whose count the registry's size or membership determines, so the dependent-claim inventory is a rerunnable scan rather than a list that goes stale. Rerun after the edit: a surviving `47` in a claim position is a miss. Every registered typo alias under a v4 venue table yields `contacts=[]` and no event output, which is what refuted the "still shows on the crew page" draft.
 
 The 65-row baseline's kind census, for §3.3's vacuity claim: `timestamp` 30, `client` 24, `client contact` 4, `details` 4, `console` 2, `joann` 1. No block in that set normalizes to a `venue.*` alias, so no row's `kind` or `block` can move under A.
 
