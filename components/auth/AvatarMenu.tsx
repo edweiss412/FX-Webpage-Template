@@ -495,7 +495,7 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
                 // End, and reopen-with-ArrowUp, stranding focus outside the menu.
                 // The WAI-ARIA menu pattern keeps a disabled item focusable and
                 // skips it only for activation; re-entry is guarded in
-                // `onSwitchSubmit` instead.
+                // `beginSwitch` instead, which is also where the phase is set.
                 aria-disabled={switchBusy}
                 // Pending is a network round trip now (the clear also signs the
                 // device out), so dimming alone is not enough: aria-busy here,
