@@ -1,3 +1,85 @@
+## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** XS · **Shipped by:** `chore/private-image-postmerge-probe` · **Class:** VERIFICATION DEBT · **Evidence:** https://github.com/edweiss412/FX-Webpage-Template/pull/761#issuecomment-5441921368
+
+Plan Task 11 step 6 (`docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md`) requires one
+validation-project sync of a diagram-bearing show showing (a) variant objects in storage and (b) no
+module-resolution telemetry, recorded as a comment on the merged PR (#761, merged
+`8739556586e5441d1b4f3fb905fe580c58b19b4e`). It was NOT run.
+
+**Why it could not be run at close-out, and this is measured rather than assumed:** the probe
+exercises the DEPLOYED validation app — `scripts/validation-smoke.ts` is deployed-side by
+construction ("agent smoke test of the DEPLOYED validation app", and its prerequisites are Vercel
+validation-project env vars). At merge time Vercel refused deployments account-wide:
+`Deployment rate limited — retry in 24 hours`, visible on PR #761's checks. No deploy, no sync, no
+evidence. The half that needs no deploy — that `sharp` resolves under a production-only install —
+WAS run pre-merge and is recorded in the arc (`pnpm install --prod && node -e "require('sharp')"`,
+resolving 0.34.5 after the dependency move).
+
+**The probe, verbatim, so this is a step rather than an intention:**
+
+1. Confirm the validation deployment carries the merge commit above.
+2. Trigger one sync of a diagram-bearing show against validation.
+3. `select name from storage.objects where bucket_id='diagram-snapshots'` — assert `@<width>.webp`
+   objects sit beside their originals under the show's current `snapshot_revision_id` prefix.
+4. `pnpm observe --env validation` — assert no module-resolution fault, and specifically no
+   `DIAGRAM_VARIANT_GENERATION_FAILED` row whose `error` names a missing module.
+5. Post the transcript as a comment on PR #761 and replace this entry's pointer in the plan's §12.
+
+**Why it is filed rather than left in the plan:** its only record was a step inside Task 11 of a plan
+whose other ten tasks are done. §12 was supposed to pre-carry a pointer and did not — that omission
+is the reason this row exists, and §12 now points here.
+
+**What is at risk if it is never run:** low but real. The failure it would catch is `sharp` failing to
+resolve or produce variants in the deployed Node runtime, which degrades silently — originals still
+render, so the only signal is telemetry nobody is reading. The production defect this arc already
+found by probe (sharp sitting in `devDependencies`) is exactly that shape, which is the argument for
+finishing the check rather than assuming the fix held.
+
+**It ran on 2026-08-27, and it passes.** Both numbers land. Fact (a): **5** `@<width>.webp` variant
+objects sit beside their **2** originals under the synced show's current `snapshot_revision_id`
+prefix (`shows/66d06361-…/1b950325-6f83-4988-94d3-240bcfa91b4d/`), 7 objects in total. Fact (b): **0**
+`DIAGRAM_VARIANT_GENERATION_FAILED` rows for all time, so none naming a missing module. `sharp`
+resolves and produces variants on the deployed runtime, which is the half a production-only install
+could only approximate. Transcript, with the baseline and every command:
+https://github.com/edweiss412/FX-Webpage-Template/pull/761#issuecomment-5441921368
+
+**The count was predicted before the sync, which is what makes it evidence.** The ladder emits a
+width only when strictly less than the original's, so measuring the two live originals (791x857 and
+1202x928) fixed the answer at 5 in advance. A pass is a match against that prediction rather than a
+reading of whatever turned up. The manifest's `variantWidths` agree with the storage listing, and its
+`intrinsicWidth`/`intrinsicHeight` match the two originals measured from their bytes before the sync;
+both queries are in the transcript.
+
+**Why seventeen days of deployment produced zero variants, which is the part worth keeping.**
+Between PR #761's merge (`8739556586`, 2026-08-10T09:17:15-05:00) and the manual sync, `sync_log`
+holds **4826** rows for this show and every one of them is `watermark`, with no row of any other
+status in the window. The watermark skip is reachable only in automatic mode
+(`lib/sync/perFileProcessor.ts:276-278`; `isAutomaticMode` is `cron | push`), and manual mode
+re-applies even an unchanged sheet (`lib/sync/runManualSyncForShow.ts:538`).
+
+State it no more strongly than the code allows: the cron skip is NOT unconditional. The same file
+carries three escapes that proceed on an unchanged sheet, at `:322` (`last_sync_status =
+'sheet_unavailable'`, proceeds in `recovery`), `:327` (`snapshot_status = 'partial_failure'`,
+proceeds in `asset_recovery`) and `:341` (cron with `roleVocabDriftEligible` and no live pending
+sync). None applied, because the show was healthy on both fields those escapes read
+(`last_sync_status = 'ok'`, `snapshot_status = 'complete'`). So the claim that holds is the narrow
+one: for a HEALTHY show whose sheet has not changed, no scheduled path reaches the snapshot stage,
+and this show was in that state for all 4826 polls. A show sitting in `sheet_unavailable` or
+`partial_failure` would have been picked up by a recovery path automatically.
+
+The row's "degrades silently" worry was right about the mechanism and understated the reach: for a
+healthy show the evidence was not merely unread, it was unproducible by waiting.
+
+**One side effect, named rather than tidied away.** The resync raised one new alert,
+`RESYNC_QUALITY_REGRESSED` (16:09:18Z, on this show). Attributing it to the sheet's pre-existing
+`#REF!` breakage rather than to this pipeline is an INFERENCE from the `REF_ERROR_LITERAL` warnings
+the same sync returned, not something a query establishes. It is left standing rather than resolved,
+because it is a real signal about the sheet. It reaches nobody by email: `SYNC_PROBLEM_CODES`
+(`lib/notify/constants.ts:2-8`) does not include it and `lib/notify/monitorDigest.ts:164` skips a
+quality regression outright. `pending_syncs` was queried either side of the sync and held 0 both
+times.
+
 ## BL-SPECLINT-AC-UNCLAIMED — a plan could declare an acceptance criterion that no task was scheduled to prove — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** M · **Shipped by:** `feat/speclint-ac-unclaimed-arm` · **Spec:** `docs/superpowers/specs/2026-08-26-speclint-dispatch-gates-design.md` §4.2 branch (A) · **Plan:** `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md`
@@ -13099,6 +13181,8 @@ commit that made them false; no suite can read a comment, so that phrase is in t
 
 **VERIFICATION OUTSTANDING, and owned.** This row's own body required a clean `workflow_dispatch` on `main` and explicitly excluded a PR run: "a PR run's head is the PR branch". That observation lands on the **first scheduled `mutation-harness` run on `main` after this arc merges** — after the shipping PR's last commit, and after a merge this arc does not perform. **bl-orch owns observing that nightly and writing the merge sha and the outcome into this entry.** The alternative, leaving the row open, was ruled against on 2026-08-26: a row whose only remaining step is watching a cron is the stale-queue shape the in-progress convention exists to prevent, and a handoff carries a watch better than a ledger row does.
 
+**OBSERVED 2026-08-27, recorded by bl-orch.** The 07:00 UTC schedule did not fire on 2026-08-27 (no `schedule` run exists after 2026-08-26 07:40Z, which ran on `9a621a579`, pre-merge), so bl-orch dispatched the workflow on `main` by hand at 08:07 CDT: run [33075218642](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/33075218642), `workflow_dispatch`, head `4cb585b35` (main after #910; #908 merged as `87bff7470` on 2026-08-26). Result, read per job: **19 of 20 jobs success, every `source-shards` leg included, plus `source-gates`, both parser jobs and `notify`; the one failure is `budget`.** So the coverage half this row is about is GREEN on main: no `BaselineNotGreenError`, no aborted collection, no unaccepted survivor on any leg. The `budget` failure is the shard wall-clock, which this row disclaims and `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH` records (its entry below carries the leg timings). This is the `workflow_dispatch` on `main` the row's body asked for.
+
 **The row's own thesis about itself held, and that is why the closing evidence is a re-measurement rather than its named list.** Between filing and repair the failure set turned over completely. All three of its named mechanical repairs had already landed on `main`, re-verified at `75b8f7a3e`:
 
 - The ledger-kind class (`rowScanOpener`, `fieldNearMiss`) is closed by the row's own derivation, re-run over the live registry: **52 surfaces, 0 mismatches.** Landed at `a66f465c7`.
@@ -13173,6 +13257,8 @@ five further legs in the warn band (>75% of 3600 s)
 **Which is this row's own mechanism, firing again.** The row's body already says raising the count rebalances MODELLED BOOTS while the budget bounds SECONDS, and that the archived wall-clock row measured that model 3.8x miscalibrated. `N = 8` bought headroom; two more enrolled surfaces spent most of it. The pattern the row documents — a margin a single enrolment can erase — is intact and is now on its second observed cycle.
 
 **Documented limit, and the next lever named rather than filed** (mint freeze, and this arc files no row of any facing): the sanctioned response remains the one the workflow's own triage copy prescribes — raise `SOURCE_SHARD_COUNT` in `tests/mutation/source/shardPartition.ts`, never `timeout-minutes`. It was 4, is 8, and the measurement above is the input to whoever takes it to the next value. **Re-file trigger for that lever:** a `budget` job FAILURE on a SCHEDULED `main` run, which is the observation this arc could not make because it does not merge. Note the distinction that made this section necessary: the run above is a feature-branch dispatch, so it is evidence the mechanism is live, and it is NOT the scheduled-main evidence the original trigger asks for.
+
+**Observed again 2026-08-27 on MAIN content, recorded by bl-orch.** Run [33075218642](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/33075218642) on `main` at `4cb585b35` (a `workflow_dispatch` by bl-orch, because the 07:00 UTC schedule did not fire that day; the head is main's own content, which is what the trigger is about, and the event name is the only respect in which it is not the scheduled run the sentence above names): `budget` FAILURE, `leg source-shards-0 took 4089s, over the 3600s budget`; legs 1, 2, 3, 5, 6, 7 in the warn band at 2767, 2758, 3492, 3467, 3205, 3154 s; leg 4 under it. Every leg passed on content. Second breach at `N = 8` after the 3788 s one above, now on the binding leg 0 rather than leg 4, so the shape is the row's own mechanism (LPT over modelled boots, budget over seconds) and not one leg's population. The lever stays `SOURCE_SHARD_COUNT` (8 today) in `tests/mutation/source/shardPartition.ts`; no row is filed (process mint freeze); whoever takes it starts from these two runs.
 
 **What is genuinely closed here** is the row as filed: the `budget` job failed on four of four legs at `N = 4`, and at `N = 8` it passes on six of eight with one over. That is a repair, not a fiction. What is NOT closed is the growth curve underneath it, which is why this row graduates with the breach recorded instead of a clean subsumption.
 
