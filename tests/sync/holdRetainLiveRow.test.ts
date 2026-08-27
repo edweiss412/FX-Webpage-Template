@@ -342,6 +342,85 @@ describe("the mi11 genuine-removal retain sources the member's own live row", ()
     },
   ];
 
+  /**
+   * The `crew_email` reject branch (holdAwareApply.ts:466), which arc C
+   * repaired to retain the LIVE row and which this arc finishes.
+   *
+   * Two defects on one line. (m) it retained the live row RAW under a
+   * pinnedIdentity whose email may be null, so the build loop's
+   * `pin?.email ?? row.email` fallback put the LIVE email onto a row the hold
+   * pins to none. (n) the retain was guarded on `live`, so a member with no
+   * live row got protectedNames and NO row — the exact shape that made arc C's
+   * capability-loss notice report a live LEAD as lost.
+   */
+  async function applyCrewEmailReject(
+    tx: Sql,
+    args: { heldValue: Record<string, unknown>; liveNow: CrewMemberRow; withLiveRow: boolean },
+  ) {
+    const { showId, driveFileId } = await seedShow(tx);
+    // `withLiveRow: false` seeds NO crew row and passes NO prior-crew entry, so
+    // the two agree. Seeding the row while omitting it from the snapshot would
+    // be a state production cannot produce -- previousCrewMembers is read from
+    // the live crew -- and the assertion would then be about an upsert
+    // overwriting a live row with a snapshot, which is not what this case is for.
+    const row = args.withLiveRow ? await seedCrew(tx, showId, args.liveNow) : null;
+    const stays = crew("Stays", { email: "stays@x" });
+    const staysRow = await seedCrew(tx, showId, stays);
+    await tx.unsafe(
+      `insert into public.sync_holds
+         (show_id, drive_file_id, domain, entity_key, held_value, proposed_value,
+          base_modified_time, kind, created_by)
+       values ($1,$2,'crew_email',$3,$4::jsonb,null,$5::timestamptz,'undo_override','system')`,
+      [showId, driveFileId, args.liveNow.name, args.heldValue, MT1] as never,
+    );
+    const previous =
+      args.withLiveRow && row
+        ? [prevMember(row, args.liveNow), prevMember(staysRow, stays)]
+        : [prevMember(staysRow, stays)];
+    await applyParseResult(applyTx(tx), {
+      driveFileId,
+      parseResult: parseResult([stays]),
+      snapshot: snapshot(showId, previous),
+      holds: { port: holdPort(tx), baseModifiedTime: MT2 },
+    });
+    return (await readCrew(tx, showId)).find((r) => r.name === args.liveNow.name);
+  }
+
+  it("(m) DEFENSIVE: the crew_email branch does not leak the live email onto a null-pinned row", async () => {
+    const heldValue = { name: "Held", email: null, ...HELD_ERA };
+    const liveNow = live({ email: "held@old" });
+    premiseHolds(
+      "(m) the held email must be null AND the live one not, or the leak cannot show",
+      heldValue.email === null && liveNow.email !== null,
+    );
+    const after = await inRollback((tx) =>
+      applyCrewEmailReject(tx, { heldValue, liveNow, withLiveRow: true }),
+    );
+    expect(after, "the held member must survive").toBeDefined();
+    expect(after!.email, "identity comes from the hold even when it is null").toBeNull();
+  });
+
+  it("(n) the crew_email branch retains the snapshot when there is no live row, rather than nothing", async () => {
+    const heldValue = { name: "Held", email: "held@old", ...HELD_ERA };
+    const after = await inRollback((tx) =>
+      applyCrewEmailReject(tx, { heldValue, liveNow: live(), withLiveRow: false }),
+    );
+    // Asserted at the row itself, which is what the retain feeds through
+    // plan.crewMembers and what every downstream reader indexes. Before this
+    // arc the branch added protectedNames and NO retain, so with nothing in the
+    // database and nothing in the applied list the member simply was not there.
+    //
+    // NOT asserted at the capability-loss notice: arm (c) iterates
+    // previousCrewMembers, and this case's whole premise is that it holds no
+    // row for the member, so the notice could not name them under ANY
+    // implementation and that assertion would be tautological. The arc-C
+    // symptom needs a live prior row to be reachable and this case has none.
+    expect(after, "the snapshot retain must put the member back").toBeDefined();
+    expect(after!.phone, "with no live row the snapshot is the best source there is").toBe(
+      HELD_ERA.phone,
+    );
+  });
+
   it.each(NO_LIVE_ROW)("$label falls back to the held snapshot", async ({ previous }) => {
     const { after } = await inRollback((tx) =>
       applyWithHeldMemberDropped(tx, { heldEra: held(), liveNow: live(), previous }),

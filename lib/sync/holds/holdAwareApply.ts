@@ -147,11 +147,13 @@ export type HoldAwareApplyArgs = {
    * `previousCrewNames` on purpose: the `crew_email` reject branch must retain
    * the row the sheet last had, and a name alone cannot reconstruct one.
    *
-   * Deliberately NOT `rowFromHeldValue(held)` — the held value is a FROZEN
-   * SNAPSHOT taken when the hold was opened, and the upsert writes every column,
-   * so retaining it reverts every live field edited since. Optional: with no
-   * snapshot there is no live row to retain and the branch keeps today's
-   * behaviour (spec §4 limit 4, a documented degrade rather than a silent one).
+   * Every retain in this file prefers it over `held_value`, which is a copy of
+   * a PRIOR live row (writeMi11Holds reads it from liveCrewByName, the
+   * pre-apply snapshot) and so is never fresher. Optional: with no snapshot
+   * there is no live row to prefer and every retain falls back to `held_value`
+   * -- a documented degrade rather than a silent one, and still better than the
+   * no-retain-at-all the crew_email branch used to take
+   * (BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE spec §3.6).
    */
   previousCrewMembers?: CrewMemberRow[];
 };
@@ -496,7 +498,7 @@ function applyUndoOverrideToMaps(
       name: String(held.name ?? hold.entity_key),
       email: (held.email as string | null) ?? null,
     });
-    // RETAIN THE LIVE ROW — the asymmetry this branch used to carry
+    // RETAIN — the asymmetry this branch used to carry
     // (BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE). Every sibling branch
     // adds a retain row; this one added `protectedNames` and returned, so the
     // name was excluded from the delete but never put back into
@@ -504,12 +506,17 @@ function applyUndoOverrideToMaps(
     // member who was still very much alive, and the capability-loss notice told
     // the operator a live LEAD had lost LEAD access.
     //
-    // The retained row is the LIVE one, never `rowFromHeldValue(held)`: the
-    // upsert writes every column, so retaining the frozen snapshot would revert
-    // every field edited since the hold opened. No matching live row means no
-    // retain — today's behaviour, and the documented degrade.
-    const live = maps.previousByName.get(hold.entity_key);
-    if (live) maps.retainRows.set(hold.entity_key, live);
+    // Through retainRowFor, which closes the two things arc C left here
+    // (BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE):
+    //   - it retained the live row RAW, and `pinnedIdentity` above is set to
+    //     `held.email ?? null`, so for a hold whose held email is null the build
+    //     loop's `pin?.email ?? row.email` fallback put the LIVE email onto a row
+    //     the hold pins to none. Identity now comes from the snapshot.
+    //   - the retain was guarded on `live`, so a member with no live row got
+    //     protectedNames and NO row -- the exact shape described above. It is
+    //     unconditional now: the snapshot is a worse source than the live row and
+    //     a better one than nothing.
+    maps.retainRows.set(hold.entity_key, maps.retainRowFor(hold.entity_key, held));
     return;
   }
   // crew_identity
