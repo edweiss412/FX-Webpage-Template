@@ -109,7 +109,7 @@ Restated from the spec so every `ac=` id resolves in this document, and so a rea
 | AC-V1 | a typo alias in a v4 `VENUE NAME` table emits exactly one `TYPO_NORMALIZED` | 1 |
 | AC-V2 | one predicate, two callers; `SECTION_HEADER_TOKENS` still `["VENUE"]` | 1 |
 | AC-V3 | corpus `TYPO_NORMALIZED` census 0 before and 0 after | 1 |
-| AC-V4 | the two swap suites green UNCHANGED | 1 |
+| AC-V4 | both swap suites green UNCHANGED — and the gated one actually executed, not silently skipped | 1 |
 | AC-V5 | the 65-row baseline does not move; `EXPECTED_TOTAL` stays 65 | 1 |
 | AC-V6 | the four old-direction pins re-derived, not deleted or folded to constants | 1 |
 | AC-V7 | a REAL near-miss (`Diagrams?`) in a v4 venue table resolves to its own cell | 2 |
@@ -228,7 +228,21 @@ A comment that survives its own repair is the next reviewer's finding.
 
 **Anti-tautology.** The generator's expectation stays DERIVED from the document under test. Folding it to `true`/`false` would make it pass for the wrong reason and would not red if the predicate regressed — which is precisely the property its own comment claims for it.
 
-**Verify:** `pnpm exec vitest run tests/parser/blocks/venue.test.ts tests/parser/warnings.test.ts tests/parser/fieldNearMissBaseline.test.ts`
+**Verify:** `pnpm exec vitest run tests/parser/blocks/venue.test.ts tests/parser/warnings.test.ts tests/parser/fieldNearMissBaseline.test.ts tests/parser/venueSwapInvariance.test.ts`
+
+**AC-V4's second swap suite is NOT reachable from that command, and passing its path silently runs nothing.** `tests/parser/mutationHarness.venueSwapSweep.test.ts` executes only under `--project mutation`: its own header records that the name IS the env gate, because the `mutation` project collects `tests/parser/mutationHarness.*.test.ts` and the serial and parallel projects exclude that glob unconditionally. Measured: handing nine paths to an ordinary run reports `Test Files 8 passed (8)` — the ninth matched nothing and the run still read green.
+
+The two suites are verified differently and the readiness report says which was which:
+
+- `tests/parser/venueSwapInvariance.test.ts` — the ten named real-loss swaps. Ungated, runs in any leg, included above.
+- `tests/parser/mutationHarness.venueSwapSweep.test.ts` — the 497-swap spec-letter proof:
+
+  ```bash
+  VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm exec vitest run \
+    --project mutation tests/parser/mutationHarness.venueSwapSweep.test.ts
+  ```
+
+  Any `--project mutation` run takes the single-slot mutation class, so this is sequenced with Task 5's score under one lock rather than run casually.
 
 ### Step: regenerate the 65-row baseline and report the moved-row count (AC-V3, AC-V5)
 
@@ -274,7 +288,17 @@ Without them the RED is a COLLECTION failure, not the behavioural one this task 
 
   **Why three and not two.** An earlier draft described a two-row workbook while asserting two anchors and cell `A3`. Those cannot both hold: probed, a two-row sheet gives `{count: 1, cell: "A2"}` and a three-row sheet gives `{count: 2, cell: "A3"}`. The plan now names one row set, and the expected cell `A3` follows from it rather than from a different fixture.
 
-  **The premise reads the SAME three rows**, rendered as markdown, not a shortened version of them. A premise over a different input than the case's own is the "validates something ADJACENT" defect in another costume. Verified on exactly these rows: `parseSheet` emits `UNKNOWN_FIELD` with `raw_unrecognized = [{block: "venue name", key: "Diagrams?", value: "see folder"}]`.
+  **The premise reads the SAME three rows**, rendered as markdown, not a shortened version of them. A premise over a different input than the case's own is the "validates something ADJACENT" defect in another costume.
+
+  **The resolution JOINS on the warning's own `blockRef.kind`. It must NOT pass a literal `"venue"`.** This is the difference between pinning the end-to-end routing key and pinning nothing: `resolveUnknownFieldCell` is called at runtime with the kind the DETECTOR emitted, so hardcoding the expected value tests the anchor scanner in isolation and lets the detector regress silently underneath it. Probed with the scanner widened and `fieldNearMiss.ts` still on the old classification:
+
+  ```
+  warning kind:                "venue name"
+  hardcoded "venue":           "A3"      <- passes, proving nothing
+  joined on w.blockRef.kind:   null      <- the real path, broken
+  ```
+
+  So an ordinary contributor could revert `fieldNearMiss.ts` to the venue-only arm, leave `parseVenue` on the shared predicate, and every emission test in Task 1 plus a hardcoded resolution case here would stay green while the operator's link disappeared. The case therefore reads the emitted warning and joins on its `blockRef.kind`, `key` and `value`, which is what pins AC-V2's SECOND caller and makes AC-V7 end-to-end rather than scanner-only.
 
   **The witness row is `Diagrams?`, NOT `Venu Notes`** — measured at plan time, `Venu Notes` is RECOVERED by `parseVenue`'s scoped fuzzy path (`FIELD_LABEL_AUTOCORRECTED`, `raw_unrecognized=[]`), so it never becomes an `UNKNOWN_FIELD` and an anchor assertion over it would pass without exercising the routing key this arc changes. `Diagrams?` yields a real `UNKNOWN_FIELD(kind="venue name")` — literally the value predicate A moves to `"venue"`.
 
@@ -294,7 +318,18 @@ Without them the RED is a COLLECTION failure, not the behavioural one this task 
     expected cell. Both are false on the base tree and true after, which is the red-then-green the marker claims.
 
   Measured before and after the widening: 0 anchors and null, then 2 anchors and `A3`; v2 unchanged at 2 and `A3`.
-- **The false-early guard**, modelled on the existing exact-header case at `tests/drive/unknownFieldAnchors.test.ts:119-132`, which proves a `Details Notes` field row above the real `DETAILS` header is not mistaken for it. A workbook carrying BOTH a bare `VENUE` block and a later `VENUE NAME` reference table, asserting the scan selects the bare `VENUE` row — so the widening cannot silently re-point v2 sheets at a reference table.
+- **The false-early guard, which must test EXACTNESS and not ordering.** Modelled on the existing exact-header case at `tests/drive/unknownFieldAnchors.test.ts:119-132`, where a `Details Notes` field row above the real `DETAILS` header is not mistaken for it.
+
+  **An earlier draft got this wrong and it is worth stating why**, because the wrong version looks right: it put a valid bare `VENUE` header above a later `VENUE NAME` table and asserted resolution. Probed, the exact regex and a prefix mutant `/^VENUE/i` BOTH select row 0 there, so the case pinned first-valid-header ordering and would survive the recognizer being broadened — which is the one regression AC-V7 needs it to catch.
+
+  The discriminating fixture puts a field row a prefix mutant would mistake for the header ABOVE the real header:
+
+  ```ts
+  [["VENUE NOTES", "dock closes at 5"], ["", ""],
+   ["VENUE NAME", "Four Seasons Hotel Chicago"], ["VENUE ADDRESS", "120 E Delaware Pl"], ["Diagrams?", "see folder"]]
+  ```
+
+  **Assert the ANCHOR SET, not just a resolution** — resolution alone is `A5` under both regexes and discriminates nothing. Under the exact regex the scan opens at the real `VENUE NAME` header, so that row is CONSUMED as the header and never anchored: the venue anchors are `venue address@A4` and `diagrams?@A5`. Under the prefix mutant the scan opens at `VENUE NOTES`, so `venue name@A3` becomes an anchored field row. The assertion is therefore that no anchor carries the label `venue name`, which is false the moment the recognizer is broadened. A workbook carrying BOTH a bare `VENUE` block and a later `VENUE NAME` reference table, asserting the scan selects the bare `VENUE` row — so the widening cannot silently re-point v2 sheets at a reference table.
 
 **GREEN.** `lib/drive/unknownFieldAnchors.ts:41`:
 
