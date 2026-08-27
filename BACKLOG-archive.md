@@ -69,25 +69,26 @@ reading of whatever turned up. The manifest's `variantWidths` agree with the sto
 `intrinsicWidth`/`intrinsicHeight` match the two originals measured from their bytes before the sync;
 both queries are in the transcript.
 
-**Why seventeen days of deployment produced zero variants, which is the part worth keeping.**
-Between PR #761's merge (`8739556586`, 2026-08-10T09:17:15-05:00) and the manual sync, `sync_log`
-holds **4826** rows for this show and every one of them is `watermark`, with no row of any other
-status in the window. The watermark skip is reachable only in automatic mode
-(`lib/sync/perFileProcessor.ts:276-278`; `isAutomaticMode` is `cron | push`), and manual mode
-re-applies even an unchanged sheet (`lib/sync/runManualSyncForShow.ts:538`).
+**What the automatic path had been doing, and only that.** Between PR #761's merge
+(`8739556586`, 2026-08-10T09:17:15-05:00) and the manual sync, `sync_log` holds **4826** rows for
+this show and every one records the outcome `watermark`, with no row of any other status in the
+window. Manual mode bypasses the watermark gate unconditionally
+(`lib/sync/perFileProcessor.ts:276-278`, pinned as leg (c) of
+`tests/sync/perFileProcessor.test.ts:357`), which is why a manual sync was the probe's instrument.
 
-State it no more strongly than the code allows: the cron skip is NOT unconditional. The same file
-carries three escapes that proceed on an unchanged sheet, at `:322` (`last_sync_status =
-'sheet_unavailable'`, proceeds in `recovery`), `:327` (`snapshot_status = 'partial_failure'`,
-proceeds in `asset_recovery`) and `:341` (cron with `roleVocabDriftEligible` and no live pending
-sync). None applied, because the show was healthy on both fields those escapes read
-(`last_sync_status = 'ok'`, `snapshot_status = 'complete'`). So the claim that holds is the narrow
-one: for a HEALTHY show whose sheet has not changed, no scheduled path reaches the snapshot stage,
-and this show was in that state for all 4826 polls. A show sitting in `sheet_unavailable` or
-`partial_failure` would have been picked up by a recovery path automatically.
+**What that does NOT establish, written down because two review rounds were spent narrowing it to
+this.** It does not establish that polling was continuous, nor what `last_sync_status` and
+`snapshot_status` were at any point inside the window; both were read AFTER the sync. It does not
+establish that no automatic path COULD have produced variants. `perFileProcessor` proceeds past the
+watermark at `:322`, `:327` and `:341`, and the drift-resync arm at `:341` reads neither health
+field, so a healthy show can proceed under cron (`tests/sync/perFileProcessor.test.ts:357`, leg
+(b)); several earlier gates can also skip before those branches are reached. Which path applied
+across those 4826 rows is not settled here, and the probe does not need it settled.
 
-The row's "degrades silently" worry was right about the mechanism and understated the reach: for a
-healthy show the evidence was not merely unread, it was unproducible by waiting.
+What it does establish is the comparison that matters: 4826 logged automatic outcomes produced no
+variant objects, and one manual sync produced 5. The row's "degrades silently" worry named the right
+mechanism; what it understated is that there was no telemetry to go unread, because across those
+4826 outcomes the generating code did not run.
 
 **One side effect, named rather than tidied away.** The resync raised one new alert,
 `RESYNC_QUALITY_REGRESSED` (16:09:18Z, on this show). Attributing it to the sheet's pre-existing
