@@ -598,23 +598,9 @@ So the state is a PAIR, and saying so makes the table smaller rather than larger
 
 That leaves seven observable configurations rather than five: `closed × {idle, pending, timedout}` and `open × {idle, pending, timedout, error}`. Enumerating all twenty-one pairs would be a table nobody reads and the code does not need, because the two axes are independent: what needs enumerating is each axis's own transitions, plus the cases where they interact. Both are below, and the interactions are the compounds.
 
-**Switch-axis transitions**, which are the same whether the menu is open or closed:
+**The two tables are NOT restated here.** They live in the canonical §4.6 of `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md`, which this arc amends, and invariant 7 makes that copy the one that governs. Keeping a second copy in the plan is what produced the last finding of the arc: both copies claimed `error→idle` happens "only when a retry SUCCEEDS", and both were wrong in the same way, because a close-then-reopen resets `switchStatus` without submitting anything (`tests/components/auth/avatarMenu.test.tsx:592` pins it). Two copies of one table drift together until a reviewer reads the code instead, and then they are wrong in stereo.
 
-
-| Pair | Direction and treatment |
-| --- | --- |
-| idle ↔ pending | **idle→pending:** submit; instant, the row becomes `aria-disabled` and stays focusable, and the announcer says `Switching person`. **pending→idle:** the clear settles ok without unmount; instant, the announcer empties |
-| pending ↔ timedout | **pending→timedout:** the watchdog fires; instant, `aria-disabled` false, `aria-busy` removed, the announcer swaps to the notice. No animation, because the row is returning to its resting appearance. **timedout→pending:** a retry; instant, busy again, and a FRESH window arms |
-| idle ↔ timedout | **timedout→idle:** the hung clear finally settles ok; instant, the announcer empties, the row was already enabled. **idle→timedout: IMPOSSIBLE, by the callback's own predicate** — reaching timed-out needs a clear in flight, and the one path that would violate that, a queued watchdog firing after a settle, finds the phase at idle and returns (round 2 F1, probed both ways) |
-| idle ↔ error | **idle→error: IMPOSSIBLE directly** — error is only reachable through a submit. **error→idle:** only when a retry SUCCEEDS without unmount. NOT the first step of a retry: no render is observable between clearing the error and going busy, so a retry moves error→pending directly. Round 4 F2 established it by probe; no case pins it, so the table states the observation and claims nothing about why |
-| pending ↔ error | **pending→error:** the clear settles `{ ok: false }`; instant, and the row is enabled by the time the alert is readable (AC-9 fail-order). **error→pending:** retry; instant, the error clears at the start |
-| timedout ↔ error | **timedout→error:** the hung clear settles `{ ok: false }` with no retry in flight; instant, the alert appears and the announcer empties. **error→timedout: IMPOSSIBLE directly** — a retry out of error goes to pending first |
-
-**Menu-axis transitions**, which carry the switch state untouched:
-
-| Pair | Direction and treatment |
-| --- | --- |
-| closed ↔ open | **closed→open:** `avatar-menu-in` enter per DESIGN §5, `motion-reduce` instant; `openAt` resets `switchStatus` to idle and touches no other switch state. **open→closed:** an unmount of the popover; the phase, its timer and the announcer are all on the root and survive |
+What the plan keeps is the part the spec does not carry: the compounds, and which case pins each.
 
 Compounds, which is where this class of bug actually lives:
 
