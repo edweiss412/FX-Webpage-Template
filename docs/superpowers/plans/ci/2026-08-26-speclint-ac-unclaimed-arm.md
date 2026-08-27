@@ -574,6 +574,18 @@ flagged is what "flagged" means. It is not repaired by widening the owner set,
 and the residue shrinks only when an owning arc settles its own criterion in its
 own prose.
 
+**Documented limit — a `RETIRED` reason may not name another id, and spec §4.3's
+own example does.** The reason sits ON the declaring line, so
+`(RETIRED: superseded by AC-4)` puts two distinct ids there and the ratified
+count cut declines the line. The criterion is still exempted, but by the DECLINE
+rather than by the disposition, which is not what the author wrote and not what
+the spec's example implies. Two ratified things conflict here and the count cut
+wins, because it is the terminating decision three refuted grammars bought; the
+recognizer is NOT widened to ignore ids inside a disposition, since that reopens
+the axis. `docs/agents/writing-plans.md` advertises an id-free reason instead,
+and `tests/specLint/taskContract.test.ts` pins both halves — the id-bearing form
+declined, the id-free form disposed.
+
 **No `BL-`/`DEF-` row is filed by this arc**, of any facing.
 
 <!-- tasks: end -->

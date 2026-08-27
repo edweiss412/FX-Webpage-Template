@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseDoc } from "../../lib/specLint/parse";
-import { acAnalysis, checkTaskContract } from "../../lib/specLint/taskContract";
+import { acAnalysis, acceptsDisposition, checkTaskContract } from "../../lib/specLint/taskContract";
 
 /** Codes only, sorted — the shape every case asserts as a FULL list. */
 const codes = (text: string): string[] =>
@@ -685,7 +685,7 @@ describe("checkTaskContract — the unclaimed direction (spec §4.1, §4.3)", ()
   it("unclaimed: every ACCEPTED disposition form exempts, each asserted on its own", () => {
     for (const d of [
       "(RETIRED)",
-      "(RETIRED: superseded by AC-4)",
+      "(RETIRED: superseded by the closeout)",
       "(discharged by Task 10)",
       "(discharged by Task 3 and Task 6)",
       "(discharged by Task 3, Task 6)",
@@ -697,6 +697,30 @@ describe("checkTaskContract — the unclaimed direction (spec §4.1, §4.3)", ()
     ]) {
       expect(`${d} => ${codes(plan(CLAIMED, `- AC-2 elsewhere ${d}`)).join(",")}`).toBe(`${d} => `);
     }
+  });
+
+  it("unclaimed: a RETIRED reason naming another id makes the line AMBIGUOUS, not disposed", () => {
+    // A DOCUMENTED LIMIT, and a conflict between two ratified things. Spec §4.3
+    // gives `(RETIRED: superseded by AC-4)` as an example, but the reason sits
+    // ON the declaring line, so the line then carries two distinct ids and the
+    // ratified count cut declines it. The count cut is the terminating decision
+    // and wins; the recognizer is NOT widened to ignore ids inside a
+    // disposition, because that reopens the axis three refuted grammars closed.
+    //
+    // The id is exempted either way here, so nothing is silently wrong — but it
+    // is exempted by the DECLINE, not by the disposition, and an author reading
+    // the spec's example would believe otherwise. `docs/agents/writing-plans.md`
+    // therefore advertises an id-free reason (diff review R2 finding 1).
+    const withId = plan(CLAIMED, "- AC-2 elsewhere (RETIRED: superseded by AC-4)");
+    expect(codes(withId)).toEqual([]);
+    expect(acAnalysis(parseDoc(withId)).ambiguous.map((a) => a.ids)).toEqual([["AC-2", "AC-4"]]);
+    expect([...acAnalysis(parseDoc(withId)).certain.keys()]).toEqual(["AC-1"]);
+    // An id-free reason is a real disposition: the line stays CERTAIN and the
+    // criterion is disposed rather than declined.
+    const idFree = plan(CLAIMED, "- AC-2 elsewhere (RETIRED: superseded by the closeout)");
+    expect(codes(idFree)).toEqual([]);
+    expect(acAnalysis(parseDoc(idFree)).ambiguous).toEqual([]);
+    expect([...acAnalysis(parseDoc(idFree)).certain.keys()].sort()).toEqual(["AC-1", "AC-2"]);
   });
 
   it("unclaimed: every NEAR MISS still reports — the set is an accept-set, never a deny-set", () => {
@@ -1115,5 +1139,49 @@ describe("checkTaskContract — the AC classification's own structure (spec §4.
       "plan",
     );
     expect(found.map((f) => f.code)).toEqual(["TASK_AC_UNDECLARED", "TASK_AC_UNDECLARED"]);
+  });
+});
+
+describe("acceptsDisposition — the exported predicate the residue rests on", () => {
+  // Exported for a consumer OUTSIDE the deciding suites: the residue's
+  // `owner-inexpressible` rows ask the grammar whether an owner is expressible.
+  // Operator enumeration reports zero declared mutation sites inside the
+  // function, and none of the three registry suites called it — so a one-edit
+  // regression such as `return false` was killable only from the corpus suite,
+  // which the registry does not run (diff review R2 finding 3). Asserting it
+  // here puts it inside the scored set.
+
+  it("accepts exactly the owner forms the closed grammar admits", () => {
+    for (const ok of [
+      "(RETIRED)",
+      "(discharged by Task 10)",
+      "(discharged by Task 3 and Task 6)",
+      "(discharged by Task 3, Task 6)",
+      "(discharged by Task N2b)",
+      "(discharged by closeout)",
+      "(discharged by the closeout)",
+      "(discharged by the PR's last commit)",
+    ]) {
+      expect(`${ok} -> ${acceptsDisposition(ok)}`).toBe(`${ok} -> true`);
+    }
+  });
+
+  it("rejects the near misses, including the two live inexpressible owners", () => {
+    for (const no of [
+      "(discharged by Step 4)", // shell-attached-redirection-target AC-7
+      "(discharged by no task (a spec-time derivation, re-exercised by Task 5))", // server-action-origin-sweep AC-8
+      "(discharged by a later arc)",
+      "(retired)",
+      "(discharged by Task 10).",
+      "discharged by Task 10",
+      "(handled by Task 10)",
+    ]) {
+      expect(`${no} -> ${acceptsDisposition(no)}`).toBe(`${no} -> false`);
+    }
+  });
+
+  it("is END-anchored: a disposition with prose after it does not count", () => {
+    expect(acceptsDisposition("(discharged by Task 10) and then more prose")).toBe(false);
+    expect(acceptsDisposition("prose before (discharged by Task 10)")).toBe(true);
   });
 });

@@ -11,7 +11,8 @@ import { enrolledPlans } from "./acCorpusWalk";
 
 const key = (plan: string, id: string) => `${plan} ${id}`;
 /** The owner words the classification rule looks for beside an id. */
-const OWNER_WORD = /\b(?:[Tt]asks?|[Ss]teps?|close-?out|closeout|the PR's last commit)\b/;
+const OWNER_WORD =
+  /\b(?:[Tt]asks?|[Ss]teps?|[Pp]rocedures?|close-?out|closeout|the PR's last commit)\b/;
 const ID_BOUNDARY = "(?![A-Za-z0-9-])(?!\\.[A-Za-z0-9.])";
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Trailing sentence punctuation is not part of an owner (plan review R4 finding 1). */
@@ -41,17 +42,31 @@ describe("the AC arm over the live plans corpus (AC-6)", () => {
     // classification only this file can see. `checkTaskContract` renders from
     // the same value, so any divergence is a defect in the renderer.
     const emitted = checkTaskContract(model, "plan");
-    const count = (code: string) => emitted.filter((x) => x.code === code).length;
-    if (count("TASK_AC_UNCLAIMED") + count("TASK_AC_UNDECLARED") > 0) plansEmittingAcFindings += 1;
-    if (count("TASK_AC_UNCLAIMED") !== ac.unclaimed.length) {
-      emissionDrift.push(
-        `${f}: UNCLAIMED emitted ${count("TASK_AC_UNCLAIMED")}, analysis ${ac.unclaimed.length}`,
-      );
-    }
-    if (count("TASK_AC_UNDECLARED") !== ac.undeclared.length) {
-      emissionDrift.push(
-        `${f}: UNDECLARED emitted ${count("TASK_AC_UNDECLARED")}, analysis ${ac.undeclared.length}`,
-      );
+    if (emitted.some((x) => x.code.startsWith("TASK_AC_UN"))) plansEmittingAcFindings += 1;
+    // IDENTITY and LOCATION, not counts. A count comparison is satisfied by a
+    // renderer that hardcodes an id, or one reporting the right NUMBER of
+    // findings against the wrong lines — both measured as surviving in diff
+    // review R2 finding 2. The id is read back out of the message deliberately:
+    // that string is what a plan author sees, so pinning it here is what stops
+    // the rendered id drifting from the analysed one.
+    const rendered = (code: string) =>
+      emitted
+        .filter((x) => x.code === code)
+        .map((x) => `${/`(AC-[^`]+)`/.exec(x.message)?.[1] ?? "?"}@${x.docLine}`)
+        .sort()
+        .join(" ");
+    const analysed = (rows: readonly { id: string; line: number }[]) =>
+      rows
+        .map((u) => `${u.id}@${u.line}`)
+        .sort()
+        .join(" ");
+    for (const [code, rows] of [
+      ["TASK_AC_UNCLAIMED", ac.unclaimed],
+      ["TASK_AC_UNDECLARED", ac.undeclared],
+    ] as const) {
+      const r = rendered(code);
+      const a = analysed(rows);
+      if (r !== a) emissionDrift.push(`${f}: ${code} rendered [${r}] vs analysis [${a}]`);
     }
   }
 
