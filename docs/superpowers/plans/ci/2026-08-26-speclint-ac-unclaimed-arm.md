@@ -111,12 +111,20 @@ as the reason.
 `docs/superpowers/plans/ci/2026-08-26-speclint-dispatch-gates.md` declares AC-4,
 AC-5, AC-6, AC-8 and AC-9 while its markers cite only AC-1, AC-2, AC-3 and AC-7 —
 the AC-arm tasks were split out by `a673d040c` and took their markers with them.
-Its prose settles them (its closeout calls the AC arm "RATIFIED AND
-UNIMPLEMENTED" and names this plan), so they are not UNSETTLED; but the owner set
-in spec §4.3 is closed at task lists, `closeout`, `the closeout` and
-`the PR's last commit`, and none of those can name another arc. **The owner set is
-NOT widened.** Those five rows go on the residue quoting that closeout sentence as
-their evidence.
+AC-9 keeps its line and is repaired into grammar (see Task 4); the other four go
+on the residue quoting that plan's closeout sentence. **The owner set in spec §4.3
+is NOT widened** for them or for anyone else.
+
+Measured against the `unsettled` predicate below, those four are `unsettled` rather
+than `owner-inexpressible`: the sentence that settles them names the ARM, never the
+id, so no line of that plan carries an id beside an owner. `owner-inexpressible`
+has exactly two live members, and both were found by running the predicate rather
+than by assumption —
+`docs/superpowers/plans/2026-08-16-server-action-origin-sweep.md` AC-8, whose
+line 341 says AC-8 has "no task (a spec-time derivation, re-exercised by Task 5)",
+and `docs/superpowers/plans/ci/2026-08-21-shell-attached-redirection-target.md`
+AC-7, whose line 701 names "Step 4". Neither owner is a token the grammar admits,
+and spec §4.4 forbids flattening the first into a bare `(discharged by Task 5)`.
 
 ---
 
@@ -147,7 +155,9 @@ their evidence.
 of those three, or the registry row grows by that file. The two corpus tests are
 deciding suites for the CORPUS, not for the recognizer. That is why Task 1 EXPORTS
 the recognizer's analysis and unit-pins it in the scored suite, and why the corpus
-tests consume that export instead of reimplementing it.
+tests consume that export instead of reimplementing it — and the export carries
+the final id sets, not the raw material, so nothing downstream re-derives a
+classification.
 
 ---
 
@@ -205,13 +215,22 @@ unrecognised disposition REPORTS the id; it never exempts it. A deny-set would
 fail open on the case nobody modelled, which is the direction this arm cannot
 afford: to a plan author, silence and clean are indistinguishable.
 
-**The recognizer's analysis is EXPORTED from `lib/specLint/taskContract.ts`**, as
-one function returning the certain declarations, the ambiguous lines and the
-declined lines. Two structural reasons: the mutation registry scores this file and
-only this file, so a mutant that drops the ambiguous record must be killable by a
-case in `tests/specLint/taskContract.test.ts`; and the corpus tests in Tasks 4 and
-5 must assert THE ARM'S OWN OUTPUT, which a locally reimplemented recognizer would
-not be. `checkTaskContract` already receives the whole `DocModel`
+**The whole AC classification is EXPORTED from `lib/specLint/taskContract.ts` as
+ONE function, and `checkTaskContract` builds its findings from exactly that
+return value.** It carries the certain declarations, the ambiguous lines, the
+declined lines AND the final `unclaimed` and `undeclared` id sets — not the raw
+material for them. This is the file's own `analyze` / `taskTopology` precedent
+(`lib/specLint/taskContract.ts:308-311`), and it exists for the same reason:
+deriving the same conclusion twice is how a report and a topology start
+disagreeing. If the export stopped at declarations, the corpus tests would have to
+reimplement marker claims, disposition handling and three-code precedence, and a
+later edit to any of those could move the emitted finding while the corpus stayed
+green — with `docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28` as the drift
+witness, whose trailing "Task 10." must keep being an UNRECOGNISED disposition.
+Two structural reasons for the single owner: the mutation registry scores this
+file and only this file, so a mutant that drops the ambiguous record must be
+killable by a case in `tests/specLint/taskContract.test.ts`; and the corpus tests
+in Tasks 4 and 5 must assert THE ARM'S OWN OUTPUT. `checkTaskContract` already receives the whole `DocModel`
 (`lib/specLint/taskContract.ts:313`), so the export is self-contained.
 
 The unit cases for the count cut are this task's, not Task 5's. Task 5 asserts the
@@ -283,7 +302,9 @@ circular — the registry would supply the very member the census failed to find
 equal to the residue (the unsettleable pairs only). The gap is the migration.
 
 The corpus test is `tests/specLint/acUnclaimedCorpus.test.ts (new)`. It walks every
-enrolled plan from disk, calls the recognizer Task 1 EXPORTS, and asserts:
+enrolled plan from disk and reads the `unclaimed`, `undeclared` and `declined` sets
+straight off the single exported classification Task 1 adds — the same value
+`checkTaskContract` renders its findings from, so the two cannot drift. It asserts:
 
 1. **Equality.** The live unclaimed set equals `AC_UNCLAIMED_RESIDUE` from
    `tests/specLint/acUnclaimedResidue.ts (new)`, exactly, in both directions.
@@ -297,17 +318,32 @@ enrolled plan from disk, calls the recognizer Task 1 EXPORTS, and asserts:
    observably doing work here; and the Task 2 fixture in which a cited id is
    neither declared nor declined, which must RED. Assertion 2 without both is
    satisfied by a decline predicate that returns true unconditionally.
-4. **Residue admissibility, so the list cannot become an allowlist.** Each row is
-   typed and carries a quotation plus the line it came from, and the test asserts
-   THAT LINE OF THAT PLAN ACTUALLY CONTAINS THAT TEXT. A row cannot be added by
-   asserting a pair; it can only be added by pointing at a real line and quoting
-   it. Two row kinds, discriminated:
-   - `unsettled` — the plan's prose does not settle the disposition. Carries
-     `searched` (what was looked for) and `nearMiss` (the quoted line that came
-     closest, with its line number).
-   - `owner-inexpressible` — the plan's prose DOES settle it, but the closed owner
-     set cannot name the owner (the five ids in §1.1). Carries `quote` and
-     `quotedAt`, the settling sentence and its line.
+4. **Residue admissibility, so the list cannot become an allowlist — and the
+   check is a PREDICATE, not a receipt.** Verifying only that a quoted line
+   exists proves the quotation is real, never that the prose settles nothing: an
+   `unsettled` row for `docs/superpowers/plans/2026-08-21-app-e2e-batch2.md` AC-3
+   could quote its own line 28 verbatim and pass, while that line assigns AC-3 to
+   Task 10. So each row kind carries its OWN executable predicate, and they point
+   in opposite directions.
+   - `unsettled` — **NO line of that plan carries the id together with an owner
+     word** (`Task`/`task`, `Step`/`step`, `closeout`/`close-out`,
+     `the PR's last commit`), marker lines excluded. That is the classification
+     rule made mechanical: "the plan's prose names the id and states the task,
+     step or procedure that owns it" is exactly what the predicate looks for, and
+     its absence is what the row asserts. Run against the ten live candidates it
+     admits all ten and REJECTS `app-e2e-batch2` AC-3 at lines 28, 29, 207 and
+     209. The row also carries `searched` and `nearMiss` with its line, and the
+     quotation is still checked against that line — the predicate is the gate, the
+     quotation is the reader's evidence.
+   - `owner-inexpressible` — the mirror. The row's `quotedAt` line MUST carry the
+     id beside an owner, the row names that owner verbatim in an `owner` field,
+     and the test asserts the grammar REJECTS `(discharged by <owner>)`. That is
+     the claim "the closed owner set cannot name this" stated as an assertion
+     rather than as a comment. Run live: `Step 4` and
+     `no task (a spec-time derivation, re-exercised by Task 5)` are both rejected
+     by the grammar, while `Task 5` and `closeout` are accepted — so a row whose
+     owner the grammar CAN express fails admissibility and must be migrated
+     instead. Exactly two live members, both named in §1.1.
 5. **A `premise()` guard on the walk**, so an empty or shrunken walk cannot satisfy
    any of the above vacuously (`tests/_shared/premise.ts`, and
    `tests/specLint/acCoverageCorpus.test.ts` is the shape).
@@ -345,23 +381,33 @@ residue with "owning arc live" as the searched note.
 **The negative controls are part of the done condition, not extras.** Three, each
 run once and quoted. (a) Append one undisposed `- AC-99: planted` line to any
 enrolled plan in the worktree, run the corpus test, observe RED naming that plan
-and `AC-99`, revert. (b) Add
-`{ plan, id: "AC-99", kind: "unsettled", searched: "", nearMiss: "" }` to the
-residue and observe assertion 4 RED rather than the equality going green — this is
-what stops the residue becoming an allowlist. (c) Make the decline predicate
+and `AC-99`, revert. (b) Move a SETTLED pair onto the residue — `app-e2e-batch2` AC-3 as an
+`unsettled` row, quoting its line 28 verbatim so every receipt-style check is
+satisfied — and observe assertion 4 RED on the predicate, naming the lines that
+settle it. A plant with empty strings is NOT this control: it may be rejected by
+the type or by a non-empty check and so prove nothing about the predicate. (c) Make the decline predicate
 unconditionally true and observe assertion 3 RED. A corpus test that survives any
 of the three is not the gate.
 
 ## Task 5: the ambiguous record
 
-<!-- task: red=`pnpm vitest run tests/specLint/acAmbiguousCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-15-diagram-demote-notice/plan.md:39` why=`:39 declares AC-2 and AC-2b on one line, which v4 declines in both directions; the arm records it and this task asserts the live ambiguous set equals the committed record, so the assertion fails against an empty record file until every one of the 13 live lines is written into it` ac=AC-10 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts tests/specLint/acAmbiguousCorpus.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-15-diagram-demote-notice/plan.md:39` why=`line 39 declares AC-2 and AC-2b on one line, which v4 declines in both directions; the arm records it and this task asserts the live ambiguous set equals the committed record, so the assertion fails against an empty record file until every one of the 13 live lines is written into it` ac=AC-10 -->
 
 **What is red and why:** the record file starts empty while 13 live multi-id
-declaring lines exist, so the equality fails on that difference. Its own file and
-its own command, because Task 4's red is satisfied by the unclaimed set alone: an
-implementation that shipped the unclaimed half and forgot the ambiguous half would
-show Task 4's full red-then-green cycle and pass its `AC-99` plant, which is
-precisely the silent decline AC-10 forbids.
+declaring lines exist, so the equality fails on that difference. Its own file,
+because Task 4's red is satisfied by the unclaimed set alone: an implementation
+that shipped the unclaimed half and forgot the ambiguous half would show Task 4's
+full red-then-green cycle and pass its `AC-99` plant, which is precisely the silent
+decline AC-10 forbids.
+
+**The command is an explicit TWO-file list, and the second file is load-bearing.**
+An equality between a live set and a committed record is satisfied by both sides
+being empty, so a regression that drops the ambiguous accumulator passes a
+corpus-only command from the moment the record file is created. Running
+`tests/specLint/taskContract.test.ts` in the same command puts Task 1's unit cases
+— a two-id line draws nothing in either direction, and it is RECORDED — on the same
+red-then-green cycle, so the accumulator cannot go missing behind an empty record.
+An explicit file list also stays outside the heavy semaphore.
 
 The record is `tests/specLint/acAmbiguousRecord.ts (new)`, exporting
 `AC_AMBIGUOUS_RECORD` — one typed row per multi-id declaring line, carrying the
@@ -401,7 +447,7 @@ that file and a note in the PR body, not this arc's repair.
 
 - AC-4: `TASK_AC_UNCLAIMED` fires on a declared id no marker cites whose declaring line carries no disposition; hard, exit 1, rendered `FAIL`. A disposition on that line exempts it and nothing else, and an unrecognised disposition still reports.
 - AC-5: `TASK_AC_UNDECLARED` fires on a marker citing an id the plan does not declare, in a plan that declares at least one and on an id no declined line carries; no id ever draws two of the three codes.
-- AC-6: the corpus's unclaimed set equals the committed residue list exactly, its `TASK_AC_UNDECLARED` set is empty over a provably non-empty declined set, and every residue row's quoted evidence is found at the line it names.
+- AC-6: the corpus's unclaimed set equals the committed residue list exactly, its `TASK_AC_UNDECLARED` set is empty over a provably non-empty declined set, and every residue row passes its kind's executable predicate — no owner word beside the id anywhere in the plan for an `unsettled` row, and a named owner the disposition grammar rejects for an `owner-inexpressible` one.
 - AC-10: the live AMBIGUOUS declaring-line set equals the committed record exactly; a new multi-id declaring line reds until someone looks at it.
 - AC-9: `taskContract` scores at or above its `scoreFloor` of 0.95 with zero unaccepted survivors at the shipping head (discharged by closeout)
 - AC-11: `docs/agents/writing-plans.md` carries one paragraph stating the convention, the accept-set direction, the decline on a multi-id line with its measured reason, and that a disposition may only say what the plan already says; pinned on parsed properties (plan-local, from spec §4.2 constraint 3 rather than from spec §10)
@@ -411,9 +457,12 @@ that file and a note in the PR body, not this arc's repair.
 **AC-9 is a step, not a hope.** After Task 4, with the orchestrator's take on the
 single-slot mutation class lock, run `pnpm heavy:mutation pnpm mutation:guards`
 against the `taskContract` row at `tests/mutation/source/registry.ts:805`. The
-floor stays at `0.95` and `accepted` stays empty unless a survivor is genuinely
-equivalent, in which case its row carries `siteId`, `kind` and `reason` in the
-shape that registry already uses. Record `k/n` and the unaccepted-survivor count
+floor stays at `0.95`. **The row's `accepted` list is already non-empty** — it
+begins at `tests/mutation/source/registry.ts:825` and carries established
+equivalent rows — and AC-9 asks for zero UNACCEPTED survivors, never for an empty
+accepted list. Those rows stay exactly as they are; a new one is added only for a
+survivor this work introduces that is genuinely equivalent, carrying `siteId`,
+`kind` and `reason` in the shape that registry already uses. Record `k/n` and the unaccepted-survivor count
 here and in the readiness message, and re-run at the shipping head if production
 changed after the first run.
 
