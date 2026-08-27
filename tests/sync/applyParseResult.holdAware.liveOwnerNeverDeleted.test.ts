@@ -36,6 +36,7 @@ import {
   seedShow,
   snapshot,
 } from "./_holdAwareTestkit";
+import { premiseHolds } from "@/tests/_shared/premise";
 import { assertLocalDbUrl } from "../db/_localDbUrl";
 
 const DB_URL = assertLocalDbUrl(
@@ -170,14 +171,24 @@ describe("hold-aware apply — a pre-existing live owner is NEVER deleted by any
     await inRollback(async (tx) => {
       const { showId, driveFileId } = await seedShow(tx);
       // Distinct non-identity per person so a bleed is detectable (anti-tautology: derived from seeds).
-      const aliceLive = crew("Alice", { email: "a@old", role: "A1", phone: "P-A" });
+      // `aliceHeldEra` is what the hold captures; `aliceLiveNow` is where the
+      // sheet later left her. THREE sources have to be distinguishable here --
+      // Alice's snapshot, Alice's live row, and Bob's row -- or an assertion
+      // passes on a coincidence. Until BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE
+      // this case seeded ONE Alice row and fed it to both `liveCrewByName` and
+      // `snapshot(...)`, so held and live were equal by construction and (b)
+      // below could not tell the held-snapshot retain from the live-row retain:
+      // it passed under either. A fixture that cannot reach the boundary it
+      // names is not a guard.
+      const aliceHeldEra = crew("Alice", { email: "a@old", role: "A1", phone: "P-A" });
+      const aliceLiveNow = crew("Alice", { email: "a@old", role: "A2", phone: "P-A-NOW" });
       const bobLive = crew("Bob", {
         email: "b@x",
         role: "V1",
         phone: "P-B",
         date_restriction: { kind: "explicit", days: ["2026-05-09"] },
       });
-      const aliceRow = await seedCrew(tx, showId, aliceLive);
+      const aliceRow = await seedCrew(tx, showId, aliceLiveNow);
       const bobRow = await seedCrew(tx, showId, bobLive);
       await writeMi11Holds(holdPort(tx), {
         showId,
@@ -191,9 +202,17 @@ describe("hold-aware apply — a pre-existing live owner is NEVER deleted by any
             new_email: "a@new",
           },
         ],
-        liveCrewByName: new Map([["Alice", aliceLive]]),
+        liveCrewByName: new Map([["Alice", aliceHeldEra]]),
         baseModifiedTime: MT,
       });
+
+      // The premise this case's (b) assertions rest on, stated on ITS OWN
+      // inputs: the hold-era row and the live row must actually differ on the
+      // fields asserted below, or the assertions cannot discriminate.
+      premiseHolds(
+        "Alice's live row must differ from her held snapshot on role and phone",
+        aliceLiveNow.role !== aliceHeldEra.role && aliceLiveNow.phone !== aliceHeldEra.phone,
+      );
 
       // Next sync: Alice dropped; the sheet lists only Bob carrying a@new (Alice's proposed email) →
       // the fold matches Bob's row. Bob keeps his OWN sheet non-identity (V1 / P-B / R-B here).
@@ -207,7 +226,13 @@ describe("hold-aware apply — a pre-existing live owner is NEVER deleted by any
             date_restriction: { kind: "explicit", days: ["2026-05-09"] },
           }),
         ]),
-        snapshot: snapshot(showId, [prevMember(aliceRow, aliceLive), prevMember(bobRow, bobLive)]),
+        snapshot: snapshot(showId, [
+          // The planner reads previousCrewMembers from HERE, never from the
+          // database (applyParseResult.ts:171-172), so this is where Alice's
+          // live row has to diverge for the retain to see it.
+          prevMember(aliceRow, aliceLiveNow),
+          prevMember(bobRow, bobLive),
+        ]),
         holds: { port: holdPort(tx), baseModifiedTime: MT2 },
       });
 
@@ -217,11 +242,14 @@ describe("hold-aware apply — a pre-existing live owner is NEVER deleted by any
       expect(bob).toBeDefined();
       expect(bob.role).toBe("V1");
       expect(bob.phone).toBe("P-B");
-      // (b) Alice's retained held row keeps HER OWN held non-identity — NOT Bob's (the WM-F6 bug).
+      // (b) Alice keeps HER OWN non-identity — never Bob's, which is what WM-F6
+      // protects, and now from her LIVE row rather than the hold-era snapshot.
+      // Two distinct wrong answers fail here: "V1"/"P-B" is Bob bleeding in,
+      // "A1"/"P-A" is the stale snapshot winning over her live row.
       const alice = rows.find((r) => r.name === "Alice")!;
       expect(alice).toBeDefined();
-      expect(alice.role).toBe("A1"); // would be "V1" (Bob's) under the bug
-      expect(alice.phone).toBe("P-A"); // would be "P-B" (Bob's) under the bug
+      expect(alice.role).toBe(aliceLiveNow.role); // "V1" = Bob bleed; "A1" = stale snapshot
+      expect(alice.phone).toBe(aliceLiveNow.phone);
       // (c) Alice's email still held at the OLD value (identity pinned, gate pending).
       expect(alice.email).toBe("a@old");
 

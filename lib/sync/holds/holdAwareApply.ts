@@ -320,7 +320,10 @@ export async function planHoldAwareApply(
       //     person's fields). The rename retarget would also let Approve land the rename onto the live
       //     owner's identity instead of blocking.
       // For a live-owner target the fold is NEUTERED: the held crew stays pinned to its OWN held
-      // identity + held non-identity (retainRows), proposed_value keeps the original MI-11 email-change
+      // identity and keeps its OWN non-identity -- its live row's, via retainRowFor, never the live
+      // owner's. (It read the HELD snapshot's until BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE; what
+      // WM-F6 protects is that the OTHER person's fields never land here, which is unchanged.)
+      // proposed_value keeps the original MI-11 email-change
       // (no retarget), and the collision surfaces via reservation_collisions (computeReservations falls
       // back to hold.proposed_value, records the live owner, → Approve blocks IDENTITY_WOULD_COLLIDE).
       // The GENUINE added-rename case keeps the full fold (suppress + override + rename retarget).
@@ -349,7 +352,8 @@ export async function planHoldAwareApply(
         });
         folded = true;
       } else if (renameRow) {
-        // WM-F6 live-owner target: retain the held crew's OWN row (held identity + held non-identity);
+        // WM-F6 live-owner target: retain the held crew's OWN row -- held identity, and its OWN live
+        // non-identity via retainRowFor (the held snapshot only if it has no live row);
         // do NOT override with the live owner's fields, do NOT suppress/consume, do NOT fold the
         // proposed_value into a rename ONTO the live owner. The held crew stays pinned to ITS OWN held
         // identity; the proposed_value KEEPS its original (pre-fold) MI-11 disposition so reservations
@@ -357,7 +361,7 @@ export async function planHoldAwareApply(
         // We DO re-anchor base_modified_time to the current sheet (PF40 staleness anchor must track the
         // observed revision even though the proposed value is unchanged); pass the existing proposed
         // value back unchanged so only the base time moves.
-        retainRows.set(hold.entity_key, rowFromHeldValue(held));
+        retainRows.set(hold.entity_key, retainRowFor(hold.entity_key, held));
         const existingProposed = (hold.proposed_value as Record<string, unknown> | null) ?? {
           disposition: "email_change",
           name: hold.entity_key,
