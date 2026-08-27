@@ -200,6 +200,29 @@ describe("the AC arm over the live plans corpus (AC-6)", () => {
       const at = row.kind === "unsettled" ? row.nearMissAt : row.quotedAt;
       const quote = row.kind === "unsettled" ? row.nearMiss : row.quote;
 
+      // DERIVED, not enumerated: every string field on the row must carry
+      // something. This is the whole class, and it took three diff rounds
+      // because the first two repairs named fields one at a time. A blank field
+      // makes every binding check below VACUOUS -- `line.includes("")` is true
+      // of every line ever written -- so an empty field is a guard failing
+      // OPEN, which is the one direction a residue row must never fail. R1
+      // found it on `nearMiss` and `quote` and I repaired those two BY NAME;
+      // R3 found the id unbound; R4 found `owner: ""` still passing on the
+      // identical mechanism R1 had already named.
+      //
+      // So the check ranges over `Object.entries` rather than a field list. A
+      // field added to `ResidueRow` later is covered the day it is added, which
+      // is the property the enumerated form could not have: it re-opens the
+      // class every time the record grows. `kind`, `plan` and `id` are swept in
+      // too -- they are equally capable of being blank, and nothing is gained
+      // by exempting them.
+      for (const [field, value] of Object.entries(row)) {
+        if (typeof value !== "string") continue;
+        expect(`${row.kind} ${row.plan} ${row.id}: ${field} is non-empty`).toBe(
+          `${row.kind} ${row.plan} ${row.id}: ${value.length > 0 ? field : `${field} IS BLANK`} is non-empty`,
+        );
+      }
+
       // The quotation is the reader's evidence: real, non-trivial, and at the
       // line the row names.
       expect(`${row.plan}:${at} quote length >= ${MIN_QUOTE}`).toBe(
