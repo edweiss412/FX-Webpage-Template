@@ -19,9 +19,10 @@
  * first, and it is the accepted price of not stranding the row. Ratified as R10.
  *
  * THE AVATAR MENU'S SWITCH ROW (`components/auth/AvatarMenu.tsx`). Same shape,
- * one step further from the browser: there the pending flag belongs to React's
- * `useTransition` and cannot be cleared, so the watchdog stops TREATING it as
- * busy rather than ending it. A `clearIdentity` that never settles otherwise
+ * one step further from the browser: the clear is a server action rather than a
+ * navigation, so nothing replaces the document and the row has to recover
+ * itself. That component owns a three-valued phase and does not read React's
+ * `useTransition` flag at all. A `clearIdentity` that never settles otherwise
  * leaves "Not you? Switch person" dimmed until the page is reloaded, and the
  * re-entry guard refuses every tap that would have recovered it
  * (`BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG`, probed rather than inferred). The

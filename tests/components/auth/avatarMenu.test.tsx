@@ -743,10 +743,8 @@ describe("the switch-person failure state", () => {
  * so the second failure reads as success).
  *
  * Each attempt is driven by its own deferred and resolved inside `act`, the
- * same shape the close/reopen lifecycle cases use. An immediately-resolved mock
- * is NOT interchangeable here: the phase is still `pending` when the alert
- * first paints, and `beginSwitch` preventDefaults while it is, so the retry
- * would be silently swallowed and the test would pass for the wrong reason.
+ * same shape the close/reopen lifecycle cases use, so each case controls when
+ * its own attempt settles rather than racing a resolved mock.
  */
 describe("retrying out of the failure state", () => {
   const EXPECTED = messageFor("PICKER_SWITCH_FAILED").crewFacing ?? "";
@@ -761,30 +759,6 @@ describe("retrying out of the failure state", () => {
     act(() => {
       fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
     });
-  };
-
-  /**
-   * Retires the in-flight transition before the next submit.
-   *
-   * Resolving the action's promise inside `act` commits the state update, but
-   * the phase has NOT returned to idle by that alone in jsdom — measured here:
-   * right after the resolve the alert is on screen while the submit still
-   * reads `aria-disabled="true"`. Since `beginSwitch`
-   * early-returns while pending, retrying on the alert's paint would silently
-   * drop the retry and the test would pass for the wrong reason. Extra
-   * microtask turns inside `act` retire it; the assertion below is what proves
-   * the wait actually worked rather than assuming it.
-   */
-  const settled = async (): Promise<void> => {
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await waitFor(() =>
-      expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
-        "false",
-      ),
-    );
   };
 
   /** Renders with a queue of deferreds, one per attempt, in call order. */
@@ -808,11 +782,6 @@ describe("retrying out of the failure state", () => {
       await first.promise;
     });
     expect(await screen.findByRole("alert")).toBeTruthy(); // Open-error
-    // Let the first attempt fully retire before retrying: beginSwitch
-    // preventDefaults while the phase is pending, and the alert paints before
-    // the phase returns to idle, so submitting on the paint alone silently
-    // drops the retry.
-    await settled();
     submit(); // Open-error → Open-pending, menu still open
     await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
     await act(async () => {
@@ -833,7 +802,6 @@ describe("retrying out of the failure state", () => {
       await first.promise;
     });
     await screen.findByRole("alert");
-    await settled();
     submit();
     await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
     await act(async () => {

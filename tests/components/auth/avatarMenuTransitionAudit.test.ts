@@ -33,7 +33,7 @@ const FILE = join("components", "auth", "AvatarMenu.tsx");
 const SOURCE = readFileSync(join(process.cwd(), FILE), "utf8");
 
 interface Site {
-  readonly kind: "if" | "ternary" | "switch" | "jsx-and";
+  readonly kind: "if" | "ternary" | "switch" | "jsx-and" | "or";
   readonly line: number;
   readonly text: string;
   /**
@@ -78,6 +78,17 @@ function conditionalSites(): Site[] {
       isJsxGuard(node)
     ) {
       kind = "jsx-and";
+    } else if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.BarBarToken
+    ) {
+      // Counted since diff round 2 at base 4c1fe4b56, which demonstrated the
+      // escape with a live mutant: widening the shipped busy definition to
+      // `switchPhase === "pending" || switchStatus === "error"` disables the row
+      // in Open-error, and with `||` invisible the site count, the site keys and
+      // every structural assertion were IDENTICAL. A disjunction added to a
+      // condition IS a new branch, so it gets a row like any other.
+      kind = "or";
     }
     if (kind !== null) {
       let after = "";
@@ -289,6 +300,30 @@ const DECLARED = [
     what: "the failure alert renders only in the error state",
     marker: /^switchStatus === "error" \? \(/,
     treatment: "instant; a sibling of role=menu, and the menu stays open behind it",
+  },
+  {
+    id: "C29",
+    what: "hasIdentity is true when EITHER name or role is non-empty",
+    marker: /^name\.trim\(\) !== "" \|\| role\.trim\(\) !== ""\u0000/,
+    treatment: "not a render branch itself; it selects the header and the menu's naming strategy",
+  },
+  {
+    id: "C30",
+    what: "the three keys that open the menu at the FIRST item",
+    marker: /^event\.key === "ArrowDown" \|\| event\.key === "Enter" \|\| event\.key === " "\u0000/,
+    treatment: "not a render branch; one open path with three spellings",
+  },
+  {
+    id: "C30a",
+    what: "the left-associative half of that disjunction, which the AST reports separately",
+    marker: /^event\.key === "ArrowDown" \|\| event\.key === "Enter"\u0000/,
+    treatment: "not a branch of its own; declared so the census stays exact",
+  },
+  {
+    id: "C31",
+    what: "aria-busy is the derived flag OR absent, never false",
+    marker: /^switchBusy \|\| undefined\u0000/,
+    treatment: 'instant; an explicit aria-busy="false" reads differently to AT than an absent one',
   },
 ] as const;
 
