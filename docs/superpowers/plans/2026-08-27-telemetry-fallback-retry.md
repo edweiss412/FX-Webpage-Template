@@ -77,18 +77,46 @@ $ grep -n sourcePath tests/mutation/source/registry.ts | grep -c telemetry
 1. `border-text-faint` is what the mirrored button wears (`components/admin/telemetry/AutoRefreshControl.tsx:124`), and copying it verbatim onto the fallback would be WRONG. That button stands on `bg-surface`; the retry stands on `bg-warning-bg`, and D2 exists because `text-faint` measures 2.79-3.04 against a tinted plate and misses the 3:1 non-text floor in one theme per plate. "Same shape as the manual refresh" means the same icon, the same tap floor and the same one-tap contract, not the same border token.
 2. A guard WOULD have caught it, and this plan's first draft asserted the opposite. `tests/styles/_metaControlOutlineFill.test.ts:7` does fence itself to the closed 57-row census and does say it "does NOT defend against a contributor adding a NEW control at either token", so that half was right. It is not the whole picture. `tests/styles/tintedPlateOutline.test.ts:82` derives its subject list from each element's OWN class strings: anything declaring both a `focus-visible:ring-offset-(warning|info|danger)-bg` plate and a resting outline token. The new control declares both, so it enrols on arrival and `border-text-faint` reds it. That guard is a later arc closing the limit the 2026-08-25 design had recorded as open, that "a fourteenth file gaining its first tinted-plate control is still outside the cover". **Recorded in both directions so neither half is re-derived:** the census guard's fence is accurate and unchanged, and a forward cover exists anyway, from a guard written afterwards.
 
+## 2a. Class sweep: the row names one instance, the page has three
+
+Run 2026-08-27 against `66c9857f5`. The shape is an `infra_error` branch rendering a `bg-warning-bg` plate that states a cause and offers no control. Derived rather than listed: every `infra_error` branch reachable from the page's four loaders, crossed with every `*-degraded` testid under `components/admin/telemetry/`.
+
+| # | Site | Copy today | Recourse today |
+| --- | --- | --- | --- |
+| 1 | `app/admin/dev/telemetry/page.tsx:81` | "Couldn’t load scheduled-job health right now. The jobs are probably still running." | none |
+| 2 | `components/admin/telemetry/EventTimeline.tsx:17` | "Couldn’t load activity right now." | none |
+| 3 | `components/admin/telemetry/HealthAlertsPanel.tsx:283` | "Couldn’t load system-health alerts right now. Refresh in a moment." | none, and the copy tells the reader to do by hand what a button would do |
+
+`app/admin/dev/telemetry-dim/page.tsx` is not a fourth: it hardcodes `{ kind: "ok" }` (`app/admin/dev/telemetry-dim/page.tsx:113`) and has no fallback branch.
+
+**All three are repaired here.** The class-sweep default is every instance in the same PR, and no exception applies honestly. Not (a), no product decision is open, and site 3's own copy already names refresh as the remedy. Not (b), no ratified fence covers them. Not (c), two extra call sites and one prop pair is neither a redesign nor a scope blow-out. "Same defect, different file" is explicitly not sufficient on its own.
+
+Cost checked before deciding, not asserted afterwards:
+
+- **No screenshot baseline moves.** `grep -c telemetry scripts/help-screenshots.manifest.ts` is 0, so the byte-comparison gate cannot see any of this and nothing is regenerated from this arm64 host.
+- **No test asserts either peer's copy.** `grep -rn "Refresh in a moment\|load activity right now" tests/` returns nothing.
+- **The render-fault instrument is unaffected.** Sites 2 and 3 carry `data-render-fault`; `scripts/capture-render-fault.ts:28` reads the ATTRIBUTE, so a new child of a fault-marked element is invisible to it. Site 1 carries no such attribute, an asymmetry that predates this arc and is a different class.
+
+| Site | `what` | `testId` |
+| --- | --- | --- |
+| 1 | `scheduled-job health` | `cron-health-retry` |
+| 2 | `activity` | `event-timeline-retry` |
+| 3 | `system-health alerts` | `health-alerts-retry` |
+
+Site 3 also loses its trailing "Refresh in a moment." sentence. A manual instruction sitting beside the button that performs it is copy this arc makes wrong, and copy an arc makes wrong is that arc's defect. Sites 1 and 2 keep every word.
+
 ## 3. The change
 
 ### 3.1 The control
 
-One new client component, **CronHealthRetryButton.tsx** under `components/admin/telemetry/`, taking no props (so no prop can be null, empty, zero or NaN, and there is no guard table to write for its inputs):
+One new client component, **TelemetryRetryButton.tsx** under `components/admin/telemetry/`, taking one prop pair `{ what, testId }` because §2a's sweep found three sites, not one:
 
-- A `<button type="button">` carrying `data-testid="cron-health-retry"`, the `RotateCw` lucide icon (`size-4`, `aria-hidden`) and the visible text `Try again`.
-- `aria-label="Try again to load scheduled-job health"`. The visible string is a prefix of the accessible name, so WCAG 2.5.3 (label in name) holds; the longer name is what a screen-reader user hears when landing on the control out of context, where a bare "Try again" names nothing.
+- A `<button type="button">` carrying `data-testid={testId}`, the `RotateCw` lucide icon (`size-4`, `aria-hidden`) and the visible text `Try again`, identical at every site because the button does the same thing everywhere.
+- `aria-label={`Try again to load ${what}`}`. The visible string is a prefix of the accessible name, so WCAG 2.5.3 (label in name) holds; the longer name is what a screen-reader user hears landing on the control out of context, where a bare "Try again" names nothing, and where three identically-labelled buttons on one page would be indistinguishable.
 - `onClick` increments an attempt counter and calls `router.refresh()`.
 - Classes, taken from `components/admin/PerShowAlertResolveButton.tsx:94` because that is the shipped control on this exact plate: `inline-flex min-h-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm border border-control-outline-tinted bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg`.
-- A sibling `<span role="status" aria-live="polite" className="sr-only" data-testid="cron-health-retry-status">`, mounted unconditionally with empty text and filled on activation. Mounted-then-filled is the order that actually announces; a region inserted together with its text is not.
-- Three exported string constants (`CRON_HEALTH_RETRY_TEXT`, `CRON_HEALTH_RETRY_LABEL`, `CRON_HEALTH_RETRY_ANNOUNCEMENT`) so the tests assert against the shipped copy rather than a retyped duplicate of it.
+- A sibling `<span role="status" aria-live="polite" className="sr-only" data-testid={`${testId}-status`}>`, mounted unconditionally with empty text and filled on activation. Mounted-then-filled is the order that actually announces; a region inserted together with its text is not.
+- One exported constant (`TELEMETRY_RETRY_TEXT`) and two exported builders (`retryLabel(what)`, `retryAnnouncement(what)`), so the tests assert against the shipped copy rather than a retyped duplicate, and so a call site cannot spell the label and the announcement differently. **`what` is the only input, and it is a required string**: there is no null, empty, zero or NaN case to specify because a site that omits it does not compile.
 
 ### 3.2 Guard conditions, each with the reason it resolves the way it does
 
@@ -98,6 +126,7 @@ One new client component, **CronHealthRetryButton.tsx** under `components/admin/
 | The retry succeeds | The health branch flips to `CronHealthList`; the fallback, the button and the status region unmount together | The ternary at `app/admin/dev/telemetry/page.tsx:77` swaps the whole subtree. Nothing announces success, and nothing has to: the 20s auto-refresh already performs this exact swap unannounced today, so the arc is not introducing a silent transition, only a second way to trigger one that already exists. |
 | The retry fails again | The server re-renders the same fallback: copy unchanged, control still mounted, counter incremented, region re-announces | The counter's parity toggle appends a non-breaking space on alternate attempts so a screen reader does not swallow the repeated identical string (`components/admin/ShowRowActions.tsx:608`). Without it the second failed attempt is silent, which is the same silence the row exists to fix. |
 | `health.kind` is anything other than `"ok"` | The fallback renders exactly as today, retry included | The branch is on `kind`, not on a message; `loadCronHealth`'s non-ok shape carries no field the control reads. |
+| `what` is an empty string at some call site | Cannot happen without a deliberate edit, and Task 1b.5 asserts the three shipped values are distinct and non-empty | The prop is required, so omission is a compile error; an empty literal is the only way in, and the three sites are enumerated in §2a |
 | A viewer with reduced motion | Unchanged | The control has no animation at all. See §4. |
 
 ### 3.3 The page edit
@@ -176,14 +205,42 @@ Fourteen files, one animated, and it is the one the audit already exempts. So th
 - [ ] **1.3** Assert `cron-health-retry` is inside `cron-health-degraded`, using `within(screen.getByTestId("cron-health-degraded"))`. **Scoped deliberately**: the page's header slot already renders `autorefresh-manual`, a second rotate-icon refresh control, and an unscoped query would be satisfied by it.
 - [ ] **1.4** Capture `before = loadCronHealth.mock.calls.length` after the first render. Click. Assert the count reaches `before + 1`, derived from observed state rather than written as a literal, and separately assert `renders === 2` so a harness that silently re-rendered twice cannot satisfy it. **An earlier draft asked for both "exactly two" and `renders + 1`; with `renders` at two after the refresh those are 2 and 3, so a correct implementation would have stayed red for a test-local reason.** Swept: this was the plan's only derived-count expression, and §6's AC-2 wording is corrected to match.
 - [ ] **1.5** The second call is driven by the CLICK, not by the test body. The `refresh` mock is given an implementation that re-invokes `Page(...)` and re-renders the result, which is what the App Router does on `router.refresh()` for a `force-dynamic` server component (`app/admin/dev/telemetry/page.tsx:17`). Nothing else in the case re-renders, so a button that never calls `refresh` leaves the count at one. The assertion is on `loadCronHealth`, the data source, so a control that calls `refresh` without the page re-reading also fails.
-- [ ] **1.6** The consequence bound, written as assertions: `push` and `replace` were never called, and the control is `type="button"` carrying no `href`, which is every navigation vector a control in this position has. **No `window.location.reload` spy**: jsdom defines `reload` non-writable and non-configurable, so `vi.spyOn(window.location, "reload")` throws before it can prove anything, and a test that cannot reach green through the named production change is not a test. The reload half of the bound is instead carried by the mechanism: `router.refresh()` is the only navigation call the control makes, asserted at Task 3 case 5. Swept: the reload spy appeared nowhere else in this plan.
+- [ ] **1.6** The consequence bound, written as assertions: `push` and `replace` were never called, and the control is `type="button"` carrying no `href`, which is every navigation vector a control in this position has. **No `window.location.reload` spy**: jsdom defines `reload` non-writable and non-configurable, so `vi.spyOn(window.location, "reload")` throws before it can prove anything, and a test that cannot reach green through the named production change is not a test. **Nor can the reload be caught by observing it**: a live probe against the installed jsdom shows `location.reload()` merely logs "Not implemented: navigation to another Document" and RETURNS, so the mutant `router.refresh(); window.location.reload();` is invisible to every behavioural assertion in this plan. The reload half of the bound is therefore pinned statically, at Task 3 case 6, over the one small file that could contain it. Swept: the reload spy appeared nowhere else in this plan.
 - [ ] **1.7** Run the RED. Record the observed failure (the `within` query finds no `cron-health-retry`) in the commit body.
-- [ ] **1.8** GREEN: the new **CronHealthRetryButton.tsx** per §3.1, plus the page edit per §3.3.
+- [ ] **1.8** GREEN: the new **TelemetryRetryButton.tsx** per §3.1, plus the page edit per §3.3.
 - [ ] **1.9** Commit `feat(admin): the scheduled-job health fallback offers a retry`.
+
+### Task 1b — the other two fallbacks of the same shape
+
+<!-- task: red=`pnpm vitest run tests/components/telemetry/eventTimeline.test.tsx tests/components/healthAlertsPanel.test.tsx` red-state=authored red-target=`components/admin/telemetry/EventTimeline.tsx:17` why=`both suites render their degraded branch with no next/navigation mock, so the moment the branch contains a control calling useRouter their existing infra_error cases throw the Next router invariant; the red is those two shipped cases, and only mounting the control plus adding the mock the repo already uses turns the SAME command green` ac=AC-10,AC-11 -->
+
+The ledger row names one instance. §2a's sweep found three, all on this page, all the same
+shape, and the class-sweep default is every instance in the same PR.
+
+- [ ] **1b.1** Mount the control in `components/admin/telemetry/EventTimeline.tsx:17` with
+      `what="activity"` and `testId="event-timeline-retry"`. Copy unchanged.
+- [ ] **1b.2** Mount it in `components/admin/telemetry/HealthAlertsPanel.tsx:283` with
+      `what="system-health alerts"` and `testId="health-alerts-retry"`, and **delete that
+      fallback's trailing "Refresh in a moment." sentence**. A manual instruction sitting
+      beside the button that performs it is copy this arc makes wrong, and copy an arc makes
+      wrong is that arc's defect. Both other sites keep every word.
+- [ ] **1b.3** The red is already shipped: `tests/components/telemetry/eventTimeline.test.tsx:50`
+      and `tests/components/healthAlertsPanel.test.tsx:206` render these exact branches and
+      mock no router. Run them BEFORE the mock is added and record the router-invariant throw
+      in the commit body; that is the observed red, and it is the peers' own existing cases
+      rather than anything this task writes.
+- [ ] **1b.4** GREEN: add the `next/navigation` mock those two suites lack, in the shape
+      `tests/components/telemetry/transitionAudit.test.tsx:10-14` already uses, then extend
+      each existing case to assert its retry control is present INSIDE its own degraded
+      testid via `within`, and that activating it calls `refresh` exactly once.
+- [ ] **1b.5** Assert the three sites do not collide: each control's `data-testid` is distinct,
+      and each announcement names its own `what`. Derived by rendering all three and comparing
+      the set size to three, not by three separate literal checks.
+- [ ] **1b.6** Commit `feat(admin): the activity and system-health fallbacks offer a retry too`.
 
 ### Task 2 — success replaces the fallback, repeated failure keeps it
 
-<!-- task: red=`pnpm vitest run tests/app/admin/telemetryPage.test.tsx` red-state=authored red-target=`components/admin/telemetry/CronHealthRetryButton.tsx` why=`the repeat-failure case is red under a planted early return in the control shipped by Task 1, which is the defect shape it exists to catch; both cases then pass against the unplanted implementation` ac=AC-4,AC-5 -->
+<!-- task: red=`pnpm vitest run tests/app/admin/telemetryPage.test.tsx` red-state=authored red-target=`components/admin/telemetry/TelemetryRetryButton.tsx` why=`the repeat-failure case is red under a planted early return in the control shipped by Task 1, which is the defect shape it exists to catch; both cases then pass against the unplanted implementation` ac=AC-4,AC-5 -->
 
 - [ ] **2.1** Success case: `loadCronHealth` returns `infra_error` once, then `{ kind: "ok", jobs: [oneFixtureRow] }`, reusing the row shape already in this file (`tests/app/admin/telemetryPage.test.tsx:80-94`). After the click, `cron-health-degraded` is gone, `cron-health-retry` is gone with it, and the job's label is on screen. **The expected label is read off the fixture object** (`jobs[0].label`), never retyped, so a fixture whose label changes cannot leave the assertion passing against a stale string.
 - [ ] **2.2** Repeat-failure case: `loadCronHealth` returns `infra_error` every time. After two clicks, `cron-health-degraded` is still present, `cron-health-retry` is still present, the fallback's text still contains both shipped sentences, and `loadCronHealth` has been called exactly three times. Asserting the two sentences is what turns "copy unchanged" from a claim into a test.
@@ -193,16 +250,17 @@ Fourteen files, one animated, and it is the one the audit already exempts. So th
 
 ### Task 3 — the announcement, and the repeat that would have been silent
 
-<!-- task: red=`pnpm vitest run tests/components/telemetry/cronHealthRetryButton.test.tsx` red-state=authored red-target=`components/admin/telemetry/CronHealthRetryButton.tsx` why=`the seq-toggle branch in the status region is the only production code that makes a second identical failure announcement distinguishable from the first; planting it away reds case 3 alone` ac=AC-6 -->
+<!-- task: red=`pnpm vitest run tests/components/telemetry/telemetryRetryButton.test.tsx` red-state=authored red-target=`components/admin/telemetry/TelemetryRetryButton.tsx` why=`the seq-toggle branch in the status region is the only production code that makes a second identical failure announcement distinguishable from the first; planting it away reds case 3 alone` ac=AC-6 -->
 
-- [ ] **3.1** New file under `tests/components/telemetry/`, named for the component (**cronHealthRetryButton.test.tsx**), `@vitest-environment jsdom`, rendering the control in isolation with `next/navigation` mocked in the shape `tests/components/telemetry/transitionAudit.test.tsx:10-14` already uses.
+- [ ] **3.1** New file under `tests/components/telemetry/`, named for the component (**telemetryRetryButton.test.tsx**), `@vitest-environment jsdom`, rendering the control in isolation with `next/navigation` mocked in the shape `tests/components/telemetry/transitionAudit.test.tsx:10-14` already uses.
 - [ ] **3.2** Case 1: before any click the status region EXISTS and its text is empty. This pins mounted-then-filled. A control that renders its region only once it has something to say passes every other case here and announces nothing in a real browser, because a live region inserted together with its text is not announced.
-- [ ] **3.3** Case 2: after one click the region's text contains `CRON_HEALTH_RETRY_ANNOUNCEMENT`, imported from the component rather than retyped, AND its trimmed length is greater than zero. **The second half is not decoration.** Every string contains the empty string, so with the constant emptied `toContain` passes; the parity space still makes attempt two differ from attempt one, so case 3 passes too, and mutant (a) survives the whole file. Asserting the RENDERED text is non-empty is what kills it, and it is asserted on the DOM rather than on the constant so the check cannot be satisfied by the constant alone.
+- [ ] **3.3** Case 2: after one click the region's text contains `retryAnnouncement(what)`, imported from the component rather than retyped, AND its trimmed length is greater than zero. **The second half is not decoration.** Every string contains the empty string, so with the constant emptied `toContain` passes; the parity space still makes attempt two differ from attempt one, so case 3 passes too, and mutant (a) survives the whole file. Asserting the RENDERED text is non-empty is what kills it, and it is asserted on the DOM rather than on the constant so the check cannot be satisfied by the constant alone.
 - [ ] **3.4** Case 3: after a second click the region's text DIFFERS from the value captured after the first click, while still containing the announcement. Compared against the captured value, not against a literal carrying a specific whitespace character, so the case states the property (a repeat is distinguishable) rather than the current encoding of it.
 - [ ] **3.5** Case 4: the accessible name contains the visible text (WCAG 2.5.3), both read off the rendered button rather than off the constants.
 - [ ] **3.6** Case 5: `router.refresh` called once per click; `push` and `replace` never.
-- [ ] **3.7** **The four pre-dispatch mutants, run and recorded before any review dispatch**, because cases 2 and 3 are string-presence assertions: (a) `CRON_HEALTH_RETRY_ANNOUNCEMENT` emptied; (b) the announcement with an appended suffix, which must still pass case 2 and must still pass case 3, confirming neither case is pinned to an exact-equality it does not claim; (c) the announcement present in the file but not live, moved into an `aria-hidden` sibling outside the status region, which must red case 2; (d) the discriminating parameter of the region's text varied: the parity alternation replaced by an unconditional suffix (`${CRON_HEALTH_RETRY_ANNOUNCEMENT}\u00A0` on every attempt), which makes attempts one and two identical and must red case 3. **The click count is NOT mutant (d)** — an earlier draft named it, and it is an input case 3 already ranges over rather than a variation of the production code. Each result in the commit body.
-- [ ] **3.8** Observe RED by planting the seq toggle away (`{attempts === 0 ? "" : CRON_HEALTH_RETRY_ANNOUNCEMENT}`), which reds case 3 alone. That mutant is the whole point of the case: it is the exact shape that ships a silent second attempt.
+- [ ] **3.7** Case 6, the reload pin, and the reason it is static rather than behavioural. Read the component's own source, strip comments with `stripCommentsForFile` from `tests/_shared/stripComments` (the single source `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` requires; do not hand-roll a stripper), and assert it contains none of a closed set of navigation APIs: `location.reload`, `location.assign`, `location.replace`, `location.href`, `document.location`, `window.open`. **The set is closed and small because the subject is one file of about seventy lines, not a corpus** — this is a total check over a tiny surface, not a recognizer, and it must not grow into one. Comments are stripped so the JSDoc paragraph explaining why there is no reload cannot satisfy or trip it.
+- [ ] **3.7** **The four pre-dispatch mutants, run and recorded before any review dispatch**, because cases 2 and 3 are string-presence assertions: (a) `retryAnnouncement(what)` emptied; (b) the announcement with an appended suffix, which must still pass case 2 and must still pass case 3, confirming neither case is pinned to an exact-equality it does not claim; (c) the announcement present in the file but not live, moved into an `aria-hidden` sibling outside the status region, which must red case 2; (e) `window.location.reload()` added to the click handler beside the refresh, which must red case 6 and would pass every other case in this file; this is the mutant plan round 3 probed and it is the reason case 6 exists. (d) the discriminating parameter of the region's text varied: the parity alternation replaced by an unconditional suffix (`${retryAnnouncement(what)}\u00A0` on every attempt), which makes attempts one and two identical and must red case 3. **The click count is NOT mutant (d)** — an earlier draft named it, and it is an input case 3 already ranges over rather than a variation of the production code. Each result in the commit body.
+- [ ] **3.8** Observe RED by planting the seq toggle away (`{attempts === 0 ? "" : retryAnnouncement(what)}`), which reds case 3 alone. That mutant is the whole point of the case: it is the exact shape that ships a silent second attempt.
 - [ ] **3.9** Commit `test(admin): the retry announcement survives a repeated failure`.
 
 ### Task 4 — the transition audit stops being a hand-written list
@@ -233,13 +291,15 @@ Fourteen files, one animated, and it is the one the audit already exempts. So th
 | --- | --- | --- |
 | AC-1 | The fallback renders exactly one retry control | Task 1, queried with `within(cron-health-degraded)` |
 | AC-2 | One tap re-invokes the health loader, its call count reaching `before + 1` | Task 1, asserted on the `loadCronHealth` spy |
-| AC-3 | The retry never navigates and never reloads | Task 1, `push` and `replace` asserted uncalled and the control asserted `type="button"` with no `href`; Task 3 case 5 asserts `router.refresh` is the only navigation call it makes |
+| AC-3 | The retry never navigates and never reloads | Task 1 asserts `push` and `replace` uncalled and the control `type="button"` with no `href`; Task 3 case 5 asserts `refresh` fires once per click, and case 6 pins the absence of every other navigation API statically, because jsdom swallows a real `location.reload()` |
 | AC-4 | A retry that succeeds replaces the fallback with the job list | Task 2, success case, label read off the fixture |
 | AC-5 | A retry that fails again leaves the copy and the control unchanged | Task 2, repeat-failure case, both sentences asserted |
 | AC-6 | Every activation is announced, including a repeat of an identical outcome | Task 3, cases 1 through 3 |
 | AC-7 | The control clears the 44px tap floor | `tests/styles/_metaTapTargetFloor.test.ts`, which scans it on arrival |
 | AC-8 | The control's outline clears the 3:1 non-text floor on its tinted plate | `border-control-outline-tinted` per D2, verified by reading, and by the impeccable audit's theming dimension in Task 5 |
 | AC-9 | A component added to the telemetry directory is inside the transition audit by default | Task 4, proven by the mutant the literal list missed |
+| AC-10 | All three fallbacks of this shape offer a retry, not just the one the row names | Task 1b, driven red by the two peers' own shipped degraded cases |
+| AC-11 | The three controls do not collide: distinct testids, each announcement naming its own subject | Task 1b.5, asserted as a set size rather than three literals |
 
 ## 7. Close-out
 
