@@ -389,13 +389,15 @@ straight off the single exported classification Task 1 adds — the same value
      surrounding whitespace and trailing sentence punctuation (`.`, `,`, `;`)
      stripped — and the normalised form is what must be rejected.** Without it the
      kind admits every settled row in the corpus: `app-e2e-batch2` line 28 carries
-     the verbatim substring `Task 10.`, an `owner` of `Task 10.` passes the
-     line-membership check, and `(discharged by Task 10.)` fails the grammar only
-     because `ident` cannot end in a dot — so a criterion the plan assigns to Task
-     10 would be exempted as inexpressible. The same route exists on the four other
-     `app-e2e-batch2` edits (`Task 12.`, `Task 10.`, `Task 11.`, `Task 11.`).
-     Normalised, `Task 10.` becomes `Task 10`, the grammar accepts it, and the row
-     is refused. Run live on the normalised form: `Step 4` and
+     the verbatim substring `Task 10.`. **A trailing DOT is not what
+     normalisation defends against, and an earlier draft of this plan said it
+     was — wrongly.** `ident` is `[A-Za-z0-9][A-Za-z0-9.-]*`, which permits a
+     trailing dot, so `(discharged by Task 10.)` is accepted RAW and such a row
+     is refused with or without normalisation. Measured: `Task 10` and
+     `Task 10.` are both expressible either way; `Task 10,` and `Task 10;` are
+     rejected raw and accepted normalised. Those two are the forms normalisation
+     actually decides, and they are the ones an author produces by copying an
+     owner out of a comma-separated clause. Run live on the normalised form: `Step 4` and
      `no task (a spec-time derivation, re-exercised by Task 5)` are rejected by the
      grammar, while `Task 5` and `closeout` are accepted — so a row whose owner the
      grammar CAN express fails admissibility and must be migrated instead. Exactly
@@ -466,10 +468,15 @@ satisfied — and observe assertion 4 RED on the predicate, naming the lines tha
 settle it. A plant with empty strings is NOT this control: it may be rejected by
 the type or by a non-empty check and so prove nothing about the predicate.
 (b2) The same plant against the OTHER kind, which control (b) does not reach: add
-`app-e2e-batch2` AC-3 as an `owner-inexpressible` row with `owner: "Task 10."`,
-copied verbatim off line 28 so the line-membership check is satisfied, and observe
-RED on the normalisation — un-normalised, that row passes and silently exempts a
-settled criterion. (c) Make the decline predicate
+`app-e2e-batch2` AC-3 as an `owner-inexpressible` row and observe RED — the
+predicate refuses a row whose criterion the plan settles with an expressible
+owner. That is ALL this control shows. **It does not test normalisation, and an
+earlier draft claimed it did.** The owner-on-line check fires first on any
+planted owner the quoted line does not contain, so normalisation is never
+reached and removing it changes nothing. Normalisation is therefore asserted
+DIRECTLY instead, on the forms that flip: `Task 10,` and `Task 10;` are rejected
+raw and accepted normalised, while `Task 10.` is accepted either way because
+`ident` permits a trailing dot. Removing `normaliseOwner` reds that assertion. (c) Make the decline predicate
 unconditionally true and observe assertion 3 RED. A corpus test that survives any
 of the three is not the gate.
 

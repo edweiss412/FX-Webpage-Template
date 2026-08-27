@@ -22,8 +22,11 @@
  *   an owner, the row names that owner, and the disposition grammar must REJECT
  *   `(discharged by <owner>)` after the owner is normalised. Normalisation is
  *   load-bearing: `app-e2e-batch2` line 28 carries the verbatim substring
- *   `Task 10.`, and un-normalised that trailing period would make a settled
- *   criterion look inexpressible.
+ *   `Task 10.`. Note the dot is NOT what normalisation defends against: `ident`
+ *   permits a trailing dot, so `Task 10.` is expressible raw. The forms it
+ *   decides are `Task 10,` and `Task 10;` — rejected raw, accepted normalised —
+ *   which is what an author produces by copying an owner out of a
+ *   comma-separated clause.
  */
 export type ResidueRow =
   | {

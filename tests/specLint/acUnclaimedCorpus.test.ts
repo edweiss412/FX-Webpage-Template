@@ -110,6 +110,33 @@ describe("the AC arm over the live plans corpus (AC-6)", () => {
     expect(undeclared.slice().sort()).toEqual([]);
   });
 
+  it("AC-6: owner normalisation is asserted DIRECTLY, on the forms that flip", () => {
+    // A residue plant cannot demonstrate this. The owner-on-line check above
+    // fires first on any planted owner the quoted line does not contain, so the
+    // normalisation is never reached and removing it changes nothing — which is
+    // what diff review R1 finding 4 measured against the control this plan used
+    // to claim tested it.
+    //
+    // And the form that control named was wrong anyway: `ident` is
+    // `[A-Za-z0-9][A-Za-z0-9.-]*`, which PERMITS a trailing dot, so `Task 10.`
+    // is expressible raw and a row naming it is refused either way. The forms
+    // normalisation actually decides are the ones an author produces by copying
+    // an owner out of a comma-separated clause.
+    const raw = (o: string) => acceptsDisposition(`(discharged by ${o})`);
+    const norm = (o: string) => acceptsDisposition(`(discharged by ${normaliseOwner(o)})`);
+    for (const [owner, rawWant, normWant] of [
+      ["Task 10", true, true], // unchanged by normalisation
+      ["Task 10.", true, true], // the dot is INSIDE ident; not what this defends
+      ["Task 10,", false, true], // flips — the reason normalisation exists
+      ["Task 10;", false, true], // flips
+      ["Step 4", false, false], // inexpressible either way: a real residue owner
+    ] as const) {
+      expect(`${owner} raw=${raw(owner)} norm=${norm(owner)}`).toBe(
+        `${owner} raw=${rawWant} norm=${normWant}`,
+      );
+    }
+  });
+
   it("AC-6: every residue row passes its KIND's predicate, not merely a quotation check", () => {
     premise("residue rows to check", AC_UNCLAIMED_RESIDUE.length, 0);
     // A quotation of at least this many characters. `toContain("")` is true of
