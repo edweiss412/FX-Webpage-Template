@@ -76,6 +76,11 @@ export const AC_AMBIGUOUS_RECORD: AmbiguousRow[] = [
     ids: ["AC-1.4", "AC-1.2"],
   },
   {
+    plan: "docs/superpowers/plans/2026-08-27-mi11-removal-fallback-live-row.md",
+    line: 27,
+    ids: ["AC-7", "AC-8"],
+  },
+  {
     plan: "docs/superpowers/plans/ci/2026-08-24-mutation-scratch-fs-event-storm.md",
     line: 84,
     ids: ["AC-1", "AC-1b", "AC-1c"],

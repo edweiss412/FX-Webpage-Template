@@ -60,10 +60,18 @@
 import postgres, { type Sql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
 
-import type { RoleFlag, TriggeredReviewItem } from "@/lib/parser/types";
+import type { CrewMemberRow, RoleFlag, TriggeredReviewItem } from "@/lib/parser/types";
 import { runPhase2 } from "@/lib/sync/phase2";
 
-import { crew, parseResult, phase2Tx, readCrew, seedCrew, seedShow } from "./_holdAwareTestkit";
+import {
+  crew,
+  parseResult,
+  phase2Tx,
+  readCrew,
+  readHolds,
+  seedCrew,
+  seedShow,
+} from "./_holdAwareTestkit";
 import { premiseHolds } from "@/tests/_shared/premise";
 import { assertLocalDbUrl } from "../db/_localDbUrl";
 
@@ -154,6 +162,16 @@ async function seedHold(
  */
 const LIVE_PHONE: string = "555-NEW";
 const HELD_PHONE: string = "555-OLD";
+/**
+ * The SECOND member's phone, needed only by the WM-F6 case below.
+ *
+ * Two phones cannot discriminate that case. Its second member is a
+ * pre-existing LIVE OWNER, and with the testkit default that owner would carry
+ * `555-OLD` -- the same value as the held snapshot -- so a repair that bled the
+ * owner's fields onto the held crew would read as a pass. A third value makes a
+ * bleed visible in BOTH directions.
+ */
+const OWNER_PHONE: string = "555-OWN";
 
 const heldRow = (name: string, email: string, extra: Record<string, unknown> = {}) => ({
   name,
@@ -182,6 +200,14 @@ type Observation = {
    * the assertion could not fail (arc C plan Q1 / R3 F1).
    */
   phoneAfter: string | null;
+  /**
+   * The SECOND member's phone after the apply. A bleed between the two rows is
+   * only visible if both are read, and only distinguishable if the three
+   * fixtures carry three different values.
+   */
+  secondPhoneAfter: string | null;
+  /** The hold's reservation_collisions, so a neutered fold shows up as itself. */
+  heldCollisions: Array<{ name: string; email: string | null }> | undefined;
 };
 
 /**
@@ -196,6 +222,13 @@ async function observe(
     domain: "crew_email" | "crew_identity";
     heldValue: (name: string, email: string) => Record<string, unknown>;
     proposedValue?: Record<string, unknown> | null;
+    /**
+     * The second member, seeded live AND listed in the parse. Defaults to a
+     * bystander with an unrelated email; the WM-F6 case overrides it with a row
+     * carrying the hold's PROPOSED email, which is what makes the fold target
+     * resolve to a pre-existing live owner.
+     */
+    second?: CrewMemberRow;
   },
 ): Promise<Observation> {
   const { showId, driveFileId } = await seedShow(tx);
@@ -207,7 +240,8 @@ async function observe(
   // A second member the sheet still lists, so the parse is a live roster rather
   // than an empty one — an empty parse is its own (already-guarded) shape and
   // would make the observation unattributable.
-  await seedCrew(tx, showId, crew("Stays", { email: "stays@x" }));
+  const second = hold.second ?? crew("Stays", { email: "stays@x" });
+  await seedCrew(tx, showId, second);
 
   await seedHold(tx, {
     showId,
@@ -220,7 +254,7 @@ async function observe(
   });
 
   // The next sync: the sheet no longer lists Held.
-  const next = parseResult([crew("Stays", { email: "stays@x" })]);
+  const next = parseResult([second]);
   const result = await runPhase2(phase2Tx(tx) as never, runArgs(driveFileId, next));
 
   const rows = await readCrew(tx, showId);
@@ -251,6 +285,11 @@ async function observe(
     reported: change !== undefined,
     reportedFlags: change ? change.prior_flags : null,
     phoneAfter: heldAfter ? ((heldAfter as { phone?: string | null }).phone ?? null) : null,
+    secondPhoneAfter:
+      (rows.find((r) => r.name === second.name) as { phone?: string | null } | undefined)?.phone ??
+      null,
+    heldCollisions: (await readHolds(tx, showId)).find((h) => h.entity_key === "Held")
+      ?.reservation_collisions,
   };
 }
 
@@ -274,11 +313,64 @@ describe("BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — reachability per h
       survived: true,
       reported: false,
       reportedFlags: null,
-      // The genuine-removal fallback retains the FROZEN snapshot, so the live
-      // phone is reverted. Not this arc's fix (filed as the sibling entry
-      // BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE); pinned here so the shape is
-      // executable rather than described.
-      phoneAfter: HELD_PHONE,
+      secondPhoneAfter: "555-OLD",
+      heldCollisions: [],
+      // The genuine-removal fallback retains the member's OWN live row, so a
+      // field edited after the hold's last write survives the sheet dropping
+      // them. This row read HELD_PHONE until
+      // BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE closed; it is the defect's
+      // own reproduction, flipped.
+      phoneAfter: LIVE_PHONE,
+    });
+  });
+
+  it("mi11_pending / crew_email, fold target is a LIVE OWNER (WM-F6): held crew keeps its OWN live row", async () => {
+    // The WM-F6 branch (holdAwareApply.ts:321). The sheet drops Held and lists
+    // a member who already existed live AND carries Held's PROPOSED email, so
+    // `renameRow` resolves to a pre-existing owner and the fold is NEUTERED:
+    // no suppression, no override, no rename retarget, and the collision is
+    // recorded so Approve blocks on IDENTITY_WOULD_COLLIDE.
+    //
+    // Three phones, because two cannot discriminate: Held's live `555-NEW`,
+    // Held's held snapshot `555-OLD`, and the owner's `555-OWN`. A repair that
+    // put the owner's fields on Held reads 555-OWN at phoneAfter; one that put
+    // Held's on the owner reads 555-NEW at secondPhoneAfter; the stale-snapshot
+    // bug reads 555-OLD at phoneAfter.
+    const owner = crew("Owner", { email: "held@new", phone: OWNER_PHONE });
+    const o = await inRollback((tx) =>
+      observe(tx, "mi11_pending/crew_email(live-owner fold)", {
+        kind: "mi11_pending",
+        domain: "crew_email",
+        heldValue: (name, email) => heldRow(name, email),
+        proposedValue: { name: "Held", email: "held@new" },
+        second: owner,
+      }),
+    );
+
+    // Premises on THIS case's own inputs. Without the first, the case falls
+    // through to the genuine-removal branch case 1 already covers and proves
+    // nothing about WM-F6; without the second, a bleed is invisible.
+    premiseHolds(
+      "the parse row's email must equal the hold's proposed email, or the fold target never resolves",
+      owner.email === "held@new",
+    );
+    premiseHolds(
+      "the three phones must be pairwise distinct for a bleed to be visible in either direction",
+      new Set([LIVE_PHONE, HELD_PHONE, OWNER_PHONE]).size === 3,
+    );
+
+    expect(o, o.label).toEqual({
+      label: "mi11_pending/crew_email(live-owner fold)",
+      survived: true,
+      reported: false,
+      reportedFlags: null,
+      // Held keeps HER OWN live non-identity: not the snapshot, not the owner's.
+      phoneAfter: LIVE_PHONE,
+      // The live owner is untouched — the WM-F6 guarantee, unchanged by this arc.
+      secondPhoneAfter: OWNER_PHONE,
+      // And the collision is still recorded, so a repair that neutered the
+      // fold's collision path would fail here rather than pass everything above.
+      heldCollisions: [{ name: "Owner", email: "held@new" }],
     });
   });
 
@@ -301,6 +393,8 @@ describe("BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — reachability per h
       survived: true,
       reported: false,
       reportedFlags: null,
+      secondPhoneAfter: "555-OLD",
+      heldCollisions: [],
       // The LIVE row is retained, not a snapshot of it — so the surviving row
       // still carries the phone the sheet last had. A frozen-snapshot retain
       // fails here by name.
@@ -322,10 +416,18 @@ describe("BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — reachability per h
       survived: true,
       reported: false,
       reportedFlags: null,
-      // The restore branch retains `rowFromHeldValue(held)` by design — this IS
-      // a resurrection of a deleted row, so the held snapshot is the right
-      // source and the reverted phone is intended, not the Q1 defect.
-      phoneAfter: HELD_PHONE,
+      secondPhoneAfter: "555-OLD",
+      heldCollisions: [],
+      // Reads LIVE_PHONE, not the snapshot, and the reason is spec §3.5.
+      // This row asserted HELD_PHONE "by design" until
+      // BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE, on the reading that the
+      // restore branch carries an UNDO's payload. That reading was refuted:
+      // `mi11_reject_hold` writes the same undo_override/crew_identity shape
+      // and never touches `crew_members`, so this site also serves Reject,
+      // where the live row is current and `held_value` lags it. Live-row
+      // presence is the discriminator; the snapshot still wins when there is
+      // no live row, which is the genuine-resurrection case.
+      phoneAfter: LIVE_PHONE,
     });
   });
 
@@ -346,6 +448,12 @@ describe("BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — reachability per h
       survived: false,
       reported: true,
       reportedFlags: LEAD,
+      secondPhoneAfter: "555-OLD",
+      // `undefined`, not `[]`: the tombstone RELEASES on this sync (the sheet
+      // stopped adding the name), so the hold row is deleted and there is
+      // nothing to read collisions off. The three surviving-hold rows above
+      // read `[]`, the column default for a hold computeReservations skips.
+      heldCollisions: undefined,
       // Genuinely deleted, so there is no row to carry a phone.
       phoneAfter: null,
     });

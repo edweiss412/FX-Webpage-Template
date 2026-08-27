@@ -129,6 +129,13 @@ export async function readCrew(tx: Sql, showId: string) {
     phone: string | null;
     role: string;
     role_flags: string[];
+    // The query has always selected these three; the declaration did not name
+    // them, so a caller reading a restriction or flight_info off this row
+    // compiled to `never` and only failed at `pnpm typecheck`. Widened to match
+    // the SELECT, which is the thing the cast is asserting about.
+    date_restriction: CrewMemberRow["date_restriction"];
+    stage_restriction: CrewMemberRow["stage_restriction"];
+    flight_info: string | null;
     claimed_via_oauth_at: string | null;
   }>;
 }
