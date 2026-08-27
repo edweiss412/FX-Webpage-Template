@@ -262,7 +262,21 @@ import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 Without them the RED is a COLLECTION failure, not the behavioural one this task claims — a different verdict wearing the same non-zero exit. The premises below are what need them:
 
-- **The repair case.** A workbook built via the file's existing `buildInfoWorkbook` helper, whose venue table opens on `VENUE NAME`. **The witness row is `Diagrams?`, NOT `Venu Notes`** — measured at plan time, `Venu Notes` is RECOVERED by `parseVenue`'s scoped fuzzy path (`FIELD_LABEL_AUTOCORRECTED`, `raw_unrecognized=[]`), so it never becomes an `UNKNOWN_FIELD` and an anchor assertion over it would pass without exercising the routing key this arc changes. `Diagrams?` yields a real `UNKNOWN_FIELD(kind="venue name")` — literally the value predicate A moves to `"venue"`.
+- **The repair case, on ONE row set used by both the premise and the assertions.** Three rows, and the count is not incidental:
+
+  ```ts
+  const ROWS = [
+    ["VENUE NAME", "Four Seasons Hotel Chicago"],
+    ["VENUE ADDRESS", "120 E Delaware Pl"],
+    ["Diagrams?", "see folder"],
+  ];
+  ```
+
+  **Why three and not two.** An earlier draft described a two-row workbook while asserting two anchors and cell `A3`. Those cannot both hold: probed, a two-row sheet gives `{count: 1, cell: "A2"}` and a three-row sheet gives `{count: 2, cell: "A3"}`. The plan now names one row set, and the expected cell `A3` follows from it rather than from a different fixture.
+
+  **The premise reads the SAME three rows**, rendered as markdown, not a shortened version of them. A premise over a different input than the case's own is the "validates something ADJACENT" defect in another costume. Verified on exactly these rows: `parseSheet` emits `UNKNOWN_FIELD` with `raw_unrecognized = [{block: "venue name", key: "Diagrams?", value: "see folder"}]`.
+
+  **The witness row is `Diagrams?`, NOT `Venu Notes`** — measured at plan time, `Venu Notes` is RECOVERED by `parseVenue`'s scoped fuzzy path (`FIELD_LABEL_AUTOCORRECTED`, `raw_unrecognized=[]`), so it never becomes an `UNKNOWN_FIELD` and an anchor assertion over it would pass without exercising the routing key this arc changes. `Diagrams?` yields a real `UNKNOWN_FIELD(kind="venue name")` — literally the value predicate A moves to `"venue"`.
 
   **The anchor count is an ASSERTION, not a premise, and getting that backwards breaks the RED.** An earlier draft premised "the scan
   produced at least one venue anchor" before asserting resolution. That condition IS the behaviour this task implements: on the RED it
@@ -370,56 +384,53 @@ Site 8 is its own commit deliberately: it touches a different document from the 
 
 ## Task 4 — archive the row and take the marker off
 
-**No RED.** Archiving a row is bookkeeping, not a red-green cycle; it sits OUTSIDE the `red-contract` region. `tests/docs/_metaLedgerInProgress.test.ts` is still run as a gate — it is what makes a marker that outlives its branch fail — but it is green before and after, so declaring it as a red would be a manufactured one.
+**No RED.** Archiving a row is bookkeeping, not a red-green cycle; it sits OUTSIDE the `red-contract` region. `tests/docs/_metaLedgerInProgress.test.ts` is still run as a gate — it is what makes a marker that outlives its branch fail — but it is green before and after, so declaring it a red would be a manufactured one.
 
-Archive `BL-TYPO-NORMALIZED-V4-VENUE-SHAPE` into `BACKLOG-archive.md` in the heading form of the newest entry, read at plan time from the newest archive entry:
+Archive `BL-TYPO-NORMALIZED-V4-VENUE-SHAPE` into `BACKLOG-archive.md` in the heading form of the newest entry, read at plan time:
 
-```
-## Task 5 — score fieldNearMiss on the shipping head
-
-**No RED, and that is the honest declaration.** This is a verification step, not a red-green cycle: the score either holds at the floor or it does not, and there is no failing state to author first. It sits OUTSIDE the plan's `red-contract` region for that reason.
-
-**Class lock first.** Message bl-orch at `wP:p1A` with the surface name and expected duration, wait for the take, then run, then announce the release. `pnpm heavy:mutation`, never plain `pnpm heavy` — the class is a single-slot admission taken beside an ordinary heavy slot, and `pnpm heavy --class mutation` does not work (the `heavy` script already ends in its own `--`, so the flag is swallowed as the command).
-
-**Scope: this arc scores TWO surfaces, not all 54.** `pnpm mutation:guards` runs every `guardSurfaces.shard*` file plus the gates — 54 enrolled surfaces, whose declared boot costs alone sum to 2.4 minutes before a single mutant runs, and the block's own measured datapoint is ~93s for ONE surface. Quoting that as the class-lock duration would be a large and unnecessary ask.
-
-`scripts/mutation-score-surfaces.ts` exists for exactly this and is the documented path (its header, `scripts/mutation-score-surfaces.ts:15-20`). It enters through `runSurface` + `evaluateGate` — the gate's own conditions decide pass or fail, so a scoped run is not a re-implemented substitute — and it prints both the score with its survivors and the measured milliseconds per modelled boot. It needs no scoped-shard scratch file, so the `guardSurfaces.shardTMP*` hazard the repo's `.gitignore` documents does not arise here.
-
-```
-VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx \
-  scripts/mutation-score-surfaces.ts fieldNearMiss rowScanOpener
-```
-
-Three parts of that line are load-bearing and none is decoration: `VITEST_INCLUDE_MUTATION_HARNESS=1`, because the mutation vitest project is opt-in and without it the run dies on "no projects matched" AFTER the queue wait; `heavy:mutation` rather than plain `pnpm heavy`, because only the former takes the single-slot mutation admission that serialises score runs against each other; and the surface ids rather than a shard file.
-
-**Ask bl-orch for the lock with the scoped figure, not the full-run one.** Two surfaces, `fieldNearMiss` (`millisPerBoot: 2124`) and `rowScanOpener` (`millisPerBoot: 2441`), both declaring the same two suites. State the estimate as minutes and say it is an estimate; the run itself prints the measured rate, which goes into readiness.
-
-Floor stays `0.95` (`registry.ts:2484`). The two accepted rows stay, re-keyed ONLY if §0.1's line-neutrality check failed. `rowScanOpener` (`registry.ts:2506-2532`, `sourcePath: lib/parser/blocks/_rowScan.ts`, `millisPerBoot: 2441`, floor `0.95`) declares the SAME two suites and is scored by the same run — verified at plan time. Task 1 does not edit `_rowScan.ts`, so its score is a regression check rather than a deliverable.
-
-The round-1 diff brief then carries, on one line, verbatim:
-
-```
-GUARD SURFACE: fieldNearMiss, MUTATION SCORE: <killed>/<total>, 0 unaccepted survivors, OPERATORS: all
-```
-
-**Commit:** only if a registry row changed; otherwise the score is a readiness artifact, not a commit.
-
+```markdown
 ## BL-<ID> — <one-line summary> — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** S · **Shipped by:** `fix/typo-v4-venue-shape` · **Spec:** `docs/superpowers/specs/parser/2026-08-27-venue-block-predicate-design.md`
 ```
 
-The entry records: the decision, its author and date (Eric, 2026-08-26 05:05); the predicate chosen with the §2.2 table; the moved-row count from Task 1's folded regen step; the rejected predicate's cost (B: corpus census 0 to 6, hotel-contact tables re-namespaced); the anchor disposition (absent before, repaired in Task 2); and the eight copy sites.
+The entry records: the decision, its author and date (Eric, 2026-08-26 05:05); the predicate chosen, with the §2.2 table; the moved-row count from Task 1's folded regen step; the rejected predicate's cost (B: corpus census 0 to 6, hotel-contact tables re-namespaced); the anchor disposition (absent before, repaired in Task 2); and the eight copy sites.
 
-**The IN PROGRESS marker comes off in this same commit, and this is the PR's LAST commit before any merge.** A marker that merges into main names a branch the merge just deleted, and the origin-existence rule in `tests/docs/_metaLedgerInProgress.test.ts` then reds main until someone clears it.
+**The IN PROGRESS marker comes off in this same commit.** It must not reach main: a marker that merges names a branch the merge just deleted, and the origin-existence rule in `tests/docs/_metaLedgerInProgress.test.ts` then reds main until someone clears it. This is the last commit the plan schedules; §2 states what happens if a review finding or a CI failure forces another one after it.
 
 **A `BACKLOG.md` merge conflict here is resolved by set arithmetic, never keep-both** — keep-both text resurrects an archived row. Open = main's open minus rows this branch archived; archive == exact union; assert zero rows both open and archived, zero lost; cut rows heading-to-any-next-heading.
 
 **Commit:** `docs(backlog): archive BL-TYPO-NORMALIZED-V4-VENUE-SHAPE, and take the in-progress marker off`
 
+## Task 5 — score fieldNearMiss on the shipping head
 
+**No RED, and that is the honest declaration.** This is a verification step, not a red-green cycle: the score either holds at the floor or it does not, and there is no failing state to author first. It sits OUTSIDE the `red-contract` region for that reason. It runs on the head Task 4 produced, which is what makes AC-V9's "shipping head" literally true.
 
----
+**Class lock first.** Message bl-orch at `wP:p1A` with the surface names and expected duration, wait for the take, run, then announce the release. `pnpm heavy:mutation`, never plain `pnpm heavy` — the class is a single-slot admission taken beside an ordinary heavy slot, and `pnpm heavy --class mutation` does not work (the `heavy` script already ends in its own `--`, so the flag is swallowed as the command).
+
+**Scope: this arc scores TWO surfaces, not all 54.** `pnpm mutation:guards` runs every `guardSurfaces.shard*` file plus the gates — 54 enrolled surfaces, whose declared boot costs alone sum to 2.4 minutes before a single mutant runs, against a measured ~93s for ONE surface. Quoting that as the class-lock duration would be a large and unnecessary ask.
+
+`scripts/mutation-score-surfaces.ts` exists for exactly this and is the documented path (its header, `scripts/mutation-score-surfaces.ts:15-20`). It enters through `runSurface` + `evaluateGate`, so the gate's own conditions decide pass or fail and a scoped run is not a re-implemented substitute. It prints the score with its survivors and the measured milliseconds per modelled boot, and needs no scoped-shard scratch file, so the `guardSurfaces.shardTMP*` hazard the repo's `.gitignore` documents does not arise.
+
+```bash
+VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy:mutation pnpm tsx \
+  scripts/mutation-score-surfaces.ts fieldNearMiss rowScanOpener
+```
+
+Three parts of that line are load-bearing: `VITEST_INCLUDE_MUTATION_HARNESS=1`, because the mutation vitest project is opt-in and without it the run dies on "no projects matched" AFTER the queue wait; `heavy:mutation` rather than plain `pnpm heavy`, because only the former takes the single-slot mutation admission that serialises score runs against each other; and the surface ids rather than a shard file.
+
+**Ask bl-orch for the lock with the scoped figure, not the full-run one.** Two surfaces, `fieldNearMiss` (`millisPerBoot: 2124`) and `rowScanOpener` (`millisPerBoot: 2441`), both declaring the same two suites. State the estimate as minutes and say it is an estimate; the run prints the measured rate, which goes into readiness.
+
+Floor stays `0.95` (`tests/mutation/source/registry.ts:2484`). The two accepted rows stay, re-keyed ONLY if §0.1's line-neutrality check failed. `rowScanOpener` (`tests/mutation/source/registry.ts:2506-2532`, `sourcePath: lib/parser/blocks/_rowScan.ts`) declares the SAME two suites and is scored by the same run. Task 1 does not edit `_rowScan.ts`, so its score is a regression check rather than a deliverable.
+
+The round-1 diff brief then carries, on one line, verbatim — with the real fraction substituted, because the wrapper exits 2 on a non-conforming one:
+
+```
+GUARD SURFACE: fieldNearMiss, MUTATION SCORE: <killed>/<total>, 0 unaccepted survivors, OPERATORS: all
+```
+
+**Commit:** normally none — the score is a readiness artifact. **If a registry row changes** (a re-key, or an accepted row added or removed), that IS a commit, and it lands BEFORE the whole-diff review and CI so they still cover the shipping head. §2's rule then requires the score to be re-run, because a registry-only change moves the score.
+
 
 ## 2. Checklist
 
@@ -428,7 +439,7 @@ The entry records: the decision, its author and date (Eric, 2026-08-26 05:05); t
 - [ ] Task 3 — operator copy, eight sites (incl. the AC-V11 assertion and the dependent-claim sweep)
 - [ ] Self-review
 - [ ] **Adversarial review (cross-model)** — Codex, to APPROVE
-- [ ] **Task 4 — archive the row, marker off.** (Renamed from Task 5; see the ordering note.)
+- [ ] **Task 4 — archive the row, marker off.** The last commit the plan schedules.
 - [ ] Task 5 — scoped mutation score, ON THE HEAD TASK 4 PRODUCED (class lock from bl-orch first)
 - [ ] Whole-diff cross-model review to APPROVE — on that same head
 - [ ] CI: twelve required checks green — on that same head, on a non-stale base
@@ -453,7 +464,7 @@ What invariant 12 actually protects is that **no in-progress marker reaches main
 1. Commit the repair.
 2. Re-run the whole-diff review on the new head, to APPROVE.
 3. Re-run CI on the new head, twelve green.
-4. Re-run the score only if the repair touched `lib/parser/fieldNearMiss.ts` or `lib/parser/blocks/_rowScan.ts`; a docs or test-only repair cannot move it, and the readiness report says which case applied.
+4. Re-run the score if the repair touched EITHER an enrolled source file (`lib/parser/fieldNearMiss.ts`, `lib/parser/blocks/_rowScan.ts`) OR `tests/mutation/source/registry.ts`. **The registry arm is not defensive padding.** `evaluateGate` reads `surface.accepted` directly, so adding, removing or re-keying an accepted row changes the unaccepted-survivor set and the effective score with no source edit at all. Probed against the gate: an unchanged registry gives `{passed: true, score: 1, failures: []}`, and dropping one accepted row gives `{passed: false, score: 0.5, failures: ["unaccepted-survivor", "below-floor"]}`. Task 5's own contingency permits exactly such a commit, so without this arm the plan could leave AC-V9 measured against a registry the final head no longer has. A repair touching neither cannot move the score; the readiness report says which case applied.
 5. Confirm `BACKLOG.md` carries no `**Status:** IN PROGRESS` row for this id and the archive holds it exactly once.
 
 Readiness requires all of: review APPROVE on the final head, twelve green on the final head, marker absent, archive holding the row once, and `git merge-base origin/main HEAD` == `git rev-parse origin/main`.
@@ -466,7 +477,7 @@ Task 2 is independent (it touches the anchor scanner, not the parser) and could 
 
 There is no ratified-text task, deliberately: invariant 7 puts each text in the same commit as the code it describes, so a task batching them at the end would violate the invariant it exists to serve.
 
-Task 4 needs the shipping head. Task 5 is the last commit, and the review and CI follow it for the reason above.
+Task 4 is the last commit the plan schedules, and it is what makes the marker absent before the merge. Task 5 scores the head Task 4 produced — which is what makes AC-V9's "shipping head" literally true — and normally commits nothing at all; the one case where it does (a registry row changing) is called out in its own body, and lands before the review and CI so those still cover the shipping head. The whole-diff review and CI follow both, for the reason in §2.
 
 ## 4. Whole-tree green before every push
 
