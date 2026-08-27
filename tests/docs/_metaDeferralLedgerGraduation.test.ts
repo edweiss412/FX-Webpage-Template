@@ -708,6 +708,13 @@ const BACKLOG_GRADUATED = [
   // un-dispatchable through the lint gate is constraint 2 working rather than a
   // defect, and spec §4.3's own RETIRED example loses to the ratified count cut.
   { id: "BL-SPECLINT-AC-UNCLAIMED", provenance: "feat/speclint-ac-unclaimed-arm" },
+  // The subscription-freshness repair. Archived with the transcript that was
+  // the row's own done condition re-run against the shipped hook, and with the
+  // three defects the row did not name that the arc found and fixed in branch.
+  {
+    id: "BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION",
+    provenance: "fix/fitwithinclip-stale-clip-subscription",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
