@@ -6,6 +6,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { loadOpenIdentityHolds } from "@/lib/admin/identityHolds";
 import { INBOX_ROUTED_CODES } from "@/lib/messages/adminSurface";
+import { log } from "@/lib/log";
 
 export type NeedsAttentionCountResult = { kind: "ok"; count: number } | { kind: "infra_error" };
 
@@ -15,7 +16,12 @@ export async function loadNeedsAttentionCount(
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
-  } catch {
+  } catch (err) {
+    void log.error("needs-attention count client construction failed", {
+      source: "admin.needsAttentionCount",
+      code: "NEEDS_ATTENTION_COUNT_CLIENT_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
   // nav-perf Phase 2 (E-lite): the two pending head-counts are independent — build
@@ -36,16 +42,49 @@ export async function loadNeedsAttentionCount(
     const [ingestionResult, syncResult] = await Promise.all([ingestionQuery, syncQuery]);
     const { data: _ingestionData, count: ingestionCount, error: ingestionError } = ingestionResult;
     void _ingestionData;
-    if (ingestionError) return { kind: "infra_error" };
+    if (ingestionError) {
+      void log.error("pending_ingestions count returned error", {
+        source: "admin.needsAttentionCount",
+        code: "NEEDS_ATTENTION_INGESTIONS_COUNT_RETURNED_ERROR",
+        error: ingestionError,
+      });
+      return { kind: "infra_error" };
+    }
     // A null/undefined count with NO error is an integrity failure, NOT a clean
     // zero — rendering it as count:0 would hide a broken count path (alertCount.ts:29-31).
-    if (typeof ingestionCount !== "number") return { kind: "infra_error" };
+    if (typeof ingestionCount !== "number") {
+      void log.error("pending_ingestions count returned a non-number", {
+        source: "admin.needsAttentionCount",
+        code: "NEEDS_ATTENTION_INGESTIONS_COUNT_NOT_NUMBER",
+        error: { received: ingestionCount },
+      });
+      return { kind: "infra_error" };
+    }
     const { data: _syncData, count: syncCount, error: syncError } = syncResult;
     void _syncData;
-    if (syncError) return { kind: "infra_error" };
-    if (typeof syncCount !== "number") return { kind: "infra_error" };
+    if (syncError) {
+      void log.error("pending_syncs count returned error", {
+        source: "admin.needsAttentionCount",
+        code: "NEEDS_ATTENTION_SYNCS_COUNT_RETURNED_ERROR",
+        error: syncError,
+      });
+      return { kind: "infra_error" };
+    }
+    if (typeof syncCount !== "number") {
+      void log.error("pending_syncs count returned a non-number", {
+        source: "admin.needsAttentionCount",
+        code: "NEEDS_ATTENTION_SYNCS_COUNT_NOT_NUMBER",
+        error: { received: syncCount },
+      });
+      return { kind: "infra_error" };
+    }
     pendingTotal = ingestionCount + syncCount;
-  } catch {
+  } catch (err) {
+    void log.error("pending head-counts threw", {
+      source: "admin.needsAttentionCount",
+      code: "NEEDS_ATTENTION_PENDING_COUNTS_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 
@@ -69,10 +108,29 @@ export async function loadNeedsAttentionCount(
         .not("show_id", "is", null)
         .eq("shows.archived", false);
       void _syncProblemData;
-      if (syncProblemError) return { kind: "infra_error" };
-      if (typeof syncProblemCountRaw !== "number") return { kind: "infra_error" };
+      if (syncProblemError) {
+        void log.error("admin_alerts sync-problem count returned error", {
+          source: "admin.needsAttentionCount",
+          code: "NEEDS_ATTENTION_SYNC_PROBLEM_COUNT_RETURNED_ERROR",
+          error: syncProblemError,
+        });
+        return { kind: "infra_error" };
+      }
+      if (typeof syncProblemCountRaw !== "number") {
+        void log.error("admin_alerts sync-problem count returned a non-number", {
+          source: "admin.needsAttentionCount",
+          code: "NEEDS_ATTENTION_SYNC_PROBLEM_COUNT_NOT_NUMBER",
+          error: { received: syncProblemCountRaw },
+        });
+        return { kind: "infra_error" };
+      }
       syncProblemCount = syncProblemCountRaw;
-    } catch {
+    } catch (err) {
+      void log.error("admin_alerts sync-problem count threw", {
+        source: "admin.needsAttentionCount",
+        code: "NEEDS_ATTENTION_SYNC_PROBLEM_COUNT_THREW",
+        error: err,
+      });
       return { kind: "infra_error" };
     }
   }
@@ -89,7 +147,12 @@ export async function loadNeedsAttentionCount(
     const holds = await (opts.loadHolds ?? loadOpenIdentityHolds)();
     if (holds.kind === "infra_error") return { kind: "infra_error" };
     holdShowCount = holds.groups.length;
-  } catch {
+  } catch (err) {
+    void log.error("identity-holds read threw", {
+      source: "admin.needsAttentionCount",
+      code: "NEEDS_ATTENTION_HOLDS_READ_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 

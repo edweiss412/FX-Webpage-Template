@@ -13264,6 +13264,63 @@ five further legs in the warn band (>75% of 3600 s)
 
 **Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`**, and the distinction held all the way to closure: that row is the source gate's COVERAGE failure set and explicitly disclaims the budget half. This was the `budget` job — a different job, a different failure, a different repair, closed by a different PR.
 
+## BL-ADMIN-LOADER-INFRA-ERROR-TELEMETRY-SILENT — the loader is telemetry-silent on the fault this instrument measures — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** M · **Shipped by:** `fix/observe-error-telemetry` · **Spec:** `docs/superpowers/specs/observability/2026-08-26-observe-error-telemetry.md`
+
+**The row's premise was true when filed and false one day later, and reconciling that is most of what this entry is for.** It named five `infra_error` return sites in `lib/admin/loadRecentAutoApplied.ts` and said none emitted. PR #882 (`fix/admin-loader-ci-transient`) repaired four of them the day after the filing, in two commits neither of which touched the row: `d9a039a94` added `ROSTER_SHIFT_COUNTS_READ_RETURNED_ERROR` on the rpc returned-error arm, and `17357a05c` added `RECENT_AUTO_APPLIED_CLIENT_THREW`, `SHOW_CHANGE_LOG_READ_THREW` and `ROSTER_SHIFT_COUNTS_READ_THREW`. The row's line numbers resolve against the pre-#882 file (`git show d9a039a94~1:lib/admin/loadRecentAutoApplied.ts`) and are correct for it.
+
+**The fifth site was the `show_change_log` returned-error branch**, and #882's title scopes that PR to the RPC boundary while this branch is a `.from()` table read — the likeliest reason it was missed rather than a decision.
+
+**Why the loader emit is not redundant with #899's transport observer, which is the question this row would otherwise reopen.** The observer records every 5xx from both server-side factories and emits at `debug`. `lib/log/logger.ts` returns `false` for `debug` unconditionally, so those records reach the app-e2e job log and never `app_events`. And a sub-500 returned error — `42501` permission denied, `42P01` missing relation, a PostgREST schema-cache miss — is below the observer's threshold entirely and reached nobody at any level. The loader emit is the persisted record for the first case and the only record for the second. They are different sinks by design.
+
+**The sweep, and the count it landed on.** The row filed under class-sweep exception (c). bl-orch ruled the whole derived cover on 2026-08-26 and reconfirmed it at each revision. The population is not a list: a structural walker (`tests/admin/infraEmitScan.ts` + `tests/admin/_metaInfraEmitCover.test.ts`) reads `lib/admin/**` from disk, so a new file fails by default.
+
+|                                                    |         |
+| -------------------------------------------------- | ------- |
+| constructions of an `infra_error` (the population) | 100     |
+| — object literals                                  | 77      |
+| — const aliases (`FAIL`, `INFRA_ERROR`)            | 23      |
+| files holding one / files parsed                   | 19 / 61 |
+| already satisfied — before Task 1                  | 9       |
+| exempt as propagation                              | 4       |
+| **reported, and repaired here**                    | **87**  |
+| repaired that the walker did not name              | **0**   |
+
+That table is stated at ONE moment — before any repair — because the two figures that move are easy to mix: Task 1 repaired the loader's 2 sites first, so when the walker ran for Task 2 it reported **85** and the satisfied count had risen to 11. 9 + 4 + 87 = 100 at the start; 11 + 4 + 85 = 100 after Task 1. An earlier version of this table mixed the two moments and summed to 98.
+
+The 23 const-alias sites are why the derivation is checker-backed rather than syntactic: an object-literal rule missed all of them, in three files, and looked complete while doing it.
+
+**Three files were doing something more interesting than nothing.** `readShowReviewSnapshot` logged on both fault paths but deliberately stamped no `code`, citing §12.4 — a reason that no longer holds, because `lib/messages/__internal__/stripLogEmissionCalls.ts` strips `log.*` spans before the producer scan, so a forensic code there is free and is what `observe events --code` filters on. `loadAlertSummary` and `loadTelemetryStats` carry codes but no `error` field on their malformed-row branches; a data-integrity fault has no error object, so the evidence is now the payload that came back instead of a row.
+
+**Registry and code completeness are DERIVED, not listed.** Every file the walker finds a construction in must appear in `infraRegistry`; every `code:` literal it sees in a `log.*` span must be in `NEW_FORENSIC_CODES`. Those checks reported `embeddedAdminEmails` and `roleTokenMappings` themselves and collected 82 unregistered codes. An earlier draft named the two files by hand, which is the case list this repo's rules refuse.
+
+**Documented limits, recorded on their owning surfaces rather than filed:** the cover is `lib/admin/**` and stops there (165 raw matches across 41 files outside it, `lib/sync/` having its own guard); an injected `loadHolds` test double is uncovered and is not a fault; a reconstructed partial object passes the payload rule and no static test separates it from the real thing; the walker resolves types and symbols, not values or control flow; and `noDoubleSerializedLogError` cannot see `error: X.message`, whose four in-cover instances are repaired here and whose five out-of-cover instances are named with the grep that finds them.
+
+**Also here:** the grep-shape guard's catch window moved 45 → 70, because these emits lengthen try bodies. Recorded as a documented limit rather than a fix — it is a line-window heuristic, and the structural answer is reading the enclosing try from the AST, which `infraEmitScan.guardScope` now does and that guard could adopt.
+
+No `BL-`/`DEF-` row was filed in either direction (Eric's directive, 2026-08-25).
+
+## BL-REPORT-CLIENT-ERROR-NON-ERROR-MESSAGE-ONLY — client boundary crashes collapse non-Error values to String(e) — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** M · **Shipped by:** `fix/observe-error-telemetry` · **Spec:** `docs/superpowers/specs/observability/2026-08-26-observe-error-telemetry.md` §6
+
+**The row named one defect and there were two.** `toError` returning `{ message: String(e) }` lost the crash's content — that is the one it named. The one it did not: a non-`Error` value has no `stack`, so the dedup key at `lib/observe/clientErrorTransport.ts` reduced to `source|level|[object Object]|`, and every plain-object crash in a page session after the first was silently dropped. The message defect loses one crash's content; the signature defect loses every crash after it.
+
+**Fixing the message does not fix the signature, and an early draft of the spec claimed it would.** Two independent reasons. A label built from a value's `name`/`code`/`message` collides across ordinary values — measured across four families and thirteen pairs. And the rejection listener sends the fixed string `"unhandled promise rejection"` for every rejection it ever handles, which no projection can make discriminating. So `message` became a legible label only, and `detail` joined the signature.
+
+**Three wire sites, not one.** The row named the boundary path. `GlobalErrorListener`'s rejection handler had the same collapse. Its window-error handler failed differently and worse: it never read `event.error` at all, so a plain object thrown at the window lost its fields entirely rather than collapsing to `"[object Object]"`. Class-sweep repaired all three.
+
+**The projection is measured, not argued**, because the design survived three adversarial rounds and the repo's three-round cap says to stop patching prose and build it. `docs/superpowers/specs/observability/probes/2026-08-26-client-value-projection.ts` runs it over every collision pair the rounds produced and reports `COLLISIONS: 4 of 25`. `render` writes leaves with `String()` rather than `JSON.stringify`, whose number grammar maps `NaN` and both infinities to `null` and collapsed `{ a: NaN }` into `{ a: null }`. A runtime-derived type tag separates the number `0` from the string `"0"`.
+
+**The remaining collisions are limits of text, not defects**, and each is recorded in `lib/observe/describeClientValue.ts` and asserted AS a collision in the suite. Two families: `-0` against `0`, which has no distinct string form in any renderer; and every value `serializeError` stringifies during its own traversal — a `Date` inside one second, a `RegExp` differing only in `lastIndex`, and any nested `bigint`/`Map`/`Set`/`Date`/`RegExp`/`URL` against its own string form, because the runtime type tag reaches depth 0 only. Chasing the nested family means editing the ratified helper or re-implementing its traversal; chasing the rest means a precision rule per built-in type, which is the per-round widening this arc refused everywhere else.
+
+**§9 limit 10, recorded here as the spec assigns it: the `context`-only `clientLog` callers are outside the wire.** `components/realtime/ShowRealtimeBridge.tsx` (four sites) and `components/admin/dev/DevCaptureControl.tsx` pass their value as `context`, which `lib/observe/clientLog.ts` never mirrors to `app_events`. They cannot produce an `"[object Object]"` row because they produce no row at all. Nothing to repair, and the reason is worth keeping so a later reader does not re-derive it.
+
+**The `Error` path's dedup behaviour is unchanged, and its bytes are unchanged EXCEPT where they carried a secret.** The share-token scrub added late in review rewrites any field — `url`, `message`, `stack`, `componentStack` — that contains a crew URL, on every path including this one. That is the point of it. Absent a crew URL the bytes are identical. The key gains a trailing separator over an empty term, which is constant across every `Error` call, so no two previously-distinct keys merge and no two previously-equal keys split. The tests assert that behaviour rather than the key's bytes, because byte-identity is impossible here and asserting it would be asserting a falsehood.
+
+**Neither `CAPS` copy moved and the route did not change.** `detail` already existed on the transport and the route with a 500 cap; the projection rides the field that was already there.
+
 ## BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION — a clip ancestor that starts clipping is never observed, and the stale cap is silent — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 by `fix/fitwithinclip-stale-clip-subscription` · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, spec review R12 finding 1) · **Facing:** product · **Severity (as filed):** MEDIUM · **Class:** subscription freshness · **Effort (as shipped):** M · **Reachability:** PROBED, and the probe is the acceptance evidence below.

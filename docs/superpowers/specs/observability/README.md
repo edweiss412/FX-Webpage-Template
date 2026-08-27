@@ -41,3 +41,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-14-sync-observability-gaps-design.md`](./2026-08-14-sync-observability-gaps-design.md) | 2026-08-14 |
 | [`2026-08-15-sync-log-emit-guard-design.md`](./2026-08-15-sync-log-emit-guard-design.md) | 2026-08-15 |
 | [`2026-08-16-serialize-error-structure-design.md`](./2026-08-16-serialize-error-structure-design.md) | 2026-08-16 |
+| [`2026-08-26-observe-error-telemetry.md`](./2026-08-26-observe-error-telemetry.md) | 2026-08-26 |
+| [`probes`](./probes) | 2026-08-26 |
