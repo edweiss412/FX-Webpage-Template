@@ -43,7 +43,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:3800":
+  "components/admin/wizard/step3ReviewSections.tsx:3889":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -295,11 +295,15 @@ describe("the scanner's population is pinned against resolver drift", () => {
           .join("\n"),
       )
       .digest("hex");
-    // Regenerated 2026-08-26 for feat/nearmiss-surface, and the delta was READ before
-    // it was replaced, which is what "deliberately" means here: membership is unchanged
-    // at 35 both sides, and exactly ONE row moved, step3ReviewSections.tsx 3755 -> 3800,
-    // same file, same form, same marked state. A pure line shift from insertions above it.
-    expect(digest).toBe("8b2d031d8908348eae2947d704dca1b57d90be10702f46ad4edcf8cc9c62598e");
+    // Regenerated 2026-08-27 for perf/admin-diagram-next-image, and the delta was READ
+    // before it was replaced, which is what "deliberately" means here: membership is
+    // unchanged at 35 both sides, and exactly ONE row moved, step3ReviewSections.tsx
+    // 3800 -> 3889 (`unknown:false` both sides), a pure line shift from the
+    // `DIAGRAM_TILE_SIZES` / `diagramTileWidthAt` block inserted above it.
+    //
+    // The prior regeneration, 2026-08-26 for feat/nearmiss-surface, was the same shape:
+    // 35 both sides, one row moving 3755 -> 3800.
+    expect(digest).toBe("a86894119999319958a5668cf2c9fd5a68a7439fe9e31c755a1e85c1cdfa0b0f");
   });
 });
 

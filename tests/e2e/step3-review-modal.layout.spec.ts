@@ -598,10 +598,12 @@ for (const { mode, width, height, maxRatio } of MODES) {
         const img = el.querySelector("img");
         if (!img) return null;
         const cs = getComputedStyle(el);
+        const ics = getComputedStyle(img);
         const a = el.getBoundingClientRect();
         const i = img.getBoundingClientRect();
         return {
           position: cs.position,
+          imgBorderLeft: parseFloat(ics.borderLeftWidth),
           borderLeft: parseFloat(cs.borderLeftWidth),
           borderRight: parseFloat(cs.borderRightWidth),
           borderTop: parseFloat(cs.borderTopWidth),
@@ -621,15 +623,16 @@ for (const { mode, width, height, maxRatio } of MODES) {
 
     expect(b.position, `tile anchor is a positioned containing block @ ${mode}`).toBe("relative");
 
-    // The anchor carries the tile's border. Pinned on its own merits: removing
-    // the border from the anchor is a visible regression on a bordered grid of
-    // thumbnails, and nothing else in this suite would notice. It is NOT here to
-    // discriminate WHERE the border lives — an image-side border renders in the
-    // same place, measured, and the plan records that mechanism claim as
-    // disproved rather than softened.
+    // The IMAGE carries the tile's border, which is where it has always been.
+    // Pinned on its own merits: removing it is a visible regression on a bordered
+    // grid of thumbnails and nothing else in this suite would notice. It is NOT
+    // here to discriminate WHERE the border lives — measured, an anchor-side
+    // border renders in the same place — but the image is where spec §15's
+    // painted-child family counts it, and a next/image adoption is not the arc
+    // that moves it.
     expect(
-      b.borderLeft,
-      `tile anchor carries its own border, so the grid stays bordered @ ${mode}`,
+      b.imgBorderLeft,
+      `tile image carries its own border, so the grid stays bordered @ ${mode}`,
     ).toBeGreaterThan(0);
 
     const padW = b.anchorW - b.borderLeft - b.borderRight;

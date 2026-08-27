@@ -3914,20 +3914,18 @@ export function DiagramTile({
         strippedAlt ? `${strippedAlt} (opens in a new tab)` : "Staged diagram (opens in a new tab)"
       }
       data-testid={testId}
-      /* `relative` makes the anchor the image's containing block. Without it a
-         `fill` image resolves against the modal panel, which IS positioned, and
-         one thumbnail covers the whole dialog — measured at all three modes.
+      /* `relative` and the aspect box are REQUIRED, and only these: without a
+         positioned ancestor a `fill` image resolves against the modal panel,
+         which IS positioned, and one thumbnail covers the whole dialog —
+         measured at all three modes.
 
-         The box chrome lives here rather than on the image for CONSISTENCY with
-         the crew gallery (components/diagrams/Gallery.tsx:351), not for
-         correctness. An earlier draft claimed a `fill` image insets against the
-         padding box so an image-side border "would no longer bound the tile";
-         that is false and was measured false — with no border on the anchor its
-         padding box IS its border box, so both arrangements render the same and
-         both pass every geometry assertion. Kept as written because one
-         arrangement across the two diagram surfaces is worth having; not kept
-         because the other one breaks. */
-      className="relative block aspect-4/3 w-full overflow-hidden rounded-md border border-text-faint bg-surface-sunken"
+         The tile's chrome deliberately STAYS on the image. Moving it here would
+         match the crew gallery's arrangement, and mutant (b) measured that the
+         two render identically — which is exactly why this arc does not do it:
+         a next/image adoption has no business moving an element out of the
+         painted-child family that spec §15 table 3 counts. Consistency may be
+         worth having; it is not this row's to take. */
+      className="relative block aspect-4/3 w-full overflow-hidden"
     >
       <Image
         loader={loader}
@@ -3936,7 +3934,7 @@ export function DiagramTile({
         fill
         sizes={sizes}
         onError={() => setFailed(true)}
-        className="object-cover"
+        className="rounded-md border border-text-faint bg-surface-sunken object-cover"
       />
     </a>
   );

@@ -302,11 +302,11 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    line: 3820,
+    line: 3909,
     tag: "a",
     category: "full-bleed",
     reason:
-      "`block` link wrapping the staged-diagram preview image, so its box is the image's — far taller than 44px.",
+      "`relative block aspect-4/3 w-full` link wrapping the diagram preview image, which is a `fill` child of it — the anchor IS the tile box, measured 97px tall at the 390px sheet and 170px on desktop, so far past 44px. Note for anyone reading this after a diff that moves the tile's border: the tile's CHROME (`rounded-md border border-text-faint bg-surface-sunken`) lives on the IMAGE, and it moving does not affect this row. What makes the anchor full-bleed is the LAYOUT — `relative` plus the aspect box plus a `fill` child — and 2026-08-27 saw exactly that confusion, where the chrome moved to the anchor and back while this row stayed correct throughout.",
   },
   {
     file: "components/diagrams/Gallery.tsx",
