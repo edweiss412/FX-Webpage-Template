@@ -129,7 +129,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   // files import DIRECTLY at runtime. Depth 1, not the transitive closure: a
   // module a rendered file imports directly is on the render path, while one
   // four hops behind it is in the same module graph for reasons that have
-  // nothing to do with rendering. Measured -- depth 1 is 213 lib files and 13
+  // nothing to do with rendering. Measured -- depth 1 is 214 lib files and 13
   // violations, unbounded is 396 and 31, the whole directory is 532 and 55; all
   // three reach the survivor, and every violation unbounded depth adds sits in a
   // module whose only app/ importers are under app/api/** or a cron path.
@@ -180,7 +180,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 213 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 214 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -189,11 +189,25 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     const rel = libFiles.map((f) => relative(process.cwd(), f));
     expect(rel).toContain("lib/log/index.ts");
     expect(rel).toContain("lib/parser/index.ts");
-    // 212 -> 213 (fix/observe-error-telemetry): components/observe/GlobalErrorListener.tsx
-    // is a rendered file and now imports lib/observe/describeClientValue.ts directly,
-    // so that module joins the depth-1 population. It makes no time call, and the
-    // violation count below is unchanged at 13.
-    expect(rel.length).toBe(213);
+    // 212 -> 214 (fix/observe-error-telemetry): components/observe/GlobalErrorListener.tsx
+    // is a rendered file and now imports TWO lib/observe modules directly, so both
+    // join the depth-1 population. Neither makes a time call, and the violation
+    // count below is unchanged at 13.
+    //
+    // The count moved by two rather than one, which is worth stating because the
+    // first attempt at this number said 213 and named only describeClientValue.
+    // That module is new; clientErrorTransport.ts already existed on main and was
+    // reached only at depth 2 or deeper, so it looked like a member already and
+    // was not. Both were verified absent from the population at origin/main by
+    // the same derivation, not reasoned about: neither module has a single
+    // depth-1 importer under components/ or app/admin/ there.
+    //
+    // Asserted by containment as well as by the count, per the case above: a root
+    // count alone cannot say WHICH member joined, and it passes just as happily on
+    // a widening that swapped one member for another.
+    expect(rel).toContain("lib/observe/describeClientValue.ts");
+    expect(rel).toContain("lib/observe/clientErrorTransport.ts");
+    expect(rel.length).toBe(214);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON
