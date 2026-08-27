@@ -13320,6 +13320,7 @@ No `BL-`/`DEF-` row was filed in either direction (Eric's directive, 2026-08-25)
 **The `Error` path's dedup behaviour is unchanged, and its bytes are unchanged EXCEPT where they carried a secret.** The share-token scrub added late in review rewrites any field — `url`, `message`, `stack`, `componentStack` — that contains a crew URL, on every path including this one. That is the point of it. Absent a crew URL the bytes are identical. The key gains a trailing separator over an empty term, which is constant across every `Error` call, so no two previously-distinct keys merge and no two previously-equal keys split. The tests assert that behaviour rather than the key's bytes, because byte-identity is impossible here and asserting it would be asserting a falsehood.
 
 **Neither `CAPS` copy moved and the route did not change.** `detail` already existed on the transport and the route with a 500 cap; the projection rides the field that was already there.
+
 ## BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION — a clip ancestor that starts clipping is never observed, and the stale cap is silent — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 by `fix/fitwithinclip-stale-clip-subscription` · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, spec review R12 finding 1) · **Facing:** product · **Severity (as filed):** MEDIUM · **Class:** subscription freshness · **Effort (as shipped):** M · **Reachability:** PROBED, and the probe is the acceptance evidence below.
