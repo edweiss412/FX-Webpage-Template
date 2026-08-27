@@ -13,6 +13,33 @@
 // by this file on the day it lands rather than on the day someone remembers. The scan is a
 // fixed JSX tag name and two attribute literals over `app/` + `components/`; it classifies
 // nothing and must not grow into something that does.
+//
+// WHAT THIS FILE CLAIMS, stated exactly, because two review rounds pushed on the edges of a
+// looser claim: every DIRECT `<TelemetryRetryButton …>` usage in `app/` + `components/` is
+// the canonical two-literal-prop self-closing form, there are exactly three of them, and
+// each stands on its own warning plate with the shared container layout. Total over direct
+// usage, and the tag-mention bridge below is what makes it total there.
+//
+// DOCUMENTED LIMIT — indirect usage is outside the claim, and deliberately so.
+// `const Retry = TelemetryRetryButton;` then `<Retry what="…" testId="…" />` is valid JSX
+// that ships a fourth control while both counts here stay at three. Probed 2026-08-27 on
+// this branch: planted at `EventTimeline.tsx`, this suite reported 7 passed and
+// `eventTimeline.test.tsx` reported 6 passed, so nothing on the branch sees it.
+// `React.createElement(TelemetryRetryButton, …)` and any dynamic dispatch are outside it for
+// the same reason.
+//
+// Not repaired, and the direction is the point. Closing it means resolving identifiers,
+// which is a TSX AST walk with import-binding and ancestor association — a recognizer, and a
+// bigger target for the next round than the thing it replaced. Review round 1 raised prop
+// SHAPES and round 2 raised ALIASING; one input family per round against a growing parser is
+// the shape this repo's repair-direction rule says to stop rather than feed. The threat this
+// guard defends against is an ordinary authoring mistake: a contributor adding a fourth
+// fallback writes the tag, and the tag is what this file counts. Aliasing a component to add
+// a second retry to one fallback is deliberate indirection, not a slip.
+//
+// RE-FILE TRIGGER: any indirect usage of this component appearing in the live tree, or a
+// second component in this directory needing the same census, which would make an AST-based
+// helper pay for itself across more than one caller.
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -95,7 +122,7 @@ describe("TelemetryRetryButton call sites", () => {
     expect(tagMentions).toBe(found.length);
   });
 
-  it("every fallback of this shape has one, and there are three of them", () => {
+  it("every DIRECT tag usage is a canonical call site, and there are three of them", () => {
     // The literal 3 on purpose: asserted against a count derived from `found` this case
     // would pass after a site was deleted, which is the regression it exists to catch.
     expect(found.length).toBe(3);
@@ -119,8 +146,13 @@ describe("TelemetryRetryButton call sites", () => {
     for (const site of found) {
       const plate = plateFor(site);
       expect(plate, `${site.testId} has no plate className before it`).not.toBeNull();
+      // TOKENS, not substrings. `toContain("flex")` was satisfied by `flex-col`, so a plate
+      // that had lost its standalone `flex` still passed at all three sites — and without
+      // `display:flex` the `gap-2` this check exists to protect is inert, which is exactly
+      // the regression it was written to catch.
+      const tokens = new Set(plate!.split(/\s+/).filter(Boolean));
       for (const cls of ["flex", "flex-col", "items-start", "gap-2"]) {
-        expect(plate!, `${site.testId} plate is missing ${cls}`).toContain(cls);
+        expect([...tokens], `${site.testId} plate is missing the ${cls} token`).toContain(cls);
       }
     }
   });
