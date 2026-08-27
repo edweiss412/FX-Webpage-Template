@@ -9,6 +9,14 @@ import { OPERATOR_NAMES, type OperatorName } from "./operators";
  * Enrollment is opt-in, one explicit row per surface. There is no discovery and
  * no inference from path or filename: a surface not listed here is untouched by
  * the harness.
+ *
+ * DOCUMENTED LIMIT — accepted-row siteIds are LINE-KEYED, so a formatter moves
+ * them. Verify them AFTER any commit hook that reformats, and re-key by mutant
+ * KIND + TEXT rather than by position: `score()` drops ledgered equivalents from
+ * the DENOMINATOR, so a mis-keyed row counts its mutant against the surface
+ * twice — once as an unaccepted survivor and once in the denominator. Measured
+ * 2026-08-27: 37 re-keys across three runs on feat/speclint-ac-unclaimed-arm,
+ * and f353ea4fb on fix/typo-v4-venue-shape the same night.
  */
 export type GuardSurface = {
   id: string;
