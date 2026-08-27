@@ -10,7 +10,7 @@
 // distinct signatures. The counts here are the counts of the tables below — an
 // earlier version said "four of 25" after the tables had grown.
 import { describe, expect, test } from "vitest";
-import { describeClientValue } from "@/lib/observe/describeClientValue";
+import { describeClientValue, tag } from "@/lib/observe/describeClientValue";
 
 // The signature the transport builds for a non-`Error` value: no stack, and
 // `detail` sliced at 200 (lib/observe/clientErrorTransport.ts §6.4).
@@ -215,5 +215,27 @@ describe("describeClientValue — the collision corpus (spec §6.2)", () => {
     // type before render sees it. Claiming any of these discriminate would be a
     // lie, and a test making that claim would fail the moment someone checked.
     expect(collides(a, b)).toBe(true);
+  });
+});
+
+describe("tag — the constructor read is a TYPE check, not a name lookup", () => {
+  test("an object carrying its own `constructor` key does not get a fabricated tag", () => {
+    // `typeof ctor === "function" && ctor.name` survived `&&` → `||`, and the
+    // mutant is not harmless: it reads `.name` off whatever sits at `.constructor`,
+    // so a crash object with a `constructor` field of its own gets tagged with a
+    // name it invented. That shape is ordinary — an object literal may carry any
+    // key — so this is a wrong tag on real input, not a hostile fixture.
+    const carrying = { constructor: { name: "Fake" }, a: 1 };
+    expect(tag(carrying)).toBe("object");
+    expect(describeClientValue(carrying).detail).toBe(
+      'object {"constructor":{"name":"Fake"},"a":1}',
+    );
+  });
+
+  test("a genuine class still contributes its constructor name", () => {
+    class Planted {
+      a = 1;
+    }
+    expect(tag(new Planted())).toBe("Planted");
   });
 });

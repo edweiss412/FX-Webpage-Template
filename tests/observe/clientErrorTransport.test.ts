@@ -565,13 +565,21 @@ describe("clientErrorTransport — the numbers the mutation score found unpinned
       .spyOn(globalThis, "location", "get")
       .mockReturnValue(new URL(`https://x.test/show/gala/${SECRET}`) as unknown as Location);
     try {
+      // The WHOLE token, by EQUALITY. The prefix loop starts one below the full
+      // length, so on its own it would leave the final character behind — which a
+      // not-contains assertion cannot tell apart from a clean scrub. Deleting the
+      // exact pass above survived until this line existed.
+      expect(scrubShareTokens(SECRET)).toBe("[share-token-redacted]");
+      expect(scrubShareTokens(`before ${SECRET} after`)).toBe(
+        "before [share-token-redacted] after",
+      );
       expect(scrubShareTokens(`x ${SECRET.slice(0, 16)} y`)).not.toContain(SECRET.slice(0, 16));
       expect(scrubShareTokens(`x ${SECRET.slice(0, 15)} y`)).toContain(SECRET.slice(0, 15));
-      // The loop starts at length-1, so a run one character short of the whole
-      // token is scrubbed too.
-      expect(scrubShareTokens(SECRET.slice(0, SECRET.length - 1))).not.toContain(
-        SECRET.slice(0, 16),
-      );
+      // The loop starts at length MINUS ONE exactly. A run one character short of
+      // the whole token must vanish COMPLETELY: starting one lower replaces a
+      // length-minus-two prefix and leaves the odd character, so this is asserted
+      // by equality for the same reason as above.
+      expect(scrubShareTokens(SECRET.slice(0, SECRET.length - 1))).toBe("[share-token-redacted]");
       // And it scrubs from index 0: the leading character goes with the rest.
       expect(scrubShareTokens(`<${SECRET.slice(0, 20)}>`)).toBe("<[share-token-redacted]>");
     } finally {

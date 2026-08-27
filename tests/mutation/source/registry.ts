@@ -3980,4 +3980,61 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  {
+    id: "clientErrorTransport",
+    // Enrolled by this arc because the surface's defect class is exactly the one the
+    // registry exists to catch: it REPORTS a scrubbed string while the secret is still
+    // in it. Three consecutive diff rounds each produced a P0 here — a pathname-only
+    // match, then a route-shape pattern that missed a duplicate copy, then a truncation
+    // running BEFORE the scrub — and all three passed every test that existed at the
+    // time. A score over a closed operator set is the claim that terminates; "no
+    // escaping input exists" is the one that does not.
+    sourcePath: "lib/observe/clientErrorTransport.ts",
+    suitePaths: ["tests/observe/clientErrorTransport.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // MEASURED by scripts/mutation-score-surfaces.ts on the enrolling run: 115s of child
+    // wall clock over 65 MODELLED boots. The shard partition is priced in this, so a
+    // guessed number would weight the partition by something nobody measured.
+    millisPerBoot: 1766,
+    // Flips the prefix scrub's floor comparison so the loop runs one iteration short
+    // of the shortest prefix it must replace. A live behaviour change on the exact
+    // branch diff review R3 added, and the suite asserts a 20-character prefix is gone.
+    control: { from: "n >= TOKEN_PREFIX_FLOOR", to: "n > TOKEN_PREFIX_FLOOR" },
+    accepted: [],
+  },
+  {
+    id: "describeClientValue",
+    // The other half of this arc's product change. Its defect class is the same shape:
+    // it returns a `message` and a `detail` that LOOK like a description while the value
+    // they describe has collapsed — "[object Object]" was the shipped instance, and the
+    // collision corpus is the general form.
+    sourcePath: "lib/observe/describeClientValue.ts",
+    suitePaths: ["tests/observe/describeClientValue.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // MEASURED on the same run: 29s over 22 modelled boots.
+    millisPerBoot: 1329,
+    // Drops the empty-string guard, so a field present but empty starts joining into
+    // the message. The suite pins the exact message for that case.
+    control: { from: 'typeof v === "string" && v !== ""', to: 'typeof v === "string"' },
+    accepted: [
+      {
+        siteId: 'statement-removal:123:5:detail = "";>(removed)',
+        kind: "equivalent",
+        reason:
+          'The `catch { detail = ""; }` arm around the tag-and-render block. Removing the ' +
+          "assignment is unobservable because the arm is unreachable: `tag` is total (its " +
+          "`.constructor` read is itself wrapped), and `render` walks a value `serializeError` " +
+          "has ALREADY reduced, so every leaf it calls `String()` on is a primitive. The two " +
+          "constructs that could throw during a walk were probed directly against the shipped " +
+          "function — a leaf whose `toString` throws and one whose `valueOf` and `toString` both " +
+          "throw — and serializeError degrades each to `{}` before render sees it, so both " +
+          'return `{"a":{}}` rather than reaching the catch. The arm is kept as the module\'s ' +
+          "totality guarantee, which is the whole contract of a projection that runs on a crash " +
+          "path. VOIDED IF: `render` gains a call that can throw on a reduced value, or " +
+          "serializeError's own reduction stops being total.",
+      },
+    ],
+  },
 ];
