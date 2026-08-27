@@ -446,7 +446,9 @@ export type Residue = {
 };
 
 export function residueOf(rootDir: string, oracle: Oracle): Residue {
-  const admitted = scanInteractiveElements(rootDir);
+  // Spec §7.1: this guard drives the sweep, so it reads BOTH declared axes.
+  // The other four consumers keep the default and spec §7.3 to §7.6 say why.
+  const admitted = scanInteractiveElements(rootDir, { textEntry: true, paintedChildren: true });
   const paint = classify(oracle, tokensOf(admitted));
   const elements = admitted.filter((el) => isResidue(el, paint));
   const keys = new Map<string, number>();
@@ -461,6 +463,7 @@ export function residueOf(rootDir: string, oracle: Oracle): Residue {
 
 export type ResidueCategory =
   | "switch-track"
+  | "inner-chrome"
   | "side-divider"
   | "focus-state-chrome"
   | "responsive-skin-filed"
@@ -469,6 +472,7 @@ export type ResidueCategory =
 
 export const RESIDUE_CATEGORIES: readonly ResidueCategory[] = [
   "switch-track",
+  "inner-chrome",
   "side-divider",
   "focus-state-chrome",
   "responsive-skin-filed",
@@ -670,6 +674,30 @@ export function validateRow(
       );
   }
 
+  /**
+   * `inner-chrome` (spec §8): non-interactive chrome painted INSIDE a control.
+   *
+   * The STRUCTURAL half is the one with teeth and it reads the LIVE element,
+   * not the row: a row is refused when its element is in scope on its own,
+   * which is what stops a real control being parked here. The FORM half is the
+   * same pair `switch-track` demands, and it is form for the same reason:
+   * whether a painted child is chrome or the control's own visual is a RULING
+   * (`DESIGN.md` §1.2a's scope paragraph), not a property this module may grow
+   * a predicate for. A false citation costs its author a false citation.
+   */
+  if (row.category === "inner-chrome") {
+    if (el.admittedAs !== "painted-child")
+      problems.push(
+        `${row.file}: inner-chrome element is in scope on its own; it is a control, not chrome inside one`,
+      );
+    if (!/DESIGN\.md §1\.2a/.test(row.reason))
+      problems.push(`${row.file}: inner-chrome reason must cite DESIGN.md §1.2a`);
+    if (!/\d\.\d\d:1 light \/ \d\.\d\d:1 dark/.test(row.reason))
+      problems.push(
+        `${row.file}: inner-chrome reason must record the ratio as n.nn:1 light / n.nn:1 dark`,
+      );
+  }
+
   if (row.category === "side-divider") {
     for (const alternative of alternatives) {
       if (!alternative.some(weakOn)) continue;
@@ -735,6 +763,7 @@ export function validateRow(
 /** One line per category, naming its bar. The failure message is the guard's whole interface. */
 export const CATEGORY_BARS: readonly string[] = [
   "switch-track: exactly two alternatives, each with exactly one fill and one outline colour declaration; reason cites DESIGN.md §1.2a and records the OFF ring ratio as n.nn:1 light / n.nn:1 dark",
+  "inner-chrome: the element was admitted as a painted child and is not in scope on its own; reason cites DESIGN.md §1.2a and records the ratio as n.nn:1 light / n.nn:1 dark",
   "side-divider: every border token is a side width (border-t/b/l/r, optionally -<n>) or the weak colour itself; reason names the side utility",
   "focus-state-chrome: every weak token carries focus: or focus-visible:, and the element carries a focus ring token; reason states what carries the focus indication",
   "responsive-skin-filed: every weak token carries a responsive variant; backlogRef resolves to a ## heading whose body names this file",
@@ -930,5 +959,122 @@ export const RESIDUE_CENSUS: readonly ResidueRow[] = [
     category: "side-divider",
     reason:
       "border-t separates the strip from the content above it; a divider, not a control outline",
+  },
+
+  // ---------------------------------------------------------------------------
+  // 2026-08-26 — the twelve the WIDENED cover admitted and the sweep did not move
+  // (spec 2026-08-26-control-outline-cover-widening-design.md §6.2).
+  //
+  // Two switch tracks, both painted on a nested <span>, which is why an
+  // element-level census reported three of the five paths. `AutoRefreshControl`
+  // is a lexical child of its button and `DeveloperToggleButton` is inside a
+  // component the button renders, so they arrive by the two different
+  // mechanisms spec §5.2 names. The 2026-08-16 ruling is untouched: becoming
+  // VISIBLE to the cover is a registration duty, not a reopening.
+  //
+  // Ten `inner-chrome`: non-interactive chrome painted INSIDE a control. Each
+  // stands on the treatment DESIGN.md §1.2a's scope paragraph already gives
+  // status emphasis by name, and each ratio is recorded rather than required —
+  // SC 1.4.11 does not reach a non-interactive element, exactly as DESIGN.md:190
+  // records `--color-border`'s below-floor before-state.
+  // ---------------------------------------------------------------------------
+  {
+    file: "components/admin/telemetry/AutoRefreshControl.tsx",
+    tag: "span",
+    paint: ["bg-accent border border-accent-edge", "bg-surface-sunken border border-border-strong"],
+    category: "switch-track",
+    reason:
+      "the OFF state's ring is the ruled exemption for switch tracks (DESIGN.md §1.2a); it measures 1.43:1 light / 1.75:1 dark, and the ruling keeps the recipe in both states",
+  },
+  {
+    file: "components/admin/settings/DeveloperToggleButton.tsx",
+    tag: "span",
+    paint: ["bg-accent border border-accent-edge", "bg-surface-sunken border border-border-strong"],
+    category: "switch-track",
+    reason:
+      "the OFF state's ring is the ruled exemption for switch tracks (DESIGN.md §1.2a); it measures 1.43:1 light / 1.75:1 dark, and the ruling keeps the recipe in both states",
+  },
+  {
+    file: "components/admin/IgnoredSheetsDisclosure.tsx",
+    tag: "span",
+    paint: ["bg-warning-bg border border-border-strong"],
+    category: "inner-chrome",
+    reason:
+      "the degraded chip inside the disclosure summary; status emphasis on non-interactive chrome, which DESIGN.md §1.2a preserves border-strong for by name; 1.44:1 light / 1.19:1 dark against its own warning-bg fill",
+  },
+  {
+    file: "components/admin/IgnoredSheetsDisclosure.tsx",
+    tag: "span",
+    paint: ["bg-surface-sunken border border-border"],
+    category: "inner-chrome",
+    reason:
+      "the ignored-count chip inside the same summary; a count pill, not the control's boundary (DESIGN.md §1.2a); 1.15:1 light / 1.38:1 dark against its own surface-sunken fill",
+  },
+  {
+    file: "components/admin/RecentAutoAppliedStrip.tsx",
+    tag: "span",
+    paint: ["bg-surface border border-border"],
+    category: "inner-chrome",
+    reason:
+      "the per-show change count inside the strip's disclosure button; a count pill, not the control's boundary (DESIGN.md §1.2a); 1.27:1 light / 1.27:1 dark against its own surface fill",
+  },
+  {
+    file: "components/admin/nav/AdminNav.tsx",
+    tag: "span",
+    paint: ["bg-surface-raised border border-border"],
+    category: "inner-chrome",
+    reason:
+      "the decorative Admin pill inside the brand Link, which the link's own comment calls decorative; not the link's boundary (DESIGN.md §1.2a); 1.27:1 light / 1.19:1 dark against its own surface-raised fill",
+  },
+  {
+    file: "components/admin/ShowsTable.tsx",
+    tag: "span",
+    paint: ["border border-border"],
+    category: "inner-chrome",
+    reason:
+      "the auto-fixed signal chip on the row title area; a status chip, not the row control's boundary (DESIGN.md §1.2a); 1.27:1 light / 1.27:1 dark against the row card's surface ground, which it does not fill",
+  },
+  {
+    file: "components/admin/wizard/step3ReviewSections.tsx",
+    tag: "span",
+    paint: ["bg-surface-sunken border border-border"],
+    category: "inner-chrome",
+    reason:
+      "the pack-case count pill; a count pill, not the control's boundary (DESIGN.md §1.2a); 1.15:1 light / 1.38:1 dark against its own surface-sunken fill",
+  },
+  {
+    file: "components/admin/UnarchiveShowButton.tsx",
+    tag: "p",
+    paint: ["bg-warning-bg border border-border-strong"],
+    category: "inner-chrome",
+    reason:
+      "a role=alert failure banner that happens to render inside ShareHub's onClick div; being inside a click target does not make an alert a control boundary, and DESIGN.md §1.2a preserves border-strong for status emphasis; 1.44:1 light / 1.19:1 dark against its own warning-bg fill",
+  },
+  {
+    file: "components/admin/ArchiveShowButton.tsx",
+    tag: "div",
+    paint: ["bg-warning-bg border border-border-strong"],
+    category: "inner-chrome",
+    reason:
+      "the error-code banner, same shape and same reason as its Unarchive sibling: a role=alert status surface inside a click target (DESIGN.md §1.2a); 1.44:1 light / 1.19:1 dark against its own warning-bg fill",
+  },
+  {
+    file: "components/admin/ArchiveShowButton.tsx",
+    tag: "p",
+    paint: ["bg-warning-bg border border-border-strong"],
+    category: "inner-chrome",
+    reason:
+      "the not-found banner; a role=alert status surface inside a click target (DESIGN.md §1.2a); 1.44:1 light / 1.19:1 dark against its own warning-bg fill",
+  },
+  {
+    file: "components/admin/ArchiveShowButton.tsx",
+    tag: "p",
+    paint: ["bg-warning-bg border border-border-strong"],
+    category: "inner-chrome",
+    // The generic-error banner. It shares a KEY with the not-found row above
+    // (same file, same tag, same paint), so the census needs TWO rows at that
+    // key: `validateCensus` compares multiplicities, not membership.
+    reason:
+      "the generic-error banner; a role=alert status surface inside a click target (DESIGN.md §1.2a); 1.44:1 light / 1.19:1 dark against its own warning-bg fill",
   },
 ];

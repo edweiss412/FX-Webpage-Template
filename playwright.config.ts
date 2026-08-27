@@ -80,7 +80,7 @@ export default defineConfig({
       // links an operator taps from a load-out card. Its dot is escaped so the
       // alternative cannot match a neighbouring basename.
       testMatch:
-        /(font-rendering-census|sample|crew-page|tap-target-inline-controls\.layout|crew-section-toggle|report-modal|canonical-class-dimensions|crew-layout-dimensions|admin-layout-dimensions|admin-nav-layout-dimensions|theme-toggle|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
+        /(font-rendering-census|sample|crew-page|tap-target-inline-controls\.layout|crew-section-toggle|report-modal|canonical-class-dimensions|crew-layout-dimensions|admin-layout-dimensions|admin-nav-layout-dimensions|control-outline-dimensions\.layout|control-outline-contrast\.live|control-outline-pill\.route|theme-toggle|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },

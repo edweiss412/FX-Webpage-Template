@@ -11,6 +11,7 @@ import {
   scanInteractiveElements,
   themeBlocks,
   type ScanElement,
+  type ScanOptions,
 } from "./interactiveScanCore";
 
 /**
@@ -42,13 +43,14 @@ const el = (over: Partial<ScanElement>): ScanElement => ({
   // Default FALSE, deliberately: the allowlist is an identity the scanner
   // resolves from an import, so a unit case has to claim it on purpose.
   allowlisted: false,
+  admittedAs: "element",
   ...over,
 });
 
 // Fixture harness (plan R2 F3): the resolver is ALSO exercised end-to-end through temp files,
 // so a flattening scanner or first-wins lookup cannot stay green on unit cases alone.
-function scanFixture(source: string) {
-  return scanFixtureFiles({ "components/Fx.tsx": source });
+function scanFixture(source: string, options?: ScanOptions) {
+  return scanFixtureFiles({ "components/Fx.tsx": source }, options);
 }
 
 /**
@@ -56,7 +58,7 @@ function scanFixture(source: string) {
  * only be expressed across real files, and every one of those was a surviving
  * mutant until this existed (2026-08-15 mutation run).
  */
-function scanFixtureFiles(files: Record<string, string>) {
+function scanFixtureFiles(files: Record<string, string>, options?: ScanOptions) {
   const dir = trackScratch(mkdtempSync(join(tmpdir(), "scan-fixture-")));
   mkdirSync(join(dir, "components"), { recursive: true });
   mkdirSync(join(dir, "app"), { recursive: true });
@@ -65,8 +67,733 @@ function scanFixtureFiles(files: Record<string, string>) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, source);
   }
-  return scanInteractiveElements(dir);
+  return scanInteractiveElements(dir, options);
 }
+
+/**
+ * The `textEntry` axis (spec §4, §5.3).
+ *
+ * The DEFAULT case is not decoration: it is the half that proves the flag is
+ * what admits these kinds, rather than some unrelated widening. Without it the
+ * `textEntry: true` case passes on a scanner that admits text-entry
+ * unconditionally, which is the change the four default-reading consumers
+ * (spec §7.3 to §7.6) must never see.
+ */
+describe("ScanOptions.textEntry (spec §4 D1, §5.3)", () => {
+  const FIXTURE = `
+    export function Fx({ kind }: { kind: string }) {
+      return (
+        <div>
+          <textarea className="ta" />
+          <select className="se" />
+          <input type="email" className="em" />
+          <input type={kind} className="dyn" />
+          <input type="checkbox" className="cb" />
+          <button className="btn">go</button>
+        </div>
+      );
+    }
+  `;
+  const kinds = (els: ScanElement[]) => els.map((e) => e.tag).sort();
+
+  it("admits textarea, select and input at ANY type when the flag is on", () => {
+    const els = scanFixture(FIXTURE, { textEntry: true });
+    expect(kinds(els)).toEqual(["button", "input", "input", "input", "select", "textarea"]);
+    // The dynamic type is admitted WITHOUT reading it (§5.3): a `type={expr}`
+    // the resolver cannot read is in scope, not demoted out of scope.
+    expect(
+      allStrings(els.find((e) => e.tag === "input" && allStrings(e).includes("dyn"))!),
+    ).toContain("dyn");
+  });
+
+  it("admits NONE of them at the default, and still admits checkbox and button", () => {
+    expect(kinds(scanFixture(FIXTURE))).toEqual(["button", "input"]);
+    expect(kinds(scanFixture(FIXTURE, {}))).toEqual(["button", "input"]);
+    expect(kinds(scanFixture(FIXTURE, { textEntry: false }))).toEqual(["button", "input"]);
+  });
+
+  it("reads the flag by identity, so a truthy non-true value does not widen", () => {
+    // `=== true`, never truthiness (§5.3 guard conditions). A cast is the only
+    // way to express the mistake this pins, and the mistake is what a caller
+    // threading an untyped config would make.
+    const els = scanFixture(FIXTURE, { textEntry: 1 as unknown as boolean });
+    expect(kinds(els)).toEqual(["button", "input"]);
+  });
+});
+
+/**
+ * AC-1: with both flags off the cover is what it was.
+ *
+ * The EXACT comparison against `b30413cf5` is a task-time verification whose
+ * transcript is in the commit (plan Task 1): pinned here it would red on every
+ * unrelated PR that adds a control, which is why every live premise in this
+ * corpus uses a floor rather than an equality. What ships is the structural
+ * claim, which survives corpus growth and says the same thing.
+ */
+describe("AC-1 the default cover is unchanged", () => {
+  it("admits no painted child and no text-entry kind over the live corpus", () => {
+    const live = scanInteractiveElements(process.cwd());
+    premiseHolds("corpus has >=300 in-scope elements", live.length >= 300);
+    expect(live.filter((e) => e.tag === "textarea" || e.tag === "select")).toEqual([]);
+    // The painted-child half of this claim lands with `admittedAs` in Task 2.
+  });
+
+  it("is not vacuous: the same fixture holds one of each kind the default excludes", () => {
+    const FIXTURE = `
+      export function Fx() {
+        return (
+          <button className="b">
+            <textarea className="ta" />
+            <select className="se" />
+            <input type="email" className="em" />
+          </button>
+        );
+      }
+    `;
+    expect(scanFixture(FIXTURE).map((e) => e.tag)).toEqual(["button"]);
+    expect(
+      scanFixture(FIXTURE, { textEntry: true })
+        .map((e) => e.tag)
+        .sort(),
+    ).toEqual(["button", "input", "select", "textarea"]);
+  });
+});
+
+/**
+ * The `paintedChildren` axis (spec §5, D2).
+ *
+ * Family B's principle is that paint landing on a child rather than on the
+ * interactive element is not a reason to treat it differently, so the child is
+ * admitted as its OWN element, anchored on its own opening tag. Both censuses
+ * then stay keyed the way they already key.
+ */
+describe("ScanOptions.paintedChildren (spec §5 D2, §5.3)", () => {
+  const ON = { paintedChildren: true } as const;
+  const at = (els: ScanElement[], tag: string) => els.filter((e) => e.tag === tag);
+
+  it("admits a className-carrying child of an in-scope element, on its OWN line", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        return (
+          <button className="outer">
+            <span className="painted" />
+          </button>
+        );
+      }`,
+      ON,
+    );
+    const child = at(els, "span")[0];
+    expect(child).toBeDefined();
+    expect(allStrings(child!)).toEqual(["painted"]);
+    expect(child!.admittedAs).toBe("painted-child");
+    // Its own opening tag, not the parent's: the fill census keys on file+line.
+    expect(child!.line).toBeGreaterThan(at(els, "button")[0]!.line);
+  });
+
+  it("does NOT admit a child without a className", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        return (
+          <button className="outer">
+            <span />
+          </button>
+        );
+      }`,
+      ON,
+    );
+    expect(at(els, "span")).toEqual([]);
+  });
+
+  it("admits a nested in-scope element ONCE, as an element", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        return (
+          <button className="outer">
+            <button className="inner">x</button>
+          </button>
+        );
+      }`,
+      ON,
+    );
+    expect(at(els, "button").map((e) => e.admittedAs)).toEqual(["element", "element"]);
+  });
+
+  it("does NOT admit JSX inside an ATTRIBUTE of an in-scope element (limit L2)", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        return <button className="outer" title={<span className="in-attr" />} />;
+      }`,
+      ON,
+    );
+    expect(at(els, "span")).toEqual([]);
+  });
+
+  it("does NOT admit a painted element with no in-scope ancestor", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        return (
+          <div className="wrap">
+            <span className="painted" />
+          </div>
+        );
+      }`,
+      ON,
+    );
+    expect(at(els, "span")).toEqual([]);
+  });
+
+  it("admits none of it at the default, which is what the four default consumers read", () => {
+    const src = `export function Fx() {
+      return (
+        <button className="outer">
+          <span className="painted" />
+        </button>
+      );
+    }`;
+    expect(scanFixture(src).map((e) => e.tag)).toEqual(["button"]);
+    expect(scanFixture(src, { paintedChildren: false }).map((e) => e.tag)).toEqual(["button"]);
+    expect(
+      scanFixture(src, { paintedChildren: 1 as unknown as boolean }).map((e) => e.tag),
+    ).toEqual(["button"]);
+  });
+
+  it("every element the DEFAULT returns is admittedAs element, over the live corpus", () => {
+    const live = scanInteractiveElements(process.cwd());
+    premiseHolds("corpus has >=300 in-scope elements", live.length >= 300);
+    expect(live.filter((e) => e.admittedAs !== "element")).toEqual([]);
+  });
+});
+
+/**
+ * The two resolution edges beyond ancestry (spec §5.1).
+ *
+ * Both exist because a live site needed them, and each fixture below is shaped
+ * like the site that forced it. The refusals are documented limit L1 and L2
+ * asserted rather than described.
+ */
+describe("ScanOptions.paintedChildren resolution edges (spec §5.1)", () => {
+  const ON = { paintedChildren: true } as const;
+  const painted = (els: ScanElement[]) => els.filter((e) => e.admittedAs === "painted-child");
+
+  it("edge 1: follows a JSX child that is a bare local identifier (VenueMapTile shape)", () => {
+    const els = scanFixture(
+      `export function Fx({ href }: { href: string }) {
+        const inner = (
+          <>
+            <span className="directions" />
+          </>
+        );
+        return <a href={href} className="tile">{inner}</a>;
+      }`,
+      ON,
+    );
+    expect(painted(els).map((e) => allStrings(e).join(" "))).toEqual(["directions"]);
+  });
+
+  it("edge 2: follows a NAMED import one hop, reporting against the callee (CronRunSummaryCard shape)", () => {
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { Card } from "./Card";
+          export function Fx() {
+            return <div role="button" className="row"><Card /></div>;
+          }`,
+        "components/Card.tsx": `export function Card() {
+            return <div className="card-edge" />;
+          }`,
+      },
+      ON,
+    );
+    const child = painted(els)[0];
+    expect(child).toBeDefined();
+    expect(allStrings(child!)).toEqual(["card-edge"]);
+    // Against the CALLEE's file, so the row names the file a reader must edit.
+    expect(child!.file).toBe("components/Card.tsx");
+  });
+
+  it("edge 2: follows a DEFAULT import one hop too", () => {
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import Card from "./Card";
+          export function Fx() {
+            return <button className="outer"><Card /></button>;
+          }`,
+        "components/Card.tsx": `export default function Card() {
+            return <span className="card-edge" />;
+          }`,
+      },
+      ON,
+    );
+    expect(painted(els).map((e) => allStrings(e).join(" "))).toEqual(["card-edge"]);
+  });
+
+  it("L1: does NOT follow a tag the resolver cannot name", () => {
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { withThing } from "./hoc";
+          import { Base } from "./Base";
+          const Wrapped = withThing(Base);
+          export function Fx() {
+            return <button className="outer"><Wrapped /></button>;
+          }`,
+        "components/hoc.tsx": `export const withThing = (C: unknown) => C;`,
+        "components/Base.tsx": `export function Base() {
+            return <span className="hoc-painted" />;
+          }`,
+      },
+      ON,
+    );
+    expect(painted(els).map((e) => allStrings(e).join(" "))).not.toContain("hoc-painted");
+  });
+
+  it("does NOT follow a component that is NOT inside an in-scope ancestor", () => {
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { Card } from "./Card";
+          export function Fx() {
+            return <div className="plain"><Card /></div>;
+          }`,
+        "components/Card.tsx": `export function Card() {
+            return <div className="card-edge" />;
+          }`,
+      },
+      ON,
+    );
+    expect(painted(els)).toEqual([]);
+  });
+
+  it("terminates on a cyclic pair of JSX-valued consts", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        const a = <span className="a">{b}</span>;
+        const b = <span className="b">{a}</span>;
+        return <button className="outer">{a}</button>;
+      }`,
+      ON,
+    );
+    expect(
+      painted(els)
+        .map((e) => allStrings(e).join(" "))
+        .sort(),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("terminates on a component that renders itself", () => {
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { Card } from "./Card";
+          export function Fx() {
+            return <button className="outer"><Card /></button>;
+          }`,
+        "components/Card.tsx": `export function Card() {
+            return <span className="card-edge"><Card /></span>;
+          }`,
+      },
+      ON,
+    );
+    expect(painted(els).map((e) => allStrings(e).join(" "))).toEqual(["card-edge"]);
+  });
+
+  it("AC-4b: a component invoked from TWO in-scope ancestors contributes its elements once", () => {
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { Card } from "./Card";
+          export function Fx() {
+            return (
+              <div>
+                <button className="one"><Card /></button>
+                <button className="two"><Card /></button>
+              </div>
+            );
+          }`,
+        "components/Card.tsx": `export function Card() {
+            return <span className="card-edge" />;
+          }`,
+      },
+      ON,
+    );
+    expect(painted(els).filter((e) => allStrings(e).includes("card-edge"))).toHaveLength(1);
+  });
+
+  it("follows neither edge at the default", () => {
+    const files = {
+      "components/Fx.tsx": `import { Card } from "./Card";
+        export function Fx() {
+          const inner = <span className="directions" />;
+          return <button className="outer">{inner}<Card /></button>;
+        }`,
+      "components/Card.tsx": `export function Card() {
+          return <span className="card-edge" />;
+        }`,
+    };
+    expect(painted(scanFixtureFiles(files))).toEqual([]);
+    expect(scanFixtureFiles(files).map((e) => e.tag)).toEqual(["button"]);
+  });
+});
+
+/**
+ * The mutants the first scored run of this surface left alive.
+ *
+ * `interactiveScanCore` had never actually been scored before 2026-08-26: its
+ * shard aborted on an unrelated red baseline, so the two axes and the two
+ * resolution edges shipped with no mutation evidence at all. The run that
+ * finally reached it named 20 live sites in that new code. These cases kill the
+ * ones that are killable; the rest carry per-mutant `accepted` rows.
+ *
+ * Each case says which mutant it kills, so a later reader can tell an assertion
+ * that earns its place from one that merely passes.
+ */
+describe("what the first score of this surface found unpinned", () => {
+  const ON = { paintedChildren: true } as const;
+  const painted = (els: ScanElement[]) => els.filter((e) => e.admittedAs === "painted-child");
+
+  it("follows a component declared in the SAME file (kills visit(local) removal)", () => {
+    // The DeveloperToggleButton shape: the paint lives in a sibling component
+    // function, not in the button's own JSX. Only the local-declaration branch
+    // reaches it, and nothing exercised that branch before.
+    const els = scanFixture(
+      `function Track() {
+        return <span className="tracked" />;
+      }
+      export function Fx() {
+        return <button className="outer"><Track /></button>;
+      }`,
+      ON,
+    );
+    expect(painted(els).map((e) => allStrings(e).join(" "))).toEqual(["tracked"]);
+  });
+
+  it("does not resolve an unimported tag through an unrelated DEFAULT import (kills the 994 &&/|| flip)", () => {
+    // With `||` the default-import scan's condition is true for ANY import
+    // (every one has a string-literal specifier), so it resolves the FIRST
+    // import regardless of the name being looked up. That is only OBSERVABLE
+    // when the wrongly-chosen module happens to declare the tag's name too, so
+    // the fixture makes it declare exactly that: `Other.tsx` exports both
+    // `Other` and a painting `Card`, and `Card` is never imported.
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import Other from "./Other";
+          export function Fx() {
+            return <button className="outer"><Card /><Other /></button>;
+          }`,
+        "components/Other.tsx": `export function Card() {
+            return <span className="wrong-module-card" />;
+          }
+          export default function Other() {
+            return <span className="other-paint" />;
+          }`,
+      },
+      ON,
+    );
+    const found = painted(els)
+      .map((e) => allStrings(e).join(" "))
+      .sort();
+    // `Other` IS imported and resolves. `Card` is not imported at all, so its
+    // same-named declaration in the other module must never be reached.
+    expect(found).toEqual(["other-paint"]);
+  });
+
+  it("follows NOTHING outside a control (kills both `insideInScope > 0` flips on the follow guard)", () => {
+    // `lib/` is outside CORPUS_DIRS, so the button below is reachable ONLY by
+    // following. The host renders <Card /> at top level, inside no control at
+    // all, so the shipped scanner must never reach it: component-following is
+    // the mechanism that lets a control account for the paint it OWNS, not a
+    // second corpus walk. Both mutations at that guard (`&&`->`||`, `>`->`>=`)
+    // make the condition true at top level, and both then admit this button.
+    const els = scanFixtureFiles(
+      {
+        "components/Host.tsx": `import Card from "../lib/Card";
+          export function Host() {
+            return <div className="page"><Card /></div>;
+          }`,
+        "lib/Card.tsx": `export default function Card() {
+            return <button className="reachable-only-by-following" />;
+          }`,
+      },
+      ON,
+    );
+    expect(els.map((e) => e.tag)).toEqual([]);
+  });
+
+  it("gives a followed component the import-hop budget of ONE hop, not two (kills `hops + 1` -> `+ 2`)", () => {
+    // MAX_IMPORT_HOPS is 3, so a control at hops 0 that follows into another
+    // module leaves that module 2 hops to resolve a className with. The chain
+    // below needs exactly 2. Spending 2 hops on the single follow leaves 1, and
+    // the class string silently disappears instead of the scan reporting it.
+    const els = scanFixtureFiles(
+      {
+        "components/Host.tsx": `import Card from "../lib/Card";
+          export function Host() {
+            return <button className="outer"><Card /></button>;
+          }`,
+        "lib/Card.tsx": `import { CLS } from "./tok1";
+          export default function Card() {
+            return <span className={CLS} />;
+          }`,
+        "lib/tok1.ts": `import { RAW } from "./tok2";
+          export const CLS = RAW;`,
+        "lib/tok2.ts": `export const RAW = "two-hops-away";`,
+      },
+      ON,
+    );
+    const admitted = painted(els);
+    expect(admitted).toHaveLength(1);
+    const [child] = admitted;
+    expect(child, "the followed module's span was not admitted at all").toBeDefined();
+    expect((child as ScanElement).unresolved).toBe(false);
+    expect(allStrings(child as ScanElement)).toContain("two-hops-away");
+  });
+
+  it("RESETS the resolve depth when it follows, rather than carrying one in (kills `depth: 0` -> `1`)", () => {
+    // MAX_RESOLVE_DEPTH is 6. The followed module's own const chain is measured
+    // from zero because the follow enters a new module, not a deeper expression;
+    // starting it at 1 spends a level the followed module is entitled to and the
+    // last link of the chain resolves to nothing.
+    const chain = Array.from({ length: 6 }, (_, n) =>
+      n === 0 ? `const a0 = "chain-end";` : `const a${n} = a${n - 1};`,
+    ).join("\n          ");
+    const els = scanFixtureFiles(
+      {
+        "components/Host.tsx": `import Card from "../lib/Card";
+          export function Host() {
+            return <button className="outer"><Card /></button>;
+          }`,
+        "lib/Card.tsx": `${chain}
+          export default function Card() {
+            return <span className={a5} />;
+          }`,
+      },
+      ON,
+    );
+    const admitted = painted(els);
+    expect(admitted).toHaveLength(1);
+    const [child] = admitted;
+    expect(child, "the followed module's span was not admitted at all").toBeDefined();
+    expect(allStrings(child as ScanElement)).toContain("chain-end");
+  });
+
+  it("restores the SOURCE FILE after following into another module (kills `sf = heldSf` removal)", () => {
+    // `ctx` and `sf` are restored by two separate statements, and dropping only
+    // the `sf` one leaves the walk reading the FOLLOWED module's text while it
+    // is still walking this one. Every tag name after that point comes from
+    // `tagName.getText(sf)`, so it is read out of the wrong file's character
+    // offsets: the second control below stops being recognised as a button at
+    // all. The first control has to come FIRST for the follow to have happened
+    // by the time the second is reached, which is the whole shape of the bug.
+    const els = scanFixtureFiles(
+      {
+        "components/Host.tsx": `import Card from "../lib/Card";
+          export function Host() {
+            return (
+              <div>
+                <button className="first-control"><Card /></button>
+                <button className="second-control-after-the-follow" />
+              </div>
+            );
+          }`,
+        "lib/Card.tsx": `export default function Card() {
+            return <span className="followed-paint" />;
+          }`,
+      },
+      ON,
+    );
+    const seen = els.map((e) => allStrings(e).join(" ")).sort();
+    expect(seen).toEqual(["first-control", "followed-paint", "second-control-after-the-follow"]);
+  });
+
+  it("DECLINES a shadowed component tag and reports it, rather than following the wrong one", () => {
+    // Diff review round 3's probe, as a fixture. Two declarations share a name;
+    // the render reaches the NESTED one, painting `border-border`, while a
+    // first-hit walk returns the top-level one painting `border-text-faint`.
+    // That is worse than missing it — it is a wrong answer that reads as a
+    // clean one, and because a declaration WAS found the unresolved sink stayed
+    // quiet too. Counting the declarations is what makes it declinable.
+    const reports: string[] = [];
+    const els = scanFixtureFiles(
+      {
+        "components/Shadowed.tsx": `function Visual() {
+            return <span className="outer-visual-border-text-faint" />;
+          }
+          export function Host() {
+            function Visual() {
+              return <span className="inner-visual-border-border" />;
+            }
+            return <button className="host"><Visual /></button>;
+          }`,
+      },
+      { ...ON, onUnresolvedComponent: (i) => reports.push(`${i.file}:${i.line} <${i.tag}>`) },
+    );
+    // Neither visual is admitted: the outer one is not what renders, and the
+    // inner one is not something this resolver can prove it reached.
+    expect(painted(els)).toEqual([]);
+    // The exact LINE, not merely the tag. A report naming the wrong line sends a
+    // reader to the wrong place, and the closed-class guard keys on file+tag so
+    // it would never notice. `<Visual />` sits on line 8 of this fixture.
+    expect(reports).toHaveLength(1);
+    expect(reports[0], "one report, naming the tag AND the line it is on").toMatch(
+      /\/components\/Shadowed\.tsx:8 <Visual>$/,
+    );
+  });
+
+  it("DECLINES a shadowed JSX binding and reports it too", () => {
+    // The same shape on the `{binding}` branch, which had no sink at all: round
+    // 3's second probe. `body` is declared twice, and the one in scope at the
+    // use site is the inner one.
+    const reports: string[] = [];
+    const els = scanFixtureFiles(
+      {
+        "components/ShadowedBinding.tsx": `const body = <span className="outer-body-border-text-faint" />;
+          export function Host() {
+            const body = <span className="inner-body-border-border" />;
+            return <button className="host">{body}</button>;
+          }`,
+      },
+      { ...ON, onUnresolvedComponent: (i) => reports.push(`${i.file}:${i.line} <${i.tag}>`) },
+    );
+    expect(painted(els)).toEqual([]);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toMatch(/\/components\/ShadowedBinding\.tsx:4 <body>$/);
+  });
+
+  it("reports NOTHING for an ordinary interpolated value", () => {
+    // The other half of the ambiguity/absence split, and the reason it exists.
+    // The `{binding}` branch sees every bare identifier in JSX, and almost all
+    // of them are strings and numbers that were never follow candidates. An
+    // earlier revision reported ABSENCE here and produced 128 interpolated
+    // labels on the live corpus, which is a signal nobody can read.
+    const reports: string[] = [];
+    const els = scanFixtureFiles(
+      {
+        "components/Plain.tsx": `export function Host() {
+            const label = "Sync";
+            return <button className="host">{label}</button>;
+          }`,
+      },
+      { ...ON, onUnresolvedComponent: (i) => reports.push(`${i.file}:${i.line} <${i.tag}>`) },
+    );
+    expect(els.map((e) => e.tag)).toEqual(["button"]);
+    expect(reports, "a plain string binding is not an unresolved component").toEqual([]);
+  });
+
+  it("terminates on a MUTUAL import cycle (kills followed.add removal on the import path)", () => {
+    // A renders B, B renders A. The local-declaration guard cannot catch this:
+    // the two names live in different files, so only the import path's own
+    // followed-key stops it. Without that add this recurses until the stack
+    // gives out.
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { B } from "./B";
+          export function Fx() {
+            return <button className="outer"><B /></button>;
+          }`,
+        "components/B.tsx": `import { Fx } from "./Fx";
+          export function B() {
+            return <span className="b-paint"><Fx /></span>;
+          }`,
+      },
+      ON,
+    );
+    expect(painted(els).some((e) => allStrings(e).includes("b-paint"))).toBe(true);
+  });
+
+  it("stops treating siblings as inside once the in-scope element closes (kills insideInScope-- removal)", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        return (
+          <div>
+            <button className="outer"><span className="inside" /></button>
+            <span className="after" />
+          </div>
+        );
+      }`,
+      ON,
+    );
+    // "after" is a sibling of the button, not a child of it.
+    expect(painted(els).map((e) => allStrings(e).join(" "))).toEqual(["inside"]);
+  });
+
+  it("does not follow a bare identifier with no in-scope ancestor (kills the >/>= flip on the const guard)", () => {
+    const els = scanFixture(
+      `export function Fx() {
+        const inner = <span className="held" />;
+        return <div className="plain">{inner}</div>;
+      }`,
+      ON,
+    );
+    expect(painted(els)).toEqual([]);
+  });
+
+  it("does not follow a function CALL in a JSX child (kills the isJsxExpression &&/|| flip, and pins limit L2)", () => {
+    // `A && B && C` mutated to `A || B && C` follows anything whose `.expression`
+    // is an identifier, and a CallExpression's callee is exactly that. The
+    // helper below returns JSX, so the mutant would admit its span — which is
+    // also the documented limit that a call is not a followed edge.
+    const els = scanFixture(
+      `function renderIcon() {
+        return <span className="called" />;
+      }
+      export function Fx() {
+        return <button className="outer">{renderIcon()}</button>;
+      }`,
+      ON,
+    );
+    expect(painted(els).map((e) => allStrings(e).join(" "))).toEqual([]);
+  });
+
+  it("reports a followed child against the CALLEE's own line (kills sf = imported.sf removal)", () => {
+    // Without the source-file swap the line is computed against the CALLER's
+    // text, so the row points at a line in the wrong file. The fixture puts the
+    // callee's span far down its own file so a stale `sf` cannot coincide.
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { Card } from "./Card";
+          export function Fx() {
+            return <div role="button" className="row"><Card /></div>;
+          }`,
+        "components/Card.tsx": `// 1
+          // 2
+          // 3
+          // 4
+          // 5
+          // 6
+          // 7
+          // 8
+          export function Card() {
+            return <div className="card-edge" />;
+          }`,
+      },
+      ON,
+    );
+    const child = painted(els).find((e) => allStrings(e).includes("card-edge"));
+    expect(child).toBeDefined();
+    expect(child!.file).toBe("components/Card.tsx");
+    expect(child!.line).toBe(10);
+  });
+
+  it("restores the caller's file after a follow (kills sf = heldSf and ctx = heldCtx removal)", () => {
+    // An element AFTER the follow, in the caller, must still be attributed to
+    // the caller. Without the restore it inherits the callee's file and line.
+    const els = scanFixtureFiles(
+      {
+        "components/Fx.tsx": `import { Card } from "./Card";
+          export function Fx() {
+            return (
+              <button className="outer">
+                <Card />
+                <span className="later" />
+              </button>
+            );
+          }`,
+        "components/Card.tsx": `export function Card() {
+            return <div className="card-edge" />;
+          }`,
+      },
+      ON,
+    );
+    const later = painted(els).find((e) => allStrings(e).includes("later"));
+    expect(later).toBeDefined();
+    expect(later!.file).toBe("components/Fx.tsx");
+  });
+});
 
 describe("resolver corpus walk", () => {
   const all = scanInteractiveElements(process.cwd());

@@ -159,3 +159,10 @@ tests/_probe_nondet/
 # the instrument would red the very gate it instruments.
 /public/help/screenshots/capture-evidence.json
 /.capture-staging/
+
+# Per-run adversarial-review artifacts: the brief sent to the reviewer and the
+# wrapper's output directory (transcripts, stderr, result.json). The durable
+# record of a round is its committed row under docs/review-rounds/, not these.
+# Untracked by convention on every arc before this one; written down after an
+# arc committed a 227KB stderr blob by reflex.
+.review-briefs/

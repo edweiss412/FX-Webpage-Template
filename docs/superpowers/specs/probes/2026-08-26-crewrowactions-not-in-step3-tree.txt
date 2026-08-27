@@ -1,0 +1,69 @@
+# Why the CrewRowActions §14 pair is not measured in a browser
+#
+# bl-orch's AC-13 ruling pre-authorised recording a pair that genuinely cannot
+# mount, WITH the probe showing why. This is that probe. The other two pairs of
+# the trio ARE measured, in tests/e2e/control-outline-contrast.live.spec.ts.
+
+## 1. The gate, read from the shipped source
+
+components/admin/wizard/step3ReviewSections.tsx:4305-4318
+
+      render: (s) =>
+        isPublished(s) ? (
+          <CrewBreakdown
+            dfid={s.driveFileId}
+            members={s.crewMembers}
+            actions={{
+              showId: s.showId,
+              slug: s.slug,
+              enabled: s.published && !s.archived,
+              crewIds: (s.previewRoster ?? []).map((r) => r.id),
+            }}
+          />
+        ) : (
+          <CrewBreakdown dfid={s.driveFileId} members={s.crewMembers} />
+        ),
+
+`actions` is passed ONLY on the `isPublished(s)` branch, and the trigger mounts
+only when `actions?.enabled` (step3ReviewSections.tsx:1675, :1725). The `s` on
+that branch is the PUBLISHED-show section shape: it carries `showId`, `slug`,
+`published`, `archived` and `previewRoster`.
+
+## 2. The wizard's section data carries none of those fields
+
+$ tsx -e 'console.log(Object.keys(buildSectionData()))'   # the step-3 fixture
+mode, pr, row, dfid, wizardSessionId, title, clientLabel, dates, venue,
+eventDetails, clientContact, contacts, transportation, diagrams, billing,
+rawUnrecognized, sourceAnchors, driveFileId, crewMembers, rooms, hotels,
+pullSheet, archivedPullSheetTabs, pullSheetOverride, ros, warnings,
+agendaBaseline, useRawDecisions
+
+published    = <absent>
+archived     = <absent>
+previewRoster = <absent>
+
+## 3. Confirmed in the mounted browser tree
+
+Real <Step3ReviewModal> mounted via _step3ReviewModalBundle.mjs +
+_controlOutlineContrastLiveEntry.tsx, chromium, 200 rendered data-testids:
+
+  HAS 'Crew Person 1': true          <- the crew section IS rendered
+  tel/mailto anchors: 2              <- the crew contact icons ARE rendered
+  size-8 spans: 2                    <- and their painted visuals
+  venue-map-region: 1                <- the venue tile IS rendered
+  crew-row-menu-button-* : 0         <- the CrewRowActions trigger is NOT
+
+## 4. Conclusion
+
+`CrewRowActions` is IMPORTED by step3ReviewSections (line 139) but mounts only
+on the published-show surface, not in the step-3 wizard review tree. Driving it
+in a browser needs the published-show surface, which is a different harness with
+a different fixture and is outside this arc's diff.
+
+It is covered by the source pin in tests/styles/controlOutlineDimensions.test.ts,
+whose planted defects fire on each of its two ternary arms independently, and by
+scripts/ac15-width-parity.mts (767 elements, 0 width differences). Both are
+weaker than a rendered measurement and are recorded as weaker.
+
+RE-FILE TRIGGER: a browser harness for the published-show surface existing for
+any other reason, at which point this pair should be measured there.

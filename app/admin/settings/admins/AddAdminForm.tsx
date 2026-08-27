@@ -76,7 +76,7 @@ function AddAdminFormInner({ onReset }: { onReset: () => void }) {
           required
           autoComplete="off"
           data-testid="admin-allowlist-email-input"
-          className="rounded-sm border border-border bg-bg px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          className="rounded-sm border border-text-faint bg-bg px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         />
       </label>
       <label className="flex flex-col gap-1 text-sm">
@@ -86,7 +86,7 @@ function AddAdminFormInner({ onReset }: { onReset: () => void }) {
           type="text"
           maxLength={200}
           data-testid="admin-allowlist-note-input"
-          className="rounded-sm border border-border bg-bg px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          className="rounded-sm border border-text-faint bg-bg px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         />
       </label>
 

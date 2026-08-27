@@ -62,6 +62,15 @@ export type ScanElement = {
    * inherit the canonical component's guarantee for free (whole-diff R1 F4).
    */
   allowlisted: boolean;
+  /**
+   * Whether this element is in scope on its own, or was admitted only because
+   * it paints inside one that is (spec §5, D2).
+   *
+   * `"painted-child"` is the structural half of the `inner-chrome` residue bar
+   * (spec §8): a row parked there whose live element is `"element"` is refused,
+   * which is what stops a real control being registered as chrome.
+   */
+  admittedAs: "element" | "painted-child";
 };
 
 export const FLOOR_COMPONENT_ALLOWLIST: ReadonlyArray<{
@@ -862,13 +871,61 @@ function resolvesToAllowlistedComponent(tag: string, ctx: Ctx): boolean {
   return target !== null && relative(ctx.root, target) === row.file;
 }
 
-function isInScope(tag: string, attributes: ts.JsxAttributes): boolean {
+/**
+ * The declared widening axes, defaulted OFF (spec §4, D1).
+ *
+ * ONE definition of what counts as interactive, with declared axes a consumer
+ * opts into in its own source, rather than two definitions that can drift. The
+ * module header argues against the second shape; this is not it. Each consumer
+ * of `scanInteractiveElements` states which setting it reads, and spec §7
+ * accounts for all six.
+ */
+export type ScanOptions = {
+  /** Admit text-entry element kinds: `<textarea>`, `<select>`, and `<input>` at ANY type. */
+  readonly textEntry?: boolean;
+  /**
+   * Admit a className-carrying JSX descendant of an in-scope element as its OWN
+   * element, `admittedAs: "painted-child"`, anchored on its own opening tag.
+   */
+  readonly paintedChildren?: boolean;
+  /**
+   * Called for a CAPITALISED tag inside an in-scope ancestor that the resolver
+   * could not name — no local declaration, and no import it can follow.
+   *
+   * The follow branch used to skip such a tag in SILENCE, and silence is the one
+   * outcome the consequence bound forbids: a component whose root paints a weak
+   * outline simply vanished from the cover with nothing reported anywhere.
+   *
+   * A sink rather than a wider resolver, deliberately. Teaching
+   * `importedComponentDeclaration` about aliases, anonymous defaults, barrel
+   * re-exports and lexical shadowing makes it a bigger recognizer with a bigger
+   * surface for the next miss, which is the growth direction this repo's
+   * same-axis rule warns against. Reporting what it cannot name closes the class
+   * instead: the set becomes reviewable, and a new member fails a guard loudly.
+   *
+   * Every existing consumer omits it, so the default path is byte-identical and
+   * AC-1 still holds.
+   */
+  readonly onUnresolvedComponent?: (info: {
+    readonly file: string;
+    readonly line: number;
+    readonly tag: string;
+  }) => void;
+};
+
+const TEXT_ENTRY_TAGS = new Set(["textarea", "select"]);
+
+function isInScope(tag: string, attributes: ts.JsxAttributes, options: ScanOptions = {}): boolean {
   if (INTRINSIC_TAGS.has(tag) || tag === "Link") return true;
   if (ALLOWLIST_TAGS.has(tag)) return true;
   if (tag === "input") {
     const type = staticAttributeValue(attributeNamed(attributes, "type"));
     if (type === "checkbox" || type === "radio") return true;
+    // Any other type, INCLUDING one the resolver cannot read: the flag admits
+    // the kind, and reading the type is not part of that question (spec §5.3).
+    if (options.textEntry === true) return true;
   }
+  if (options.textEntry === true && TEXT_ENTRY_TAGS.has(tag)) return true;
   if (staticAttributeValue(attributeNamed(attributes, "role")) === "button") return true;
   return attributeNamed(attributes, "onClick") !== null;
 }
@@ -881,19 +938,202 @@ function isInScope(tag: string, attributes: ts.JsxAttributes): boolean {
  * resolver's own end-to-end tests, so the walk, the `@/` alias base and the
  * reported paths all derive from ONE argument.
  */
-export function scanInteractiveElements(rootDir: string): ScanElement[] {
+
+/**
+ * A file-local declaration whose value holds JSX: `const x = <jsx/>` or
+ * `function X() { return <jsx/> }`. `null` when there is none.
+ *
+ * This is the binding resolution the module already performs for classNames
+ * (`resolveExpression`'s variable arm), applied to a JSX child rather than to a
+ * class string. It reads a VALUE; a component INVOCATION is a different edge,
+ * resolved by `importedComponentDeclaration`.
+ */
+const jsxDeclarationCache = new WeakMap<ts.SourceFile, Map<string, readonly ts.Node[]>>();
+
+function localJsxDeclarations(name: string, sf: ts.SourceFile): readonly ts.Node[] {
+  // Memoised per source file: the walk below is O(file), and a control's
+  // subtree asks for the same handful of names once per capitalised tag it
+  // contains. Without this the residue suite's scratch-corpus cases, which copy
+  // the whole corpus and rescan it, pay that walk thousands of times over.
+  let perFile = jsxDeclarationCache.get(sf);
+  if (!perFile) {
+    perFile = new Map();
+    jsxDeclarationCache.set(sf, perFile);
+  }
+  const cached = perFile.get(name);
+  if (cached !== undefined) return cached;
+
+  const holdsJsx = (n: ts.Node): boolean => {
+    if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n)) return true;
+    let hit = false;
+    ts.forEachChild(n, (c) => {
+      if (!hit) hit = holdsJsx(c);
+    });
+    return hit;
+  };
+  // EVERY declaration of the name, not the first one. The walk used to stop at
+  // the first hit and return it, which is a silently WRONG answer under lexical
+  // shadowing: a nested `Visual` rendering `border-border` was reported as the
+  // top-level `Visual` rendering `border-text-faint`, and because a declaration
+  // WAS found the unresolved sink never fired either. Diff review round 3
+  // probed both shapes — a shadowed component tag and a shadowed JSX binding.
+  //
+  // Resolving the shadowing properly means scope analysis, which is the resolver
+  // growth this arc has declined twice. Counting is the narrowing answer: one
+  // declaration is unambiguous and followed, two or more cannot be told apart
+  // from here and are DECLINED, which routes them to the same sink as a name the
+  // resolver never found. Fewer follows, never a wrong one.
+  const hits: ts.Node[] = [];
+  const walk = (n: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === name &&
+      n.initializer &&
+      holdsJsx(n.initializer)
+    ) {
+      hits.push(n.initializer);
+      return;
+    }
+    if (ts.isFunctionDeclaration(n) && n.name?.text === name && n.body && holdsJsx(n.body)) {
+      hits.push(n.body);
+      return;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  perFile.set(name, hits);
+  return hits;
+}
+
+/**
+ * The single declaration of `name` in this file that holds JSX, or null when
+ * there is none — or when there is more than one and this resolver therefore
+ * cannot tell which the use site reaches.
+ */
+function localJsxDeclaration(name: string, sf: ts.SourceFile): ts.Node | null {
+  const hits = localJsxDeclarations(name, sf);
+  return hits.length === 1 ? (hits[0] ?? null) : null;
+}
+
+/**
+ * TRUE only for the shadowed case: two or more declarations hold JSX under one
+ * name. Distinct from "none", and the distinction is load-bearing — the
+ * `{binding}` branch fires for every bare identifier in JSX, and most of those
+ * are strings and numbers that were never follow candidates. Reporting absence
+ * there would bury the signal under 128 interpolated labels; reporting
+ * AMBIGUITY reports exactly the defect.
+ */
+function localJsxAmbiguous(name: string, sf: ts.SourceFile): boolean {
+  return localJsxDeclarations(name, sf).length > 1;
+}
+
+/**
+ * A component tag imported by NAME or by DEFAULT, resolved to its declaration
+ * in that module (spec §5.1, edge 2). ONE hop: the corpus makes no deeper
+ * component call inside a control, and a second hop is a widening nobody has a
+ * site for (limit L1).
+ *
+ * A default export is looked up under its LOCAL binding name first, then under
+ * `default`, because `export default function Card()` names the function and
+ * `export default X` does not.
+ */
+function importedComponentDeclaration(
+  name: string,
+  ctx: Ctx,
+): { node: ts.Node; sf: ts.SourceFile; file: string } | null {
+  let specifier: string | null = findImportSpecifier(name, ctx.sf);
+  if (specifier === null) {
+    for (const statement of ctx.sf.statements) {
+      if (!ts.isImportDeclaration(statement)) continue;
+      if (
+        statement.importClause?.name?.text === name &&
+        ts.isStringLiteral(statement.moduleSpecifier)
+      ) {
+        specifier = statement.moduleSpecifier.text;
+        break;
+      }
+    }
+  }
+  if (specifier === null) return null;
+  const target = resolveModulePath(specifier, ctx);
+  if (target === null) return null;
+  const sf = parse(target);
+  if (!sf) return null;
+  const node = localJsxDeclaration(name, sf) ?? localJsxDeclaration("default", sf);
+  return node ? { node, sf, file: target } : null;
+}
+
+export function scanInteractiveElements(rootDir: string, options: ScanOptions = {}): ScanElement[] {
   const elements: ScanElement[] = [];
   const files = CORPUS_DIRS.flatMap((dir) => walkTsx(join(rootDir, dir)));
 
   for (const file of files) {
-    const sf = parse(file);
-    if (!sf) continue;
-    const ctx: Ctx = { root: rootDir, file, sf, depth: 0, hops: 0 };
+    const sf0 = parse(file);
+    if (!sf0) continue;
+    let sf = sf0;
+    let ctx: Ctx = { root: rootDir, file, sf, depth: 0, hops: 0 };
+
+    /** Names already being followed in this file, so a cycle terminates. */
+    const followed = new Set<string>();
+
+    /**
+     * How many in-scope elements enclose the node being visited.
+     *
+     * Maintained across a `JsxElement`'s CHILDREN only, which is what makes
+     * limit L2 true rather than accidental: JSX inside an ATTRIBUTE is visited
+     * with the counter at its outer value, so a render prop is not a painted
+     * child of the element carrying it.
+     */
+    let insideInScope = 0;
 
     const visit = (node: ts.Node): void => {
       if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
         const tag = node.tagName.getText(sf);
-        if (isInScope(tag, node.attributes)) {
+        const own = isInScope(tag, node.attributes, options);
+        // `!own` is what makes "never twice" true: an in-scope descendant is
+        // admitted by the arm above, as an element, and never again here.
+        const asChild =
+          !own &&
+          options.paintedChildren === true &&
+          insideInScope > 0 &&
+          attributeNamed(node.attributes, "className") !== null;
+        if (options.paintedChildren === true && insideInScope > 0 && /^[A-Z]/.test(tag)) {
+          const key = `${ctx.file}#${tag}`;
+          if (!followed.has(key)) {
+            const local = localJsxDeclaration(tag, sf);
+            const imported = local === null ? importedComponentDeclaration(tag, ctx) : null;
+            if (local !== null) {
+              followed.add(key);
+              visit(local);
+              followed.delete(key);
+            } else if (imported === null) {
+              // The class the sink exists for: named, and therefore no longer silent.
+              options.onUnresolvedComponent?.({
+                file: ctx.file,
+                line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+                tag,
+              });
+            } else {
+              followed.add(key);
+              const heldSf = sf;
+              const heldCtx = ctx;
+              sf = imported.sf;
+              ctx = {
+                root: rootDir,
+                file: imported.file,
+                sf: imported.sf,
+                depth: 0,
+                hops: ctx.hops + 1,
+              };
+              visit(imported.node);
+              sf = heldSf;
+              ctx = heldCtx;
+              followed.delete(key);
+            }
+          }
+        }
+        if (own || asChild) {
           const className = attributeNamed(node.attributes, "className");
           // A spread can carry OR override className, so an unreadable one
           // demotes exactly like an unresolved span (rule 2). One whose every
@@ -914,20 +1154,85 @@ export function scanInteractiveElements(rootDir: string): ScanElement[] {
             }
           }
           elements.push({
-            file: relative(rootDir, file),
+            file: relative(rootDir, ctx.file),
             line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
             tag,
             paths: resolution.paths,
             unresolved: resolution.unresolved || hasSpread,
             hasClassName: className !== null,
             allowlisted: resolvesToAllowlistedComponent(tag, ctx),
+            admittedAs: own ? "element" : "painted-child",
           });
+        }
+      }
+      if (ts.isJsxElement(node)) {
+        const opens = isInScope(
+          node.openingElement.tagName.getText(sf),
+          node.openingElement.attributes,
+          options,
+        );
+        visit(node.openingElement);
+        if (opens) insideInScope++;
+        for (const child of node.children) visit(child);
+        if (opens) insideInScope--;
+        // The closing element is deliberately not visited. It carries no
+        // attributes, and every branch above keys off an opening or
+        // self-closing element or a JSX expression, so a closing tag matches
+        // none of them; visiting it was a no-op that no assertion could pin.
+        return;
+      }
+      if (
+        options.paintedChildren === true &&
+        insideInScope > 0 &&
+        ts.isJsxExpression(node) &&
+        node.expression &&
+        ts.isIdentifier(node.expression)
+      ) {
+        const key = `${ctx.file}#${node.expression.text}`;
+        if (!followed.has(key)) {
+          const binding = localJsxDeclaration(node.expression.text, sf);
+          if (binding === null && localJsxAmbiguous(node.expression.text, sf)) {
+            // AMBIGUITY only, never absence. This branch sees every bare
+            // identifier in JSX and most are plain values, so reporting absence
+            // here buries the signal; a shadowed JSX binding is the defect.
+            options.onUnresolvedComponent?.({
+              file: ctx.file,
+              line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+              tag: node.expression.text,
+            });
+          }
+          if (binding) {
+            followed.add(key);
+            visit(binding);
+            followed.delete(key);
+          }
         }
       }
       ts.forEachChild(node, visit);
     };
-    visit(sf);
+    visit(sf0);
   }
 
-  return elements;
+  /**
+   * A component invoked from several in-scope ancestors would report its
+   * elements once per call site, so the result is de-duplicated by identity
+   * (AC-4b). With both flags off no element can be reached twice, so this is
+   * inert on the default path and AC-1 still holds byte-for-byte.
+   *
+   * KEEPS THE FIRST, and the first is not always the best-resolved: a follow
+   * spends an import hop before the followed module resolves anything, so an
+   * element reached that way has one hop less than the same element reached by
+   * its own module's walk. Not reachable today (switching this to keep-last
+   * leaves the corpus scan byte-identical across all 767 elements), because a
+   * follow always resolves against the DECLARING module, so the two paths read
+   * one scope and differ only in budget. Recorded as limit L8 of the 2026-08-26
+   * cover-widening design; the mutation gate found it, review did not.
+   */
+  const seen = new Set<string>();
+  return elements.filter((el) => {
+    const key = `${el.file}:${el.line}:${el.tag}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

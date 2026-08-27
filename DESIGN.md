@@ -187,6 +187,7 @@ affordance is a fill or a border keep it as-is.
 | `--color-text-faint` as OUTLINE vs `--color-surface-raised` | 3.35:1 | 3.53:1 | ≥3:1 non-text — popover and modal surfaces, pinned so a raised-surface control is not an unmeasured fourth ground |
 | `--color-control-outline-tinted` as OUTLINE vs the three TINTED plates | 3.42-3.62:1 | 3.65-4.55:1 | ≥3:1 non-text — the control outline on a `warning-bg` / `info-bg` / `danger-bg` card, and ONLY there. `--color-text-faint` measures 2.87-3.04 light / 2.79-3.48 dark on the same plates, under the floor in one theme per plate; this token exists so the plates clear without retuning the shared one, which would push the four neutral grounds the other way (2026-08-25, `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`) |
 | `--color-control-outline-tinted` vs `--color-surface` (inner edge) | 3.99:1 | 4.91:1 | ≥3:1 non-text — the inner edge of a plate control carrying its own `bg-surface` fill; the outer edge is the plate row above |
+| `--color-control-outline-tinted` vs `--color-bg` (inner edge) | 3.82:1 | 5.22:1 | ≥3:1 non-text — the same inner edge where the plate control's own fill is the page ground instead, which is the validation reset-confirm field (`components/admin/MaintenanceResetButtons.tsx`); pinned as a relation in `tests/styles/secondary-action-contrast.test.ts` (2026-08-26, control-outline-cover widening) |
 | `--color-border` as OUTLINE vs the four neutral grounds | 1.22-1.27:1 | 1.19-1.38:1 | **BELOW the 3:1 non-text floor, and recorded rather than required** — this is the before-state the 2026-08-18 ruling moved 37 controls away from. Pinned so a future retune of `--color-border` cannot quietly reintroduce the weight that was removed; `tests/styles/secondary-action-contrast.test.ts` asserts it stays under the floor |
 | `--color-text-subtle` as OUTLINE vs the four neutral grounds | 6.09-6.76:1 | 5.97-6.94:1 | ≥3:1 non-text — the hover outline for a control whose border is its ONLY hover cue (§1.2a). A body-text token in a new role, so it takes a pin like any new one |
 | `--color-accent-on-bg` as OUTLINE vs the four neutral grounds | 5.02-5.57:1 | 8.30-9.65:1 | ≥3:1 non-text — the hover outline where the cue is an accent HUE. `--color-accent` itself measures 2.10-2.33:1 here and is decorative-only in light, which is why the load-bearing accent token carries this role |
@@ -259,6 +260,12 @@ The five paths are `components/admin/PublishedToggle.tsx:305`,
 `components/admin/telemetry/AutoRefreshControl.tsx:106` and
 `components/admin/settings/DeveloperToggleButton.tsx:97`; the last two paint the
 track on a nested `<span>`, which is why an element-level census reported three.
+On 2026-08-26 the widened cover reached both, by two DIFFERENT mechanisms:
+`AutoRefreshControl`'s span is a lexical child of its button, and
+`DeveloperToggleButton`'s is inside a component the button renders. Both now
+carry a `switch-track` residue row citing this ruling, and the ruling itself is
+untouched. Becoming visible to a census is a registration duty, not a reopening:
+the tracks are out for the ON/OFF RELATIONSHIP, never for the ratio.
 
 **What did not move with the 21, and now reads lighter beside it** (2026-08-16
 invariant-8 gate). Two elements share a recipe with a swapped control and stayed
@@ -316,17 +323,39 @@ the affordance on the same render path, or rises above the resting weight:
 `--color-accent` itself is decorative-only in light (§1.2) and cannot carry it.
 
 **What the 2026-08-18 sweep actually reached, stated because the rule above is
-wider than the sweep.** It moved the controls the element-level census can SEE —
-`scanInteractiveElements` admits `button`, `a` and `summary`, plus `<input>` at
-`type="checkbox"` or `"radio"`. Text-entry fields and `<select>`s are outside
-that vocabulary in BOTH directions: the census will never flag one and never
-exempt one, so several still rest at `border-border` — a `<textarea>` at
-`components/shared/ReportModal.tsx:715` among them, in the same modal whose
-button the sweep raised. They are tracked on
-`BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER`, family A. **The rule states the
-predicate; the sweep states its reach. Do not read the first as a claim about
-the second** — an earlier revision of this paragraph did, and the invariant-8
-review was right to call it a promise the diff had not kept.
+wider than the sweep.** On 2026-08-18 it moved only the controls the
+element-level census could SEE: `scanInteractiveElements` admitted `button`, `a`
+and `summary`, plus `<input>` at `type="checkbox"` or `"radio"`, so text-entry
+fields and `<select>`s sat outside that vocabulary in BOTH directions and
+several still rested at `border-border`.
+
+**That gap closed on 2026-08-26, and the reach now matches the rule.** The user
+ruled that a text field's border IS a control outline under this section, and
+that an open-state outline painted on a CHILD is a resting boundary rather than
+a state cue. `scanInteractiveElements` gained two declared axes for those two
+families, the outline guards opted in, and the red they produced named the
+population: thirty-five elements, of which twenty-three moved to the token their
+ground requires and twelve are registered in the residue census with a reason.
+The `<textarea>` at `components/shared/ReportModal.tsx:715` this paragraph used
+to name as unreachable is one of the twenty-three.
+
+**Chrome painted inside a control keeps its own treatment**, which is the Family
+B sorting rule and follows from the scope paragraph below rather than from
+anything new. A painted child that IS the control's visual box takes the rule
+the element would have taken; a painted child that is a status chip, a count
+pill, a decorative label or an alert banner keeps the status-emphasis treatment
+this section already preserves for non-interactive chrome by name. Whether a
+given child is one or the other is a RULING, not a property a scanner can
+project, so the residue census checks the FORM of the claim and its author owns
+its truth.
+
+**The rule states the predicate; the sweep states its reach. Do not read the
+first as a claim about the second** — an earlier revision of this paragraph did,
+and the invariant-8 review was right to call it a promise the diff had not kept.
+`BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` is closed; the limits the widened
+cover still has are recorded in
+`docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md`
+§17 rather than as an open row.
 
 **Dividers are OUT, in both directions.** A `border-t`, `border-b` or `border-l`
 rule between stacked content has no resting outline to raise, and §1.2a's
@@ -410,15 +439,23 @@ when it is harmless. Which controls wear the token is covered by
 `tests/styles/tintedPlateOutline.test.ts`, whose derived arm reads the plate off
 each element's own `focus-visible:ring-offset-*`.
 
-One control on a tinted plate did NOT move, and its absence is a decision: the
-`<input type="text">` reset confirm field in
+One control on a tinted plate did NOT move on 2026-08-25, and its absence was a
+decision: the `<input type="text">` reset confirm field in
 `components/admin/MaintenanceResetButtons.tsx`. Whether a text field's border is
-a control outline at all is the open question in
+a control outline at all was the open question in
 `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` family A, and answering it in passing
-is what the ledger exists to prevent. It is pinned as an untouched site so the
-next sweep reads it as a fence rather than an oversight. The reasoning for all
-of this is
+is what the ledger exists to prevent. Reasoning:
 `docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md` D2.
+
+**It moved on 2026-08-26, because the fence was spent rather than because a
+sweep reached further.** The user ruled that a text field's border IS a control
+outline under §1.2a, so the question the fence protected no longer exists and
+the field is simply a control on a `warning-bg` plate. Its own `bg-bg` fill
+makes the INNER edge a pair nothing had pinned, which is the
+`--color-control-outline-tinted` vs `--color-bg` row in §1.2 above. The
+executable pin was INVERTED rather than deleted, the same shape the ShareHub
+skin took: same case, asserting the new token, with the ratification in its
+docstring. Deleting it would have lost the fact that the field was ever fenced.
 
 **This was a design upgrade, not a compliance repair.** The prior boundary —
 1.59:1 on `surface`, the figure this section quotes throughout — was not a WCAG
@@ -444,9 +481,15 @@ predicate above is the ruling — fill-equals-container, not page-ground-only.
 Twenty-one button and link controls standing on card and panel fills moved to
 `--color-text-faint` on that date; the switch tracks were ruled OUT and their
 OFF ring is the documented limit above.
-`BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` is archived, and the
-outlines the element-level census cannot see — text-entry fields, and outlines
-painted on a nested child — are filed separately with their probe transcripts.
+`BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` is archived. The outlines
+the element-level census could not see — text-entry fields, and outlines painted
+on a nested child — were filed separately with their probe transcripts as
+`BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER`, and that row is now closed too: the
+cover was widened on 2026-08-26 until it saw both families, and the red it
+produced named the population it then swept. What the widened cover still
+cannot reach is recorded as documented limits in
+`docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md`
+§17, with a re-file trigger each, rather than as an open row.
 
 Six such controls DID move on 2026-08-14, for one reason applied at three
 distances: leaving a control at the old outline while a control it renders WITH

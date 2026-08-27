@@ -122,6 +122,24 @@ describe("secondary action outline (spec §3, DESIGN §1.2a control-outline rule
     }
   });
 
+  /**
+   * The plate token against `--color-bg`, added 2026-08-26.
+   *
+   * `components/admin/MaintenanceResetButtons.tsx`'s reset-confirm field stands
+   * on a `warning-bg` plate and carries its OWN `bg-bg` fill, so its OUTER edge
+   * is the plate (already pinned above) and its INNER edge is this pair, which
+   * nothing pinned before. Kept as a relation rather than a constant, like every
+   * row in this file: a retune fails at the moment it inverts a pair and stays
+   * quiet when it is harmless.
+   */
+  it.each([
+    ["light", lightBlock],
+    ["dark", darkBlock],
+  ])("%s: the tinted-plate outline clears 3:1 against --color-bg (inner edge)", (_mode, block) => {
+    const tinted = tokenIn(block, "--color-control-outline-tinted");
+    expect(contrast(tinted, tokenIn(block, "--color-bg"))).toBeGreaterThanOrEqual(3.0);
+  });
+
   it.each([
     ["light", lightBlock],
     ["dark", darkBlock],

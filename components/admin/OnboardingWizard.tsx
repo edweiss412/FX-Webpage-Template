@@ -237,7 +237,7 @@ export function StepIndicator({
         const pillState = isActive
           ? cn("border-accent-edge bg-accent text-accent-text")
           : isDone
-            ? cn("border-border-strong bg-surface text-text-subtle")
+            ? cn("border-text-faint bg-surface text-text-subtle")
             : isVisited
               ? // `group-hover:`, not `hover:` — the visual span is no longer the
                 // element the pointer is over across the 8px expansion band.

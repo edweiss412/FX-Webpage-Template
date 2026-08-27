@@ -21,6 +21,12 @@
  * Widening to descendants means every span inside every control, which is a
  * different guard with a different census — it is a scope decision, not a bug fix
  * (invariant-8 critique round 2, P3, 2026-08-14).
+ *
+ * That axis became EXPRESSIBLE on 2026-08-26: `scanInteractiveElements` takes a
+ * declared `paintedChildren` option, and the two control-outline guards read it.
+ * This scan still does not, and the decision above is why. The limit is now a
+ * choice one line from being reversed rather than a thing the scanner cannot do,
+ * so a later reader should not read "cannot" here where the truth is "does not".
  */
 import { allStrings, scanInteractiveElements } from "./interactiveScanCore";
 

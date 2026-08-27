@@ -1224,7 +1224,7 @@ export function ContactsBreakdown({
                           aria-label={`${action} ${displayName}`}
                           className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                         >
-                          <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                          <span className="grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle">
                             <Icon aria-hidden="true" className="size-4" />
                           </span>
                         </a>
@@ -1766,7 +1766,7 @@ export function CrewBreakdown({
                       aria-label={`Call ${name}`}
                       className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                     >
-                      <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                      <span className="grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle">
                         <Phone aria-hidden="true" className="size-4" />
                       </span>
                     </a>
@@ -1777,7 +1777,7 @@ export function CrewBreakdown({
                       aria-label={`Email ${name}`}
                       className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                     >
-                      <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                      <span className="grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle">
                         <Mail aria-hidden="true" className="size-4" />
                       </span>
                     </a>
@@ -3836,7 +3836,7 @@ export function DiagramTile({
         loading="lazy"
         decoding="async"
         onError={() => setFailed(true)}
-        className="aspect-4/3 w-full rounded-md border border-border bg-surface-sunken object-cover"
+        className="aspect-4/3 w-full rounded-md border border-text-faint bg-surface-sunken object-cover"
       />
     </a>
   );
@@ -4248,7 +4248,7 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
               /* border-border on bg-bg was 1.22:1 — far under the 3:1 non-text
                  minimum (impeccable audit P2, WCAG 1.4.11). border-strong + the
                  surface fill together make the field read as a field. */
-              className="w-full rounded-sm border border-border-strong bg-surface p-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              className="w-full rounded-sm border border-text-faint bg-surface p-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
             />
           </>
         ) : null}

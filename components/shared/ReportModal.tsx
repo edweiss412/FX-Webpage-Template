@@ -712,7 +712,7 @@ export function ReportModal(props: ReportModalProps) {
                 rows={6}
                 readOnly={status === "submitting"}
                 autoFocus
-                className="block w-full resize-y rounded-sm border border-border bg-bg px-3 py-2 text-base text-text placeholder:text-text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-60"
+                className="block w-full resize-y rounded-sm border border-text-faint bg-bg px-3 py-2 text-base text-text placeholder:text-text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-60"
                 style={{ maxHeight: "40vh" }}
               />
               {error && status === "failed-retryable" ? (

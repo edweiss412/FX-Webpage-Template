@@ -120,7 +120,7 @@ export function VenueMapTile({
       {mapHref ? (
         <span
           data-testid="venue-directions"
-          className="absolute inset-x-2.5 bottom-2.5 inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface text-xs font-semibold text-text"
+          className="absolute inset-x-2.5 bottom-2.5 inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-text-faint bg-surface text-xs font-semibold text-text"
         >
           <Navigation aria-hidden="true" className="size-3.5" />
           Directions

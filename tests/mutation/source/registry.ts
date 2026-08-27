@@ -2612,75 +2612,125 @@ export const GUARD_SURFACES: GuardSurface[] = [
       from: "el.paths.length > 0 && el.paths.every((path) => pathHasFloor(path))",
       to: "el.paths.length > 0 && el.paths.some((path) => pathHasFloor(path))",
     },
-    // Five equivalents, all one shape: the mutation's only effect is on a value
-    // no consumer can distinguish. The first run's other 56 survivors were real
-    // coverage gaps and were repaid with tests, not with rows.
+    // Every row here is one shape: the mutation's only effect is on a value no
+    // consumer can distinguish, and each row says which value and why. The rest
+    // of both scored runs' survivors were real coverage gaps and were repaid
+    // with tests, not with rows. `pnpm mutation:sites interactiveScanCore` is
+    // the count; a number written here would go stale the next time a row lands.
     accepted: [
       {
-        siteId: "relational-boundary:141:50:>>>=",
+        siteId: "relational-boundary:150:50:>>>=",
         kind: "equivalent",
         reason:
           'tokenize\'s filter becomes a no-op, so the only extra member is the empty string. Its four consumers are all existential (the floor scan and two recipe checks inside `pathHasFloor`, plus `defeaterPresent`) and both predicates reject "": baseToken("") is not sr-only and utilityPx("") is null in `tokenIsFloor`, and neither regex in `tokenIsDefeater` matches. tokenize is module-private, so no length or .every consumer exists',
       },
       {
-        siteId: "integer-literal:141:52:0>1",
+        siteId: "integer-literal:150:52:0>1",
         kind: "equivalent",
         reason:
           'the same filter in the other direction: it now also drops 1-character tokens. The shortest string any predicate in this module can match is 3 characters ("p-3" in `verticalPaddingPx`, "h-4" via the utility regex in `utilityPx`, "-m-1" in the negative-margin test inside `pathHasFloor`), so a 1-character token evaluates false whether it is kept or dropped',
       },
       {
-        siteId: "relational-boundary:153:21:<><=",
+        siteId: "relational-boundary:162:21:<><=",
         kind: "equivalent",
         reason:
           "one extra iteration of baseToken's scan reads raw[raw.length], which is undefined in JS rather than a throw, so all three comparisons in the loop body are false and neither `depth` nor `lastSep` changes; the return reads only those two",
       },
       {
-        siteId: "relational-boundary:180:21:<><=",
+        siteId: "relational-boundary:189:21:<><=",
         kind: "equivalent",
         reason:
           "the same off-the-end iteration in variantPrefixes: no branch in the loop body fires on undefined, and the function returns exactly what the loop accumulated with no post-loop push, so a trailing prefix cannot be appended",
       },
       {
-        siteId: "relational-boundary:236:16:<><=",
+        siteId: "relational-boundary:245:16:<><=",
         kind: "equivalent",
         reason:
           'themeBlocks\' brace walk: the loop bound only decides where an UNBALANCED block stops, and both consumers erase the difference. `String.slice` clamps an end past the length, and `indexOf("@theme", end)` is -1 for every end at or past the length, so the extra iteration (which reads `undefined` and matches neither brace) cannot change the returned string',
       },
       {
-        siteId: "logical-connector:312:50:&&>||",
+        siteId: "logical-connector:321:50:&&>||",
         kind: "equivalent",
         reason:
           'only two operand combinations reach this line. With allowPseudo=false the scope is necessarily "element" (pseudo and descendant returned already), so both `false && X` and `false || (scope === "pseudo")` are false; the single allowPseudo=true call site filters on `t.startsWith("before:")`, and any such token has "before" among its variant prefixes, so both operators are true. The combination the operators disagree on is unreachable',
       },
       {
-        siteId: "equality-flip:380:21:===>!==",
+        siteId: "equality-flip:389:21:===>!==",
         kind: "equivalent",
         reason:
           'a consistent relabelling of the two padding accumulators: "t" writes bottom and "b" writes top, while "" and "y" still write both, so after any token sequence the pair is exactly the original pair transposed. Its only consumer is `Math.min(top ?? 0, bottom ?? 0) * 2`, which is symmetric in the two',
       },
       {
-        siteId: "integer-literal:383:26:0>1",
+        siteId: "integer-literal:392:26:0>1",
         kind: "equivalent",
         reason:
           "the missing-side fallback can only ever be 0 or 1, so it moves the returned padding by at most 2px. The sole consumer compares `ASSUMED_TEXT_ROW_PX + padding` against FLOOR_PX with a 24px gap (20 -> 22 against 44), and the base is pinned at 20 because any readable declared height is already a floor token or a rule-8 defeater. No input can cross the floor",
       },
       {
-        siteId: "integer-literal:383:39:0>1",
+        siteId: "integer-literal:392:39:0>1",
         kind: "equivalent",
         reason:
           "the mirror of the row above, on the other accumulator, with the same 2px-against-24px argument",
       },
       {
-        siteId: "integer-literal:394:15:0>1",
+        siteId: "integer-literal:403:15:0>1",
         kind: "equivalent",
         reason:
           "the bleed initializer survives only when NO `before:-inset*` token matches or every match is horizontal — any real vertical bleed overwrites it last-wins. In that case the recipe computes 20 + 2*1 = 22 against a floor of 44, so the changed initial value cannot reach a verdict",
       },
       {
-        siteId: "integer-literal:285:34:0>1",
+        siteId: "integer-literal:294:34:0>1",
         kind: "equivalent",
         reason:
           "lengthPx's zero-length return value is only ever null-checked or compared against FLOOR_PX=44 (the `spacingTokens` map build, `tokenIsFloor`, and both arms of `tokenIsDefeater`). 0 and 1 are both non-null and both under 44, and no consumer does arithmetic on it",
+      },
+      {
+        siteId: "statement-removal:961:5:jsxDeclarationCache.set(sf, perFile);>(removed)",
+        kind: "equivalent",
+        reason:
+          "the per-file map is built and then never installed, so every call re-walks the file. `localJsxDeclaration` is a pure function of (name, sourceFile), so a memo write cannot move its answer; only wall clock. Probed: the full corpus scan with both axes on is byte-identical under this mutant, all 767 elements including their resolved class strings",
+      },
+      {
+        siteId: "statement-removal:1005:3:perFile.set(name, hits);>(removed)",
+        kind: "equivalent",
+        reason:
+          "the installed map never gains an entry, so `perFile.get(name)` misses forever and the walk below runs every time. The cached value is the HITS ARRAY since diff round 3 — the walk now counts declarations so a shadowed name can be declined rather than guessed — and the memo is unobservable for the same reason either way. The other half of the same memo as the row above, and unobservable for the same reason: it writes a cache, it does not compute an answer. Probed byte-identical on the corpus",
+      },
+      {
+        siteId: "statement-removal:1054:9:break;>(removed)",
+        kind: "equivalent",
+        reason:
+          "the default-import scan keeps reading statements after it has found its match. Only a LATER import declaration binding the same local name could overwrite `specifier`, and two imports binding one name is a TypeScript redeclaration error, so no module the corpus can hold has one. The condition is false for every other import, named or side-effect-only, so `specifier` keeps the value the match gave it",
+      },
+      {
+        siteId: "statement-removal:1109:15:followed.delete(key);>(removed)",
+        kind: "equivalent",
+        reason:
+          "the LOCAL-declaration branch: the key stays in `followed` for the rest of the scan, so a component declared in this file is followed once per file rather than once per call site. The branch re-visits one declaration under an UNCHANGED ctx, so a second follow yields the same elements at the same (file, line, tag) with the same resolution, and the scan's de-duplication drops them regardless",
+      },
+      {
+        siteId: "statement-removal:1132:15:followed.delete(key);>(removed)",
+        kind: "equivalent",
+        reason:
+          "the IMPORTED-declaration branch. Unlike the local branch this one does rewrite ctx, but it rewrites it to a value derived entirely from `imported`, which is a pure function of the tag and the current source file, so within one file a repeated follow of one key reaches one declaration under one ctx. The elements are location-keyed and de-duplicated, so suppressing the repeat removes nothing",
+      },
+      {
+        siteId: "statement-removal:1207:13:followed.delete(key);>(removed)",
+        kind: "equivalent",
+        reason:
+          "the JSX-EXPRESSION branch, `{binding}`. Its resolver is `localJsxDeclaration`, which never leaves the current file, so both follows of one key read one declaration under one ctx by construction. Same location-keyed de-duplication as the two rows above",
+      },
+      {
+        siteId: "relational-boundary:1186:23:>>>=",
+        kind: "equivalent",
+        reason:
+          "the guard on the `{binding}` follow, made true outside any control. Following there re-visits a declaration in the SAME file under the SAME ctx, and admission still needs either in-scope-ness, which that file's own walk already grants at the same location, or `insideInScope > 0` at the admission site, which following does not change. Contrast the twin guard on the component-tag follow one branch up: THAT one rewrites ctx and so spends an import hop, which is why its `>`->`>=` and `&&`->`||` are both killed by tests and this one cannot be. Probed: corpus output identical under this mutant even unsorted, so element order does not distinguish it either",
+      },
+      {
+        siteId: "relational-boundary:1028:48:>>>=",
+        kind: "equivalent",
+        reason:
+          "`localJsxAmbiguous` widens from 'two or more declarations' to 'one or more'. Its ONLY consumer is the `{binding}` branch, where it sits behind `binding === null &&` — and `binding` is null exactly when the hit count is 0 or 2+, never 1. So the one count the mutation adds is the one count the guard in front of it excludes, and the extra arm is unreachable rather than merely unlikely",
       },
     ],
   },
@@ -2838,7 +2888,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // tokens drawn from that same list, so the optional chain never yields undefined.
       // Falsifier: a token reaching this filter that was not in the classify call above it.
       {
-        siteId: "integer-literal:659:82:0>1",
+        siteId: "integer-literal:663:82:0>1",
         kind: "equivalent",
         reason:
           "rowPaint is built from alternatives.flat() and indexed with tokens from that same list, so the ?? fallback is unreachable; §4.3",
@@ -2881,13 +2931,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // side-divider row — identical problem lists for a clean, a double-spaced and a one-char
       // paint string. Falsifier: a consumer reading token spelling or counting tokens directly.
       {
-        siteId: "relational-boundary:591:81:>>>=",
+        siteId: "relational-boundary:595:81:>>>=",
         kind: "equivalent",
         reason:
           "an empty token admitted by >= 0 carries no paint, and every consumer of alternatives reads paint; probed against a live divider row with identical output; §4.6",
       },
       {
-        siteId: "integer-literal:591:83:0>1",
+        siteId: "integer-literal:595:83:0>1",
         kind: "equivalent",
         reason:
           "a one-char token dropped by > 1 carries no paint, same probe, same identical output; §4.6",
@@ -2901,7 +2951,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // spellings). `<=` and `<` therefore agree on the whole domain. Falsifier: a caller passing
       // a value not of the form b/255.
       {
-        siteId: "relational-boundary:504:33:<=><",
+        siteId: "relational-boundary:508:33:<=><",
         kind: "equivalent",
         reason:
           "lin's domain is {b/255 : b in 0..255} and 0.03928*255 = 10.0164 is not an integer, so no input reaches the boundary — all 256 enumerated; §4.7",

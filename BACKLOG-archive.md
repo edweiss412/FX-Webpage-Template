@@ -1,3 +1,51 @@
+## BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER — two families of low-contrast outline the element-level cover could not see in either direction — CLOSED 2026-08-26
+
+**Status:** CLOSED 2026-08-26 · **Effort (as shipped):** M · **Shipped by:** `fix/control-outline-cover` · **Spec:** `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md`
+
+**The row's `(a)` exception is discharged by ruling, not by argument.** It filed two families rather than repairing them because each needed a design decision the filing PR could not settle. Both were taken on 2026-08-26 against a rendered mockup carrying the measured ratios, the same bar as the 2026-08-16 and 2026-08-18 rulings: a text field's border IS a control outline under `DESIGN.md` §1.2a, and an open-state outline painted on a CHILD is a resting boundary rather than a state cue.
+
+**The repair is DERIVED, which is the whole reason the row existed.** It refused to hand-add its own eight sites, because "the 21 the cover found, plus one the cover did not, chosen by hand" is the enumerated cover the arc refused everywhere else. So the cover was widened until it saw both families, the consuming guards were run, and the red they produced named the population.
+
+|                                            |                           |
+| ------------------------------------------ | ------------------------- |
+| scanned universe                           | 362 → 767                 |
+| residue elements                           | 10 → 45 before repair     |
+| the reddening set                          | **35 elements / 29 keys** |
+| swapped to the token their ground requires | 23                        |
+| registered with a category and a reason    | 12                        |
+| `RESIDUE_CENSUS`                           | 10 → 22 rows              |
+| `switch-track`                             | 3 → 5                     |
+| `inner-chrome` (new category)              | 0 → 10                    |
+| sites repaired that the red did not name   | **0**                     |
+
+**The row's own list was eight sites; the derivation found thirty-five.** Seven of the thirteen Family A sites appear in neither the row nor `DESIGN.md`. That gap is the argument for derivation stated as a number.
+
+**The checkable prediction the row set was met.** `DESIGN.md:260-261` recorded that two of the five switch-track paths paint on a nested `<span>`, "which is why an element-level census reported three". Both became visible, by two DIFFERENT mechanisms: `AutoRefreshControl`'s span is a lexical child of its button, and `DeveloperToggleButton`'s is inside a component the button renders. `count("switch-track")` moved 3 → 5. The 2026-08-16 ruling is untouched; becoming visible is a registration duty, not a reopening.
+
+**Corrected line anchors.** The row anchored several sites on the `className=` line; `scanInteractiveElements` anchors every element on its opening tag. The reconciliation is spec §3 and supersedes the row's citations: `VenueMapTile.tsx:123→121`, `OnboardingWizard.tsx:240→258`, `ShowRowActions.tsx:650→647`, `CrewRowActions.tsx:273→270`, `BellPanel.tsx:836→838` and `:847→849`, `step3ReviewSections.tsx:4200→4195`; `SwitcherControls.tsx:119` was correct as cited.
+
+**The two sites `DESIGN.md` named that the row missed** are both closed here: the `<textarea>` at `components/shared/ReportModal.tsx` (`DESIGN.md:322-324`) swapped, and the reset-confirm field in `components/admin/MaintenanceResetButtons.tsx` (`DESIGN.md:412-418`) moved to the plate token, its "left alone" pin INVERTED rather than deleted so the fence remains legible as a decision.
+
+**The one site where repairing what the red named would have been worse than doing nothing.** `EventFilters`' text input painted through `className ?? "<weak default>"` while both call sites supplied their own, so the weak string the transcript named was dead code: swapping it would have deleted the only readable weak token, cleared `isResidue`, and left both rendered controls at 1.27:1 behind a green guard. `FilterTextInput` now owns its recipe unconditionally and takes a `grow` boolean instead of a `className`, so no caller can repaint it. Spec §6.4.
+
+**What the widened cover still cannot reach** is recorded as documented limits in spec §17, each with a re-file trigger, rather than carried forward as a new row: a component the resolver cannot name (HOC, factory, dynamic import, past 3 import hops); JSX reached through anything but a bare local identifier or a component tag, including a render prop in an attribute; and the fact that the residue guard is SILENT, not conservative, on an element whose only weak paint arrives through an unreadable prop.
+
+**Evidence.** `tests/e2e/control-outline-contrast.live.spec.ts` carries 12 cases: all five surfaces AC-13 names, at 390px, in both themes, asserting COMPUTED border contrast against the ground the outline is actually read against rather than a source pin. Source pins were the first attempt and were ruled insufficient on 2026-08-26: a contrast claim is settled in a browser. Every DB-free case was observed RED with the pre-sweep tokens planted back, at exactly the ratios the sweep exists to fix — bell config 1.59 light / 1.60 dark, report textarea 1.22 / 1.35, row-actions 1.22 / 1.35. `scripts/ac15-width-parity.mts` compares the border-width multiset of all 767 elements before and after: 0 differences, so no swap moved layout.
+
+**The one surface measured somewhere else, and why that is the right answer rather than a shortcut.** `components/admin/OnboardingWizard.tsx` is a SERVER component whose module scope constructs a Supabase server client, so on the static bundle route it dies with `AsyncLocalStorage is not a constructor` and takes the whole page with it. Next never ships that module to a client bundle either, so the route is wrong for the component rather than missing a feature; the alternative repair — teaching the shared bundle helper to hand out a live `AsyncLocalStorage` — would weaken the empty-by-class property every sibling spec depends on, to reach a component that renders server-side anyway. The pill is measured on its real route at `/admin?step=2` instead. Limit L9, with the probe.
+
+**What the widened cover still cannot reach** is recorded as documented limits in spec §17, each with a re-file trigger, rather than carried forward as a new row: a component the resolver cannot name (HOC, factory, dynamic import, past 3 import hops); JSX reached through anything but a bare local identifier or a component tag, including a render prop in an attribute; and the fact that the residue guard is SILENT, not conservative, on an element whose only weak paint arrives through an unreadable prop.
+
+**The mutation gate found something review did not, and it is a limit rather than a row.** Widening the follow guard turned eight real controls from resolved into `unresolved` with their class strings gone. The mechanism: de-duplication keeps the FIRST admission, and a follow spends an import hop before the followed module resolves anything, so an element reached by a follow can carry a less-resolved class string than the same element reached by its own module's walk. NOT reachable under the shipped guards, and probed rather than argued — switching dedup from keep-first to keep-last leaves the corpus byte-identical across all 767 elements, because a follow always resolves against the DECLARING module, so both paths read one scope and differ only in budget. Limit L8.
+
+**The scored surfaces.** All three enrolled surfaces pass at the shipping head with an EMPTY unaccepted-survivor set, over the full operator set: `interactiveScanCore` 340/359, `controlOutlineScan` 65/65, `controlOutlineResidue` 241/255. Every survivor is an `accepted` row with a PER-MUTANT reason, never one family reason covering a shape.
+
+`interactiveScanCore`'s first scored run left 20 unaccepted survivors on the branches the widening added. Twelve were killed by new fixtures, one line was deleted as dead (`visit(node.closingElement)` matches no branch in `visit`, and the corpus scan is byte-identical without it), and the rest carry rows. A later score, after the diff review's resolver repair, found four more in that repair's OWN new code — two of them mutants that moved the line a report names while every assertion still passed. That is the argument for scoring a guard after you change it, stated as a number.
+
+**What the diff review cost and bought.** Four rounds across two bases, nine findings, all admissible and all repaired. The one that paid for itself three times: both e2e specs this arc added were DARK, wired into no workflow, and would have passed forever by never executing. Its repair then surfaced two more defects that had been invisible for the same reason — a dimension case asserting on an element that never renders on the route it visited, and a spec that never established the database state it measures in. The filing is `docs/review-rounds/fix/control-outline-cover/87bff74705da.md`.
+
+**The resolver rounds, and why the cover did not grow.** Two rounds named five shapes a component resolver cannot follow: import aliases, defaults whose local name differs from the exported declaration, anonymous defaults, one-hop barrel re-exports, and same-file lexical shadowing. Teaching it all five was the obvious repair and the wrong one — a wider recognizer is a bigger target for the next round. The scanner instead REPORTS what it cannot name, and a guard turns the report into a closed class: an unnamed tag is admissible only when its binding comes from outside the corpus. Shadowing needed a second narrowing, because it returns a WRONG declaration rather than none: the walk counts declarations, follows one, and declines two or more into the same sink. The cover closed twice by declining, and never by parsing more.
+
 ## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number — CLOSED 2026-08-26
 
 **Status:** SHIPPED 2026-08-26 · **Effort (as shipped):** M · **Severity (as filed):** LOW-MEDIUM · **Class:** layout measurement · **Facing:** product · **Shipped by:** `feat/review-modal-strip-dock`

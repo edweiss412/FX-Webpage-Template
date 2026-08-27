@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppEventFilters } from "@/lib/admin/telemetryTypes";
 import { buildFilterHref } from "@/lib/admin/telemetryFilterHref";
+import { cn } from "@/lib/ui/cn";
 import { ActiveFilterChips } from "./ActiveFilterChips";
 
 // Controlled text filter: local state mirrors the committed filter value but is NOT reset by an
@@ -22,13 +23,14 @@ function FilterTextInput({
   committed,
   placeholder,
   onCommit,
-  className,
+  grow = false,
 }: {
   name: string;
   committed: string;
   placeholder: string;
   onCommit: (v: string | null) => void;
-  className?: string;
+  /** The ONE way a call site may differ. Deliberately not a className: see below. */
+  grow?: boolean;
 }) {
   const [value, setValue] = useState(committed);
   const [prevCommitted, setPrevCommitted] = useState(committed);
@@ -43,7 +45,17 @@ function FilterTextInput({
       placeholder={placeholder}
       aria-label={placeholder}
       value={value}
-      className={className ?? "min-h-tap-min rounded border border-border bg-surface px-2"}
+      /* The outline recipe lives HERE, unconditionally, and there is no
+         className prop for a caller to override it with. A caller-merged
+         className would not close this: `cn` merges nothing, and `isResidue`
+         reads only tokens the resolver can READ, so a caller passing
+         `!border-border` would repaint this field with the guard seeing
+         nothing at all (spec §6.4, limit L7). Every token below is a literal,
+         so the token the guard reads is the token that paints. */
+      className={cn(
+        "min-h-tap-min rounded border border-text-faint bg-surface px-2",
+        grow ? "flex-1" : "",
+      )}
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === "Enter" && value !== committed) onCommit(value || null);
@@ -77,7 +89,7 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
           committed={filters.q ?? ""}
           placeholder="Search message…"
           onCommit={(v) => go({ q: v })}
-          className="min-h-tap-min flex-1 rounded border border-border bg-surface px-2"
+          grow
         />
         {/* Segmented level control: one bordered group, dividers between segments. */}
         <div className="inline-flex items-stretch overflow-hidden rounded border border-border">
@@ -101,7 +113,7 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
         <select
           data-testid="filter-since"
           aria-label="Time window"
-          className="min-h-tap-min rounded-pill border border-border bg-surface px-3"
+          className="min-h-tap-min rounded-pill border border-text-faint bg-surface px-3"
           value={
             filters.sinceHours === 1
               ? "1h"
@@ -127,7 +139,6 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
               key === "showId" ? "show id…" : key === "requestId" ? "request id…" : `${key}…`
             }
             onCommit={(v) => go({ [key]: v })}
-            className="min-h-tap-min rounded border border-border bg-surface px-2"
           />
         ))}
       </div>

@@ -208,7 +208,10 @@ export const DIVIDERS: readonly CensusRow[] = [
   { file: "components/admin/BellPanel.tsx", line: 1221 },
   { file: "components/admin/RecentAutoAppliedStrip.tsx", line: 447 },
   { file: "components/admin/showpage/AttentionMenu.tsx", line: 189 },
-  { file: "components/admin/telemetry/EventFilters.tsx", line: 85 },
+  // :85 until 2026-08-26. The control-outline-cover sweep gave `FilterTextInput`
+  // its own outline recipe and a `cn` import, which moved every element below
+  // it. The divider itself is untouched; what moved is where it sits.
+  { file: "components/admin/telemetry/EventFilters.tsx", line: 97 },
   { file: "components/crew/primitives/KeyTimesStrip.tsx", line: 191 },
 ];
 

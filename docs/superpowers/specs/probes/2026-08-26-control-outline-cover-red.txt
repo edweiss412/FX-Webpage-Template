@@ -1,0 +1,83 @@
+POSITIVE CONTROL (flags off === no options arg): true
+universe base=362 textEntry=421 paintedChildren=708 both=767
+
+--- base: elements=10 keys=10 universe=362 ms=386
+
+--- textEntry: elements=23 keys=20 universe=421 ms=73
+   NEW app/admin/settings/admins/AddAdminForm.tsx:73 <input> [element]  bg-bg border border-border
+   NEW app/admin/settings/admins/AddAdminForm.tsx:84 <input> [element]  bg-bg border border-border
+   NEW components/admin/BellPanel.tsx:838 <input> [element]  bg-surface border border-border-strong
+   NEW components/admin/BellPanel.tsx:849 <input> [element]  bg-surface border border-border-strong
+   NEW components/admin/ShowsTable.tsx:455 <input> [element]  bg-surface border border-border
+   NEW components/admin/dev/MaterializeCard.tsx:152 <input> [element]  bg-surface border border-border
+   NEW components/admin/dev/MaterializeCard.tsx:164 <select> [element]  bg-surface border border-border
+   NEW components/admin/dev/MaterializeCard.tsx:179 <select> [element]  bg-surface border border-border
+   NEW components/admin/dev/SwitcherControls.tsx:119 <select> [element]  bg-surface border border-border hover:border-accent
+   NEW components/admin/telemetry/EventFilters.tsx:40 <input> [element]   || bg-surface border border-border
+   NEW components/admin/telemetry/EventFilters.tsx:101 <select> [element]  bg-surface border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:4195 <textarea> [element]  bg-surface border border-border-strong
+   NEW components/shared/ReportModal.tsx:705 <textarea> [element]  bg-bg border border-border
+
+--- paintedChildren: elements=32 keys=29 universe=708 ms=139
+   NEW components/admin/IgnoredSheetsDisclosure.tsx:80 <span> [painted-child]  bg-warning-bg border border-border-strong
+   NEW components/admin/IgnoredSheetsDisclosure.tsx:97 <span> [painted-child]  bg-surface-sunken border border-border
+   NEW components/admin/OnboardingWizard.tsx:258 <span> [painted-child]  bg-accent border border-accent-edge || bg-surface border border-border-strong || bg-surface-sunken border border-transparent || bg-surface-sunken border border-transparent
+   NEW components/admin/ReSyncButton.tsx:213 <span> [painted-child]  border border-border
+   NEW components/admin/RecentAutoAppliedStrip.tsx:474 <span> [painted-child]  bg-surface border border-border
+   NEW components/admin/ShowRowActions.tsx:647 <span> [painted-child]  bg-surface-sunken border border-border-strong || border border-border
+   NEW components/admin/ShowsTable.tsx:288 <span> [painted-child]  border border-border
+   NEW components/admin/nav/AdminNav.tsx:154 <span> [painted-child]  bg-surface-raised border border-border
+   NEW components/admin/settings/DeveloperToggleButton.tsx:93 <span> [painted-child]  bg-accent border border-accent-edge || bg-surface-sunken border border-border-strong
+   NEW components/admin/UnarchiveShowButton.tsx:113 <p> [painted-child]  bg-warning-bg border border-border-strong
+   NEW components/admin/ArchiveShowButton.tsx:232 <div> [painted-child]  bg-warning-bg border border-border-strong
+   NEW components/admin/ArchiveShowButton.tsx:243 <p> [painted-child]  bg-warning-bg border border-border-strong
+   NEW components/admin/ArchiveShowButton.tsx:253 <p> [painted-child]  bg-warning-bg border border-border-strong
+   NEW components/admin/telemetry/AutoRefreshControl.tsx:105 <span> [painted-child]  bg-accent border border-accent-edge || bg-surface-sunken border border-border-strong
+   NEW components/admin/telemetry/CronRunSummaryCard.tsx:26 <div> [painted-child]  bg-surface-sunken border border-border
+   NEW components/admin/wizard/CrewRowActions.tsx:270 <span> [painted-child]  bg-surface-sunken border border-border-strong || border border-border
+   NEW components/admin/wizard/VenueMapTile.tsx:121 <span> [painted-child]  bg-surface border border-border-strong
+   NEW components/admin/wizard/step3ReviewSections.tsx:1226 <span> [painted-child]  border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:1768 <span> [painted-child]  border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:1779 <span> [painted-child]  border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:2431 <span> [painted-child]  bg-surface-sunken border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:3788 <img> [painted-child]  bg-surface-sunken border border-border
+
+--- both: elements=45 keys=39 universe=767 ms=133
+   NEW app/admin/settings/admins/AddAdminForm.tsx:73 <input> [element]  bg-bg border border-border
+   NEW app/admin/settings/admins/AddAdminForm.tsx:84 <input> [element]  bg-bg border border-border
+   NEW components/admin/BellPanel.tsx:838 <input> [element]  bg-surface border border-border-strong
+   NEW components/admin/BellPanel.tsx:849 <input> [element]  bg-surface border border-border-strong
+   NEW components/admin/IgnoredSheetsDisclosure.tsx:80 <span> [painted-child]  bg-warning-bg border border-border-strong
+   NEW components/admin/IgnoredSheetsDisclosure.tsx:97 <span> [painted-child]  bg-surface-sunken border border-border
+   NEW components/admin/OnboardingWizard.tsx:258 <span> [painted-child]  bg-accent border border-accent-edge || bg-surface border border-border-strong || bg-surface-sunken border border-transparent || bg-surface-sunken border border-transparent
+   NEW components/admin/ReSyncButton.tsx:213 <span> [painted-child]  border border-border
+   NEW components/admin/RecentAutoAppliedStrip.tsx:474 <span> [painted-child]  bg-surface border border-border
+   NEW components/admin/ShowRowActions.tsx:647 <span> [painted-child]  bg-surface-sunken border border-border-strong || border border-border
+   NEW components/admin/ShowsTable.tsx:455 <input> [element]  bg-surface border border-border
+   NEW components/admin/ShowsTable.tsx:288 <span> [painted-child]  border border-border
+   NEW components/admin/dev/MaterializeCard.tsx:152 <input> [element]  bg-surface border border-border
+   NEW components/admin/dev/MaterializeCard.tsx:164 <select> [element]  bg-surface border border-border
+   NEW components/admin/dev/MaterializeCard.tsx:179 <select> [element]  bg-surface border border-border
+   NEW components/admin/dev/SwitcherControls.tsx:119 <select> [element]  bg-surface border border-border hover:border-accent
+   NEW components/admin/nav/AdminNav.tsx:154 <span> [painted-child]  bg-surface-raised border border-border
+   NEW components/admin/settings/DeveloperToggleButton.tsx:93 <span> [painted-child]  bg-accent border border-accent-edge || bg-surface-sunken border border-border-strong
+   NEW components/admin/UnarchiveShowButton.tsx:113 <p> [painted-child]  bg-warning-bg border border-border-strong
+   NEW components/admin/ArchiveShowButton.tsx:232 <div> [painted-child]  bg-warning-bg border border-border-strong
+   NEW components/admin/ArchiveShowButton.tsx:243 <p> [painted-child]  bg-warning-bg border border-border-strong
+   NEW components/admin/ArchiveShowButton.tsx:253 <p> [painted-child]  bg-warning-bg border border-border-strong
+   NEW components/admin/telemetry/AutoRefreshControl.tsx:105 <span> [painted-child]  bg-accent border border-accent-edge || bg-surface-sunken border border-border-strong
+   NEW components/admin/telemetry/EventFilters.tsx:40 <input> [element]   || bg-surface border border-border
+   NEW components/admin/telemetry/EventFilters.tsx:101 <select> [element]  bg-surface border border-border
+   NEW components/admin/telemetry/CronRunSummaryCard.tsx:26 <div> [painted-child]  bg-surface-sunken border border-border
+   NEW components/admin/wizard/CrewRowActions.tsx:270 <span> [painted-child]  bg-surface-sunken border border-border-strong || border border-border
+   NEW components/admin/wizard/VenueMapTile.tsx:121 <span> [painted-child]  bg-surface border border-border-strong
+   NEW components/admin/wizard/step3ReviewSections.tsx:1226 <span> [painted-child]  border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:1768 <span> [painted-child]  border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:1779 <span> [painted-child]  border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:2431 <span> [painted-child]  bg-surface-sunken border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:3788 <img> [painted-child]  bg-surface-sunken border border-border
+   NEW components/admin/wizard/step3ReviewSections.tsx:4195 <textarea> [element]  bg-surface border border-border-strong
+   NEW components/shared/ReportModal.tsx:705 <textarea> [element]  bg-bg border border-border
+
+--- tintedPlate derived: base=8 widened=9
+   NEW components/admin/MaintenanceResetButtons.tsx:300 <input> tinted=false

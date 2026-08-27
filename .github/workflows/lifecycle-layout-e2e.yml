@@ -227,6 +227,35 @@ jobs:
       # report and enforces a per-spec executed floor measured from a real run.
       - name: Assert the tap-target layout spec actually executed
         run: node scripts/check-lifecycle-layout-executed.mjs
+      # ORDER IS LOAD-BEARING: this runs AFTER the tap-target oracle above, not
+      # between that step and its check. Playwright clears `test-results/` at the
+      # start of every run, so a step placed earlier deletes the report the
+      # oracle reads and the oracle fails with "no report at ..." — which is
+      # exactly what the first real CI run of this step did. Naming a different
+      # `PLAYWRIGHT_JSON_OUTPUT_NAME` would NOT have helped: the directory is
+      # cleared wholesale, the filename is not the problem.
+      #
+      # Control-outline cover widening (spec 2026-08-26 §14 and AC-13): the dimension
+      # pairs, and the CONTRAST claim the whole arc exists to move. Same host and same
+      # reasoning as the two steps above: mobile-safari is the 390px project, and this
+      # workflow fires on UNFILTERED pull_request:, so a spec named here is PR-COVERED
+      # and needs no LOCAL_ONLY_ALLOWLIST row (adding one would fail
+      # tests/ci/_metaE2eWorkflowCoverage.test.ts's shadowing assertion).
+      #
+      # DATABASE_URL for the same reason the tap-target step above carries it, and it is
+      # load-bearing for exactly one of the three specs: the wizard step-indicator pill
+      # is measured on its REAL route at /admin?step=2 (its module is a server component,
+      # so the bundle harness the other four use cannot mount it), and getting there runs
+      # `enterWizardAdminState` through lib/onboarding/sessionLifecycle.ts's postgres.js
+      # path, which throws without a DSN under `pnpm build && pnpm start`.
+      #
+      # --retries=0 for the same reason as above: playwright.config.ts sets
+      # `retries: process.env.CI ? 2 : 0`, so without the flag a fail-then-pass retry
+      # reads as a green run.
+      - name: Run control-outline dimension + contrast e2e (mobile-safari, :3000 only)
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: pnpm exec playwright test tests/e2e/control-outline-dimensions.layout.spec.ts tests/e2e/control-outline-contrast.live.spec.ts tests/e2e/control-outline-pill.route.spec.ts --project=mobile-safari --retries=0
       - name: Upload Playwright traces/report (diagnosis artifact)
         # Dispatch runs are measurement runs — keep traces from GREEN samples
         # too (a wedge that self-recovers inside the budget is still evidence).

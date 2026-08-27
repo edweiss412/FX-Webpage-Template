@@ -107,37 +107,6 @@ the change itself.
 **Un-defer trigger:** any work that already opens `step3ReviewSections.tsx` for another reason should
 carry these two sites with it, since the marginal cost then collapses to the edit itself.
 
-## BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER — two families of low-contrast outline the element-level cover cannot see in either direction
-
-**Status:** OPEN · **Severity:** LOW-MEDIUM (a resting boundary at 1.4-1.8:1, on surfaces whose peers moved to 3.35:1 on 2026-08-16) · **Class:** visual boundary / DESIGN scope · **Effort:** S per site, M as a class · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, spec §3.2) · **Class-sweep exception:** (a) — the repair needs a design decision this PR cannot settle, stated per family below · **Reachability:** PROBED — every claim below is a transcript, not an argument.
-
-The 2026-08-16 ruling swapped the 21 controls a DERIVED cover found: interactive elements whose OWN className `tests/styles/interactiveScanCore.ts` statically resolves. Two families sit outside that cover **in both directions** — the census will never flag them and never exempt them — so they are recorded here rather than hand-added to a swap set that is otherwise entirely derived.
-
-**Family B first, because one of its members has the strongest claim to have belonged in the 21.**
-
-- `components/admin/wizard/VenueMapTile.tsx:123` — a `<span>` painted as a button visual inside an anchor. A resting outline on a neutral fill; its ONLY difference from the 21 is that the paint lands on a child. Named first deliberately.
-- `components/admin/OnboardingWizard.tsx:240` — the done-branch pill inside the `Link` at `:251`.
-- `components/admin/ShowRowActions.tsx:650` and `components/admin/wizard/CrewRowActions.tsx:273` — open-state menu-trigger visuals.
-
-**Probe.** The scanner attributes a className to the interactive element. Where the border is painted on a child `<span>`, the interactive element's own class list is clean and the element reports `strong=false`, so the cover never sees the outline at all. Two switch tracks have the identical shape and were promoted into the ruling's exemption family for exactly this reason (spec §3.1) — the mechanism is live, not hypothetical.
-
-**Family A — text-entry fields.**
-
-- `components/admin/BellPanel.tsx:836` and `:847` — `type="number"` fields, `min-h-tap-min w-20 rounded-sm border border-border-strong bg-surface`.
-- `components/admin/wizard/step3ReviewSections.tsx:4200` — a `<textarea>` (spec §3.2 cites `:4171`; the live line moved under the 2026-08-16 sibling merges).
-- `components/admin/dev/SwitcherControls.tsx:119` — a `<select>`, added to this family on 2026-08-18 by the `border-border` arc. It carries `border border-border bg-surface … hover:border-accent`, so it sits inside §1.2a's widened predicate AND inside that arc's own hover-inversion class — and the scanner sees neither, because `tests/styles/interactiveScanCore.ts:789` admits only `button`, `a` and `summary` as intrinsic tags. The arc left it untouched deliberately: editing it would have shipped a change no assertion in that diff guards, which is the hand-extended cover the family exists to prevent. Its lexical neighbours at `components/admin/dev/SwitcherControls.tsx:29` and `:145` DID move, so this file now carries both treatments — a reader counting `hover:border-accent` occurrences there will find one that did not move, and this is why.
-
-**Probe.** The rule is explicit and narrow: `tests/styles/interactiveScanCore.ts:868-870` admits an `<input>` **only** when its `type` is `checkbox` or `radio`. The scanner does see inputs — nine repo-wide, all checkboxes and radios — but a `type="number"` field and a `<textarea>` are outside its vocabulary by that rule. `scanInteractiveElements` over `components/admin/BellPanel.tsx` returns rows tagged `a`, `button` and `div`, and zero inputs.
-
-**Why each family is filed rather than repaired, and why "same defect, different file" is not the reason.** Both differ from the 21 in element kind and in whether the outline is a resting boundary at all.
-
-- **Family A:** whether an `<input>`'s border is a "control outline" under §1.2a is an open question. The user ruled against a mockup of BUTTONS resting on cards; a text field's border is arguably a field affordance rather than a control boundary, and moving it silently would answer a question the ruling did not ask.
-- **Family B:** the closed state of these nested-child outlines is `border-border`, a DIFFERENT token doing a different job (§1.2a preserves it for tile edges, dividers and hover chrome). Whether an open/active STATE treatment is a resting outline or a state cue is the second unanswered question.
-
-**Why `VenueMapTile.tsx:123` was not simply included.** Including it would make the swap set "the 21 the cover found, plus one the cover did not, chosen by hand" — a hand-extended list is exactly the enumerated cover the arc refused everywhere else. It goes here, named first.
-
-**First scheduled step:** answer the two design questions — is a text field's border a control outline, and is an open-state child outline a resting boundary — then apply each answer as a derived sweep over its own family, starting with `VenueMapTile.tsx:123`.
-
 ## BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE — the mi11 genuine-removal fallback retains a frozen snapshot over a live row
 
 **Filed:** 2026-08-07 (arc C Q1 class-sweep, `feat/backlog-quick-wins`). **Class:** correctness (silent data revert). **Effort:** S. **Severity:** low-medium — no loss of the row, but live edits are silently reverted.
