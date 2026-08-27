@@ -10,13 +10,36 @@ not. This spec states which, what the count becomes, and what pins it.
 
 ## 1. The converged count is 2
 
-**One closed to open transition runs `measureAndApply` exactly twice.** Run 1 is
-the pre-paint placement on the open commit. Run 2 is the ungated every-commit
-effect evaluating on the first commit after that placement. The third run in the
-current code is removed.
+### The three measures, named once and used with these names everywhere
 
-**2 is the converged count UNDER THE CURRENT NOTIFICATION MECHANISM, and is not
-claimed to be a floor over all mechanisms.** An earlier draft of this spec
+| Name | Effect | Commit |
+| --- | --- | --- |
+| **A** | the gated effect's own call (`components/admin/AnchoredPortal.tsx:193`) | open commit |
+| **B** | the ungated every-commit effect | open commit |
+| **C** | the ungated every-commit effect | the settle commit after the placement |
+
+**The repair deletes A**, leaving B as the pre-paint placement and C as the
+ungated effect's first evaluation after it. The count goes 3 to 2.
+
+A and B are byte-for-byte the same computation on the same DOM (§2.2), so
+exactly one of the two is redundant and which one is deleted is a design choice,
+not a derivation. A is chosen because deleting it leaves the unconditional
+effect as the sole measurer, and the pre-paint guarantee then rests on that one
+effect having no dependency array rather than on two effects' declaration order.
+
+**The count is scoped, and both qualifiers belong in the claim rather than in a
+footnote: it counts the measures REACT COMMITS DRIVE, as observed in the jsdom
+harness.** A real browser adds at least one more. `new ResizeObserver(schedule)`
+observes the anchor and the panel on open (`components/admin/AnchoredPortal.tsx:229`),
+and an observer delivers an initial callback on `observe`, which schedules a
+further measure through the rAF coalescer. jsdom's `ResizeObserver` is a no-op
+stub (`tests/setup.ts:70-81`), which is precisely why the harness can count the
+commit-driven measures in isolation — and precisely why this figure must never be
+read as a browser total. It is a property of the component's commit behaviour,
+not of a menu opening in Chrome.
+
+**2 is also the converged count UNDER THE CURRENT NOTIFICATION MECHANISM, and is
+not claimed to be a floor over all mechanisms.** An earlier draft of this spec
 claimed 2 was FORCED. Review refuted that (§2.1), and the claim is withdrawn
 rather than softened, because a guard pinning 2 while the spec claims a floor of
 2 would pin a number one above a bound nobody should still believe.
@@ -26,7 +49,7 @@ rather than softened, because a guard pinning 2 while the spec claims a floor of
 | Decision | Ratification |
 | --- | --- |
 | The ungated every-commit effect is a named invariant of the design, not a redundancy. It is the only shipped subscription that catches a position-only anchor move. | `components/admin/AnchoredPortal.tsx:245-253`; INV-2 |
-| Run 2 of the current three is removable, and its removal is analytic rather than measured. | §2.2 |
+| Of the two open-commit measures A and B, exactly one is redundant, and that is analytic rather than measured. A is the one deleted. | §2.2, §1 |
 | `IntersectionObserver` does not replace measuring per commit, in either its plain or self-rearming form. ONE reason survives review; two were struck. | §2.3 |
 | `MutationObserver` could plausibly reach a count of 1. It is NOT REFUTED. It is not taken, for scope. | §2.4 |
 | INV-1 is pinned in the browser, never in jsdom, and the reason is measured. | §5 |
@@ -38,7 +61,7 @@ rather than softened, because a guard pinning 2 while the spec claims a floor of
 ### 2.1 What review refuted, and what survives
 
 The refuted claim, stated so it is not re-derived: an earlier draft argued that
-run 3 could not be removed because "nothing distinguishes" the commit after the
+C could not be removed because "nothing distinguishes" the commit after the
 open placement from a refresh that reordered the rows without a measurement.
 **That is false.** A `MutationObserver` distinguishes them without measuring: a
 row reorder emits a `childList` record, while the placement follow-up mutates
@@ -55,22 +78,26 @@ position-only move. It catches one by running on every commit and measuring, and
 the commit after the open placement is an ordinary commit that it cannot
 classify without measuring. Under THAT mechanism the count cannot go below 2.
 
-### 2.2 Run 2 is removable, by construction
+### 2.2 One of A and B is redundant, by construction
 
-Both of the open commit's measures land in the same commit: the gated effect
+A and B both land in the open commit: the gated effect
 (`components/admin/AnchoredPortal.tsx:191`) and the ungated one.
 
 Nothing mutates the DOM between them. No re-render intervenes, nothing paints,
 and the only style writes either makes are `withNaturalSize`'s cap clear
 (`lib/popover/naturalSize.ts:39-40`) and its restore
-(`lib/popover/naturalSize.ts:68-69`), which cancel inside each call. Run 2's
-inputs are therefore identical to run 1's BY CONSTRUCTION, its computed placement
-is identical, and `commit` (`components/admin/AnchoredPortal.tsx:115`) drops it.
+(`lib/popover/naturalSize.ts:68-69`), which cancel inside each call. B's inputs are therefore identical to A's BY CONSTRUCTION, the two compute the
+same placement, and `commit` (`components/admin/AnchoredPortal.tsx:115`) drops
+the second of them.
 
-This is analytic, not measured, and it survived review unchanged: React walks
-both layout hooks contiguously from the component's effect list, and the
-layout-effect state update flushes after the current commit phase, so no
-in-scope DOM mutation or render can interleave.
+This is analytic rather than measured, and this arc's own probe is consistent
+with it: `measureRunsOnOpenCommit=3` (appendix A.1) is what two same-commit
+measures plus one post-settle measure produce, and no other decomposition of
+three fits the effect structure. Review confirmed the mechanism independently —
+React walks both layout hooks contiguously from the component's effect list, and
+the layout-effect state update flushes after the current commit phase, so no
+in-scope DOM mutation or render can interleave — and that confirmation is
+recorded as corroboration rather than as the claim's only support.
 
 ### 2.3 IntersectionObserver, killed on one reason
 
@@ -165,10 +192,27 @@ than the argument.** Under the passive-measurer plant, INV-1 red — mount at fr
 defeats one pin while leaving the other passing settles the question of whether
 either subsumes the other, which is why INV-1 needs its own case.
 
-Every mutant named here is EXECUTED and its red observed before this spec is
-resubmitted. An earlier draft named a mutant for INV-1 that does not red it,
-which is the orphaned-plant defect: a guard whose plant never reds proves
-nothing while reading as if it did.
+**Execution status, stated per mutant rather than as a blanket claim.** An
+earlier draft of this section asserted that every mutant here had been executed
+when only one had. That is the same defect class as the orphaned plant it was
+written to prevent, committed by the document that states the rule, so the
+status is now a column rather than a sentence:
+
+| Mutant | Status |
+| --- | --- |
+| M2 — the sole measurer made passive | **RUN**, red observed, transcript in appendix A.4 |
+| M1 — restore the deleted `measureAndApply()` call | scheduled in the plan's task 1; its result lands in that task's commit |
+| M3 — delete the ungated effect | scheduled in the plan's task 1; its result lands in that task's commit |
+
+The ordering rule this arc now follows: EXECUTE, then write the claim from the
+result. Never write the claim and schedule the execution.
+
+**The design-alternative rejections in §2.3 and §3 are ARGUMENTS, not
+executions**, and are labelled so here because the sweep that governs mutants
+does not reach them. There is no mutant for "IntersectionObserver instead of a
+layout effect" or "a ref flag instead of a deletion"; those rest on cited engine
+and framework behaviour, which a reviewer checks by reading the citation rather
+than by running anything.
 
 ## 5. Why INV-1 cannot live in jsdom
 
@@ -223,8 +267,8 @@ than assuming it.
   distinguish a converged pair of commits from a single commit within one task.
   The convergence claim does not rest on it — that is analytic (§2.2).
   **Status: INFERRED FROM REACT'S SYNCHRONOUS FLUSH, NOT PROBED.** The probe that
-  would settle it: force run 3 to compute a different placement and observe
-  whether its write shares a batch with run 1's.
+  would settle it: force C to compute a different placement and observe whether
+  its write shares a batch with B's.
 - **The half-applied write is never painted, and this IS probed.** On the clean
   tree the held sequence has exactly two entries, so exactly one callback batch
   carried both the `left` and the `top` write, and the mount and the placement
@@ -280,11 +324,45 @@ state to interrupt.
   the harness for all 56 enrolled surfaces at once. Not taken by this arc.
   **Re-file trigger:** a product arc actually BLOCKED from shipping by this, not
   merely re-shaped by it.
-- The live probe establishes agreement between the second and third runs on the
-  shipped right-aligned dashboard menu at 1280x720. It does not establish
-  agreement over every viewport. The repair does not rest on it: run 2's
-  redundancy is analytic (§2.2), and the run that would catch a disagreement is
-  the one that stays.
+- The live probe does NOT establish that C agreed with B; the batch grain cannot
+  separate two commits flushed in one task (§5.1, §A.2). It establishes that one
+  settled placement appears on the shipped right-aligned dashboard menu at
+  1280x720 and that it is geometrically correct against its anchor. The repair
+  does not rest on more than that: the A-and-B redundancy is analytic (§2.2), and
+  C — the measure that would catch a disagreement — is the one that stays.
+
+## 9.1 Documented coverage boundary: one of the two render sites
+
+`AnchoredPortal` is rendered from exactly one file, at two sites, both in
+`components/admin/ShowRowActions.tsx`: the row menu
+(`components/admin/ShowRowActions.tsx:661`) and the preview submenu
+(`components/admin/ShowRowActions.tsx:961`). `ReSyncButton.tsx` and
+`PublishedToggle.tsx` name the component in comments only; both compose
+`placeWithinVisibleViewport` directly, so neither is a consumer.
+
+**The browser pins (INV-1, INV-4) select `[data-testid^="row-actions-portal-"]`,
+which matches the row menu and NOT the submenu.** The submenu's id begins
+`row-action-preview-portal-`, a different prefix rather than a longer one, so the
+selector cannot match it. This is a decision, recorded here so it is verified
+rather than discovered.
+
+**It is safe because the sites do not differ anywhere the property lives.** Both
+pass `align="right"` and `preferredSide="bottom"` — identical, not merely
+similar — so `measureAndApply`'s dependency list
+(`components/admin/AnchoredPortal.tsx:186`) differs only in the ref. Both
+placement effects branch on nothing but `open` and `mounted`, and
+`measureAndApply`'s only branch is on `placement.kind`
+(`components/admin/AnchoredPortal.tsx:157`), a computed value rather than a prop.
+There is no site-dependent branch anywhere in the timing path, so the pre-paint
+property is a property of the component and one site establishes it. INV-2 and
+INV-3 are asserted against the component in jsdom, which is the level the repair
+lives at.
+
+One difference does exist, and it argues for the ungated effect rather than
+against this boundary: the submenu's anchor is a button INSIDE the row menu's
+portal panel, so the submenu is a portal whose anchor sits inside another portal,
+and any re-place of the row menu moves that anchor without resizing it. That is
+a second, nested instance of the position-only move INV-2 covers.
 
 ## 10. Out of scope
 
@@ -320,8 +398,14 @@ identical stubbed inputs by construction.
 PROBE-LIVE styleWrites=2 placements=2 sequence=["0px|0px||","695px|1251.47px||"]
 ```
 
-One placement is applied. The third measure agreed with the second, which makes
-it a convergence rather than a flake.
+One settled placement is applied, and it is the placement the panel keeps.
+
+**This does NOT establish that C agreed with B**, and an earlier draft said it
+did. The batch grain cannot separate two React commits flushed in one task
+(§5.1), so a disagreeing C would have been absorbed into the same batch and
+reported as one settled state. What the probe establishes is narrower and is
+what INV-4 actually needs: exactly one settled placement appears, the panel keeps
+it, and it is geometrically correct against its anchor.
 
 ### A.3 Three corrections to the instrument, all found before it was trusted
 

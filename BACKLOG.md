@@ -355,3 +355,41 @@ that shows open-time reflow cost is material on the shows dashboard.
 `tests/e2e/rowactions-geometry.spec.ts`, to establish whether the third run's placement is ever
 DIFFERENT from the second's — if it never is, the convergence step is dead weight and the repair
 narrows to the gated effect.
+
+---
+
+## BL-ROWACTIONS-SUBMENU-STALE-ON-ROW-MENU-REPLACE — the submenu is anchored inside the row menu, and does not follow when the row menu re-places
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`perf/anchoredportal-measure-convergence`, blast-radius pass) · **Facing:** product · **Severity:** LOW-MEDIUM (a visibly mis-anchored submenu on the shipped admin dashboard; narrow trigger, correct output everywhere else) · **Class:** cross-instance placement subscription · **Effort:** M · **Class-sweep exception:** (c) — the repair is a redesign of the placement subscription model across two `AnchoredPortal` instances, which is the SAME scope already fenced when `MutationObserver` was declined for that arc (`docs/superpowers/specs/admin/2026-08-27-anchoredportal-measure-convergence.md` §2.4), not a fresh or unexplained deferral. · **Reachability:** INFERRED, NOT PROBED.
+
+`components/admin/ShowRowActions.tsx` renders two `AnchoredPortal` instances: the
+row menu (`components/admin/ShowRowActions.tsx:661`) and the preview submenu
+(`components/admin/ShowRowActions.tsx:961`). The submenu's anchor is
+`previewItemRef`, a button that lives INSIDE the row menu's portal panel. So the
+submenu is a portal whose anchor sits inside another portal.
+
+When the row menu re-places, its panel moves and the submenu's anchor moves with
+it, without changing size. The row menu's `applied` placement is state internal
+to its own `AnchoredPortal` instance, so React re-renders that instance and its
+children — `ShowRowActions` does not re-render, so the SUBMENU's instance does
+not re-render either, and its ungated every-commit effect
+(`components/admin/AnchoredPortal.tsx:254`) never runs. The submenu's own
+`ResizeObserver` watches its anchor and its panel for SIZE, and the anchor only
+moved. Nothing re-places it.
+
+**Most triggers are already covered, which is what makes this narrow rather than
+broad.** A window resize and an ancestor scroll both reach the gated effect's own
+listeners on BOTH instances (`components/admin/AnchoredPortal.tsx:222-223`), so
+each re-places independently. The uncovered trigger is specifically the row menu
+panel's own `ResizeObserver` firing on a content-size change — a busy state, an
+error region appearing — which re-places the row menu alone.
+
+**Reachability is INFERRED from React's re-render scope, not observed.** The
+first scheduled step is therefore the probe, not the repair: open the submenu,
+force a row-menu content-size change while it is open, and compare the submenu's
+applied placement against its anchor's live rect. `tests/e2e/rowactions-geometry.spec.ts`
+already drives both surfaces and is the natural home for it.
+
+**Predates `perf/anchoredportal-measure-convergence` and is unchanged by it.**
+That arc removes a duplicate measure inside a single commit; it does not touch
+the cross-instance path, in either direction.

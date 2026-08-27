@@ -34,6 +34,7 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
+import { GAP } from "@/lib/popover/position";
 
 const TOL = 0.5;
 /** Enough rows that the document scrolls at the viewport below, with margin. */
@@ -454,10 +455,11 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
     await page.evaluate(() => {
       const state = {
         writes: [] as { old: string; now: string }[],
-        batches: [] as { start: string; end: string }[],
+        batches: [] as { start: string; end: string; side: string }[],
         frames: 0,
         framesAtMount: null as number | null,
         framesAtPlacement: null as number | null,
+        sideAtMount: null as string | null,
       };
       (window as unknown as { __portalProbe: typeof state }).__portalProbe = state;
       const tick = () => {
@@ -479,7 +481,10 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
             for (const n of Array.from(r.addedNodes)) {
               if (!(n instanceof HTMLElement)) continue;
               if (!n.matches('[data-testid^="row-actions-portal-"]')) continue;
-              if (state.framesAtMount === null) state.framesAtMount = state.frames;
+              if (state.framesAtMount === null) {
+                state.framesAtMount = state.frames;
+                state.sideAtMount = n.getAttribute("data-portal-side");
+              }
             }
             continue;
           }
@@ -499,13 +504,17 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
           state.batches.push({
             start: batchStart ?? "",
             end: target.getAttribute("style") ?? "",
+            // `side` is a sibling attribute, not a style property, so it is
+            // read at batch end alongside the style rather than parsed out of
+            // it. Without it a flip that preserved left/top would be invisible.
+            side: target.getAttribute("data-portal-side") ?? "",
           });
         }
       }).observe(document.body, {
         childList: true,
         attributes: true,
         subtree: true,
-        attributeFilter: ["style"],
+        attributeFilter: ["style", "data-portal-side"],
         attributeOldValue: true,
       });
     });
@@ -527,7 +536,8 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
           window as unknown as {
             __portalProbe: {
               writes: { old: string; now: string }[];
-              batches: { start: string; end: string }[];
+              sideAtMount: string | null;
+              batches: { start: string; end: string; side: string }[];
               frames: number;
               framesAtMount: number | null;
               framesAtPlacement: number | null;
@@ -548,8 +558,11 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
     // `left`/`top` are written ONLY by React from `applied`; withNaturalSize
     // touches only the max-* caps. So the distinct left/top values the
     // attribute holds are exactly the placement commits.
-    // The WHOLE applied placement, not just left/top: a wrong side, a changed
-    // cap or a transient extra placement must not survive this case.
+    // The four style-borne members of `Applied`: left, top, maxHeight, maxWidth.
+    // `side` is NOT style-borne — it renders as the `data-portal-side`
+    // attribute — so it is pinned by the geometric oracle below rather than by
+    // this key, which is a claim about what this key covers, not a claim that
+    // side is unchecked.
     const coord = (style: string) => {
       const prop = (name: string) =>
         new RegExp(`(?:^|;)\\s*${name}:\\s*([^;]+)`).exec(style)?.[1]?.trim() ?? "";
@@ -564,10 +577,13 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
     // per WRITE has the opposite fault and reports React's half-applied
     // `left` -> `top` pair as two placements. Per batch is the grain that
     // matches a commit.
-    const held = [probe.batches[0]!.start, ...probe.batches.map((b) => b.end)];
+    const held: { style: string; side: string }[] = [
+      { style: probe.batches[0]!.start, side: probe.sideAtMount ?? "" },
+      ...probe.batches.map((b) => ({ style: b.end, side: b.side })),
+    ];
     const placements: string[] = [];
-    for (const style of held) {
-      const c = coord(style);
+    for (const h of held) {
+      const c = `${coord(h.style)}|${h.side}`;
       if (placements[placements.length - 1] !== c) placements.push(c);
     }
 
@@ -577,20 +593,57 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
         `held=${JSON.stringify(held)}`,
     );
 
+    // PREMISE (own inputs): the first observed state must BE the unplaced
+    // origin, and the last must differ from it. Comparing the last against a
+    // literal "0px|0px" was vacuous once the key grew to four members — the
+    // literal can no longer equal any key this function produces, so the check
+    // passed for every input including an origin final value.
+    const origin = placements[0] ?? "";
+    expect(
+      origin.startsWith("0px|0px"),
+      `premise not met: the first observed state must be the unplaced origin, got ${JSON.stringify(origin)}`,
+    ).toBe(true);
     const last = placements[placements.length - 1] ?? "";
     expect(
       last,
       "premise not met: the panel never left its unplaced origin, so this case would pass vacuously",
-    ).not.toBe("0px|0px");
+    ).not.toBe(origin);
 
-    // The row's question, answered on the live surface: the open transition
-    // commits ONE placement. A further entry would mean the third measure
-    // computed something the second did not.
+    // ── The placement is CORRECT, not merely singular ──────────────────────
+    // Counting placements says nothing about where the panel went. Without an
+    // oracle a one-line `left + 1` still produces exactly one non-origin
+    // placement and passes everything above, which makes the count a shape
+    // check rather than a placement check.
+    //
+    // The oracle is the panel's geometry against its anchor's, not a
+    // re-implementation of the placement algebra: re-deriving the expected
+    // coordinates here would pass whenever the test and the code share a
+    // mistake. `align="right"` holds on both sides of a flip, so the
+    // right-edge alignment is asserted unconditionally, and adjacency is
+    // asserted on the side the panel REPORTS, which is what makes a wrong
+    // `data-portal-side` a failure rather than a relabelling.
+    const panel = page.locator('[data-testid^="row-actions-portal-"]');
+    const panelRect = await rectOf(panel);
+    const triggerRect = await rectOf(trigger);
+    const side = await panel.getAttribute("data-portal-side");
+
     expect(
-      placements.length,
-      `the open transition must apply exactly one placement (origin → placed); ` +
-        `got ${JSON.stringify(placements)}`,
-    ).toBe(2);
+      Math.abs(panelRect.right - triggerRect.right),
+      `right-aligned: the panel's right edge must meet the trigger's (panel ${panelRect.right}, trigger ${triggerRect.right})`,
+    ).toBeLessThanOrEqual(TOL);
+
+    expect(side, "the panel must report which side it took").not.toBeNull();
+    if (side === "bottom") {
+      expect(
+        Math.abs(panelRect.top - (triggerRect.bottom + GAP)),
+        `side=bottom: the panel's top must sit GAP below the trigger's bottom`,
+      ).toBeLessThanOrEqual(TOL);
+    } else {
+      expect(
+        Math.abs(panelRect.bottom - (triggerRect.top - GAP)),
+        `side=top: the panel's bottom must sit GAP above the trigger's top`,
+      ).toBeLessThanOrEqual(TOL);
+    }
 
     // ── INV-1: the placement is applied BEFORE paint ───────────────────────
     // This cannot be pinned in jsdom. Under Testing Library's `act`, passive
