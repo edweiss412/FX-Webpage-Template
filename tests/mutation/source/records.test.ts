@@ -281,6 +281,62 @@ describe("records — written for all four cells of {passing, failing} x {CI, lo
   });
 });
 
+describe("a FAULTED surface's record can carry its cause (design section 3.1)", () => {
+  // WHY THE FIELD EXISTS. A surface whose evaluation throws never reaches
+  // evaluateGate, so it has no score and no outcomes -- and a record written as
+  // {passed: false, score: 0, outcomes: []} is byte-indistinguishable from a
+  // surface that legitimately scored zero. Without a cause the record cannot
+  // tell a red baseline from a source-read failure or an infrastructure fault,
+  // which is the whole reason the fault channel exists.
+  //
+  // THIS SUITE PROVES TRANSPORT ONLY: that emitRunRecord preserves whatever the
+  // caller passes. It cannot prove the caller passes anything useful -- that is
+  // surfaceCases.test.ts's, and the split is stated so neither assumes the
+  // other covered it.
+  it("round-trips a fault through emit and read", () => {
+    const cell = mkdtempSync(join(tmpdir(), "fx-records-fault-"));
+    try {
+      const fault =
+        "BaselineNotGreenError: someSurface: tests/a.test.ts fails on UNMUTATED source.";
+      const result = emitRunRecord({
+        surfaceId: "faulted",
+        passed: false,
+        score: 0,
+        outcomes: [],
+        fault,
+        dir: cell,
+      });
+      expect(result.kind).toBe("written");
+      const files = listRecords(cell, "faulted");
+      expect(files).toHaveLength(1);
+      const back = readRunRecord(join(cell, files[0] as string));
+      // EQUALITY, not containment: a writer that truncates the cause to its
+      // class name satisfies a /BaselineNotGreenError/ match while dropping the
+      // suite that says WHICH baseline went red.
+      expect(back.fault).toBe(fault);
+      expect(back.passed).toBe(false);
+    } finally {
+      rmSync(cell, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves the field ABSENT on an ordinary record", () => {
+    // The other half, and the one that stops the field becoming useless: an
+    // implementation writing fault: "" or fault: null into every record would
+    // satisfy the round-trip above while making the field undiscriminating.
+    const cell = mkdtempSync(join(tmpdir(), "fx-records-nofault-"));
+    try {
+      emitRunRecord({ surfaceId: "ok", passed: true, score: 1, outcomes: [], dir: cell });
+      const files = listRecords(cell, "ok");
+      const back = readRunRecord(join(cell, files[0] as string));
+      expect(back.fault).toBeUndefined();
+      expect("fault" in back).toBe(false);
+    } finally {
+      rmSync(cell, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("workflow — the source-shards JOB uploads the records directory (AC-11)", () => {
   it("resolves the step by JOB, not by searching the file", () => {
     const wf = parseYaml(readFileSync(".github/workflows/mutation-harness.yml", "utf8")) as {

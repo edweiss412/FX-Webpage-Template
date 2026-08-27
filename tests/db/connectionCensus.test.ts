@@ -2499,6 +2499,33 @@ describe("reconcileValidationEnv — the allowlist arm (validation-env is permit
     expect(reconcileValidationEnv([rec], []).unallowed.map((r) => r.line)).toEqual([2, 3]);
   });
 
+  test("a row whose file DOES still have its site is NOT stale", () => {
+    // THE KILLING CASE for statement-removal:1641:7, which deletes
+    // `withSites.add(record.file)` from reconcileValidationEnv. That leaves
+    // `withSites` permanently empty, so `stale` reports EVERY allow row --
+    // including live ones whose file still holds the site the row permits.
+    //
+    // The block around this tested `stale` in both directions that make it
+    // NON-empty (a repaired file, a file absent from the walk) and never once
+    // that it is EMPTY for a live allowance, which is why the mutant survived
+    // with every assertion green. The nearest case, "the same site in an
+    // allowlisted file is NOT reported", asserts only `.unallowed` -- and
+    // `unallowed` is byte-identical under clean and mutant, so it could never
+    // have seen this.
+    const rec = classifyFile("tests/db/validation-schema-parity.test.ts", VALIDATION_SRC);
+    premiseHolds(
+      "the fixture really carries a validation-env site, or this asserts nothing",
+      rec.sites.some((site) => site.cls === "validation-env"),
+    );
+    const result = reconcileValidationEnv(
+      [rec],
+      [ALLOW("tests/db/validation-schema-parity.test.ts")],
+    );
+    // Clean: []. Mutant: ["tests/db/validation-schema-parity.test.ts"].
+    expect(result.stale).toEqual([]);
+    expect(result.unallowed).toEqual([]);
+  });
+
   test("a row whose file no longer has a validation-env site is STALE", () => {
     // The repair direction: once the file resolves locally its row must red, rather than
     // sit there permitting a site that could come back under it.

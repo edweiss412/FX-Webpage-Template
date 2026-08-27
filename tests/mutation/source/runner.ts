@@ -237,6 +237,7 @@ export function runSurface(root: string, surface: GuardSurface): RunResult {
       runMutantRecorded(root, target, mutantFile, surface.suitePaths, `${surface.id} baseline`)
         .code,
       surface.suitePaths.join(", "),
+      surface.id,
     );
 
     const sites = enumerateSites(target, text, surface.operators);
