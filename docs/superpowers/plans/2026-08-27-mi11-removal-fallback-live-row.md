@@ -134,33 +134,21 @@ A spread, never a field-by-field pick and never a falsey coalesce, so a live `nu
 
 ### 6.1 Behavioural mutants
 
-Two families. The first proves each case reaches the site it claims; the second attacks the helper, which is where the defect lives. Each is planted, observed, reverted, and pasted.
+**One helper, so one place to attack.** Plan round 2 added a per-site plant — one mutant per `retainRows.set`, each required to redden exactly one case — and plan round 3 showed the plan's own text predicting every one of them reddening several. It also showed the cross-file coverage registry those plants served could not run at all: Vitest isolates test files (the root `vitest.config.ts` project definitions), so a case in one file cannot register itself with a collector in another, and Task 3 imported a scanner Task 5 had not yet written.
 
-**Per-site reversion — one plant per retain site, ruled at plan round 2.** A single global reversion proves only that SOME case somewhere caught the change; it does not prove the case-to-site mapping in §6.4 is real. Reverting one site at a time does, and it is what makes "one reachability case per site" a claim rather than a label. Each case is the minimal hold row plus parse state that reaches its site with a live row differing from the snapshot, asserting non-identity from live and identity from held.
-
-| # | Mutant | Must turn RED |
-| --- | --- | --- |
-| R300 | `lib/sync/holds/holdAwareApply.ts:300` alone back to `rowFromHeldValue(held)` | only the rename-fold case — and since the override wins at that site, this one is expected GREEN and is recorded as the site's declared no-op, with the override assertion carrying the site instead |
-| R321 | `lib/sync/holds/holdAwareApply.ts:321` alone back to `rowFromHeldValue(held)` | the WM-F6 case, and no other |
-| R337 | `lib/sync/holds/holdAwareApply.ts:337` alone back to `rowFromHeldValue(held)` | the genuine-removal case, and no other |
-| R466 | `lib/sync/holds/holdAwareApply.ts:466` alone back to the guarded `if (live)` retain | the `crew_email` cases, and no other |
-| R477 | `lib/sync/holds/holdAwareApply.ts:477` alone back to `rowFromHeldValue(held)` | the Reject case, and no other |
-
-**"And no other" is half the point.** A plant that reddens cases at several sites means those cases are not reaching the site they registered, and the §6.4 coverage assertion is passing on a mapping that is not real. Each plant's result is pasted with the FULL list of cases it reddened, not just the expected one.
-
-R300 is the honest exception and is recorded rather than forced: `nonIdentityOverride.set` at `lib/sync/holds/holdAwareApply.ts:299` is unconditional on that branch, so the retained value is never read and reverting the site changes nothing. The site is carried by asserting the sheet's fold-target values win there, which a mutant deleting the override DOES redden.
-
-**Helper mutants.**
+Both are deleted rather than repaired, because they were apparatus for a claim the arc does not need. After this change all five retains call the SAME function. A case that exercises `retainRowFor` exercises the logic of every site, and §6.2's guard is what pins that they all call it — derived from the source, not declared. A per-site mapping would prove which case happens to route through which line, which is a fact about the fixtures rather than about the change. The two things that need proving are: every retain goes through the helper (guard, §6.2), and the helper is right (below).
 
 | # | Mutant | Killed by |
 | --- | --- | --- |
-| B1 | `return snapshot` unconditionally (full reversion) | every site's reachability case at once |
-| B2 | `{ ...snapshot, phone: live.phone }` — a field-SUBSET merge | AC-1's other five field assertions |
+| B1 | `return snapshot` unconditionally (full reversion) | AC-1, AC-2, AC-3, AC-5, AC-9 — every case whose live row differs from its snapshot |
+| B2 | `{ ...snapshot, phone: live.phone }` — a field-SUBSET merge | AC-1's other five field assertions, which name the field missed |
 | B3 | `live.phone ?? snapshot.phone` or `\|\|` — a falsey coalesce | AC-6, on whichever of the seven empty shapes it mishandles |
 | B4 | `return live ?? snapshot` — no identity re-imposition | AC-7 and AC-8 |
 | B5 | `return previousByName.get(entityKey)!` — assumes a live row exists | AC-10 |
 
-B2 through B5 are exactly the four partial implementations spec round 1 found; every one passes the pre-round-1 acceptance set.
+B2 through B5 are exactly the four partial implementations spec round 1 found; every one passes the pre-round-1 acceptance set. Each is planted, observed, reverted, and pasted with the list of cases it reddened.
+
+**Two site-specific plants remain**, because two sites change more than their argument and the helper cannot carry that: **R466**, restoring the guarded `if (live)` form at `lib/sync/holds/holdAwareApply.ts:466`, which must redden Task 4's case (n); and **R477**, restoring `rowFromHeldValue(held)` at `lib/sync/holds/holdAwareApply.ts:477`, which must redden Task 3's Reject case. Neither claims to redden exactly one case, because neither does.
 
 ### 6.2 Structural mutants — the class guard, Task 5
 
@@ -168,7 +156,6 @@ B2 through B5 are exactly the four partial implementations spec round 1 found; e
 | --- | --- | --- |
 | S1 | any `retainRows.set` reverted to `rowFromHeldValue(held)` | RED |
 | S2 | a SIXTH `retainRows.set` added, in the admitted shape | RED, by the exact-count pin — the tripwire that makes someone come back to the spec |
-| S3 | a retain moved to a third function in the tree, including one with a DUPLICATE name in another `lib/sync/holds/**` module | RED, by the file-qualified multiset |
 | S4 | a lookalike callee, `retainRowFor2(hold.entity_key, held)` | RED |
 | S5 | `retainRowFor(hold.id, held)` — right callee, wrong argument | RED, by the argument pin |
 | S6 | `const row = retainRowFor(...); retainRows.set(k, row)` — indirection through a local | RED, a bare identifier is not admitted |
@@ -176,7 +163,9 @@ B2 through B5 are exactly the four partial implementations spec round 1 found; e
 | S8 | the scanned file emptied or its call sites all deleted | RED via the premise, never a silent pass |
 | S9 | `retainRowFor`'s BODY rewritten to return the snapshot (B1) | **GREEN — ACCEPTED GAP**, declared in spec §5. A syntactic guard cannot see a body change. The deciding suite is §6.1 and §6.4. |
 
-S8 is the string-presence rule's (a); S4 is (b); S7 is (c); S1/S2/S3/S5/S6 are (d).
+S8 is the string-presence rule's (a); S4 is (b); S7 is (c); S1/S2/S5/S6 are (d).
+
+**S3 is WITHDRAWN from the closure set, not left unkilled.** It proposed moving a retain into a third function. Round 2 killed the name-only multiset with a same-named function in another module; round 3 killed the file-qualified one with a same-named nested function expression wrapping the retain on its own line, which keeps the path, the line, the name, the count, the callee and both arguments. Each repair drew the next mutant, which is the signal to stop. And the mutant is behaviour-preserving by the reviewer's own account: the call still runs, with the same arguments, at the same point. A guard that cannot see it is not missing anything a reader would care about, and a fourth iteration chasing it would be recognizer growth on a surface with no defect behind it. Recorded as a documented limit of the guard: **it pins WHAT each retain is given and HOW MANY there are, not the lexical scope the call sits in.**
 
 ### 6.3 Copy-walker mutants — Task 6
 
@@ -189,31 +178,29 @@ S8 is the string-presence rule's (a); S4 is (b); S7 is (c); S1/S2/S3/S5/S6 are (
 | C5 | the identity wording present ONLY inside an MDX or JSX comment | RED — comments are stripped before the positive match |
 | C6 | the identity wording's opening clause present, followed by a contradictory continuation | RED — the assertion spans the complete sentence, not a prefix |
 
-### 6.4 The deciding cover: retain SITES, not input states
+### 6.4 What actually proves the rule
 
-**This replaces a cross-product matrix over the planner's inputs, and the replacement is a narrowing on purpose.** Plan round 1 said the three declared axes missed a split and added a fourth. Plan round 2 said the four still missed `domain`, `held_value.absent`, the `add` baseline and the email-equality input that drives release. Each round widened the enumeration and each widening was a bigger target for the next one; a cross product over a hold row's whole shape does not terminate, and a matrix that claims to be "the planner's branch product" is refuted by the next input nobody listed. Round 2 also caught the enumeration asserting something false: `lib/sync/holds/holdAwareApply.ts:259` gates the entire mi11 retain block on `!sheetForEntity`, so when the parse contains `entity_key` **no retain is created at all** — the matrix said one was set and discarded by `seen`.
+**Two things, and no third.**
 
-**The closed set is the retain SITES, and it is closed because the guard derives it.** The rule this arc ships is per-site: each `retainRows.set` sources live-or-snapshot. There are five, and Task 5's guard finds them by walking `lib/sync/holds/**` and parsing it — it does not read a list anybody wrote. So:
+1. **Every retain goes through the helper** — Task 5's guard, which walks and parses `lib/sync/holds/**` and asserts every `retainRows.set` passes `retainRowFor(hold.entity_key, held)`, with the site count pinned at five. The site set is DERIVED from the source, so a new retain fails without anyone remembering this document.
+2. **The helper is right** — §6.1's mutants against the behavioural cases in Tasks 1 through 4.
 
-- every behavioural case **registers the site it exercises**, by the same `file:line` key the guard reports;
-- the suite asserts **the set of sites covered by cases equals the set of sites the guard derives**, in both directions;
-- a new retain site therefore turns the guard red (unregistered shape) AND the coverage assertion red (no case reaches it), and neither can be satisfied by editing a list.
+Together those give the rule at every site, because after this change the sites do not differ: they all call the same function with the same arguments. That is the writer-set argument (spec §3.7) doing its work — one rule, one helper, no per-site reasoning.
 
-That terminates, because the site set is finite and derived rather than declared. What it deliberately does NOT claim is an enumeration of the inputs that select a site. Those inputs are open — `domain`, `baseline`, `absent`, email equality, replacement liveness and whatever a later hold kind adds — and enumerating them is the thing that failed twice.
+**What this deliberately does NOT build**, recorded because two rounds went into it: a coverage registry mapping cases to sites, and a per-site plant proving that mapping. Plan round 3 showed the registry could not run (Vitest isolates test files, the root `vitest.config.ts` project definitions) and that the plan's own text predicted every per-site plant reddening several cases at once. They were apparatus for a claim the two proofs above already carry. A finding that the arc lacks per-site behavioural attribution is a documented limit, not a defect: the sites are provably identical in what they call.
 
-**The cases, each named with the site it reaches.** Existing suites that already reach a site count, and are registered rather than rewritten.
+**The behavioural cases, by what they exercise** — a reader's map, not an asserted cover:
 
-| Site | Case reaching it | Home |
-| --- | --- | --- |
-| `lib/sync/holds/holdAwareApply.ts:300` rename fold, truly-added target | the sheet's fold-target row wins via `nonIdentityOverride` | the existing `applyParseResult.holdAware.renameFold` suite, registered |
-| `lib/sync/holds/holdAwareApply.ts:321` WM-F6, live-owner target | the held member's own live row wins, the owner untouched, the collision recorded | Task 2 |
-| `lib/sync/holds/holdAwareApply.ts:337` genuine removal | live wins across all six non-identity fields, plus every empty shape and the two defensive pins | Task 1 |
-| `lib/sync/holds/holdAwareApply.ts:466` `crew_email` reject | live wins; and with no live row the snapshot is retained rather than nothing | Task 4 |
-| `lib/sync/holds/holdAwareApply.ts:477` `crew_identity` restore | the Reject path takes live, driven through the real RPC; the Undo path is a no-op | Task 3 |
+| What | Where |
+| --- | --- |
+| every non-identity field follows live; all seven empty shapes; the two defensive identity pins; the three no-live-row pins | Task 1 |
+| the WM-F6 live-owner path, the owner untouched, the collision still recorded | Task 2 |
+| the Reject path through the real `mi11_reject_hold`, plus three release regression pins and the tombstone no-retain assertion | Task 3 |
+| the `crew_email` identity re-imposition and the no-retain degrade closure | Task 4 |
 
-**Three RELEASE regression pins, kept because the cases above depend on the hold surviving.** They are not retain sites and they complete no enumeration; each pins one release arm a case rests on, so a release regression shows up as itself rather than as a mysteriously green retain case. Task 3 owns them: `mi11Reconciled` releasing on a reconciled name-and-email (`lib/sync/holds/holdAwareApply.ts:121-129`); the removal baseline releasing on reappearance (`lib/sync/holds/holdAwareApply.ts:93-95`); and the rename baseline releasing through its first arm, `parseByName.has(hold.entity_key)` (`lib/sync/holds/holdAwareApply.ts:103`).
+**Three RELEASE regression pins**, kept because the retain cases depend on the hold surviving and a release regression should show up as itself: `mi11Reconciled` releasing on a reconciled name-and-email (`lib/sync/holds/holdAwareApply.ts:121-129`); the removal baseline releasing on reappearance (`lib/sync/holds/holdAwareApply.ts:93-95`); and the rename baseline releasing through its first arm, `parseByName.has(hold.entity_key)` (`lib/sync/holds/holdAwareApply.ts:103`).
 
-**One no-retain assertion.** The `crew_identity` tombstone (`held_value.absent === true`) suppresses and returns without a retain (`lib/sync/holds/holdAwareApply.ts:469-472`), and the live-owner suite's positive control already exercises the `add`-baseline form of it (`tests/sync/applyParseResult.holdAware.liveOwnerNeverDeleted.test.ts:303`). Task 3 asserts the absence: if a retain ever appears there it is a new site, which the guard's count catches first.
+**One no-retain assertion.** The `crew_identity` tombstone (`held_value.absent === true`) suppresses and returns without a retain (`lib/sync/holds/holdAwareApply.ts:469-472`); the live-owner suite's positive control already exercises the `add`-baseline form (`tests/sync/applyParseResult.holdAware.liveOwnerNeverDeleted.test.ts:303`). Task 3 asserts the absence: a retain appearing there would be a new site, which the guard's count catches first.
 
 ## 7. Task list
 
@@ -247,7 +234,7 @@ GREEN:
 
 VERIFY:
 
-8. Plant R337, then B1 through B5, one at a time, reverting each. Paste each result WITH the full list of cases it reddened. AC-11. R337 must redden the genuine-removal case and no other; B4 and B5 are what make cases (i) and (j)-(l) worth their lines.
+8. Plant B1 through B5, one at a time, reverting each. Paste each result with the list of cases it reddened. AC-11. B4 and B5 are what make cases (i) and (j)-(l) worth their lines.
 9. `pnpm typecheck`.
 
 ## Task 2 — the WM-F6 live-owner retain, its comments, and the test that could not see it
@@ -275,36 +262,35 @@ GREEN:
 
 VERIFY:
 
-12. Plant R321, observe the WM-F6 case red and nothing else, revert. Paste the reddened list. AC-11.
+12. Plant B1, observe the WM-F6 case and the diverged live-owner assertions red, revert. Paste the reddened list. AC-11.
 13. `pnpm typecheck`.
 
 ## Task 3 — the restore branch, the Reject path it actually serves, and the rest of the matrix
 
-<!-- task: red=`pnpm vitest run tests/sync/holdRetainMatrix.test.ts tests/sync/capabilityLossReachability.probe.test.ts` red-state=authored red-target=`lib/sync/holds/holdAwareApply.ts:477` why=`the crew_identity restore retain passes rowFromHeldValue(held), so after an admin rejects a removal the next sync writes the lagging mi11 snapshot over a live row mi11_reject_hold deliberately left untouched` ac=AC-5 -->
+<!-- task: red=`pnpm vitest run tests/sync/holdRetainRejectPath.test.ts tests/sync/capabilityLossReachability.probe.test.ts` red-state=authored red-target=`lib/sync/holds/holdAwareApply.ts:477` why=`the crew_identity restore retain passes rowFromHeldValue(held), so after an admin rejects a removal the next sync writes the lagging mi11 snapshot over a live row mi11_reject_hold deliberately left untouched` ac=AC-5 -->
 
 **What is red and why.** `mi11_reject_hold` converts a rejected removal into `kind='undo_override'`, `domain='crew_identity'` and never touches `crew_members` (`supabase/migrations/20260608000002_mi11_gate_rpcs.sql:89-98`; `tests/db/mi11_reject_hold.test.ts:110` already pins "row still present"). So the live row is current and `held_value` is the lagging mi11 snapshot. The Reject cell drives the real RPC, then syncs with the member absent, and reads the snapshot's non-identity where the live row's is expected. `lib/sync/holds/holdAwareApply.ts:477` is the line.
 
 RED:
 
-1. New suite `holdRetainMatrix` under `tests/sync/` carrying §6.4's SITE COVER: it imports the guard's own site-walking helper (the one Task 5 exports from the meta-suite's scan layer, so there is one derivation and not two), registers each case against the `file:line` of the site it reaches, and asserts in both directions that the covered set equals the derived set. A new retain site fails here for want of a case, and a case naming a site that no longer exists fails too.
-2. The `crew_identity` x `removal` Reject cell drives the real reject: seed a live member; write an mi11 hold with `disposition: 'removal'`; build the prior-crew snapshot from a row that diverges from the captured `held_value` (and seed the DB to match), because the planner reads `previousCrewMembers` from `snapshot(...)` and not from the database; call `mi11_reject_hold` through the authed admin path (`set_config('role','authenticated')` plus `request.jwt.claims`, the shape at `tests/sync/applyParseResult.holdAware.liveOwnerNeverDeleted.test.ts:228-240`); **then RESTORE the transaction role before anything else touches `sync_holds`** — `revoke all on table public.sync_holds from anon, authenticated` (`supabase/migrations/20260608000000_sync_holds.sql:46`) means the `authenticated` role cannot read the table, so the hold assertion and `applyParseResult` would both fail on a permission error before ever reaching line 477, and the case would report a red that has nothing to do with the defect. Reset the role and clear `request.jwt.claims` with `set_config(..., true)` immediately after the RPC returns. Only then assert the hold converted AND the crew row is still present, run `applyParseResult` with the member absent, and assert every non-identity field is the live one.
+1. New suite `holdRetainRejectPath` under `tests/sync/`. It carries the Reject case, the three release pins and the tombstone assertion — and nothing else. It imports no scanner and registers with no collector: plan round 3 showed that cross-file registration cannot run, because Vitest isolates test files (the root `vitest.config.ts` project definitions), and that the version of this step which imported Task 5's scanner could not turn green at all, since Task 5 had not written it yet.
+2. The Reject case drives the real reject: seed a live member; write an mi11 hold with `disposition: 'removal'`; build the prior-crew snapshot from a row that diverges from the captured `held_value` (and seed the DB to match), because the planner reads `previousCrewMembers` from `snapshot(...)` and not from the database; call `mi11_reject_hold` through the authed admin path (`set_config('role','authenticated')` plus `request.jwt.claims`, the shape at `tests/sync/applyParseResult.holdAware.liveOwnerNeverDeleted.test.ts:228-240`); **then RESTORE the transaction role before anything else touches `sync_holds`** — `revoke all on table public.sync_holds from anon, authenticated` (`supabase/migrations/20260608000000_sync_holds.sql:46`) means the `authenticated` role cannot read the table, so the hold assertion and `applyParseResult` would both fail on a permission error before ever reaching line 477, and the case would report a red that has nothing to do with the defect. Reset the role and clear `request.jwt.claims` with `set_config(..., true)` immediately after the RPC returns. Only then assert the hold converted AND the crew row is still present, run `applyParseResult` with the member absent, and assert every non-identity field is the live one.
 3. The three RELEASE pins §6.4 names, each asserting its own arm fires: `mi11Reconciled` on a reconciled name-and-email, the removal baseline on reappearance, and the rename baseline's `parseByName.has(hold.entity_key)` arm. Each states its premise on its own inputs — that the hold was in the state the pin names before the sync, and that it is gone after.
 4. The tombstone no-retain assertion §6.4 names.
-5. Register the two existing suites that already reach the `lib/sync/holds/holdAwareApply.ts:300` and `lib/sync/holds/holdAwareApply.ts:321` sites (`applyParseResult.holdAware.renameFold` and the live-owner suite) so the coverage assertion sees them. Registration only; neither suite's assertions change here, and Task 2 owns the live-owner one's repair.
-6. Premises per case on its OWN inputs: that the hold is in the state the case names (kind, domain, baseline, survived-or-released) and that live and `held_value` differ on the asserted fields. A case that silently tested another branch is the failure mode this catches.
-7. In the probe suite, move the `undo_override/crew_identity(restore)` row to `phoneAfter: LIVE_PHONE` and rewrite its comment, which calls the snapshot retain intended by design — spec §3.5 refuted that. The new comment names §3.7's writer-set argument. The tombstone row is untouched.
-8. Observe red. Paste it.
+5. Premises per case on its OWN inputs: that the hold is in the state the case names (kind, domain, baseline, survived-or-released) and that live and `held_value` differ on the asserted fields. A case that silently tested another branch is the failure mode this catches.
+6. In the probe suite, move the `undo_override/crew_identity(restore)` row to `phoneAfter: LIVE_PHONE` and rewrite its comment, which calls the snapshot retain intended by design — spec §3.5 refuted that. The new comment names §3.7's writer-set argument. The tombstone row is untouched.
+7. Observe red. Paste it.
 
 GREEN:
 
-9. `lib/sync/holds/holdAwareApply.ts:477` → `retainRowFor(hold.entity_key, held)`.
-10. Re-run. Green.
+8. `lib/sync/holds/holdAwareApply.ts:477` → `retainRowFor(hold.entity_key, held)`.
+9. Re-run. Green.
 
 VERIFY:
 
-11. Plant R477, observe the Reject cell AND the probe's restore row red and NOTHING ELSE red, revert. Paste the full reddened list. AC-11.
-12. The Undo cell drives `undo_change`, syncs with the member absent, and asserts the restored values survive. **It is a DOCUMENTATION CASE, not a regression pin, and NO declared mutant kills it** — `undo_change` re-inserts the crew row FROM `before_image` and `held_value` IS that `before_image`, so live and the snapshot are equal by construction on this path and B6 (which restores the snapshot preference) leaves it green. Recorded as such rather than paired with a mutant that does not kill it, per the RED-validity rule. What it would catch is a future change that makes the retain prefer something that is NEITHER the live row nor the snapshot on this path; that is worth a line, and claiming more for it would not be.
-13. `pnpm typecheck`.
+10. Plant R477, observe the Reject case and the probe's restore row red, revert. Paste the reddened list. It reddens both, and §6.1 says so rather than claiming one.
+11. The Undo cell drives `undo_change`, syncs with the member absent, and asserts the restored values survive. **It is a DOCUMENTATION CASE, not a regression pin, and NO declared mutant kills it** — `undo_change` re-inserts the crew row FROM `before_image` and `held_value` IS that `before_image`, so live and the snapshot are equal by construction on this path and B6 (which restores the snapshot preference) leaves it green. Recorded as such rather than paired with a mutant that does not kill it, per the RED-validity rule. What it would catch is a future change that makes the retain prefer something that is NEITHER the live row nor the snapshot on this path; that is worth a line, and claiming more for it would not be.
+12. `pnpm typecheck`.
 
 ## Task 4 — the `crew_email` branch: the identity it never re-imposed, and the degrade it never closed
 
@@ -326,7 +312,7 @@ GREEN:
 
 VERIFY:
 
-7. Plant R466, observe cases (m) and (n) red and nothing else, revert. Plant B4, observe case (m) red, revert. Paste both reddened lists. AC-11.
+7. Plant R466, observe case (n) red, revert. Plant B4, observe case (m) red, revert. Paste both reddened lists. AC-11.
 8. `pnpm typecheck`.
 
 ## Task 5 — the class guard
@@ -338,7 +324,7 @@ VERIFY:
 RED:
 
 1. Write the `_metaHoldRetainSource` suite under `tests/sync/`. It walks `lib/sync/holds/**` from disk — never a hardcoded file list, so a new module there is covered by default — and parses each file with the TypeScript compiler API, the idiom at `tests/cross-cutting/no-vestigial-middleware.test.ts:3`. For every `CallExpression` whose callee text ends in `retainRows.set` it records the enclosing function name, the second argument's classification, and that argument's argument text.
-2. Assert, per spec §5: every retain's value is a call to `retainRowFor` with arguments `hold.entity_key, held` (callee AND argument text, so S5 and S6 die); the site COUNT is exactly five (so S2 dies); and **the FILE-QUALIFIED enclosing-function multiset is exactly `{ "lib/sync/holds/holdAwareApply.ts::planHoldAwareApply": 3, "lib/sync/holds/holdAwareApply.ts::applyUndoOverrideToMaps": 2 }`** (so S3 dies). Two narrowings, each from a round that got past the previous one: the count alone does not kill a retain MOVED to a third function, since count, callee and arguments all survive that; and a multiset keyed on the function NAME alone does not either, because another module under `lib/sync/holds/**` may declare a function with the same name, which round 2 pointed out. The key is the walked path plus the name, both of which the scan already has.
+2. Assert, per spec §5: every retain's value is a call to `retainRowFor` with arguments `hold.entity_key, held` (callee AND argument text, so S5 and S6 die); the site COUNT is exactly five (so S2 dies); and the site COUNT is exactly five (so S2 dies). **It asserts nothing about the enclosing function**, and §6.2 records why: two rounds of trying to pin lexical scope each drew the next mutant past the previous repair, and the mutant that survives is behaviour-preserving — the same call, the same arguments, the same line. The guard's documented limit is that it pins what each retain is GIVEN and how many there are, not the scope the call sits in.
 3. State the premise unconditionally at describe scope, never inside a `.each` callback: `premise` that the walk found at least one `retainRows.set`. A parser that stopped matching then fails by name.
 4. Observe red on `lib/sync/holds/holdAwareApply.ts:300`. Paste it.
 
@@ -349,7 +335,7 @@ GREEN:
 
 VERIFY:
 
-7. Run S1 through S8 against the shipped guard, one at a time, reverting each. Paste each result. S9 is the declared accepted gap and is NOT expected to go red.
+7. Run S1, S2, S4, S5, S6, S7 and S8 against the shipped guard, one at a time, reverting each. Paste each result. S3 is withdrawn (§6.2) and S9 is the declared accepted gap; neither is expected to go red.
 8. `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
 
 ## Task 6 — the help copy
@@ -408,7 +394,7 @@ Criteria are declared in the spec's §7; this is the coverage map. AC-12 is the 
 | AC-8 the same at the `crew_email` branch, DEFENSIVE | Task 4 case (m) |
 | AC-9 the no-retain degrade closes | Task 4 case (n) |
 | AC-10 absent, empty, or non-matching prior snapshot | Task 1 cases (j)-(l) |
-| AC-11 planted behavioural mutants | Task 1 step 8, Task 2 step 12, Task 3 step 9, Task 4 step 7 |
+| AC-11 planted mutants: B1-B5 against the helper, plus R466 and R477 at the two sites that change more than an argument | Task 1 step 8, Task 2 step 12, Task 3 step 10, Task 4 step 7 |
 | AC-12 no help page promises a whole-row freeze | Task 6 |
 | AC-13 the class guard and its eight structural mutants | Task 5 |
 | AC-14 no new advisory-lock acquisition | Task 7 step 3 |
