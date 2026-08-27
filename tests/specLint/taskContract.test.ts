@@ -659,3 +659,155 @@ describe("checkTaskContract — mutation-gate repayments (groups F-J)", () => {
     expect(findings.map((f) => /AC-\d+/.exec(f.message)?.[0])).toEqual(["AC-90", "AC-91"]);
   });
 });
+
+describe("checkTaskContract — the unclaimed direction (spec §4.1, §4.3)", () => {
+  // OPEN=1, ""=2, "## Task 1"=3, ""=4, WELL=5, ""=6, so body[0] is line 7.
+  const plan = (...body: string[]) =>
+    doc(OPEN, "", "## Task 1", "", WELL, "", ...body, "", END);
+  const CLAIMED = "- AC-1 the one the marker claims.";
+
+  it("AC-4/unclaimed: a declared id no marker claims reports on its DECLARING line", () => {
+    // The line is half the assertion. A mutant reporting the marker's line, or
+    // line 1, still emits one finding with the right code; the pair is what
+    // discriminates it.
+    const findings = checkTaskContract(
+      parseDoc(plan(CLAIMED, "- AC-2 nobody claims this one.")),
+      "plan",
+    );
+    expect(findings.map((f) => [f.code, f.docLine])).toEqual([["TASK_AC_UNCLAIMED", 8]]);
+  });
+
+  it("unclaimed: a disposition exempts that id and nothing else on the line's own evidence", () => {
+    expect(
+      codes(plan(CLAIMED, "- AC-2 elsewhere (discharged by Task 4)", "- AC-3 bare.")),
+    ).toEqual(["TASK_AC_UNCLAIMED"]);
+  });
+
+  it("unclaimed: every ACCEPTED disposition form exempts, each asserted on its own", () => {
+    for (const d of [
+      "(RETIRED)",
+      "(RETIRED: superseded by AC-4)",
+      "(discharged by Task 10)",
+      "(discharged by Task 3 and Task 6)",
+      "(discharged by Task 3, Task 6)",
+      "(discharged by Task 3 + 6)",
+      "(discharged by Task N2b)",
+      "(discharged by closeout)",
+      "(discharged by the closeout)",
+      "(discharged by the PR's last commit)",
+    ]) {
+      expect(`${d} => ${codes(plan(CLAIMED, `- AC-2 elsewhere ${d}`)).join(",")}`).toBe(`${d} => `);
+    }
+  });
+
+  it("unclaimed: every NEAR MISS still reports — the set is an accept-set, never a deny-set", () => {
+    // Enumerated rather than described. "Every near-miss form reports" is not a
+    // case specification, and an implementation tolerating one of them passes a
+    // list that never names it (plan review R4 finding 2). The first entry is
+    // the one an ordinary contributor writes starting from the live DISCHARGED
+    // line at docs/superpowers/plans/2026-08-21-app-e2e-batch2.md:28, and the
+    // bare `Task 10.` witness below does NOT cover it: that one tests the
+    // parenthesis requirement, this one tests end anchoring AFTER an otherwise
+    // valid disposition.
+    for (const d of [
+      "(discharged by Task 10).",
+      "(retired)",
+      "(RETIRED)!",
+      "(discharged by the closeout, not by a task).",
+      "(discharged by a later arc)",
+      "(handled by Task 10)",
+      "discharged by Task 10",
+      "— Task 10.",
+    ]) {
+      expect(`${d} => ${codes(plan(CLAIMED, `- AC-2 elsewhere ${d}`)).join(",")}`).toBe(
+        `${d} => TASK_AC_UNCLAIMED`,
+      );
+    }
+  });
+
+  it("unclaimed: a declaring line carrying more than one id is AMBIGUOUS — declined BOTH ways", () => {
+    expect(codes(plan(CLAIMED, "- AC-2 transient; AC-2b the sibling clear."))).toEqual([]);
+    // And a disposition on such a line disposes nothing, because the line is not
+    // a declaring line at all (spec §4.2.1).
+    expect(
+      codes(plan(CLAIMED, "- AC-2 transient; AC-2b sibling (discharged by Task 4)")),
+    ).toEqual([]);
+  });
+
+  it("unclaimed: the count is DISTINCT ids, so one id written twice on a line still declares", () => {
+    // Live witness: docs/superpowers/plans/2026-08-07-ops-log-code-emits.md:56
+    // writes AC-2 twice while explaining its proof, and that line is one
+    // criterion. Counting occurrences would decline it and exempt a real id.
+    expect(codes(plan(CLAIMED, "- AC-2 holds, and AC-2 is asserted by the task that could break it."))).toEqual([
+      "TASK_AC_UNCLAIMED",
+    ]);
+  });
+
+  it("unclaimed: an id declared twice and disposed ONCE is disposed, globally", () => {
+    // Spec §4.2.1. Live after Task 4 disposes app-e2e-batch2 AC-3 at line 28
+    // while the id is still declared at line 306; a per-line implementation
+    // keeps reporting it.
+    expect(
+      codes(plan(CLAIMED, "- AC-2 first statement.", "- AC-2 again (discharged by Task 4)")),
+    ).toEqual([]);
+    // Order must not matter: disposed first, restated after.
+    expect(
+      codes(plan(CLAIMED, "- AC-2 again (discharged by Task 4)", "- AC-2 first statement.")),
+    ).toEqual([]);
+  });
+
+  it("unclaimed: the range form declares nothing and a coverage MAP is not a declaration", () => {
+    // v3 passed on this: the character after `AC-1` is a dot followed by another
+    // dot rather than by an alphanumeric.
+    expect(codes(plan(CLAIMED, "- AC-1..AC-7 all covered: AC-2 (Task 1), AC-3 (Task 2)."))).toEqual(
+      [],
+    );
+  });
+
+  it("unclaimed: the `**AC-2.**` spelling DOES declare — the boundary rejects a CONTINUING dot", () => {
+    // Rejecting every following dot drops real declarations in four live plans,
+    // which is v3's silent-loss defect under a different rule.
+    expect(codes(plan(CLAIMED, "- **AC-2.** Marker true, and the read-back."))).toEqual([
+      "TASK_AC_UNCLAIMED",
+    ]);
+  });
+
+  it("unclaimed: a fenced declaration is inert, and so is a fenced marker's claim", () => {
+    // Witness for the first: control-outline-forward-guard.md:326, a shell
+    // comment beginning `# AC-10:` inside a fence.
+    expect(codes(plan(CLAIMED, "```sh", "# AC-2: no UI surface in the diff", "```"))).toEqual([]);
+    expect(
+      codes(
+        doc(
+          OPEN, "", "## Task 1", "", WELL, "",
+          CLAIMED, "- AC-2 nobody claims this one.", "",
+          "```", "<!-- task: red=`x` ac=AC-2 -->", "```", "",
+          END,
+        ),
+      ),
+    ).toEqual(["TASK_AC_UNCLAIMED"]);
+  });
+
+  it("unclaimed: an ATX heading declares, and so does an ordered list item", () => {
+    expect(codes(plan(CLAIMED, "### AC-2 the heading form"))).toEqual(["TASK_AC_UNCLAIMED"]);
+    expect(codes(plan(CLAIMED, "2. AC-2 the ordered form"))).toEqual(["TASK_AC_UNCLAIMED"]);
+  });
+
+  it("unclaimed: a disposition on a line declaring nothing is inert, not an error", () => {
+    expect(codes(plan(CLAIMED, "- ordinary prose (discharged by Task 4)"))).toEqual([]);
+  });
+
+  it("unclaimed: a cited id that is ALSO disposed is claimed, and the redundancy is not an error", () => {
+    expect(codes(plan("- AC-1 claimed and redundantly disposed (discharged by Task 9)"))).toEqual([]);
+  });
+
+  it("unclaimed: the arm is inert in a plan that never attempts enrollment", () => {
+    expect(codes(doc("# Plan", "## A", "- AC-2 declared, and nothing claims it."))).toEqual([]);
+  });
+
+  it("unclaimed: taskContract never fires for kind === 'spec', on byte-identical text", () => {
+    const text = plan(CLAIMED, "- AC-2 nobody claims this one.");
+    expect(checkTaskContract(parseDoc(text), "spec")).toEqual([]);
+    expect(codes(text)).toEqual(["TASK_AC_UNCLAIMED"]);
+  });
+});

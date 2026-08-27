@@ -36,6 +36,78 @@ export const MARKER_ANY = /^ {0,3}<!-- task:/;
 // the ids `AC-1.`, `AC-1..1`, `AC-1.-child` and `AC-1-` are all legal and each
 // would be resolved by a wanted `AC-1`.
 const ID = "AC-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*";
+// ---- the v4 declaration recognizer (spec §4.1) ------------------------------
+//
+// The end boundary rejects a CONTINUING dot, never every dot. v3 passed on the
+// range form `AC-1..AC-7` because the character after `AC-1` is a dot followed
+// by another dot rather than by an alphanumeric; v4 rejects a following dot when
+// it continues into an id segment (`AC-1.1`) or into that second dot, and
+// accepts it otherwise, so the live `- **AC-2.** …` spelling still declares.
+// Rejecting every following dot was measured against the corpus and drops real
+// declarations in four plans, which is v3's silent-loss defect under a new rule.
+const ID_BOUNDARY = "(?![A-Za-z0-9-])(?!\\.[A-Za-z0-9.])";
+const ID_ANYWHERE = new RegExp(`(?<![A-Za-z0-9.-])(${ID})${ID_BOUNDARY}`, "g");
+const ID_AT_START = new RegExp(`^(${ID})${ID_BOUNDARY}`);
+/** A list item or ATX heading, plus at most one emphasis run. */
+const DECLARING_PREFIX = /^ {0,3}(?:[-*+]|\d{1,9}[.)]|#{1,6})[ \t]+(?:\*\*|__|\*|_)?/;
+
+// ---- the disposition accept-set (spec §4.3) ---------------------------------
+//
+// Parenthesised and END-ANCHORED, so a sentence merely ending in "Task 10."
+// disposes nothing; `RETIRED` case-sensitive, matching how the corpus writes it;
+// the owner a closed token list and never free prose, because a matcher that
+// accepts prose accepts the sentence that was already there. An unrecognised
+// disposition REPORTS: an accept-set fails toward the finding, never toward
+// silence, and to a plan author silence and clean are indistinguishable.
+const DISPOSITION_IDENT = "[A-Za-z0-9][A-Za-z0-9.-]*";
+const DISPOSITION_TASKS = `[Tt]ask[ \\t]+${DISPOSITION_IDENT}(?:[ \\t]*(?:,|\\+|and)[ \\t]*(?:[Tt]ask[ \\t]*)?${DISPOSITION_IDENT})*`;
+const DISPOSITION_NON_TASK = "closeout|the closeout|the PR's last commit";
+const DISPOSITION = new RegExp(
+  `\\([ \\t]*(?:RETIRED(?::[ \\t]+[^)]*)?|discharged by (?:${DISPOSITION_TASKS}|${DISPOSITION_NON_TASK}))[ \\t]*\\)[ \\t]*$`,
+);
+
+export interface AcDeclaration {
+  line: number;
+  /** DISTINCT ids on the line, in document order. */
+  ids: string[];
+  /** the sole id when the line carries exactly one; null when AMBIGUOUS. */
+  certain: string | null;
+  disposed: boolean;
+}
+
+/** Every DISTINCT id on one line, in document order. */
+function idsOn(lineText: string): string[] {
+  const out: string[] = [];
+  ID_ANYWHERE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = ID_ANYWHERE.exec(lineText)) !== null) {
+    if (!out.includes(m[1]!)) out.push(m[1]!);
+  }
+  return out;
+}
+
+/**
+ * A declaring line, or null.
+ *
+ * The COUNT of DISTINCT ids on the line is the whole termination argument (spec
+ * §4.1): exactly one is CERTAIN, more is AMBIGUOUS and the arm declines it in
+ * both directions. DISTINCT rather than occurrences, because
+ * `docs/superpowers/plans/2026-08-07-ops-log-code-emits.md:56` writes `AC-2`
+ * twice while explaining its proof and is one criterion. The cut is structural
+ * rather than lexical, so unlike every previous one it has no next grammar
+ * corner to be refuted on.
+ */
+export function declarationOn(lineText: string, lineNo: number): AcDeclaration | null {
+  const prefix = DECLARING_PREFIX.exec(lineText);
+  if (!prefix) return null;
+  if (!ID_AT_START.test(lineText.slice(prefix[0].length))) return null;
+  const ids = idsOn(lineText);
+  const certain = ids.length === 1 ? ids[0]! : null;
+  const after =
+    certain === null ? "" : lineText.slice(lineText.indexOf(certain) + certain.length);
+  return { line: lineNo, ids, certain, disposed: certain !== null && DISPOSITION.test(after) };
+}
+
 // The command group excludes backticks deliberately. `(.+)` would give the two
 // empty-command spellings different codes; `(.*)` is greedy across backticks and
 // silently re-opens every structure the "two fields, no other content" rule
@@ -310,6 +382,78 @@ export function taskTopology(model: DocModel): TaskTopology {
   return analyze(model).topology;
 }
 
+export interface AcAnalysis {
+  /** id -> the FIRST certain declaring line, and whether ANY of them disposes it. */
+  certain: Map<string, { line: number; disposed: boolean }>;
+  /** declaring lines carrying more than one distinct id; declined in both directions. */
+  ambiguous: { line: number; ids: string[] }[];
+  /** the ids this plan declares that no marker claims and no disposition exempts. */
+  unclaimed: { id: string; line: number }[];
+}
+
+const EMPTY_AC: AcAnalysis = { certain: new Map(), ambiguous: [], unclaimed: [] };
+
+/**
+ * THE AC classification, and the only one. `checkTaskContract` renders its
+ * findings from this return value rather than deriving them again — the same
+ * single-owner rule `taskTopology` exists for. A corpus test consuming this
+ * export is therefore asserting what the arm EMITS; one deriving the sets for
+ * itself would have to reimplement marker claims, dispositions and precedence,
+ * and would go on passing after an edit moved the finding.
+ */
+function acAnalysisFrom(
+  model: DocModel,
+  topology: TaskTopology,
+  sawTasksLine: boolean,
+  enrolled: boolean,
+): AcAnalysis {
+  // The arm is inert in a plan with no task region (spec §7 limit 6), and an
+  // unestablished enrollment discards markers unjudged, so it can claim nothing.
+  if (!sawTasksLine || !enrolled) return EMPTY_AC;
+
+  const certain = new Map<string, { line: number; disposed: boolean }>();
+  const ambiguous: { line: number; ids: string[] }[] = [];
+  for (let i = 0; i < model.lines.length; i++) {
+    if (model.fencedInfo[i] !== undefined) continue; // a fenced declaration is inert
+    const decl = declarationOn(model.lines[i]!, i + 1);
+    if (decl === null) continue;
+    if (decl.certain === null) {
+      ambiguous.push({ line: decl.line, ids: decl.ids });
+      continue;
+    }
+    const prior = certain.get(decl.certain);
+    // Declared twice, disposed once, is DISPOSED (spec §4.2.1) — the id is one
+    // criterion, and the plan mentioning it twice is not two. The first line is
+    // kept as the report site whichever order the two appear in.
+    if (prior === undefined) certain.set(decl.certain, { line: decl.line, disposed: decl.disposed });
+    else if (decl.disposed && !prior.disposed) {
+      certain.set(decl.certain, { line: prior.line, disposed: true });
+    }
+  }
+
+  // Claims come from NON-FENCED markers only: a fenced marker is inert and must
+  // not claim, mirroring the rule that it cannot resolve an `ac=` either.
+  const claimed = new Set<string>();
+  for (const line of [...topology.owned.values()].flat().concat(topology.orphaned)) {
+    const parsed = parseMarker(model.lines[line - 1]!, line);
+    if (parsed === null || parsed === "malformed" || parsed.acRaw === null) continue;
+    for (const id of parsed.acRaw.split(",")) claimed.add(id);
+  }
+
+  const unclaimed = [...certain.entries()]
+    .filter(([id, v]) => !claimed.has(id) && !v.disposed)
+    .map(([id, v]) => ({ id, line: v.line }))
+    .sort((a, b) => a.line - b.line);
+
+  return { certain, ambiguous, unclaimed };
+}
+
+/** The AC classification alone, for consumers outside the finding renderer. */
+export function acAnalysis(model: DocModel): AcAnalysis {
+  const { topology, sawTasksLine, enrolled } = analyze(model);
+  return acAnalysisFrom(model, topology, sawTasksLine, enrolled);
+}
+
 export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Finding[] {
   if (kind !== "plan") return [];
 
@@ -378,6 +522,16 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
         }
       }
     }
+  }
+
+  for (const u of acAnalysisFrom(model, topology, sawTasksLine, enrolled).unclaimed) {
+    findings.push(
+      fail(
+        "TASK_AC_UNCLAIMED",
+        u.line,
+        `\`${u.id}\` is declared here and no task marker claims it`,
+      ),
+    );
   }
 
   findings.sort(compareFindings);
