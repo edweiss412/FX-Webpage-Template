@@ -66,11 +66,14 @@ describe("the acceptance-criterion disposition convention is documented for plan
     const bullet = all.find((b) => b.includes("TASK_AC_UNCLAIMED")) ?? "";
     premise("records to derive the counts from", AC_AMBIGUOUS_RECORD.length, 0);
     premise("residue rows to derive the count from", AC_UNCLAIMED_RESIDUE.length, 0);
-    expect(`ambiguous count present: ${bullet.includes(`${AC_AMBIGUOUS_RECORD.length} `)}`).toBe(
-      "ambiguous count present: true",
-    );
-    expect(`residue count present: ${bullet.includes(`${AC_UNCLAIMED_RESIDUE.length} `)}`).toBe(
-      "residue count present: true",
-    );
+    // Anchored to the noun each count describes. A bare `13 ` would be
+    // satisfied by any other thirteen in the paragraph, which is a coincidence
+    // the assertion should not be able to live on.
+    expect(
+      `ambiguous count present: ${bullet.includes(`${AC_AMBIGUOUS_RECORD.length} lines today`)}`,
+    ).toBe("ambiguous count present: true");
+    expect(
+      `residue count present: ${bullet.includes(`${AC_UNCLAIMED_RESIDUE.length} rows today`)}`,
+    ).toBe("residue count present: true");
   });
 });
