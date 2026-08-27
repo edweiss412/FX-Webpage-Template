@@ -1,3 +1,71 @@
+## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** XS · **Shipped by:** `chore/private-image-postmerge-probe` · **Class:** VERIFICATION DEBT · **Evidence:** https://github.com/edweiss412/FX-Webpage-Template/pull/761#issuecomment-5441921368
+
+Plan Task 11 step 6 (`docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md`) requires one
+validation-project sync of a diagram-bearing show showing (a) variant objects in storage and (b) no
+module-resolution telemetry, recorded as a comment on the merged PR (#761, merged
+`8739556586e5441d1b4f3fb905fe580c58b19b4e`). It was NOT run.
+
+**Why it could not be run at close-out, and this is measured rather than assumed:** the probe
+exercises the DEPLOYED validation app — `scripts/validation-smoke.ts` is deployed-side by
+construction ("agent smoke test of the DEPLOYED validation app", and its prerequisites are Vercel
+validation-project env vars). At merge time Vercel refused deployments account-wide:
+`Deployment rate limited — retry in 24 hours`, visible on PR #761's checks. No deploy, no sync, no
+evidence. The half that needs no deploy — that `sharp` resolves under a production-only install —
+WAS run pre-merge and is recorded in the arc (`pnpm install --prod && node -e "require('sharp')"`,
+resolving 0.34.5 after the dependency move).
+
+**The probe, verbatim, so this is a step rather than an intention:**
+
+1. Confirm the validation deployment carries the merge commit above.
+2. Trigger one sync of a diagram-bearing show against validation.
+3. `select name from storage.objects where bucket_id='diagram-snapshots'` — assert `@<width>.webp`
+   objects sit beside their originals under the show's current `snapshot_revision_id` prefix.
+4. `pnpm observe --env validation` — assert no module-resolution fault, and specifically no
+   `DIAGRAM_VARIANT_GENERATION_FAILED` row whose `error` names a missing module.
+5. Post the transcript as a comment on PR #761 and replace this entry's pointer in the plan's §12.
+
+**Why it is filed rather than left in the plan:** its only record was a step inside Task 11 of a plan
+whose other ten tasks are done. §12 was supposed to pre-carry a pointer and did not — that omission
+is the reason this row exists, and §12 now points here.
+
+**What is at risk if it is never run:** low but real. The failure it would catch is `sharp` failing to
+resolve or produce variants in the deployed Node runtime, which degrades silently — originals still
+render, so the only signal is telemetry nobody is reading. The production defect this arc already
+found by probe (sharp sitting in `devDependencies`) is exactly that shape, which is the argument for
+finishing the check rather than assuming the fix held.
+
+**It ran on 2026-08-27, and it passes.** Both numbers land. Fact (a): **5** `@<width>.webp` variant
+objects sit beside their **2** originals under the synced show's current `snapshot_revision_id`
+prefix (`shows/66d06361-…/1b950325-6f83-4988-94d3-240bcfa91b4d/`), 7 objects in total. Fact (b): **0**
+`DIAGRAM_VARIANT_GENERATION_FAILED` rows for all time, so none naming a missing module. `sharp`
+resolves and produces variants on the deployed runtime, which is the half a production-only install
+could only approximate. Transcript, with the baseline and every command:
+https://github.com/edweiss412/FX-Webpage-Template/pull/761#issuecomment-5441921368
+
+**The count was predicted before the sync, which is what makes it evidence.** The ladder emits a
+width only when strictly less than the original's, so measuring the two live originals (791x857 and
+1202x928) fixed the answer at 5 in advance. A pass is a match against that prediction rather than a
+reading of whatever turned up. The manifest agrees with storage and its intrinsic dimensions match
+the bytes measured independently.
+
+**Why eighteen days of deployment produced zero variants, which is the part worth keeping.** The
+scheduled cron sync had been polling the show every five minutes and returning `skipped:watermark`
+every time. The watermark gate is reachable only in automatic mode
+(`lib/sync/perFileProcessor.ts:276-278`; `isAutomaticMode` is `cron | push`), so an unchanged sheet
+never reaches the snapshot path under cron and no amount of waiting could have produced a single
+variant. Only a manual sync re-applies an unchanged sheet (`lib/sync/runManualSyncForShow.ts:538`).
+The row's "degrades silently" worry was right about the mechanism and understated the reach: the
+evidence was not merely unread, it was unproducible by any scheduled path.
+
+**One side effect, named rather than tidied away.** The resync raised a new `RESYNC_QUALITY_REGRESSED`
+alert driven by pre-existing `#REF!` breakage in the sheet, unrelated to this pipeline. It is left
+standing because it is a real signal. It reaches nobody by email: `SYNC_PROBLEM_CODES`
+(`lib/notify/constants.ts:2-8`) does not include it and `lib/notify/monitorDigest.ts:164` skips a
+quality regression outright. Both notification queues were snapshotted either side of the sync;
+`pending_syncs` stayed at 0.
+
 ## BL-SPECLINT-AC-UNCLAIMED — a plan could declare an acceptance criterion that no task was scheduled to prove — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** M · **Shipped by:** `feat/speclint-ac-unclaimed-arm` · **Spec:** `docs/superpowers/specs/2026-08-26-speclint-dispatch-gates-design.md` §4.2 branch (A) · **Plan:** `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md`
