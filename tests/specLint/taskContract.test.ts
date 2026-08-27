@@ -1050,7 +1050,33 @@ describe("checkTaskContract — the AC classification's own structure (spec §4.
     ]);
   });
 
-  it("undeclared: a MALFORMED marker in a declaring plan is skipped, not dereferenced", () => {
+  it("undeclared: a marker parsing as MALFORMED is skipped, not dereferenced", () => {
+    // Marker-SHAPED but matching neither grammar form, so `parseMarker` returns
+    // the string "malformed" rather than a parse. That distinction is the whole
+    // case. The guard reads
+    //   parsed === null || parsed === "malformed" || parsed.acRaw === null
+    // and flipping its FIRST `||` to `&&` REGROUPS it, because `&&` binds
+    // tighter, into
+    //   (parsed === null && parsed === "malformed") || parsed.acRaw === null
+    // which behaves IDENTICALLY for an `ac=`-empty marker, since the second
+    // disjunct still fires. It differs only here, where `"malformed".acRaw` is
+    // undefined and the loop below would dereference it. The source-mutation
+    // gate reported exactly this gap: the `ac=`-empty case never reaches it.
+    const text = doc(
+      OPEN,
+      "",
+      "## Task 1",
+      "",
+      "<!-- task: red=`x` ac=AC-1 extra -->",
+      "",
+      DECLARED,
+      "",
+      END,
+    );
+    expect(codes(text).sort()).toEqual(["TASK_AC_UNCLAIMED", "TASK_MARKER_MALFORMED"]);
+  });
+
+  it("undeclared: an `ac=`-empty marker is skipped by the OTHER disjunct", () => {
     const text = doc(
       OPEN,
       "",
