@@ -206,7 +206,7 @@ if (error) {
 
 `ROSTER_SHIFT_COUNTS_READ_RETURNED_ERROR` passes `error: error.message` (`lib/admin/loadRecentAutoApplied.ts:247`) where its three siblings pass the value whole. That discards the PostgREST fields on the one arm most likely to carry them.
 
-Repaired in-branch to `error` (the bare identifier). The pre-flatten guard at `tests/log/noDoubleSerializedLogError.test.ts:12-13` bans `String(e)` and `JSON.stringify(e)` in an `error:` initializer and does not see `.message`; §9 records that as that guard's documented limit rather than widening it under review pressure.
+Repaired in-branch by passing `error` itself, whose type is the PostgREST error object rather than a `string` — the condition §5.4's predicate states. The pre-flatten guard at `tests/log/noDoubleSerializedLogError.test.ts:12-13` bans `String(e)` and `JSON.stringify(e)` in an `error:` initializer and does not see `.message`; §9 records that as that guard's documented limit rather than widening it under review pressure.
 
 ### 4.3 The five codes, pinned by one derived table
 
@@ -280,7 +280,7 @@ A returned expression that is neither, but whose type mentions an `infra_error` 
 **Satisfied (emit present):** the scope contains, lexically before the return and not inside a nested function body, a call to `log.error` / `log.warn` / `log.info` / `log.debug` one of whose arguments is an object literal carrying **both**:
 
 - a `code` property, and
-- an `error` property whose initializer is a bare identifier (`error`, `err`) — **not** a member access such as `.message`, and not absent.
+- an `error` property whose expression's **type is not `string`** (nor a string-literal type), and which is not absent.
 
 **Everything else is reported by name** — file, line, and the reason it was reported.
 
@@ -292,7 +292,7 @@ The clause is dropped rather than extended, because extending it would mean mode
 
 If a `lib/admin` read ever does need `logAdminOutcome`, the walker reports it and the author adds the arm with the payload requirement attached. Reporting an unmodelled sink is the correct failure direction.
 
-### 5.4 The `error` clause is not decoration
+### 5.4 The `error` clause asks the type system, and an earlier draft asked the syntax
 
 A predicate that asks only for `code` accepts both of these:
 
@@ -301,9 +301,28 @@ flattened   code present, error: error.message   -> payload discarded
 codeOnly    code present, no error field         -> payload never captured
 ```
 
-The first is live at `lib/admin/loadRecentAutoApplied.ts:247` and at three more sites in the cover (§9 limit 3). The second is what an author writes when they add a code and forget the payload. Both leave the operator with a categorised event and no `code`/`details`/`hint` — the consequence bound's "whole fault" half unmet while the guard reports green. The `.message` form is precisely what `tests/log/noDoubleSerializedLogError.test.ts:12-13` cannot see, so nothing else in the repo catches it.
+The first is live at `lib/admin/loadRecentAutoApplied.ts:247` and at three more sites in the cover (§9 limit 3). The second is what an author writes when they add a code and forget the payload. Both leave the operator with a categorised event and no `code`/`details`/`hint` — the consequence bound's "whole fault" half unmet while the guard reports green.
 
-Lexical precedence and the nested-function exclusion are part of the predicate rather than refinements: an emit after the return is unreachable, and an emit inside a closure declared in the scope does not run on the returning path.
+**Rejecting `.message` syntactically is not enough, and the hole is one ordinary line wide.** An earlier draft required `error` to be a bare identifier. A local alias then walks straight through it:
+
+```ts
+const error = raw.message;
+log.error("m", { code: CODE, error });   // bare identifier, flattened payload
+```
+
+Every further syntactic rule — also reject `.msg`, also reject `String(...)`, also reject a destructured `{ message: error }` — is one more case for the next round to get past, which is the widening this repo's round-economy rules exist to refuse. The closable question is semantic: **a whole fault is an object; anything flattened to text is a `string`, however it was written.**
+
+Measured at `docs/superpowers/specs/observability/probes/2026-08-26-emit-payload-predicate.ts` over nine fixtures — the two whole forms, and seven ways of flattening:
+
+```
+node --import tsx docs/superpowers/specs/observability/probes/2026-08-26-emit-payload-predicate.ts
+...
+syntactic predicate wrong on 5/9; type predicate wrong on 0/9
+```
+
+The five the syntactic form gets wrong are the alias to `.message`, the alias to `String(raw)`, the destructured `{ message: error }`, the template literal, and an alias to a different string field. The type predicate closes all five with one rule and adds no cases. A catch binding typed `unknown` is correctly accepted, because `unknown` is not `string`.
+
+This is why the resolving layer exists (§5.1): the question needs a checker, and the syntactic core cannot answer it alone.
 
 ### 5.5 Exemptions
 
@@ -311,14 +330,18 @@ Lexical precedence and the nested-function exclusion are part of the predicate r
 
 ### 5.6 The premises
 
-A walker whose glob breaks finds zero sites and passes forever. The suite states its premises executably with `premise()` and `premiseHolds()` from `tests/_shared/premise.ts`.
+A walker whose reach breaks finds nothing and passes forever. The suite states its premises executably with `premise()` and `premiseHolds()` from `tests/_shared/premise.ts`.
 
-**A floor on findings is not enough, and this is measured rather than asserted.** Drop `lib/admin/identityHolds.ts` from discovery and the population falls from 100 to 96 across 18 files — any plausible floor still passes while four live returns vanish. A floor bounds the walk's *output*; it says nothing about its *reach*. So the premises are on reach, cross-checked against derivations the walk does not share code with:
+**Two earlier drafts of this section were both too weak, in the same direction, and it is worth saying how.** The first put a floor on the number of findings; drop `lib/admin/identityHolds.ts` from discovery and the count still cleared it while four live returns vanished. The second put set equality on the files *parsed*; that proves the walk opened every file and says nothing about whether the resolving layer ever handed a site to the core. If the resolver silently produced no sites, the core's string tests stay green, every file-level premise stays true, and `_metaInfraEmitCover` reports an empty finding set — a clean pass over a population of zero, which is precisely the failure this section exists to prevent.
 
-1. **Every file the walk parsed.** The set of files handed to the program must equal an independent `readdirSync` recursion over `lib/admin/**` filtered to `.ts`/`.tsx` and not `.test.`. Sets, not counts, and the failure message prints the symmetric difference — a count comparison passes when one file is dropped and another added.
-2. **Every file holding the literal is among them.** A plain `readFileSync` text scan for `kind: "infra_error"` yields a set that must be a subset of the parsed set. Text and AST are different methods; a discovery bug that fools one is unlikely to fool the other in the same direction.
-3. **The program resolved.** `program.getSourceFile()` returned non-null for every parsed path, and the checker answered for at least one const-alias site. A checker that silently fails to resolve turns every identifier return into an unclassifiable report rather than a false pass, but the premise says so out loud instead of leaving 23 reports to be read as real.
-4. **The classifier still fires.** `premiseHolds` on the propagation form matching at least one site, so a refactor that removes the last one — or silently breaks that arm — is loud rather than permissive.
+A premise on reach must therefore be a premise on the **population the core was given**, not on the files the walk opened. Four, each checked against something the resolving layer does not compute:
+
+1. **The population is non-empty and covers the files that textually hold a construction.** An independent `readFileSync` scan finds every `lib/admin/**` file whose text contains both `kind: "infra_error"` and the word `return`. Every such file must contribute at least one site to the population. A resolver that stops emitting sites fails here on the first file, and the failure names it.
+2. **Both construction shapes are witnessed.** The population must contain at least one `literal` site and at least one `const-alias` site. These are the two arms of the construction rule, and the const-alias arm is the one that resolves through a symbol — the arm that goes quiet if the checker stops answering. This is a claim about the classifier's arms, not a list of files: whichever site happens to carry the shape satisfies it.
+3. **Both classification arms are witnessed.** At least one site classified `exempt-propagation`, and at least one classified `satisfied`. The first exercises the callee resolution, the second the type-based emit predicate. A checker that silently fails to resolve turns every site into an unclassifiable report rather than a false pass, but a `satisfied` witness proves it is answering rather than erroring.
+4. **The program built.** `program.getSourceFile()` returned non-null for every path handed in, and `getTypeChecker()` answered a type query. Stated separately from 2 and 3 so a wholesale program failure reads as "premise not met" rather than as 100 real findings.
+
+Premise 1 is the one that closes the zero-population hole, because it is the only one whose evidence is derived from file *text* rather than from the resolver's own output. Premises 2 and 3 close the narrower version where the resolver works for one shape and not the other.
 
 A premise failure reads "premise not met" and says explicitly that it is not a claim about the code under test.
 
@@ -331,6 +354,8 @@ The core's own suite feeds it source strings. Every case is a string literal in 
 | dark returned-error arm | reported |
 | `log.error` with a message but no `code` | reported — a SHOUTY message is not a code |
 | `log.error({ code, error: error.message })` | reported — the flattened payload |
+| `const error = raw.message` then `log.error({ code, error })` | reported — a bare identifier of type `string` |
+| `const error = raw` then `log.error({ code, error })` | satisfied — the alias is the object |
 | `log.error({ code })` with no `error` field | reported — categorised but empty |
 | emit lexically **after** the return | reported — unreachable |
 | emit inside a nested closure in the scope | reported — does not run on this path |
@@ -341,7 +366,7 @@ The core's own suite feeds it source strings. Every case is a string literal in 
 | propagation guard, consequent, callee inside the cover | accepted |
 | propagation guard, consequent, `opts.x ?? coverFn` callee | accepted |
 
-Nine of twelve assert a *report*. That ratio is the point: the accept-set is two forms and everything else is named. The four cases that need symbol resolution are driven through a stub resolver the core takes as a parameter, so the core stays a function of text and the resolving layer is exercised separately by §5.6's premises.
+Ten of fourteen assert a *report*. That ratio is the point: the accept-set is two forms and everything else is named. The six cases that need symbol or type resolution are driven through a stub resolver the core takes as a parameter, so the core stays a function of text and the resolving layer is exercised separately by §5.6's premises. The two type-resolution cases mirror the fixtures in `docs/superpowers/specs/observability/probes/2026-08-26-emit-payload-predicate.ts`, where the same predicate is run against a real checker over all nine flattening forms.
 
 ## 6. Deliverable C — the client wire projection
 
@@ -364,7 +389,11 @@ Let `s = serializeError(value)`, which is `string | Record<string, unknown> | un
 
 **`detail`** — the value rendered as text, **tagged with its runtime type when the rendering alone is ambiguous**:
 
-- `s` is an object or array (a structure) → `detail = JSON.stringify(s)`; if that throws or yields `undefined`, `detail = ""`. No tag: a JSON structure starts with `{` or `[` and cannot be confused with a tagged primitive.
+- `s` is an object or array (a structure) → `detail = render(s)`; if that throws, `detail = ""`. No tag: a rendered structure starts with `{` or `[` and cannot be confused with a tagged primitive.
+
+  `render` is a small recursive writer, **not `JSON.stringify`**, and not a second serializer: it formats `serializeError`'s already-bounded output rather than deciding what to capture. Strings are quoted, arrays and objects bracket their rendered members, and **every other leaf goes through `String()`**. That one rule at every leaf is the whole of it.
+
+  The reason it cannot be `JSON.stringify` is that JSON's number grammar has no `NaN` and no infinities, so it writes all three as `null` — destroying distinctions `serializeError` deliberately preserved one layer up. `{ a: NaN }` and `{ a: null }` become the same text, and the second crash is dropped. `String()` writes `NaN`, `Infinity` and `-Infinity` as themselves.
 - otherwise (`s` is a string, which is every primitive and every object `serializeError` degraded to its `String()` form) → `detail` is the tag, a space, then `s` — `` `${tag(value)} ${s}` ``.
 
 `tag(value)` is derived from the runtime, never enumerated: `typeof value`, except that `null` tags as `"null"` and an object tags as its constructor name when it has one. Deriving rather than listing is what makes the rule closable — a type nobody has thought of gets its own tag rather than falling into a default that collides.
@@ -383,6 +412,16 @@ Let `s = serializeError(value)`, which is `string | Record<string, unknown> | un
 | `/re/` / `"/re/"` | `/re/` | `RegExp /re/` / `string /re/` |
 
 Each pair is two crashes, and untagged the second is dropped by the dedup. These are ordinary values a component can throw; none is constructed to defeat the serializer, so none is a `serializeError` §4 limit. The tag is one derived token, not a widening list of special cases.
+
+**This design is measured, not argued, because the vector survived three review rounds.** `docs/agents/spec-self-review.md` caps a design-correctness vector at three prose rounds: past that, build it and probe it. The projection above is implemented at `docs/superpowers/specs/observability/probes/2026-08-26-client-value-projection.ts` and run against every collision pair a reviewer has actually constructed — four families from round 1, ten cross-type pairs from round 2, eight structured-numeric pairs from round 3.
+
+```
+node --import tsx docs/superpowers/specs/observability/probes/2026-08-26-client-value-projection.ts
+...
+COLLISIONS: 2 of 22 pairs
+```
+
+The two are `{ a: -0 }` against `{ a: 0 }`, and `[-0]` against `[0]`. §9 records why they are a limit of text rather than a defect: `String(-0)` is `"0"` and `JSON.stringify(-0)` is `"0"`, so no textual rendering separates them — only `Object.is` or `1 / x` does, and neither survives a trip through a JSON wire body. Every other pair discriminates.
 
 **`message`** — a human-legible label, and **nothing more**:
 
@@ -407,11 +446,11 @@ Any repair that keeps `message` as the discriminator is a longer label — a big
 | input | `message` | `detail` |
 | --- | --- | --- |
 | `Error` | not routed here — `reportClientError` keeps its `Error` arm (§1.1 item 8) | — |
-| plain object with `message` and `code` | `"<code>: <message>"` | JSON of the bounded structure |
-| plain object with `name` only | `"<name>"` | JSON of the bounded structure |
-| plain object with none of the three | `"(no message)"` | JSON of the bounded structure |
+| plain object with `message` and `code` | `"<code>: <message>"` | `{"code":"PGRST301","message":"planted"}` |
+| plain object with `name` only | `"<name>"` | the rendered structure |
+| plain object with none of the three | `"(no message)"` | the rendered structure |
 | `{}` | `"(no message)"` — no `name`/`code`/`message` survives | `"{}"` |
-| array | `"(no message)"` | JSON of the bounded array |
+| array | `"(no message)"` | `[1,2]` for `[1, 2]` |
 | `"x"` | `"x"` | `"string x"` |
 | `""` | `"(no message)"` | `"string "` |
 | `0`, `false` | `"0"`, `"false"` | `"number 0"`, `"boolean false"` |
@@ -422,7 +461,10 @@ Any repair that keeps `message` as the discriminator is a longer label — a big
 | `Symbol("x")` | `"Symbol(x)"` | `"symbol Symbol(x)"` |
 | `Map` / `Set` | `"[object Map]"` / `"[object Set]"` | `"Map [object Map]"` / `"Set [object Set]"` |
 | `Date` | its `String()` form | `"Date <that form>"` |
-| a value whose serialization throws | `"[Unserializable]"` | `"Object [Unserializable]"` |
+| a value whose serialization throws | `"(no message)"` | `"<tag> [Unserializable]"` |
+| `{ a: NaN }` | `"(no message)"` | `{"a":NaN}` — **not** `{"a":null}` |
+| `{ a: Infinity }` | `"(no message)"` | `{"a":Infinity}` |
+| `[NaN]` | `"(no message)"` | `[NaN]` |
 
 `Map` degrading to `"[object Map]"` is `serializeError` §4 limit 5, ratified 2026-08-16 and inherited by anything reusing the helper. It is a surfaced type name, not a silent loss, and the tag now also separates a `Map` from the string `"[object Map]"`. §9 records it.
 
@@ -490,7 +532,16 @@ const detail = (
 ).slice(0, DETAIL_CAP);
 ```
 
-Three behaviors preserved exactly: an `Error` reason still yields `reason.message`; `null` and `undefined` still yield `""` (the current `?? ""`, kept as an explicit `== null` branch so the projection's `"null"` string never surfaces where an empty string does today); and the existing string-reason test at `tests/observe/globalErrorListener.test.tsx:42-53` passes unchanged, because `serializeError` on a string returns that string.
+Two behaviors preserved exactly: an `Error` reason still yields `reason.message`, and `null` and `undefined` still yield `""` (the current `?? ""`, kept as an explicit `== null` branch so the projection's `"null"` string never surfaces where an empty string does today).
+
+**A string reason's `detail` changes, and an earlier draft of this spec wrongly claimed it did not.** `"promise blew up"` now persists as `string promise blew up`, because §6.2 tags every non-structural value with its runtime type and that tag is what separates the string `"0"` from the number `0`. Two existing assertions move with it, and they are updated rather than worked around:
+
+| test | today | after |
+| --- | --- | --- |
+| `tests/observe/globalErrorListener.test.tsx:42-53` | `detail === reason` | `detail === \`string ${reason}\`` |
+| `tests/observe/globalErrorListener.test.tsx:56-64` | `detail === reason.slice(0, 300)` | `detail === \`string ${reason}\`.slice(0, 300)` — the tag occupies the first 7 characters, so 293 of the reason survive |
+
+Both expectations stay derived from the fixture rather than written as literals, so the cap assertion still fails if the cap moves. The cost is seven characters of a 300-character budget; the benefit is that a rejection with `0` and a rejection with `"0"` stop sharing a row.
 
 Its message stays the fixed `"unhandled promise rejection"`. That is what makes §6.4 load-bearing rather than optional: without `detail` in the signature, this handler posts once per page session no matter what the projection produces.
 
@@ -523,7 +574,7 @@ Invariant 1 requires the distinction be stated, because a test that passes on th
 - The `reportClientError` non-`Error` cases in §7.3, though **not all for the same reason**, and the test asserts the right one per case. Measured against the shipped wire today: a plain object and `{}` produce `"[object Object]"`; a string produces its own text; `null` produces `"null"`; a `Map` produces `"[object Map]"`. The first two are red on `message`. The last three are red on `detail`, which the boundary path does not send at all today, and on the type tag that separates them from their string forms.
 - The plain-object-reason case beside `tests/observe/globalErrorListener.test.tsx:42-53`, and the non-`Error` `event.error` case on the window handler (nothing reads that field today).
 - The two-distinct-rejections test asserting two POSTs — one today, because the fixed message plus a `detail`-blind signature collapses them.
-- The scanner's `error: error.message` and `error`-absent cases, which a code-only predicate passes.
+- The scanner's `error: error.message`, aliased-`.message`, `String(...)`, destructured, template-literal and `error`-absent cases. A code-only predicate passes all six; a bare-identifier predicate still passes five of them (§5.4).
 - The scanner's `else`-arm, after-return, nested-closure and out-of-cover-callee cases.
 - `_metaInfraEmitCover` against the unrepaired tree. The test asserts the reported set is **empty**; it pins no expected count, because the walker's output is the derivation and a pinned number is a second source that goes stale. §3.2's table is a dated measurement, not a contract the suite enforces.
 
@@ -596,15 +647,19 @@ Each is recorded on the surface that owns it, per Eric's directive. None becomes
 
 
 <!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
-6. **Two crashes identical for their first 200 `detail` characters and first 1000 `message` characters dedup to one POST.** The §6.4 signature slices `detail` at 200 to match the `stack` term beside it and to bound a `Set` that lives as long as the page. The worst case is one row where two were due — a conservative degrade, never a wrong row. Recorded in the header of `lib/observe/describeClientValue.ts`.
-
-7. **`null` and `undefined` rejection reasons collapse to one row.** Both produce `detail = ""` at `components/observe/GlobalErrorListener.tsx`, so they share a signature. Distinguishing them would mean sending `"null"` and `"undefined"` as detail text, which changes behavior the row does not ask about and which reads worse in `app_events` than an empty field. Recorded beside the `== null` branch.
-
-8. **`context`-only `clientLog` callers are outside the wire.** `ShowRealtimeBridge.tsx:503`, `components/realtime/ShowRealtimeBridge.tsx:755`, `components/realtime/ShowRealtimeBridge.tsx:786`, `components/realtime/ShowRealtimeBridge.tsx:821` and `DevCaptureControl.tsx:126` pass their value as `context`, which `lib/observe/clientLog.ts:17-18` never mirrors. They cannot produce an `"[object Object]"` in `app_events` because they produce nothing in `app_events`. Recorded in row 2's archive entry.
+6. **`-0` and `0` share a row, and no textual rendering can separate them.** `String(-0)` is `"0"` and `JSON.stringify(-0)` is `"0"`; only `Object.is` or `1 / x` distinguishes the two, and neither survives a JSON wire body. So `{ a: -0 }` and `{ a: 0 }` — and `[-0]` against `[0]` — produce one row where two crashes occurred. These are the only two of the 22 pairs in `docs/superpowers/specs/observability/probes/2026-08-26-client-value-projection.ts` that collide; every `NaN`, `Infinity` and `-Infinity` pair discriminates, because `render` writes leaves with `String()` rather than JSON's number grammar (§6.2). Recorded in the header of `lib/observe/describeClientValue.ts`, with the re-run trigger being the probe itself.
 
 
 <!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
-9. **The walker classifies syntax, not semantics.** A code-carrying emit anywhere in the guard scope satisfies it, including one that runs on a different branch within the same scope, and an emit reached through a helper function is not seen. The threat fence is an ordinary contributor adding a loader branch, not an author routing around a guard. Recorded in the header of `tests/admin/infraEmitScan.ts`.
+7. **Two crashes identical for their first 200 `detail` characters and first 1000 `message` characters dedup to one POST.** The §6.4 signature slices `detail` at 200 to match the `stack` term beside it and to bound a `Set` that lives as long as the page. The worst case is one row where two were due — a conservative degrade, never a wrong row. Recorded in the header of `lib/observe/describeClientValue.ts`.
+
+8. **`null` and `undefined` rejection reasons collapse to one row.** Both produce `detail = ""` at `components/observe/GlobalErrorListener.tsx`, so they share a signature. Distinguishing them would mean sending `"null"` and `"undefined"` as detail text, which changes behavior the row does not ask about and which reads worse in `app_events` than an empty field. Recorded beside the `== null` branch.
+
+9. **`context`-only `clientLog` callers are outside the wire.** `ShowRealtimeBridge.tsx:503`, `components/realtime/ShowRealtimeBridge.tsx:755`, `components/realtime/ShowRealtimeBridge.tsx:786`, `components/realtime/ShowRealtimeBridge.tsx:821` and `DevCaptureControl.tsx:126` pass their value as `context`, which `lib/observe/clientLog.ts:17-18` never mirrors. They cannot produce an `"[object Object]"` in `app_events` because they produce nothing in `app_events`. Recorded in row 2's archive entry.
+
+
+<!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
+10. **The walker resolves types and symbols, but not values.** It proves an emit's `error` expression is not a `string` and that a propagation's callee is declared inside the cover. It does not prove the emit runs on the returning branch when both sit in one scope, and it does not follow a fault through a helper that emits on the caller's behalf. The threat fence is an ordinary contributor adding a loader branch, not an author routing around a guard. A code-carrying emit anywhere in the guard scope satisfies it, including one that runs on a different branch within the same scope, and an emit reached through a helper function is not seen. The threat fence is an ordinary contributor adding a loader branch, not an author routing around a guard. Recorded in the header of `tests/admin/infraEmitScan.ts`.
 
 ---
 
