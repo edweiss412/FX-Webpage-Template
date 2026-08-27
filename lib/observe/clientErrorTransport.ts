@@ -67,7 +67,12 @@ function currentShareToken(): string {
   try {
     if (typeof location === "undefined") return "";
     const parts = location.pathname.split("/"); // ["", "show", slug, token, ...]
-    return parts[1] === "show" && parts.length > 3 ? (parts[3] ?? "") : "";
+    // ONE expression, both conditions. An earlier form guarded the length
+    // separately first, which the shape test then made redundant — and a redundant
+    // guard is one whose mutants nothing can kill, since no input reaches it that
+    // the test below does not already settle. Position AND shape, together.
+    const seg = parts[3] ?? "";
+    return parts[1] === "show" && SHARE_TOKEN_SHAPE.test(seg) ? seg : "";
   } catch {
     return "";
   }
@@ -83,39 +88,56 @@ function currentShareToken(): string {
  * of the page the crash actually happened on, which is the one that appears in that
  * page's own URLs and stack frames.
  */
-const SHOW_TOKEN_RE = /(\/|%2F)show(\/|%2F)([^/?#&%\s]+)((?:\/|%2F)[^?#&\s]*)/gi;
+/**
+ * The share token's shape, and the DB is the authority for it:
+ * `check (share_token ~ '^[0-9a-f]{64}$')`,
+ * supabase/migrations/20260523000002_show_share_tokens.sql:41, generated as
+ * `encode(gen_random_bytes(32), 'hex')`.
+ *
+ * Matching on the shape is a NARROWING of what used to be "any segment in the
+ * third position", and it had to be: `/show/<slug>/unpublish` is a real STATIC
+ * route (app/show/[slug]/unpublish/page.tsx:7-10), so the loose form redacted the
+ * literal word "unpublish" out of every message on that page and rewrote its URL
+ * into a crew-token URL that does not exist. That is corruption of ordinary
+ * payloads, not a leak — the opposite failure, and the reason the repair
+ * direction here is narrowing rather than another pattern.
+ */
+const SHARE_TOKEN_SHAPE = /^[0-9a-f]{64}$/;
+const SHOW_TOKEN_RE = /(\/|%2F)show(\/|%2F)([^/?#&%\s]+)((?:\/|%2F)[0-9a-f]{64})/gi;
 
 /** Total: never throws. Scrubs the known literal everywhere, then the route shape. */
 export function scrubShareTokens(text: string): string {
   try {
     let out = text;
     const tok = currentShareToken();
-    if (tok.length > 0) {
+    // `currentShareToken` returns the empty string or a shape-valid token and
+    // nothing in between, so this is an emptiness test rather than a length
+    // comparison. Written without the numeral for that reason.
+    if (tok !== "") {
       // Every occurrence, raw and encoded — a second copy in a query parameter or a
       // fragment is the same literal, which is exactly what the pattern pass missed.
       out = out.split(tok).join(REDACTED_TOKEN);
-      // Defence in depth, and honestly labelled: NO fixture in the suite isolates
-      // this branch. Mutation-tested three ways — removing the exact pass above
-      // fails two tests, removing both fails two, removing THIS alone fails none.
-      // The reason is structural rather than a gap in the fixtures: `pathname`
-      // yields the token raw when its characters need no encoding (so `enc === tok`
-      // and this no-ops) and yields it encoded when they do (so the exact pass
-      // above already holds the encoded literal). It is kept because the direction
-      // is not guaranteed either way by the platform, and a redundant scrub of a
-      // secret is the cheap side of that bet — not because a test proves it fires.
-      const enc = encodeURIComponent(tok);
-      if (enc !== tok) out = out.split(enc).join(REDACTED_TOKEN);
+      // NO ENCODED-FORM PASS. There was one, and it was carried for two rounds as
+      // defence in depth with an honest label saying no fixture isolated it. The
+      // shape narrowing settles it: every character of a shape-valid token is a hex
+      // digit, and `encodeURIComponent` leaves those untouched, so the encoded form
+      // IS the raw form and the pass could never fire. A branch that cannot execute
+      // is not defence in depth, it is a claim nobody can check.
       // A truncation UPSTREAM of this call can cut the token in half, and half a
       // secret is still a secret. Whatever survives a cut is a PREFIX of the known
       // literal, so the prefixes are what we look for — longest first, still exact
       // matching against a value we hold, with no pattern to widen. The floor
       // keeps a short coincidental run from being mistaken for the secret.
+      // EVERY length, not the longest one only. This loop used to stop at the
+      // first prefix it found, which is wrong whenever one value carries copies cut
+      // at DIFFERENT points — a 48-character prefix in `stack`, a 32-character one
+      // in `detail`, a 20-character one in `message`. Diff review R4 reproduced it
+      // in all seven caller-controlled fields: the longest went and the shorter
+      // copies stayed. Descending order matters, so the longest match wins at each
+      // position and a shorter prefix cannot bite a piece out of a longer one.
       for (let n = tok.length - 1; n >= TOKEN_PREFIX_FLOOR; n--) {
         const pre = tok.slice(0, n);
-        if (out.includes(pre)) {
-          out = out.split(pre).join(REDACTED_TOKEN);
-          break;
-        }
+        if (out.includes(pre)) out = out.split(pre).join(REDACTED_TOKEN);
       }
     }
     return out.replace(
@@ -136,12 +158,19 @@ export function redactShareToken(href: string): string {
   try {
     const u = new URL(href);
     const parts = u.pathname.split("/");
-    if (parts[1] === "show" && parts.length > 3) {
+    // The SHAPE, matching currentShareToken. Position alone rewrote
+    // /show/<slug>/unpublish — a real static route — into a crew-token URL that
+    // does not exist, and dropped that page's query string on a claim about a
+    // token it never carried (diff review R4 P2).
+    if (parts[1] === "show" && SHARE_TOKEN_SHAPE.test(parts[3] ?? "")) {
       u.pathname = `/show/${parts[2]}/${REDACTED_TOKEN}`;
       u.search = "";
       u.hash = "";
       return u.href;
     }
+    // Not a crew URL. The query string can still carry a secret, so it is scrubbed
+    // rather than dropped — the removal above is a stronger action taken only where
+    // the page is known to be token-bearing.
     return scrubShareTokens(u.href);
   } catch {
     return "";
@@ -194,13 +223,16 @@ export function clientErrorTransport(input: {
     if (typeof location !== "undefined") {
       payload.url = redactShareToken(location.href).slice(0, CAPS.url);
     }
-    // A final sweep over every field. Each is already scrubbed before its cap
-    // above; this catches anything a later edit adds to `payload` without going
-    // through that path, and costs one pass over short strings on a crash path.
-    for (const k of Object.keys(payload)) {
-      const v = payload[k];
-      if (typeof v === "string") payload[k] = scrubShareTokens(v);
-    }
+    // NO FINAL SWEEP. There was one, re-scrubbing every field after the fact as a
+    // backstop against a later edit adding a field without a scrub. `payload` is
+    // `Record<string, string>` and every assignment above already scrubs, so the
+    // sweep was a no-op on every reachable input — which the mutation score made
+    // visible rather than obvious: its `typeof v === "string"` guard survived an
+    // equality flip because no payload value has ever been anything else.
+    // Untestable dead code is a worse backstop than a test, so the guarantee moved
+    // to one: a case in the suite walks `Object.keys` of the POSTed body and
+    // asserts no field carries the token, which fails for a field added later
+    // without a scrub and does not depend on anyone remembering this comment.
     void fetch("/api/observe/client-error", {
       method: "POST",
       headers: { "content-type": "application/json" },

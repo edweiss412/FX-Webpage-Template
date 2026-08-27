@@ -8,6 +8,7 @@ vi.mock("@/lib/observe/clientLog", () => ({ clientLog: clientLogMock }));
 
 import { GlobalErrorListener } from "@/components/observe/GlobalErrorListener";
 import { describeClientValue } from "@/lib/observe/describeClientValue";
+import { SHAPED_TOKEN } from "./__fixtures__/shareToken";
 
 function dispatchRejection(reason: unknown): void {
   const evt = new Event("unhandledrejection") as PromiseRejectionEvent;
@@ -157,7 +158,7 @@ describe("GlobalErrorListener", () => {
     // fragment nothing downstream can match. Eight characters is deliberately
     // below the transport's prefix floor, so this passes only when the scrub
     // runs first rather than because a later pass cleaned up.
-    const SECRET = "zzq9-secret-0123456789abcdef";
+    const SECRET = SHAPED_TOKEN;
     const spy = vi
       .spyOn(globalThis, "location", "get")
       .mockReturnValue(new URL(`https://x.test/show/gala/${SECRET}`) as unknown as Location);

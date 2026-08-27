@@ -7,6 +7,7 @@ import {
   scrubShareTokens,
   __resetClientTransportDedupForTests,
 } from "@/lib/observe/clientErrorTransport";
+import { SHAPED_TOKEN } from "./__fixtures__/shareToken";
 
 describe("clientErrorTransport — optional code/detail", () => {
   beforeEach(() => {
@@ -142,7 +143,7 @@ describe("clientErrorTransport — optional code/detail", () => {
   // secrets are never logged.
   describe("redactShareToken", () => {
     test("masks the token segment and keeps the slug that makes the row diagnosable", () => {
-      const SECRET = "zzq9-secret";
+      const SECRET = SHAPED_TOKEN;
       const out = redactShareToken(`https://x.test/show/acme-gala/${SECRET}`);
       expect(out).toBe("https://x.test/show/acme-gala/[share-token-redacted]");
       expect(out).not.toContain(SECRET);
@@ -154,14 +155,14 @@ describe("clientErrorTransport — optional code/detail", () => {
       // an earlier draft used "tok", which is a substring of "share-token-redacted",
       // so the not-contains assertion could never fail. The fixture has to be
       // distinguishable from the thing that replaces it.
-      const SECRET = "zzq9-secret";
+      const SECRET = SHAPED_TOKEN;
       const out = redactShareToken(`https://x.test/show/acme-gala/${SECRET}?t=${SECRET}#${SECRET}`);
       expect(out).not.toContain(SECRET);
       expect(out).toBe("https://x.test/show/acme-gala/[share-token-redacted]");
     });
 
     test("fails SAFE on an unexpected extra segment", () => {
-      const SECRET = "zzq9-secret";
+      const SECRET = SHAPED_TOKEN;
       const out = redactShareToken(`https://x.test/show/acme-gala/${SECRET}/extra`);
       expect(out).not.toContain(SECRET);
       expect(out).not.toContain("extra");
@@ -184,7 +185,7 @@ describe("clientErrorTransport — optional code/detail", () => {
       // lib/auth/picker/selectIdentity.ts redirects every gated crew visit to
       // /auth/sign-in?next=<encoded crew URL>. A pathname-only redactor returns
       // this untouched — the first version of this did exactly that.
-      const SECRET = "zzq9-secret";
+      const SECRET = SHAPED_TOKEN;
       for (const href of [
         `https://x.test/auth/sign-in?next=%2Fshow%2Fgala%2F${SECRET}`,
         `https://x.test/auth/sign-in?next=/show/gala/${SECRET}`,
@@ -198,7 +199,7 @@ describe("clientErrorTransport — optional code/detail", () => {
       // pattern: two review rounds each produced a P0 by finding a spelling the
       // previous pattern missed. Over a KNOWN literal there is no spelling left.
       // jsdom's location is the test origin, so drive the literal explicitly.
-      const SECRET = "zzq9-secret";
+      const SECRET = SHAPED_TOKEN;
       const spy = vi
         .spyOn(globalThis, "location", "get")
         .mockReturnValue(new URL(`https://x.test/show/gala/${SECRET}`) as unknown as Location);
@@ -217,26 +218,13 @@ describe("clientErrorTransport — optional code/detail", () => {
       }
     });
 
-    test("the PERCENT-ENCODED form of the token is scrubbed too", () => {
-      // Found by mutation: deleting the encoded pass failed NOTHING, because the
-      // other fixtures use a token that percent-encodes to itself. A token with a
-      // character that actually encodes is the only thing that exercises it — and
-      // the encoded form is precisely how the token appears in
-      // /auth/sign-in?next=…, which is the route that produced R1's P0.
-      const SECRET = "zzq9+secret=";
-      const ENCODED = encodeURIComponent(SECRET); // zzq9%2Bsecret%3D
-      expect(ENCODED).not.toBe(SECRET); // the fixture must actually differ
-      const spy = vi
-        .spyOn(globalThis, "location", "get")
-        .mockReturnValue(new URL(`https://x.test/show/gala/${ENCODED}`) as unknown as Location);
-      try {
-        // location.pathname holds the ENCODED segment, so the literal the scrubber
-        // learns is the encoded one; a raw copy elsewhere must still go.
-        const out = scrubShareTokens(`next=${ENCODED} and raw ${SECRET}`);
-        expect(out).not.toContain(ENCODED);
-      } finally {
-        spy.mockRestore();
-      }
+    test("a shape-valid token has no distinct percent-encoded form", () => {
+      // There was an encoded-form scrub pass here, and a test for it built on a
+      // token with a `+` and an `=`. The shape narrowing removed both: every
+      // character of a 64-hex token is left untouched by encodeURIComponent, so the
+      // encoded form IS the raw form. Asserted rather than deleted, because it is
+      // the whole reason that pass could be removed rather than merely doubted.
+      expect(encodeURIComponent(SHAPED_TOKEN)).toBe(SHAPED_TOKEN);
     });
 
     test("a FOREIGN show's token off a path position is the STATED LIMIT, not a defect", () => {
@@ -247,7 +235,7 @@ describe("clientErrorTransport — optional code/detail", () => {
         .spyOn(globalThis, "location", "get")
         .mockReturnValue(new URL("https://x.test/admin") as unknown as Location);
       try {
-        const FOREIGN = "othershowtoken";
+        const FOREIGN = "f".repeat(64); // another show's token, same shape
         expect(scrubShareTokens(`https://x.test/show/other/${FOREIGN}`)).not.toContain(FOREIGN);
         expect(scrubShareTokens(`?t=${FOREIGN}`)).toContain(FOREIGN); // the limit
       } finally {
@@ -265,7 +253,7 @@ describe("clientErrorTransport — optional code/detail", () => {
       //
       // Derived from CAPS itself, so a field added to the payload without a
       // scrub cannot pass by being absent from a list here.
-      const SECRET = "zzq9-secret-0123456789abcdef";
+      const SECRET = SHAPED_TOKEN;
       const spy = vi
         .spyOn(globalThis, "location", "get")
         .mockReturnValue(new URL(`https://x.test/show/gala/${SECRET}`) as unknown as Location);
@@ -318,7 +306,7 @@ describe("clientErrorTransport — optional code/detail", () => {
       // wherever they land, so the value arriving here can hold a token PREFIX
       // that no exact match can find. What survives a cut is always a prefix of a
       // literal we hold, which is what makes this checkable rather than a pattern.
-      const SECRET = "zzq9-secret-0123456789abcdef";
+      const SECRET = SHAPED_TOKEN;
       const spy = vi
         .spyOn(globalThis, "location", "get")
         .mockReturnValue(new URL(`https://x.test/show/gala/${SECRET}`) as unknown as Location);
@@ -333,7 +321,7 @@ describe("clientErrorTransport — optional code/detail", () => {
     });
 
     test("scrubShareTokens finds the token anywhere in a string, not just at a path position", () => {
-      const SECRET = "zzq9-secret";
+      const SECRET = SHAPED_TOKEN;
       const out = scrubShareTokens(`failed loading https://x.test/show/gala/${SECRET} at line 4`);
       expect(out).not.toContain(SECRET);
       expect(out).toContain("show/gala");
@@ -343,7 +331,7 @@ describe("clientErrorTransport — optional code/detail", () => {
       // The class the first version missed: a secret does not respect the field
       // you expected it in. A thrown { url: location.href } reaches `detail`; a
       // referrer reaches `message`.
-      const SECRET = "zzq9-secret";
+      const SECRET = SHAPED_TOKEN;
       const crewUrl = `https://x.test/show/gala/${SECRET}`;
       clientErrorTransport({
         source: "client.crew",
@@ -407,5 +395,271 @@ describe("clientErrorTransport — optional code/detail", () => {
     const body = postBody() as { code: string; detail: string };
     expect(body.code.length).toBe(80);
     expect(body.detail.length).toBe(500);
+  });
+});
+
+describe("clientErrorTransport — the numbers the mutation score found unpinned", () => {
+  // Enrolling this module in the source-mutation registry scored it 41/64 with 23
+  // survivors, on a surface that had already cleared three adversarial diff rounds.
+  // Every case below kills a specific one. That gap is the argument for enrolling a
+  // guard surface BEFORE reviewing it rather than after: no amount of reading finds
+  // "nothing pins this constant".
+  beforeEach(() => {
+    __resetClientTransportDedupForTests();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(null, { status: 202 }))),
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const body = (): Record<string, string> =>
+    JSON.parse(
+      ((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit)
+        .body as string,
+    );
+
+  test("every cap is pinned by VALUE, and each one truncates exactly at it", () => {
+    // Six integer-literal mutants lived here: each cap could be raised by one and
+    // nothing noticed. The wire contract is shared with the route
+    // (app/api/observe/client-error/route.ts), so a cap that drifts silently on one
+    // side is a payload the other side re-cuts.
+    expect(CAPS).toEqual({
+      message: 1000,
+      stack: 8000,
+      componentStack: 8000,
+      digest: 200,
+      url: 2000,
+      tileId: 200,
+      code: 80,
+      detail: 500,
+    });
+    for (const field of [
+      "message",
+      "stack",
+      "componentStack",
+      "digest",
+      "tileId",
+      "code",
+      "detail",
+    ] as const) {
+      const cap = CAPS[field];
+      __resetClientTransportDedupForTests();
+      (fetch as unknown as ReturnType<typeof vi.fn>).mockClear();
+      const value = "q".repeat(cap + 50);
+      clientErrorTransport({
+        source: "client.crew",
+        level: "error",
+        message: field === "message" ? value : "m",
+        ...(field === "message" ? {} : { [field]: value }),
+      });
+      // Exactly `cap`, not "at most": a cap raised by one lands here.
+      expect(body()[field]!.length, `${field}`).toBe(cap);
+    }
+  });
+
+  test("the first character of every field survives — the caps slice from 0", () => {
+    // Five `slice(0, cap)` → `slice(1, cap)` mutants. A payload quietly missing its
+    // first character is the kind of corruption nobody reads as corruption.
+    __resetClientTransportDedupForTests();
+    clientErrorTransport({
+      source: "client.crew",
+      level: "error",
+      message: "Mmm",
+      stack: "Sss",
+      componentStack: "Ccc",
+      digest: "Ddd",
+      tileId: "Ttt",
+      code: "Kkk",
+      detail: "Eee",
+    });
+    expect(body()).toEqual({
+      source: "client.crew",
+      level: "error",
+      message: "Mmm",
+      stack: "Sss",
+      componentStack: "Ccc",
+      digest: "Ddd",
+      tileId: "Ttt",
+      code: "Kkk",
+      detail: "Eee",
+      url: expect.any(String),
+    });
+  });
+
+  test("the dedup key reads the FIRST 200 characters of stack and detail, not a window into them", () => {
+    // Three mutants on the signature line: both `slice(0, 200)` offsets and the
+    // bound itself. A key built from `slice(1, 200)` still discriminates most
+    // pairs, which is why only a pair differing at exactly the first character
+    // catches it.
+    const post = (stack: string, detail: string): void =>
+      clientErrorTransport({ source: "client.crew", level: "error", message: "m", stack, detail });
+    const calls = (): number => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    post("Astack", "Adetail");
+    post("Bstack", "Adetail"); // differs at stack[0]
+    post("Astack", "Bdetail"); // differs at detail[0]
+    expect(calls(), "three distinct keys").toBe(3);
+
+    // The bound is 200 EXACTLY, and the difference has to land at index 200 to
+    // show it: a pair differing further along stays merged under 201 as well, so
+    // it proves nothing about the number. First 200 identical, differing at the
+    // 201st character, is the only pair that separates the two spellings.
+    for (const field of ["stack", "detail"] as const) {
+      __resetClientTransportDedupForTests();
+      (fetch as unknown as ReturnType<typeof vi.fn>).mockClear();
+      const long = "s".repeat(200);
+      const other = field === "stack" ? "d" : "k";
+      const send = (v: string): void =>
+        clientErrorTransport({
+          source: "client.crew",
+          level: "error",
+          message: "m",
+          stack: field === "stack" ? v : other,
+          detail: field === "detail" ? v : other,
+        });
+      send(`${long}A`);
+      send(`${long}B`);
+      expect(calls(), `${field}: identical for exactly 200 characters`).toBe(1);
+    }
+  });
+
+  test("no field on the wire carries the token — walked, not listed", () => {
+    // This replaces a final re-scrub loop over `payload` that was dead code: every
+    // assignment already scrubs, so its own guard survived an equality flip. The
+    // guarantee it was there for is this assertion, which walks whatever the body
+    // actually holds, so a field added later without a scrub fails here.
+    const SECRET = SHAPED_TOKEN;
+    const spy = vi
+      .spyOn(globalThis, "location", "get")
+      .mockReturnValue(new URL(`https://x.test/show/gala/${SECRET}`) as unknown as Location);
+    try {
+      clientErrorTransport({
+        source: "client.crew",
+        level: "error",
+        message: `m ${SECRET}`,
+        stack: `s ${SECRET}`,
+        componentStack: `c ${SECRET}`,
+        digest: SECRET,
+        tileId: SECRET,
+        code: SECRET.slice(0, 40),
+        detail: `d ${SECRET}`,
+      });
+      const b = body();
+      expect(Object.keys(b).length).toBeGreaterThan(5); // the walk must have something to walk
+      for (const [k, v] of Object.entries(b)) {
+        expect(v, `field ${k}`).not.toContain(SECRET.slice(0, 8));
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("the prefix floor is 16 exactly: a 16-character run goes, a 15-character run stays", () => {
+    // Both the constant and the loop's `>=` were mutable with nothing noticing.
+    // The floor is a real trade — it is what stops an ordinary word from being
+    // mistaken for a secret — so its exact value belongs in a test, not only in a
+    // comment.
+    const SECRET = SHAPED_TOKEN;
+    const spy = vi
+      .spyOn(globalThis, "location", "get")
+      .mockReturnValue(new URL(`https://x.test/show/gala/${SECRET}`) as unknown as Location);
+    try {
+      expect(scrubShareTokens(`x ${SECRET.slice(0, 16)} y`)).not.toContain(SECRET.slice(0, 16));
+      expect(scrubShareTokens(`x ${SECRET.slice(0, 15)} y`)).toContain(SECRET.slice(0, 15));
+      // The loop starts at length-1, so a run one character short of the whole
+      // token is scrubbed too.
+      expect(scrubShareTokens(SECRET.slice(0, SECRET.length - 1))).not.toContain(
+        SECRET.slice(0, 16),
+      );
+      // And it scrubs from index 0: the leading character goes with the rest.
+      expect(scrubShareTokens(`<${SECRET.slice(0, 20)}>`)).toBe("<[share-token-redacted]>");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("a deep NON-crew path contributes no token — a path segment is not a secret", () => {
+    // `parts[1] === "show" && parts.length > 3` survived `&&` → `||`, which would
+    // read the fourth segment of ANY deep path as the share token. On /a/b/c/d that
+    // scrubs the literal "d" out of every field: a false positive that corrupts
+    // ordinary payloads rather than leaking one.
+    const spy = vi
+      .spyOn(globalThis, "location", "get")
+      .mockReturnValue(new URL("https://x.test/admin/shows/gala/settings") as unknown as Location);
+    try {
+      expect(scrubShareTokens("the settings page")).toBe("the settings page");
+      expect(scrubShareTokens("settings")).toBe("settings");
+      // And a hex string in the third position of a NON-show path is not a token
+      // either: the route and the shape are both required, not either one.
+      expect(scrubShareTokens(`id=${SHAPED_TOKEN}`)).toBe(`id=${SHAPED_TOKEN}`);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("copies cut at DIFFERENT lengths all go, not just the longest", () => {
+    // Diff review R4's P0. The prefix loop stopped at the first length it found, so
+    // a value carrying a 48-character copy, a 32-character copy and a 20-character
+    // copy lost the 48 and kept the other two. Different lengths in one value is
+    // the ordinary case, not a contrived one: each field is cut at its own cap by
+    // whatever produced it, and they reach this function together.
+    const spy = vi
+      .spyOn(globalThis, "location", "get")
+      .mockReturnValue(new URL(`https://x.test/show/gala/${SHAPED_TOKEN}`) as unknown as Location);
+    try {
+      const lengths = [48, 32, 20, 16];
+      const text = lengths.map((n) => `copy${n}=${SHAPED_TOKEN.slice(0, n)}`).join(" & ");
+      const out = scrubShareTokens(text);
+      for (const n of lengths) {
+        expect(out, `${n}-character copy`).not.toContain(SHAPED_TOKEN.slice(0, n));
+      }
+      // Every field a caller can set, not just the one the bug was found in.
+      __resetClientTransportDedupForTests();
+      (fetch as unknown as ReturnType<typeof vi.fn>).mockClear();
+      clientErrorTransport({
+        source: "client.crew",
+        level: "error",
+        message: text,
+        stack: text,
+        componentStack: text,
+        digest: text,
+        tileId: text,
+        code: SHAPED_TOKEN.slice(0, 48),
+        detail: text,
+      });
+      const b = JSON.parse(
+        ((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit)
+          .body as string,
+      ) as Record<string, string>;
+      for (const [k, v] of Object.entries(b)) {
+        expect(v, `field ${k}`).not.toContain(SHAPED_TOKEN.slice(0, 16));
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("a STATIC segment beside the dynamic one is not a token", () => {
+    // Diff review R4's P2, and the reason the recognizer matches on the token's
+    // SHAPE rather than on its position. `/show/<slug>/unpublish` is a real route
+    // (app/show/[slug]/unpublish/page.tsx), so the position-only form redacted the
+    // literal word "unpublish" out of every message on that page and rewrote the
+    // URL into a crew-token URL that does not exist — corruption of an ordinary
+    // payload rather than a leak, which is the failure a widening recognizer
+    // produces and the narrowing removes.
+    const spy = vi
+      .spyOn(globalThis, "location", "get")
+      .mockReturnValue(new URL("https://x.test/show/gala/unpublish") as unknown as Location);
+    try {
+      expect(scrubShareTokens("unpublish confirmation failed")).toBe(
+        "unpublish confirmation failed",
+      );
+      expect(redactShareToken("https://x.test/show/gala/unpublish")).toBe(
+        "https://x.test/show/gala/unpublish",
+      );
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
