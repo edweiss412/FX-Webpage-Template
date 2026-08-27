@@ -185,7 +185,7 @@ Because the gate never reads `x-forwarded-host` or `host`, the "which headers ar
 
 ### 4.1 The seam today
 
-`IdentityChip` (Server Component) declares `clearIdentityFormAction(formData): Promise<void>` and passes it to `AvatarMenu` (client island) as the `clearAction` prop (`components/auth/IdentityChip.tsx:30-35`, `71`; `components/auth/AvatarMenu.tsx:87`). `AvatarMenu` renders `<form action={clearAction}>` with hidden `slug`/`shareToken`/`showId` inputs (`components/auth/AvatarMenu.tsx:439-442`). The typed result never reaches the client — the whole defect.
+`IdentityChip` (Server Component) declares `clearIdentityFormAction(formData): Promise<void>` and passes it to `AvatarMenu` (client island) as the `clearAction` prop (`components/auth/IdentityChip.tsx:30-35`, `71`; `components/auth/AvatarMenu.tsx:102`). `AvatarMenu` renders `<form action={clearAction}>` with hidden `slug`/`shareToken`/`showId` inputs (`components/auth/AvatarMenu.tsx:475-478`). The typed result never reaches the client — the whole defect.
 
 ### 4.2 The change — a returned-result action + local reset-on-open state
 

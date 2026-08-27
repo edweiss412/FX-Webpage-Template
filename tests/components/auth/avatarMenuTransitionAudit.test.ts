@@ -33,7 +33,7 @@ const FILE = join("components", "auth", "AvatarMenu.tsx");
 const SOURCE = readFileSync(join(process.cwd(), FILE), "utf8");
 
 interface Site {
-  readonly kind: "if" | "ternary" | "switch" | "jsx-and" | "or";
+  readonly kind: "if" | "ternary" | "switch" | "logical";
   readonly line: number;
   readonly text: string;
   /**
@@ -49,19 +49,40 @@ interface Site {
    * one-to-one.
    */
   readonly after: string;
+  /**
+   * A slice of the ENCLOSING node, for sites `after` cannot separate.
+   *
+   * `after` only exists for statements. The two `name.trim() !== "" &&
+   * role.trim() !== ""` guards are expressions with byte-identical text, and
+   * they differ only in what their parent renders: one the sr-only separator,
+   * one the visible middot. Without this the one-to-one mapping is
+   * unsatisfiable for them, which is the same hole the identical `if`
+   * statements had before `after` closed it.
+   */
+  readonly within: string;
 }
 
 /** The match key a DECLARED marker is tested against. */
 function siteKey(site: Site): string {
-  return `${site.text}\u0000${site.after}`;
+  return `${site.text}\u0000${site.after}\u0000${site.within}`;
 }
 
-/** `a && <jsx/>` is a render branch; `a && b` inside an `if` test is not. */
-function isJsxGuard(node: ts.BinaryExpression): boolean {
-  let right: ts.Node = node.right;
-  while (ts.isParenthesizedExpression(right)) right = right.expression;
-  return ts.isJsxElement(right) || ts.isJsxFragment(right) || ts.isJsxSelfClosingElement(right);
-}
+/**
+ * EVERY logical operator is a branch. No JSX-ness test, no operand test.
+ *
+ * The rule was narrower twice and escaped twice, each time demonstrated with a
+ * live mutant rather than argued. First `||` was invisible, so widening the busy
+ * definition to `switchPhase === "pending" || switchStatus === "error"` left the
+ * census byte-identical while the row went disabled in Open-error. Then `&&` was
+ * counted only with a JSX right operand, so `switchPhase === "pending" &&
+ * switchStatus === "error"` did the same in the other direction: census 34 both
+ * ways, Open-pending rendering an ENABLED row while the announcer said
+ * "Switching person".
+ *
+ * Both escapes were one predicate trying to guess which operators "really" mean
+ * a branch. They all do. A uniform rule has no corner left to find.
+ */
+const LOGICAL = new Set([ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken]);
 
 /** Every conditional site in the component, from the AST. */
 function conditionalSites(): Site[] {
@@ -72,23 +93,8 @@ function conditionalSites(): Site[] {
     if (ts.isIfStatement(node)) kind = "if";
     else if (ts.isConditionalExpression(node)) kind = "ternary";
     else if (ts.isSwitchStatement(node)) kind = "switch";
-    else if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
-      isJsxGuard(node)
-    ) {
-      kind = "jsx-and";
-    } else if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.BarBarToken
-    ) {
-      // Counted since diff round 2 at base 4c1fe4b56, which demonstrated the
-      // escape with a live mutant: widening the shipped busy definition to
-      // `switchPhase === "pending" || switchStatus === "error"` disables the row
-      // in Open-error, and with `||` invisible the site count, the site keys and
-      // every structural assertion were IDENTICAL. A disjunction added to a
-      // condition IS a new branch, so it gets a row like any other.
-      kind = "or";
+    else if (ts.isBinaryExpression(node) && LOGICAL.has(node.operatorToken.kind)) {
+      kind = "logical";
     }
     if (kind !== null) {
       let after = "";
@@ -105,6 +111,7 @@ function conditionalSites(): Site[] {
         line: src.getLineAndCharacterOfPosition(node.getStart(src)).line + 1,
         text: node.getText(src).replace(/\s+/g, " "),
         after,
+        within: (node.parent?.getText(src) ?? "").replace(/\s+/g, " ").slice(0, 120),
       });
     }
     ts.forEachChild(node, visit);
@@ -325,6 +332,32 @@ const DECLARED = [
     marker: /^switchBusy \|\| undefined\u0000/,
     treatment: 'instant; an explicit aria-busy="false" reads differently to AT than an absent one',
   },
+  {
+    id: "C32",
+    what: "the outside-pointerdown test: a Node AND inside the container",
+    marker: /^target instanceof Node && containerRef\.current\?\.contains\(target\)\u0000/,
+    treatment: "not a render branch; the conjunction inside C10's condition",
+  },
+  {
+    id: "C33",
+    what: "the sr-only separator's guard: both name and role non-empty",
+    marker:
+      /^name\.trim\(\) !== "" && role\.trim\(\) !== ""\u0000\u0000name\.trim\(\)[^\u0000]*avatar-menu-sr-separator/,
+    treatment: "not a render branch itself; the conjunction inside C21's guard",
+  },
+  {
+    id: "C34",
+    what: "the visible middot's guard: both name and role non-empty",
+    marker:
+      /^name\.trim\(\) !== "" && role\.trim\(\) !== ""\u0000\u0000name\.trim\(\)[^\u0000]*font-medium text-text-subtle/,
+    treatment: "not a render branch itself; the conjunction inside C22's guard",
+  },
+  {
+    id: "C35",
+    what: "the theme check is visible only when MOUNTED and dark",
+    marker: /^mounted && isDark\u0000/,
+    treatment: "not a render branch itself; the mounted half is the hydration guard inside C25",
+  },
 ] as const;
 
 describe("AvatarMenu transition audit (spec §4.6)", () => {
@@ -337,8 +370,8 @@ describe("AvatarMenu transition audit (spec §4.6)", () => {
       "the keyboard switch is seen",
     ).toBe(true);
     expect(
-      sites.some((s) => s.kind === "jsx-and"),
-      "JSX && guards are seen",
+      sites.some((s) => s.kind === "logical"),
+      "logical operators are seen",
     ).toBe(true);
   });
 
