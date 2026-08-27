@@ -342,7 +342,12 @@ export async function planHoldAwareApply(
         }
         consumed.add(renameRow.name);
         nonIdentityOverride.set(hold.entity_key, renameRow);
-        retainRows.set(hold.entity_key, rowFromHeldValue(held));
+        // Behaviour-inert, and moved anyway. The override set on the line above
+        // is unconditional on this branch, so the build loop takes it as the
+        // base and this value is never read. Moving it makes the rule uniform
+        // across all five retains, which is what lets the class guard be one
+        // assertion instead of four line numbers that go stale.
+        retainRows.set(hold.entity_key, retainRowFor(hold.entity_key, held));
         mutations.push({
           kind: "retarget",
           holdId: hold.id,
