@@ -249,7 +249,28 @@ The ledger row graduates into `BACKLOG-archive.md` and its IN PROGRESS marker co
 
 ### Findings and dispositions
 
-Written by this task.
+Both halves ran on the merged head, after `origin/main` was absorbed. Each ran as an isolated sub-agent per the command's hard invariant, so neither is a degraded single-context run.
+
+**`/impeccable critique` — P0 0, P1 0.**
+
+- Assessment A (design review): no user-visible surface change. The diff is subscription and observation logic; JSX, CSS, tokens and copy are untouched, and `AttentionMenu.tsx` does not appear in the diffstat at all. AI-slop verdict N/A, since nothing new is rendered to judge. Of the ten heuristics only error prevention is even plausibly touched, and it does not move: the change is latent robustness, not a repaired user-facing failure.
+- Assessment B (detector plus evidence): the skill's bundled detector exited 0 with **0 findings** over `components/admin/showpage/AttentionMenu.tsx` and `components/admin/useFitWithinClip.ts`. Browser visualization unavailable: no dev server, and none started for this run. The critique ignore file the command consults, under a dot-impeccable critique directory, is confirmed absent from this repo. Neither the detector script nor that ignore path is written here as a backticked path, because both live outside the tracked tree and the citation arm reads any such token as a citation it can resolve.
+
+**The critique's one substantive observation, answered rather than filed.** Assessment A traced the live consumer and found BOTH hardening branches unreached by it today: `AttentionMenu`'s clip ancestor is the review-modal panel, which clips from the first measurement, and the menu fully unmounts when closed (`if (!open) return null`) rather than toggling `display: none`, so the `offsetParent`-null path cannot be reached either. That is not a contradiction, it is the backlog row's own reachability bound restated from the UI side, and it is why the row is MEDIUM rather than HIGH. This lands as prophylaxis on a SHARED hook against a class the row PROBED, not ahead of a named second consumer. Recorded here because a future reader deserves the answer without re-deriving it.
+
+**`/impeccable audit` — P0 0, P1 0, one P3, fixed in branch.**
+
+Scores: accessibility 4, performance 4, theming 4, responsive 4, anti-patterns 4. **One dimension of five moved: performance, net positive.**
+
+- The attach path lost a reflow. `offsetParent` is now read INSIDE `withNaturalSize`'s measure callback, in the same read phase as the two `getBoundingClientRect()` calls, whereas the previous code read it after `apply()` returned, which is after the helper's `finally` restores the caps: a write, and therefore a second forced reflow. Attach is now one reflow rather than two; the steady-state per-signal count is unchanged at one.
+- The reconcile allocates a `Set` and one spread per coalesced frame even when nothing changed. Real, bounded to at most two elements, and accepted.
+- Retention is bounded rather than a leak: teardown disconnects the observer, removes the listener from the CURRENT role, and clears the node ref, so nothing outlives unmount.
+- Coalescing intact: one shared `RafCoalescer` backs all three signal sources, so a burst still costs one apply per frame.
+- **P3, fixed:** a comment above `onTransitionEnd` named `subscribePositioned`, an identifier task 3 renamed to `reconcile`. Corrected in the same commit as these dispositions. No TDZ hazard (the function declaration hoists), no listener leak, no `unobserve` on an unwatched node, teardown ordering correct.
+
+Nothing is deferred, so no `DEFERRED.md` entry is owed.
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none
 
 <!-- tasks: end -->
 

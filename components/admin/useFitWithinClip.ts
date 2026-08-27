@@ -295,8 +295,8 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
       // transitionend events on this same node. Only the transform carries the
       // geometry this hook measures.
       //
-      // A function declaration, so `subscribePositioned` above can reference it:
-      // it is the listener that has to follow the role.
+      // A function declaration, so `reconcile` above can reference it despite
+      // being written first: it is the listener that has to follow the role.
       function onTransitionEnd(event: Event): void {
         if (event.target !== observedPositioned) return;
         if ((event as TransitionEvent).propertyName !== "transform") return;
