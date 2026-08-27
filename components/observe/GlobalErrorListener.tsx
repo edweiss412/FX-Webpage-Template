@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 import { clientLog } from "@/lib/observe/clientLog";
 import { describeClientValue } from "@/lib/observe/describeClientValue";
+import { scrubShareTokens } from "@/lib/observe/clientErrorTransport";
 
 const DETAIL_CAP = 300;
 
@@ -42,7 +43,10 @@ export function GlobalErrorListener(): null {
       // leading, exactly the new information this handler exists to capture is what
       // the slice drops. Leading with the value means the truncation costs the
       // cheaper half.
-      const detail = (from ? `${from} ${where}` : where).slice(0, DETAIL_CAP);
+      // SCRUBBED BEFORE THE CAP. filename is a URL and on a crew page it carries
+      // the share token; slicing first would cut the token into a fragment the
+      // transport's exact-literal pass can no longer match (diff review R3 P0).
+      const detail = scrubShareTokens(from ? `${from} ${where}` : where).slice(0, DETAIL_CAP);
       clientLog(
         "error",
         "client.root",
@@ -65,12 +69,13 @@ export function GlobalErrorListener(): null {
       // The message stays the fixed "unhandled promise rejection", so `detail` in
       // the dedup signature is the ONLY thing separating two rejections. That is
       // why lib/observe/clientErrorTransport.ts had to change too.
-      const detail = (
+      // Scrubbed before the cap, same reason as the window handler above.
+      const detail = scrubShareTokens(
         reason instanceof Error
           ? reason.message
           : reason == null
             ? ""
-            : describeClientValue(reason).detail
+            : describeClientValue(reason).detail,
       ).slice(0, DETAIL_CAP);
       clientLog(
         "error",

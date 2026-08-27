@@ -151,6 +151,62 @@ describe("GlobalErrorListener", () => {
     expect(call![5]).toBe("https://x.test/a.js:7");
   });
 
+  test("both handlers scrub the share token BEFORE capping the detail", () => {
+    // Same defect as clientErrorTransport's, one layer earlier: `filename` on a
+    // crew page IS a URL carrying the token, and slicing first cuts it into a
+    // fragment nothing downstream can match. Eight characters is deliberately
+    // below the transport's prefix floor, so this passes only when the scrub
+    // runs first rather than because a later pass cleaned up.
+    const SECRET = "zzq9-secret-0123456789abcdef";
+    const spy = vi
+      .spyOn(globalThis, "location", "get")
+      .mockReturnValue(new URL(`https://x.test/show/gala/${SECRET}`) as unknown as Location);
+    try {
+      render(<GlobalErrorListener />);
+      const DETAIL_CAP = 300;
+      const SURVIVING = 8;
+
+      /**
+       * Pad so the token lands EXACTLY astride the cap, leaving `SURVIVING`
+       * characters behind a cut.
+       *
+       * Solved rather than hardcoded, because each handler adds its own prefix to
+       * the detail (the window one interpolates the message and appends
+       * `:lineno`; the rejection one runs a string through the projection, which
+       * adds a type tag). Guessing the offset produced a padding whose token fell
+       * entirely PAST the cap, so nothing of it could leak and the assertion held
+       * under a mutant that had reintroduced the bug. `project` reproduces the
+       * handler's own composition, so the fixture tracks it.
+       */
+      const padFor = (project: (padded: string) => string): string => {
+        let pad = DETAIL_CAP;
+        for (let i = 0; i < 8; i++) {
+          const at = project("p".repeat(pad)).indexOf(SECRET);
+          if (at < 0) throw new Error("the projection dropped the token");
+          const delta = DETAIL_CAP - SURVIVING - at;
+          if (delta === 0) return "p".repeat(pad);
+          pad += delta;
+        }
+        throw new Error("padding did not converge");
+      };
+
+      const winPad = padFor((p) => `boom ${p}${SECRET}:1`);
+      window.dispatchEvent(
+        new ErrorEvent("error", { message: "boom", filename: `${winPad}${SECRET}`, lineno: 1 }),
+      );
+      const winCall = clientLogMock.mock.calls.find((c) => c[4] === "CLIENT_WINDOW_ERROR");
+      expect(String(winCall![5]), "window").not.toContain(SECRET.slice(0, SURVIVING));
+
+      clientLogMock.mockClear();
+      const rejPad = padFor((p) => describeClientValue(`${p}${SECRET}`).detail);
+      dispatchRejection(`${rejPad}${SECRET}`);
+      const rejCall = clientLogMock.mock.calls.find((c) => c[4] === "CLIENT_UNHANDLED_REJECTION");
+      expect(String(rejCall![5]), "rejection").not.toContain(SECRET.slice(0, SURVIVING));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   test("unmount removes the listeners (dispatch after unmount does not log)", () => {
     const { unmount } = render(<GlobalErrorListener />);
     unmount();

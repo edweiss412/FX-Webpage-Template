@@ -44,7 +44,7 @@ import { serializeError } from "@/lib/log/serializeError";
  * This is what separates the number `0` from the string `"0"` once
  * serializeError has mapped both to the text "0".
  */
-function tag(value: unknown): string {
+export function tag(value: unknown): string {
   if (value === null) return "null";
   const t = typeof value;
   if (t !== "object") return t;

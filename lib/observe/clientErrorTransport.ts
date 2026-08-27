@@ -14,7 +14,7 @@ const seen = new Set<string>();
  * matter what this does.
  */
 const SEEN_MAX = 500;
-const CAPS = {
+export const CAPS = {
   message: 1000,
   stack: 8000,
   componentStack: 8000,
@@ -55,6 +55,12 @@ export function __resetClientTransportDedupForTests(): void {
  * AGENTS.md invariant 10: secrets are never logged.
  */
 const REDACTED_TOKEN = "[share-token-redacted]";
+/**
+ * Shortest token prefix worth scrubbing. A cut leaves a prefix, and a 16-character
+ * exact run of a known secret is the secret rather than a coincidence; below that
+ * the odds of a false hit on ordinary text stop being negligible.
+ */
+const TOKEN_PREFIX_FLOOR = 16;
 
 /** The current page's share token, when the page is a crew page. "" otherwise. */
 function currentShareToken(): string {
@@ -88,8 +94,29 @@ export function scrubShareTokens(text: string): string {
       // Every occurrence, raw and encoded — a second copy in a query parameter or a
       // fragment is the same literal, which is exactly what the pattern pass missed.
       out = out.split(tok).join(REDACTED_TOKEN);
+      // Defence in depth, and honestly labelled: NO fixture in the suite isolates
+      // this branch. Mutation-tested three ways — removing the exact pass above
+      // fails two tests, removing both fails two, removing THIS alone fails none.
+      // The reason is structural rather than a gap in the fixtures: `pathname`
+      // yields the token raw when its characters need no encoding (so `enc === tok`
+      // and this no-ops) and yields it encoded when they do (so the exact pass
+      // above already holds the encoded literal). It is kept because the direction
+      // is not guaranteed either way by the platform, and a redundant scrub of a
+      // secret is the cheap side of that bet — not because a test proves it fires.
       const enc = encodeURIComponent(tok);
       if (enc !== tok) out = out.split(enc).join(REDACTED_TOKEN);
+      // A truncation UPSTREAM of this call can cut the token in half, and half a
+      // secret is still a secret. Whatever survives a cut is a PREFIX of the known
+      // literal, so the prefixes are what we look for — longest first, still exact
+      // matching against a value we hold, with no pattern to widen. The floor
+      // keeps a short coincidental run from being mistaken for the secret.
+      for (let n = tok.length - 1; n >= TOKEN_PREFIX_FLOOR; n--) {
+        const pre = tok.slice(0, n);
+        if (out.includes(pre)) {
+          out = out.split(pre).join(REDACTED_TOKEN);
+          break;
+        }
+      }
     }
     return out.replace(
       SHOW_TOKEN_RE,
@@ -134,7 +161,12 @@ export function clientErrorTransport(input: {
 }): void {
   try {
     if (typeof fetch === "undefined") return;
-    const message = input.message.slice(0, CAPS.message);
+    // SCRUB FIRST, THEN CAP. Capping first cut the token into a fragment that
+    // neither the exact nor the encoded pass could match — three consecutive
+    // review rounds produced a P0 on this axis and this was the third: not a
+    // missing spelling, an ORDER OF OPERATIONS. Every field below follows the same
+    // order for the same reason.
+    const message = scrubShareTokens(input.message).slice(0, CAPS.message);
     // `detail` is in the key, and that is the second half of the repair. A
     // non-`Error` value has no stack, so before this the key reduced to
     // `source|level|message` — and `message` is a LABEL: two crashes with the same
@@ -152,19 +184,19 @@ export function clientErrorTransport(input: {
     if (seen.size >= SEEN_MAX) seen.clear();
     seen.add(signature);
     const payload: Record<string, string> = { source: input.source, level: input.level, message };
-    if (input.stack) payload.stack = input.stack.slice(0, CAPS.stack);
+    if (input.stack) payload.stack = scrubShareTokens(input.stack).slice(0, CAPS.stack);
     if (input.componentStack)
-      payload.componentStack = input.componentStack.slice(0, CAPS.componentStack);
-    if (input.digest) payload.digest = input.digest.slice(0, CAPS.digest);
-    if (input.tileId) payload.tileId = input.tileId.slice(0, CAPS.tileId);
-    if (input.code) payload.code = input.code.slice(0, CAPS.code);
-    if (input.detail) payload.detail = input.detail.slice(0, CAPS.detail);
+      payload.componentStack = scrubShareTokens(input.componentStack).slice(0, CAPS.componentStack);
+    if (input.digest) payload.digest = scrubShareTokens(input.digest).slice(0, CAPS.digest);
+    if (input.tileId) payload.tileId = scrubShareTokens(input.tileId).slice(0, CAPS.tileId);
+    if (input.code) payload.code = scrubShareTokens(input.code).slice(0, CAPS.code);
+    if (input.detail) payload.detail = scrubShareTokens(input.detail).slice(0, CAPS.detail);
     if (typeof location !== "undefined") {
       payload.url = redactShareToken(location.href).slice(0, CAPS.url);
     }
-    // Every string on the wire, not just `url`. A secret does not respect the
-    // field you expected it in: a thrown `{ url: location.href }` reaches `detail`,
-    // a referrer reaches `message`, a component stack can carry either.
+    // A final sweep over every field. Each is already scrubbed before its cap
+    // above; this catches anything a later edit adds to `payload` without going
+    // through that path, and costs one pass over short strings on a crash path.
     for (const k of Object.keys(payload)) {
       const v = payload[k];
       if (typeof v === "string") payload[k] = scrubShareTokens(v);
