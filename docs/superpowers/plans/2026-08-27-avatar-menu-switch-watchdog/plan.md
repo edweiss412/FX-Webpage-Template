@@ -64,6 +64,14 @@ BLOCKING, five findings, and the useful thing about them is that four are about 
 
 The pattern across three rounds, stated so round 4 can check itself against it: every finding has been a claim the plan made about a mechanism it did not own, believed because the mechanism usually behaves that way. React's pending flag, batching, `clearTimeout`, a digest's type, and a state model that quietly assumed a node was inside the popover. In each case the code was fine and the SENTENCE was wrong. The check that would have caught all five: for every "cannot", name the line that refuses it, and for every "proved", name the mutant that reds.
 
+## What this plan is allowed to claim
+
+**Framework mechanism claims are not asserted in prose; each is pinned by a deciding case or absent.** bl-orch's ruling at the plan-stage cap, and it is the class repair for the axis all four rounds shared. Every finding across those rounds was a sentence about a mechanism this plan does not own, believed because that mechanism usually behaves that way: `useTransition`'s pending flag, batched updates, `clearTimeout` ordering, what a `digest` identifies, and where a node sits. In each case the code was defensible and the sentence was wrong, which is exactly why self-review kept passing them: self-review re-reads the sentence and agrees with it.
+
+So the plan now says what a case OBSERVES and names the case. Where no case pins a claim, the claim is stated as an observation with the probe that produced it and no explanation of why, or it is gone. The same rule applies to the code comments this plan pastes, because those ship: each one names the case that fails if someone simplifies the line away, rather than explaining a framework behaviour the next reader would have to take on trust.
+
+This is deliberately not a promise to understand React better. It is a promise to stop putting load on sentences that no test can hold up.
+
 ## Round 4 review, the cap round, and what it changed
 
 BLOCKING, three findings, and all three are mine rather than the mechanism's.
@@ -286,10 +294,11 @@ describe("AvatarMenu transition audit (spec §4.6)", () => {
     ).toBe(DECLARED.length);
   });
 
-  test("the pending affordances read the DERIVED flag, never React's entangled pending", () => {
-    // Round 1 F1: `switchPending` is entangled across concurrent transitions
-    // from one hook, so anything rendered from it is wrong the moment a retry
-    // exists. The component keeps `startSwitch` and reads its own phase.
+  test("the pending affordances read the component's own phase, never React's flag", () => {
+    // Rendering from `switchPending` put the row in states the inventory
+    // forbids, and the behavioural cases that catch a return to it are
+    // avatarMenu.test.tsx's two "the RETRY settles ... while the first is still
+    // hung". This is the structural half: the flag is not read at all.
     expect(SOURCE).toMatch(/const \[, startSwitch\] = useTransition\(\)/);
     expect(SOURCE).not.toMatch(/\bswitchPending\b/);
     expect(SOURCE).toMatch(/aria-disabled=\{switchBusy\}/);
@@ -370,7 +379,7 @@ Only the first three are live claims about where the constant is, and all three 
 
 ## The mechanism
 
-**Round 1 rewrote this section, and the rewrite is structural rather than documentary.** The first draft derived busy from `switchPending`, React's own `useTransition` flag, and treated it as if it described THIS attempt. It does not. One `useTransition` hook entangles every transition started from it, so the flag stays true until the LAST of them settles. The review probed the consequence: start a clear, let the watchdog fire, retry, and let the RETRY settle while the first is still hung, and `switchPending` is still true. A successful retry would leave the row busy until a second watchdog fired; a failed retry would set the error state with `switchPending` still true, and the timeout would then paint the timed-out affordance and the alert together. Those are observable states outside the five the inventory declares, so the model was not merely incomplete, it was false.
+**Round 1 rewrote this section, and the rewrite is structural rather than documentary.** The first draft derived busy from `switchPending`, React's own `useTransition` flag, and treated it as if it described THIS attempt. The consequence was measured rather than reasoned about: start a clear, let the watchdog fire, retry, and let the RETRY settle while the first is still hung, and the row stayed busy with a successful clear behind it. A failed retry put the alert on a busy row, and the timeout then painted the timed-out affordance and the alert together. Those are observable states outside the five the inventory declared, so the model was not merely incomplete, it was false. AC-9 is the pair of cases that now holds this closed, in both settlement orders.
 
 The repair is to stop reading React's flag at all. This component's busy-ness is its own three-valued phase, set synchronously at submit and cleared by the attempt that owns it:
 
@@ -378,10 +387,11 @@ The repair is to stop reading React's flag at all. This component's busy-ness is
 import { unstable_rethrow } from "next/navigation";
 
 const [switchPhase, setSwitchPhase] = useState<"idle" | "pending" | "timedout">("idle");
-// `useTransition` stays as the SCHEDULING wrapper for the async work, and is no
-// longer the source of truth for anything rendered. Its pending flag is
-// entangled across concurrent transitions from the same hook, which is exactly
-// the property that made the first draft's model false.
+// `useTransition` stays as the SCHEDULING wrapper for the async work, and is
+// NOT the source of truth for anything rendered. Reading its pending flag put
+// the row in states the inventory forbids; the case that catches a return to
+// it is avatarMenu.test.tsx's "the RETRY settles ok while the first is still
+// hung", which requires the row enabled once the live attempt lands.
 const [, startSwitch] = useTransition();
 
 /** Every pending affordance reads THIS. */
@@ -390,12 +400,12 @@ const switchBusy = switchPhase === "pending";
 useEffect(() => {
   if (switchPhase !== "pending") return;
   const timer = setTimeout(() => {
-    // The guard is the callback's own, and it is not the cleanup's job: a
-    // callback already QUEUED when the settle schedules its update cannot be
-    // cancelled, because clearTimeout on an already-fired timer does nothing.
-    // Reading the phase functionally means such a callback finds "idle" and
-    // returns. Round 2 F1, reproduced without it at phase=timedout with an
-    // error on screen, and closed with it.
+    // Reading the phase functionally, so a callback arriving after the settle
+    // finds "idle" and returns. Do not simplify this to a bare
+    // setSwitchPhase("timedout"): the cleanup above does not cover every
+    // arrival order, and the case that fails when it is simplified is
+    // avatarMenu.test.tsx's "a settle and a due watchdog in one flush leave
+    // the alert standing alone".
     setSwitchPhase((phase) => (phase === "pending" ? "timedout" : phase));
   }, PENDING_TIMEOUT_MS);
   return () => clearTimeout(timer);
@@ -414,7 +424,7 @@ if (switchPhase === "pending") switchAnnouncement = "Switching person";
 else if (switchPhase === "timedout") switchAnnouncement = SWITCH_TIMEOUT_NOTICE;
 ```
 
-The submit path carries the other two round-1 repairs. A monotonic attempt ordinal drops a superseded attempt's late result, because enabling a retry is what makes a first attempt's failure arrive while a second is in flight. And the `await` is wrapped, because a REJECTED action does not leave a transition pending, it surfaces as a render error: the review probed it against the installed React 19.2.4 and the nearest error boundary replaces the component. Losing the whole crew page because one switch tap's round trip failed is worse than the failure it reports, and this component already owns the right copy for it.
+The submit path carries the other two round-1 repairs. A monotonic attempt ordinal drops a superseded attempt's late result, because enabling a retry is what makes a first attempt's failure arrive while a second is in flight (AC-5). And the `await` is wrapped: unwrapped, a rejected clear took the whole component off screen instead of reporting, which AC-10 pins by wrapping the menu in an error boundary and requiring that the boundary catch nothing. Losing the whole crew page because one switch tap's round trip failed is worse than the failure it reports, and this component already owns the right copy for it.
 
 ```tsx
 const switchAttempt = useRef(0);
@@ -437,13 +447,11 @@ const onSwitchSubmit = (formData: FormData): void => {
       // this row down while a newer attempt is live (round 4 F3). The live
       // attempt decides the navigation.
       if (switchAttempt.current !== attempt) return;
-      // Next's own classifier, NOT a digest sniff. Next stamps ORDINARY server
-      // failures with an opaque string digest too, so `typeof digest ===
-      // "string"` rethrows exactly the failures this catch exists to report and
-      // sends them to the error boundary instead (round 2 F2, probed on the
-      // installed Next 16.3.0: an ordinary failure came back with digest
-      // "3693416880"). `unstable_rethrow` returns for anything that is not
-      // framework control flow, and rethrows redirect and not-found untouched.
+      // Next's own classifier, NOT a digest test. Do not replace this with a
+      // `typeof error.digest === "string"` check: the pair of cases in
+      // avatarMenu.test.tsx that reject with "3693416880" and with
+      // "NEXT_REDIRECT;replace;/x;307;" require opposite outcomes, and that
+      // check gives both the same one.
       unstable_rethrow(error);
       failed = true;
     }
@@ -454,7 +462,7 @@ const onSwitchSubmit = (formData: FormData): void => {
 };
 ```
 
-`setSwitchPhase("idle")` and `setSwitchStatus("error")` are one batched update, which is what keeps Open-error a state rather than a modifier: an error can never be observed while the row is busy.
+An error is never observed while the row is busy. That is pinned by AC-9's fail-order case, which reads `aria-disabled` at the moment the alert appears and requires `"false"`; the plan does not say why beyond that, because the why is React's and the case is ours.
 
 **Probed before it was written into this plan, both rounds.** A standalone component with exactly this shape, driven under fake timers:
 
@@ -483,12 +491,12 @@ The first round-2 line is the fault reproduced: `Open-timedout` and `Open-error`
 | --- | --- |
 | `clearAction` settles inside the window (the ordinary case) | unchanged from today in every observable: `aria-busy` set then removed, announcer `Switching person` then empty, no timeout copy ever rendered |
 | `clearAction` never settles | at `PENDING_TIMEOUT_MS` the row re-enables, `aria-busy` is removed, the announcer changes to the timeout notice |
-| `clearAction` rejects | caught: the phase returns to idle and the generic failure alert renders, the same copy a `{ ok: false }` produces. NOT the same as never settling, and the first draft said it was: a rejected async transition action surfaces as a render error, so without the catch the nearest error boundary replaces the component and the watchdog never gets to run (round 1 F2, probed against React 19.2.4) |
+| `clearAction` rejects | caught: the phase returns to idle and the generic failure alert renders, the same copy a `{ ok: false }` produces, with the component still mounted. Pinned by AC-10, whose discriminating assertion is that an error boundary wrapping the menu caught nothing. NOT the same as never settling, and the first draft said it was |
 | The component unmounts mid-window | the effect cleanup clears a timer that has not fired. A callback ALREADY QUEUED at that moment still runs and still calls the state setter, and React discards an update to an unmounted component without warning since React 18. Round 3 F5 was right that the earlier wording, "no setState on an unmounted node", promised something this mechanism does not provide; nothing is broken by it, and claiming a guarantee the code does not give is how the next reader gets misled |
-| `clearAction` throws Next control flow (a redirect, a not-found) | rethrown untouched by `unstable_rethrow`. `clearIdentity` does not redirect today, but its sibling `clearIdentityAndSkip` in the same module does, and a catch that swallowed a redirect would be a live bug |
-| `clearAction` rejects with a SERVER-shaped error carrying an opaque digest | reported inline like any other failure. This is the realistic production shape and the naive `typeof digest === "string"` test would have sent it to the error boundary (round 2 F2) |
+| `clearAction` throws Next control flow (a redirect, a not-found) | reaches the error boundary rather than the alert. Pinned by AC-14's redirect case. `clearIdentity` does not redirect today, but its sibling `clearIdentityAndSkip` in the same module does, and a catch that swallowed a redirect would be a live bug |
+| `clearAction` rejects with a SERVER-shaped error carrying an opaque digest | reported inline like any other failure, boundary untouched. Pinned by AC-14's opaque-digest case, whose companion redirect case pins the other direction; the pair is what makes the row a claim rather than an assumption |
 | A superseded attempt settles, either way | reports nothing at all: the live attempt reports itself |
-| The menu is closed mid-window | the timer and the announcer both live on the always-mounted root, so neither is cancelled; reopening shows the state as it then stands |
+| The menu is closed mid-window | the window keeps running and the announcer keeps reporting it, both observable with the menu shut; reopening shows the state as it then stands. Pinned by AC-6 |
 | Blank `name` and `role` | untouched by this arc; the fallback label contract at `components/auth/AvatarMenu.tsx:71` is not read by anything here |
 | `PENDING_TIMEOUT_MS` imported but the module absent | a build error, not a runtime state; there is no defaulting and none is wanted |
 
@@ -498,9 +506,9 @@ The first round-2 line is the fault reproduced: `Open-timedout` and `Open-error`
 
 So the state is a PAIR, and saying so makes the table smaller rather than larger. The menu is `closed` or `open`. The switch is `idle`, `pending`, `timedout`, or `error`. They are INDEPENDENT, with exactly one coupling, and the independence is the claim worth testing rather than asserting:
 
-- The phase, its timer and its announcer all live on the always-mounted root, so opening and closing neither advances nor cancels anything. C4 is the case that proves it, by letting the window expire while the menu is CLOSED and reading the announcer without reopening.
+- Opening and closing neither advances nor cancels the switch axis. C4 is the case that proves it, by letting the window expire while the menu is CLOSED and reading the announcer without reopening. The claim is the case; the reason it holds is where the nodes sit, and that is not asserted here.
 - The one coupling is `openAt`, which resets `switchStatus` to idle and touches nothing else (`components/auth/AvatarMenu.tsx:185`). So `error` cannot survive a reopen, which is why closed-while-error is not an observable configuration: the alert lives inside the popover, and the reopen that would reveal it clears it first.
-- `error` excludes `pending` and `timedout` on the switch axis, because the settle writes the phase back to idle in the same batched update that sets the error.
+- `error` excludes `pending` and `timedout` on the switch axis. Pinned by AC-9's fail-order case: the alert is present and the row reads enabled in the same assertion.
 
 That leaves seven observable configurations rather than five: `closed × {idle, pending, timedout}` and `open × {idle, pending, timedout, error}`. Enumerating all twenty-one pairs would be a table nobody reads and the code does not need, because the two axes are independent: what needs enumerating is each axis's own transitions, plus the cases where they interact. Both are below, and the interactions are the compounds.
 
@@ -512,8 +520,8 @@ That leaves seven observable configurations rather than five: `closed × {idle, 
 | idle ↔ pending | **idle→pending:** submit; instant, the row becomes `aria-disabled` and stays focusable, and the announcer says `Switching person`. **pending→idle:** the clear settles ok without unmount; instant, the announcer empties |
 | pending ↔ timedout | **pending→timedout:** the watchdog fires; instant, `aria-disabled` false, `aria-busy` removed, the announcer swaps to the notice. No animation, because the row is returning to its resting appearance. **timedout→pending:** a retry; instant, busy again, and a FRESH window arms |
 | idle ↔ timedout | **timedout→idle:** the hung clear finally settles ok; instant, the announcer empties, the row was already enabled. **idle→timedout: IMPOSSIBLE, by the callback's own predicate** — reaching timed-out needs a clear in flight, and the one path that would violate that, a queued watchdog firing after a settle, finds the phase at idle and returns (round 2 F1, probed both ways) |
-| idle ↔ error | **idle→error: IMPOSSIBLE directly** — error is only reachable through a submit. **error→idle:** only when a retry SUCCEEDS without unmount. NOT the first step of a retry: `setSwitchStatus("idle")` and `setSwitchPhase("pending")` are one batched update, so there is no intervening idle render and the retry goes error→pending directly (round 4 F2, probed on a React 19 render log) |
-| pending ↔ error | **pending→error:** the clear settles `{ ok: false }`; instant, and the phase returns to idle in the same batched update, which is why error is never observed on a busy row. **error→pending:** retry; instant, the error clears at the start |
+| idle ↔ error | **idle→error: IMPOSSIBLE directly** — error is only reachable through a submit. **error→idle:** only when a retry SUCCEEDS without unmount. NOT the first step of a retry: no render is observable between clearing the error and going busy, so a retry moves error→pending directly. Round 4 F2 established it by probe; no case pins it, so the table states the observation and claims nothing about why |
+| pending ↔ error | **pending→error:** the clear settles `{ ok: false }`; instant, and the row is enabled by the time the alert is readable (AC-9 fail-order). **error→pending:** retry; instant, the error clears at the start |
 | timedout ↔ error | **timedout→error:** the hung clear settles `{ ok: false }` with no retry in flight; instant, the alert appears and the announcer empties. **error→timedout: IMPOSSIBLE directly** — a retry out of error goes to pending first |
 
 **Menu-axis transitions**, which carry the switch state untouched:
