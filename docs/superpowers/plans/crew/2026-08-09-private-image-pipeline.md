@@ -139,16 +139,32 @@ Task ordering note (plan R1 F1): there is NO standalone manifest-types task — 
 
 impeccable-gate: critique=RAN audit=RAN p0=0 p1=5 dispositions=recorded
 
-post-merge validation probe: NOT YET RUN — see `BL-PRIVATE-IMAGE-POSTMERGE-PROBE`.
+post-merge validation probe: RAN 2026-08-27, PASSES. Evidence:
+https://github.com/edweiss412/FX-Webpage-Template/pull/761#issuecomment-5441921368
 
-Task 11 step 6 requires this evidence to live in a comment on the merged PR,
-which is why it could not ride a pre-merge commit. It did not get run at
-close-out: the probe drives the DEPLOYED validation app (`pnpm validation:smoke`
-is deployed-side by construction), and Vercel refused deployments at merge time
-under an account-level 24h rate limit. The step was left recorded only in Task
-11's own text, which is a step in a plan whose other ten tasks are done and which
-nobody re-reads — so it is filed in the open queue instead, where it is actually
-schedulable.
+Both numbers Task 11 step 6 asked for land. Fact (a): 5 `@<width>.webp` variant
+objects sit beside their 2 originals under the synced show's current
+`snapshot_revision_id` prefix, matching a variant count predicted from the source
+dimensions BEFORE the sync ran. Fact (b): 0 `DIAGRAM_VARIANT_GENERATION_FAILED`
+rows for all time, so none naming a missing module, which is the deployed-runtime
+half of the `sharp` resolution check that a production-only install could only
+approximate.
+
+It could not run at close-out. The probe drives the DEPLOYED validation app
+(`pnpm validation:smoke` is deployed-side by construction) and Vercel refused
+deployments at merge time under an account-level 24h rate limit, so there was no
+app to sync against. The step survived only as text inside Task 11 of a plan whose
+other ten tasks are done, which is why it was filed as
+`BL-PRIVATE-IMAGE-POSTMERGE-PROBE` and scheduled from the open queue rather than
+left here.
+
+Worth keeping, because it explains why the gap was invisible for eighteen days:
+the scheduled cron sync had been polling the show every five minutes and returning
+`skipped:watermark` every time. The watermark gate is reachable only in automatic
+mode (`lib/sync/perFileProcessor.ts:276-278`), so an unchanged sheet never reaches
+the snapshot path under cron, and no amount of waiting would have produced a single
+variant. Only a manual sync re-applies an unchanged sheet
+(`lib/sync/runManualSyncForShow.ts:538`).
 
 ### Invariant-8 dual gate — findings and dispositions
 
