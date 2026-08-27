@@ -150,7 +150,8 @@ export const AC_UNCLAIMED_RESIDUE: ResidueRow[] = [
     id: "AC-8",
     quote: "AC-8 → no task (a spec-time derivation, re-exercised by Task 5",
     quotedAt: 341,
-    owner: "no task (a spec-time derivation, re-exercised by Task 5 hitting the exemption path against real code)",
+    owner:
+      "no task (a spec-time derivation, re-exercised by Task 5 hitting the exemption path against real code)",
   },
   {
     kind: "owner-inexpressible",

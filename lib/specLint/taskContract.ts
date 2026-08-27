@@ -136,8 +136,7 @@ export function declarationOn(lineText: string, lineNo: number): AcDeclaration |
   if (!HEAD_DELIMITER.test(rest.slice(head[1]!.length))) return null;
   const ids = idsOn(lineText);
   const certain = ids.length === 1 ? ids[0]! : null;
-  const after =
-    certain === null ? "" : lineText.slice(lineText.indexOf(certain) + certain.length);
+  const after = certain === null ? "" : lineText.slice(lineText.indexOf(certain) + certain.length);
   return { line: lineNo, ids, certain, disposed: certain !== null && DISPOSITION.test(after) };
 }
 
@@ -432,13 +431,13 @@ export interface AcAnalysis {
   undeclared: { id: string; line: number }[];
 }
 
-const EMPTY_AC: AcAnalysis = {
+const emptyAc = (): AcAnalysis => ({
   certain: new Map(),
   ambiguous: [],
   declined: [],
   unclaimed: [],
   undeclared: [],
-};
+});
 
 /**
  * THE AC classification, and the only one. `checkTaskContract` renders its
@@ -457,7 +456,7 @@ function acAnalysisFrom(
 ): AcAnalysis {
   // The arm is inert in a plan with no task region (spec §7 limit 6), and an
   // unestablished enrollment discards markers unjudged, so it can claim nothing.
-  if (!sawTasksLine || !enrolled) return EMPTY_AC;
+  if (!sawTasksLine || !enrolled) return emptyAc();
 
   const certain = new Map<string, { line: number; disposed: boolean }>();
   const ambiguous: { line: number; ids: string[] }[] = [];
@@ -489,7 +488,8 @@ function acAnalysisFrom(
     // Declared twice, disposed once, is DISPOSED (spec §4.2.1) — the id is one
     // criterion, and the plan mentioning it twice is not two. The first line is
     // kept as the report site whichever order the two appear in.
-    if (prior === undefined) certain.set(decl.certain, { line: decl.line, disposed: decl.disposed });
+    if (prior === undefined)
+      certain.set(decl.certain, { line: decl.line, disposed: decl.disposed });
     else if (decl.disposed && !prior.disposed) {
       certain.set(decl.certain, { line: prior.line, disposed: true });
     }
@@ -515,7 +515,7 @@ function acAnalysisFrom(
     .map(([id, v]) => ({ id, line: v.line }))
     .sort((a, b) => a.line - b.line);
 
-  // OPT-IN BY SHAPE: silent in a plan that declares nothing, because 42 of the
+  // OPT-IN BY SHAPE: silent in a plan that declares nothing, because 51 of the
   // enrolled plans carry their criteria in the sibling spec and only a coverage
   // map here (spec §7 limit 5). The three codes then partition: UNRESOLVED needs
   // no occurrence at all, UNDECLARED an occurrence that is neither a declaration

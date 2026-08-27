@@ -256,7 +256,9 @@ describe("taskContract wiring (design §3.4)", () => {
     // The premise: a parser that finds nothing would make the equality below
     // hold only when the registry is empty too, which is not a claim about the
     // production source. Ten codes existed before this arc added two.
-    expect(`production codes found: ${production.length >= 12}`).toBe("production codes found: true");
+    expect(`production codes found: ${production.length >= 12}`).toBe(
+      "production codes found: true",
+    );
     expect(production).toEqual(Object.keys(CODE_FIXTURES).sort());
   });
 

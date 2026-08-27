@@ -94,17 +94,15 @@ describe("the AC arm over the live plans corpus (AC-6)", () => {
         // The predicate: NO line of the plan carries the id beside an owner word.
         // Without it this row is an allowlist entry — quoting a line that
         // ASSIGNS the criterion satisfies every receipt-style check.
-        expect(
-          `${row.plan} ${row.id} settled at [${settling.map((s) => s.n).join(",")}]`,
-        ).toBe(`${row.plan} ${row.id} settled at []`);
+        expect(`${row.plan} ${row.id} settled at [${settling.map((s) => s.n).join(",")}]`).toBe(
+          `${row.plan} ${row.id} settled at []`,
+        );
         premiseHolds(`${row.plan} ${row.id} has a non-empty searched note`, row.searched !== "");
       } else {
         // The mirror: the quoted line DOES settle it, and the grammar rejects
         // the owner it names — after normalisation, because a copied sentence
         // period would otherwise make a settled owner look inexpressible.
-        expect(
-          `${row.plan} ${row.id} settling lines`,
-        ).toBe(`${row.plan} ${row.id} settling lines`);
+        expect(`${row.plan} ${row.id} settling lines`).toBe(`${row.plan} ${row.id} settling lines`);
         expect(settling.length > 0).toBe(true);
         expect(OWNER_WORD.test(lines[at - 1] ?? "")).toBe(true);
         expect(
