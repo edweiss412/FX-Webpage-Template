@@ -148,7 +148,15 @@ Both are deleted rather than repaired, because they were apparatus for a claim t
 
 B2 through B5 are exactly the four partial implementations spec round 1 found; every one passes the pre-round-1 acceptance set. Each is planted, observed, reverted, and pasted with the list of cases it reddened.
 
-**Two site-specific plants remain**, because two sites change more than their argument and the helper cannot carry that: **R466**, restoring the guarded `if (live)` form at `lib/sync/holds/holdAwareApply.ts:466`, which must redden Task 4's case (n); and **R477**, restoring `rowFromHeldValue(held)` at `lib/sync/holds/holdAwareApply.ts:477`, which must redden Task 3's Reject case. Neither claims to redden exactly one case, because neither does.
+**Every plant's contract is AT LEAST ONE case, and the count is reported rather than constrained.** Round 2's version required each per-site plant to redden exactly one, and round 3 showed the plan's own text predicting every one of them reddening several — a contract refuted by the document that declared it. The reddened list is still pasted in full, because it is worth reading; it is not asserted against a number.
+
+**Three site plants**, because three sites change more than their argument and the helper cannot carry that:
+
+| # | Mutant | Must redden at least |
+| --- | --- | --- |
+| R299 | delete `nonIdentityOverride.set` at `lib/sync/holds/holdAwareApply.ts:299` | the rename-fold suite. Site `lib/sync/holds/holdAwareApply.ts:300`'s own reversion is a declared no-op because the override wins there, so this is the plant that carries that site — and round 3 caught the earlier draft asserting exactly that and then having no task run it. Task 5 runs it. |
+| R466 | restore the guarded `if (live)` form at `lib/sync/holds/holdAwareApply.ts:466` | Task 4's case (n) |
+| R477 | restore `rowFromHeldValue(held)` at `lib/sync/holds/holdAwareApply.ts:477` | Task 3's Reject case |
 
 ### 6.2 Structural mutants — the class guard, Task 5
 
@@ -323,8 +331,8 @@ VERIFY:
 
 RED:
 
-1. Write the `_metaHoldRetainSource` suite under `tests/sync/`. It walks `lib/sync/holds/**` from disk — never a hardcoded file list, so a new module there is covered by default — and parses each file with the TypeScript compiler API, the idiom at `tests/cross-cutting/no-vestigial-middleware.test.ts:3`. For every `CallExpression` whose callee text ends in `retainRows.set` it records the enclosing function name, the second argument's classification, and that argument's argument text.
-2. Assert, per spec §5: every retain's value is a call to `retainRowFor` with arguments `hold.entity_key, held` (callee AND argument text, so S5 and S6 die); the site COUNT is exactly five (so S2 dies); and the site COUNT is exactly five (so S2 dies). **It asserts nothing about the enclosing function**, and §6.2 records why: two rounds of trying to pin lexical scope each drew the next mutant past the previous repair, and the mutant that survives is behaviour-preserving — the same call, the same arguments, the same line. The guard's documented limit is that it pins what each retain is GIVEN and how many there are, not the scope the call sits in.
+1. Write the `_metaHoldRetainSource` suite under `tests/sync/`. It walks `lib/sync/holds/**` from disk — never a hardcoded file list, so a new module there is covered by default — and parses each file with the TypeScript compiler API, the idiom at `tests/cross-cutting/no-vestigial-middleware.test.ts:3`. For every `CallExpression` whose callee text ends in `retainRows.set` it records the second argument's classification and that argument's argument text, plus the enclosing function name FOR THE FAILURE MESSAGE ONLY — nothing asserts on it, per step 2.
+2. Assert, per spec §5: every retain's value is a call to `retainRowFor` with arguments `hold.entity_key, held` (callee AND argument text, so S5 and S6 die); and the site COUNT is exactly five (so S2 dies). **It asserts nothing about the enclosing function**, and §6.2 records why: two rounds of trying to pin lexical scope each drew the next mutant past the previous repair, and the mutant that survives is behaviour-preserving — the same call, the same arguments, the same line. The guard's documented limit is that it pins what each retain is GIVEN and how many there are, not the scope the call sits in.
 3. State the premise unconditionally at describe scope, never inside a `.each` callback: `premise` that the walk found at least one `retainRows.set`. A parser that stopped matching then fails by name.
 4. Observe red on `lib/sync/holds/holdAwareApply.ts:300`. Paste it.
 
@@ -336,7 +344,8 @@ GREEN:
 VERIFY:
 
 7. Run S1, S2, S4, S5, S6, S7 and S8 against the shipped guard, one at a time, reverting each. Paste each result. S3 is withdrawn (§6.2) and S9 is the declared accepted gap; neither is expected to go red.
-8. `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
+8. Plant R299 from §6.1 — delete `nonIdentityOverride.set` at `lib/sync/holds/holdAwareApply.ts:299` — run the rename-fold suite against it, observe red, revert. Paste it. Site `lib/sync/holds/holdAwareApply.ts:300`'s own reversion changes nothing, so this plant is what carries that site behaviourally, and round 3 caught the earlier draft claiming it without any task running it.
+9. `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
 
 ## Task 6 — the help copy
 
@@ -396,7 +405,7 @@ Criteria are declared in the spec's §7; this is the coverage map. AC-12 is the 
 | AC-10 absent, empty, or non-matching prior snapshot | Task 1 cases (j)-(l) |
 | AC-11 planted mutants: B1-B5 against the helper, plus R466 and R477 at the two sites that change more than an argument | Task 1 step 8, Task 2 step 12, Task 3 step 10, Task 4 step 7 |
 | AC-12 no help page promises a whole-row freeze | Task 6 |
-| AC-13 the class guard and its eight structural mutants | Task 5 |
+| AC-13 the class guard, its structural mutants, and R299 | Task 5 |
 | AC-14 no new advisory-lock acquisition | Task 7 step 3 |
 
 ## 9. Close-out
