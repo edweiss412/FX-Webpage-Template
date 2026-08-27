@@ -3993,10 +3993,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
     suitePaths: ["tests/observe/clientErrorTransport.test.ts"],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.9,
-    // MEASURED by scripts/mutation-score-surfaces.ts on the enrolling run: 115s of child
-    // wall clock over 65 MODELLED boots. The shard partition is priced in this, so a
-    // guessed number would weight the partition by something nobody measured.
-    millisPerBoot: 1766,
+    // MEASURED by scripts/mutation-score-surfaces.ts on the FINAL head, not the
+    // enrolling one: 75s of child wall clock over 56 modelled boots. The enrolling
+    // run read 1766 against a larger source; the repairs removed three branches, so
+    // the honest number is the one measured against what actually ships. The shard
+    // partition is priced in this, so a guessed number would weight it by something
+    // nobody measured.
+    millisPerBoot: 1331,
     // Flips the prefix scrub's floor comparison so the loop runs one iteration short
     // of the shortest prefix it must replace. A live behaviour change on the exact
     // branch diff review R3 added, and the suite asserts a 20-character prefix is gone.
@@ -4013,8 +4016,8 @@ export const GUARD_SURFACES: GuardSurface[] = [
     suitePaths: ["tests/observe/describeClientValue.test.ts"],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.9,
-    // MEASURED on the same run: 29s over 22 modelled boots.
-    millisPerBoot: 1329,
+    // MEASURED on the same final-head run: 23s over 22 modelled boots.
+    millisPerBoot: 1034,
     // Drops the empty-string guard, so a field present but empty starts joining into
     // the message. The suite pins the exact message for that case.
     control: { from: 'typeof v === "string" && v !== ""', to: 'typeof v === "string"' },
