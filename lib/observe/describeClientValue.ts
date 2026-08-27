@@ -40,8 +40,21 @@ function tag(value: unknown): string {
   if (value === null) return "null";
   const t = typeof value;
   if (t !== "object") return t;
-  const ctor = (value as object).constructor;
-  return typeof ctor === "function" && ctor.name ? ctor.name : "object";
+  // TOTAL, like serializeError itself. Reading `.constructor` invokes a getter,
+  // and a Proxy with a throwing `get` trap makes that throw — measured, not
+  // imagined. Unguarded, the throw escapes describeClientValue and then the
+  // handler that called it, so the crash this module exists to record is the one
+  // crash it loses, and it emits an uncaught error on the way out.
+  //
+  // A projection whose whole job is "no value, however strange, breaks anything"
+  // must not itself be the thing that breaks. That is worth three lines
+  // regardless of whether a throwing Proxy is inside the threat fence.
+  try {
+    const ctor = (value as object).constructor;
+    return typeof ctor === "function" && ctor.name ? ctor.name : "object";
+  } catch {
+    return "object";
+  }
 }
 
 /**

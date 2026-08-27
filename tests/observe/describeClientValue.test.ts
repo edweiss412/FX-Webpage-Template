@@ -85,6 +85,70 @@ describe("describeClientValue — the guard table (spec §6.3)", () => {
   });
 });
 
+describe("describeClientValue — total, for every hostile shape", () => {
+  // The module's contract is that no value, however strange, breaks the caller.
+  // It is called from a window error handler and an unhandledrejection handler,
+  // so a throw here loses the very crash it exists to record AND emits an
+  // uncaught error on the way out. A throwing Proxy trap did exactly that before
+  // tag() was made total — measured, not hypothesised.
+  test.each([
+    ["a null-prototype object", () => Object.create(null) as object],
+    [
+      "a Proxy whose get trap throws",
+      () =>
+        new Proxy(
+          {},
+          {
+            get() {
+              throw new Error("trap");
+            },
+          },
+        ),
+    ],
+    [
+      "an object whose constructor getter throws",
+      () =>
+        Object.defineProperty({}, "constructor", {
+          get() {
+            throw new Error("ctor");
+          },
+        }),
+    ],
+    [
+      "an object whose toString throws",
+      () => ({
+        toString() {
+          throw new Error("ts");
+        },
+      }),
+    ],
+    [
+      "a cyclic object",
+      () => {
+        const o: Record<string, unknown> = {};
+        o.self = o;
+        return o;
+      },
+    ],
+    [
+      "a revoked Proxy",
+      () => {
+        const { proxy, revoke } = Proxy.revocable({}, {});
+        revoke();
+        return proxy;
+      },
+    ],
+  ])("%s does not throw, and still yields two strings", (_label, make) => {
+    const value = make();
+    let out: { message: string; detail: string } | undefined;
+    expect(() => {
+      out = describeClientValue(value);
+    }).not.toThrow();
+    expect(typeof out!.message).toBe("string");
+    expect(typeof out!.detail).toBe("string");
+  });
+});
+
 describe("describeClientValue — the collision corpus (spec §6.2)", () => {
   test.each([
     [
