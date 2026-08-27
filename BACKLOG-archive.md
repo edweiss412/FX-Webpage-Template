@@ -13014,9 +13014,9 @@ The before figure is read off run [32958581720](https://github.com/edweiss412/FX
 
 **What a harness-touching PR now loses, named because it does lose something.** The mutation SCORES; anything existing only in a shard job's setup; artifact upload actually working, whose hidden-file exclusion is observable only in a real Actions run; `elapsed.txt` production; and `budget` plus the rate-drift report executing at all. A suite weakened so a guard stops pinning what it claims reds on the next nightly, after merge, rather than at PR time. `workflow_dispatch` is the escape and is now named in the workflow itself so the next arc does not rediscover it.
 
-## BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH — the source shards blew the 3600s budget on main, four days after the row that closed the wall-clock ceiling was archived — CLOSED 2026-08-26
+## BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH — the source shards blew the 3600s budget on main, four days after the row that closed the wall-clock ceiling was archived — CLOSED 2026-08-26, NOT CLEANLY
 
-**Status:** SUBSUMED 2026-08-26 · **Effort (as shipped):** S · **Severity (as filed):** MEDIUM · **Class:** CI capacity · **Facing:** process · **Closed by:** #902 `fix/mutation-shard-budget-six`, verified by `fix/mutation-gate-fidelity`
+**Status:** SUBSUMED 2026-08-26, WITH THE BREACH RECURRING · **Effort (as shipped):** S · **Severity (as filed):** MEDIUM · **Class:** CI capacity · **Facing:** process · **Closed by:** #902 `fix/mutation-shard-budget-six`, verified by `fix/mutation-gate-fidelity` (#908), which ALSO OBSERVED THE BREACH RETURN — read the next section before treating this row as settled
 
 **Closed by another arc, verified by this one, with the arithmetic written out rather than asserted.** The row's repair is the one the workflow's own triage copy prescribes and the one it names as the only sanctioned response: raise `SOURCE_SHARD_COUNT`. #902 took it from 4 to 8.
 
@@ -13031,6 +13031,22 @@ Total seconds rose about 12.5%, because each added leg pays its own setup and bo
 - **Six of eight legs sit in the warn band**, so the margin on the binding leg is about 340 s. `fix/mutation-gate-fidelity` adds a database bring-up to every source leg at a measured 84 s, which takes the binding leg to roughly 3344 s, or **92.9%** of budget. Inside it, and thinner than before.
 - **The mechanism `N` does not touch is the one this row itself named.** The partition is LPT over MODELLED CHILD BOOTS while the budget bounds SECONDS, and the archived wall-clock row measured that model 3.8x miscalibrated (1.4 s/boot against 5.3 s/boot at `c5518dfab`). Raising the count rebalances boots. Bounding wall clock needs a weight calibrated to seconds, which is `BL-MUTATION-WEIGHT-MODEL-BOOT-COUNT-ONLY`, not this row.
 
-**Re-file trigger, and it is self-reporting by construction:** a `budget` job FAILURE on a scheduled `main` run — any leg crossing 3600 s, including the 84 s bring-up pushing the binding leg over.
+**THE RE-FILE TRIGGER FIRED BEFORE THIS ROW WAS EVEN ARCHIVED, and pretending otherwise is what this section exists to prevent.**
+
+The trigger written here was "a `budget` job FAILURE on a scheduled `main` run — any leg crossing 3600 s, including the 84 s bring-up pushing the binding leg over." It fired on `fix/mutation-gate-fidelity`'s own `workflow_dispatch` validation run, [33012322613](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/33012322613), while that arc was closing this row:
+
+```
+leg source-shards-4 took 3788s, over the 3600s budget     <- FAILURE
+elapsed, all eight legs: 3290 2755 2553 3309 3788 3405 2995 2560
+five further legs in the warn band (>75% of 3600 s)
+```
+
+**The arc that observed it is a PASSENGER, not the cause, and the arithmetic says so rather than the author.** Leg 4 is 3788 s. Subtract that arc's database bring-up, measured at 84 s per leg, and the leg is **3704 s — still over budget**. The binding leg moved from 3260 s to 3788 s, a delta of **528 s, of which 84 s is the bring-up and 444 s is enrolment growth**: the registry went from 52 to 54 surfaces when that branch absorbed `main`. So the breach would have happened with no part of that arc present.
+
+**Which is this row's own mechanism, firing again.** The row's body already says raising the count rebalances MODELLED BOOTS while the budget bounds SECONDS, and that the archived wall-clock row measured that model 3.8x miscalibrated. `N = 8` bought headroom; two more enrolled surfaces spent most of it. The pattern the row documents — a margin a single enrolment can erase — is intact and is now on its second observed cycle.
+
+**Documented limit, and the next lever named rather than filed** (mint freeze, and this arc files no row of any facing): the sanctioned response remains the one the workflow's own triage copy prescribes — raise `SOURCE_SHARD_COUNT` in `tests/mutation/source/shardPartition.ts`, never `timeout-minutes`. It was 4, is 8, and the measurement above is the input to whoever takes it to the next value. **Re-file trigger for that lever:** a `budget` job FAILURE on a SCHEDULED `main` run, which is the observation this arc could not make because it does not merge. Note the distinction that made this section necessary: the run above is a feature-branch dispatch, so it is evidence the mechanism is live, and it is NOT the scheduled-main evidence the original trigger asks for.
+
+**What is genuinely closed here** is the row as filed: the `budget` job failed on four of four legs at `N = 4`, and at `N = 8` it passes on six of eight with one over. That is a repair, not a fiction. What is NOT closed is the growth curve underneath it, which is why this row graduates with the breach recorded instead of a clean subsumption.
 
 **Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`**, and the distinction held all the way to closure: that row is the source gate's COVERAGE failure set and explicitly disclaims the budget half. This was the `budget` job — a different job, a different failure, a different repair, closed by a different PR.
