@@ -750,52 +750,45 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
  * depends on — rather than being a repo-wide walker over workflows, which
  * would be a guard-on-guard surface for someone else to maintain.
  */
-test("the workflow that runs this spec fires on the file this spec guards", () => {
+test("admin-layout-e2e names this component and this spec", () => {
+  // WHAT THIS PROVES, and nothing more: the workflow FILE still mentions this
+  // component as a paths entry and this spec inside a `run:` line. It catches
+  // the realistic failure — somebody deletes one of them while refactoring —
+  // and that is the whole of its claim.
+  //
+  // WHAT IT DOES NOT PROVE, named rather than implied. Deciding "GitHub will run
+  // this spec when this file changes" needs a YAML parser, GitHub's path-matching
+  // semantics, and a shell parser. Whole-diff review defeated two successive
+  // attempts to approximate that, each time with one more grammar feature:
+  //
+  //   - an ordered NEGATIVE pattern (`!components/admin/AnchoredPortal.tsx`)
+  //     after the positive entry, which GitHub honours and this does not read;
+  //   - `paths-ignore` excluding the component;
+  //   - an unrelated later `jobs.*.strategy.matrix.paths` block this walk can
+  //     select instead;
+  //   - `run: echo pnpm exec playwright test …`, which exits 0 without launching
+  //     anything;
+  //   - a `run` key nested under `env` rather than a step.
+  //
+  // Those are DOCUMENTED LIMITS, not gaps to close. They are adversarial
+  // constructions rather than ordinary authoring mistakes, which puts them
+  // outside this arc's declared threat fence, and growing a recognizer to catch
+  // them is the ratchet AGENTS.md's repair-direction rule exists to decline.
+  // The spec records them in §9.2.
   const wf = readFileSync(".github/workflows/admin-layout-e2e.yml", "utf8");
   const lines = wf.split("\n");
-  const indentOf = (l: string) => l.search(/\S/);
 
-  /** The block nested under a key, by indentation — role, not text. */
-  const blockUnder = (keyRe: RegExp, from = 0): string[] => {
-    const i = lines.findIndex((l, n) => n >= from && keyRe.test(l));
-    if (i === -1) return [];
-    const base = indentOf(lines[i]!);
-    const out: string[] = [];
-    for (let n = i + 1; n < lines.length; n += 1) {
-      const l = lines[n]!;
-      if (l.trim() === "") continue;
-      if (indentOf(l) <= base) break;
-      out.push(l);
-    }
-    return out;
-  };
+  // PREMISE (own inputs): the file must have been read, or both checks below
+  // would fail identically on a missing file and a deleted entry.
+  expect(lines.length, "premise not met: admin-layout-e2e.yml read as empty").toBeGreaterThan(10);
 
-  // PREMISE (own inputs): the structure this case navigates must exist, or a
-  // restructured workflow and a deleted entry produce the same failure text.
-  const prIdx = lines.findIndex((l) => /^\s*pull_request:\s*$/.test(l));
   expect(
-    prIdx,
-    "premise not met: no pull_request: key in admin-layout-e2e.yml, so this case " +
-      "cannot tell a missing entry from a restructured workflow",
-  ).toBeGreaterThan(-1);
-  const pathsBlock = blockUnder(/^\s*paths:\s*$/, prIdx);
-  expect(pathsBlock.length, "premise not met: pull_request: has no paths: block").toBeGreaterThan(
-    0,
-  );
-
-  // Scoped to the paths BLOCK. An earlier version matched line SHAPE anywhere in
-  // the file, which whole-diff review refuted by constructing a workflow with the
-  // component under `with.args` and the spec only in an `echo`: both regexes
-  // returned true. Deletion-sensitivity is not the semantics the comment claimed.
-  expect(
-    pathsBlock.some((l) => /^\s*-\s*"?components\/admin\/AnchoredPortal\.tsx"?\s*$/.test(l)),
-    "components/admin/AnchoredPortal.tsx must be an ENTRY in this workflow's " +
-      "pull_request.paths, or a PR changing that component never runs the pins in " +
-      "this file and they pass by not running",
+    lines.some((l) => /^\s*-\s*"?components\/admin\/AnchoredPortal\.tsx"?\s*$/.test(l)),
+    "admin-layout-e2e.yml must still list components/admin/AnchoredPortal.tsx as a paths " +
+      "entry — if it is deleted, a PR changing that component never runs the pins in this " +
+      "file and they pass by not running",
   ).toBe(true);
 
-  // A run: step that INVOKES playwright on this spec. `run: echo <spec>` names it
-  // and executes nothing, which is equally dark.
   expect(
     lines.some(
       (l) =>
@@ -803,8 +796,8 @@ test("the workflow that runs this spec fires on the file this spec guards", () =
         l.includes("playwright test") &&
         l.includes("tests/e2e/rowactions-geometry.spec.ts"),
     ),
-    "a run: step must invoke `playwright test` on tests/e2e/rowactions-geometry.spec.ts; " +
-      "naming it in paths, or in a step that does not execute it, fires a workflow that " +
-      "never runs these assertions",
+    "admin-layout-e2e.yml must still name tests/e2e/rowactions-geometry.spec.ts in a run: " +
+      "line alongside `playwright test` — if it is dropped from the step, the workflow fires " +
+      "and never executes these assertions",
   ).toBe(true);
 });

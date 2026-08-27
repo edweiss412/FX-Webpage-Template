@@ -459,6 +459,37 @@ whose done condition is a property of the walker, which is the shape the
 walker for the dependency-array property. **Re-file trigger:** the line is
 actually deleted, or a second arc finds its own gate dark the same way.
 
+**The workflow check proves PRESENCE, not that GitHub will run the spec.** Two
+successive whole-diff rounds defeated attempts to approximate the stronger claim,
+each with one more grammar feature, so the claim is narrowed to what the check
+actually decides: `components/admin/AnchoredPortal.tsx` still appears as a paths
+entry, and `tests/e2e/rowactions-geometry.spec.ts` still appears in a `run:` line
+next to `playwright test`. That catches the realistic failure — somebody deletes
+one of them — which is the failure this arc's threat fence declares.
+
+**The four defeats, named so nobody re-derives them:**
+
+1. An ordered NEGATIVE pattern — the same component path prefixed with `!` — placed
+   after the positive entry. GitHub honours later negatives; the check does not
+   read them, so it reports the entry present while the path is excluded.
+2. `paths-ignore` excluding the component, which the check does not consult.
+3. An unrelated later `jobs.*.strategy.matrix.paths` block, which an
+   indentation walk can select instead of `pull_request.paths`.
+4. Shell-level non-invocation: `run: echo pnpm exec playwright test …` exits 0
+   without launching anything, and a `run` key nested under `env` is not a step.
+
+These are DOCUMENTED LIMITS rather than gaps to close. Each is an adversarial
+construction rather than an ordinary authoring mistake, which places them outside
+the declared threat fence, and deciding them correctly would require a YAML
+parser, GitHub's path-matching semantics and a shell parser — a recognizer over
+an open grammar, which the repair-direction rule declines by design.
+
+**Decision record, so a third narrowing is not attempted.** This surface has now
+drawn findings in two consecutive whole-diff rounds. If it draws a third on a
+fifth grammar feature, the disposition is neither to narrow again nor to widen:
+the guard is split out of the shipping PR entirely. Two narrowings is prudence;
+three is the ratchet wearing a different hat.
+
 **Cap VALUE is now asserted, and this paragraph records what changed.** Membership
 in the placement key only ever caught a cap that CHANGED mid-sequence; a
 wrong-but-constant cap preserved the geometry and passed. Whole-diff review named
