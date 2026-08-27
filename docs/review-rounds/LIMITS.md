@@ -68,6 +68,8 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Re-file trigger:** a third arc hitting it or a product arc blocked by it (stated in the ac-unclaimed filing)
 
+**Fired 2026-08-27:** filed as `BL-LINE-KEYED-REGISTRY-ROWS` (BACKLOG.md, `Mint-exception: recurrence`) on the third naming, `feat/wizard-review-attention-menu`.
+
 ## LIM-PLANT-ANCHOR-UNIQUENESS
 
 **Shape:** A mutation-plant anchor that is not unique in its file, is not a literal, or is orphaned when a repair moves the code out from under it; decidable without judgment because the harness refuses anything not occurring exactly once. The arc's in-branch repair (Form A/B rule, `--anchors` resolution in CI) covers its own corpus; the generalizing `spec:lint` arm was demoted from the ledger under the freeze.
