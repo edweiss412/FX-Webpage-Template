@@ -1,4 +1,4 @@
-<!-- spec-lint: not-ui — no UI surface: the diff is lib/admin loaders, two client-side wire modules, a route-adjacent projection, and meta-tests. The one components/ file, GlobalErrorListener.tsx, is declared `: null` and has one render return; it paints nothing, so there is no layout, token, dimension or visual state to inventory. impeccable-gate: N/A. -->
+<!-- spec-lint: not-ui — waives the Dimensional Invariants and Transition Inventory sections only. The one components/ file, GlobalErrorListener.tsx, is declared `: null` with one render return, so there is no fixed-dimension parent, no flex or grid child, and no visual state pair to inventory. This is NOT an invariant-8 exemption: the impeccable dual gate runs on that file, per §12. -->
 
 # Observe error telemetry: the dark loader branch, the lib/admin sweep, and the client wire's non-Error collapse
 
@@ -48,11 +48,13 @@ That was true on 2026-08-24. It is false today by exactly one site. §2 has the 
 
 The second defect is a consequence of the first, not a separate repair: give two distinct values two distinct messages and the signature discriminates again. That is why §6's projection is specified in terms of *discrimination*, not only legibility.
 
-### 1.4 The same shape at a second wire site the row does not name
+### 1.4 The same shape at two more wire sites the row does not name
 
 `components/observe/GlobalErrorListener.tsx:41-44` derives the `CLIENT_UNHANDLED_REJECTION` detail as `String(reason instanceof Error ? reason.message : (reason ?? ""))`. A promise rejected with a plain object persists `detail: "[object Object]"`. `tests/observe/globalErrorListener.test.tsx:42-53` pins only a string reason, so nothing catches it.
 
-Class-sweep applies at round 1. Both wire-reaching sites are repaired here.
+The same component's window-error handler is a third site and fails differently: `components/observe/GlobalErrorListener.tsx:27-37` never reads `event.error` at all, so a non-`Error` window throw does not collapse to `"[object Object]"` — its fields are simply absent. §6.7 has both.
+
+Class-sweep applies at round 1. All three wire-reaching sites are repaired here.
 
 The other `clientLog` callers pass their value as `context` — `components/realtime/ShowRealtimeBridge.tsx:503`, `components/realtime/ShowRealtimeBridge.tsx:755`, `components/realtime/ShowRealtimeBridge.tsx:786`, `components/realtime/ShowRealtimeBridge.tsx:821` and `components/admin/dev/DevCaptureControl.tsx:126` — and `context` is console-only and never mirrored (`lib/observe/clientLog.ts:17-18`). They are outside the wire and outside this arc. §9 records that.
 
@@ -142,7 +144,21 @@ Four sites re-return an `infra_error` that arrived in a callee:
 
 Emitting here would write a second `app_events` row for one fault, and an operator counting rows would over-count. The rule at `loadRecentAutoApplied.ts:241-243` is "recorded where it arrives", and these are not arrivals.
 
-The exemption is only sound because the sweep is total: `runBellPipeline` and `loadOpenIdentityHolds` are themselves inside the cover, so after this PR the fault IS recorded at its arrival in the callee. A partial sweep would have made this exemption a hole.
+**The exemption is narrower than "the guard tests `.kind === \"infra_error\"`", because that rule accepts two things it must not.**
+
+First, it must accept only a return in the **consequent**. A return in the `else` arm of that same test is a locally created fault, not a propagated one:
+
+```ts
+if (sub.kind === "infra_error") {
+  return { kind: "ok" };
+} else {
+  return { kind: "infra_error" }; // dark, and nothing propagated it
+}
+```
+
+Second, the producer must resolve into the cover. Two of the four sites read `await (opts.loadHolds ?? loadOpenIdentityHolds)()` (`lib/admin/loadNeedsAttention.ts:305`, `lib/admin/needsAttentionCount.ts:89`), so the callee is an injection seam, not a fixed import. The exemption therefore accepts a producer that is a call to an imported identifier inside the cover, **or** a `??` fallback whose right operand is such an identifier — the arm production always takes. `loadOpenIdentityHolds` (`lib/admin/identityHolds.ts`) and `runBellPipeline` (`lib/admin/bellFeed.ts`) are both inside the cover, so every production propagation records at its arrival.
+
+The injected arm is a test seam and nothing else: `grep -rn 'loadHolds' --include='*.ts' .` outside those two modules returns only `tests/admin/needsAttentionCount.test.ts` and `tests/admin/loadNeedsAttention.test.ts`. A test double that returns `infra_error` without emitting is not an unobserved fault, because it is not a fault. §9 records it as a limit rather than pretending the walker proves something about it.
 
 ---
 
@@ -189,7 +205,11 @@ The replacement is one table with a row per `(surface, mode)`, each naming the c
 | `rpc` | `throwOn` | `ROSTER_SHIFT_COUNTS_READ_THREW` |
 | `rpc` | `errorOn` | `ROSTER_SHIFT_COUNTS_READ_RETURNED_ERROR` |
 
-Coverage is **derived**, in the shape of `tests/auth/_metaInfraContract.test.ts:62-76` and its `afterAll` set-equality at `tests/auth/_metaInfraContract.test.ts:216-218`: each row records itself in a covered set as it runs, and an `afterAll` asserts that set equals the declared code set. A sixth return site added later without a row fails set-equality rather than passing silently.
+Coverage is **derived**, in the shape of `tests/auth/_metaInfraContract.test.ts:62-76` and its `afterAll` set-equality at `tests/auth/_metaInfraContract.test.ts:216-218`: each row records itself in a covered set as it runs, and an `afterAll` asserts that set equals the declared code set.
+
+**What that set-equality does and does not catch, stated precisely, because the obvious claim is false.** It catches a declared row that stops running — a renamed code, a deleted case, a tap that no longer fires. It does **not** catch a sixth return site added to the loader, because that site is not in the declared set and nothing in this table walks production source. The auth precedent has the same boundary: its comment at `tests/auth/_metaInfraContract.test.ts:67-69` says a producer added to `INFRA_PRODUCERS` without a matching `assertEmits` breaks the equality, which is a claim about the declared list, not about `lib/auth/**`.
+
+The thing that catches a sixth return site is the walker in §5, which reads `lib/admin/**` from disk. The two guards are complementary and neither substitutes for the other: the walker proves every site has an emit, the table proves the five named emits carry the code and the payload they claim.
 
 The sink is `setLogSink` from `@/lib/log`, so the assertion reads the record *after* `buildRecord` has run `serializeError` on the `error` field (`lib/log/logger.ts:38`). That is what makes the next assertion possible.
 
@@ -223,9 +243,25 @@ The scanner decides, for each `return` statement whose argument is an object lit
 
 **Accepted (no emit required) — one form, keyed on structure:**
 
-- The guard scope's nearest enclosing `if` test is a strict equality between a property access ending in `.kind` and the string literal `"infra_error"`. This is the propagation form of §3.4: the fault arrived elsewhere.
+- The return is in the **consequent** of an `if` whose test is a strict equality between a property access ending in `.kind` and the string literal `"infra_error"`, **and** the object that property is read from is bound from a call to an imported identifier inside the cover, or to the right operand of a `??` whose right operand is such an identifier. This is the propagation form of §3.4: the fault arrived elsewhere and was recorded there.
 
-**Satisfied (emit present):** the scope contains, anywhere within it, a call to `logAdminOutcome`, or a call to `log.error` / `log.warn` / `log.info` / `log.debug` one of whose arguments is an object literal with a `code` property.
+  Both halves are load-bearing. Without the consequent requirement the walker exempts the `else` arm, where the fault is locally created and dark. Without the producer requirement it exempts a re-return of a result from anywhere at all, including a module outside the cover that emits nothing.
+
+**Satisfied (emit present):** the scope contains, lexically before the return and not inside a nested function body, either a call to `logAdminOutcome`, or a call to `log.error` / `log.warn` / `log.info` / `log.debug` one of whose arguments is an object literal that carries **both**:
+
+- a `code` property, and
+- an `error` property whose initializer is a bare identifier (`error`, `err`) — **not** a member access ending in `.message`, and not absent.
+
+**The `error` clause is not decoration, and a code-only accept-set would have passed the exact defect this arc repairs.** A predicate that asks only for `code` accepts both of these:
+
+```
+flattened   code present, error: error.message   -> satisfied, payload discarded
+codeOnly    code present, no error field         -> satisfied, payload never captured
+```
+
+The first is live today at `lib/admin/loadRecentAutoApplied.ts:247` (§4.2 repairs it). The second is what an author writes when they add a code and forget the payload. Both leave the operator with a categorised event and no `code`/`details`/`hint`, which is the consequence bound's "whole fault" half unmet while the guard reports green. The `.message` form is exactly what `tests/log/noDoubleSerializedLogError.test.ts` cannot see (§9 limit 3), so nothing else in the repo catches it.
+
+Lexical-precedence and the nested-function exclusion are part of the predicate rather than a refinement: an emit after the return is unreachable, and an emit inside a closure declared in the scope does not run on the returning path.
 
 **Everything else is reported by name** — file, line, and the return's source text. That includes a form nobody has modelled yet: a `switch` arm, a ternary, a guard shape the walker cannot classify. A recognizer that cannot classify an input reports it; it does not accept it. This is the direction a static guard must fail in, and it is why the accept-set is one form rather than a list of rejected shapes.
 
@@ -237,13 +273,39 @@ The scanner decides, for each `return` statement whose argument is an object lit
 
 ### 5.4 The premise
 
-A walker whose glob breaks finds zero sites and passes forever. The suite states its premise executably with `premise()` from `tests/_shared/premise.ts`: the walk must find more than 60 `infra_error` return sites across more than 10 files. Those floors sit below the measured 77 and 14 with room for ordinary churn, and far above zero. A premise failure reads "premise not met" and says explicitly that it is not a claim about the code under test.
+A walker whose glob breaks finds zero sites and passes forever. The suite states its premises executably with `premise()` and `premiseHolds()` from `tests/_shared/premise.ts`.
 
-A second premise guards the *classifier* rather than the walk: the propagation form must match at least one site, so a refactor that removes the last propagation site — or breaks the accept-set arm — is loud rather than silently permissive.
+**A floor on findings is not enough, and this is measured rather than asserted.** The population is 77 return sites across 16 files (16 is the count of files holding a *return site*; 14 is the count holding a *dark* one, and 20 is the count of files where the literal `kind: "infra_error"` appears at all, most of the difference being type-union members). Drop `lib/admin/identityHolds.ts` from discovery entirely and 73 sites across 15 files remain — a floor of "more than 60 across more than 10" passes while four live returns vanish. A floor bounds the walk's *output*; it says nothing about its *reach*.
+
+So the premises are on reach, cross-checked against two independent derivations:
+
+1. **Every file the walk parsed.** The set of files the scanner was handed must equal an independent `readdirSync` recursion over `lib/admin/**` filtered to `.ts`/`.tsx` and not `.test.`. This is the one that catches a dropped file, because it compares sets rather than counts.
+2. **Every file holding the literal is among them.** A plain `readFileSync` text scan for `kind: "infra_error"` yields a set that must be a subset of the parsed set. Text and AST are different methods; a discovery bug that fools one is unlikely to fool the other in the same direction.
+3. **The classifier still fires.** `premiseHolds` on the propagation form matching at least one site, so a refactor that removes the last propagation site — or silently breaks that accept-set arm — is loud rather than permissive.
+
+A premise failure reads "premise not met" and says explicitly that it is not a claim about the code under test.
 
 ### 5.5 The positive control
 
-The scanner's own unit suite feeds it source strings: a dark returned-error arm (reported), the same arm with a code-carrying `log.error` (satisfied), a `log.error` with no `code` property (reported — a SHOUTY message is not a code), a propagation guard (accepted), a `logAdminOutcome` call (satisfied), and a shape the accept-set does not model (reported). Every case is a string literal in the test file, so it is immune to both the disk and the module graph.
+The scanner's own unit suite feeds it source strings. Every case is a string literal in the test file, so it is immune to both the disk and the module graph:
+
+| case | expected |
+| --- | --- |
+| dark returned-error arm | reported |
+| same arm with `log.error({ code, error })` | satisfied |
+| `log.error` with a message but no `code` | reported — a SHOUTY message is not a code |
+| `log.error({ code, error: error.message })` | reported — the flattened payload |
+| `log.error({ code })` with no `error` field | reported — categorised but empty |
+| emit lexically **after** the return | reported — unreachable |
+| emit inside a nested closure in the scope | reported — does not run on this path |
+| propagation guard, return in the consequent, imported cover callee | accepted |
+| same guard, return in the **`else`** arm | reported — locally created |
+| same guard, callee is `opts.x ?? importedCoverFn` | accepted |
+| same guard, callee resolves outside the cover | reported |
+| `logAdminOutcome(...)` call | satisfied |
+| a shape the accept-set does not model | reported |
+
+Eleven of the thirteen assert a *report*. That ratio is the point: the accept-set is two forms and everything else is named.
 
 ---
 
@@ -271,13 +333,23 @@ Let `s = serializeError(value)`, which is `string | Record<string, unknown> | un
 - `s` is a string (every primitive, and any non-plain object whose `String()` form says more than `"[object Object]"`, per `serializeError.ts:97-103`) → `detail = s`.
 - otherwise → `detail = JSON.stringify(s)`, and if that throws or returns `undefined`, `detail = ""`.
 
-**`message`** — a string that must both read well and *discriminate*:
+**`message`** — a human-legible label, and **nothing more**:
 
 - `s` is a string → `message = s || "(no message)"`.
-- `s` is an object or array → take its own `name`, `code` and `message` properties in that order, keep the ones that are non-empty strings, and join them with `": "`. If none survive, `message = detail` — the rendered structure, which is what makes two structurally different values produce two different dedup signatures.
-- `message = "(no message)"` when the result is empty, matching the existing rule at `reportClientError.ts:12-13`.
+- `s` is an object or array → take its own `name`, `code` and `message` properties in that order, keep the ones that are non-empty strings, and join them with `": "`. If none survive, `message = "(no message)"`.
 
-Worked, from the done condition in §11: `{ code: "PGRST301", message: "planted" }` gives `message = "PGRST301: planted"` and `detail = '{"code":"PGRST301","message":"planted"}'`. `{ a: 1 }` and `{ b: 2 }` give `message = '{"a":1}'` and `'{"b":2}'` — different, so both reach the wire.
+Worked: `{ code: "PGRST301", message: "planted" }` gives `message = "PGRST301: planted"` and `detail = '{"code":"PGRST301","message":"planted"}'`.
+
+**`message` is deliberately NOT the discriminator, and an earlier draft of this spec made it one.** A label built from three fields collides in at least four ordinary ways, every one of them inside the threat fence:
+
+| collision family | example pair |
+| --- | --- |
+| same triple, different other fields | `{code:"E",message:"m",a:1}` / `{code:"E",message:"m",b:2}` |
+| different field identity, same text | `{name:"SAME"}` / `{code:"SAME"}` |
+| ambiguous `": "` join | `{name:"A",code:"B"}` / `{name:"A: B"}` |
+| divergence past the 1000-char message cap | two long values sharing a prefix |
+
+Any repair that keeps `message` as the discriminator is a longer label — a bigger target for the next collision. The repair is to stop asking `message` to do it. §6.4 moves the discrimination to the field that actually carries the content.
 
 ### 6.3 Guard conditions, every input
 
@@ -286,9 +358,9 @@ Worked, from the done condition in §11: `{ code: "PGRST301", message: "planted"
 | `Error` | not routed here — `reportClientError` keeps its `Error` arm (§1.1 item 8) | — |
 | plain object with `message` and `code` | `"<code>: <message>"` | JSON of the bounded structure |
 | plain object with `name` only | `"<name>"` | JSON of the bounded structure |
-| plain object with none of the three | JSON of the bounded structure | same JSON |
-| `{}` | `"(no message)"` (`JSON.stringify({})` is `"{}"`, non-empty, so `message = "{}"`) | `"{}"` |
-| array | JSON of the bounded array | same JSON |
+| plain object with none of the three | `"(no message)"` | JSON of the bounded structure |
+| `{}` | `"(no message)"` — no `name`/`code`/`message` survives | `"{}"` |
+| array | `"(no message)"` | JSON of the bounded array |
 | `null` | `"null"` | `"null"` |
 | `undefined` | `"undefined"` | `"undefined"` |
 | `""` | `"(no message)"` | `""` |
@@ -298,9 +370,27 @@ Worked, from the done condition in §11: `{ code: "PGRST301", message: "planted"
 
 `Map` degrading to `"[object Map]"` is `serializeError` §4 limit 5, ratified 2026-08-16 and inherited by anything reusing the helper. It is a surfaced type name, not a silent loss, and §9 records it.
 
-The `{}` row is worth reading twice: `JSON.stringify({})` is the two-character string `"{}"`, which is truthy, so `message` is `"{}"` and not `"(no message)"`. Two different empty objects still dedup to one wire POST, which is correct — they carry no distinguishing content.
+Every row where `message` is `"(no message)"` still carries a distinct `detail`, and after §6.4 that is what separates them on the wire. `{}` and `{}` genuinely collapse to one POST, which is correct: they carry no distinguishing content.
 
-### 6.4 How it rides the wire
+### 6.4 The dedup signature gains `detail`
+
+`lib/observe/clientErrorTransport.ts:32` builds the key from `source`, `level`, `message` and the first 200 characters of `stack`. A non-`Error` has no `stack`, so the key reduces to `source | level | message` — and §6.2 has just established that `message` is a label that collides. The transport already receives `detail`, and already puts it on the wire at `lib/observe/clientErrorTransport.ts:42`. It simply does not consult it:
+
+```ts
+const signature = `${input.source}|${input.level}|${message}|${(input.stack ?? "").slice(0, 200)}|${(input.detail ?? "").slice(0, 200)}`;
+```
+
+One line, one field the function already holds. What it buys:
+
+- Every §6.2 collision family separates, because in each pair the two values have different `detail` bytes.
+- **The `GlobalErrorListener` rejection path separates too**, and nothing else in this arc could have fixed it. That handler sends the fixed message `"unhandled promise rejection"` (`components/observe/GlobalErrorListener.tsx:48`) for every rejection, so before this change two rejections with different reasons share one signature no matter how good the projection is. A probe against the shipped transport with details `{"a":1}` and `{"b":2}` posts **once**.
+- The `Error` path is unaffected: `detail` is absent there, the new term is the empty string, and the key is byte-identical to today's.
+
+**Why 200 characters and not the full 500.** It matches the `stack` term beside it, and the two terms are doing the same job — enough bytes to discriminate, not so many that the key grows without bound in a `Set` that lives as long as the page. Two values identical for their first 200 `detail` characters and their first 1000 `message` characters dedup to one POST. That is a conservative degrade with no silent corruption — one crash recorded instead of two, never a wrong one — and §9 records it.
+
+This is the second half of row 2, the half the row did not name (§1.3). The message defect and the signature defect are one repair only if both halves land.
+
+### 6.5 How it rides the wire
 
 **In `detail`, at the existing 500 cap. No new field, no `CAPS` change on either side.**
 
@@ -322,7 +412,7 @@ function toWire(e: unknown): { message: string; stack?: string; detail?: string 
 
 An empty `detail` is omitted rather than sent as `""`, matching the conditional-spread posture the file already uses at `lib/observe/reportClientError.ts:32-35` and the route's `cap()` at `app/api/observe/client-error/route.ts:51`, which treats an empty string as absent anyway.
 
-### 6.5 Truncation: a plain slice, and it is a documented limit
+### 6.6 Truncation: a plain slice, and it is a documented limit
 
 `detail` is a JSON string that `clientErrorTransport.ts:42` slices to 500 characters. **A sliced JSON string is no longer JSON.** This arc keeps the plain slice and does not add a truncation marker.
 
@@ -330,29 +420,38 @@ The reason is not preference. The route independently re-caps `detail` at 500 wi
 
 What an operator sees is a `detail` that starts with the value's own fields in JSON order and stops. `serializeError`'s own bounds (`KEYS_MAX` 32, `STR_MAX` 500, `NODES_MAX` 200) already keep most real payloads well under the cap; a PostgREST returned-error with `code`, `message`, `details` and `hint` renders in well under 500 characters. §9 records the limit against the module that owns it.
 
-### 6.6 The second wire site
+### 6.7 The other two wire sites in that component
 
-`components/observe/GlobalErrorListener.tsx:39-44`, non-`Error` arm only:
+**The rejection handler** (`components/observe/GlobalErrorListener.tsx:39-44`), non-`Error` arm only:
 
 ```ts
-const onRejection = (event: PromiseRejectionEvent): void => {
-  const reason = event.reason;
-  const detail = (
-    reason instanceof Error
-      ? reason.message
-      : reason == null
-        ? ""
-        : describeClientValue(reason).detail
-  ).slice(0, DETAIL_CAP);
-  ...
-};
+const detail = (
+  reason instanceof Error
+    ? reason.message
+    : reason == null
+      ? ""
+      : describeClientValue(reason).detail
+).slice(0, DETAIL_CAP);
 ```
 
 Three behaviors preserved exactly: an `Error` reason still yields `reason.message`; `null` and `undefined` still yield `""` (the current `?? ""`, kept as an explicit `== null` branch so the projection's `"null"` string never surfaces where an empty string does today); and the existing string-reason test at `tests/observe/globalErrorListener.test.tsx:42-53` passes unchanged, because `serializeError` on a string returns that string.
 
-`DETAIL_CAP` stays 300 (`GlobalErrorListener.tsx:7`). Its cap is the listener's own and is stricter than the wire's 500; nothing about it changes. The window-error handler at `components/observe/GlobalErrorListener.tsx:27-37` is untouched — its detail is `filename:lineno`, which is already structural.
+Its message stays the fixed `"unhandled promise rejection"`. That is what makes §6.4 load-bearing rather than optional: without `detail` in the signature, this handler posts once per page session no matter what the projection produces.
 
----
+**The window-error handler is a third dark site, and the row named neither it nor the rejection one.** `components/observe/GlobalErrorListener.tsx:27-37` builds its detail from `event.filename` and `event.lineno` and never reads `event.error`, which is where the DOM puts the thrown value. `rg -n 'event\.error|event\.reason' components/observe/GlobalErrorListener.tsx` returns only `event.reason`. So a non-`Error` window throw loses its fields completely — not collapsed to `"[object Object]"` like the other two, simply absent.
+
+Class-sweep applies: three wire-reaching sites in this class, three repaired here. The handler appends the projection's detail when `event.error` is a non-`Error` value, keeping the file/line prefix that makes an ordinary `Error` throw locatable:
+
+```ts
+const where = `${event.filename ?? ""}:${event.lineno ?? ""}`;
+const from =
+  event.error == null || event.error instanceof Error
+    ? ""
+    : describeClientValue(event.error).detail;
+const detail = (from ? `${where} ${from}` : where).slice(0, DETAIL_CAP);
+```
+
+An `Error` thrown at the window keeps today's exact detail bytes, because its own `message` is already the `clientLog` message at `components/observe/GlobalErrorListener.tsx:32`. `DETAIL_CAP` stays 300 (`components/observe/GlobalErrorListener.tsx:7`); its cap is the listener's own and is stricter than the wire's 500.
 
 ## 7. Tests
 
@@ -366,7 +465,10 @@ Invariant 1 requires the distinction be stated, because a test that passes on th
 - The `errorOn: "rpc"` row's `context.error` object assertion — today `context.error` is the string from `.message`.
 - Every `describeClientValue` case in §6.3 — the module does not exist.
 - The `reportClientError` non-`Error` cases in §7.3 — today they all produce `"[object Object]"`.
-- The plain-object-reason case beside `tests/observe/globalErrorListener.test.tsx:42-53`.
+- The plain-object-reason case beside `tests/observe/globalErrorListener.test.tsx:42-53`, and the non-`Error` `event.error` case on the window handler (nothing reads that field today).
+- The two-distinct-rejections test asserting two POSTs — one today, because the fixed message plus a `detail`-blind signature collapses them.
+- The scanner's `error: error.message` and `error`-absent cases, which a code-only predicate passes.
+- The scanner's `else`-arm, after-return, nested-closure and out-of-cover-callee cases.
 - `_metaInfraEmitCover` against the unrepaired tree — 65 reported sites.
 
 **Regression pins, green on day one:**
@@ -379,7 +481,10 @@ Invariant 1 requires the distinction be stated, because a test that passes on th
 - Expected codes in §4.3 come from the declared table, and the `afterAll` set-equality means a row that silently stops running fails the suite. An assertion that only proved "some emit happened" would pass against the wrong code; the row names the code.
 - The `context.error` assertion reads the PostgREST `code` value from the fixture constant. A hardcoded `"42501"` would pass against a fake that stopped supplying it.
 - `describeClientValue` expectations are derived from the fixture object: the test builds `{ code, message }` from local constants and asserts `message === \`${code}: ${message}\``, so a projection that dropped one field fails. No rendered string is written as a literal.
-- The two-distinct-objects test asserts `fetch` was called **twice** and that the two bodies' `message` values differ, not merely that both are non-`"[object Object]"`. A projection that returned a constant non-empty string would satisfy the weaker form and fail this one.
+- The two-distinct-objects test asserts `fetch` was called **twice** and that the two bodies differ in `detail`, not merely that both are non-`"[object Object]"`. A projection that returned a constant non-empty string would satisfy the weaker form and fail this one.
+- The signature test drives `clientErrorTransport` directly with two inputs sharing `source`, `level` and `message` and differing only in `detail`, which is the §6.2 collision shape reduced to its essentials. Asserting only through `reportClientError` would let a lucky `message` difference pass a broken signature.
+- The scanner's report cases assert the reported **reason**, not merely that something was reported, so a scanner that reported everything for the wrong cause would fail. Eleven of the thirteen §5.5 cases expect a report.
+- The premise test compares file **sets** and prints the symmetric difference. A count comparison passes when one file is dropped and another added, which is the failure the reviewer constructed against the earlier floor.
 - The detail-cap test asserts exact byte length against `CAPS.detail` read from the transport's behavior (a 5000-character field forced through), not against the literal 500 written twice.
 - The scanner suite feeds source strings, never the disk, so it cannot pass because the repo happens to be clean.
 
@@ -401,7 +506,7 @@ Five non-`Error` cases, none of which exists today (every case in that file cons
 
 
 <!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
-Nothing else in the diff is an enrolled surface: nothing under `lib/observe/` or `lib/admin/` appears in the registry. `lib/observe/describeClientValue.ts` is product code pinned by its own suite, not a guard surface. `tests/admin/infraEmitScan.ts` is a guard the registry could express, and it is authored in the enrollable shape (§5.1) so a later arc can enroll it without restructuring; enrolling it here would mean a fleet-wide class lock for a scanner whose positive-control suite already covers its six branches, and the enrolment decision belongs to whoever needs the score.
+Nothing else in the diff is an enrolled surface: nothing under `lib/observe/` or `lib/admin/` appears in the registry. `lib/observe/describeClientValue.ts` is product code pinned by its own suite, not a guard surface. `tests/admin/infraEmitScan.ts` is a guard the registry could express, and it is authored in the enrollable shape (§5.1) so a later arc can enroll it without restructuring; enrolling it here would mean a fleet-wide class lock for a scanner whose positive-control suite already covers every arm of its accept-set and its two report families (§5.5), and the enrolment decision belongs to whoever needs the score.
 
 The round-1 diff brief states this in one line and carries no `GUARD SURFACE:` line.
 
@@ -417,7 +522,7 @@ Each is recorded on the surface that owns it, per Eric's directive. None becomes
 
 
 <!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
-2. **A truncated `detail` is not parseable JSON.** §6.5 has the reasoning. Recorded in the header of `lib/observe/describeClientValue.ts` beside the cap it describes.
+2. **A truncated `detail` is not parseable JSON.** §6.6 has the reasoning. Recorded in the header of `lib/observe/describeClientValue.ts` beside the cap it describes.
 
 3. **`noDoubleSerializedLogError` does not see `.message`.** `tests/log/noDoubleSerializedLogError.test.ts:12-13` bans `String(e)` and `JSON.stringify(e)` in an `error:` initializer; `error: error.message` passes it while discarding exactly the fields the guard exists to preserve. §4.2 repairs the one live instance. Recorded as that guard's documented limit in its own header, with the re-run trigger: `grep -rn 'error: [a-zA-Z_]*\.message' lib/ app/`.
 
@@ -425,11 +530,21 @@ Each is recorded on the surface that owns it, per Eric's directive. None becomes
 <!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
 4. **The cover is `lib/admin/**` and stops there.** Measured 2026-08-26: 165 raw `kind: "infra_error"` matches across 41 files outside `lib/admin/`, concentrated in `lib/notify/`, `lib/observe/query/`, `lib/appSettings/` and `lib/adminAlerts/`. The arc's PROBE DOMAIN fences the sweep to `lib/admin/**`, and `lib/sync/` already has its own emit guard (`tests/log/_metaAdminOutcomeContract.test.ts:59-73`, the `SYNC_INFRA_ERROR` window scan). Recorded in the header of `tests/admin/_metaInfraEmitCover.test.ts`, with the re-run trigger: point the scanner's root at another directory. The scanner takes its root as an argument precisely so that is a one-line change and not a rewrite.
 
-5. **`context`-only `clientLog` callers are outside the wire.** `ShowRealtimeBridge.tsx:503`, `components/realtime/ShowRealtimeBridge.tsx:755`, `components/realtime/ShowRealtimeBridge.tsx:786`, `components/realtime/ShowRealtimeBridge.tsx:821` and `DevCaptureControl.tsx:126` pass their value as `context`, which `lib/observe/clientLog.ts:17-18` never mirrors. They cannot produce an `"[object Object]"` in `app_events` because they produce nothing in `app_events`. Recorded in row 2's archive entry.
+
+<!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
+5. **An injected `loadHolds` test double is not covered, and is not a fault.** `lib/admin/loadNeedsAttention.ts:305` and `lib/admin/needsAttentionCount.ts:89` read `await (opts.loadHolds ?? loadOpenIdentityHolds)()`. The walker's propagation exemption accepts the `??` default arm, which production always takes and which is inside the cover. A test that injects a double returning `infra_error` without emitting (`tests/admin/loadNeedsAttention.test.ts:614`, `tests/admin/needsAttentionCount.test.ts:174`) produces no record, correctly: a fixture is not a fault. Recorded in the header of `tests/admin/infraEmitScan.ts`, with the re-run trigger: `grep -rn 'loadHolds' --include='*.ts' .` — a non-test injector appearing there is the signal to revisit.
 
 
 <!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
-6. **The walker classifies syntax, not semantics.** A code-carrying emit anywhere in the guard scope satisfies it, including one that runs on a different branch within the same scope, and an emit reached through a helper function is not seen. The threat fence is an ordinary contributor adding a loader branch, not an author routing around a guard. Recorded in the header of `tests/admin/infraEmitScan.ts`.
+6. **Two crashes identical for their first 200 `detail` characters and first 1000 `message` characters dedup to one POST.** The §6.4 signature slices `detail` at 200 to match the `stack` term beside it and to bound a `Set` that lives as long as the page. The worst case is one row where two were due — a conservative degrade, never a wrong row. Recorded in the header of `lib/observe/describeClientValue.ts`.
+
+7. **`null` and `undefined` rejection reasons collapse to one row.** Both produce `detail = ""` at `components/observe/GlobalErrorListener.tsx`, so they share a signature. Distinguishing them would mean sending `"null"` and `"undefined"` as detail text, which changes behavior the row does not ask about and which reads worse in `app_events` than an empty field. Recorded beside the `== null` branch.
+
+8. **`context`-only `clientLog` callers are outside the wire.** `ShowRealtimeBridge.tsx:503`, `components/realtime/ShowRealtimeBridge.tsx:755`, `components/realtime/ShowRealtimeBridge.tsx:786`, `components/realtime/ShowRealtimeBridge.tsx:821` and `DevCaptureControl.tsx:126` pass their value as `context`, which `lib/observe/clientLog.ts:17-18` never mirrors. They cannot produce an `"[object Object]"` in `app_events` because they produce nothing in `app_events`. Recorded in row 2's archive entry.
+
+
+<!-- spec-lint: ignore — this file is created by this spec's implementation and is not tracked yet -->
+9. **The walker classifies syntax, not semantics.** A code-carrying emit anywhere in the guard scope satisfies it, including one that runs on a different branch within the same scope, and an emit reached through a helper function is not seen. The threat fence is an ordinary contributor adding a loader branch, not an author routing around a guard. Recorded in the header of `tests/admin/infraEmitScan.ts`.
 
 ---
 
@@ -446,7 +561,7 @@ Each is recorded on the surface that owns it, per Eric's directive. None becomes
 | **7** spec is canonical | No amendment proposed. |
 | **8** impeccable gate | §12. |
 | **9** Supabase call-boundary discipline | The loader already destructures `{ data, error }` at every await and is registered at `tests/admin/_metaInfraContract.test.ts` (`loadRecentAutoApplied` row) and `tests/admin/_metaBoundedReads.test.ts:40`. Every file the sweep touches is checked for an existing `infraRegistry` row; a swept file without one gets its row in the same commit. The client wire files touch no Supabase client. The route uses `log` only. |
-| **10** mutation-surface observability | `app/api/observe/client-error/route.ts` is unchanged (§6.4) and keeps `CLIENT_ERROR_MIRROR_RATE_CAPPED` at `app/api/observe/client-error/route.ts:106`. The loader and every swept `lib/admin` file is a read, not a mutation surface. |
+| **10** mutation-surface observability | `app/api/observe/client-error/route.ts` is unchanged (§6.5) and keeps `CLIENT_ERROR_MIRROR_RATE_CAPPED` at `app/api/observe/client-error/route.ts:106`. The loader and every swept `lib/admin` file is a read, not a mutation surface. |
 | **11** worktree | `../FX-worktrees/observetelemetry` off the `origin/main` containing #899 (`df130e0a9`). |
 | **12** ledger claims | Both rows marked `IN PROGRESS · Branch: fix/observe-error-telemetry`, pushed at Stage 0; markers removed in the PR's last commit. |
 
@@ -464,22 +579,41 @@ pnpm observe events --source admin.recentAutoApplied --since 1h
 
 Before: **0** rows for the `show_change_log` read. After: **1** row carrying `SHOW_CHANGE_LOG_READ_RETURNED_ERROR`, whose `context.error` shows the PostgREST `code` field rather than a bare message. The env override is shell-scoped; `.env.local` is a symlink every worktree shares and is never edited.
 
-**2. No client crash persists as `"[object Object]"`.** From a browser console on any crew page, `Promise.reject({ code: "PGRST301", message: "planted" })`, then:
+**2. No client crash persists as `"[object Object]"`.** Two paths, and they need two different checks, because `--q` is `ilike` on `message` only (`lib/observe/query/events.ts:93`) and cannot see `context.detail`.
+
+*Boundary path*, where the literal used to be the message. From a browser console on a crew page, throw a plain object inside a component so an error boundary catches it:
 
 ```
-pnpm observe events --source client.root --code CLIENT_UNHANDLED_REJECTION --since 1h
 pnpm observe events --q '[object Object]' --since 24h
 ```
 
-Before: `detail` is `[object Object]`. After: `detail` carries `planted` and `PGRST301`, and the literal query returns **0** rows.
+Before: **1** row per distinct boundary crash, its `message` the literal. After: **0** rows. This query is valid here precisely because `reportClientError` puts the projection in `message`.
 
-**3. Two distinct plain-object crashes produce two rows.** Rejected back to back in one page session:
+*Listener path*, where the message is fixed and the value rides in `detail`. `Promise.reject({ code: "PGRST301", message: "planted" })`, then:
+
+```
+pnpm observe events --source client.root --code CLIENT_UNHANDLED_REJECTION --since 1h
+```
+
+`--source` and `--code` are equality filters (`lib/observe/query/events.ts:83-85`), so this returns the row and the check is on its `detail` field, read from the output. Before: `detail` is `[object Object]`. After: `detail` carries `planted` and `PGRST301`. A `--q` query would not have found either state, which is why it is not used for this half.
+
+**3. Two distinct crashes produce two rows, on both paths.** The trigger is stated because the two paths have different sources and different mechanisms.
+
+*Listener path* — two rejections back to back in one page session, `Promise.reject({a:1})` then `Promise.reject({b:2})`:
+
+```
+pnpm observe events --source client.root --code CLIENT_UNHANDLED_REJECTION --since 1h
+```
+
+Before **1** row: the message is the fixed `"unhandled promise rejection"` and the pre-§6.4 signature ignores `detail`, so the second is dropped at `lib/observe/clientErrorTransport.ts:33-34`. After **2**.
+
+*Boundary path* — two component throws with structurally different plain objects, caught by the crew boundary:
 
 ```
 pnpm observe events --source client.crew --since 1h
 ```
 
-Before **1** row (the dedup at `clientErrorTransport.ts:33-34` admitted one), after **2**.
+Before **1** row (both collapse to the `"[object Object]"` message and one signature). After **2**.
 
 Plus: the app-e2e job log still carries `SUPABASE_UPSTREAM_FAULT` lines on a forced 502. #899's capture step is unaffected — the loader emit sits beside it, not in place of it.
 
@@ -489,14 +623,16 @@ Plus: the app-e2e job log still carries `SUPABASE_UPSTREAM_FAULT` lines on a for
 
 ## 12. Close-out
 
-**`impeccable-gate: N/A — no UI surface`**, under bl-orch's ruling (b) of 2026-08-26 09:27 CDT.
+**`impeccable-gate: critique+audit run on components/observe/GlobalErrorListener.tsx, dispositions recorded`** — the affirmative form, and the earlier N/A declaration in this spec was wrong.
 
-The proof the ruling requires: `components/observe/GlobalErrorListener.tsx` is declared `: null` (`components/observe/GlobalErrorListener.tsx:22`) and has exactly one `return` reachable from its body, `return null` at `components/observe/GlobalErrorListener.tsx:65`. The only other return in the file is the effect's cleanup function at `components/observe/GlobalErrorListener.tsx:58-62`, which returns nothing and is not a render path. The component paints nothing on every branch because it has one branch.
+Invariant 8 defines a UI surface by PATH: "any file under `components/`" (`AGENTS.md:20`). It is a syntactic test, and whether the component paints pixels does not change it. `tests/docs/_metaInvariant8Closeout.test.ts` validates the marker's grammar; a passing grammar check is not an authorization to skip the gate, so the argument this spec made from it does not hold.
 
-The marker line is confirmed against `tests/docs/_metaInvariant8Closeout.test.ts` before it is relied on. If that grammar rejects the N/A form for a `components/` touch, the dual gate runs on the diff instead and its (empty) findings are recorded — the marker grammar is not bent.
+bl-orch's ruling of 2026-08-26 was conditional — verify the null render, take N/A *if* the grammar admits it, otherwise "run the dual gate on the diff instead and record the (empty) findings; do not bend the marker grammar." This spec takes the second branch of that ruling. The dual gate on one null-rendering component is cheap, and running it removes the argument entirely rather than winning it. The findings, empty or not, are recorded in the close-out prose beside the marker.
+
+The null-render fact stays on the record because it bounds what the gate can find, not because it exempts anything: `components/observe/GlobalErrorListener.tsx` is declared `: null` (`components/observe/GlobalErrorListener.tsx:22`) with one render return, `return null` (`components/observe/GlobalErrorListener.tsx:65`); the only other return is the effect cleanup (`components/observe/GlobalErrorListener.tsx:58-62`), which is not a render path.
 
 Twelve required checks by name: `quality`, `unit-suite`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`, `x6-pg-cron-pivot`, `validation-schema-parity`, `affordance-matrix-parity`, `postgrest-dml-lockdown`, `traceability-audit`. `mutation-harness` is not required and, per §8, is not run.
 
 No migration, so no `supabase db push`, no `gen:schema-manifest`, no validation-project apply.
 
-Both rows graduate to `BACKLOG-archive.md`. Row 1's entry records that #882 repaired four of five sites the day after filing (`d9a039a94`, `17357a05c`), names the fifth, states the level argument of §2 that makes the loader emit non-redundant with #899's observer, and records the §3.3 sweep decision with its derived count and the derivation. Row 2's entry records both wire sites, the signature defect the row did not name, the §6.2 projection, and limit 5 of §9. The carry-forward sentence at `BACKLOG-archive.md:2373` is left as the history it is.
+Both rows graduate to `BACKLOG-archive.md`. Row 1's entry records that #882 repaired four of five sites the day after filing (`d9a039a94`, `17357a05c`), names the fifth, states the level argument of §2 that makes the loader emit non-redundant with #899's observer, and records the §3.3 sweep decision with its derived count and the derivation. Row 2's entry records all three wire sites, the signature defect the row did not name and its repair at §6.4, the §6.2 projection, and limits 5 through 8 of §9. The carry-forward sentence at `BACKLOG-archive.md:2373` is left as the history it is.
