@@ -36,6 +36,110 @@ export const MARKER_ANY = /^ {0,3}<!-- task:/;
 // the ids `AC-1.`, `AC-1..1`, `AC-1.-child` and `AC-1-` are all legal and each
 // would be resolved by a wanted `AC-1`.
 const ID = "AC-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*";
+// ---- the v4 declaration recognizer (spec §4.1) ------------------------------
+//
+// The end boundary rejects a CONTINUING dot, never every dot. v3 passed on the
+// range form `AC-1..AC-7` because the character after `AC-1` is a dot followed
+// by another dot rather than by an alphanumeric; v4 rejects a following dot when
+// it continues into an id segment (`AC-1.1`) or into that second dot, and
+// accepts it otherwise, so the live `- **AC-2.** …` spelling still declares.
+// Rejecting every following dot was measured against the corpus and drops real
+// declarations in four plans, which is v3's silent-loss defect under a new rule.
+const ID_BOUNDARY = "(?![A-Za-z0-9-])(?!\\.[A-Za-z0-9.])";
+const ID_ANYWHERE = new RegExp(`(?<![A-Za-z0-9.-])(${ID})${ID_BOUNDARY}`, "g");
+/**
+ * The head id of a declaring line must be a STANDALONE TOKEN.
+ *
+ * Corpus-forced narrowing, and the allowed repair direction on this axis: five
+ * live lines open with a possessive (`- **AC-5's digest cannot move.**`), which
+ * is a bullet ABOUT a criterion and never a declaration of one. Two of them are
+ * in a plan whose real criteria sit in a table, so disposing the possessive
+ * would have written a disposition mid-sentence into a wrapped bullet. The rule
+ * is structural rather than a special case for apostrophes: whatever follows the
+ * head id must be whitespace, ordinary sentence punctuation, a closing bracket,
+ * an emphasis run, or end of line. Measured over the live corpus it declines
+ * exactly those five and loses no real declaration.
+ */
+const HEAD_DELIMITER = /^(?:[\s:,.;)\]*_—]|$)/;
+const ID_AT_START = new RegExp(`^(${ID})${ID_BOUNDARY}`);
+/** A list item or ATX heading, plus at most one emphasis run. */
+const DECLARING_PREFIX = /^ {0,3}(?:[-*+]|\d{1,9}[.)]|#{1,6})[ \t]+(?:\*\*|__|\*|_)?/;
+/**
+ * A line whose SHAPE could carry a declaration: a list item, an ATX heading or a
+ * table row. Used only by the symmetric cut below, never to declare anything.
+ */
+const STRUCTURED = /^ {0,3}(?:[-*+]|\d{1,9}[.)]|#{1,6}|\|)[ \t]?/;
+
+// ---- the disposition accept-set (spec §4.3) ---------------------------------
+//
+// Parenthesised and END-ANCHORED, so a sentence merely ending in "Task 10."
+// disposes nothing; `RETIRED` case-sensitive, matching how the corpus writes it;
+// the owner a closed token list and never free prose, because a matcher that
+// accepts prose accepts the sentence that was already there. An unrecognised
+// disposition REPORTS: an accept-set fails toward the finding, never toward
+// silence, and to a plan author silence and clean are indistinguishable.
+const DISPOSITION_IDENT = "[A-Za-z0-9][A-Za-z0-9.-]*";
+const DISPOSITION_TASKS = `[Tt]ask[ \\t]+${DISPOSITION_IDENT}(?:[ \\t]*(?:,|\\+|and)[ \\t]*(?:[Tt]ask[ \\t]*)?${DISPOSITION_IDENT})*`;
+const DISPOSITION_NON_TASK = "closeout|the closeout|the PR's last commit";
+const DISPOSITION = new RegExp(
+  `\\([ \\t]*(?:RETIRED(?::[ \\t]+[^)]*)?|discharged by (?:${DISPOSITION_TASKS}|${DISPOSITION_NON_TASK}))[ \\t]*\\)[ \\t]*$`,
+);
+
+/**
+ * Does this text END in a disposition the accept-set admits?
+ *
+ * Exported so a consumer can ask the question of a string it BUILDS — the
+ * residue's `owner-inexpressible` rows assert that `(discharged by <owner>)` is
+ * rejected, and asking a second copy of the grammar would let the two drift.
+ */
+export function acceptsDisposition(text: string): boolean {
+  return DISPOSITION.test(text);
+}
+
+export interface AcDeclaration {
+  line: number;
+  /** DISTINCT ids on the line, in document order. */
+  ids: string[];
+  /** the sole id when the line carries exactly one; null when AMBIGUOUS. */
+  certain: string | null;
+  disposed: boolean;
+}
+
+/** Every DISTINCT id on one line, in document order. */
+function idsOn(lineText: string): string[] {
+  const out: string[] = [];
+  ID_ANYWHERE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = ID_ANYWHERE.exec(lineText)) !== null) {
+    if (!out.includes(m[1]!)) out.push(m[1]!);
+  }
+  return out;
+}
+
+/**
+ * A declaring line, or null.
+ *
+ * The COUNT of DISTINCT ids on the line is the whole termination argument (spec
+ * §4.1): exactly one is CERTAIN, more is AMBIGUOUS and the arm declines it in
+ * both directions. DISTINCT rather than occurrences, because
+ * `docs/superpowers/plans/2026-08-07-ops-log-code-emits.md:56` writes `AC-2`
+ * twice while explaining its proof and is one criterion. The cut is structural
+ * rather than lexical, so unlike every previous one it has no next grammar
+ * corner to be refuted on.
+ */
+export function declarationOn(lineText: string, lineNo: number): AcDeclaration | null {
+  const prefix = DECLARING_PREFIX.exec(lineText);
+  if (!prefix) return null;
+  const rest = lineText.slice(prefix[0].length);
+  const head = ID_AT_START.exec(rest);
+  if (head === null) return null;
+  if (!HEAD_DELIMITER.test(rest.slice(head[1]!.length))) return null;
+  const ids = idsOn(lineText);
+  const certain = ids.length === 1 ? ids[0]! : null;
+  const after = certain === null ? "" : lineText.slice(lineText.indexOf(certain) + certain.length);
+  return { line: lineNo, ids, certain, disposed: certain !== null && DISPOSITION.test(after) };
+}
+
 // The command group excludes backticks deliberately. `(.+)` would give the two
 // empty-command spellings different codes; `(.*)` is greedy across backticks and
 // silently re-opens every structure the "two fields, no other content" rule
@@ -310,6 +414,134 @@ export function taskTopology(model: DocModel): TaskTopology {
   return analyze(model).topology;
 }
 
+export interface AcAnalysis {
+  /** id -> the FIRST certain declaring line, and whether ANY of them disposes it. */
+  certain: Map<string, { line: number; disposed: boolean }>;
+  /** declaring lines carrying more than one distinct id; declined in both directions. */
+  ambiguous: { line: number; ids: string[] }[];
+  /**
+   * Every line the arm DECLINES to read as a declaration while it carries ids:
+   * a line with more than one distinct id, or a structured line whose content
+   * does not begin with one. The count cut read in the other direction.
+   */
+  declined: { line: number; ids: string[] }[];
+  /** the ids this plan declares that no marker claims and no disposition exempts. */
+  unclaimed: { id: string; line: number }[];
+  /** cited ids this plan mentions but neither declares nor declines; on the MARKER line. */
+  undeclared: { id: string; line: number }[];
+}
+
+const emptyAc = (): AcAnalysis => ({
+  certain: new Map(),
+  ambiguous: [],
+  declined: [],
+  unclaimed: [],
+  undeclared: [],
+});
+
+/**
+ * THE AC classification, and the only one. `checkTaskContract` renders its
+ * findings from this return value rather than deriving them again — the same
+ * single-owner rule `taskTopology` exists for. A corpus test consuming this
+ * export is therefore asserting what the arm EMITS; one deriving the sets for
+ * itself would have to reimplement marker claims, dispositions and precedence,
+ * and would go on passing after an edit moved the finding.
+ */
+function acAnalysisFrom(
+  model: DocModel,
+  topology: TaskTopology,
+  sawTasksLine: boolean,
+  enrolled: boolean,
+  markerShaped: Set<number>,
+): AcAnalysis {
+  // The arm is inert in a plan with no task region (spec §7 limit 6), and an
+  // unestablished enrollment discards markers unjudged, so it can claim nothing.
+  if (!sawTasksLine || !enrolled) return emptyAc();
+
+  const certain = new Map<string, { line: number; disposed: boolean }>();
+  const ambiguous: { line: number; ids: string[] }[] = [];
+  const declined: { line: number; ids: string[] }[] = [];
+  const declinedIds = new Set<string>();
+  for (let i = 0; i < model.lines.length; i++) {
+    if (model.fencedInfo[i] !== undefined) continue; // a fenced declaration is inert
+    if (MARKER_ANY.test(model.lines[i]!)) continue; // a marker is not prose about an id
+    const decl = declarationOn(model.lines[i]!, i + 1);
+    // The SYMMETRIC cut. An id on a line the arm declines is neither declared nor
+    // undeclared, so `TASK_AC_UNDECLARED` never fires on it. Without this the
+    // code reds 9 plans / 71 ids on the live corpus: one incidental list item
+    // beginning with an id opts a whole plan in while its real criteria sit in a
+    // table or a coverage line. Declining more is the allowed repair direction on
+    // this axis; a positive grammar for tables is not.
+    if (decl === null || decl.certain === null) {
+      const ids = idsOn(model.lines[i]!);
+      if (ids.length > 1 || (ids.length === 1 && STRUCTURED.test(model.lines[i]!))) {
+        declined.push({ line: i + 1, ids });
+        for (const id of ids) declinedIds.add(id);
+      }
+    }
+    if (decl === null) continue;
+    if (decl.certain === null) {
+      ambiguous.push({ line: decl.line, ids: decl.ids });
+      continue;
+    }
+    const prior = certain.get(decl.certain);
+    // Declared twice, disposed once, is DISPOSED (spec §4.2.1) — the id is one
+    // criterion, and the plan mentioning it twice is not two. The first line is
+    // kept as the report site whichever order the two appear in.
+    if (prior === undefined)
+      certain.set(decl.certain, { line: decl.line, disposed: decl.disposed });
+    else if (decl.disposed && !prior.disposed) {
+      certain.set(decl.certain, { line: prior.line, disposed: true });
+    }
+  }
+
+  // Claims come from NON-FENCED markers only: a fenced marker is inert and must
+  // not claim, mirroring the rule that it cannot resolve an `ac=` either.
+  //
+  // The two marker sets are deliberately different. CLAIMING suppresses a
+  // finding, so it takes the widest set — an orphaned marker still expresses the
+  // author's intent. REPORTING raises one, so it takes the narrowest: an orphaned
+  // marker already draws TASK_MARKER_ORPHANED and is not classified further.
+  const claimed = new Set<string>();
+  const owned = [...topology.owned.values()].flat();
+  for (const line of owned.concat(topology.orphaned)) {
+    const parsed = parseMarker(model.lines[line - 1]!, line);
+    if (parsed === null || parsed === "malformed" || parsed.acRaw === null) continue;
+    for (const id of parsed.acRaw.split(",")) claimed.add(id);
+  }
+
+  const unclaimed = [...certain.entries()]
+    .filter(([id, v]) => !claimed.has(id) && !v.disposed)
+    .map(([id, v]) => ({ id, line: v.line }))
+    .sort((a, b) => a.line - b.line);
+
+  // OPT-IN BY SHAPE: silent in a plan that declares nothing, because 51 of the
+  // enrolled plans carry their criteria in the sibling spec and only a coverage
+  // map here (spec §7 limit 5). The three codes then partition: UNRESOLVED needs
+  // no occurrence at all, UNDECLARED an occurrence that is neither a declaration
+  // nor declined, UNCLAIMED a declaration.
+  const undeclared: { id: string; line: number }[] = [];
+  if (certain.size > 0) {
+    for (const line of owned) {
+      const parsed = parseMarker(model.lines[line - 1]!, line);
+      if (parsed === null || parsed === "malformed" || parsed.acRaw === null) continue;
+      for (const id of parsed.acRaw.split(",")) {
+        if (certain.has(id) || declinedIds.has(id)) continue;
+        if (!resolvesId(id, model.lines, markerShaped)) continue; // UNRESOLVED's case
+        if (!undeclared.some((u) => u.id === id && u.line === line)) undeclared.push({ id, line });
+      }
+    }
+  }
+
+  return { certain, ambiguous, declined, unclaimed, undeclared };
+}
+
+/** The AC classification alone, for consumers outside the finding renderer. */
+export function acAnalysis(model: DocModel): AcAnalysis {
+  const { topology, sawTasksLine, enrolled, markerShaped } = analyze(model);
+  return acAnalysisFrom(model, topology, sawTasksLine, enrolled, markerShaped);
+}
+
 export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Finding[] {
   if (kind !== "plan") return [];
 
@@ -378,6 +610,26 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
         }
       }
     }
+  }
+
+  const ac = acAnalysisFrom(model, topology, sawTasksLine, enrolled, markerShaped);
+  for (const u of ac.unclaimed) {
+    findings.push(
+      fail(
+        "TASK_AC_UNCLAIMED",
+        u.line,
+        `\`${u.id}\` is declared here and no task marker claims it`,
+      ),
+    );
+  }
+  for (const u of ac.undeclared) {
+    findings.push(
+      fail(
+        "TASK_AC_UNDECLARED",
+        u.line,
+        `\`${u.id}\` is cited here but this plan never declares it as a criterion`,
+      ),
+    );
   }
 
   findings.sort(compareFindings);

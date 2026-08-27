@@ -598,9 +598,9 @@ and headings between regions are unchecked, so that is what happens here.
 
 **Files:** `docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population.md`
 
-- **AC-8 field check:** `git diff origin/main...HEAD -- tests/mutation/_metaPremiseContract.test.ts`
+- **AC-8 field check:** `git diff origin/main...HEAD -- tests/mutation/_metaPremiseContract.test.ts` (discharged by Task 4)
   must show no line of `EXPECTED_ENV_TOUCHING` changed. A green meta-suite cannot prove this.
-- **AC-9:** re-run both population probes; counts unchanged against the record.
+- **AC-9:** re-run both population probes; counts unchanged against the record (discharged by Task 4)
 - **The FOUR committed passes, run to a FIXED POINT rather than once**, in a worktree carrying the
   change: `cell-check.mts` (16 of 16, exit 0, with its derived cell budget summing to the cell
   count), `record-diff.mts` (0 records, 0 verdicts and 0 details moved, with its structural control
@@ -611,7 +611,7 @@ and headings between regions are unchecked, so that is what happens here.
   `record-diff.mts` ABORTS where there is nothing to measure and `cell-check.mts` reds where the
   producer is absent. A claim that stops being true prints FALSE rather than being inferred from a
   passing suite.
-- **AC-10:** `pnpm mutation:guards` in the FOREGROUND under `pnpm heavy`, with a before/after
+- **AC-10:** `pnpm mutation:guards` in the FOREGROUND under `pnpm heavy`, with a before/after (discharged by Task 4a and Task 4b)
   provenance pair stamped INSIDE the measuring invocation over the DERIVED input set — source,
   registry row, both `suitePaths`, and their transitive local imports, the file count printed beside
   the digest. Editing any of those retires the score (spec §6 AC-10); say so rather than letting a

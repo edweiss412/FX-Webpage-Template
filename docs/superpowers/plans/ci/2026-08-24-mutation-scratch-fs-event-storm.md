@@ -87,7 +87,7 @@ Full statements live in spec §8; these are the plan-side references.
 - **AC-2c** — the round-2 deadlock cycle terminates for every participant.
 - **AC-2d** — the production entry point `pnpm heavy:mutation` actually takes the class.
 - **AC-2e** — an unknown class value exits 2 naming the accepted set.
-- **AC-3** — total simultaneous heavy phases never exceeds the configured slot count.
+- **AC-3** — total simultaneous heavy phases never exceeds the configured slot count (discharged by Task 2)
 - **AC-4** — after a repaired suite runs, its temp-root family count is unchanged.
 - **AC-5** — a deliberately failing case still removes its root.
 - **AC-6** — RETIRED with the deferred tier: cleanup does not reduce roots created and strictly increases calls. Residue is the quantity that moves, and AC-4 asserts it at zero.

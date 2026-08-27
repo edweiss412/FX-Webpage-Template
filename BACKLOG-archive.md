@@ -1,3 +1,49 @@
+## BL-SPECLINT-AC-UNCLAIMED — a plan could declare an acceptance criterion that no task was scheduled to prove — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** M · **Shipped by:** `feat/speclint-ac-unclaimed-arm` · **Spec:** `docs/superpowers/specs/2026-08-26-speclint-dispatch-gates-design.md` §4.2 branch (A) · **Plan:** `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md`
+
+**Read this before the row above it: the row's own premise is false on this corpus.** It read every unclaimed pair as "no task is scheduled to prove this criterion". Classified against each plan's own prose, the 40 flagged pairs were DISCHARGED 28, UNSETTLED 7, FOREIGN-ID 4, RETIRED 1, and **zero** were a criterion nobody had scheduled. The dominant case is a documented convention: a trailing criterion discharged by a task OUTSIDE the marker region, with the plan saying so in prose. So the arm that shipped is built from the measurement and not from the sentence that filed it. Transcript: `docs/superpowers/specs/probes/2026-08-26-ac-disposition-classification.md`.
+
+**What ships.** Two hard codes in `lib/specLint/taskContract.ts`, both rendered from one exported classification (`acAnalysis`), so the finding a reader sees and the set a test asserts cannot disagree:
+
+- `TASK_AC_UNCLAIMED` — a declared id no marker claims, whose declaring line carries no disposition.
+- `TASK_AC_UNDECLARED` — a marker citing an id the plan mentions but never declares, **opt-in by shape**: it fires only in a plan that already declares at least one criterion, because 52 of the 109 enrolled plans keep their criteria in a sibling spec and carry a coverage map instead.
+
+A disposition is an ACCEPT-set with a closed grammar (spec §4.3): parenthesised, end-anchored, `RETIRED` case-sensitive, the owner a closed token list. A near miss REPORTS rather than exempting, since to a plan author silence and clean are indistinguishable. The corpus forced that: `2026-08-21-app-e2e-batch2.md:28` already ends "Task 10.", so a loose matcher would have silently exempted a genuinely unclaimed id.
+
+**Why the grammar stopped, after three of them did not.** Four generations; review refuted the first three on live inputs, each time by finding one more lexical class. v4 takes the cut from a COUNT instead of a pattern: a declaring line yields a criterion only when it carries exactly ONE distinct id, and a line with more is declined and RECORDED. A count has no next grammar corner, which is the property the three pattern generations could not have. Measurements: `docs/superpowers/specs/probes/2026-08-26-ac-declaration-grammar-probe.report.txt`.
+
+The same cut is applied SYMMETRICALLY to the undeclared direction, by orchestrator ruling, and the sequence is the argument for it: without the cut the code reds on **9 plans / 71 ids**, because one incidental list item beginning with an id opts an entire plan in while its real criteria sit in a table. With the cut, **2 plans / 5 ids**. After migration, **0**.
+
+**Live at the shipping head** (post-absorb of `8be90aba7`; the plan required a re-measure here and two figures had already moved):
+
+| measure                            | value                                     |
+| ---------------------------------- | ----------------------------------------- |
+| enrolled plans walked              | 109                                       |
+| plans with a certain declaration   | 57                                        |
+| `TASK_AC_UNCLAIMED`                | 12, equal to the committed residue        |
+| `TASK_AC_UNDECLARED`               | 0, over a provably non-empty declined set |
+| AMBIGUOUS declaring lines          | 13, equal to the committed record         |
+| declined lines (the symmetric cut) | 1114 across 98 plans                      |
+
+Residue: `tests/specLint/acUnclaimedResidue.ts` (12 rows — 10 `unsettled`, 2 `owner-inexpressible`). Ambiguous record: `tests/specLint/acAmbiguousRecord.ts` (13 rows). The done condition is residue EQUALITY and fail-closed, never a flat zero: a zero and the "unsettled pairs stay flagged" constraint could not both hold.
+
+**Why the decline is silent, and the number that bought it.** Recording each declined line would commit 1114 rows across 98 plans, and an exact-equality record that size reds on any routine plan edit anywhere in the corpus. The loudness sits instead on the corpus assertion that the live `TASK_AC_UNDECLARED` set is empty.
+
+**Migration:** 20 disposition lines across 12 plans, plus 2 plans edited into v4 declaration form. Every one states only what its plan's prose already says. All 20 were constructed and run against the grammar BEFORE any was written: each is accepted and leaves its line certain.
+
+**Mutation score at the shipping head: 1.0, 191 sites, 166 killed, 25 survivors all ledgered, 0 unaccepted** (`taskContract.20260827-113613-16480-0001.json`). Scoring was not a formality — the first two runs returned 0.7906 and 0.9116, both real, both repaired rather than argued down. Three of the gaps were exactly what plan review predicted: the `declined` and `ambiguous` accumulators were asserted only by the corpus suites, which the registry does not run, so deleting either push left the gate green.
+
+**Documented limits, none of them filed as rows** (process mint freeze, and this arc's own no-new-rows constraint):
+
+1. **The residue list IS the limits record** (spec §7 limit 8). It holds only pairs no disposition can honestly express, may shrink as owning arcs settle their own plans, and may never grow to make a red go away.
+2. **A residue row makes its plan un-dispatchable through the lint gate, and that is the design working.** Eight plans hold one, so they report `TASK_AC_UNCLAIMED` at hard severity indefinitely; the #904 lint gate then refuses a `--stage spec|plan` dispatch naming them, and `--no-lint-gate` is the intended escape (spec §7 limit 3). An id whose disposition would be a lie stays flagged, and staying flagged is what flagged means.
+3. **A `RETIRED` reason may not name another id, and spec §4.3's own example does.** The reason sits on the declaring line, so `(RETIRED: superseded by AC-4)` puts two ids there and the count cut declines it. The criterion is still exempted, by the decline rather than by the disposition. Two ratified things conflict and the count cut wins, because it is the terminating decision three refuted grammars bought. `docs/agents/writing-plans.md` advertises an id-free reason instead, and both halves are pinned.
+
+**Review:** plan stage 4 rounds (10/5/7/2 findings), diff stage 4 rounds (5/4/3/1), all accepted, none disputed. Filing: `docs/review-rounds/feat/speclint-ac-unclaimed-arm/44b0d74b1107.md`, whose diff section records the one thing worth carrying forward — three of the four diff rounds landed on a single class, because the round-1 repair named fields one at a time instead of deriving over them.
+
+**No `BL-`/`DEF-` row is filed by this arc, of any facing.**
+
 ## BL-TYPO-NORMALIZED-V4-VENUE-SHAPE — the venue gate could not see the current template, and the miss was silent — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** S · **Shipped by:** `fix/typo-v4-venue-shape` · **Spec:** `docs/superpowers/specs/parser/2026-08-27-venue-block-predicate-design.md`

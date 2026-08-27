@@ -114,8 +114,8 @@ Re-run both commands at closeout with the same exclusions; the only NEW hits mus
 - **AC-4** harness spec §7 carries L-11; §6.1 points at the live bullet; the pair spec carries the arm and limit item 9.
 - **AC-5** `AGENTS.md` bullet 4 rewritten in place (four points, no numbers); line 188 names the `OPERATORS:` element; `pnpm vitest run tests/docs/` green.
 - **AC-6** the row is graduated; ledger meta-tests green; no marker reaches `main`.
-- **AC-7** no enrolled source, deciding suite, registry, partition, or operator file in the diff; `pnpm mutation:sites psqlStartupScan` zero stale.
-- **AC-8** the ci specs README carries the index row (landed on the spec branch; Task 3 retired).
+- **AC-7** no enrolled source, deciding suite, registry, partition, or operator file in the diff; `pnpm mutation:sites psqlStartupScan` zero stale (discharged by closeout)
+- **AC-8** the ci specs README carries the index row (landed on the spec branch; Task 3 retired) (discharged by Task 3)
 - **AC-9** the ATX heading form is recognized; the 24 corpus heading lines replay with their classified verdicts (20 exit 2, 4 dispatch, 12 dispatch once a tail is appended); under the shipped trigger all 24 dispatch.
 - **AC-1 (second half)** a score-shaped line is never rescued by a `CANNOT-EXPRESS:` tail: a valid score without `OPERATORS:` beside one exits 2, and a non-canonical `0/0` score beside one exits 2 (spec §2.2 matrix).
 
