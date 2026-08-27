@@ -312,7 +312,9 @@ There is no local show with diagram snapshots (`select id from shows where diagr
 
 ## 12. Close-out
 
-impeccable-gate: PENDING
+**The `impeccable-gate:` marker line is absent on purpose, and lands in Task 3's commit.** `tests/docs/_metaInvariant8Closeout.test.ts` accepts only a well-formed marker: `critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=<n> p1=<n> dispositions=(recorded|none)`. Nothing truthful can be written there before the gates run, and a placeholder is a malformed marker line that reds §4.1.2 (probed: `impeccable-gate: PENDING` fails both §4.1.1 and §4.1.2). `PRE_GUARD_DEBT` is not the escape — it is scoped to pre-guard history, and a row for a live arc reds on its own rule the moment the marker lands.
+
+So this plan is a declaring unit with no marker until Task 3, which means **the branch is not pushed between the plan commit and Task 3's gate commit**. The ledger's IN PROGRESS marker was pushed at Stage 0 and is what invariant 12 requires; the review dispatches read the live worktree, not origin; and CI's twelve are a close-out gate, so nothing is lost by holding. Stated here rather than discovered by a reviewer wondering why the section looks unfinished.
 
 ### Findings and dispositions
 
