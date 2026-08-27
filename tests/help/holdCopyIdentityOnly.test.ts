@@ -26,6 +26,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { stripCommentsForFile } from "../_shared/stripComments";
+
 const HELP_ROOT = "app/help";
 
 /** Every help page, walked. */
@@ -38,11 +40,13 @@ const helpPages: Array<[string, string]> = readdirSync(HELP_ROOT, { recursive: t
 const unbold = (text: string) => text.replaceAll("**", "");
 
 /**
- * MDX and JSX comments removed. Wording that lives only in a comment is not
- * copy anybody reads, and must not satisfy the positive assertion.
+ * Comments are removed through the shared module, which routes `.mdx` to its
+ * MDX stripper. This file previously hand-rolled that, which the single-source
+ * walker at tests/cross-cutting/_metaStripCommentsSingleSource.test.ts correctly
+ * refused: the stripping here is incidental plumbing, not the subject of any
+ * assertion, so it has no business being local.
  */
-const stripComments = (text: string) =>
-  text.replaceAll(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "").replaceAll(/<!--[\s\S]*?-->/g, "");
+const stripped = (path: string, text: string) => stripCommentsForFile(text, path);
 
 /** The complete replacement sentence, through its terminating punctuation. */
 const IDENTITY_SENTENCE =
@@ -66,6 +70,20 @@ describe("help copy says a hold freezes identity, not the whole row", () => {
     }
   });
 
+  it("keeps the corpus inside what the shared MDX stripper actually covers", () => {
+    // stripMdxComments removes JSX block comments and DELIBERATELY keeps line
+    // comments, because a bare `//` in MDX is a URL far more often than a
+    // comment. It does not strip HTML `<!-- -->` either. Zero help pages use
+    // that syntax today, and this pins it: if one ever did, a commented-out
+    // identity sentence would satisfy the positive assertion below while
+    // nobody could read it on the page.
+    for (const [path, text] of helpPages) {
+      expect(text, `${path} uses a comment syntax the shared stripper leaves in place`).not.toContain(
+        "<!" + "--",
+      );
+    }
+  });
+
   it("lets NO help page promise that a held member's prior DETAILS stay in effect", () => {
     for (const [path, text] of helpPages) {
       expect(unbold(text), `whole-row freeze promised in ${path}`).not.toMatch(
@@ -78,7 +96,7 @@ describe("help copy says a hold freezes identity, not the whole row", () => {
     for (const page of PRIMARY_PAGES) {
       const text = helpPages.find(([path]) => path === page)?.[1] ?? "";
       expect(
-        unbold(stripComments(text)),
+        unbold(stripped(page, text)),
         `${page} must carry the complete identity sentence in live copy`,
       ).toContain(IDENTITY_SENTENCE);
     }
