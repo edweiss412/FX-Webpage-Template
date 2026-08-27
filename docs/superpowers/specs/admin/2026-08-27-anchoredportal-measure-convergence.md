@@ -259,9 +259,24 @@ So the guard set has two coverage regions and each has an owner:
    placement sequence does not move. Proven, not predicted: the mutant above
    reds with `expected 3 to be 2`.
 
+3. **The failed attempts are themselves a positive result, and this is the
+   statement to keep.** They did not merely fail to be built: TWO of them
+   committed a genuinely wrong placement and the ungated effect MEASURED on the
+   resulting commit and corrected it, inside the same task. So the reason B4 is
+   hard to defeat is that the code prevents the defect B4 guards — the
+   every-commit effect that exists for position-only moves also repairs a stale
+   placement from any source, before it can settle.
+
+   Scoped to what was observed: two injections, both synthetic, both corrected
+   within the task. The third attempt (`setTimeout(50)`) landed outside the
+   probe's window and is evidence of nothing. This is not a proof that no stale
+   placement can ever survive; it is why no mutant of this shape was
+   constructible here.
+
 A reader who sees "B4: no mutant" would conclude it is untested. It is
-scope-limited with a named compensator, and the compensator has a red to show
-for it.
+scope-limited with a named compensator that has a red to show for it, and the
+missing mutant is partly a property of the design rather than a gap in the
+suite.
 
 **The two pins also exercise different code paths, which is characterisation
 rather than defect.** jsdom's stubbed rects make `placeWithinVisibleViewport`
