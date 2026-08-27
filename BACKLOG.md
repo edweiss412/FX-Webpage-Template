@@ -396,7 +396,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-TYPO-NORMALIZED-V4-VENUE-SHAPE — the re-keyed venue gate is unreachable on the current template, and the miss is silent
 
-**Severity:** MEDIUM (a SILENT miss, not a conservative demote — nothing at all is emitted, so the operator gets no signal to act on) · **Class:** parser signal reachability · **Filed:** 2026-08-15 (`feat/mutation-section-order`, found by the implementer during the field-near-miss detector task and confirmed by its reviewer) · **Effort:** S (the code is one predicate; the DECISION is the work)
+**Status:** IN PROGRESS · **Branch:** fix/typo-v4-venue-shape · **Severity:** MEDIUM (a SILENT miss, not a conservative demote — nothing at all is emitted, so the operator gets no signal to act on) · **Class:** parser signal reachability · **Filed:** 2026-08-15 (`feat/mutation-section-order`, found by the implementer during the field-near-miss detector task and confirmed by its reviewer) · **Effort:** S (the code is one predicate; the DECISION is the work)
 
 **Probed, not theorized.** Same typo-alias row, same parser, differing only in the shape of the table that holds it:
 
