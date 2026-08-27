@@ -459,6 +459,25 @@ migrated against the line as it now reads. A disposition is a function of the
 plan's current prose, so a concurrent edit changes the input rather than deferring
 the work.
 
+
+**Re-measured 2026-08-27 at the shipping head, after absorbing `8be90aba7`, and
+the instruction above earned itself.** #911 landed
+`docs/superpowers/plans/2026-08-27-venue-block-predicate.md`, an enrolled plan
+that declares no criterion of its own, so the population figures in §0.1 and the
+table above are SNAPSHOTS at this plan's base and read as follows at the head
+that ships: enrolled 108 -> 109, declining plans 97 -> 98, declined lines
+1089 -> 1114, plans with no certain declaration 51 -> 52. The four figures the
+arm is judged on did NOT move: unclaimed 12 (equal to the residue), ambiguous 13
+(equal to the record), undeclared 0, certain-declaring plans 57.
+
+The drift was caught by AC-11 rather than by a reader, which is the whole reason
+that assertion exists: `docs/agents/writing-plans.md` quoted `51 of the 108` and
+`1089 rows across 97 plans` as present-tense facts, and diff review round 3
+finding 3 observed that nothing checked them. Between that repair and this push,
+main moved and made both false. The convention paragraph now carries the head's
+numbers.
+
+
 **The negative controls are part of the done condition, not extras.** Three, each
 run once and quoted. (a) Append one undisposed `- AC-99: planted` line to any
 enrolled plan in the worktree, run the corpus test, observe RED naming that plan
