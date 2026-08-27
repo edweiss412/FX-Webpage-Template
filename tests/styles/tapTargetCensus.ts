@@ -436,7 +436,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx",
-    line: 101,
+    line: 87,
     tag: "button",
     category: "unresolvable-dynamic",
     reason:

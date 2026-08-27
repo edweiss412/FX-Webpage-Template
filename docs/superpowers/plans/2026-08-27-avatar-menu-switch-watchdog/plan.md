@@ -127,9 +127,9 @@ const DECLARED = [
   },
   {
     id: "C2",
-    what: "onSwitchSubmit re-entry guard, reading the DERIVED busy flag",
-    marker: /if \(switchBusy\) return;/,
-    treatment: "not a render branch; admitting the retry is the point",
+    what: "the re-entry guard on the click, reading the DERIVED busy flag",
+    marker: /if \(switchBusy\) \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?return;/,
+    treatment: "not a render branch; admitting the retry once the watchdog has fired is the point",
   },
   {
     id: "C3",
@@ -554,7 +554,7 @@ components/shared/pendingTimeout.ts (new), `components/auth/AvatarMenu.tsx`, `ap
 
 ## Task 1 — the watchdog, on one shared constant
 
-<!-- task: red=`pnpm vitest run tests/components/auth/avatarMenu.test.tsx` red-state=authored red-target=`components/auth/AvatarMenu.tsx:108` why=`switchPending comes straight from useTransition with no watchdog beside it and onSwitchSubmit guards re-entry on that raw flag, so every new case asserting the row re-enables at 8s, that a retry reaches clearAction a second time, that the announcer swaps to the timeout notice, or that a rejected clear leaves the component mounted with an alert, fails until the switchPhase machine, its timer and its catch land` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7,AC-8,AC-9,AC-10,AC-11,AC-12,AC-14,AC-15,AC-16 -->
+<!-- task: red=`pnpm vitest run tests/components/auth/avatarMenu.test.tsx` red-state=authored red-target=`components/auth/AvatarMenu.tsx:108` why=`switchPending comes straight from useTransition with no watchdog beside it and onSwitchSubmit guards re-entry on that raw flag, so every new case asserting the row re-enables at 8s, that a retry reaches clearAction a second time, that the announcer swaps to the timeout notice, or that a rejected clear leaves the component mounted with an alert, fails until the switchPhase machine, its timer and its catch land` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7,AC-8,AC-9,AC-10,AC-11,AC-12,AC-13,AC-14,AC-15,AC-16 -->
 
 **What is red and why.** A new describe in `tests/components/auth/avatarMenu.test.tsx` holds a `clearAction` unresolved and advances fake timers past 8,000 ms. On the live tree `switchPending` is the raw `useTransition` flag (`components/auth/AvatarMenu.tsx:108`) and the re-entry guard reads it (`components/auth/AvatarMenu.tsx:116`), so the row stays `aria-disabled="true"`, `aria-busy="true"`, the announcer keeps reading `Switching person`, and the second tap never reaches `clearAction`. That was measured, not predicted: the reachability probe above ran exactly this shape against the unmodified component and passed. Every new case therefore fails until the implementation lands.
 
@@ -572,6 +572,7 @@ components/shared/pendingTimeout.ts (new), `components/auth/AvatarMenu.tsx`, `ap
 - AC-10: compound C7, on the same boundary harness. A rejection with NO digest at all (`new Error("network")`, a transport fault rather than a server-reported one) leaves the boundary untouched, the component mounted, the row enabled, the announcer empty and the generic alert rendered. Kept alongside AC-14 because it is the shape with no digest to classify, and because it is the case round 1 filed. (discharged by Task 1)
 - AC-11: `tests/styles/tapTargetCensus.ts`'s row for the sibling names line 87 rather than 101, and `tests/styles/interactiveScanCore.test.ts` passes. The census is DERIVED from a scan, so the row must follow the button the hoist moved. (discharged by Task 1)
 - AC-12: compound C8. With the settle resolved and the watchdog due in the same flush, the phase ends `idle` and the alert stands alone. **Green before and after, and mutant-directed rather than tree-directed:** with no watchdog at all nothing writes over the settled state either, so this case does not discriminate against today's tree. It discriminates against the shipped mechanism with the functional read removed, which is the mutant that reintroduces round 2 F1. That mutant is MANDATED in the task's mutant list, not assumed: the standalone probe reported `phase=timedout status=error` without the guard and `phase=idle status=error` with it, and the same must be observed on the real component before the diff is dispatched. (discharged by Task 1)
+- AC-13: compound C9, and it exists because a mutant said it had to. Round 3 deleted an earlier AC-13 whose target turned out not to be load-bearing; running the mandated mutant list at implementation found the reverse case, the effect's `clearTimeout` cleanup, reddening NOTHING. Attempt 1 settles well inside its window so its timer is still armed, the retry starts before that timer is due, and the stale callback would find the phase at `"pending"` (the NEW attempt's) and end a window that is not its own. Verified: with the cleanup deleted this is the one case that reds. (discharged by Task 1)
 - AC-14: compound C10, both directions of the classifier, asserted THROUGH THE COMPONENT rather than through Next's classifier. The menu renders inside a test error boundary and the same harness runs twice. A rejection carrying `"NEXT_REDIRECT;replace;/x;307;"` must reach the boundary: `boundaryCaught` true, the row gone. A rejection carrying the opaque `"3693416880"`, the shape the installed Next 16.3.0 produced for an ordinary server failure, must NOT: boundary untouched, row present and enabled, the generic alert rendered. Probed on that harness before it was written down, and the two lines are the whole finding: `REDIRECT boundaryCaught=true rowPresent=false` against `OPAQUE boundaryCaught=false rowPresent=true status=error`. Round 3 F2: the earlier version called `unstable_rethrow` directly, which tests Next's classifier and not this component, and then let the redirect reject inside a bare `act`, where the rethrow fails the case rather than being asserted. (discharged by Task 1)
 - AC-15: tests/components/auth/avatarMenuTransitionAudit.test.ts exists and passes: every ternary, `&&` guard and `if` in `components/auth/AvatarMenu.tsx` carries a DECLARED row with a §4.6 treatment, and the totality assertion pins the count against `DECLARED.length` so a branch added later fails rather than passing silently. Round 2 F5: the component gained a state and a Transition Inventory amendment with no structural audit, which the mandatory writing-plans contract requires, and the only audit in the gate list was the sibling's. (discharged by Task 1)
 - AC-16: compound C5, which round 2 F5 correctly observed had no case. A theme flip performed while the row is TIMED OUT leaves the menu open, the row enabled and the timeout notice intact, and the theme change survives. The existing compound at `tests/components/auth/avatarMenu.test.tsx:305` runs from open-idle and does not reach this state. (discharged by Task 1)
@@ -1107,6 +1108,48 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
     );
   });
 
+  it("COMPOUND C9: a timer left over from a settled attempt does not end the next one's window (AC-13)", async () => {
+    // What the effect cleanup is FOR, and the case exists because deleting the
+    // cleanup reds nothing else in this file. Attempt 1 settles well inside its
+    // window, so its timer is still armed; the retry then starts before that
+    // timer is due, and the stale callback would find the phase at "pending",
+    // which is the NEW attempt's, and end a window that is not its own.
+    vi.useFakeTimers();
+    const { first, second, action } = twoAttempts();
+    const { item } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    await act(async () => {
+      first.resolve({ ok: true });
+      await first.promise;
+    });
+    // Premise on this case's own inputs: attempt 1 really settled, and it did so
+    // with its timer still armed, which is the only situation this case is about.
+    expect(item.getAttribute("aria-disabled"), "attempt 1 settled inside its window").toBe("false");
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+      fireEvent.click(item);
+    });
+    expect(action, "attempt 2 started").toHaveBeenCalledTimes(2);
+
+    // t = 8,100 from the first tap, so attempt 1's timer was due 100ms ago.
+    // Attempt 2 is only 7,500ms into its own window and must still be busy.
+    act(() => {
+      vi.advanceTimersByTime(7_500);
+    });
+    expect(item.getAttribute("aria-disabled"), "attempt 2's window is its own").toBe("true");
+
+    await act(async () => {
+      second.resolve({ ok: true });
+      await second.promise;
+    });
+  });
+
   it("COMPOUND C10: a NEXT_REDIRECT digest DOES reach the boundary (AC-14)", async () => {
     // The other direction, and the pair is the point: a case that only ever
     // rejects a bare Error passes under the refuted digest test and under
@@ -1151,7 +1194,7 @@ pnpm format:check
 
 String-presence, per the standing four: (a) `SWITCH_TIMEOUT_NOTICE` emptied; (b) the notice with an appended suffix; (c) the notice present in the module but not rendered, the announcer left on the old two-branch text; (d) the discriminating parameter varied, `PENDING_TIMEOUT_MS` set to 4,000 and to 12,000 in turn.
 
-Mechanism, one per guard the plan claims is load-bearing: (e) the watchdog callback's functional read replaced by a bare `setSwitchPhase("timedout")`, which must red AC-12; (f) `unstable_rethrow(error)` replaced by the `typeof digest === "string"` test round 2 refuted, which must red AC-14's opaque-digest case; (h) the ordinal check in the SETTLE path deleted, which must red AC-5. A guard whose mutant reds nothing is a guard the suite does not actually hold, and it is better to learn that here than from the next reviewer.
+Mechanism, one per guard the plan claims is load-bearing. **All nine were run at implementation and each red the case named here**; (h) initially red NOTHING, and rather than accept an unheld guard the arc wrote AC-13 for it and re-ran. That is the same move round 3 made in the other direction, where the mutant said to delete the guard instead. (e) the watchdog callback's functional read replaced by a bare `setSwitchPhase("timedout")`, which must red AC-12; (f) `unstable_rethrow(error)` replaced by the `typeof digest === "string"` test round 2 refuted, which must red AC-14's opaque-digest case; (h) the ordinal check in the SETTLE path deleted, which must red AC-5. A guard whose mutant reds nothing is a guard the suite does not actually hold, and it is better to learn that here than from the next reviewer.
 
 **Anti-tautology.** Every case states its premise on its OWN inputs before the assertion that rests on it: the tap reached `clearAction`; the watchdog fired before the retry; the settle landed inside the window; two attempts really were in flight. AC-5 carries the live-failure half specifically so a component that stopped reporting failures at all cannot pass it, and AC-1 pins the window from both sides so a shorter timeout cannot pass by also ending enabled.
 

@@ -39,7 +39,7 @@ auth-js 2.105.1 (the installed `@supabase/auth-js`), `GoTrueClient._signOut` in 
 
 ### 2.4 Where a cookie-only switch lands today
 
-After `clearIdentityCoreImpl` deletes the entry it calls `revalidatePath` (`clearIdentity.ts:255`), the route re-renders in the same request with the mutated cookies, `resolvePickerSelection` reports `no_selection`, and `toPageResult` maps that to `{ kind: "no_auth", reason: "first_contact" }` (`resolveShowPageAccess.ts:114`). The page renders `SignInOrSkipGate` in Mode A (`page.tsx:318-332`; modes at `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:9-15`), whose "Continue as guest" leads to the picker. `AvatarMenu` relies on exactly this: its success-branch comment says a cookie-only viewer unmounts the whole control via revalidatePath, so success needs no branch (`components/auth/AvatarMenu.tsx:122-123`).
+After `clearIdentityCoreImpl` deletes the entry it calls `revalidatePath` (`clearIdentity.ts:255`), the route re-renders in the same request with the mutated cookies, `resolvePickerSelection` reports `no_selection`, and `toPageResult` maps that to `{ kind: "no_auth", reason: "first_contact" }` (`resolveShowPageAccess.ts:114`). The page renders `SignInOrSkipGate` in Mode A (`page.tsx:318-332`; modes at `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:9-15`), whose "Continue as guest" leads to the picker. `AvatarMenu` relies on exactly this: its success-branch comment says a cookie-only viewer unmounts the whole control via revalidatePath, so success needs no branch (`components/auth/AvatarMenu.tsx:185-186`).
 
 ## 3. Design — `clearIdentity` signs out, then clears; Mode B keeps its order
 
@@ -70,7 +70,7 @@ Nothing is exported that was not exported before. `clearIdentityCore` keeps its 
 
 Spec review round 1 (BLOCKING) probed the entry-first order this spec first proposed: `clearIdentityCoreImpl` calls `revalidatePath` before returning (`lib/auth/picker/clearIdentity.ts:231` and `lib/auth/picker/clearIdentity.ts:255`), so a sign-out fault after the core would re-render the route with the Google session still live and the entry gone, which is exactly the loopback (`lib/auth/picker/resolveShowPageAccess.ts:246-252`): bootstrap re-mints the identity, the page navigates, and the menu's failure copy is never seen. The reviewer's probe holds for every core-success shape (entry present, no envelope, envelope without this show).
 
-Signing out first closes it. A sign-out fault returns before the core runs, so nothing is revalidated, nothing re-renders, the menu shows `PICKER_SWITCH_FAILED` (`components/auth/AvatarMenu.tsx:124`), and the person is still the identity they were: an honest "the switch did not happen". This is safe because on this path the entry's person is never a stranger to the session: a live Google session always wins resolve (`lib/auth/picker/resolveShowPageAccess.ts:237-252`), so a rendered menu belongs either to the session's own person (bootstrap minted the entry from it) or to a cookie-only viewer with no session at all. The Mode B ordering rationale (`lib/auth/picker/clearIdentity.ts:97-104`) is about a foreign session that does NOT match the entry, which cannot be the state a rendered avatar menu is in. Mode B keeps its order; this path gets its own, and the comment above each says why.
+Signing out first closes it. A sign-out fault returns before the core runs, so nothing is revalidated, nothing re-renders, the menu shows `PICKER_SWITCH_FAILED` (`components/auth/AvatarMenu.tsx:208`), and the person is still the identity they were: an honest "the switch did not happen". This is safe because on this path the entry's person is never a stranger to the session: a live Google session always wins resolve (`lib/auth/picker/resolveShowPageAccess.ts:237-252`), so a rendered menu belongs either to the session's own person (bootstrap minted the entry from it) or to a cookie-only viewer with no session at all. The Mode B ordering rationale (`lib/auth/picker/clearIdentity.ts:97-104`) is about a foreign session that does NOT match the entry, which cannot be the state a rendered avatar menu is in. Mode B keeps its order; this path gets its own, and the comment above each says why.
 
 | Step fails | Returned | Cookie state | Session state | `revalidatePath` | Next render |
 | --- | --- | --- | --- | --- | --- |
@@ -82,7 +82,7 @@ Signing out first closes it. A sign-out fault returns before the core runs, so n
 | `clearIdentityCore` (thrown fault, `lib/auth/picker/clearIdentity.ts:216-217`) | `PICKER_RESOLVER_LOOKUP_FAILED` | whatever the core left (entry intact if it threw before the write) | revoked (or no-op for a cookie-only viewer) | called only if the throw came after it | menu shows the failure copy; if a re-render happens it resolves the still-valid entry via the cookie path, the same person; retry: `signOut` no-op, clear again |
 | none | `{ ok: true }` | entry deleted | revoked (or no-op, §2.2) | called | Mode A gate (§3.3) |
 
-The failure copy is the existing `PICKER_SWITCH_FAILED` row ("Couldn't switch. Please try again.", `lib/messages/catalog.ts:3806-3821`). `AvatarMenu` already maps every `ok: false` to it (`components/auth/AvatarMenu.tsx:113-124`), so no new catalog row and no §12.4 edit.
+The failure copy is the existing `PICKER_SWITCH_FAILED` row ("Couldn't switch. Please try again.", `lib/messages/catalog.ts:3806-3821`). `AvatarMenu` already maps every `ok: false` to it (`components/auth/AvatarMenu.tsx:180-208`), so no new catalog row and no §12.4 edit.
 
 **Class sweep on the round-1 shape** ("a returned failure leaves the route re-rendered into a state that hides the failure"). The other exported endpoint, `clearIdentityAndSkip`, has the shape in form: on a sign-out fault its entry is already gone and `revalidatePath` has fired. It is not the same defect: the re-render there resolves to the Mode B mismatch state (the session matches no roster row, which is Mode B's premise) and re-renders the Mode B gate, which that arc ratified as the retry affordance (`lib/auth/picker/clearIdentity.ts:138-141`, `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4.3). No bootstrap re-mint is possible from a mismatched session. Left as ratified (class-sweep exception (b)).
 
@@ -104,11 +104,11 @@ No new Supabase call site. `signOutThisDevice` is reused, and its contract (clie
 
 ### 3.6 `AvatarMenu.tsx`
 
-One comment changes (`components/auth/AvatarMenu.tsx:122-123`): the success branch note reads "a viewer unmounts this whole control via revalidatePath" for both identity sources, and the reason is stated (the clear now also signs the browser out). No markup, class, prop, or behavior change in the component. It is still a UI surface under invariant 8, so the impeccable critique + audit pair runs on the diff at close-out.
+One comment changes (`components/auth/AvatarMenu.tsx:185-186`): the success branch note reads "a viewer unmounts this whole control via revalidatePath" for both identity sources, and the reason is stated (the clear now also signs the browser out). No markup, class, prop, or behavior change in the component. It is still a UI surface under invariant 8, so the impeccable critique + audit pair runs on the diff at close-out.
 
 ### 3.7 Guard conditions
 
-Inputs are the three hidden fields plus optional `s` (`AvatarMenu.tsx:412-415`, `ClearIdentityInput` at `clearIdentity.ts:29-37`). Missing or non-string field: `PICKER_INVALID_INPUT` before any mutation (parse, `lib/auth/picker/clearIdentity.ts:68-76`). Present but invalid per `isValidClearIdentityInput`: `PICKER_INVALID_INPUT` before any mutation (§3.1, validated ahead of the core; the core validates again, `lib/auth/picker/clearIdentity.ts:222-224`). No picker cookie, or a cookie with no entry for this show: the core returns `{ ok: true }` without an emit (`lib/auth/picker/clearIdentity.ts:229-232` and `lib/auth/picker/clearIdentity.ts:257-262`), and the sign-out still runs, because a Google viewer whose entry was already re-minted elsewhere is exactly the loopback case. `s` is not consumed on the `clearIdentity` path (no redirect); it stays in the type for the skip path.
+Inputs are the three hidden fields plus optional `s` (`AvatarMenu.tsx:499-506`, `ClearIdentityInput` at `clearIdentity.ts:29-37`). Missing or non-string field: `PICKER_INVALID_INPUT` before any mutation (parse, `lib/auth/picker/clearIdentity.ts:68-76`). Present but invalid per `isValidClearIdentityInput`: `PICKER_INVALID_INPUT` before any mutation (§3.1, validated ahead of the core; the core validates again, `lib/auth/picker/clearIdentity.ts:222-224`). No picker cookie, or a cookie with no entry for this show: the core returns `{ ok: true }` without an emit (`lib/auth/picker/clearIdentity.ts:229-232` and `lib/auth/picker/clearIdentity.ts:257-262`), and the sign-out still runs, because a Google viewer whose entry was already re-minted elsewhere is exactly the loopback case. `s` is not consumed on the `clearIdentity` path (no redirect); it stays in the type for the skip path.
 
 ### 3.8 Dimensional Invariants
 
@@ -127,7 +127,7 @@ Disposition for the archive entry: names #882 and its merge sha `15e0b2d95`, rec
 ## 5. Plan-wide invariants touched
 
 - Invariant 1 (TDD): every behavior in §3.2 lands as a failing test first (§6).
-- Invariant 5: the only user-visible failure copy is the existing `PICKER_SWITCH_FAILED` row via `messageFor` (`AvatarMenu.tsx:455-462`). No raw code reaches UI.
+- Invariant 5: the only user-visible failure copy is the existing `PICKER_SWITCH_FAILED` row via `messageFor` (`AvatarMenu.tsx:545-553`). No raw code reaches UI.
 - Invariant 8: `AvatarMenu.tsx` is in the diff; critique + audit run at close-out; `impeccable-gate:` marker line in the closeout.
 - Invariant 9: §3.5.
 - Invariant 10: §3.4.
