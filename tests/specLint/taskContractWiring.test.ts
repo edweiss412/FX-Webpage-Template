@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = process.cwd();
@@ -164,6 +164,37 @@ describe("taskContract wiring (design §3.4)", () => {
       "<!-- tasks: end -->",
       "",
     ].join("\n"),
+    // A declared id nothing claims. AC-1 is claimed AND declared, so it draws
+    // nothing; AC-2 is the sole finding.
+    TASK_AC_UNCLAIMED: [
+      "<!-- tasks: depth=2 -->",
+      "",
+      "## Task 1",
+      "",
+      "<!-- task: red=`x` ac=AC-1 -->",
+      "",
+      "- AC-1 declared and claimed.",
+      "- AC-2 declared and claimed by nothing.",
+      "",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n"),
+    // A cited id the plan MENTIONS but never declares, in a plan that declares
+    // at least one. AC-2's occurrence is ordinary prose, so the symmetric cut
+    // does not decline it.
+    TASK_AC_UNDECLARED: [
+      "<!-- tasks: depth=2 -->",
+      "",
+      "## Task 1",
+      "",
+      "<!-- task: red=`x` ac=AC-1,AC-2 -->",
+      "",
+      "- AC-1 declared and claimed.",
+      "AC-2 is mentioned in this sentence and nowhere else.",
+      "",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n"),
     TASK_AC_UNRESOLVED: [
       "<!-- tasks: depth=2 -->",
       "",
@@ -177,7 +208,7 @@ describe("taskContract wiring (design §3.4)", () => {
   };
 
   it(
-    "AC-47/M75/M80: ALL TEN codes are hard — exit 1 and rendered FAIL, never ADVISORY",
+    "AC-47/M75/M80: ALL TWELVE codes are hard — exit 1 and rendered FAIL, never ADVISORY",
     () => {
       for (const [code, text] of Object.entries(CODE_FIXTURES)) {
         const rel = write(`_tc-sev-${code}.md`, text);
@@ -193,6 +224,48 @@ describe("taskContract wiring (design §3.4)", () => {
     },
     T,
   );
+
+  /**
+   * Every string literal in FIRST-ARGUMENT position of a `fail(` call in
+   * `lib/specLint/taskContract.ts`, parsed rather than grepped.
+   *
+   * A same-line grep is what produced this spec's own withdrawn "nine sites,
+   * ten codes" claim: `TASK_ENROLL_EMPTY` is raised through `fail` like every
+   * other code, merely formatted across four lines. And unioning such a grep
+   * with the `CODE_FIXTURES` keys is circular — the registry would supply the
+   * very member the census failed to find, so a NEW multiline-formatted code
+   * with no fixture would pass. The cover is taken from the production source
+   * ALONE, so a code the parser cannot see is a code the sweep reports missing,
+   * which is the direction that matters.
+   */
+  const productionCodes = (): string[] => {
+    const src = readFileSync(join(ROOT, "lib/specLint/taskContract.ts"), "utf8");
+    const out = new Set<string>();
+    for (let i = src.indexOf("fail("); i !== -1; i = src.indexOf("fail(", i + 1)) {
+      // Skip the declaration itself and any identifier ending in `fail`.
+      if (/[A-Za-z0-9_$]/.test(src[i - 1] ?? "")) continue;
+      const rest = src.slice(i + "fail(".length);
+      const m = /^\s*"([^"]+)"/.exec(rest);
+      if (m) out.add(m[1]!);
+    }
+    return [...out].sort();
+  };
+
+  it("AC-4/AC-5: every code production can raise has a CODE_FIXTURES row, and vice versa", () => {
+    const production = productionCodes();
+    // The premise: a parser that finds nothing would make the equality below
+    // hold only when the registry is empty too, which is not a claim about the
+    // production source. Ten codes existed before this arc added two.
+    expect(`production codes found: ${production.length >= 12}`).toBe("production codes found: true");
+    expect(production).toEqual(Object.keys(CODE_FIXTURES).sort());
+  });
+
+  it("AC-4/AC-5: the parser sees the MULTILINE fail() site, not only same-line ones", () => {
+    // TASK_ENROLL_EMPTY is the live witness — raised through `fail` formatted
+    // across four lines. A same-line extraction misses it and the equality above
+    // would then be asserting a smaller claim than it appears to.
+    expect(productionCodes()).toContain("TASK_ENROLL_EMPTY");
+  });
 
   it(
     "AC-25/M21: findings render under their own taskContract: heading in real stdout",
