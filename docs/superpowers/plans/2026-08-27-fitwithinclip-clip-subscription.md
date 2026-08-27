@@ -56,9 +56,9 @@ The criteria are declared in the spec's §8 and are not re-declared here, so the
 | AC-5 positioned role and listener follow | 2 | A positioned swap with no re-attach. |
 | AC-6 a resolved null retains that role and its target | 4 | Both roles, each with its own plant. |
 | AC-7 no ResizeObserver: no throw, window resize still correct | 4 | The existing `(f)` extended to the new transition and to every reconcile site. |
-| AC-8 one extra apply when the reconcile ADDS, zero when it does not | 4 | The existing counting cases `(h)`, `(h8)`, `(h15)`, `(h17)`, `(h13)` stay green, plus apply-count and walk-count deltas across all three delta classes: adds, removes-only, neither. |
+| AC-8 one extra apply when the reconcile adds a target WITH A BOX, zero otherwise | 4 | The existing counting cases `(h)`, `(h8)`, `(h15)`, `(h17)`, `(h13)` stay green, plus apply-count and walk-count deltas across all four delta classes: adds-with-a-box, adds-only-0x0, removes-only, neither. Run with `deliverInitial: true`. |
 | AC-10 every observe requests `{ box: "border-box" }` | 1 | The recorded observe calls, at attach and after a reconcile. Argument-level, with its limit stated: jsdom computes no layout. |
-| AC-9 no target is unobserved while either role still wants it | 3 | Derivation 1 of spec §5.2 as an assertion, exercised on every arrangement where a role re-targets away from an element the other role still wants. |
+| AC-9 both halves: nothing wanted is unobserved, nothing held is re-observed | 3, 4 | Task 3 asserts the first half on every arrangement where a role re-targets away from an element the other role still wants; task 4 asserts the second from the observe log, which is the only place it is visible. |
 
 ## Anti-tautology notes that apply to every case below
 
@@ -66,12 +66,17 @@ The criteria are declared in the spec's §8 and are not re-declared here, so the
 - **Expected caps are derived through the real `computeFittedMaxHeight`** via the suite's `expectedPx` helper (`tests/components/admin/useFitWithinClip.test.tsx:109`), never typed. A hardcoded `"222px"` would pass against a fixture that cannot reach it.
 - **Every case that asserts a changed cap also asserts it DIFFERS from the pre-change cap**, so a case whose geometry mutation silently failed to take cannot report green.
 - **Each case states its own premise on its own inputs** with `premiseHolds` (`tests/_shared/premise.ts`), never on a sibling case's.
+- **A case whose subject is which observer CALLS were made asserts the CALL LOGS, never a downstream apply count.** The stub delivers only when a test says so, by design, so a spurious `observe()` on an already-held target produces no callback and no apply: an apply-count assertion is blind to exactly the defect it was written for. Plan review round 1 found two cases and one plant resting on that proxy. The rule is derived, not a list: if the acceptance criterion says "issues no observe" or "does not re-observe", the assertion reads `observeLog` and `unobserveLog`.
+- **A case whose subject is a DELIVERY consequence needs the stub to model delivery.** AC-8's cost rule is about the initial observation `observe()` emits, which the default stub never emits, so those cases run with `installTargetTrackingObserver({ deliverInitial: true })`. When on, `observe()` schedules ONE delivery through the same held-frame queue the rest of the suite uses, and only when the target's stubbed rect is non-zero, which is how the 0x0 class becomes testable at all. It is off everywhere else, because coupling the subscription cases to delivery behaviour they are not about is how the previous draft's counts became unreadable.
+- **A fixture must not let the element under test be held for the OTHER reason.** Round 1's sharpest finding: task 2's original fixture moved the positioned role onto `outer`, which the default harness already holds as the CLIP ancestor, so "outer is observed" and "resize(outer) is deliverable" both passed without any positioned-role reconciliation existing. Aliasing is the subject of task 3 and must be absent from task 2, so task 2 gets a three-level fixture where the positioned role moves between two nodes, neither of which is the clip.
 
 ## The real-browser half, which no jsdom case can carry
 
 Spec §4.3 claims that conditional re-targeting is what makes the coalesced path terminate, because `ResizeObserver.observe()` delivers an initial observation. **Every stub in the unit suite fires only when a test tells it to, so no unit case can observe that delivery, and therefore no unit case can prove or refute the termination claim.** A unit suite that appeared to prove it would be proving a property of the stub.
 
 The real cover already exists: `tests/e2e/popover-clip-fit.spec.ts` drives the one live consumer in a real browser, including the settled fit, the animated path that awaits `transitionend`, containment against the clip edge, and the held-open flip that lands mid-entrance (`tests/e2e/popover-clip-fit.spec.ts:271`, `tests/e2e/popover-clip-fit.spec.ts:308`, `tests/e2e/popover-clip-fit.spec.ts:332`, `tests/e2e/popover-clip-fit.spec.ts:409`, `tests/e2e/popover-clip-fit.spec.ts:447`). Under a non-terminating re-measure loop those cases do not fail subtly; they thrash and time out.
+
+**What it does and does not verify, stated so the plan does not overclaim.** It verifies TERMINATION, because a non-terminating re-measure loop makes those cases thrash and time out rather than fail subtly. It does NOT verify AC-8's exact apply count and it does not induce a subscription addition at all: no shipped consumer takes the transition, which is the row's own reachability bound. The apply-count arithmetic is proved by the unit cases with `deliverInitial: true`, and this suite is the regression gate around them. Plan review round 1 was right to catch the earlier wording implying otherwise.
 
 So the termination claim is verified by running that suite on the shipping head, wrapped, since a non-interactive Playwright run is a heavy phase:
 
@@ -115,10 +120,11 @@ The mount measure stays synchronous and still bypasses the coalescer, so `(g2)` 
 
 RED, one case:
 
-- A new `withMarkedOffsetParent` helper resolves `offsetParent` to the nearest ancestor carrying `data-positioned="true"`, so a case can move it. `Harness` gains an optional `positioned?: "inner" | "outer" | "none"` prop defaulting to `"inner"`, which is what every existing case already gets, so no existing case changes.
-- Mount with `positioned="inner"`. Premise: `inner` is in the target set and `outer` is not the positioned node.
-- Re-render with `positioned="outer"` and `reapplyKey` unchanged, then one window resize plus a frame.
-- Assert `outer` is now observed, `resize(outer)` is deliverable and re-measures, and a `transform` `transitionend` fired on `outer` schedules a frame while one fired on `inner` no longer does.
+- A new `withMarkedOffsetParent` helper resolves `offsetParent` to the nearest ancestor carrying `data-positioned="true"`, so a case can move it.
+- **A new THREE-LEVEL fixture, `outer` (the clip) wrapping `mid` wrapping `inner` wrapping the fitted node**, with the positioned role moving `inner` to `mid`. Neither is the clip, so the element under test is never held for the clip role's reason. Round 1 found the two-level version tautological for exactly that reason: it moved the positioned role onto `outer`, which was already the clip target, so the observer assertions passed with no positioned reconciliation at all. A separate fixture rather than a change to `Harness`, because adding a level to the shared one moves `offsetParent` under `withOffsetParent` and would silently rewrite `(d)`, `(h12)`, `(h21)` and `(h22)`.
+- Mount with the positioned role on `inner`. Premise, on this case's own inputs: `inner` is a target, `mid` is NOT a target, and `outer` is the clip. The middle clause is the one round 1's version lacked.
+- Re-render with the positioned role on `mid` and `reapplyKey` unchanged, then one window resize plus a frame.
+- Assert `mid` is now observed and `resize(mid)` is deliverable and re-measures, that `inner` is no longer a target (nothing else wants it), and that a `transform` `transitionend` on `mid` schedules a frame while one on `inner` no longer does.
 
 GREEN: the positioned ROLE re-targets by the same rule as the clip role, and the `transitionend` listener moves with it. The listener's identity check reads the CURRENT positioned role, and the teardown removes the listener from the current one rather than the attach-time one.
 
@@ -138,7 +144,7 @@ RED, drawn from spec §5.2's derivation 1 rather than from a family count. The d
 - `(A, A)` to `(A, B)`: the mirror, on the positioned role.
 - `(A, B)` to `(B, A)`: the roles swap and the target set does not. Assert NO observer call at all, and that both targets are still deliverable. A per-role reconcile leaves one alive and one dropped, depending on operation order.
 
-Plus the two removal-only arrangements, which a per-role reconcile gets to the right SET by the wrong route, re-observing a live target and buying an apply the spec's cost rule says costs nothing: `(A, B)` to `(A, A)` and its mirror `(A, B)` to `(B, B)`. Assert `unobserve` exactly once, the survivor still deliverable, and ZERO extra applies. Spec review round 2 found the first draft missing the second of these two rows and claiming the wrong cost for both, which is why they are cases rather than prose.
+Plus the two removal-only arrangements, which a per-role reconcile gets to the right SET by the wrong route: `(A, B)` to `(A, A)` and its mirror `(A, B)` to `(B, B)`. Assert exactly one `unobserve`, the survivor still deliverable, and **that the observe LOG gained no entry** for the survivor. That last clause is the whole discriminating power of these two cases and plan round 1 found the first draft without it: the defective sequence is `unobserve(B); observe(A)`, which leaves `A` deliverable and, under a stub that delivers only on demand, produces no apply at all, so an apply-count assertion passes against the exact defect it was written for. The observe log sees it. Spec review round 2 found the first draft missing the second of these two rows and miscosting both, which is why they are cases and not prose.
 
 The existing harness cannot reach any of these: it keeps the two ancestors distinct on purpose (`tests/components/admin/useFitWithinClip.test.tsx:8`), and collapsing them is what made the old case (d) tautological. So the aliasing fixture is a NEW `Harness` shape, not a re-use, and the existing distinct-ancestor fixture stays exactly as it is.
 
@@ -146,19 +152,28 @@ GREEN: the observer's target set is DERIVED from the two roles and reconciled by
 
 ## Task 4: the guards, each proved by a named plant
 
-<!-- task: red=`sh -c 'P=docs/superpowers/plans/2026-08-27-fitwithinclip-clip-subscription.md; grep -qE "^\\| plant-[0-9]+ \\|" $P || exit 1; pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx'` ac=AC-2,AC-3,AC-6,AC-7,AC-8 -->
+<!-- task: red=`sh -c 'P=docs/superpowers/plans/2026-08-27-fitwithinclip-clip-subscription.md; grep -qE "^\\| plant-[0-9]+ \\|" $P || exit 1; pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx'` ac=AC-2,AC-3,AC-6,AC-7,AC-8,AC-9 -->
 
 **What is red and why.** These cases pin properties tasks 1 to 3 already satisfy, so none of them can be red against the branch, and a guard test that passes the moment it is authored proves nothing. Each is therefore proved by planting the specific defect it claims to catch, observing the red, reverting the plant, and recording the result in the section this task's `red=` greps for. The command is red before the section exists and green after, on the same command, with the suite green in both readings of the second half.
 
 Cases, one per row of spec §5 plus the three invariants:
 
 - **AC-2, termination.** After the attach, three window resizes that each derive the same target set record zero `observe` and zero `unobserve` calls. Plant: reconcile unconditionally.
-- **AC-3, attach invariance.** Target set, ORDER and observer count on the clipping and non-clipping non-aliasing fixtures. `(d)`, `(h21)` and `(h22)` pin three of the four; this case adds the order. Plant: reverse the desired-set insertion order.
+- **AC-9's second property, that no already-held target is re-observed.** Round 1 found this half unproved anywhere: it is invisible to apply counts and to deliverability, and only the observe log sees it. Asserted across every arrangement of task 3 plus the steady state: no entry in `observeLog` names a target already held when the reconcile began. Plant: re-observe an already-held target, which under the default stub fires nothing and therefore reds this assertion and nothing else, which is exactly why it needs its own.
+- **AC-3, attach invariance.** Target set, ORDER and observer count on the clipping and non-clipping non-aliasing fixtures, read from the observe LOG rather than from the target set, since a set has no order to assert. `(d)`, `(h21)` and `(h22)` pin three of the four; this case adds the order. Plant: reverse the desired-set insertion order.
 - **AC-6, retain on null, clip role.** A clip ancestor that stops clipping keeps its target, so its clipping again is still delivered. Plant: re-target the role to null.
 - **AC-6, retain on null, positioned role.** `positioned="none"` mid-life keeps the target and the listener, so showing the overlay again still delivers. Plant: re-target the role to null. This is the one that matters most: `offsetParent` reads null for a `display: none` subtree, so the naive repair converts every hide-then-show into the silent stale cap this arc exists to remove.
 - **AC-7, no ResizeObserver.** With the constructor absent the hook must not throw at any reconcile site, the reconcile is skipped whole, the roles still update so the `transitionend` listener still follows, and the window-resize path still writes the correct cap across the transitions of spec §5.1. Plant: call `observer.observe` without the null check.
   **The target-set cases must not be run in this configuration**, and each states that as its premise rather than leaving it implicit. Spec §8's precondition is that the six target-mentioning criteria range over a constructed observer; with none there is no target set, so an assertion like "the resolved clip is in the target set" would be inapplicable rather than satisfied, and a case that quietly passed there would be vacuous in exactly the environment it is least able to notice.
-- **AC-8, the apply-count bound, over its three delta classes.** Spec review rounds 1 and 2 both landed here, and the second showed why one case is not enough: the cost is driven by ADDITIONS, not by the set changing, so a removal-only reconcile costs zero while changing the set. The delta classes are a closed cover, so three cases exhaust it. A reconcile that ADDS: exactly one extra coalesced apply, and zero more on the frame after, because the follow-up derives the same set. A reconcile that only REMOVES: zero. A reconcile that does neither: zero. Walk counts unchanged in all three. Plants: call `apply()` twice in the coalesced path (catches all three); drop the difference guard so the follow-up re-observes (catches the first, and it is §4.3's loop caught at one frame's remove); re-observe an already-held target (catches the removal-only zero, which is the row round 2 found missing).
+- **AC-8, the apply-count bound, over its FOUR delta classes, run with `deliverInitial: true`.** Every spec round and plan round 1 landed here, so the cover is stated as the spec derives it rather than as a list that keeps growing. The cost is driven by ADDITIONS THAT HAVE A BOX, so the closed cover is four, not three, and plan round 1 found the fourth missing:
+  1. adds a target with a non-zero box: exactly one extra coalesced apply, and ZERO more on the following frame, because the follow-up derives the same set;
+  2. adds only a target that is currently 0x0: **zero**, because the platform emits no initial observation for a zero-sized target (spec §4.3);
+  3. only removes: zero;
+  4. neither: zero.
+
+  Walk counts unchanged in all four. **These four are the only cases in the suite that run the stub with `deliverInitial: true`**, and the case body says why: the criterion is ABOUT the initial observation, and the default stub emits none, so plan round 1 was right that the previous draft's addition case could not prove the follow-up apply it promised. With the flag off, class 1 and class 2 are indistinguishable, which is precisely the distinction the spec's cost rule turns on.
+
+  Plants: call `apply()` twice in the coalesced path (catches all four); drop the difference guard so the follow-up re-observes (catches class 1, and it is §4.3's loop caught at one frame's remove); make `observe()` deliver unconditionally in the stub's model (catches class 2, and it is the plant that proves the 0x0 arm is not decorative).
 
 ### Mutant plants, run and recorded
 
