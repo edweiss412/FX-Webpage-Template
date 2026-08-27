@@ -2,7 +2,8 @@
 // tests/app/admin/dev/telemetryPage.test.tsx
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { premise } from "../../_shared/premise";
 import { CRON_JOBS } from "@/lib/cron/runSummary";
 
 // developer-tier §6 row 5: Telemetry swapped its gate
@@ -30,12 +31,25 @@ vi.mock("@/lib/admin/loadTelemetryStats", () => ({
 }));
 // The page renders client children (EventFilters, AutoRefreshControl) that call App Router
 // hooks; without this mock the render throws the Next router invariant instead of testing.
+// The three spies are module-level and STABLE, not fresh per useRouter() call: the retry
+// cases below assert on them, and a factory that minted a new vi.fn() per call would give
+// every assertion a spy nothing had ever touched.
+const routerRefresh = vi.fn();
+const routerPush = vi.fn();
+const routerReplace = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: routerPush, replace: routerReplace, refresh: routerRefresh }),
   useSearchParams: () => new URLSearchParams(),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // mockReset, not mockClear: the retry cases install an implementation that re-renders the
+  // page, and a leaked implementation would drive a later case's click into a stale tree.
+  routerRefresh.mockReset();
+  routerPush.mockReset();
+  routerReplace.mockReset();
+});
 
 // Data-source assertion against the real registry, not the mocks below: the
 // mocked loadCronHealth fixtures can drift green, this cannot. Catches the
@@ -67,6 +81,61 @@ describe("TelemetryPage", () => {
     expect(screen.getByTestId("cron-health-degraded")).toHaveTextContent(
       "The jobs are probably still running",
     );
+  });
+
+  // BL-TELEMETRY-FALLBACK-RETRY / #601 impeccable critique P1. The fallback named the
+  // cause and offered no recourse: the only way to re-read was a full page reload.
+  test("the health fallback offers a retry, and one tap re-reads without navigating", async () => {
+    const loadCronHealth = vi.fn(async () => ({ kind: "infra_error", message: "x" }));
+    vi.doMock("@/lib/admin/loadCronHealth", () => ({ loadCronHealth }));
+    vi.doMock("@/lib/admin/loadAppEvents", () => ({
+      loadAppEvents: async () => ({ kind: "ok", events: [], hasMore: false, nextCursor: null }),
+    }));
+    const { default: Page } = await import("@/app/admin/dev/telemetry/page");
+
+    let renders = 0;
+    const renderPage = async () => {
+      renders += 1;
+      return await Page({ searchParams: Promise.resolve({}) });
+    };
+    const utils = render(await renderPage());
+
+    // On this case's OWN inputs. Without it every assertion below is vacuously satisfiable
+    // by a page that rendered the ok branch and has no fallback at all.
+    premise(
+      "the fallback branch is the one rendered",
+      screen.queryAllByTestId("cron-health-degraded").length,
+      0,
+    );
+    const before = loadCronHealth.mock.calls.length;
+    premise("the first render read the loader", before, 0);
+
+    // Scoped deliberately: the page header already renders `autorefresh-manual`, a second
+    // rotate-icon refresh control, and an unscoped query would be satisfied by it.
+    const retry = within(screen.getByTestId("cron-health-degraded")).getByTestId(
+      "cron-health-retry",
+    );
+
+    // What the App Router does on router.refresh() for a force-dynamic server component.
+    // Nothing else in this case re-renders, so a button that never calls refresh leaves the
+    // count where it was; and the assertion is on the LOADER, not on the refresh spy, so a
+    // control that calls refresh without the page re-reading fails too.
+    routerRefresh.mockImplementation(() => {
+      void act(async () => {
+        utils.rerender(await renderPage());
+      });
+    });
+
+    fireEvent.click(retry);
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(loadCronHealth.mock.calls.length).toBe(before + 1));
+    expect(renders).toBe(2);
+
+    // The consequence bound, written as assertions rather than as a sentence.
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(routerReplace).not.toHaveBeenCalled();
+    expect(retry).toHaveAttribute("type", "button");
+    expect(retry).not.toHaveAttribute("href");
   });
 
   // #601 impeccable critique P2. The de-jargon pass collapsed two distinct
