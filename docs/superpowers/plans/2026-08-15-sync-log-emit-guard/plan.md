@@ -49,7 +49,7 @@
 ## Acceptance criteria map (spec §3, referenced by the task markers)
 
 - AC-1 helper guard: sync outcome preserved, one escalation with the code, raw error, not awaited.
-- AC-1b run-level guard: the three run-level emits await `deps.logSync` directly with no try/catch, so a sink throw fails the cron run.
+- AC-1b run-level guard: each of the three run-level emits still returns its own summary under a rejecting sink; one escalation per swallowed failure, code and raw error asserted.
 - AC-2 push guard: `logUnlessArchived` returns its result under a rejecting sink.
 - AC-3 webhook guard: dispatch returned, loop continues, escalation per failure.
 - AC-4 success path byte-identical, zero escalations.
