@@ -2488,13 +2488,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
     control: { from: "const DISTINCTIVENESS_MAX = 4", to: "const DISTINCTIVENESS_MAX = 0" },
     accepted: [
       {
-        siteId: "statement-removal:161:11:break;>(removed)",
+        siteId: "statement-removal:158:11:break;>(removed)",
         kind: "equivalent",
         reason:
-          "a loop-exit optimization with no observable effect: the `break` fires only after `subset = false` on the line above, and nothing inside the remaining iterations can set it back to true — the loop body's only write to `subset` is that same `false`. Removing it costs iterations of a token set whose size is already bounded by the `candTokens.size > entry.tokens.size` skip at :156, never a different answer",
+          "a loop-exit optimization with no observable effect: the `break` fires only after `subset = false` on the line above, and nothing inside the remaining iterations can set it back to true — the loop body's only write to `subset` is that same `false`. Removing it costs iterations of a token set whose size is already bounded by the `candTokens.size > entry.tokens.size` skip at :153, never a different answer",
       },
       {
-        siteId: "relational-boundary:156:27:>>>=",
+        siteId: "relational-boundary:153:27:>>>=",
         kind: "accepted-gap",
         ref: "BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET",
         reason:
