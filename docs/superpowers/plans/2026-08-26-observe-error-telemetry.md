@@ -40,102 +40,83 @@ Measured on `44b0d74b1` after the rebase, not carried forward from the pre-rebas
 
 ## RED validity, stated once for the whole plan
 
-Every RED below names the production line whose absence or defect makes it fail. A RED that would go green when the *test file* changes rather than when the implementation lands is invalid by construction, so each task states its production anchor explicitly. Tasks whose assertions pass on day one are labelled REGRESSION PIN, not RED, and their value is the `afterAll` set-equality that fails when they stop running.
+Every RED below names the production line whose absence or defect makes it fail, and **no task's first red is a missing module**. Two earlier drafts had one: a brand-new module's unit suite fails to import, which any edit to a test file can green, and declaring that weakness did not cure it. Both such tasks are now folded into the production-anchored task that needs them — the scanner into the walker sweep, `describeClientValue` into the `reportClientError` rewire — so every red below fails on a `lib/` or `components/` line.
+
+Tasks whose assertions pass on day one are labelled REGRESSION PIN, and each says what it pins and why that is worth a task. One task is labelled GATE: it runs a process gate whose execution no assertion here observes.
 
 <!-- tasks: depth=2 -->
 
-## Task 1 — the scanner's syntactic core
-
-<!-- task: red=`pnpm exec vitest run tests/admin/infraEmitScan.test.ts` ac=AC-1 -->
-
-
-<!-- spec-lint: ignore — this file is created by this plan's implementation and is not tracked yet -->
-Create `tests/admin/infraEmitScan.ts` — pure functions over a parsed source file, taking a resolver as a parameter so the core stays a function of text (spec §5.1). Create its suite with the eighteen cases of spec §5.7, fourteen expecting a report.
-
-**RED anchor, and it is the weakest in this plan — declared rather than dressed up.** The module does not exist, so the suite fails to import. That is module-absence, not a production defect, and adding the module can green it without any `lib/` change. The plan's own RED-validity rule flags exactly this shape, and the honest answer is that a brand-new module's unit suite has no other first red available. Two things carry the discriminating power instead:
-
-- every report case asserts the reported **reason**, so a core that reports everything for the wrong cause fails while a bare "something was reported" assertion would pass;
-- the strong red for this deliverable lives in Task 2, whose failure is 87 production sites and which no edit to a test file can satisfy.
-
-If Task 1 were the only guard on the scanner, that would be a defect. It is not: Task 2 exercises the same core against the live tree.
-
-**Anti-tautology.** The four resolver-dependent cases (`const-alias`, in-cover callee, out-of-cover callee, object-vs-scalar payload) run through a stub resolver whose answers the test controls, so the core's own branching is under test rather than the checker's.
-
-**Concrete failure mode caught:** a core that classifies the `else` arm of a propagation guard as propagation, or accepts an emit lexically after the return.
-
-## Task 2 — the cover meta-test and the whole 87-site sweep, in one commit
-
-<!-- task: red=`pnpm exec vitest run tests/admin/_metaInfraEmitCover.test.ts` ac=AC-2,AC-5 -->
-
-**Why this is one task and not three.** An earlier draft split the walker from the sweep and the sweep into two halves. Each intermediate commit then left the cover test red — the suite asserts an empty reported set, and a half-swept tree does not have one. That breaks per-task TDD and the standing "whole tree green before every push" rule for the whole span. Splitting a class-sweep across commits buys nothing the class-sweep default wants: the repair is 87 mechanical emits, and they belong in one commit with the guard that derives them.
-
-
-<!-- spec-lint: ignore — this file is created by this plan's implementation and is not tracked yet -->
-Create `tests/admin/_metaInfraEmitCover.test.ts`: build a `ts.Program` over `lib/admin/**`, supply construction and callee resolution from the checker, apply the Task 1 core, assert the reported set is **empty**. In the same commit, repair all 87 reported sites.
-
-**No expected count is pinned.** The walker's output is the derivation; a number in the assertion is a second source that goes stale (spec §7.1). The population table above is a dated measurement, not a contract this suite enforces.
-
-**RED anchor:** the 87 unrepaired sites in `lib/admin/**` — production lines. Write the suite first, watch it report 87 with their file and reason, then repair. No edit to a test file can turn that red green.
-
-The sites, for sequencing only — the walker's output is authoritative:
-
-| files already importing `log` (reuse the established `source`) | files needing the import and an `admin.<basename>` source |
-| --- | --- |
-| `loadNeedsAttention` 19, `bellFeed` 6, `identityHolds` 4, `healthAlerts` 3, `loadAlertSummary` 3, `loadTelemetryStats` 3, `readShowReviewSnapshot` 2 | `driveConnectionHealth` 15, `needsAttentionCount` 10, `healthRollup` 6, `loadIgnoredSheets` 3, `loadIgnoredWarnings` 3, `roleTokenMappings` 3, `lookupStagedRow` 2, `watchSurfaceState` 2, `embeddedAdminEmails` 1 |
-
-That is 40 + 45 = 85, plus the 2 in `loadRecentAutoApplied` that Task 3 repairs = 87. Task 3 runs first, so this task's own red is 85 by the time it is written; the assertion is emptiness either way, which is why no count is pinned.
-
-`readShowReviewSnapshot`, `loadAlertSummary` and `loadTelemetryStats` each also hold an `error: X.message` site, reported for the same reason the loader's is (spec §9 limit 3).
-
-Add `infraRegistry` rows to `tests/admin/_metaInfraContract.test.ts` for any swept file lacking one — `roleTokenMappings` and `embeddedAdminEmails` are known missing; re-grep the rest rather than trusting that list.
-
-**Premises, executable and unconditional** (spec §5.6), stated with `premise`/`premiseHolds` from `tests/_shared/premise.ts`, at the top level of the suite body and never inside a `.each` callback:
-
-1. **The checker-resolved population equals the population an independent syntax-only pass computes.** The second pass takes no checker: object-literal returns, plus identifier returns whose name binds to a module-level const initialized to an infra literal, resolved by name within the file. Two implementations that share no resolution code must agree on the count, and the failure prints the symmetric difference by file and line. This is what closes partial discovery — an earlier draft asserted only "≥1 site per file that textually matches", which a resolver retaining one site per file satisfies while dropping every other.
-2. Both construction shapes are witnessed (≥1 `literal`, ≥1 `const-alias`).
-3. Both classification arms are witnessed (≥1 `exempt-propagation`, ≥1 `satisfied`).
-4. **The checker resolved usefully**, not merely that it answered: on a known object-typed emit payload the resolved type must satisfy the positive object test, and on a known scalar payload it must fail it. A broken program yields `any`, which the positive predicate (spec §5.4) reports rather than accepts — but this premise says so out loud instead of leaving a wall of reports to be read as real findings.
-
-
-## Task 3 — the loader's dark branch and the five-code table
+## Task 1 — the loader's dark branch and the five-code table
 
 <!-- task: red=`pnpm exec vitest run tests/admin/loadRecentAutoApplied.test.ts` ac=AC-3,AC-4 -->
+
+**Runs first, and the ordering is load-bearing.** Task 2 repairs every site the walker reports; if it ran first it would repair the loader's two and Task 3's red would already be green. So the loader is repaired here, and Task 2's red is the remaining 85. 2 + 85 = 87.
 
 Replace the four-way table at `tests/admin/loadRecentAutoApplied.test.ts:299-318` with the five-row derived table of spec §4.3, driven through `setLogSink` so assertions read the record after `buildRecord` has run `serializeError` (`lib/log/logger.ts:38`). Add the emit at `lib/admin/loadRecentAutoApplied.ts:174-176`; pass `error` whole at `lib/admin/loadRecentAutoApplied.ts:247`.
 
 **RED anchors, both production:** there is no `log.*` call between `lib/admin/loadRecentAutoApplied.ts:174` and `lib/admin/loadRecentAutoApplied.ts:176`, so the `errorOn: "from"` row finds no record; and `lib/admin/loadRecentAutoApplied.ts:247` passes `error.message`, so `context.error` is a string and the `errorOn: "rpc"` row's object assertion fails.
 
-**Anti-tautology.** The fake's error objects gain `code` and `details` (extending the shapes at `tests/admin/loadRecentAutoApplied.test.ts:78-81` and `tests/admin/loadRecentAutoApplied.test.ts:109`), and the assertion reads the expected `code` **from the fixture constant**. A hardcoded `"42501"` would pass against a fake that stopped supplying it. An `afterAll` set-equality over the five declared codes means a row that silently stops running fails the suite — and per spec §4.3 that equality is a claim about the declared list, not about production source; the walker in Task 2 is what catches a sixth return site.
+**Anti-tautology.** The fake's error objects gain `code` and `details` (extending `tests/admin/loadRecentAutoApplied.test.ts:78-81` and `tests/admin/loadRecentAutoApplied.test.ts:109`), and the assertion reads the expected `code` **from the fixture constant** — a hardcoded `"42501"` would pass against a fake that stopped supplying it. An `afterAll` set-equality over the five declared codes fails when a row stops running; per spec §4.3 that is a claim about the declared list, and the walker in Task 2 is what catches a sixth return site.
 
 **Concrete failure mode caught:** someone re-flattens the rpc emit to `.message`, discarding `code`/`details`/`hint` while the code still appears in `app_events`.
 
-## Task 4 — register every new forensic code
+## Task 2 — the walker and the remaining 85 sites, in one commit
+
+<!-- task: red=`pnpm exec vitest run tests/admin/_metaInfraEmitCover.test.ts` ac=AC-1,AC-2,AC-5 -->
+
+**One task, not three, and the scanner is inside it.** Splitting the walker from the sweep left the cover test red at every intermediate commit; splitting the scanner out gave that task a module-absence red. Both are cured the same way: the scanner, its unit suite, the cover meta-test and the 85 repairs land together, and the red is production.
+
+
+<!-- spec-lint: ignore — this file is created by this plan's implementation and is not tracked yet -->
+Create `tests/admin/infraEmitScan.ts` (pure functions over a parsed source file plus a resolver parameter) with its eighteen-case unit suite from spec §5.7, fourteen expecting a report. Create `tests/admin/_metaInfraEmitCover.test.ts` (builds a `ts.Program`, supplies real resolution, applies the core, asserts the reported set is **empty**). Repair all 85.
+
+**RED anchor:** the 85 unrepaired sites in `lib/admin/**`. Write the cover test first, watch it report 85 with file and reason, then repair. No edit to any test file turns that red green. The eighteen unit cases are written in the same commit and are the scanner's own coverage, not its red.
+
+**No expected count is pinned.** The walker's output is the derivation; a number in the assertion is a second source that goes stale (spec §7.1).
+
+Sites, for sequencing only — the walker's output is authoritative:
+
+| files already importing `log` (reuse the established `source`) | files needing the import and an `admin.<basename>` source |
+| --- | --- |
+| `loadNeedsAttention` 19, `bellFeed` 6, `identityHolds` 4, `healthAlerts` 3, `loadAlertSummary` 3, `loadTelemetryStats` 3, `readShowReviewSnapshot` 2 | `driveConnectionHealth` 15, `needsAttentionCount` 10, `healthRollup` 6, `loadIgnoredSheets` 3, `loadIgnoredWarnings` 3, `roleTokenMappings` 3, `lookupStagedRow` 2, `watchSurfaceState` 2, `embeddedAdminEmails` 1 |
+
+40 + 45 = 85. `readShowReviewSnapshot`, `loadAlertSummary` and `loadTelemetryStats` each also hold an `error: X.message` site, reported for the same reason the loader's was (spec §9 limit 3).
+
+Add `infraRegistry` rows to `tests/admin/_metaInfraContract.test.ts` for any swept file lacking one — `roleTokenMappings` and `embeddedAdminEmails` are known missing; re-grep the rest rather than trusting that list.
+
+**Premises, executable and unconditional** (spec §5.6), with `premise`/`premiseHolds` from `tests/_shared/premise.ts`, at the top level of the suite body and never inside a `.each` callback. Each binds a CATEGORY the resolving layer must handle, because an earlier draft's premises were satisfied by a resolver that handled one member of a category and dropped the rest:
+
+1. **Acquisition, derived twice by independent means.** The file list from a recursive `readdirSync` walk must equal the list from `git ls-files lib/admin`, filtered identically. A shared walk that misses a subdirectory satisfies any premise computed from it, and `lib/admin/__generated__/devPanelPresent.ts` is a live nested file proving the shape is not hypothetical. The failure prints the symmetric difference.
+2. **Population, derived twice by independent means.** The checker-resolved population must equal one computed by a syntax-only pass sharing no resolution code: object-literal returns, plus identifier returns whose name binds to a module-level const initialized to an infra literal, resolved by name within the file. Failure prints the symmetric difference by file and line. "At least one site per matching file" was the earlier form, and a resolver keeping one site per file satisfies it.
+3. **Both construction shapes witnessed** — ≥1 `literal`, ≥1 `const-alias`.
+4. **Both propagation callee categories witnessed** — ≥1 exemption whose callee is an imported identifier (`loadOpenIdentityHolds`), and ≥1 whose callee is a function declared in the same file (`runBellPipeline` in `lib/admin/bellFeed.ts:191`). A resolver that resolves imports but not local declarations satisfies a one-witness premise while reporting the two `bellFeed` sites, and the repair for a reported propagation is a duplicate emit — the exact fault the exemption exists to prevent. The core's own fixture cannot catch this: its resolver answer is test-controlled.
+5. **The checker resolved usefully**, not merely answered: a known object-typed payload must satisfy the positive object test and a known scalar payload must fail it. A broken program yields `any`, which the positive predicate reports rather than accepts (spec §5.4), but this premise says so out loud instead of leaving a wall of reports to read as real findings.
+
+## Task 3 — register every new forensic code
 
 <!-- task: red=`pnpm exec vitest run tests/log/_metaAdminOutcomeContract.test.ts` ac=AC-6 -->
 
 Add every code this arc introduces to `NEW_FORENSIC_CODES` (`tests/log/_auditableMutations.ts`), in one edit with one comment block naming the arc.
 
-**This task is a REGRESSION PIN, not a RED.** Assertion 4 at `tests/log/_metaAdminOutcomeContract.test.ts:87-91` is a leak check: it asserts registered codes never appear in the §12.4 producer set. Omitting a code is invisible to it. Registration is the assertion "this code must never become a catalog row"; the task exists because that assertion is worth making, not because a test currently fails.
+**REGRESSION PIN.** Assertion 4 at `tests/log/_metaAdminOutcomeContract.test.ts:87-91` is a leak check: it asserts registered codes never appear in the §12.4 producer set, so omitting a code is invisible to it. Registration is the assertion "this code must never become a catalog row" — worth making, and not something a test currently fails without.
 
-## Task 5 — describeClientValue
+## Task 4 — the client projection and the boundary wire
 
-<!-- task: red=`pnpm exec vitest run tests/observe/describeClientValue.test.ts` ac=AC-7 -->
-
-
-<!-- spec-lint: ignore — this file is created by this plan's implementation and is not tracked yet -->
-Create `lib/observe/describeClientValue.ts` per spec §6.2 — `tag()` derived from the runtime, `render()` writing leaves with `String()` rather than JSON's number grammar — importing only `@/lib/log/serializeError` by its own path.
-
-Port the committed probe `docs/superpowers/specs/observability/probes/2026-08-26-client-value-projection.ts` into the suite as a table test over its 25 pairs. **Four pairs assert the collision** — the two `-0` pairs under spec §9 limit 6, and the same-second `Date` and `RegExp` `lastIndex` pairs under limit 7 — because asserting that they discriminate would assert a falsehood. The other 21 assert discrimination. Plus the §6.3 guard table, every row.
+<!-- task: red=`pnpm exec vitest run tests/observe/reportClientError.test.ts` ac=AC-7,AC-8 -->
 
 
 <!-- spec-lint: ignore — this file is created by this plan's implementation and is not tracked yet -->
-**RED anchor:** `lib/observe/describeClientValue.ts` does not exist. The assertion-level red is the §6.3 table: today no code produces a type-tagged `detail` for any value.
+Create `lib/observe/describeClientValue.ts` per spec §6.2 — `tag()` derived from the runtime, `render()` writing leaves with `String()` rather than JSON's number grammar — importing only `@/lib/log/serializeError` by its own path. In the same commit, rewrite `toError` at `lib/observe/reportClientError.ts:11-14` as spec §6.5's `toWire`.
 
-**Anti-tautology.** Expected values are derived from the fixture — the test builds `{ code, message }` from local constants and asserts `message === \`${code}: ${message}\`` — so a projection dropping one field fails. No rendered string is written as a literal.
+**The two are one task** because the projection alone has no production red: a new module's suite fails to import, and that is not a defect in shipped code. Wiring it into `reportClientError` gives the pair a real one.
 
-**Concrete failure mode caught:** a later edit swaps `render` back to `JSON.stringify`, and `{a: NaN}` starts colliding with `{a: null}` again.
+**RED anchor:** `lib/observe/reportClientError.ts:13` returns `{ message: String(e) }`. Per spec §7.1 the five non-`Error` cases are red for **different** reasons and each asserts its own: a plain object and `{}` are red on `message`; a string, `null` and a `Map` are red on `detail`, which this path does not send at all today, and on the type tag.
 
-## Task 6 — the dedup signature gains `detail`
+The projection's own suite ports `docs/superpowers/specs/observability/probes/2026-08-26-client-value-projection.ts` as a table over its 25 pairs. **Four pairs assert the collision** — the two `-0` pairs under spec §9 limit 6, and the same-second `Date` and `RegExp` `lastIndex` pairs under limit 7 — because asserting they discriminate would assert a falsehood. Plus the §6.3 guard table, every row.
+
+**Anti-tautology.** Expected values are derived from the fixture: the test builds `{ code, message }` from local constants and asserts the projected message equals those two joined, so dropping either field fails. The two-distinct-objects test asserts `fetch` was called twice **and** that the bodies differ in `detail` — a projection returning a constant non-empty string satisfies the weaker form and fails this one.
+
+## Task 5 — the dedup signature gains `detail`
 
 <!-- task: red=`pnpm exec vitest run tests/observe/clientErrorTransport.test.ts` ac=AC-9 -->
 
@@ -143,28 +124,16 @@ Add the `detail` term to the signature at `lib/observe/clientErrorTransport.ts:3
 
 **RED anchor:** `lib/observe/clientErrorTransport.ts:32` — the shipped signature has four terms and ignores `detail`. The test drives `clientErrorTransport` **directly** with two inputs sharing `source`, `level` and `message` and differing only in `detail`, and asserts two POSTs. Asserting only through `reportClientError` would let a lucky `message` difference pass a broken signature.
 
-**Four pre-dispatch mutants**, run and recorded in the commit, since this is a string-presence guard over the signature:
+**Four pre-dispatch mutants**, run and recorded in the commit:
 
 - (a) `detail` emptied on both inputs — expect **one** POST, proving the term is not merely always-distinct.
 - (b) one `detail` given an appended suffix — expect **two**.
-- (c) **the cap pinned by a boundary pair, not by a long-prefix control.** Two inputs whose `detail` values are identical for 200 characters and differ at index 200 — expect **one** POST; two whose values differ at index 199 — expect **two**. An earlier draft used a single over-long pair, which any positive cap at or below the shared prefix satisfies and which therefore pins nothing. The pair brackets the boundary, so only 200 passes both halves.
-- (d) each of `source`, `level`, `message`, `stack` varied in turn — expect **two** each, proving the other terms still discriminate.
+- (c) **the cap pinned by a boundary pair.** Two inputs whose `detail` values are identical for 200 characters and differ at index 200 — expect **one**; two differing at index 199 — expect **two**. A single over-long pair is satisfied by any cap at or below the shared prefix and pins nothing.
+- (d) each of `source`, `level`, `message`, `stack` varied in turn — expect **two** each.
 
-**The `Error` path's key changes shape, and the earlier claim that it stays byte-identical was wrong.** The current key ends after the stack term (`lib/observe/clientErrorTransport.ts:32`); adding a fifth term appends a `|` even when `detail` is empty. What is preserved is the **behaviour**: the empty term is constant across every `Error` call, so no two previously-distinct keys merge and no two previously-equal keys split. The test asserts that — an `Error` deduped once still dedups once, and two distinct `Error`s still produce two POSTs — rather than comparing key bytes, which are an implementation detail no assertion should reach for.
+**The `Error` path's key changes shape, and it is the behaviour that is preserved.** The current key ends after the stack term; a fifth term appends a `|` even when `detail` is empty. That empty term is constant across every `Error` call, so no two previously-distinct keys merge and no two previously-equal keys split. The test asserts that — an `Error` deduped once still dedups once, two distinct `Error`s still produce two POSTs — never key bytes.
 
-## Task 7 — reportClientError routes non-`Error` values through the projection
-
-<!-- task: red=`pnpm exec vitest run tests/observe/reportClientError.test.ts` ac=AC-8 -->
-
-Rewrite `toError` at `lib/observe/reportClientError.ts:11-14` as the `toWire` of spec §6.5. The `Error` arm keeps today's exact wire bytes.
-
-Add the five non-`Error` cases of spec §7.3 plus the two-distinct-objects test.
-
-**RED anchor:** `lib/observe/reportClientError.ts:13` returns `{ message: String(e) }`. Per spec §7.1 the five cases are red for **different** reasons and each asserts its own: a plain object and `{}` are red on `message`; a string, `null` and a `Map` are red on `detail`, which this path does not send at all today, and on the type tag.
-
-**Anti-tautology.** The two-distinct-objects test asserts `fetch` was called twice **and** that the two bodies differ in `detail` — a projection returning a constant non-empty string satisfies the weaker form and fails this one.
-
-## Task 8 — GlobalErrorListener, both handlers
+## Task 6 — GlobalErrorListener, both handlers
 
 <!-- task: red=`pnpm exec vitest run tests/observe/globalErrorListener.test.tsx` ac=AC-10,AC-11 -->
 
@@ -176,13 +145,11 @@ Update the two existing string-reason assertions at `tests/observe/globalErrorLi
 
 **Concrete failure mode caught:** a component throws a plain object at the window and its fields vanish entirely — not collapsed to `"[object Object]"` like the other two paths, simply absent.
 
-## Task 9 — headers and documented limits
+## Task 7 — headers and documented limits
 
 <!-- task: red=`pnpm exec vitest run tests/docs/_metaLedgerMintBar.test.ts` ac=AC-12 -->
 
-
-<!-- spec-lint: ignore — this file is created by this plan's implementation and is not tracked yet -->
-Write each spec §9 limit into the header of the surface that owns it, with its re-run trigger. The mapping is exhaustive over the twelve limits, because an earlier draft named a limit that does not exist and omitted three that do:
+Write each spec §9 limit into the header of the surface that owns it, with its re-run trigger. The mapping is exhaustive over all twelve, because an earlier draft named one that does not exist and omitted three that do:
 
 | limit | recorded in |
 | --- | --- |
@@ -197,60 +164,60 @@ Write each spec §9 limit into the header of the surface that owns it, with its 
 <!-- spec-lint: ignore — this file is created by this plan's implementation and is not tracked yet -->
 | 5 injected `loadHolds` double, 11 reconstructed partial object, 12 no value or control-flow resolution | `tests/admin/infraEmitScan.ts` header |
 | 9 `null`/`undefined` reasons collapse | beside the `== null` branch in `components/observe/GlobalErrorListener.tsx` |
-| 10 `context`-only `clientLog` callers | row 2's archive entry, written in Task 11 |
+| 10 `context`-only `clientLog` callers | row 2's archive entry, written in Task 9 |
 
-Limit 10 is the one this task does **not** write, because spec §12 assigns it to the archive entry; AC-12 is met only when Task 11 has written it, and the two tasks are ordered accordingly.
+**REGRESSION PIN.** Nothing currently fails; the named suite only proves no ledger row was filed, which is the directive this task honours by writing limits instead of rows. Limit 10 is deliberately not written here — spec §12 assigns it to the archive entry, so AC-12 is met only once Task 9 has run.
 
-**This task is a REGRESSION PIN.** Nothing currently fails; the named suite only proves no ledger row was filed, which is the directive this task honours by writing limits instead of rows.
-
-## Task 10 — impeccable dual gate
+## Task 8 — impeccable dual gate
 
 <!-- task: red=`pnpm exec vitest run tests/docs/_metaInvariant8Closeout.test.ts` ac=AC-13 -->
 
-**This is a GATE, not a TDD task, and the named suite is a marker-grammar check rather than a test of production behaviour.** It is listed with a red command because the closeout marker must parse, and a malformed one fails that suite; running the gate itself is not something any assertion here observes.
+**GATE, not a TDD task.** The named suite checks marker grammar; running the gate is not something any assertion here observes.
 
-Run `/impeccable critique` and `/impeccable audit` on `components/observe/GlobalErrorListener.tsx`, both with the canonical v3 setup gates (the skill's context load, then the register reference read). Record findings and dispositions in the closeout section.
 
-**The marker must match the enforced grammar exactly.** `tests/docs/_invariant8Closeout.ts:44-45` anchors it:
+<!-- spec-lint: ignore — this file is created by this plan's implementation and is not tracked yet -->
+Run both halves of the impeccable v3 dual gate — the critique command, then the audit command — on `components/observe/GlobalErrorListener.tsx`, each with the canonical v3 setup gates. Record findings and dispositions, and write the marker, in a stem-named sibling closeout file created by this task: `docs/superpowers/plans/2026-08-26-observe-error-telemetry-closeout.md`.
 
-```
-impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=recorded
-```
+**Why the declaration and the marker land there together, and not in this file.** `tests/docs/_metaInvariant8Closeout.test.ts` requires that any unit *declaring* the dual gate carry a valid marker, and it detects the declaration by the literal command phrases. A plan that names them is therefore obliged to carry a marker it cannot yet write — the counts do not exist until the gate runs — so it would red the suite from Task 1 through Task 7 either way: malformed if it carries a placeholder, missing if it carries none. An earlier draft did the first and the version before it did the second. The declaration belongs with the result, which is the closeout file, and this file deliberately does not use the two trigger phrases.
 
-`critique=` and `audit=` take `RAN` or `RAN-DEGRADED`; `p0=`/`p1=` are integers with no leading zeros; `dispositions=` is `recorded` or `none`. An earlier draft prescribed free prose after the colon, which that regex rejects outright — the marker would have been malformed and the task could not have gone green by following its own instructions. Fill `p0`/`p1` from the actual run.
+**The marker's grammar, and why this plan carries no example of it.** `tests/docs/_invariant8Closeout.ts:166` pushes to `malformed` **any** line whose trimmed start is the marker prefix and which matches none of its three exact forms — and `walkPlansTree` scans this very file. A placeholder with `p0=<int>` is therefore not a harmless illustration: it reds `tests/docs/_metaInvariant8Closeout.test.ts` for every task before this one. An earlier draft carried exactly that. So the fields are described here in prose and the marker line itself is written only at closeout:
+
+- prefix `impeccable-gate:` then `critique=` and `audit=`, each `RAN` or `RAN-DEGRADED`;
+- `p0=` and `p1=`, integers with no leading zeros, from the actual run;
+- `dispositions=`, which the parser cross-checks against those counts at `tests/docs/_invariant8Closeout.ts:141-142`: `recorded` when `p0 + p1 > 0`, and **`none` when both are zero**. A gate that finds nothing and writes `recorded` is malformed.
 
 The `N/A` form is **not** taken: invariant 8 defines a UI surface by path (`AGENTS.md:20`), and the grammar test validates syntax rather than authorizing an exemption (spec §12).
 
-## Task 11 — archive both rows
+## Task 9 — archive both rows
 
 <!-- task: red=`pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts` ac=AC-14 -->
 
-Graduate both rows to `BACKLOG-archive.md` with the evidence spec §12 requires. Remove both `IN PROGRESS` markers **in the PR's last commit**, before the merge, so no marker reaches main (invariant 12).
+Graduate both rows to `BACKLOG-archive.md` with the evidence spec §12 requires, including limit 10 in row 2's entry. Remove both `IN PROGRESS` markers **in the PR's last commit**, before the merge, so no marker reaches main (invariant 12).
 
-**This is a REGRESSION PIN, and the earlier draft mislabelled it as a red.** The suite is green today and stays green through the correct atomic edit; it only fails if the archive move and the marker removal are split across commits, which is a mistake this task is arranged not to make. What it pins is that ordering constraint — an archive holding an in-flight entry, or a marker reaching main — and that is worth pinning even though the happy path never reds.
+**REGRESSION PIN.** The suite is green today and stays green through the correct atomic edit; it reds only if the archive move and the marker removal are split across commits. What it pins is that ordering constraint — an archive holding an in-flight entry, or a marker reaching main — which is worth pinning even though the happy path never reds.
 
 <!-- tasks: end -->
 
 ## Acceptance criteria
 
-- **AC-1** the core classifies each of the eighteen §5.7 cases with the right reason
-- **AC-2** no `lib/admin` construction of an `infra_error` lacks a code-carrying object-payload emit, derived from disk, with all four premises met
+- **AC-1** the scanner core classifies each of the eighteen spec §5.7 cases with the right reason
+- **AC-2** no `lib/admin` construction of an `infra_error` lacks a code-carrying object-payload emit, derived from disk, with all five premises met
 - **AC-3** the `show_change_log` returned-error branch emits `SHOW_CHANGE_LOG_READ_RETURNED_ERROR`
 - **AC-4** every loader emit's `context.error` carries the PostgREST fields, not a bare message
 - **AC-5** every swept file has an `infraRegistry` row
 - **AC-6** every new forensic code is in `NEW_FORENSIC_CODES`
-- **AC-7** `describeClientValue` satisfies the §6.3 table and the 25-pair corpus, four of which assert their documented collision
+- **AC-7** `describeClientValue` satisfies the spec §6.3 table and the 25-pair corpus, four of which assert their documented collision
 - **AC-8** no non-`Error` crash reaches the wire as `"[object Object]"`
-- **AC-9** two inputs differing only in `detail` produce two POSTs; the `Error` path's key is unchanged
+- **AC-9** two inputs differing only in `detail` produce two POSTs, and the `Error` path's dedup **behaviour** is unchanged — one `Error` still dedups once, two distinct `Error`s still produce two POSTs. The key's bytes are not asserted: a fifth term appends a separator even when empty, so byte-identity is impossible and asserting it would be asserting a falsehood.
 - **AC-10** a plain-object rejection reason persists its own fields in `detail`
 - **AC-11** a non-`Error` window throw persists `event.error`'s fields
-- **AC-12** every §9 limit is recorded on its owning surface with a re-run trigger
-- **AC-13** the impeccable dual gate ran and its dispositions are recorded
+- **AC-12** every spec §9 limit is recorded on its owning surface with a re-run trigger
+- **AC-13** the impeccable dual gate ran, its dispositions are recorded, and the marker parses
 - **AC-14** both rows are archived and no `IN PROGRESS` marker reaches main
 
 ## Checklist
 
-- [ ] Tasks 1-11 (TDD per invariant 1; whole tree green under `pnpm heavy` before every push)
+- [ ] Tasks 1-9 (TDD per invariant 1; whole tree green under `pnpm heavy` before every push)
 - [ ] Plan self-review
 - [ ] **Adversarial review (cross-model)** — Codex, plan stage. Brief carries the closed criterion and `PROBE DOMAIN: lib/admin/**` plus the walker, per bl-orch's condition of 2026-08-27. A same-class finding is repaired by DECLINING or by a type category, never by a wider recognizer.
 - [ ] Whole-diff adversarial review to APPROVE
