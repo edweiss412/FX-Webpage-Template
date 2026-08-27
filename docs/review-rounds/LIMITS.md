@@ -60,7 +60,7 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Named by:** 2 arcs — feat/speclint-ac-unclaimed-arm/44b0d74b1107.md (diff), feat/private-image-pipeline/d2a31e4aa021.md (diff, the `alertProducerScope.registry.ts` instance: one hoisted emit invalidated 19 rows across three files)
 
-**Owning record:** the two-line note at the head of `tests/mutation/source/registry.ts` (placed by the ac-unclaimed arc), plus this index
+**Owning record:** the documented-limit note at the head of `tests/mutation/source/registry.ts` (placed by the ac-unclaimed arc), plus this index
 
 **Re-file trigger:** a third arc hitting it or a product arc blocked by it (stated in the ac-unclaimed filing)
 
