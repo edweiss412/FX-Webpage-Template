@@ -274,11 +274,12 @@ describe("BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — reachability per h
       survived: true,
       reported: false,
       reportedFlags: null,
-      // The genuine-removal fallback retains the FROZEN snapshot, so the live
-      // phone is reverted. Not this arc's fix (filed as the sibling entry
-      // BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE); pinned here so the shape is
-      // executable rather than described.
-      phoneAfter: HELD_PHONE,
+      // The genuine-removal fallback retains the member's OWN live row, so a
+      // field edited after the hold's last write survives the sheet dropping
+      // them. This row read HELD_PHONE until
+      // BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE closed; it is the defect's
+      // own reproduction, flipped.
+      phoneAfter: LIVE_PHONE,
     });
   });
 

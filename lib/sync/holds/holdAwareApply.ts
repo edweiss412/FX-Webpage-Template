@@ -209,6 +209,45 @@ export async function planHoldAwareApply(
   // non-identity field overrides to apply onto a pinned held row (from a folded rename row).
   const nonIdentityOverride = new Map<string, CrewMemberRow>();
 
+  // Prior live crew rows, keyed by name, built ONCE (BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE).
+  // Was rebuilt per undo_override hold; every retain in this file needs it now.
+  const previousByName = new Map((args.previousCrewMembers ?? []).map((m) => [m.name, m]));
+
+  /**
+   * The row to retain for a held member: the member's OWN live non-identity,
+   * the held snapshot's identity.
+   *
+   * WHY LIVE WINS, EVERYWHERE. A held entity_key's live crew_members row is
+   * written by exactly two things: this sync's own upsert for that key -- the
+   * sheet row with the identity pin, or this retain -- and operator edits. A
+   * rejected rename's replacement is suppressed by BOTH name and canonical
+   * email (see applyUndoOverrideToMaps below) so it never enters
+   * plan.crewMembers, and the upsert keys on (show_id, name) so it could not
+   * land here anyway. Meanwhile held_value is a COPY of a prior live row:
+   * writeMi11Holds reads it from liveCrewByName, the pre-apply snapshot
+   * (phase2.ts:122). So live is never older than the snapshot, in any hold
+   * kind, any baseline, any sheet state -- which is why this needs no argument
+   * about WHEN the retain is consulted.
+   *
+   * WHY IDENTITY STILL COMES FROM THE SNAPSHOT. The build loop below reads
+   * `pin?.email ?? row.email`. pinnedIdentity is set to `held.email ?? null`, so
+   * a hold whose held_value.email is null would fall through to the RETAINED
+   * row's email -- and returning the live row unmodified would put the live
+   * email onto a row the hold pins to none, which is the identity move the hold
+   * exists to prevent. Taking name and email from the snapshot closes that
+   * before the loop ever sees it.
+   *
+   * A SPREAD, not a field-by-field pick and not a falsey coalesce: a live value
+   * that is null, "" or [] is the operator's latest word too.
+   *
+   * Spec: docs/superpowers/specs/sync/2026-08-27-mi11-removal-fallback-live-row.md
+   */
+  function retainRowFor(entityKey: string, heldValue: Record<string, unknown>): CrewMemberRow {
+    const snapshot = rowFromHeldValue(heldValue);
+    const live = previousByName.get(entityKey);
+    return live ? { ...live, name: snapshot.name, email: snapshot.email } : snapshot;
+  }
+
   // Per-hold in-place mutations to perform POST-plan (re-target/fold + reservation), collected here.
   type HoldMutation =
     | {
@@ -236,7 +275,7 @@ export async function planHoldAwareApply(
         pinnedIdentity,
         // WM-F4: same prior-live snapshot the rename-fold (WM-F3) + reservation (P2-F4) guards use.
         previousCrewNames: new Set(args.previousCrewNames ?? []),
-        previousByName: new Map((args.previousCrewMembers ?? []).map((m) => [m.name, m])),
+        previousByName,
       });
       continue;
     }
@@ -334,7 +373,7 @@ export async function planHoldAwareApply(
       }
       if (!folded) {
         // Genuine removal (2.6): keep old row pinned/retained, fold proposed_value → removal.
-        retainRows.set(hold.entity_key, rowFromHeldValue(held));
+        retainRows.set(hold.entity_key, retainRowFor(hold.entity_key, held));
         mutations.push({
           kind: "retarget",
           holdId: hold.id,
