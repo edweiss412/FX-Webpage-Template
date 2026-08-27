@@ -50,6 +50,11 @@ const ID_ANYWHERE = new RegExp(`(?<![A-Za-z0-9.-])(${ID})${ID_BOUNDARY}`, "g");
 const ID_AT_START = new RegExp(`^(${ID})${ID_BOUNDARY}`);
 /** A list item or ATX heading, plus at most one emphasis run. */
 const DECLARING_PREFIX = /^ {0,3}(?:[-*+]|\d{1,9}[.)]|#{1,6})[ \t]+(?:\*\*|__|\*|_)?/;
+/**
+ * A line whose SHAPE could carry a declaration: a list item, an ATX heading or a
+ * table row. Used only by the symmetric cut below, never to declare anything.
+ */
+const STRUCTURED = /^ {0,3}(?:[-*+]|\d{1,9}[.)]|#{1,6}|\|)[ \t]?/;
 
 // ---- the disposition accept-set (spec §4.3) ---------------------------------
 //
@@ -387,11 +392,25 @@ export interface AcAnalysis {
   certain: Map<string, { line: number; disposed: boolean }>;
   /** declaring lines carrying more than one distinct id; declined in both directions. */
   ambiguous: { line: number; ids: string[] }[];
+  /**
+   * Every line the arm DECLINES to read as a declaration while it carries ids:
+   * a line with more than one distinct id, or a structured line whose content
+   * does not begin with one. The count cut read in the other direction.
+   */
+  declined: { line: number; ids: string[] }[];
   /** the ids this plan declares that no marker claims and no disposition exempts. */
   unclaimed: { id: string; line: number }[];
+  /** cited ids this plan mentions but neither declares nor declines; on the MARKER line. */
+  undeclared: { id: string; line: number }[];
 }
 
-const EMPTY_AC: AcAnalysis = { certain: new Map(), ambiguous: [], unclaimed: [] };
+const EMPTY_AC: AcAnalysis = {
+  certain: new Map(),
+  ambiguous: [],
+  declined: [],
+  unclaimed: [],
+  undeclared: [],
+};
 
 /**
  * THE AC classification, and the only one. `checkTaskContract` renders its
@@ -406,6 +425,7 @@ function acAnalysisFrom(
   topology: TaskTopology,
   sawTasksLine: boolean,
   enrolled: boolean,
+  markerShaped: Set<number>,
 ): AcAnalysis {
   // The arm is inert in a plan with no task region (spec §7 limit 6), and an
   // unestablished enrollment discards markers unjudged, so it can claim nothing.
@@ -413,9 +433,25 @@ function acAnalysisFrom(
 
   const certain = new Map<string, { line: number; disposed: boolean }>();
   const ambiguous: { line: number; ids: string[] }[] = [];
+  const declined: { line: number; ids: string[] }[] = [];
+  const declinedIds = new Set<string>();
   for (let i = 0; i < model.lines.length; i++) {
     if (model.fencedInfo[i] !== undefined) continue; // a fenced declaration is inert
+    if (MARKER_ANY.test(model.lines[i]!)) continue; // a marker is not prose about an id
     const decl = declarationOn(model.lines[i]!, i + 1);
+    // The SYMMETRIC cut. An id on a line the arm declines is neither declared nor
+    // undeclared, so `TASK_AC_UNDECLARED` never fires on it. Without this the
+    // code reds 9 plans / 71 ids on the live corpus: one incidental list item
+    // beginning with an id opts a whole plan in while its real criteria sit in a
+    // table or a coverage line. Declining more is the allowed repair direction on
+    // this axis; a positive grammar for tables is not.
+    if (decl === null || decl.certain === null) {
+      const ids = idsOn(model.lines[i]!);
+      if (ids.length > 1 || (ids.length === 1 && STRUCTURED.test(model.lines[i]!))) {
+        declined.push({ line: i + 1, ids });
+        for (const id of ids) declinedIds.add(id);
+      }
+    }
     if (decl === null) continue;
     if (decl.certain === null) {
       ambiguous.push({ line: decl.line, ids: decl.ids });
@@ -433,8 +469,14 @@ function acAnalysisFrom(
 
   // Claims come from NON-FENCED markers only: a fenced marker is inert and must
   // not claim, mirroring the rule that it cannot resolve an `ac=` either.
+  //
+  // The two marker sets are deliberately different. CLAIMING suppresses a
+  // finding, so it takes the widest set — an orphaned marker still expresses the
+  // author's intent. REPORTING raises one, so it takes the narrowest: an orphaned
+  // marker already draws TASK_MARKER_ORPHANED and is not classified further.
   const claimed = new Set<string>();
-  for (const line of [...topology.owned.values()].flat().concat(topology.orphaned)) {
+  const owned = [...topology.owned.values()].flat();
+  for (const line of owned.concat(topology.orphaned)) {
     const parsed = parseMarker(model.lines[line - 1]!, line);
     if (parsed === null || parsed === "malformed" || parsed.acRaw === null) continue;
     for (const id of parsed.acRaw.split(",")) claimed.add(id);
@@ -445,13 +487,31 @@ function acAnalysisFrom(
     .map(([id, v]) => ({ id, line: v.line }))
     .sort((a, b) => a.line - b.line);
 
-  return { certain, ambiguous, unclaimed };
+  // OPT-IN BY SHAPE: silent in a plan that declares nothing, because 42 of the
+  // enrolled plans carry their criteria in the sibling spec and only a coverage
+  // map here (spec §7 limit 5). The three codes then partition: UNRESOLVED needs
+  // no occurrence at all, UNDECLARED an occurrence that is neither a declaration
+  // nor declined, UNCLAIMED a declaration.
+  const undeclared: { id: string; line: number }[] = [];
+  if (certain.size > 0) {
+    for (const line of owned) {
+      const parsed = parseMarker(model.lines[line - 1]!, line);
+      if (parsed === null || parsed === "malformed" || parsed.acRaw === null) continue;
+      for (const id of parsed.acRaw.split(",")) {
+        if (certain.has(id) || declinedIds.has(id)) continue;
+        if (!resolvesId(id, model.lines, markerShaped)) continue; // UNRESOLVED's case
+        if (!undeclared.some((u) => u.id === id && u.line === line)) undeclared.push({ id, line });
+      }
+    }
+  }
+
+  return { certain, ambiguous, declined, unclaimed, undeclared };
 }
 
 /** The AC classification alone, for consumers outside the finding renderer. */
 export function acAnalysis(model: DocModel): AcAnalysis {
-  const { topology, sawTasksLine, enrolled } = analyze(model);
-  return acAnalysisFrom(model, topology, sawTasksLine, enrolled);
+  const { topology, sawTasksLine, enrolled, markerShaped } = analyze(model);
+  return acAnalysisFrom(model, topology, sawTasksLine, enrolled, markerShaped);
 }
 
 export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Finding[] {
@@ -524,12 +584,22 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
     }
   }
 
-  for (const u of acAnalysisFrom(model, topology, sawTasksLine, enrolled).unclaimed) {
+  const ac = acAnalysisFrom(model, topology, sawTasksLine, enrolled, markerShaped);
+  for (const u of ac.unclaimed) {
     findings.push(
       fail(
         "TASK_AC_UNCLAIMED",
         u.line,
         `\`${u.id}\` is declared here and no task marker claims it`,
+      ),
+    );
+  }
+  for (const u of ac.undeclared) {
+    findings.push(
+      fail(
+        "TASK_AC_UNDECLARED",
+        u.line,
+        `\`${u.id}\` is cited here but this plan never declares it as a criterion`,
       ),
     );
   }

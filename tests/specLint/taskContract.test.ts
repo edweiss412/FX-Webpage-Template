@@ -811,3 +811,109 @@ describe("checkTaskContract — the unclaimed direction (spec §4.1, §4.3)", ()
     expect(codes(text)).toEqual(["TASK_AC_UNCLAIMED"]);
   });
 });
+
+describe("checkTaskContract — the undeclared direction and the three-code partition (spec §4.3)", () => {
+  const marker = (ac: string) => `<!-- task: red=\`pnpm test\` ac=${ac} -->`;
+  // OPEN=1, ""=2, "## Task 1"=3, ""=4, marker=5, ""=6, so body[0] is line 7.
+  const MARKER_LINE = 5;
+  const plan = (ac: string, ...body: string[]) =>
+    doc(OPEN, "", "## Task 1", "", marker(ac), "", ...body, "", END);
+  const DECLARED = "- AC-1 declared as a criterion of this plan.";
+
+  it("AC-5/undeclared: a marker citing an id the plan only MENTIONS reports on the marker line", () => {
+    // resolvesId accepts any prose occurrence, so today `ac=AC-2` is satisfied
+    // by a passing sentence and the criterion is never declared at all.
+    const findings = checkTaskContract(
+      parseDoc(plan("AC-1,AC-2", DECLARED, "AC-2 is mentioned in this sentence and nowhere else.")),
+      "plan",
+    );
+    expect(findings.map((f) => [f.code, f.docLine])).toEqual([
+      ["TASK_AC_UNDECLARED", MARKER_LINE],
+    ]);
+  });
+
+  it("undeclared: OPT-IN BY SHAPE — a plan that declares nothing is untouched", () => {
+    // 42 of the enrolled plans carry their criteria in the sibling spec and a
+    // coverage map only (spec §7 limit 5). Requiring a body declaration for
+    // every cited id would red most of the corpus.
+    expect(codes(plan("AC-2", "AC-2 is mentioned in this sentence and nowhere else."))).toEqual([]);
+  });
+
+  it("undeclared: the count cut applies SYMMETRICALLY — an id on a DECLINED line is neither", () => {
+    // Each body below is a line the arm declines: a table row, a line carrying
+    // more than one id, and a list item whose content does not begin with the
+    // id. Without this cut the code reds 9 plans / 71 ids on the live corpus,
+    // because one incidental list item beginning with an id opts a whole plan
+    // in while its real criteria sit in a table.
+    for (const declined of [
+      "| AC-2 | the criterion, in a table | Task 3 |",
+      "AC-2 and AC-3 are both covered by the sibling spec.",
+      "- the second half of the work covers AC-2 as well.",
+      "### Task 4 closes AC-2 and nothing else",
+    ]) {
+      expect(`${declined} => ${codes(plan("AC-1,AC-2", DECLARED, declined)).join(",")}`).toBe(
+        `${declined} => `,
+      );
+    }
+  });
+
+  it("undeclared: an id whose only declaring line is AMBIGUOUS draws neither code", () => {
+    expect(codes(plan("AC-1,AC-2", DECLARED, "- AC-2 with AC-2b, its sibling."))).toEqual([]);
+  });
+
+  it("undeclared: a cited id that IS declared draws nothing", () => {
+    expect(codes(plan("AC-1", DECLARED))).toEqual([]);
+  });
+
+  it("undeclared: the DECLINE PATH must be live — a prose-only occurrence still reports", () => {
+    // The discriminator Task 4's empty-set assertion rests on. An implementation
+    // whose decline predicate is unconditionally true satisfies the corpus
+    // equality, the empty undeclared set and a non-zero declined count all at
+    // once; this case is the only thing that fails against it.
+    expect(codes(plan("AC-1,AC-2", DECLARED, "The work for AC-2 is done by the same pass."))).toEqual([
+      "TASK_AC_UNDECLARED",
+    ]);
+  });
+
+  it("AC-5/partition: no id ever draws two of the three codes", () => {
+    // AC-1 declared and claimed; AC-2 mentioned in prose; AC-3 nowhere at all.
+    const findings = checkTaskContract(
+      parseDoc(plan("AC-1,AC-2,AC-3", DECLARED, "AC-2 appears in this sentence.")),
+      "plan",
+    );
+    expect(findings.map((f) => f.code).sort()).toEqual([
+      "TASK_AC_UNDECLARED",
+      "TASK_AC_UNRESOLVED",
+    ]);
+    // Asserted per ID, not per code: a fixture can produce the right code set
+    // while one id draws two of them.
+    for (const id of ["AC-1", "AC-2", "AC-3"]) {
+      const drawn = findings.filter((f) => f.message.includes(`\`${id}\``)).map((f) => f.code);
+      expect(`${id} drew ${drawn.length}`).toBe(`${id} drew ${id === "AC-1" ? 0 : 1}`);
+    }
+  });
+
+  it("partition: UNRESOLVED needs NO occurrence, UNDECLARED needs one that is not a declaration", () => {
+    expect(codes(plan("AC-1,AC-9", DECLARED))).toEqual(["TASK_AC_UNRESOLVED"]);
+    expect(codes(plan("AC-1,AC-9", DECLARED, "AC-9 is discussed here."))).toEqual([
+      "TASK_AC_UNDECLARED",
+    ]);
+  });
+
+  it("undeclared: an id whose only occurrence is inside a FENCE is UNDECLARED, not declined", () => {
+    // `resolvesId` has always counted a fenced occurrence, so this stays out of
+    // UNRESOLVED's case — and it is not a decline either, since a fence is inert
+    // for declaring and for declining alike. UNDECLARED is the right answer and
+    // the purest form of the defect this code exists for: the plan cites AC-9
+    // and its only appearance anywhere is a code sample.
+    expect(codes(plan("AC-1,AC-9", DECLARED, "```", "AC-9 in a code sample", "```"))).toEqual([
+      "TASK_AC_UNDECLARED",
+    ]);
+  });
+
+  it("undeclared: never fires for kind === 'spec', on byte-identical text", () => {
+    const text = plan("AC-1,AC-2", DECLARED, "AC-2 appears in this sentence.");
+    expect(checkTaskContract(parseDoc(text), "spec")).toEqual([]);
+    expect(codes(text)).toEqual(["TASK_AC_UNDECLARED"]);
+  });
+});
