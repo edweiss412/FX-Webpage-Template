@@ -26,6 +26,7 @@ import { AvatarMenu } from "@/components/auth/AvatarMenu";
 import { avatarColor } from "@/lib/crew/avatarColor";
 import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 import { messageFor } from "@/lib/messages/lookup";
+import { Component, type ReactNode } from "react";
 
 afterEach(() => {
   cleanup();
@@ -676,9 +677,11 @@ describe("the switch-person failure state", () => {
     // Held open by a deferred, and RESOLVED at the end of this test. A promise
     // that never settles leaves an async transition permanently in flight, and
     // React tracks that beyond the unmounted component: every later test in
-    // this file then saw its own transition never retire, so onSwitchSubmit's
-    // pending guard swallowed their submits and they failed for a reason that
-    // had nothing to do with them. Measured while adding the retry cases below.
+    // this file then saw its own transition never retire, so the pending
+    // guard swallowed their submits and they failed for a reason that had
+    // nothing to do with them. Measured while adding the retry cases below.
+    // (The guard now reads the component's own phase in `beginSwitch`; the
+    // leak this records predates that and is why every case retires its own.)
     const held = deferredPending<ClearIdentityResult>();
     const action = vi.fn(() => held.promise); // pending until this test ends
     renderWith(action);
@@ -721,7 +724,7 @@ describe("the switch-person failure state", () => {
     act(() => {
       fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
     });
-    expect(action.mock.calls.length).toBe(calls); // onSwitchSubmit early-returns while pending
+    expect(action.mock.calls.length).toBe(calls); // beginSwitch preventDefaults while busy
     // Settle the held transition so it cannot leak into later tests.
     await act(async () => {
       held.resolve({ ok: true });
@@ -734,17 +737,14 @@ describe("the switch-person failure state", () => {
  * Retry out of Open-error — spec §4.6's Open-error↔Open-pending and
  * Open-error→Open-idle pairs, which round 1 of the diff review found
  * unexercised. Two mutants survived without these: removing the
- * `setSwitchStatus("idle")` at the head of `onSwitchSubmit` (a retry that
+ * `setSwitchStatus("idle")` at the head of `beginSwitch` (a retry that
  * SUCCEEDS leaves the stale alert on screen), and a stale-closure read of the
  * status (a retry that FAILS AGAIN leaves the menu idle with no alert at all,
  * so the second failure reads as success).
  *
  * Each attempt is driven by its own deferred and resolved inside `act`, the
- * same shape the close/reopen lifecycle cases use. An immediately-resolved mock
- * is NOT interchangeable here: the transition's pending flag is still set when
- * the alert first paints, and `onSwitchSubmit` early-returns while pending, so
- * the retry would be silently swallowed and the test would pass for the wrong
- * reason.
+ * same shape the close/reopen lifecycle cases use, so each case controls when
+ * its own attempt settles rather than racing a resolved mock.
  */
 describe("retrying out of the failure state", () => {
   const EXPECTED = messageFor("PICKER_SWITCH_FAILED").crewFacing ?? "";
@@ -761,30 +761,6 @@ describe("retrying out of the failure state", () => {
     });
   };
 
-  /**
-   * Retires the in-flight transition before the next submit.
-   *
-   * Resolving the action's promise inside `act` commits the state update, but
-   * the `useTransition` pending flag is NOT retired by that alone in jsdom —
-   * measured here: right after the resolve the alert is on screen while the
-   * submit still reads `aria-disabled="true"`. Since `onSwitchSubmit`
-   * early-returns while pending, retrying on the alert's paint would silently
-   * drop the retry and the test would pass for the wrong reason. Extra
-   * microtask turns inside `act` retire it; the assertion below is what proves
-   * the wait actually worked rather than assuming it.
-   */
-  const settled = async (): Promise<void> => {
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await waitFor(() =>
-      expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
-        "false",
-      ),
-    );
-  };
-
   /** Renders with a queue of deferreds, one per attempt, in call order. */
   const renderWithQueue = (queue: Array<Promise<ClearIdentityResult>>) => {
     let call = 0;
@@ -795,7 +771,7 @@ describe("retrying out of the failure state", () => {
 
   it("clears the alert when the retry SUCCEEDS (kills the missing-reset mutant)", async () => {
     // The menu never closes between the two attempts, so reset-on-open cannot
-    // be what clears the alert — only the reset inside onSwitchSubmit can.
+    // be what clears the alert, only the reset inside beginSwitch can.
     const first = deferred<ClearIdentityResult>();
     const second = deferred<ClearIdentityResult>();
     const action = renderWithQueue([first.promise, second.promise]);
@@ -806,10 +782,6 @@ describe("retrying out of the failure state", () => {
       await first.promise;
     });
     expect(await screen.findByRole("alert")).toBeTruthy(); // Open-error
-    // Let the first transition fully retire before retrying: onSwitchSubmit
-    // early-returns while pending, and the alert paints before the pending flag
-    // clears, so submitting on the paint alone silently drops the retry.
-    await settled();
     submit(); // Open-error → Open-pending, menu still open
     await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
     await act(async () => {
@@ -830,7 +802,6 @@ describe("retrying out of the failure state", () => {
       await first.promise;
     });
     await screen.findByRole("alert");
-    await settled();
     submit();
     await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
     await act(async () => {
@@ -840,5 +811,597 @@ describe("retrying out of the failure state", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent?.trim()).toBe(EXPECTED); // a second failure still says so
     expect(screen.getByTestId("avatar-menu-popover")).toBeInTheDocument();
+  });
+});
+
+describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", () => {
+  const NOTICE = "Still switching. Try again.";
+  /**
+   * The window these cases step over, as a LITERAL. Deliberately not the
+   * imported constant: a case that reads the constant cannot tell it from a
+   * component-local copy of the same number, so it would pass by coincidence
+   * while claiming to pin linkage (round 2 F4), and importing a module the
+   * GREEN step creates is what made the declared RED unreproducible in TDD
+   * order (round 2 F3). One definition is pinned by the DERIVED inventory guard
+   * instead, which can actually tell the difference.
+   */
+  const PENDING_WINDOW_MS = 8_000;
+
+  /**
+   * Every deferred this describe hands out, retired after the case whatever the
+   * case did. A FAILING assertion returns before its own resolve, and the
+   * transition it leaves in flight is tracked past unmount, so the next case's
+   * submit is swallowed by the pending guard and it fails for a reason that is
+   * not its own. That is measured, not feared: it is the same leak the file
+   * already records against the pending guard at
+   * tests/components/auth/avatarMenu.test.tsx:675-681, and the first draft of
+   * this describe reproduced it (one red case turned the unchanged-behaviour
+   * case red too, which would have made a harness artifact look like the
+   * implementation's absence).
+   */
+  const outstanding: ((value: ClearIdentityResult) => void)[] = [];
+
+  function held() {
+    const d = deferredPending<ClearIdentityResult>();
+    outstanding.push(d.resolve);
+    return d;
+  }
+
+  /** A deferred this describe can REJECT, for the rejection cases. */
+  function rejectable() {
+    let reject!: (reason: unknown) => void;
+    let resolve!: (value: ClearIdentityResult) => void;
+    const promise = new Promise<ClearIdentityResult>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    outstanding.push(resolve);
+    return { promise, reject };
+  }
+
+  afterEach(async () => {
+    const pending = outstanding.splice(0);
+    // Resolve BEFORE the file-level cleanup unmounts, which is why this hook
+    // sits in the inner describe: an inner afterEach runs first.
+    await act(async () => {
+      for (const resolve of pending) resolve({ ok: true });
+      await Promise.resolve();
+    });
+    vi.useRealTimers();
+  });
+
+  /** The menu, open, plus the two nodes every case reads. */
+  function mount(action: (formData: FormData) => Promise<ClearIdentityResult>) {
+    render(<AvatarMenu name="Doug L." role="Lead" {...ROUTE} clearAction={action} />);
+    openMenu();
+    return {
+      item: screen.getByTestId("avatar-menu-switch-person"),
+      region: screen.getByTestId("avatar-menu-switch-announcer"),
+    };
+  }
+
+  /** Two attempts, in order, for every case that drives a retry. */
+  function twoAttempts() {
+    const first = held();
+    const second = held();
+    const action = vi
+      .fn<(formData: FormData) => Promise<ClearIdentityResult>>()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    return { first, second, action };
+  }
+
+  it("re-enables the row at the timeout and says so, pinned from both sides (AC-1)", () => {
+    vi.useFakeTimers();
+    const first = held();
+    const action = vi.fn(() => first.promise);
+    const { item, region } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    // Premise: the case only discriminates if the tap actually started a clear.
+    // An action never called would end idle too, and every assertion below
+    // would hold for the wrong reason.
+    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    expect(region.textContent).toBe("Switching person");
+
+    act(() => {
+      vi.advanceTimersByTime(7_900);
+    });
+    // A 1s-to-7s timeout mutant also ends enabled, so the window is pinned from
+    // BOTH sides, the sibling's idiom at tests/show/pickerAffordance.test.tsx:153.
+    expect(item.getAttribute("aria-disabled"), "still busy just before 8s").toBe("true");
+    expect(item.getAttribute("aria-busy"), "still busy just before 8s").toBe("true");
+    expect(region.textContent, "still announcing just before 8s").toBe("Switching person");
+
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(item.getAttribute("aria-disabled"), "re-enabled just after 8s").toBe("false");
+    expect(item.getAttribute("aria-busy"), "not busy just after 8s").toBeNull();
+    expect(region.textContent).toBe(NOTICE);
+  });
+
+  it("admits a retry after the timeout, on a fresh window (AC-2)", () => {
+    vi.useFakeTimers();
+    const { action } = twoAttempts();
+    const { item, region } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    // Premise, stated so that no other state satisfies it: busy first, then the
+    // TIMEOUT NOTICE. Asserting only "enabled" would be equally true of
+    // ordinary idle, which is the round-1 F3 defect swept across every case.
+    expect(item.getAttribute("aria-disabled"), "busy before the window elapses").toBe("true");
+    act(() => {
+      vi.advanceTimersByTime(8_100);
+    });
+    expect(region.textContent, "timed out, not merely idle").toBe(NOTICE);
+
+    act(() => {
+      fireEvent.click(item);
+    });
+    expect(action, "the second tap reached clearAction").toHaveBeenCalledTimes(2);
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    expect(region.textContent).toBe("Switching person");
+
+    // A FRESH window, not the remainder of the old one: 7,900ms past the retry
+    // is 16,000ms past the first tap.
+    act(() => {
+      vi.advanceTimersByTime(7_900);
+    });
+    expect(item.getAttribute("aria-disabled"), "the retry has its own 8s").toBe("true");
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(item.getAttribute("aria-disabled"), "and it expires on schedule").toBe("false");
+  });
+
+  it("a clear that settles inside the window is untouched by the watchdog (AC-3)", async () => {
+    vi.useFakeTimers();
+    const first = held();
+    const action = vi.fn(() => first.promise);
+    const { item, region } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    // Premise: the clear ran and is still inside the window at the moment it
+    // settles, so this case is the ordinary path and not a disguised timeout.
+    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
+    expect(item.getAttribute("aria-busy"), "settling inside the window").toBe("true");
+    await act(async () => {
+      first.resolve({ ok: true });
+      await first.promise;
+    });
+    expect(item.getAttribute("aria-disabled")).toBe("false");
+    expect(item.getAttribute("aria-busy")).toBeNull();
+    expect(region.textContent).toBe("");
+    expect(document.body.textContent).not.toContain(NOTICE);
+
+    // …and the notice does not arrive late, once the old timer's moment passes.
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(region.textContent).toBe("");
+  });
+
+  it("COMPOUND C1: the stale settle empties the region and does not re-disable the row (AC-4)", async () => {
+    vi.useFakeTimers();
+    const first = held();
+    const action = vi.fn(() => first.promise);
+    const { item, region } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    act(() => {
+      vi.advanceTimersByTime(20_000);
+    });
+    expect(region.textContent, "timed out, waiting on the stale settle").toBe(NOTICE);
+
+    await act(async () => {
+      first.resolve({ ok: true });
+      await first.promise;
+    });
+    expect(region.textContent).toBe("");
+    expect(item.getAttribute("aria-disabled")).toBe("false");
+    expect(action).toHaveBeenCalledTimes(1);
+  });
+
+  it("COMPOUND C3: a superseded failure paints no alert, but the live one still does (AC-5)", async () => {
+    vi.useFakeTimers();
+    const { first, second, action } = twoAttempts();
+    const { item } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    act(() => {
+      vi.advanceTimersByTime(8_100);
+    });
+    act(() => {
+      fireEvent.click(item);
+    });
+    // Premise: there really are two attempts in flight, so "no alert" below is
+    // the ordinal dropping a superseded result and not an absent one.
+    expect(action, "two attempts in flight").toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      first.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      await first.promise;
+    });
+    expect(screen.queryByRole("alert"), "the superseded failure is dropped").toBeNull();
+    expect(item.getAttribute("aria-disabled"), "the live retry keeps the row busy").toBe("true");
+
+    // The component has NOT stopped reporting failures: the LIVE attempt's
+    // failure still paints. Without this half, a mutant that never sets the
+    // error state at all would pass the assertion above.
+    await act(async () => {
+      second.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      await second.promise;
+    });
+    // getBy, not findBy: findBy polls on REAL timers and this case holds fake
+    // ones, so it would sit until vitest's 30s deadline. Measured.
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
+
+  it("COMPOUND C4: the window expires while the menu is CLOSED (AC-6)", () => {
+    // Round 3 F3. The earlier version timed out BEFORE closing, which proves
+    // only that a timed-out phase survives a close: it cannot tell a live
+    // watchdog from one the close cancelled or that was conditioned on `open`.
+    // Here the menu is closed while PENDING and the clock crosses the window
+    // with it still closed. The announcer sits outside the popover, so the flip
+    // is observable without reopening, and that is the independence claim.
+    vi.useFakeTimers();
+    const first = held();
+    const action = vi.fn(() => first.promise);
+    const { item, region } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
+    expect(region.textContent, "pending, not yet timed out, before the close").toBe(
+      "Switching person",
+    );
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-trigger")); // close, still pending
+    });
+    expect(screen.queryByTestId("avatar-menu-popover"), "the menu really is closed").toBeNull();
+    expect(
+      screen.getByTestId("avatar-menu-switch-announcer").textContent,
+      "still pending while closed",
+    ).toBe("Switching person");
+
+    act(() => {
+      vi.advanceTimersByTime(8_100);
+    });
+    // The whole case: the watchdog ran while the menu was closed, and the
+    // always-mounted announcer says so without anyone reopening it.
+    expect(
+      screen.getByTestId("avatar-menu-switch-announcer").textContent,
+      "the watchdog fired while closed",
+    ).toBe(NOTICE);
+
+    openMenu();
+    expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
+      "false",
+    );
+    expect(screen.getByTestId("avatar-menu-switch-announcer").textContent).toBe(NOTICE);
+  });
+
+  it("COMPOUND C6: the RETRY settles ok while the first is still hung (AC-9)", async () => {
+    // Round 1 F1. React entangles pending across transitions from one hook, so
+    // a busy flag derived from it stays true here and the row would sit
+    // disabled until a SECOND watchdog fired. The phase is this component's
+    // own, so it does not.
+    vi.useFakeTimers();
+    const { first, second, action } = twoAttempts();
+    const { item, region } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    act(() => {
+      vi.advanceTimersByTime(8_100);
+    });
+    act(() => {
+      fireEvent.click(item);
+    });
+    expect(action, "two attempts in flight, the older one hung").toHaveBeenCalledTimes(2);
+    expect(item.getAttribute("aria-disabled"), "busy on the retry").toBe("true");
+
+    await act(async () => {
+      second.resolve({ ok: true });
+      await second.promise;
+    });
+    expect(item.getAttribute("aria-disabled"), "the retry settling ends the busy state").toBe(
+      "false",
+    );
+    expect(region.textContent).toBe("");
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    // The older attempt is still hung. Its window would have expired long ago;
+    // nothing may come back on screen.
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(item.getAttribute("aria-disabled")).toBe("false");
+    expect(region.textContent).toBe("");
+
+    await act(async () => {
+      first.resolve({ ok: true });
+      await first.promise;
+    });
+    expect(item.getAttribute("aria-disabled")).toBe("false");
+    expect(region.textContent).toBe("");
+  });
+
+  it("COMPOUND C6: the RETRY fails while the first is still hung (AC-9)", async () => {
+    vi.useFakeTimers();
+    const { first, second, action } = twoAttempts();
+    const { item, region } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    act(() => {
+      vi.advanceTimersByTime(8_100);
+    });
+    act(() => {
+      fireEvent.click(item);
+    });
+    expect(action, "two attempts in flight, the older one hung").toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      second.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      await second.promise;
+    });
+    expect(screen.getByRole("alert")).toBeTruthy(); // getBy: fake timers, see AC-5
+    expect(screen.queryAllByRole("alert")).toHaveLength(1);
+    expect(item.getAttribute("aria-disabled"), "a reported failure is not a busy row").toBe(
+      "false",
+    );
+    expect(region.textContent).toBe("");
+
+    // Past the moment the retry's own window would have closed. A phase that
+    // never returned to idle would paint the timeout notice over the alert.
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(region.textContent, "no late timeout notice on top of the alert").toBe("");
+    expect(screen.queryAllByRole("alert")).toHaveLength(1);
+
+    await act(async () => {
+      first.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      await first.promise;
+    });
+    expect(screen.queryAllByRole("alert"), "the stale failure adds nothing").toHaveLength(1);
+  });
+
+  it("COMPOUND C8: a settle and a due watchdog in one flush leave the alert standing alone (AC-12)", async () => {
+    // Round 2 F1. The callback is already QUEUED when the settle schedules its
+    // update, and clearTimeout cannot unfire it. Probed without the callback's
+    // the guard: phase=timedout status=error, the combination §4.6 forbids.
+    vi.useFakeTimers();
+    const first = held();
+    const action = vi.fn(() => first.promise);
+    const { item, region } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
+    expect(item.getAttribute("aria-disabled"), "busy before the boundary").toBe("true");
+
+    // Resolve OUTSIDE act so the transition update is scheduled but not yet
+    // committed, then let the due timer fire before that commit. This exact
+    // interleaving is what reproduces the fault; resolving inside act does not.
+    first.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    await Promise.resolve();
+    await Promise.resolve();
+    await act(async () => {
+      vi.advanceTimersByTime(PENDING_WINDOW_MS);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(region.textContent, "no timeout notice over a settled clear").toBe("");
+    expect(item.getAttribute("aria-disabled"), "settled, not timed out").toBe("false");
+    expect(screen.getByRole("alert")).toBeTruthy(); // getBy: fake timers, see AC-5
+  });
+
+  it("COMPOUND C5: a theme flip while TIMED OUT leaves the row and the notice alone (AC-16)", () => {
+    // Round 2 F5: C5 was declared with no case that ever enters timed-out. The
+    // existing compound at tests/components/auth/avatarMenu.test.tsx:305 runs
+    // from open-idle.
+    vi.useFakeTimers();
+    document.documentElement.dataset.theme = "light";
+    const first = held();
+    const action = vi.fn(() => first.promise);
+    const { item, region } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    act(() => {
+      vi.advanceTimersByTime(PENDING_WINDOW_MS + 100);
+    });
+    // Premise on this case's own inputs: genuinely timed out before the flip.
+    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
+    expect(region.textContent, "timed out before the theme flip").toBe(NOTICE);
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-theme"));
+    });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(screen.getByRole("menu"), "the menu stays open").toBeInTheDocument();
+    expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
+      "false",
+    );
+    expect(screen.getByTestId("avatar-menu-switch-announcer").textContent).toBe(NOTICE);
+  });
+  /**
+   * The rejection cases render the menu inside an error boundary, because
+   * "did the component rethrow" is only answerable by asking what the boundary
+   * caught. Round 3 F2: calling `unstable_rethrow` directly in the test asserts
+   * Next's classifier rather than this component, and letting a control-flow
+   * rejection escape a bare `act` fails the case instead of proving anything.
+   */
+  class CatchBoundary extends Component<{ children: ReactNode }, { caught: boolean }> {
+    // `override` on both: this repo's tsconfig sets noImplicitOverride, and
+    // without it typecheck fails TS4114 while vitest passes, which is the
+    // strip-types trap the writing-plans rule exists for.
+    override state = { caught: false };
+    static getDerivedStateFromError() {
+      return { caught: true };
+    }
+    override render() {
+      return this.state.caught ? <div data-testid="switch-boundary" /> : this.props.children;
+    }
+  }
+
+  /** Reject one clear with `thrown`, and report what the boundary saw. */
+  async function rejectWith(thrown: unknown) {
+    const attempt = rejectable();
+    const action = vi.fn(() => attempt.promise);
+    render(
+      <CatchBoundary>
+        <AvatarMenu name="Doug L." role="Lead" {...ROUTE} clearAction={action} />
+      </CatchBoundary>,
+    );
+    openMenu();
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+    });
+    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
+    // React logs a caught boundary error; silence it so a PASSING case is quiet.
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await act(async () => {
+        attempt.reject(thrown);
+        await attempt.promise.catch(() => {});
+      });
+    } catch {
+      // A rethrown control-flow error surfaces here. That it surfaced is not
+      // the assertion; what the boundary caught is.
+    }
+    logged.mockRestore();
+    return { caught: screen.queryByTestId("switch-boundary") !== null };
+  }
+
+  it("COMPOUND C7: a transport rejection with no digest reports inline (AC-10)", async () => {
+    const { caught } = await rejectWith(new Error("network"));
+    expect(caught, "not framework control flow, so nothing reaches the boundary").toBe(false);
+    expect(screen.queryByTestId("avatar-menu"), "the component is still mounted").not.toBeNull();
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
+      "false",
+    );
+    expect(screen.getByTestId("avatar-menu-switch-announcer").textContent).toBe("");
+  });
+
+  it("COMPOUND C10: an OPAQUE server digest reports inline, it does not reach the boundary (AC-14)", async () => {
+    // "3693416880" is the shape the installed Next produced for an ORDINARY
+    // server failure. The digest test round 2 refuted would send this one to
+    // the boundary, which is the fault the catch exists to prevent.
+    const { caught } = await rejectWith(
+      Object.assign(new Error("server"), { digest: "3693416880" }),
+    );
+    expect(caught, "an opaque digest is not control flow").toBe(false);
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
+      "false",
+    );
+  });
+
+  it("COMPOUND C9: a timer left over from a settled attempt does not end the next one's window (AC-13)", async () => {
+    // What the effect cleanup is FOR, and the case exists because deleting the
+    // cleanup reds nothing else in this file. Attempt 1 settles well inside its
+    // window, so its timer is still armed; the retry then starts before that
+    // timer is due, and the stale callback would find the phase at "pending",
+    // which is the NEW attempt's, and end a window that is not its own.
+    vi.useFakeTimers();
+    const { first, second, action } = twoAttempts();
+    const { item } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    await act(async () => {
+      first.resolve({ ok: true });
+      await first.promise;
+    });
+    // Premise on this case's own inputs: attempt 1 really settled, and it did so
+    // with its timer still armed, which is the only situation this case is about.
+    expect(item.getAttribute("aria-disabled"), "attempt 1 settled inside its window").toBe("false");
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+      fireEvent.click(item);
+    });
+    expect(action, "attempt 2 started").toHaveBeenCalledTimes(2);
+
+    // t = 8,100 from the first tap, so attempt 1's timer was due 100ms ago.
+    // Attempt 2 is only 7,500ms into its own window and must still be busy.
+    act(() => {
+      vi.advanceTimersByTime(7_500);
+    });
+    expect(item.getAttribute("aria-disabled"), "attempt 2's window is its own").toBe("true");
+
+    await act(async () => {
+      second.resolve({ ok: true });
+      await second.promise;
+    });
+  });
+
+  it("the timeout is VISIBLE, not only announced, and does not double-announce (AC-17)", () => {
+    // Impeccable critique P1. A sighted person otherwise watches the row
+    // silently un-dim after eight seconds with nothing saying why. The note is
+    // aria-hidden so the always-mounted status region stays the single channel
+    // to assistive tech; two nodes carrying this sentence would announce twice.
+    vi.useFakeTimers();
+    const first = held();
+    const action = vi.fn(() => first.promise);
+    const { item, region } = mount(action);
+    act(() => {
+      fireEvent.click(item);
+    });
+    expect(action, "the tap reached clearAction").toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByTestId("avatar-menu-switch-timeout-note"),
+      "no note while merely pending",
+    ).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(8_100);
+    });
+    const note = screen.getByTestId("avatar-menu-switch-timeout-note");
+    expect(note.textContent).toBe(NOTICE);
+    expect(note.getAttribute("aria-hidden"), "hidden from AT, seen by eyes").toBe("true");
+    // A sibling of role=menu, never a child: a non-item child of a menu role is
+    // invalid ARIA, the same reason the alert sits outside it.
+    expect(screen.getByRole("menu").contains(note)).toBe(false);
+    // And exactly ONE node speaks: the sr-only region.
+    expect(region.textContent).toBe(NOTICE);
+    expect(region.getAttribute("aria-hidden")).toBeNull();
+  });
+
+  it("COMPOUND C10: a NEXT_REDIRECT digest DOES reach the boundary (AC-14)", async () => {
+    // The other direction, and the pair is the point: a case that only ever
+    // rejects a bare Error passes under the refuted digest test and under
+    // `unstable_rethrow` alike, and so distinguishes nothing.
+    //
+    // GREEN BEFORE AND AFTER: today there is no catch at all, so control flow
+    // reaches the boundary by default. This case is the invariant that the
+    // repair must not break, and it is mutant-directed against a catch that
+    // swallows everything, which is mandated below.
+    const { caught } = await rejectWith(
+      Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;replace;/x;307;" }),
+    );
+    expect(caught, "real control flow is rethrown untouched").toBe(true);
+    expect(screen.queryByTestId("avatar-menu-switch-person"), "the row went with it").toBeNull();
   });
 });

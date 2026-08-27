@@ -737,7 +737,6 @@ realtime reconnect backoff.
 | `SUCCESS_DISMISS_MS` | 5000 | `app/admin/show/[slug]/PickerResetControl.tsx` |
 | `SUCCESS_DISMISS_MS` | 5000 | `app/admin/show/[slug]/ResetPickerEpochButton.tsx` |
 | `CLEAR_AFTER_MS` | 2000 | `app/help/_components/RefAnchor.tsx` |
-| `PENDING_TIMEOUT_MS` | 8000 | `app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx` |
 | `CLOSE_DELAY_MS` | 120 | `components/admin/HoverHelp.tsx` |
 | `ANNOUNCE_LOG_TTL_MS` | 30000 | `components/admin/announceLog.tsx` |
 | `ERROR_AUTO_CLEAR_MS` | 6000 | `components/admin/dev/DevCaptureControl.tsx` |
@@ -762,6 +761,7 @@ realtime reconnect backoff.
 | `duration(0.22)` | 0.22 | `components/layout/PageTransition.tsx` |
 | `DEBOUNCE_MS` | 100 | `components/realtime/ShowRealtimeBridge.tsx` |
 | `submitTimeoutMs` | 30000 | `components/shared/ReportModal.tsx` |
+| `PENDING_TIMEOUT_MS` | 8000 | `components/shared/pendingTimeout.ts` |
 | `ARM_REVERT_MS` | 4000 | `lib/admin/destructiveConfirm.ts` |
 | `COPY_FEEDBACK_RESET_MS` | 2000 | `lib/ui/copyFeedback.ts` |
 

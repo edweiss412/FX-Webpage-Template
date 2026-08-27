@@ -53,16 +53,28 @@
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { Check, Moon, UserRoundCog } from "lucide-react";
+import { unstable_rethrow } from "next/navigation";
 
 import { deriveInitials } from "@/components/atoms/Avatar";
 import { avatarColor } from "@/lib/crew/avatarColor";
 import { cn } from "@/lib/ui/cn";
+import { PENDING_TIMEOUT_MS } from "@/components/shared/pendingTimeout";
 import { useAppliedTheme } from "@/components/layout/useAppliedTheme";
 import { messageFor } from "@/lib/messages/lookup";
 import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 
 /** The name substituted for a blank one, so the trigger is never unnamed. */
 export const CREW_MEMBER_FALLBACK = "Crew member";
+
+/**
+ * What the status region says once the watchdog has re-enabled the row.
+ *
+ * Accurate at the moment it renders: the clear has NOT been abandoned, it has
+ * stopped being a reason to keep the row inert. Two sentences rather than one
+ * clause, because the second is the instruction and it should not have to be
+ * inferred from the first.
+ */
+const SWITCH_TIMEOUT_NOTICE = "Still switching. Try again.";
 
 /**
  * The trigger's accessible name. Exported because it is a CONTRACT with four
@@ -105,24 +117,95 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
   // person has already moved on from. A plain state the menu resets when it
   // opens is the shape that matches the lifecycle.
   const [switchStatus, setSwitchStatus] = useState<"idle" | "error">("idle");
-  const [switchPending, startSwitch] = useTransition();
+
+  // THE SWITCH PHASE IS THIS COMPONENT'S OWN, not React's.
+  // `useTransition` stays as the SCHEDULING wrapper for the async work, and is
+  // NOT the source of truth for anything rendered. Reading its pending flag put
+  // the row in states the inventory forbids; the case that catches a return to
+  // it is avatarMenu.test.tsx's "the RETRY settles ok while the first is still
+  // hung", which requires the row enabled once the live attempt lands.
+  const [switchPhase, setSwitchPhase] = useState<"idle" | "pending" | "timedout">("idle");
+  const [, startSwitch] = useTransition();
+
+  /** In flight and not yet timed out. Every pending affordance reads THIS. */
+  const switchBusy = switchPhase === "pending";
+
+  // THE WATCHDOG. Without it a clear that never settles leaves this row dimmed
+  // and inert until a reload, and the re-entry guard below refuses the very tap
+  // that used to be the recovery (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG). Same
+  // shape and same constant as the same-route sibling _ClaimedRowButton.
+  //
+  // The dependency is the phase alone, which is also what arms a RETRY's fresh
+  // window: the retry moves `timedout` back to `pending` and this re-runs.
+  useEffect(() => {
+    if (switchPhase !== "pending") return;
+    const timer = setTimeout(() => {
+      // Reading the phase functionally, so a callback arriving after the settle
+      // finds "idle" and returns. Do not simplify this to a bare
+      // setSwitchPhase("timedout"): the cleanup below does not cover every
+      // arrival order, and the case that fails when it is simplified is
+      // avatarMenu.test.tsx's "a settle and a due watchdog in one flush leave
+      // the alert standing alone".
+      setSwitchPhase((phase) => (phase === "pending" ? "timedout" : phase));
+    }, PENDING_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [switchPhase]);
+
+  // A monotonic ordinal, never a key that can alias. Enabling a retry is what
+  // makes a FIRST attempt's late result arrive while a second is in flight, and
+  // the failure branch writes shared state.
+  const switchAttempt = useRef(0);
+
+  // WHERE THE PHASE IS SET, and it is not in the form action. React 19 holds
+  // updates scheduled INSIDE an action until that action settles, so a clear
+  // that never settles never commits its own pending state: measured at
+  // aria-disabled="false" with the action already called. The phase is
+  // therefore written in the button's onClick, a discrete event that commits
+  // immediately, which is also the shape the same-route sibling uses.
+  const beginSwitch = (event: React.MouseEvent<HTMLButtonElement>): void => {
+    if (switchBusy) {
+      // Both statements are required: aria-disabled does not stop activation,
+      // and returning does not cancel a submit button's default action.
+      event.preventDefault();
+      return;
+    }
+    switchAttempt.current += 1;
+    setSwitchStatus("idle"); // clear a prior error before the retry
+    setSwitchPhase("pending"); // and arm a fresh window for this attempt
+  };
 
   // React 19's form-action slot takes `void | Promise<void>`, so the returning
   // `clearAction` cannot bind to it directly. This adapter is that binding AND
   // the seam where the result finally gets read.
   const onSwitchSubmit = (formData: FormData): void => {
-    // The pending item stays FOCUSABLE (aria-disabled, not native disabled), so
-    // re-entry is guarded here rather than by the DOM.
-    if (switchPending) return;
-    setSwitchStatus("idle"); // clear a prior error before the retry
+    const attempt = switchAttempt.current;
     startSwitch(async () => {
-      const result = await clearAction(formData);
+      let failed: boolean;
+      try {
+        const result = await clearAction(formData);
+        failed = !result.ok;
+      } catch (error) {
+        // The supersession check comes FIRST, and it gates the rethrow as well
+        // as the state writes: a redirect requested by a clear the person has
+        // already superseded by tapping again is not this row's to follow.
+        if (switchAttempt.current !== attempt) return;
+        // Next's own classifier, NOT a digest test. Do not replace this with a
+        // `typeof error.digest === "string"` check: the pair of cases in
+        // avatarMenu.test.tsx that reject with "3693416880" and with
+        // "NEXT_REDIRECT;replace;/x;307;" require opposite outcomes, and that
+        // check gives both the same one.
+        unstable_rethrow(error);
+        failed = true;
+      }
+      // A superseded attempt reports nothing: the live one reports itself.
+      if (switchAttempt.current !== attempt) return;
+      setSwitchPhase("idle");
       // Any failure shows the same generic copy: the crew member cannot act on
       // WHICH failure it was, and a cross-origin refusal must not tell a
       // forger anything either. Success needs no branch: the clear also signs
       // this device out, so a cookie-only and a Google-resolved viewer both
       // unmount this whole control via revalidatePath.
-      if (!result.ok) setSwitchStatus("error");
+      if (failed) setSwitchStatus("error");
     });
   };
 
@@ -239,6 +322,13 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
     "focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised",
   );
+
+  // Derived from the phase, one branch each, so no state can hold pending text
+  // while the row is enabled. When a hung clear finally settles this empties on
+  // its own, with no reset for anyone to forget.
+  let switchAnnouncement = "";
+  if (switchPhase === "pending") switchAnnouncement = "Switching person";
+  else if (switchPhase === "timedout") switchAnnouncement = SWITCH_TIMEOUT_NOTICE;
 
   const menuNameProps = useMemo(
     () => (hasIdentity ? { "aria-labelledby": headerId } : { "aria-label": "Account menu" }),
@@ -393,6 +483,7 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
                 }}
                 type="submit"
                 role="menuitem"
+                onClick={beginSwitch}
                 data-testid="avatar-menu-switch-person"
                 data-identity-chip-not-you=""
                 aria-label="Switch crew member"
@@ -404,13 +495,15 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
                 // End, and reopen-with-ArrowUp, stranding focus outside the menu.
                 // The WAI-ARIA menu pattern keeps a disabled item focusable and
                 // skips it only for activation; re-entry is guarded in
-                // `onSwitchSubmit` instead.
-                aria-disabled={switchPending}
+                // `beginSwitch` instead, which is also where the phase is set.
+                aria-disabled={switchBusy}
                 // Pending is a network round trip now (the clear also signs the
                 // device out), so dimming alone is not enough: aria-busy here,
-                // and the announcement in the always-mounted status region
-                // below, OUTSIDE this menu (impeccable critique P1, WCAG 4.1.3).
-                aria-busy={switchPending || undefined}
+                // and the announcement in the status region below (impeccable
+                // critique P1, WCAG 4.1.3). Both read the DERIVED flag, so the
+                // watchdog re-enables the row rather than the dim being
+                // permanent when a clear never settles.
+                aria-busy={switchBusy || undefined}
                 className={cn(
                   itemClass,
                   "aria-disabled:cursor-not-allowed aria-disabled:opacity-60",
@@ -421,6 +514,29 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
               </button>
             </form>
           </div>
+
+          {/*
+            The timeout, made VISIBLE (impeccable critique P1). Without this a
+            sighted person taps, waits eight seconds, and watches the row
+            silently un-dim with nothing saying the switch is still running or
+            that tapping again is now sensible; the crew persona is glancing and
+            one-handed on a venue floor, where a state change nobody sees is
+            close to no state change at all.
+
+            `aria-hidden` because the always-mounted status region below is the
+            single channel to assistive tech: two nodes carrying this sentence
+            would announce it twice. Same split the identity header already uses
+            for its middot.
+          */}
+          {switchPhase === "timedout" ? (
+            <p
+              aria-hidden="true"
+              data-testid="avatar-menu-switch-timeout-note"
+              className="mt-1 px-3 py-2 text-xs/relaxed text-text-subtle"
+            >
+              {SWITCH_TIMEOUT_NOTICE}
+            </p>
+          ) : null}
 
           {/*
             OUTSIDE the `role="menu"` element, for the same reason the identity
@@ -456,7 +572,7 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
         restated here rather than left pointing at nothing.
       */}
       <span role="status" data-testid="avatar-menu-switch-announcer" className="sr-only">
-        {switchPending ? "Switching person" : ""}
+        {switchAnnouncement}
       </span>
     </div>
   );

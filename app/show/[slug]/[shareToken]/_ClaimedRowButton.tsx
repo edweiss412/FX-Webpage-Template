@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
+import { PENDING_TIMEOUT_MS } from "@/components/shared/pendingTimeout";
+
 /**
  * The claimed roster row's submit button, extracted to a client island so it
  * can show a pending state while sign-in travels to Google.
@@ -31,22 +33,6 @@ import { Loader2 } from "lucide-react";
  * cancel a submit button's default action — measured `submits=2` for an early
  * return alone, `1` with `preventDefault`. Both halves are load-bearing.
  */
-
-/**
- * Pending self-clears after this long.
- *
- * Re-tapping WAS the recovery for a sign-in that never lands; suppressing the
- * second tap removes it, so without this a hung hop leaves the row permanently
- * inert (impeccable critique P0). A navigation that is actually going to
- * happen has replaced this document long before 8s.
- *
- * It does NOT make a duplicate submit impossible, and spec §9 says so
- * outright: if the hop really is still in flight at 8s, a second tap issues
- * a second GET to /auth/sign-in. That is an idempotent navigation which
- * supersedes the first, and it is the accepted price of not stranding the
- * row. Ratified as R10.
- */
-const PENDING_TIMEOUT_MS = 8_000;
 
 export function ClaimedRowButton({
   name,
