@@ -242,7 +242,9 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Shape:** A lint advisory whose reasoning is correct is dismissed as noise because nothing requires it to be dispositioned before the artifact is dispatched for review, and it returns as a paid review finding. Distinct from LIM-RED-NAME-FILTER-SEVERITY, where the advisory's severity is the defect: here the severity is arguably right, since the arm genuinely cannot tell a stale claim from a drifted line anchor, and what is missing is a dispatch-time obligation to say which it is. Repairable without a new detector: one line per advisory in the brief, saying why it is noise.
 
-**Named by:** 2 arcs — fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md (spec), where `CITATION_SYMBOL_ABSENT` named the symbol and the file in the round-1 lint output, was read as locator granularity, and came back nine minutes later as that round's fourth finding; perf/admin-diagram-next-image/66c9857f56a5.md (plan), where three foreign `file:line` citations drifted across two `origin/main` absorbs while 20 to 26 advisories went undispositioned across three dispatches, and round 3 charged them. That is this slug's stated re-file trigger, fired.
+**Named by:** 1 arc — fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md (spec), where `CITATION_SYMBOL_ABSENT` named the symbol and the file in the round-1 lint output, was read as locator granularity, and came back nine minutes later as that round's fourth finding.
+
+**Near-miss, recorded so it is not miscounted:** perf/admin-diagram-next-image/66c9857f56a5.md (plan) first claimed this slug for its stale-citation finding and then REFUTED itself by probe — restoring the stale citation left the advisory set byte-identical at 35 rows, so no advisory was ever raised and none was dismissed. That arc's instance is LIM-FOREIGN-CITATION-DRIFT. This slug's count stays at 1.
 
 **Owning record:** none — this index is the record
 
@@ -267,4 +269,14 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 **Owning record:** none — this index is the record (the plan closed its own instance by hand: the gate now requires a P-tier data row or an explicit no-findings sentence, and names the four checklist items the pre-code section must carry)
 
 **Re-file trigger:** same as LIM-AUTHORED-RED: a product-facing arc measurably blocked
+
+## LIM-FOREIGN-CITATION-DRIFT
+
+**Shape:** A `file:line` citation into a file the branch does not own drifts onto unrelated content when the merge base moves, and NOTHING reports it — not a hard finding and not an advisory. The citation arms report only where same-line identifiers can be extracted from the citing sentence and compared against the cited file; a bare anchor (a ledger row id, a rule bullet) offers none, so the check establishes that the line is IN RANGE and never what is AT it. Same documented limit `RED_TARGET_INVALID` already carries for `red-target=`, extended to prose citations. Distinct from LIM-ADVISORY-UNDISPOSITIONED, which requires an advisory to have been raised and dismissed: here none is raised, which is why the drift survives to a paid review round.
+
+**Named by:** 1 arc — perf/admin-diagram-next-image/66c9857f56a5.md (plan), where three citations (`BACKLOG.md`, two into `docs/agents/writing-plans.md`) drifted across two `origin/main` absorbs and were charged as round 3's finding 7. Probed: restoring the stale `BACKLOG.md:68` against the corrected `:35` leaves the advisory set byte-identical, 35 rows to 35, with no row naming the file.
+
+**Owning record:** none — this index is the record (the arc's own repair is procedural: re-read every foreign line-form citation after the final absorb, matching each cited line to the symbol its sentence names)
+
+**Re-file trigger:** a second arc charged a review finding for a drifted foreign citation that produced no lint signal
 

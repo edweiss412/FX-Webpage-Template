@@ -88,6 +88,7 @@ import {
   isAllowedDiagramMime,
   resolveCurrentDiagrams,
 } from "@/lib/data/diagrams";
+import Image, { type ImageLoader } from "next/image";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
@@ -3781,16 +3782,75 @@ export const STEP3_SECTION_GROUPS: readonly string[] = [
 /** Thumbnail-grid cap (spec §B3): overflow renders the quiet "+N more" note. */
 export const DIAGRAM_TILE_CAP = 12;
 
-/** One thumbnail tile — raw <img> + onError placeholder, mirroring the crew
- *  Gallery pattern (components/diagrams/Gallery.tsx:130-144; raw <img> is a
- *  documented revert — next/image drops cookies). */
+/**
+ * The grid the tiles live in, expressed for `next/image`'s `sizes`.
+ *
+ * Exact rather than approximate, and the exactness is load-bearing: an
+ * approximation of this layout ("(min-width: 1024px) 170px, (min-width: 640px)
+ * 23vw, 25vw") selects a DIFFERENT ladder tier from the true width at 215 of the
+ * 3,843 (viewport, DPR) points between 320 and 1600 — in both directions, so it
+ * both ships bytes nobody needs and ships a blurry thumbnail.
+ *
+ * `calc()` is deliberate. next's `getWidths` scans `sizes` with
+ * /(^|\s)(1?\d?\d)vw/g; inside `calc(25vw` the digits are preceded by `(`, so
+ * nothing matches and next falls back to the full candidate list, which is the
+ * most generous set. The browser then evaluates the calc precisely.
+ */
+export const DIAGRAM_TILE_SIZES =
+  "(min-width: 1072px) 169.5px, (min-width: 1024px) calc(25vw - 98.5px), (min-width: 640px) calc(25vw - 38.5px), calc(33.3333vw - 32.6667px)";
+
+/** Every term of the chain above, named once so `DIAGRAM_TILE_SIZES` and the
+ *  real-browser measurement have one source to disagree with. */
+const MODAL_OUTER_PAD = 48; // sm:p-6, both sides — ReviewModalShell.tsx
+const MODAL_PANEL_MAX = 1024; // sm:max-w-5xl
+const MODAL_RAIL = 240; // w-60, shown at lg: — ShowReviewSurface.tsx
+const CONTENT_PAD = 40; // p-tile-pad, both sides
+const CARD_BOX = 42; // p-tile-pad both sides + 1px border both sides
+const TILE_GAP = 8; // gap-2
+
+/**
+ * The CSS width one diagram tile occupies at a given viewport.
+ *
+ * The tile is constant only from 1072px up, not from 1024px: the panel does not
+ * reach its max-width until the modal's own outer padding is paid.
+ */
+export function diagramTileWidthAt(viewportPx: number): number {
+  const panel = Math.min(viewportPx - (viewportPx >= 640 ? MODAL_OUTER_PAD : 0), MODAL_PANEL_MAX);
+  const main = viewportPx >= 1024 ? panel - MODAL_RAIL : panel;
+  const card = main - CONTENT_PAD - CARD_BOX;
+  const cols = viewportPx >= 640 ? 4 : 3;
+  return (card - TILE_GAP * (cols - 1)) / cols;
+}
+
+/**
+ * One thumbnail tile: a `next/image` driven by a CALLER-SUPPLIED loader, with
+ * the onError placeholder unchanged.
+ *
+ * The crew gallery is the shipped shape (components/diagrams/Gallery.tsx). The
+ * revert that once put a raw <img> here was about the `/_next/image` optimizer,
+ * which strips auth cookies and rewrites Cache-Control — a custom loader emits
+ * our own route URLs, so the optimizer is never involved and the cookies these
+ * admin routes authenticate with survive.
+ *
+ * `href` and `sourceKey` are separate on purpose. `href` is the full-resolution
+ * URL the anchor opens; `sourceKey` is `next/image`'s `src` identity, which
+ * every loader here ignores. next warns when a loader returns the `src` it was
+ * handed, and the staged loader is width-independent by construction, so a
+ * sourceKey set to the URL would warn on every staged tile.
+ */
 export function DiagramTile({
-  src,
+  href,
+  sourceKey,
+  loader,
+  sizes,
   alt,
   testId,
   hasPreviewSource,
 }: {
-  src: string;
+  href: string;
+  sourceKey: string;
+  loader: ImageLoader;
+  sizes: string;
   alt: string;
   testId: string;
   hasPreviewSource: boolean;
@@ -3818,25 +3878,36 @@ export function DiagramTile({
        an earlier belt-and-braces audit fix deliberately: the fallback here
        makes the duplicate redundant rather than defensive. */
     <a
-      href={src}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
       aria-label={
         strippedAlt ? `${strippedAlt} (opens in a new tab)` : "Staged diagram (opens in a new tab)"
       }
       data-testid={testId}
-      className="block"
+      /* `relative` makes the anchor the image's containing block. Without it a
+         `fill` image resolves against the modal panel, which IS positioned, and
+         one thumbnail covers the whole dialog — measured at all three modes.
+
+         The box chrome lives here rather than on the image for CONSISTENCY with
+         the crew gallery (components/diagrams/Gallery.tsx:351), not for
+         correctness. An earlier draft claimed a `fill` image insets against the
+         padding box so an image-side border "would no longer bound the tile";
+         that is false and was measured false — with no border on the anchor its
+         padding box IS its border box, so both arrangements render the same and
+         both pass every geometry assertion. Kept as written because one
+         arrangement across the two diagram surfaces is worth having; not kept
+         because the other one breaks. */
+      className="relative block aspect-4/3 w-full overflow-hidden rounded-md border border-text-faint bg-surface-sunken"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- staged-diagram
-          preview route is admin-cookie-authed; next/image drops cookies (same
-          documented revert as components/diagrams/Gallery.tsx). */}
-      <img
-        src={src}
+      <Image
+        loader={loader}
+        src={sourceKey}
         alt=""
-        loading="lazy"
-        decoding="async"
+        fill
+        sizes={sizes}
         onError={() => setFailed(true)}
-        className="aspect-4/3 w-full rounded-md border border-text-faint bg-surface-sunken object-cover"
+        className="object-cover"
       />
     </a>
   );
@@ -3854,6 +3925,8 @@ export function DiagramsBreakdown({
   wizardSessionId,
   diagrams,
   buildSrc,
+  buildLoader,
+  buildSourceKey,
   previewSourceFor,
 }: {
   dfid: string | null;
@@ -3865,6 +3938,14 @@ export function DiagramsBreakdown({
   // wizard-session staged-diagram preview route. Published passes the
   // `/api/asset/diagram/...` asset-route builder (crew Gallery pattern).
   buildSrc?: (stub: EmbeddedImageStub) => string;
+  // Mode-derived width-responsive loader. Absent → the staged default below,
+  // which is width-INDEPENDENT: a staged stub can never carry a variant ladder
+  // (`variants` lives on the persisted entry types only, lib/parser/types.ts),
+  // so the only URL it can serve is the original.
+  buildLoader?: (stub: EmbeddedImageStub) => ImageLoader;
+  // `next/image`'s `src` identity, which every loader ignores. Deliberately not
+  // URL-shaped: next warns when a loader returns the `src` it was handed.
+  buildSourceKey?: (stub: EmbeddedImageStub) => string;
   // Mode-derived servability gate. Absent → `hasStagedPreviewSource` (trusted
   // legacy contentUrl OR fingerprint-addressable media). Published passes the
   // persisted-snapshot gate (non-null snapshotPath + allowed MIME).
@@ -3875,6 +3956,10 @@ export function DiagramsBreakdown({
     ((stub: EmbeddedImageStub) =>
       `/api/admin/onboarding/staged-diagram/${wizardSessionId}/${dfid}/${encodeURIComponent(stub.objectId)}`);
   const resolvePreviewSource = previewSourceFor ?? hasStagedPreviewSource;
+  const resolveLoader = buildLoader ?? ((stub: EmbeddedImageStub) => () => resolveSrc(stub));
+  const resolveSourceKey =
+    buildSourceKey ??
+    ((stub: EmbeddedImageStub) => `staged:${wizardSessionId}:${dfid}:${stub.objectId}`);
   // Explicit type argument: `diagrams` is a union of the parser's stub shape and the
   // persisted shape, and the persisted entries carry the optional §4 variant fields.
   // Inference across a union of arrays does not pick the supertype on its own.
@@ -3910,7 +3995,10 @@ export function DiagramsBreakdown({
             <DiagramTile
               key={`${stub.objectId}-${i}`}
               testId={`wizard-step3-card-${dfid}-diagram-tile-${i}`}
-              src={resolveSrc(stub)}
+              href={resolveSrc(stub)}
+              sourceKey={resolveSourceKey(stub)}
+              loader={resolveLoader(stub)}
+              sizes={DIAGRAM_TILE_SIZES}
               // `?? ` only catches null/undefined — a persisted `alt: ""`
               // rendered a nameless link (impeccable audit P2); blank/space
               // alts fall back to the generic sheet-tab string too.

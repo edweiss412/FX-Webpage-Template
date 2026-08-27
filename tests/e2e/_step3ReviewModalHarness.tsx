@@ -56,27 +56,54 @@ export const HARNESS_DIAGRAM_STUB_COUNT = HARNESS_DIAGRAM_TILE_CAP + 3;
 const HARNESS_CALLOUT_MAX_ENTRIES = 3;
 export const HARNESS_CREW_WARNING_COUNT = HARNESS_CALLOUT_MAX_ENTRIES + 2;
 
-/** §K15 diagrams fixture: > cap valid stubs, ALL `contentUrl: null` so every
- *  tile renders the deterministic placeholder (zero network, stable geometry),
- *  plus a trusted linked-folder row so the folder link renders for the §15
- *  tap-target audit. */
+/** §K15 diagrams fixture: > cap valid stubs plus a trusted linked-folder row so
+ *  the folder link renders for the §15 tap-target audit.
+ *
+ *  Stub 0 is SERVABLE and every other stub is not. The placeholder stubs keep
+ *  the deterministic zero-network geometry this fixture was built for; stub 0
+ *  exists because a `fill` image has no box to measure unless an image element
+ *  actually mounts, and the tile's containing-block invariant is a real-browser
+ *  claim (jsdom computes no layout). Its shape is the XLSX-media pair —
+ *  `contentUrl: null` with a `mediaPartName` and a non-null
+ *  `embeddedFingerprint` — which `hasStagedPreviewSource` accepts
+ *  (lib/admin/stagedDiagramGuards.ts:57-63) without needing a trusted external
+ *  host. The layout spec's static server answers its `/api/` request with a
+ *  real 4:3 PNG, so the load is deterministic rather than a 404. Tile count and
+ *  the "+N more" note are unchanged: the fixture still holds cap+3 stubs. */
+export const HARNESS_SERVABLE_DIAGRAM_INDEX = 0;
+
 function harnessDiagrams(): ParseResult["diagrams"] {
   return {
     linkedFolder: {
       driveFolderId: "harness-diagram-folder",
       driveFolderUrl: "https://drive.google.com/drive/folders/harness-diagram-folder",
     },
-    embeddedImages: Array.from({ length: HARNESS_DIAGRAM_STUB_COUNT }, (_, i) => ({
-      sheetTab: "DIAGRAMS",
-      objectId: `harness-diagram-${i}`,
-      mimeType: "image/png",
-      alt: `Harness diagram ${i + 1}`,
-      contentUrl: null,
-      sheetsRevisionId: "harness-rev-1",
-      embeddedFingerprint: null,
-      recovery_disposition: "restage_required" as const,
-      snapshotPath: null,
-    })),
+    embeddedImages: Array.from({ length: HARNESS_DIAGRAM_STUB_COUNT }, (_, i) =>
+      i === HARNESS_SERVABLE_DIAGRAM_INDEX
+        ? {
+            sheetTab: "DIAGRAMS",
+            objectId: `harness-diagram-${i}`,
+            mimeType: "image/png",
+            alt: `Harness diagram ${i + 1}`,
+            contentUrl: null,
+            mediaPartName: "xl/media/image1.png",
+            sheetsRevisionId: "harness-rev-1",
+            embeddedFingerprint: `harness-fp-${i}`,
+            recovery_disposition: "normal" as const,
+            snapshotPath: null,
+          }
+        : {
+            sheetTab: "DIAGRAMS",
+            objectId: `harness-diagram-${i}`,
+            mimeType: "image/png",
+            alt: `Harness diagram ${i + 1}`,
+            contentUrl: null,
+            sheetsRevisionId: "harness-rev-1",
+            embeddedFingerprint: null,
+            recovery_disposition: "restage_required" as const,
+            snapshotPath: null,
+          },
+    ),
     linkedFolderItems: [],
   };
 }
@@ -295,6 +322,7 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
     JSON.stringify({
       dfid: HARNESS_DFID,
       diagramStubCount: HARNESS_DIAGRAM_STUB_COUNT,
+      servableDiagramIndex: HARNESS_SERVABLE_DIAGRAM_INDEX,
       crewWarningCount: HARNESS_CREW_WARNING_COUNT,
       normal: renderModalHtml({ showOverrides: { venue: harnessVenue() } }),
       // VCR-3 link-only venue: only a valid googleLink, no name/address/city/dock.
