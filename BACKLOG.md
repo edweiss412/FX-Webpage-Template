@@ -318,7 +318,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK — a leg with no displayable content beyond its date renders as an unlabeled raw line
 
-**Status:** IN PROGRESS · **Branch:** feat/flight-date-only-leg-render
+**Status:** OPEN
 **Effort:** M
 
 **Filed:** 2026-08-10, whole-diff review R2 F3 on `feat/crew-field-enrichment`, which refuted the claim that the unlabeled-leg render "no longer exists" while `BL-FLIGHT-LEG-ORIENTATION` was being archived. This row is that entry's successor: the archived one closed because the structured card became the DEFAULT render, and this one carries the residual it did not cover.
@@ -333,7 +333,9 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Re-file trigger:** the first date-only leg observed in a live sheet, or Doug adopting the pending-charter phrasing. Rerun the probe to settle it — it is one command and it prints the count.
 
-**Why still open, and why nothing was built:** the defect is real and reproducible, and the promotion prerequisite below has now been RUN — it returned zero, which is the answer that says do not build. A labeled treatment would be a renderer for a case the corpus does not contain; ruled RECORD AND PARK 2026-08-27. The entry keeps its place in the queue with the number attached, so the next reader inherits the measurement instead of re-deriving it.
+**Why still open after PR #916, and what that PR did NOT cover.** #916 closes this row's PROMOTION PREREQUISITE and nothing else. It ships the probe, its committed output, the report, and the `**Reachability:**` field above; it ships no renderer change and no test of one. The residual is the entire defect as filed: a segment that parses with nothing displayable beyond its date still renders as an unlabeled raw line, and the labeled treatment this row asks for is not built. Read the row as unstarted work whose gating question is now answered, not as work that partly shipped.
+
+**Why nothing was built:** the prerequisite returned zero, which is the answer that says do not build. A labeled treatment would be a renderer for a case the corpus does not contain; ruled RECORD AND PARK 2026-08-27. The entry keeps its place in the queue with the number attached, so the next reader inherits the measurement instead of re-deriving it.
 
 **Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation, in a case that turns out not to arise. **Promotion prerequisite (RUN 2026-08-27, returned zero):** a corpus probe over live `flight_info` values counting how often a segment parses but carries no displayable field beyond its date — see `**Reachability:**` above. Should it ever return non-zero, the direction is a renderer question, because the segments ARE structured: give the date-only segment a labeled treatment of its own, rather than the parser widening an earlier draft implied.
 
