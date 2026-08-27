@@ -625,10 +625,13 @@ describe("what the first score of this surface found unpinned", () => {
     // Neither visual is admitted: the outer one is not what renders, and the
     // inner one is not something this resolver can prove it reached.
     expect(painted(els)).toEqual([]);
-    expect(
-      reports.some((r) => r.includes("<Visual>")),
-      reports.join(", "),
-    ).toBe(true);
+    // The exact LINE, not merely the tag. A report naming the wrong line sends a
+    // reader to the wrong place, and the closed-class guard keys on file+tag so
+    // it would never notice. `<Visual />` sits on line 8 of this fixture.
+    expect(reports).toHaveLength(1);
+    expect(reports[0], "one report, naming the tag AND the line it is on").toMatch(
+      /\/components\/Shadowed\.tsx:8 <Visual>$/,
+    );
   });
 
   it("DECLINES a shadowed JSX binding and reports it too", () => {
@@ -647,10 +650,28 @@ describe("what the first score of this surface found unpinned", () => {
       { ...ON, onUnresolvedComponent: (i) => reports.push(`${i.file}:${i.line} <${i.tag}>`) },
     );
     expect(painted(els)).toEqual([]);
-    expect(
-      reports.some((r) => r.includes("<body>")),
-      reports.join(", "),
-    ).toBe(true);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toMatch(/\/components\/ShadowedBinding\.tsx:4 <body>$/);
+  });
+
+  it("reports NOTHING for an ordinary interpolated value", () => {
+    // The other half of the ambiguity/absence split, and the reason it exists.
+    // The `{binding}` branch sees every bare identifier in JSX, and almost all
+    // of them are strings and numbers that were never follow candidates. An
+    // earlier revision reported ABSENCE here and produced 128 interpolated
+    // labels on the live corpus, which is a signal nobody can read.
+    const reports: string[] = [];
+    const els = scanFixtureFiles(
+      {
+        "components/Plain.tsx": `export function Host() {
+            const label = "Sync";
+            return <button className="host">{label}</button>;
+          }`,
+      },
+      { ...ON, onUnresolvedComponent: (i) => reports.push(`${i.file}:${i.line} <${i.tag}>`) },
+    );
+    expect(els.map((e) => e.tag)).toEqual(["button"]);
+    expect(reports, "a plain string binding is not an unresolved component").toEqual([]);
   });
 
   it("terminates on a MUTUAL import cycle (kills followed.add removal on the import path)", () => {

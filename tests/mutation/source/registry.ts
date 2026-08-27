@@ -2726,6 +2726,12 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason:
           "the guard on the `{binding}` follow, made true outside any control. Following there re-visits a declaration in the SAME file under the SAME ctx, and admission still needs either in-scope-ness, which that file's own walk already grants at the same location, or `insideInScope > 0` at the admission site, which following does not change. Contrast the twin guard on the component-tag follow one branch up: THAT one rewrites ctx and so spends an import hop, which is why its `>`->`>=` and `&&`->`||` are both killed by tests and this one cannot be. Probed: corpus output identical under this mutant even unsorted, so element order does not distinguish it either",
       },
+      {
+        siteId: "relational-boundary:1028:48:>>>=",
+        kind: "equivalent",
+        reason:
+          "`localJsxAmbiguous` widens from 'two or more declarations' to 'one or more'. Its ONLY consumer is the `{binding}` branch, where it sits behind `binding === null &&` — and `binding` is null exactly when the hit count is 0 or 2+, never 1. So the one count the mutation adds is the one count the guard in front of it excludes, and the extra arm is unreachable rather than merely unlikely",
+      },
     ],
   },
   // NOT ENROLLED: tests/styles/subtleInteractiveScan.ts.
