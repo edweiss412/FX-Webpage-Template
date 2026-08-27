@@ -61,13 +61,19 @@ const RECOGNIZED_EXCEPTIONS = ["invariant", "ratified-scope"] as const;
 
 /**
  * Process mint freeze (AGENTS.md "Process mint freeze (2026-08-25)"). From this
- * date a process-facing row enters the open queue only under one of these two
+ * date a process-facing row enters the open queue only under one of these three
  * exceptions; an Incident on its own no longer admits it, and `ratified-scope`
  * is retired for process rows. `product-blocked` additionally requires the
- * Incident that names the blocked product arc.
+ * Incident that names the blocked product arc, and `recurrence` (added
+ * 2026-08-27) requires the Incident that names every occurrence — the bar there
+ * is two INDEPENDENT arcs, which this file cannot count, so the arc count is
+ * review's class and only the Incident's presence is mechanical here.
  */
 const PROCESS_MINT_FREEZE = "2026-08-25";
-const FREEZE_EXCEPTIONS = ["invariant", "product-blocked"] as const;
+const FREEZE_EXCEPTIONS = ["invariant", "product-blocked", "recurrence"] as const;
+
+/** Freeze exceptions whose admission rests on a cited cost event. */
+const INCIDENT_BACKED_EXCEPTIONS = ["product-blocked", "recurrence"] as const;
 
 /** Leading lowercase token of a `Mint-exception` value; undefined when absent. */
 function exceptionToken(raw: string): string | undefined {
@@ -111,12 +117,17 @@ export function mintBarVerdict(fields: Record<string, string>): Verdict {
           `or name a freeze exception (${FREEZE_EXCEPTIONS.join(" | ")}); got: ${exception || "(absent)"}`,
       };
     }
-    if (token === "product-blocked" && incident === "") {
+    if (
+      (INCIDENT_BACKED_EXCEPTIONS as readonly string[]).includes(token) &&
+      incident === ""
+    ) {
+      const owed =
+        token === "recurrence"
+          ? "naming every occurrence (arc or branch per hit, with its corpus row, CI run, or commit)"
+          : "naming the blocked product arc (its branch plus the CI run, corpus row, or commit)";
       return {
         ok: false,
-        why:
-          `process-facing row filed ${filed} under **Mint-exception:** product-blocked with no ` +
-          `**Incident:** naming the blocked product arc (its branch plus the CI run, corpus row, or commit)`,
+        why: `process-facing row filed ${filed} under **Mint-exception:** ${token} with no **Incident:** ${owed}`,
       };
     }
     return { ok: true };
@@ -233,6 +244,15 @@ describe("process-facing mint bar", () => {
     expect(v.ok).toBe(false);
   });
 
+  it("premise: a post-freeze recurrence row without an incident is rejected", () => {
+    const v = mintBarVerdict(
+      fixtureFields(
+        "**Filed:** 2026-08-27 · **Facing:** process · **Mint-exception:** recurrence (LIM-X, 2 arcs) · **Effort:** S",
+      ),
+    );
+    expect(v.ok).toBe(false);
+  });
+
   it("premise: the post-freeze accept branches admit exactly the documented shapes", () => {
     for (const line of [
       // the day before the freeze, the 2026-08-18 bar still applies unchanged
@@ -243,6 +263,7 @@ describe("process-facing mint bar", () => {
       // the two surviving process exceptions
       "**Filed:** 2026-08-25 · **Facing:** process · **Mint-exception:** invariant (defends invariant 2) · **Effort:** S",
       "**Filed:** 2026-08-25 · **Facing:** process · **Mint-exception:** product-blocked (`feat/crew-x`) · **Incident:** `feat/crew-x` diff round 2, corpus row docs/review-rounds/feat/crew-x/abc.jsonl · **Effort:** S",
+      "**Filed:** 2026-08-27 · **Facing:** process · **Mint-exception:** recurrence (LIM-X, 2 independent arcs) · **Incident:** `feat/a` round 1, docs/review-rounds/feat/a/abc.md; `feat/b` round 2, docs/review-rounds/feat/b/def.md · **Effort:** S",
     ]) {
       expect(mintBarVerdict(fixtureFields(line)), line).toEqual({ ok: true });
     }
