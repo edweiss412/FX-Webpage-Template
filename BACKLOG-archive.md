@@ -13264,3 +13264,28 @@ five further legs in the warn band (>75% of 3600 s)
 **What is genuinely closed here** is the row as filed: the `budget` job failed on four of four legs at `N = 4`, and at `N = 8` it passes on six of eight with one over. That is a repair, not a fiction. What is NOT closed is the growth curve underneath it, which is why this row graduates with the breach recorded instead of a clean subsumption.
 
 **Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`**, and the distinction held all the way to closure: that row is the source gate's COVERAGE failure set and explicitly disclaims the budget half. This was the `budget` job — a different job, a different failure, a different repair, closed by a different PR.
+
+## BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION — a clip ancestor that starts clipping is never observed, and the stale cap is silent — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 by `fix/fitwithinclip-stale-clip-subscription` · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, spec review R12 finding 1) · **Facing:** product · **Severity (as filed):** MEDIUM · **Class:** subscription freshness · **Effort (as shipped):** M · **Reachability:** PROBED, and the probe is the acceptance evidence below.
+
+`useFitWithinClip` resolved its observed ancestors once per ATTACH and wired its `ResizeObserver` from that one resolution. `apply()` re-walked on every invocation so the CAP was always recomputed, but the SUBSCRIPTION set never was, so an ancestor that started clipping after the attach was never observed and its resizes delivered nothing: neither correct nor signaled.
+
+**The done condition, as the row asked for it.** The filed transcript re-run against the shipped hook, same fixture, same geometry:
+
+```
+STALE   NEW_CLIP_RESIZE cap="322px" targets=[["inner"]]  deliverable=0 expectedCap="222px" diagnostics=0
+SHIPPED NEW_CLIP_RESIZE cap="222px" targets=[["outer"]]  deliverable=1 expectedCap="222px" diagnostics=0
+```
+
+The cap now equals the expected cap and the new clip ancestor's own resize is deliverable. `(h25)` in `tests/components/admin/useFitWithinClip.test.tsx` is that transcript as a deciding case; the suite went 33 to 47.
+
+**What shipped, beyond the row.** Three things the row did not name and the arc found:
+
+1. **The two roles alias.** `ResizeObserver` stores element TARGETS, not role-scoped subscriptions, so reconciling the clip and positioned roles independently makes one role's `unobserve` remove an element the other still wants. That is the likely shape of a `position: relative; overflow: clip` modal panel, which is where the one live consumer sits. The observer's target set is now DERIVED from the roles and reconciled by set difference, which cannot express the mistake. Five cases, `(h27)` to `(h31)`.
+2. **The wrong box.** `observe()` defaults to the CONTENT box while the cap is computed from two `getBoundingClientRect()` reads, which are border-box rectangles. Padding toggled from state on an auto-height ancestor moved the clip edge with the content box unchanged, so nothing was delivered and nothing warned. Pre-existing since the hook was written; every `observe()` now passes `{ box: "border-box" }`.
+3. **The positioned ancestor had the same defect as the clip one**, resolved once at the attach with its `transitionend` listener filtering against that attach-time value. Repaired under the class-sweep default rather than filed.
+
+**Not closed, and deliberately.** The cap arithmetic mixes coordinate spaces: `getBoundingClientRect()` reports post-transform viewport coordinates while `max-height` is an untransformed length, so a persistent scale on the chain writes a silently wrong cap. It is the MEASURE path, pre-existing on every version of the hook, and its repair is a coordinate-space redesign this branch does not open. Ratified 2026-08-27 as a documented limit rather than a row, recorded as L-8 in the spec with a re-file trigger: a consumer whose clip ancestor carries a CSS transform.
+
+**Spec:** `docs/superpowers/specs/admin/2026-08-27-fitwithinclip-clip-subscription.md` (limits L-1 to L-9). **Plan:** `docs/superpowers/plans/2026-08-27-fitwithinclip-clip-subscription.md`. **Review rounds:** `docs/review-rounds/fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md`, four spec and four plan rounds, nineteen findings, all accepted.
