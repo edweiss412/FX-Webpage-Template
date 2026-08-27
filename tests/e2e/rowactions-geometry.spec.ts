@@ -752,36 +752,59 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
  */
 test("the workflow that runs this spec fires on the file this spec guards", () => {
   const wf = readFileSync(".github/workflows/admin-layout-e2e.yml", "utf8");
+  const lines = wf.split("\n");
+  const indentOf = (l: string) => l.search(/\S/);
 
-  // PREMISE (own inputs): the file must have been read as YAML with a paths
-  // block at all, or both assertions below would pass on an empty string.
+  /** The block nested under a key, by indentation — role, not text. */
+  const blockUnder = (keyRe: RegExp, from = 0): string[] => {
+    const i = lines.findIndex((l, n) => n >= from && keyRe.test(l));
+    if (i === -1) return [];
+    const base = indentOf(lines[i]!);
+    const out: string[] = [];
+    for (let n = i + 1; n < lines.length; n += 1) {
+      const l = lines[n]!;
+      if (l.trim() === "") continue;
+      if (indentOf(l) <= base) break;
+      out.push(l);
+    }
+    return out;
+  };
+
+  // PREMISE (own inputs): the structure this case navigates must exist, or a
+  // restructured workflow and a deleted entry produce the same failure text.
+  const prIdx = lines.findIndex((l) => /^\s*pull_request:\s*$/.test(l));
   expect(
-    /^\s*paths:/m.test(wf),
-    "premise not met: admin-layout-e2e.yml has no paths: block, so this case " +
-      "cannot distinguish a missing entry from a missing file",
+    prIdx,
+    "premise not met: no pull_request: key in admin-layout-e2e.yml, so this case " +
+      "cannot tell a missing entry from a restructured workflow",
+  ).toBeGreaterThan(-1);
+  const pathsBlock = blockUnder(/^\s*paths:\s*$/, prIdx);
+  expect(pathsBlock.length, "premise not met: pull_request: has no paths: block").toBeGreaterThan(
+    0,
+  );
+
+  // Scoped to the paths BLOCK. An earlier version matched line SHAPE anywhere in
+  // the file, which whole-diff review refuted by constructing a workflow with the
+  // component under `with.args` and the spec only in an `echo`: both regexes
+  // returned true. Deletion-sensitivity is not the semantics the comment claimed.
+  expect(
+    pathsBlock.some((l) => /^\s*-\s*"?components\/admin\/AnchoredPortal\.tsx"?\s*$/.test(l)),
+    "components/admin/AnchoredPortal.tsx must be an ENTRY in this workflow's " +
+      "pull_request.paths, or a PR changing that component never runs the pins in " +
+      "this file and they pass by not running",
   ).toBe(true);
 
-  // Anchored to a list ITEM, for the same reason as the run-step assertion
-  // below: a substring test over a structured file cannot tell a comment from
-  // a paths entry from a run step, and this workflow's header names several
-  // of the files it filters on.
+  // A run: step that INVOKES playwright on this spec. `run: echo <spec>` names it
+  // and executes nothing, which is equally dark.
   expect(
-    /^\s+-\s+"components\/admin\/AnchoredPortal\.tsx"\s*$/m.test(wf),
-    "admin-layout-e2e.yml must list components/admin/AnchoredPortal.tsx as an " +
-      "entry in its pull_request.paths, or a PR changing that component never " +
-      "runs the pins in this file and they pass by not running",
-  ).toBe(true);
-
-  // Anchored to a `run:` line, NOT a bare substring search. This spec's own
-  // path appears in the workflow TWICE — once in `pull_request.paths` and once
-  // in the step that executes it — so `wf.includes(...)` is satisfied by the
-  // paths entry alone and would still pass if the run step were deleted. That
-  // is the half-closed hole: the workflow fires, reports success, and asserts
-  // nothing.
-  expect(
-    /^\s+run:.*rowactions-geometry\.spec\.ts/m.test(wf),
-    "admin-layout-e2e.yml must INVOKE this spec in a run step, not merely name " +
-      "it in paths, or the trigger above fires a workflow that never executes " +
-      "these assertions",
+    lines.some(
+      (l) =>
+        /^\s*(-\s*)?run:/.test(l) &&
+        l.includes("playwright test") &&
+        l.includes("tests/e2e/rowactions-geometry.spec.ts"),
+    ),
+    "a run: step must invoke `playwright test` on tests/e2e/rowactions-geometry.spec.ts; " +
+      "naming it in paths, or in a step that does not execute it, fires a workflow that " +
+      "never runs these assertions",
   ).toBe(true);
 });

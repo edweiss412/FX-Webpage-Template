@@ -24,8 +24,11 @@ ungated effect's first evaluation after it. The count goes 3 to 2.
 A and B are byte-for-byte the same computation on the same DOM (§2.2), so
 exactly one of the two is redundant and which one is deleted is a design choice,
 not a derivation. A is chosen because deleting it leaves the unconditional
-effect as the sole measurer, and the pre-paint guarantee then rests on that one
-effect having no dependency array rather than on two effects' declaration order.
+effect as the only measurer of the open commit, so the pre-paint guarantee rests
+on ONE effect being a `useLayoutEffect` rather than on two effects' declaration
+order. The absent dependency array is what makes that effect fire on the
+POSITION-ONLY re-renders of §2.1; it is not what makes the open commit pre-paint,
+and an earlier draft of this section said otherwise while §3 said it correctly.
 
 **The count is scoped, and both qualifiers belong in the claim rather than in a
 footnote: it counts the measures REACT COMMITS DRIVE, as observed in the jsdom
@@ -181,7 +184,10 @@ document-wide observer's cost measured on the shows dashboard first.
 
 Delete the gated effect's own `measureAndApply()` call
 (`components/admin/AnchoredPortal.tsx:193`). The ungated effect becomes the sole
-measurer. The gated effect keeps its subscription wiring and teardown unchanged.
+measurer OF THE OPEN COMMIT — not the only caller of `measureAndApply` in general,
+since the coalescer the gated effect creates invokes it on every scroll, resize and
+`ResizeObserver` frame. The gated effect keeps its subscription wiring and teardown
+unchanged.
 
 **Rejected alternative: a ref flag** set by the gated effect and cleared by the
 ungated one. It reaches the same count of 2, but only while the gated effect is
@@ -219,22 +225,52 @@ files, which makes the claim unwriteable ahead of the run that produces it.
 
 | Assertion | Mutant | Result |
 | --- | --- | --- |
-| A2 paths-entry | `M-paths` | **RED** |
-| A3 run-step | `M-run2` | **RED** |
-| B2/B3 origin premises | `M-noplace` | **RED** |
-| B5 right-edge alignment | `M-left1` | **RED** |
-| B7 adjacency-on-reported-side | `M-side2` | **RED** |
-| B9 caps-empty | `M-cap` | **RED** |
-| B13 frame-ordering (repair applied) | `M-passive2` | **RED** |
+| A2 the paths ENTRY, scoped to the `pull_request.paths` block | delete the line | **RED** |
+| A2 (adversarial) the component under `with.args` instead of paths | reviewer's synthetic workflow | **RED** |
+| A3 a `run:` step that INVOKES playwright on this spec | delete it from the run line | **RED** |
+| A3 (adversarial) the spec named only in `run: echo` | reviewer's synthetic workflow | **RED** |
+| A1 the walk fails LOUDLY on a shape it cannot read | rewrite `paths:` as a flow sequence | **RED on the premise** |
+| B2/B3 origin premises | never place | **RED** |
+| B5 right-edge alignment | `left + 1` | **RED** |
+| B7 adjacency on the REPORTED side | invert the reported side | **RED** |
+| B9 a fitting panel carries no cap | non-binding `maxHeight` | **RED** |
+| B13 placement lands at the mount's frame | passive measurer, repair applied | **RED** |
+| INV-3 the commit-driven measure count | first measure commits a wrong placement, BOTH commit branches | **RED**, `expected 3 to be 2` |
+| **B4 exactly one settled placement** | **none found** | **see below** |
 
-7 assertions, 7 discriminating.
+**B4 has no discriminating mutant, and the reason is worth more than a clean
+number.** Three were attempted and each is recorded rather than dropped: an extra
+placement committed on a `requestAnimationFrame`, one on `setTimeout(50)`, and one
+on `setTimeout(0)`. None reded B4. The `setTimeout(50)` attempt was INVALID —
+its effect landed after the probe's two-frame observation window closed — but the
+other two were in-window and still produced no extra entry, because the ungated
+effect measures on the resulting commit and corrects the wrong placement inside
+the SAME observer batch. The sequence never gains an entry.
 
-Superseded by a corrected mutant, kept because a GREEN here reads as a
-non-discriminating assertion and was not one:
+So the guard set has two coverage regions and each has an owner:
 
-| Assertion | Invalid mutant | Result | Why it was invalid |
-| --- | --- | --- | --- |
-| B13 frame-ordering | `M-passive` | GREEN | applied without the repair, so the gated effect still placed pre-paint |
+1. **B4 owns settled placements separated by a microtask checkpoint.** It is
+   batch-blind to an extra placement inside one task, by construction of the
+   batch grain chosen in §5.1 — and no mutant of that kind was constructible
+   here, because the design self-corrects within the task.
+2. **INV-3 owns the COST of exactly that invisible case.** An extra placement
+   commits state, which re-renders, which fires the ungated effect, which
+   measures again — so the anchor-read count goes 2 to 3 even where the
+   placement sequence does not move. Proven, not predicted: the mutant above
+   reds with `expected 3 to be 2`.
+
+A reader who sees "B4: no mutant" would conclude it is untested. It is
+scope-limited with a named compensator, and the compensator has a red to show
+for it.
+
+**The two pins also exercise different code paths, which is characterisation
+rather than defect.** jsdom's stubbed rects make `placeWithinVisibleViewport`
+return `kind: "hidden"`, so the jsdom count case runs the degenerate FALLBACK
+commit branch (`components/admin/AnchoredPortal.tsx:157-178`) while the live
+`PROBE:` case runs the placed branch. The count is a property of the effect
+structure rather than of which branch computes the placement, so both are valid
+counts — but a mutant on only one branch is inert against the other, which is how
+two earlier attempts at the INV-3 mutant came back green.
 
 **Design-alternative rejections in §2.3 and §3 are ARGUMENTS, not executions.**
 There is no mutant for "IntersectionObserver instead of a layout effect" or "a
@@ -382,10 +418,19 @@ state to interrupt.
 
 ## 9.2 Two more limits of the live pins
 
+**What is lost if that coverage stops is larger than a second opinion.** The
+jsdom count case runs the DEGENERATE fallback branch, because jsdom's stubbed
+rects make the placement core return `kind: "hidden"` (§4). So the live `PROBE:`
+case is not belt-and-braces for it — it is the ONLY pin in this arc that
+exercises the real placed branch at all. If `admin-layout-e2e.yml` stops firing
+on this component, the loss is every assertion about actual placement, not a
+duplicate of something jsdom already covers.
+
 **The pins' CI coverage rests on one unguarded line.** `admin-layout-e2e.yml:64`
 lists `components/admin/AnchoredPortal.tsx` in the workflow's `pull_request.paths`,
 which is what makes INV-1 and INV-4 run on a PR touching this component. That
-fact is true and was verified directly. **Nothing pins it.**
+fact is true and was verified directly. **Nothing in the repo pinned it, so this
+arc pins it** — see the closing paragraph of this section.
 `tests/ci/_metaE2eWorkflowCoverage.test.ts:260` asserts that every e2e SPEC is
 PR-covered or allowlisted; it makes no claim about which SOURCE paths a
 workflow's filter names, and the `AnchoredPortal` text at
@@ -399,10 +444,13 @@ whose done condition is a property of the walker, which is the shape the
 walker for the dependency-array property. **Re-file trigger:** the line is
 actually deleted, or a second arc finds its own gate dark the same way.
 
-**Cap VALUE is not oracle-checked, only cap STABILITY.** `maxHeight` and
-`maxWidth` are members of the placement key, so a cap that changed mid-sequence
-would produce a third distinct key and red the count. Nothing compares either to
-an expected value, so a wrong-but-constant cap passes. Checking the value would
+**Cap VALUE is now asserted, and this paragraph records what changed.** Membership
+in the placement key only ever caught a cap that CHANGED mid-sequence; a
+wrong-but-constant cap preserved the geometry and passed. Whole-diff review named
+that, and the `PROBE:` case now asserts that a panel which FITS carries no cap at
+all, with the fit stated as an executable premise. The reasoning below is why the
+oracle is a contract property rather than a re-derivation of the placement
+algebra. Checking the value would
 need the placement algebra as its oracle, and re-deriving that in the test would
 pass whenever the test and the code share a mistake — the tautology this arc has
 been removing rather than adding. The fixture also applies no cap at all

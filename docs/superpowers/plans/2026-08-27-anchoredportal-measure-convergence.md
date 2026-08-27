@@ -296,7 +296,7 @@ comments; `z-overlay`, `overflow-y-auto` and `overscroll-contain` are untouched.
 | Finding | Tier | Disposition |
 | --- | --- | --- |
 | Pre-paint now rests on ONE ungated effect; "the redundant belt is gone" | P2, **partly refuted by the same assessment** | Accepted in its narrow form only. There was no belt. See below. |
-| 11 lines of history and ledger-slug comment above a 50-line effect | P3 | Accepted. It matches this file's existing comment density, and the prose states the MECHANISM (no dependency array) rather than a position, so it survives a reorder. |
+| 11 lines of history and ledger-slug comment above a 50-line effect | P3 | Accepted. It matches this file's existing comment density, and the prose states the MECHANISM (a `useLayoutEffect`, which runs before paint wherever it sits) rather than a position, so it survives a reorder. |
 | `data-portal-side` has no CSS or JS consumer — a test-only contract | P3, pre-existing | Not this arc's. The attribute predates the diff and the diff does not change it. Recorded so it is attributed correctly rather than picked up as new. |
 
 **On the P2, whose wording claims more than the evidence supports — including in
@@ -313,8 +313,11 @@ the same fact that makes the P0 unreachable.
 
 What survives of the finding is narrower and still worth stating: pre-paint now
 depends on ONE named property of ONE effect — the ungated effect having no
-dependency array. That is a smaller surface to break than two call sites, and a
-reader could plausibly break it by adding a dependency array as an optimization.
+`useLayoutEffect`. Its absent dependency array is what makes it fire on the
+position-only re-renders of spec §2.1, and is NOT what makes the open commit
+pre-paint — a complete dependency array still covers opening, since `open`
+changes. That is a smaller surface to break than two call sites, and a reader
+could plausibly break either property as an optimization.
 It is a single-point-of-failure note, not a lost redundancy.
 
 What makes it a good trade is where the redundancy now lives. The runtime
@@ -326,7 +329,10 @@ test time, where it fails loudly. INV-3 pins the count and INV-1 pins the pre-pa
 executed discriminating mutant (spec §4), so a regression that re-introduces the
 fragility fails a test instead of shipping.
 
-**And that trade has its own premise: it holds only while those guards RUN.** If
+**And that trade has its own premise: it holds only while those guards RUN — and
+the e2e pin is the ONLY one that exercises the real placed branch**, since jsdom's
+stubbed rects push the count case down the degenerate fallback path (spec §4).
+Losing it loses every assertion about actual placement, not a duplicate opinion. If
 `admin-layout-e2e.yml` stops firing on `components/admin/AnchoredPortal.tsx`,
 INV-1 goes dark, the guard passes by not running, and the fragility becomes
 unguarded silently — the same dark-gate shape the guards exist to prevent, one

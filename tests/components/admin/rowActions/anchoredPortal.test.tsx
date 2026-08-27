@@ -423,26 +423,29 @@ describe("AnchoredPortal — the converged measure count on an open transition",
       rerender(<Harness open />);
       const openReads = reads;
 
+      // PREMISE (own inputs), sampled HERE and not later: the open transition
+      // itself must have placed the panel, or a count of 2 could be two runs
+      // that both read the anchor and bailed.
+      //
+      // Ordering is load-bearing. An earlier version checked this AFTER the
+      // resize below, which a pair of bailing open-time calls followed by one
+      // successful resize measure satisfies — it proved eventual placement
+      // rather than placement by either counted measure.
+      const panel = panelNode()!;
+      const placedTop = `${anchor.top + anchor.height + GAP}px`;
+      premiseHolds("the open transition itself placed the panel", panel.style.top === placedTop);
+
       // PREMISE (own inputs): one measure must be one anchor read, or the
       // counted unit is ambiguous and this case would red on a refactor that
       // changes nothing observable. Established by driving exactly ONE measure:
       // a single window resize schedules through
-      // createRafCoalescer(measureAndApply) (AnchoredPortal.tsx:194, :223),
-      // which is a leading-edge throttle and so runs it once per flushed frame.
-      // Catches a second rect read added inside measureAndApply, which would
-      // silently double every count this case makes.
+      // `createRafCoalescer(measureAndApply)`, a leading-edge throttle that runs
+      // it once per flushed frame. Catches a second rect read added inside
+      // `measureAndApply`, which would silently double every count made here.
       reads = 0;
       window.dispatchEvent(new Event("resize"));
       flushFrames();
       premiseHolds("one measure is one anchor read", reads === 1);
-
-      // PREMISE (own inputs): the transition must have PLACED the panel, or a
-      // count of 2 could be two runs that both bailed out early.
-      const panel = panelNode()!;
-      premiseHolds(
-        "the transition actually placed the panel",
-        panel.style.top === `${anchor.top + anchor.height + GAP}px`,
-      );
 
       expect(openReads).toBe(2);
     } finally {
