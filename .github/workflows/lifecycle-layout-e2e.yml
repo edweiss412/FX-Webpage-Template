@@ -221,6 +221,20 @@ jobs:
           # and pointing it at the local stack here would read as that.
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
         run: pnpm exec playwright test tests/e2e/tap-target-inline-controls.layout.spec.ts --project=mobile-safari --retries=0 --reporter=list,json
+      # No `if:` — this must run on the success path, which is the only path where a
+      # vacuously-green run is dangerous. A runtime `test.skip()` skips every case while --list
+      # still reports them, so the run exits 0 having proved nothing; this reads the run's OWN
+      # report and enforces a per-spec executed floor measured from a real run.
+      - name: Assert the tap-target layout spec actually executed
+        run: node scripts/check-lifecycle-layout-executed.mjs
+      # ORDER IS LOAD-BEARING: this runs AFTER the tap-target oracle above, not
+      # between that step and its check. Playwright clears `test-results/` at the
+      # start of every run, so a step placed earlier deletes the report the
+      # oracle reads and the oracle fails with "no report at ..." — which is
+      # exactly what the first real CI run of this step did. Naming a different
+      # `PLAYWRIGHT_JSON_OUTPUT_NAME` would NOT have helped: the directory is
+      # cleared wholesale, the filename is not the problem.
+      #
       # Control-outline cover widening (spec 2026-08-26 §14 and AC-13): the dimension
       # pairs, and the CONTRAST claim the whole arc exists to move. Same host and same
       # reasoning as the two steps above: mobile-safari is the 390px project, and this
@@ -242,12 +256,6 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
         run: pnpm exec playwright test tests/e2e/control-outline-dimensions.layout.spec.ts tests/e2e/control-outline-contrast.live.spec.ts tests/e2e/control-outline-pill.route.spec.ts --project=mobile-safari --retries=0
-      # No `if:` — this must run on the success path, which is the only path where a
-      # vacuously-green run is dangerous. A runtime `test.skip()` skips every case while --list
-      # still reports them, so the run exits 0 having proved nothing; this reads the run's OWN
-      # report and enforces a per-spec executed floor measured from a real run.
-      - name: Assert the tap-target layout spec actually executed
-        run: node scripts/check-lifecycle-layout-executed.mjs
       - name: Upload Playwright traces/report (diagnosis artifact)
         # Dispatch runs are measurement runs — keep traces from GREEN samples
         # too (a wedge that self-recovers inside the budget is still evidence).
