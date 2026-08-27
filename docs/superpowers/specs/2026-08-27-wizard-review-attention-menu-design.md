@@ -61,7 +61,7 @@ export function deriveWarningAttention<T extends WarningAttentionInput>(
 
 Rules:
 
-- Callers pass only warn-severity entries (both callers already have warn-only inputs: `warningsBySection` drops info, `lib/admin/step3SectionStatus.ts`; `SectionWarningModel.active` is routed from the same helper, `lib/admin/sectionWarningModel.ts` header comment). The function asserts `severity === "warn"` on every entry and throws otherwise — a caller bug surfaces, never a silently inflated count.
+- Callers pass only warn-severity entries, where "warn-severity" means `isWarnSeverity(w)` (§2.1): both callers route through `warningsBySection` (`lib/admin/step3SectionStatus.ts`; `SectionWarningModel.active` is built from the same helper, `lib/admin/sectionWarningModel.ts` header comment), which adopts the predicate in §2.1. The function asserts `isWarnSeverity(entry.warning)` on every entry and throws otherwise — a caller bug surfaces, never a silently inflated count.
 - `tone = isAmbiguityCode(warning.code) ? "judgment" : "needsLook"` (`lib/parser/ambiguityCodes.ts`).
 - `sectionLabel` = the label of `sections.find(s => s.id === entry.sectionId)`. A miss throws: routing already degrades unknown targets to `"warnings"`, which every caller renders, so a miss is a programming error.
 - Order: input order preserved in `all` and within each group.
@@ -69,11 +69,27 @@ Rules:
 
 **Invariants (each pinned by a unit test, §8):**
 
-- **I-1 (superset of the badge).** For any warnings array `w`, `deriveWarningAttention(warnOnly(w)).all.length >= summarizeDataGaps(w).total`. Holds because the badge counts `severity !== "info" ∧ DATA_GAP_CODES.has(code)`, `severity` is the closed union `"info" | "warn"` (`lib/parser/types.ts` `ParseWarning`), and this derivation counts every `"warn"`.
+- **I-1 (superset of the badge).** For any warnings array `w`, `deriveWarningAttention(routed(w)).all.length >= summarizeDataGaps(w).total`. Holds by construction because both sides use the SAME predicate: the badge counts `severity !== "info" ∧ DATA_GAP_CODES.has(code)` (`summarizeDataGaps`, `lib/parser/dataGaps.ts`, the "#289 contract: skip only info (missing severity counts)" comment) and routing counts `severity !== "info"` (§2.1). The type says `severity: "info" | "warn"` (`lib/parser/types.ts` `ParseWarning`) but persisted rows can lack the field (`tests/parser/dataGaps.test.ts` "counts a gap code whose warning is MISSING severity"), and a predicate of `=== "warn"` would count such a row in the badge and not in the pill.
 - **I-2 (rail agreement, wizard).** A section holds ≥1 `needsLook` entry iff `sectionStatus` of its routed warnings is `"flagged"`; holds only `judgment` entries iff `"judgment"`. Follows from sharing `warningsBySection` and `isAmbiguityCode` with `sectionStatus`.
 - **I-3 (R3 contract).** Any warn-severity input yields a non-empty `all`.
 
 Warn-severity codes outside `DATA_GAP_CODES` exist, and the repo already enumerates them: `tests/parser/dataGapsClassCompleteness.test.ts` partitions the persisted `ParseWarning` universe into gap classes, `BENIGN_WARN_CODES` (warn-severity autocorrect and agenda-confidence codes) and `ASSET_WARN_CODES` (warn-severity Drive-asset codes), and pins that every code lands in exactly one bucket. Every `AMBIGUITY_CODES` member is a gap class (`lib/parser/ambiguityCodes.ts` header; `AMBIGUITY_CODES ⊆ GAP_CLASSES` in `2026-07-07-ambiguity-warnings-v1-design.md` §7.2). So "make the pill equal the badge" is not achievable without dropping the benign and asset warn codes from the pill, which R3 forbids; the superset invariant is the honest alignment. The I-1 test (§12.2) draws its non-gap warn codes from those two sets by importing them (they move to an exported fixture module if the test file does not export them today), never from a hand-typed list.
+
+### 2.1 One severity predicate: `isWarnSeverity`
+
+`lib/parser/dataGaps.ts` gains `export function isWarnSeverity(w: Pick<ParseWarning, "severity">): boolean { return w.severity !== "info"; }` beside `summarizeDataGaps`, which is rewritten to call it (behavior unchanged: it already skips only `"info"`). Every review-surface site that partitions warnings by severity adopts it, so a severity-less legacy row is a warn row on every surface, exactly as the badge already treats it. Sweep, run 2026-08-27 with `rg -n 'severity (===|!==) "warn"' lib/admin components/admin`, one disposition per hit:
+
+| Site | Today | Change |
+|---|---|---|
+| `lib/admin/step3SectionStatus.ts` `warningsBySection` (`if (warning.severity !== "warn") return;`) | drops severity-less | `if (!isWarnSeverity(warning)) return;` |
+| `lib/admin/step3SectionStatus.ts` `sectionStatus` (`filter((w) => w.severity === "warn")`) | ignores severity-less | `filter(isWarnSeverity)` |
+| `lib/admin/step3SectionStatus.ts` `sectionForWarning` (`w.severity === "warn" && w.code === "UNKNOWN_SECTION_HEADER"`) | no header guess for severity-less | `isWarnSeverity(w) && …` |
+| `components/admin/review/ShowReviewSurface.tsx` `hasWarnRow` fallback (`some((w) => w.severity === "warn")`) | dot stays hollow | `some(isWarnSeverity)` |
+| `components/admin/wizard/step3ReviewSections.tsx` warning list row (`const isWarn = w.severity === "warn"`) | info icon for severity-less | `const isWarn = isWarnSeverity(w)` |
+| `lib/admin/visibleWarningRows.ts` (`filter((w) => w.severity !== "warn")`, the info-rows selector) | severity-less rows render as notes | `filter((w) => !isWarnSeverity(w))` |
+| `lib/admin/step3Buckets.ts` `rowIsJudgment` (`w.severity === "warn" && isAmbiguityCode`) | severity-less ambiguity not judgment | `isWarnSeverity(w) && isAmbiguityCode(w.code)` |
+
+Every change is in the same direction (severity-less counts as warn) and matches the badge, which is the surface the user compares against. Pinned by a unit test that feeds one severity-less `UNKNOWN_FIELD` through `summarizeDataGaps`, `warningsBySection`, `sectionStatus`, `visibleWarningRows` and `deriveWarningAttention` and asserts each counts it as warn, with `premise` that the fixture object has no `severity` key. `tests/parser/dataGapsClassCompleteness.test.ts` is untouched (read 2026-08-27: its `buckets` array holds five distinct sets and is green on the base; §15).
 
 ## 3. Part A: wizard modal (`Step3ReviewModal.tsx`)
 
@@ -167,6 +183,7 @@ Dirty-rescan and finalize-demoted footers untouched.
 - Reconciliation (the published "Compound reconciliation" precedent, `PublishedReviewModal.tsx`): an effect with deps `[pillInteractive, menuOpen]` calls `setMenuOpen(false)` whenever `menuOpen && !pillInteractive`. So warning→dirty and count→0 both close the menu and clear the state, and dirty→warning always starts closed; a menu can never reappear already open.
 - Auto-open once per mount: the published effect minus its `alertId` arm — `useRef(false)` guard; if `!pillInteractive`, return WITHOUT consuming (a dirty rescan on arrival defers the one-shot until the sheet is re-approved and the pill is interactive again, which is the moment the operator needs the index); if `menuOpen`, consume; if `n === 0`, return; else `requestAnimationFrame(() => { fired = true; setMenuOpen(true) })`, frame cancelled on cleanup, guard consumed only inside the callback. Deps `[n, menuOpen, pillInteractive]`.
 - Close paths: Escape (frame, capture phase, focus to pill), pointerdown outside panel + pill, focus moving outside, row activation, the reconciliation effect (dirty rescan, count 0), modal unmount.
+- Focus rescue, copied from `PublishedReviewModal.tsx` `menuWasEffectivelyOpenRef` (monitoring-badge-expand §3.3) with `interactive` → `pillInteractive`: a dep-less effect runs after every commit. While `menuEffectivelyOpen`, if `document.activeElement` is `body` or outside the `[role="dialog"]` (a focused row unmounted because its warning left the list), focus the pill. When the menu was open on the previous commit and is now closed because `pillInteractive` went false (dirty rescan, count 0; NOT a user close, which keeps `pillInteractive` true and manages its own focus), focus the dialog root (`tabindex="-1"` set if absent). Focus never leaves the dialog through a data change.
 
 ## 4. Part B: published modal (`PublishedReviewModal.tsx`)
 
@@ -174,16 +191,16 @@ Dirty-rescan and finalize-demoted footers untouched.
 
 ```ts
 const sheetWarnings = useMemo(() => {
-  const defs = /* the registry the surface renders; step3Sections(data) */;
+  const defs = step3Sections(data);
   const entries = defs.flatMap((s) =>
-    (routedWarnings.activeWarningsBySection[s.id] ?? []).map((warning, i) => ({
-      id: `warnings:${s.id}`, sectionId: s.id, warning, ordinal: i })));
+    (bySection[s.id]?.active ?? []).map((it) => ({
+      id: `warning:${it.reportSurfaceId}`, sectionId: s.id, warning: it.warning, reportSurfaceId: it.reportSurfaceId })));
   return deriveWarningAttention(entries, defs);
-}, [routedWarnings, data]);
+}, [bySection, data]);
 const k = sheetWarnings.all.length;
 ```
 
-Registry order, then per-section active order (`SectionWarningModel.active` is "in routed order"). `id` is the section anchor (§4.4), shared by every warning of one section on purpose; React keys use `${id}:${ordinal}`. `k` counts ACTIVE rows only, so ignoring a warning decrements the pill exactly as it empties the rail dot (`lib/admin/routedWarnings.ts` "ACTIVE, not total").
+Registry order, then per-section active order (`SectionWarningModel.active` is "in routed order"; `bySection` is the `buildSectionWarningModel` output the modal already holds, the same object `deriveRoutedWarnings` reads, so the pill, the rail and the cards derive from one model). `id` is the per-card anchor (§4.4); `reportSurfaceId` is `buildReportSurfaceId(slug, warning)` (`lib/admin/sectionWarningModel.ts` `stamp`), content-derived, so two identical warnings in one section share an id (§10). React keys use `${id}:${index-in-entries}`. `k` counts ACTIVE rows only, so ignoring a warning decrements the pill exactly as it empties the rail dot (`lib/admin/routedWarnings.ts` "ACTIVE, not total").
 
 `interactive = needsYou.length > 0 || k > 0 || selfHeal.length > 0`; `monitoringOnly = needsYou.length === 0 && k === 0 && selfHeal.length > 0`. The compound reconciliation effect that closes the menu when the pill stops being interactive reads the new `interactive`.
 
@@ -202,17 +219,17 @@ The amber branch's `title` attribute, dot, chevron and classes are unchanged. Mo
 `AttentionMenu` gains ONE optional prop, ABSENT → byte-identical. Entries and their handler travel together so the type cannot express a list with no handler:
 
 ```ts
-export type SheetWarningEntry = WarningAttentionEntry<{ id: string; sectionId: SectionId; warning: ParseWarning; ordinal: number }>;
+export type SheetWarningEntry = WarningAttentionEntry<{ id: string; sectionId: SectionId; warning: ParseWarning; reportSurfaceId: string }>;
 warningIndex?: { entries: readonly SheetWarningEntry[]; onNavigate: (entry: SheetWarningEntry) => void };
 ```
 
 `const sheetWarningRows = warningIndex?.entries ?? []` inside the panel; the group renders when `sheetWarningRows.length > 0`. `PublishedReviewModal` passes the prop only when `k > 0` (spread-inserted, exactOptional discipline), so a warning-free render passes nothing and the panel's element tree is byte-identical to today's.
 
-Body order: Needs you heading + rows (unchanged) → **Sheet warnings group** (when `sheetWarningRows.length > 0`) → Monitoring group (unchanged). The new group: heading "Sheet warnings" on a container with testid `attention-sheetwarnings-heading` (sunken eyebrow like Monitoring; `border-t border-border` when Needs you precedes it, `rounded-t-md` when it leads), then one `AttentionMenuRow` per entry, testid `attention-menu-row-${entry.id}:${entry.ordinal}`, dot `bg-status-review` for `needsLook` / `bg-text-faint` for `judgment`, sr text "needs review: " / "judgment call: ", title `reviewWarningTitle`, second line `sectionLabel` (truncating), select = `onClose(); warningIndex.onNavigate(entry)`. Panel `aria-label`: "Needs you" if present, else "Sheet warnings" if present, else "Monitoring". Monitoring group's `border-t` now keys on "any group above it", which is the same value it had when only Needs you existed.
+Body order: Needs you heading + rows (unchanged) → **Sheet warnings group** (when `sheetWarningRows.length > 0`) → Monitoring group (unchanged). The new group: heading "Sheet warnings" on a container with testid `attention-sheetwarnings-heading` (sunken eyebrow like Monitoring; `border-t border-border` when Needs you precedes it, `rounded-t-md` when it leads), then one `AttentionMenuRow` per entry, testid `attention-menu-row-${entry.id}` (duplicate ids for identical warnings are tolerated: the rows are keyed by position and the second jumps to the first's card, §10), dot `bg-status-review` for `needsLook` / `bg-text-faint` for `judgment`, sr text "needs review: " / "judgment call: ", title `reviewWarningTitle`, second line `sectionLabel` (truncating), select = `onClose(); warningIndex.onNavigate(entry)`. Panel `aria-label`: "Needs you" if present, else "Sheet warnings" if present, else "Monitoring". Monitoring group's `border-t` now keys on "any group above it", which is the same value it had when only Needs you existed.
 
 ### 4.4 Jump
 
-`navigateWarning(entry)` sets `{ itemId: entry.id, sectionId: entry.sectionId, nonce }`. The active block wrapper in `sectionWarningExtras.tsx` (`<div data-testid={\`section-warning-active-${id}\`}>`) gains `data-attention-anchor={\`warnings:${id}\`}` ONLY when `activeGroups.length > 0` (spread-inserted; absent otherwise). Two cases leave that block without cards: the "empty-seam guard" returns `null` when `activeGroups` and `ignoredWarnings` are both empty, and when `activeGroups` is empty but ignored warnings exist the wrapper still renders around a `BulkIgnoreControls` that renders nothing, a zero-height element the surface's effect would otherwise treat as a hit and flash invisibly. With the attribute conditional, both cases miss the anchor lookup and the effect falls back to `handleNavClick(sectionId)`: section top, no flash. In every other case the jump scrolls to that section's warning cards and flashes the block. `hashSync` is true on the page layout, so the hash updates as for any attention jump. The crew section can reach the empty-active state while `k` still counts its warnings (they render under crew rows and stay in `model.active`); those rows jump to the crew section top (§10).
+`navigateWarning(entry)` sets `{ itemId: entry.id, sectionId: entry.sectionId, nonce }`. The anchor is on the CARD, not the section block, so the jump lands on the warning the row named wherever that card renders. `components/admin/PerShowActionableWarnings.tsx` gains an optional prop `anchorIds?: readonly string[]`, parallel to `items`; each rendered `<li>` gets `data-attention-anchor={anchorIds[i]}` spread-inserted when present (absent prop → byte-identical for its other callers, the per-show page panel and `StagedReviewCard`). Both published render paths in `sectionWarningExtras.tsx` pass it: the grouped extras block (`items={g.items.map((it) => it.warning)}` → `anchorIds={g.items.map((it) => \`warning:${it.reportSurfaceId}\`)}`) and the crew under-row cards (`items={[it.warning]}` → `anchorIds={[\`warning:${it.reportSurfaceId}\`]}`). The surface's effect finds the card, scrolls to it with the §A2 suppression and flashes it. A card that is not in the DOM (a crew warning past the row host's visible cap, a rendered-keys miss) makes the lookup miss and the effect falls back to `handleNavClick(sectionId)`: section top, no flash. The `section-warning-active-${id}` block carries NO anchor. `hashSync` is true on the page layout, so the hash updates as for any attention jump.
 
 ### 4.5 Auto-open
 
@@ -251,7 +268,7 @@ Why the same file: the structural registries key on this file by path, and sever
 - `tests/components/admin/showpage/popoverOverlayRegistry.ts`: the `AttentionMenu.tsx` / `published-show-review-attention-menu` row stays as is (the panel markup and the literal `useFitWithinClip` import remain in that file). `_metaPopoverPlacementContract.test.ts` `liveExtraction` walks `components/**` for overlay markup; WizardAttentionMenu.tsx contains none, so it gets NO row (a row with no detectable overlay is rejected as stale).
 - `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts`: the `useFitWithinClip` consumer row stays on `AttentionMenu.tsx`.
 - Line-keyed rows that necessarily move and are re-measured by running each scanner (the plan carries the before/after numbers): `tests/styles/controlOutlineScan.ts` `CENSUS` rows for `Step3ReviewModal.tsx` (two controls, at lines 604 and 688 at drafting time), `PublishedReviewModal.tsx` (line 979 at drafting time, the pill) and the `DIVIDERS` row `AttentionMenu.tsx:189`; `tests/styles/_metaControlOutlineFill.test.ts` `HOVER_SUBTLE` entry `PublishedReviewModal.tsx:979`; `tests/styles/tapTargetCensus.ts` `TAP_TARGET_CENSUS` row for `Step3ReviewModal.tsx` (line 205 at drafting time); `tests/styles/controlOutlineResidue.ts` `AttentionMenu.tsx` row; `tests/styles/_metaControlOutlineResidue.test.ts` divider helper, refusal case, acceptance case and blind-oracle list, which hardcode `AttentionMenu.tsx` (path stays valid) and `AttentionMenu.tsx:189` (line re-measured).
-- New interactive sites the scanners will see: the wizard pill button (same recipe as the published pill; `controlOutlineScan.ts` `CENSUS` gets a row modelled on the `PublishedReviewModal.tsx` pill row, `_metaControlOutlineFill` `HOVER_SUBTLE` likewise if its classifier flags the hover fill) and the `AttentionMenuRow` sites now rendered from two callers (one divider row, one file).
+- `controlOutlineScan.ts` `CENSUS` and `_metaControlOutlineFill.test.ts` `HOVER_SUBTLE` are CLOSED historical lists with fixed cardinalities (their own comments say so); the new wizard pill is NOT added to either. Existing rows that move are re-keyed only. The wizard pill and the `AttentionMenuRow` sites (now rendered from two callers, still one divider in one file) are covered by the forward guards that walk `components/**` (`tests/styles/_metaControlOutlineResidue.test.ts`, `tests/styles/_metaTapTargetFloor.test.ts`, `tests/styles/_metaSubtleOnInteractive.test.ts`); the plan runs `tests/styles/` after the pill lands and files whatever rows those forward guards demand, quoting the guard's message.
 - `tests/components/admin/showpage/pageTransitions.test.tsx` `PAGE_COMPONENT_COUNTS`: `AttentionMenu.tsx` count re-measured; WizardAttentionMenu.tsx ADDED with its measured count (this is the fail-by-default source inventory for its conditional sites, since `step3ReviewModal.transitions.test.tsx` scans only `Step3ReviewModal.tsx`). `tests/components/admin/transitionAudit.test.tsx` `SERVER_RENDERED`: WizardAttentionMenu.tsx added (no mount animation classes; the panel's entrance is `transition-[opacity,transform]`, which the sweep's regex does not match, as it does not match it in `AttentionMenu.tsx` today).
 - `tests/components/admin/useFitWithinClip.test.tsx` (h17) pins the panel's attach lifecycle; the frame keeps the same ref-callback shape.
 
@@ -287,7 +304,9 @@ No em dashes. No raw codes (titles go through `reviewWarningTitle`).
 | Agenda-kind warning while agenda not rendered | Degrades to `"warnings"` (existing `warningsBySection` rule). |
 | Any segment count > 99 | "99+" visible, exact count sr-only. |
 | Wizard row whose `<li>` is absent | `handleNavClick("warnings")`. |
-| Published row whose section block is absent or renders no cards (crew under-row case; ignored-only section) | No anchor attribute (§4.4) → `handleNavClick(sectionId)`, section top, no flash. |
+| Published row whose card is not in the DOM (crew warning past the under-row cap; ignored-only section has no row at all) | Anchor lookup misses → `handleNavClick(sectionId)`, section top, no flash. |
+| Persisted warning with no `severity` field | `isWarnSeverity` true (§2.1): counted in the badge, the pill, the rail and the list alike. |
+| Two identical warnings in one published section | Same `reportSurfaceId`, same anchor; both rows listed; both jump to the first card (§10). |
 | `isDirtyRescan` flips true while the menu is open | Reconciliation effect closes it; the "Sheet changed" span renders; `menuOpen` is false when the dirty state clears. |
 | `isDirtyRescan` with `n + m > 0` | "Sheet changed" span wins; no pill, no menu (existing precedence). |
 | Rescan / ignore drops the count to 0 while the menu is open | `menuEffectivelyOpen` false → panel unmounts; wizard chip becomes the "All clean" span; published pill follows the existing reconciliation effect. |
@@ -336,7 +355,7 @@ Published pill states gain no new transition pair beyond the segment's mount/unm
 - The badge and the pill can still differ: the badge is the parser data-gap digest, the pill is every warn-severity warning (published: every ACTIVE one). Direction is fixed (pill ≥ badge for the wizard; for published, ignoring a warning lowers the pill while the badge, which reads `parse_warnings`, does not move). Aligning the badge to the pill changes the dashboard aggregate and the regression-gate universe (`2026-07-07-ambiguity-warnings-v1-design.md` §3.3); out of scope.
 - The published fix hints (`lib/admin/needsLookHints.ts`) are keyed on alert codes; warning rows show the section label instead. A per-warning hint is a follow-up if wanted (`messageFor(code).helpfulContext` already renders on the card the jump lands on).
 - Focus after a row click lands on `document.body` (menu unmounts). Accepted per the DEFERRED.md entry in §1.1.
-- Published crew-scoped warnings that render under crew rows jump to the crew section top, not the row.
+- Published crew-scoped warnings beyond the crew row host's visible cap have no card and jump to the crew section top. Identical-content warnings in one section share a `reportSurfaceId` and therefore an anchor; the second row lands on the first card. Both are conservative (a section-top landing, a neighbouring identical card), never silent.
 
 ## 11. Out of scope
 
@@ -349,7 +368,8 @@ Published pill states gain no new transition pair beyond the segment's mount/unm
 Unit (new file tests/lib/admin/warningAttention.test.ts):
 
 1. Partition by `isAmbiguityCode`; input order preserved in `all` and per group. Catches: counting sections; reordering.
-2. I-1 property over every `GAP_CLASSES` code, every `AMBIGUITY_CODES` code, and every `BENIGN_WARN_CODES` ∪ `ASSET_WARN_CODES` member (imported, per §2): `all.length >= summarizeDataGaps(w).total`, with `premise` asserting the non-gap set is non-empty. Catches: a universe narrower than the badge.
+2. I-1 property over every `GAP_CLASSES` code, every `AMBIGUITY_CODES` code, every `BENIGN_WARN_CODES` ∪ `ASSET_WARN_CODES` member (imported, per §2), each ALSO as a severity-less copy (the key deleted, `premise` asserting `!("severity" in w)`): routed through `warningsBySection` then `deriveWarningAttention`, `all.length >= summarizeDataGaps(w).total`. Catches: a universe narrower than the badge, including the legacy-row case.
+5a. Severity sweep (§2.1): one severity-less `UNKNOWN_FIELD` counts as warn in `summarizeDataGaps`, `warningsBySection`, `sectionStatus`, `visibleWarningRows` (excluded from info rows) and `deriveWarningAttention`. Catches: any of the seven sites reverting to `=== "warn"`.
 3. I-2: for each registry section, `sectionStatus` agreement with entry tones. Catches: routing drift between rail and menu.
 4. Unmapped warning → `sectionLabel === "Sheet warnings"` read from the registry, not hardcoded.
 5. Throws on an info-severity entry and on an unlabelable `sectionId`.
@@ -360,7 +380,8 @@ Wizard component (`tests/components/admin/wizard/Step3ReviewModal.test.tsx` exte
 7. Judgment-only fixture → quiet pill "1 judgment call", footer "1 parsed with judgment · publishing isn't blocked", no "All clean".
 8. Composite → textContent "2 need a look · 1 judgment call"; judgment segment carries `text-warning-text/80`.
 9. Button states carry `aria-expanded` / `aria-controls` → the menu wrapper; the All clean and Sheet changed spans carry neither and have no `relative` wrapper (assert the chip's parent is the cluster div).
-10. Auto-open: needs-look fixture opens after one frame; judgment-only does not; an already-open menu consumes the one-shot; a needs-look fixture mounted with `isDirtyRescan` does not open and does not consume, and opens once after `isDirtyRescan` flips false. Rerender to `isDirtyRescan` while open → menu unmounted and `aria-expanded` gone with the span.
+10. Auto-open: needs-look fixture opens after one frame; judgment-only does not; an already-open menu consumes the one-shot; a needs-look fixture mounted with `isDirtyRescan` does not open and does not consume, and opens once after `isDirtyRescan` flips false. Rerender to `isDirtyRescan` while open → menu unmounted, `aria-expanded` gone with the span, and `document.activeElement` is the dialog root (not `body`).
+10a. Focus rescue: with the menu open and a row focused, rerender with that warning removed while others remain → menu still open, focus on the pill; rerender with all warnings removed → menu closed, focus on the dialog root. Catches: the published rescue effect not being ported.
 11. Row click → `ShowReviewSurface` receives `itemId "warning:<index>"`, `sectionId "warnings"`; the `<li data-attention-anchor="warning:<index>">` gains `data-step3-warning-flash`; menu closed. Assert on the `<li>`, not a container that also renders the title.
 12. Escape closes only the menu and focuses the pill; second Escape closes the modal.
 13. Outside pointerdown and focus-out close the menu.
@@ -372,7 +393,8 @@ Published component (`tests/components/admin/showpage/publishedReviewModal.test.
 16. Zero attention items + 3 active warn rows → interactive pill "3 sheet warnings", not "In sync". This is the second reported bug. The existing "In sync" test keeps its warning-free fixture and still passes.
 17. `attentionItems` present + warnings → "2 issues · 3 sheet warnings"; + self-heal → "2 issues · 3 sheet warnings · 1 monitoring"; separator only between present segments (no leading middot when issues = 0).
 18. Menu with warnings renders the Sheet warnings group between Needs you and Monitoring; rows are BUTTONs with no `<a>`; click order `["close", "navigate"]`; row tone dot follows `isAmbiguityCode`.
-19. Row click → `attentionJump` `{ itemId: "warnings:<sectionId>", sectionId }`; the `section-warning-active-<id>` block (with `data-attention-anchor`) flashes. Ignored-only section: the block renders WITHOUT the anchor attribute and the jump lands on the section top with no flash attribute anywhere in the scroller.
+19. Row click → `attentionJump` `{ itemId: "warning:<reportSurfaceId>", sectionId }`; the `<li data-attention-anchor="warning:<reportSurfaceId>">` rendered by `PerShowActionableWarnings` flashes — asserted on the card `<li>` for a grouped extras warning AND for a crew under-row warning (the `pl-6` wrapper path), each with the anchored element found by attribute, not by text. A crew warning past the visible cap: no element carries the anchor, the jump lands on the crew section top, and no element in the scroller carries the flash attribute.
+19a. Published baseline (T-PUBLISHED-ATTENTION-INVARIANT): `innerHTML` of the header pill cluster and of the OPEN menu on the warning-free two-group fixture, captured from the tree at `origin/main` (`66c9857f5`) BEFORE any component change by a Task-1 script modelled on `scripts/captureStep3HeaderBaseline.ts`, normalised with the same `normalizeIds`, committed under `tests/components/admin/showpage/__fixtures__/` and asserted `toBe` on every later commit. This is the byte-identity proof §1.1 claims; the existing behavioural suites are not.
 20. Ignoring the last active warning of the only section drops the pill to "In sync" and closes the menu (reconciliation).
 21. All existing published suites pass; `pageTransitions.test.tsx` and `transitionAudit.test.tsx` counts re-measured and updated with the scanner output quoted in the commit.
 
@@ -385,6 +407,7 @@ Real browser (Playwright, new file tests/e2e/wizard-attention-menu.spec.ts on th
 - `tests/styles/_metaEmDashCopy.test.ts`: new strings are middot/period only.
 - `tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` + `popoverOverlayRegistry.ts`: existing `AttentionMenu.tsx` row unchanged; no row for WizardAttentionMenu.tsx (§5).
 - `tests/components/admin/showpage/pageTransitions.test.tsx`: WizardAttentionMenu.tsx enrolled with its measured count (§5).
+- New baseline fixtures + invariant test (§12.19a): tests/components/admin/showpage/__fixtures__/published-attention-pill-baseline.html and published-attention-menu-baseline.html (planned), and the test that pins them.
 - `tests/docs/_metaInvariant8Closeout.test.ts`: plan carries `impeccable-gate:`.
 - `tests/messages/*`, `tests/cross-cutting/codes.test.ts`: untouched.
 - Advisory-lock, Supabase call-boundary, DB matrices: N/A (no server/DB code).
@@ -425,3 +448,15 @@ Real browser (Playwright, new file tests/e2e/wizard-attention-menu.spec.ts on th
 | Existing chip tests | `tests/components/admin/wizard/Step3ReviewModal.test.tsx` `expectedFlagged`; `step3ReviewModal.transitions.test.tsx` `"1 needs a look"` |
 | Published pill/menu tests | `tests/components/admin/showpage/publishedReviewModal.test.tsx` ("In sync: zero items"), `attentionMenu.test.tsx`, `attentionMenuGroups.test.tsx` |
 | Vocabulary split | `docs/superpowers/specs/2026-07-24-attention-index-consolidation.md` §2.1, §2.4 |
+| Badge counts severity-less rows | `lib/parser/dataGaps.ts` `summarizeDataGaps` ("#289 contract" comment); `tests/parser/dataGaps.test.ts` "counts a gap code whose warning is MISSING severity" |
+| Severity predicate sites | `rg -n 'severity (===\|!==) "warn"' lib/admin components/admin`, seven hits listed in §2.1 |
+| Published card render paths | `components/admin/showpage/sectionWarningExtras.tsx` crew under-row `pl-6` wrapper and the grouped `PerShowActionableWarnings` mount; `components/admin/PerShowActionableWarnings.tsx` `per-show-actionable-warnings` list |
+| `reportSurfaceId` derivation | `lib/admin/sectionWarningModel.ts` `stamp` → `buildReportSurfaceId(slug, w)` (`lib/dataQuality/warningFingerprint.ts`) |
+| Published focus rescue | `components/admin/showpage/PublishedReviewModal.tsx` `menuWasEffectivelyOpenRef` effect |
+| Closed historical lists | `tests/styles/controlOutlineScan.ts` `CENSUS` header comment; `tests/styles/_metaControlOutlineFill.test.ts` `HOVER_SUBTLE` cardinality |
+
+## 15. Review triage record
+
+Refuted claims are recorded so later rounds do not re-derive them.
+
+- Spec R2 finding 6 claimed `tests/parser/dataGapsClassCompleteness.test.ts` pairwise-disjoint Layer 1 test lists `BENIGN_WARN_CODES` twice and is red on the base. Read 2026-08-27: the `buckets` array is `[DATA_GAP_CODES, BENIGN_WARN_CODES, BENIGN_INFO_CODES, ASSET_WARN_CODES, NON_GAP_CATALOG_CODES]`, five distinct sets. Refuted; the test is a valid fixture source.
