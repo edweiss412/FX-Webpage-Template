@@ -36,7 +36,7 @@ corpus. Every number below is the arm's own output, not the snapshot's.**
 | measure | snapshot (2026-08-26, 101 plans) | live, this head |
 | --- | --- | --- |
 | enrolled plans | 101 | **108** |
-| plans with at least one CERTAIN declaration | 57 | **59** |
+| plans with at least one CERTAIN declaration | 57 | **57** |
 | AMBIGUOUS declaring lines | 14 across 12 plans | **13 across 11 plans** |
 | plans flagged UNCLAIMED | 19, 31 ids | **19, 34 ids** |
 
@@ -93,9 +93,9 @@ Task 4 rather than given a residue of their own.
 
 **The decline is SILENT BY DESIGN, and that is a documented limit with a measured
 reason** (2026-08-27). Recording every declined line was measured before it was
-rejected: **1078 rows across 96 plans** for every declined line carrying an id,
+rejected: **1089 rows across 97 plans** for every declined line carrying an id,
 and **609 rows across 73 plans** even when bounded to the declines that actually
-suppress a finding. The cause is the corpus's own conventions — 42 of the enrolled
+suppress a finding. The cause is the corpus's own conventions — 51 of the enrolled
 plans declare their criteria in a table or a coverage map rather than in a list
 item — so a record that size reds on any routine plan edit anywhere in the corpus.
 That is a corpus tripwire, not a fail-closed guard. The ambiguous record therefore
@@ -284,7 +284,7 @@ citing an id the plan never declares draws nothing today. The failure is at that
 production line, not in a fixture the test controls. Whole file, no `-t` filter,
 for the reason Task 1 gives.
 
-Fires only in a plan that declares at least one id, so the 42 spec-side plans are
+Fires only in a plan that declares at least one id, so the 51 plans that declare nothing in their own body are
 untouched (spec §7 limit 5) — **and, per §1.1, never on an id sitting on a line
 the arm declines.** That second cut is what keeps the code off the 9 plans / 71
 ids the opt-in rule alone leaves exposed.
@@ -524,7 +524,7 @@ ONE paragraph in `docs/agents/writing-plans.md` per spec §4.2 constraint 3 — 
 `AGENTS.md`. It states the convention, the accept-set direction, that a disposition
 may only say what the plan already says, that the arm declines rather than guesses
 on a line carrying more than one id, and — per §1.1 — that the decline is silent by
-design, carrying the measured reason (1078 rows across 96 plans for a full record,
+design, carrying the measured reason (1089 rows across 97 plans for a full record,
 609 across 73 even when bounded to suppressing declines, because 42 enrolled plans
 declare in a table or a coverage map).
 
@@ -557,7 +557,7 @@ refuted premise in one line; the four classification counts and the zero
 real-drift result; the count cut and why the grammar stopped; the live numbers at
 the shipping head (plans walked, certain, ambiguous, unclaimed, residue size); the
 residue and record paths; the migration by path; the 9/71 → 2/5 → 0 UNDECLARED
-sequence with the 1078-row measurement that bought the silent decline; and that
+sequence with the 1089-row measurement that bought the silent decline; and that
 `TASK_AC_UNDECLARED` is opt-in by shape.
 
 **Documented limit — a residue row makes its plan un-dispatchable through the
@@ -609,7 +609,7 @@ count cut is applied symmetrically (§1.1), and 0 after those two plans are migr
 in Task 4.
 
 **Documented limit — the symmetric decline is silent, and here is the number that
-bought it.** A per-row record of declined lines measures 1078 rows across 96 plans,
+bought it.** A per-row record of declined lines measures 1089 rows across 97 plans,
 or 609 across 73 bounded to declines that suppress a finding, because 42 enrolled
 plans declare their criteria in a table or a coverage map. An exact-equality record
 that size reds on any routine plan edit anywhere in the corpus, so the loudness is

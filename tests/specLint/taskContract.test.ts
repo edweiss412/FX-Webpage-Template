@@ -867,7 +867,7 @@ describe("checkTaskContract — the undeclared direction and the three-code part
   });
 
   it("undeclared: OPT-IN BY SHAPE — a plan that declares nothing is untouched", () => {
-    // 42 of the enrolled plans carry their criteria in the sibling spec and a
+    // 51 of the enrolled plans carry their criteria in the sibling spec and a
     // coverage map only (spec §7 limit 5). Requiring a body declaration for
     // every cited id would red most of the corpus.
     expect(codes(plan("AC-2", "AC-2 is mentioned in this sentence and nowhere else."))).toEqual([]);
