@@ -101,26 +101,6 @@ then archive this entry. Nothing else is owed.
 
 ---
 
-## BL-TELEMETRY-FALLBACK-RETRY — the scheduled-job health fallback states the cause but offers no retry
-
-**Status:** IN PROGRESS · **Branch:** feat/telemetry-fallback-retry · **Severity:** low (developer-tier surface) · **Surfaced:** #601 impeccable critique (2026-07-25), P1 partially addressed · **Effort:** S
-
-`app/admin/dev/telemetry/page.tsx:84` now reads "Couldn't load scheduled-job health right now. The jobs are probably still running." — the second sentence landed in the #601 follow-up because the critique was right that the old one-liner named neither a cause nor a recourse at the moment Doug's stress is highest. What it still lacks is the recourse half: there is no retry control, so the only way to re-read is a full page reload.
-
-**Fix (when prioritized):** a retry affordance on the fallback, consistent with `AutoRefreshControl`'s manual-refresh icon-button already on this page (spec §7.1) rather than a new idiom. **Trigger:** the next telemetry pass, or a report of the readout failing in practice.
-
----
-
-screen-disposition 2026-08-04: PREREQ-FENCED, stays open, NOT closed by `chore/sweep-guards-tests`.
-Two independent reasons, and either alone would be enough. First, the entry's own trigger is quoted
-and unmet: "the next telemetry pass, or a report of the readout failing in practice" — neither has
-happened, so closing now would violate the entry rather than honor it. Second, the fix is a retry
-control on `app/admin/dev/telemetry/page.tsx`, which is an invariant-8 UI surface; the plan scopes
-the dual gate to the UI branch and marks this one `impeccable-gate: N/A — no UI surface`, so the
-work cannot land here without either violating that scoping or dragging a UI change through a guards
-review. Unlike `BL-CANONICAL-CLASS-ARRAY-BLINDSPOT`, there is no guard half to ship in the meantime:
-the fix IS the control. Claim released; it was marked at Stage 0 before the fence was read.
-
 ### BL-AGENDA-PROSE-SECOND-DAY — a day label can name a second day in free prose
 
 **Status:** OPEN — known limit, accepted in PR #610 review R6 · **Severity:** low · **Class:** FEATURE REACH · **Effort:** S
