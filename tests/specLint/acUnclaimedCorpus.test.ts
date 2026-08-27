@@ -23,19 +23,36 @@ describe("the AC arm over the live plans corpus (AC-6)", () => {
   // sibling corpus test 56s against a 30s timeout, which measures the test.
   const unclaimed: string[] = [];
   const undeclared: string[] = [];
+  const emissionDrift: string[] = [];
   let declinedLines = 0;
+  let plansEmittingAcFindings = 0;
   for (const f of docs) {
     const model = parseDoc(readFileSync(f, "utf8"));
-    // The finding sets come from what the arm EMITS, never from a classification
-    // derived here: the final codes also rest on marker claims, disposition
-    // handling and three-code precedence, and a second derivation of those would
-    // go on passing after an edit moved the emitted finding.
-    for (const finding of checkTaskContract(model, "plan")) {
-      const id = /`(AC-[^`]+)`/.exec(finding.message)?.[1] ?? "";
-      if (finding.code === "TASK_AC_UNCLAIMED") unclaimed.push(key(f, id));
-      if (finding.code === "TASK_AC_UNDECLARED") undeclared.push(key(f, id));
+    // The ids come off the analysis STRUCTURE, not out of the finding message.
+    // Recovering an id by regex from human-facing prose is a re-derivation
+    // through a string nobody promised to keep stable, and it would report the
+    // wrong set the day the wording changes.
+    const ac = acAnalysis(model);
+    for (const u of ac.unclaimed) unclaimed.push(key(f, u.id));
+    for (const u of ac.undeclared) undeclared.push(key(f, u.id));
+    declinedLines += ac.declined.length;
+    // And the emission is pinned to that structure, which is what makes the
+    // equalities above claims about what the ARM REPORTS rather than about a
+    // classification only this file can see. `checkTaskContract` renders from
+    // the same value, so any divergence is a defect in the renderer.
+    const emitted = checkTaskContract(model, "plan");
+    const count = (code: string) => emitted.filter((x) => x.code === code).length;
+    if (count("TASK_AC_UNCLAIMED") + count("TASK_AC_UNDECLARED") > 0) plansEmittingAcFindings += 1;
+    if (count("TASK_AC_UNCLAIMED") !== ac.unclaimed.length) {
+      emissionDrift.push(
+        `${f}: UNCLAIMED emitted ${count("TASK_AC_UNCLAIMED")}, analysis ${ac.unclaimed.length}`,
+      );
     }
-    declinedLines += acAnalysis(model).declined.length;
+    if (count("TASK_AC_UNDECLARED") !== ac.undeclared.length) {
+      emissionDrift.push(
+        `${f}: UNDECLARED emitted ${count("TASK_AC_UNDECLARED")}, analysis ${ac.undeclared.length}`,
+      );
+    }
   }
 
   it("AC-6: the unclaimed set equals the committed residue, exactly, both directions", () => {
@@ -43,6 +60,25 @@ describe("the AC arm over the live plans corpus (AC-6)", () => {
     expect(unclaimed.slice().sort()).toEqual(
       AC_UNCLAIMED_RESIDUE.map((r) => key(r.plan, r.id)).sort(),
     );
+  });
+
+  it("AC-6: what the arm EMITS matches the analysis it renders from, on every plan", () => {
+    premise("enrolled plans walked from disk", docs.length, 90);
+    // The premise this assertion actually rests on. `emissionDrift` is empty on
+    // a corpus where the arm reports NOTHING as readily as on one where the
+    // renderer is correct, so the comparison has discriminating power only while
+    // some plan emits a finding for it to compare. The residue guarantees that
+    // today, and if the residue ever reaches zero this premise says so out loud
+    // instead of the assertion quietly becoming a tautology.
+    premise(
+      "plans emitting an AC finding for the drift check to compare",
+      plansEmittingAcFindings,
+      0,
+    );
+    // The single-owner rule, asserted rather than asserted-about. A renderer
+    // that dropped or duplicated a finding would leave the equalities above
+    // green, because they read the analysis directly.
+    expect(emissionDrift).toEqual([]);
   });
 
   it("AC-6: the walk is COMPLETE, asserted against an independent enumerator", () => {
