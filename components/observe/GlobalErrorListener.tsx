@@ -36,7 +36,13 @@ export function GlobalErrorListener(): null {
         event.error == null || event.error instanceof Error
           ? ""
           : describeClientValue(event.error).detail;
-      const detail = (from ? `${where} ${from}` : where).slice(0, DETAIL_CAP);
+      // The thrown value goes FIRST. Both parts share one 300-char budget, and a
+      // filename can consume all of it on its own — a `data:` or `blob:` URL, or a
+      // webpack `eval` sourceURL, is routinely longer than the cap. With file:line
+      // leading, exactly the new information this handler exists to capture is what
+      // the slice drops. Leading with the value means the truncation costs the
+      // cheaper half.
+      const detail = (from ? `${from} ${where}` : where).slice(0, DETAIL_CAP);
       clientLog(
         "error",
         "client.root",

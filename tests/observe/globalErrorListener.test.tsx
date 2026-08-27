@@ -112,6 +112,30 @@ describe("GlobalErrorListener", () => {
     expect(detail).toContain("https://x.test/chunk.js:42");
     expect(detail).toContain(thrown.code);
     expect(detail).toContain(thrown.message);
+    // The value leads; file:line trails. See the long-filename case below.
+    expect(detail.indexOf(thrown.code)).toBeLessThan(detail.indexOf("chunk.js"));
+  });
+
+  test("a long filename cannot truncate away the thrown value", () => {
+    // Both parts share one 300-char budget and a filename can eat all of it on its
+    // own (data:/blob:/webpack eval sourceURLs routinely do). The value leads, so
+    // the truncation costs file:line rather than the thing this handler exists to
+    // capture. With the old ordering this assertion fails.
+    render(<GlobalErrorListener />);
+    const thrown = { code: "E_CHUNK", message: "load failed" };
+    const evt = new ErrorEvent("error", {
+      message: "boom",
+      filename: `https://x.test/${"a".repeat(400)}.js`,
+      lineno: 42,
+    });
+    Object.defineProperty(evt, "error", { value: thrown, configurable: true });
+    window.dispatchEvent(evt);
+    const detail = clientLogMock.mock.calls.find(
+      (c) => c[4] === "CLIENT_WINDOW_ERROR",
+    )![5] as string;
+    expect(detail.length).toBeLessThanOrEqual(300);
+    expect(detail).toContain(thrown.code);
+    expect(detail).toContain(thrown.message);
   });
 
   test("an Error window throw keeps today's exact file:line detail", () => {

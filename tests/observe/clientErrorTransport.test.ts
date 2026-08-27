@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   clientErrorTransport,
+  redactShareToken,
   __resetClientTransportDedupForTests,
 } from "@/lib/observe/clientErrorTransport";
 
@@ -129,6 +130,82 @@ describe("clientErrorTransport — optional code/detail", () => {
     post(undefined, { message: "boom", stack: "at foo" });
     post(undefined, { message: "other", stack: "at bar" });
     expect(posts(), "two distinct Errors still post twice").toBe(2);
+  });
+
+  // ── the crew share token never reaches the wire ────────────────────────────
+  //
+  // /show/<slug>/<shareToken> is the only share-token-bearing route in the app,
+  // and `location.href` went onto the wire unmodified, so any client crash on a
+  // crew page persisted the token into app_events. AGENTS.md invariant 10:
+  // secrets are never logged.
+  describe("redactShareToken", () => {
+    test("masks the token segment and keeps the slug that makes the row diagnosable", () => {
+      const SECRET = "zzq9-secret";
+      const out = redactShareToken(`https://x.test/show/acme-gala/${SECRET}`);
+      expect(out).toBe("https://x.test/show/acme-gala/[share-token-redacted]");
+      expect(out).not.toContain(SECRET);
+    });
+
+    test("masks a query string and fragment on that route too", () => {
+      // A token could be re-appended by a link or a redirect; the whole tail goes.
+      // SECRET is deliberately a string that does NOT appear inside the marker:
+      // an earlier draft used "tok", which is a substring of "share-token-redacted",
+      // so the not-contains assertion could never fail. The fixture has to be
+      // distinguishable from the thing that replaces it.
+      const SECRET = "zzq9-secret";
+      const out = redactShareToken(`https://x.test/show/acme-gala/${SECRET}?t=${SECRET}#${SECRET}`);
+      expect(out).not.toContain(SECRET);
+      expect(out).toBe("https://x.test/show/acme-gala/[share-token-redacted]");
+    });
+
+    test("fails SAFE on an unexpected extra segment", () => {
+      const SECRET = "zzq9-secret";
+      const out = redactShareToken(`https://x.test/show/acme-gala/${SECRET}/extra`);
+      expect(out).not.toContain(SECRET);
+      expect(out).not.toContain("extra");
+    });
+
+    test.each([
+      ["the show index", "https://x.test/show"],
+      ["a slug with no token", "https://x.test/show/acme-gala"],
+      ["an admin route", "https://x.test/admin/dev/telemetry?code=X"],
+      ["the root", "https://x.test/"],
+    ])("leaves %s untouched — it carries no secret", (_label, href) => {
+      expect(redactShareToken(href)).toBe(new URL(href).href);
+    });
+
+    test("a malformed URL yields an empty string rather than throwing", () => {
+      expect(redactShareToken("not a url")).toBe("");
+    });
+
+    test("the POST body carries the redacted url, not location.href", () => {
+      // jsdom's location is the test origin, so this pins the wiring: the payload
+      // is built from redactShareToken, not from href directly.
+      clientErrorTransport({ source: "client.crew", level: "error", message: "boom" });
+      const body = JSON.parse(
+        ((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit)
+          .body as string,
+      );
+      expect(body.url).toBe(redactShareToken(location.href));
+    });
+  });
+
+  test("the dedup set is bounded — it cannot grow for the life of the page", () => {
+    // 501 distinct signatures: the 501st crosses SEEN_MAX and clears, so the set
+    // never holds more than the bound. Without the bound this grows forever on a
+    // page a crew member leaves open for a whole show, and adding `detail` to the
+    // key made it grow faster. Re-sending a crash already sent is the conservative
+    // failure direction, and the route rate-caps floods regardless.
+    for (let i = 0; i < 501; i++) {
+      clientErrorTransport({ source: "client.crew", level: "error", message: `m${i}` });
+    }
+    const posts = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    expect(posts, "every distinct signature still posts").toBe(501);
+    // The first message is re-postable now, proving the set cleared rather than
+    // holding all 501 — with an unbounded set this second call would dedup away.
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockClear();
+    clientErrorTransport({ source: "client.crew", level: "error", message: "m0" });
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
   });
 
   test("over-cap code (>80) and detail (>500) truncated BEFORE the POST", () => {
