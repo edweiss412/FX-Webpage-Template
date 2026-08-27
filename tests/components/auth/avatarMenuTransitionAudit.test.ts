@@ -1,203 +1,287 @@
 /**
  * tests/components/auth/avatarMenuTransitionAudit.test.ts
  *
- * Structural transition audit for `components/auth/AvatarMenu.tsx`, in the
- * shape `tests/show/claimedRowTransitionAudit.test.ts` uses on the same-route
- * sibling. Two shapes for one job would be one shape too many.
+ * Structural transition audit for `components/auth/AvatarMenu.tsx`.
  *
- * The component's inventory is spec §4.6 (amended 2026-08-27 to five states and
- * ten pairs). This file is the STRUCTURAL half: every conditional in the source
- * carries a declared treatment, and the count is pinned so a branch added later
- * fails rather than passing silently.
+ * The component's inventory is spec §4.6, amended 2026-08-27 from four states on
+ * one axis to TWO INDEPENDENT AXES: the menu is `closed` or `open`, the switch is
+ * `idle` / `pending` / `timedout` / `error`, seven observable configurations.
+ * This file is the STRUCTURAL half: every conditional in the source carries a
+ * declared treatment, and nothing can be added without a row.
+ *
+ * WHY THE AST AND NOT A REGEX. The first version of this file counted `? (`,
+ * `&& (` and `if (` the way the same-route sibling's audit does. Measured against
+ * the TypeScript AST it saw 7 of 12 ternaries, missed the `switch` entirely, and
+ * counted the module header's prose "`Not you?`" as a branch: an identifier,
+ * brace, or numeric consequent (`activeIndex === 0 ? 0 : -1`) is invisible to
+ * that pattern. So the completeness the file advertised was false, and widening
+ * the pattern would only move the next hole. The AST cannot miss a node, and a
+ * comment is not a node.
+ *
+ * The check is a BIJECTION, not a count: every conditional the AST finds must be
+ * matched by some row, and every row must match at least one conditional. A count
+ * tells you the number moved; this tells you WHICH conditional nobody declared,
+ * with its line and its text.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 import { describe, expect, test } from "vitest";
+import { premise } from "../../_shared/premise";
 
-const SOURCE = readFileSync(join(process.cwd(), "components", "auth", "AvatarMenu.tsx"), "utf8");
+const FILE = join("components", "auth", "AvatarMenu.tsx");
+const SOURCE = readFileSync(join(process.cwd(), FILE), "utf8");
+
+interface Site {
+  readonly kind: "if" | "ternary" | "switch" | "jsx-and";
+  readonly line: number;
+  readonly text: string;
+}
+
+/** `a && <jsx/>` is a render branch; `a && b` inside an `if` test is not. */
+function isJsxGuard(node: ts.BinaryExpression): boolean {
+  let right: ts.Node = node.right;
+  while (ts.isParenthesizedExpression(right)) right = right.expression;
+  return ts.isJsxElement(right) || ts.isJsxFragment(right) || ts.isJsxSelfClosingElement(right);
+}
+
+/** Every conditional site in the component, from the AST. */
+function conditionalSites(): Site[] {
+  const src = ts.createSourceFile(FILE, SOURCE, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const sites: Site[] = [];
+  const visit = (node: ts.Node): void => {
+    let kind: Site["kind"] | null = null;
+    if (ts.isIfStatement(node)) kind = "if";
+    else if (ts.isConditionalExpression(node)) kind = "ternary";
+    else if (ts.isSwitchStatement(node)) kind = "switch";
+    else if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+      isJsxGuard(node)
+    ) {
+      kind = "jsx-and";
+    }
+    if (kind !== null) {
+      sites.push({
+        kind,
+        line: src.getLineAndCharacterOfPosition(node.getStart(src)).line + 1,
+        text: node.getText(src).replace(/\s+/g, " "),
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(src);
+  return sites;
+}
 
 /** Every conditional in the component, with its §4.6 treatment. */
 const DECLARED = [
   {
     id: "C1",
-    what: "the accessible-name builder appends role only when non-empty",
-    marker: /if \(role\.trim\(\) !== ""\) parts\.push/,
-    treatment: "not a render branch, no animation",
+    what: "the name fallback when the crew member has no name",
+    marker: /^name\.trim\(\) === "" \?/,
+    treatment: "not a render branch; the trigger is never left unnamed",
   },
   {
     id: "C2",
-    what: "the re-entry guard on the click, reading the DERIVED busy flag",
-    marker: /if \(switchBusy\) \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?return;/,
-    treatment: "not a render branch; admitting the retry once the watchdog has fired is the point",
+    what: "the accessible-name builder appends role only when non-empty",
+    marker: /^if \(role\.trim\(\) !== ""\)/,
+    treatment: "not a render branch; no dangling punctuation by construction",
   },
   {
     id: "C3",
-    what: "the settle path drops a superseded attempt's result",
-    // Anchored on what FOLLOWS it, because the catch path (C6) spells the same
-    // condition and a bare marker would match either. Round 4 F1 caught exactly
-    // that aliasing in an earlier row.
-    marker: /if \(switchAttempt\.current !== attempt\) return;\s*\n\s*setSwitchPhase\("idle"\);/,
-    treatment: "not a render branch; a superseded attempt enters no state",
+    what: "the watchdog effect arms only while pending",
+    marker: /^if \(switchPhase !== "pending"\) return;$/,
+    treatment: "not a render branch; arming, not painting",
   },
   {
     id: "C4",
-    what: "the settle path reports a failure",
-    marker: /if \(failed\) setSwitchStatus\("error"\);/,
-    treatment: "instant; batched with the phase's return to idle",
+    what: "the watchdog callback refuses to leave a phase that is not pending",
+    marker: /^phase === "pending" \? "timedout" : phase$/,
+    treatment: "instant when it fires; a no-op after a settle",
   },
   {
     id: "C5",
-    what: "the watchdog effect arms only while pending",
-    marker: /if \(switchPhase !== "pending"\) return;/,
-    treatment: "not a render branch; arming, not painting",
+    what: "the re-entry guard on the click, reading the DERIVED busy flag",
+    marker: /^if \(switchBusy\) \{/,
+    treatment: "not a render branch; admitting the retry once the watchdog has fired is the point",
   },
   {
     id: "C6",
     what: "the catch drops a superseded attempt BEFORE rethrowing control flow",
-    marker: /catch \(error\) \{[\s\S]*?if \(switchAttempt\.current !== attempt\) return;/,
+    marker: /^if \(switchAttempt\.current !== attempt\) return;$/,
     treatment: "not a render branch; a superseded redirect is not this row's to follow",
   },
   {
     id: "C7",
-    what: "the watchdog callback refuses to leave a phase that is not pending",
-    marker: /setSwitchPhase\(\(phase\) => \(phase === "pending" \? "timedout" : phase\)\)/,
-    treatment: "instant when it fires; a no-op after a settle",
+    what: "the settle path reports a failure",
+    marker: /^if \(failed\) setSwitchStatus\("error"\);$/,
+    treatment: "instant; the row is enabled by the time the alert is readable",
   },
   {
-    id: "C8a",
-    what: "the announcement says Switching person while pending",
-    marker: /if \(switchPhase === "pending"\) switchAnnouncement =/,
-    treatment: "instant; announcement only, no visual state",
-  },
-  {
-    id: "C8b",
-    what: "the announcement says the timeout notice while timed out",
-    marker: /else if \(switchPhase === "timedout"\) switchAnnouncement =/,
-    treatment: "instant; announcement only, no visual state",
-  },
-  {
-    id: "C9",
+    id: "C8",
     what: "close() restores focus only when asked",
-    marker: /if \(opts\.restoreFocus\) triggerRef\.current\?\.focus\(\);/,
+    marker: /^if \(opts\.restoreFocus\)/,
     treatment: "not a render branch; focus, not paint",
   },
   {
+    id: "C9",
+    what: "the outside-pointerdown and deferred-focus effects are inert while closed",
+    marker: /^if \(!open\) return;$/,
+    treatment: "not a render branch",
+  },
+  {
     id: "C10",
-    what: "the outside-pointerdown effect is inert while closed",
-    marker: /if \(!open\) return;\s*\n\s*const onPointerDown/,
+    what: "an in-container pointerdown does not close",
+    marker: /^if \(target instanceof Node/,
     treatment: "not a render branch",
   },
   {
     id: "C11",
-    what: "an in-container pointerdown does not close",
-    marker: /if \(target instanceof Node && containerRef\.current\?\.contains\(target\)\) return;/,
+    what: "the deferred-focus effect is inert with no pending index",
+    marker: /^if \(index === null\) return;$/,
     treatment: "not a render branch",
   },
   {
     id: "C12",
-    what: "the deferred-focus effect is inert while closed",
-    marker: /if \(!open\) return;\s*\n\s*const index = pendingFocus\.current;/,
-    treatment: "not a render branch",
+    what: "trigger keydown: open-at-first on ArrowDown/Enter/Space",
+    marker: /^if \(event\.key === "ArrowDown" \|\|/,
+    treatment: "closed→open, the duration-fast enter treatment",
   },
   {
     id: "C13",
-    what: "the deferred-focus effect is inert with no pending index",
-    marker: /if \(index === null\) return;/,
-    treatment: "not a render branch",
+    what: "trigger keydown: open-at-last on ArrowUp",
+    marker: /^if \(event\.key === "ArrowUp"\)/,
+    treatment: "closed→open at the last item, carrying whatever switch phase is live",
   },
   {
     id: "C14",
-    what: "trigger keydown: open-at-first on ArrowDown/Enter/Space",
-    marker: /if \(event\.key === "ArrowDown" \|\| event\.key === "Enter" \|\| event\.key === " "\)/,
-    treatment: "Closed→Open-idle, the duration-fast enter treatment",
+    what: "the in-menu keyboard map",
+    marker: /^switch \(event\.key\) \{/,
+    treatment:
+      "Escape closes and restores focus; arrows and Home/End move focus only; Tab closes and hands focus back",
   },
   {
     id: "C15",
-    what: "trigger keydown: open-at-last on ArrowUp",
-    marker: /\} else if \(event\.key === "ArrowUp"\)/,
-    treatment: "Closed→Open-idle (or Closed→Open-pending / Open-timedout if a clear is live)",
+    what: "the announcement says Switching person while pending",
+    marker: /^if \(switchPhase === "pending"\) switchAnnouncement/,
+    treatment: "instant; announcement only, no visual state",
   },
   {
     id: "C16",
-    what: "the popover renders only while open",
-    marker: /\{open \? \(/,
-    treatment: "enter: motion-safe avatar-menu-in; exit is an unmount, motion-reduce instant",
+    what: "the announcement says the timeout notice while timed out",
+    marker: /^if \(switchPhase === "timedout"\) switchAnnouncement/,
+    treatment: "instant; announcement only, no visual state",
   },
   {
     id: "C17",
-    what: "the identity header renders only with an identity",
-    marker: /\{hasIdentity \? \(/,
-    treatment: "instant; absent it, the menu takes aria-label instead of aria-labelledby",
+    what: "the menu is named by the header, or labelled directly when there is none",
+    marker: /^hasIdentity \? \{ "aria-labelledby"/,
+    treatment: "not a render branch; a labelledby pointing at nothing would leave the menu unnamed",
   },
   {
     id: "C18",
+    what: "the trigger toggles the menu",
+    marker: /^open \? close\(\{ restoreFocus: false \}\) : openAt\(0\)$/,
+    treatment:
+      "closed↔open; the close path does NOT restore focus, the person is already reaching elsewhere",
+  },
+  {
+    id: "C19",
+    what: "the popover renders only while open",
+    marker: /^open \? \(/,
+    treatment: "enter: motion-safe avatar-menu-in; exit is an unmount, motion-reduce instant",
+  },
+  {
+    id: "C20",
+    what: "the identity header renders only with an identity",
+    marker: /^hasIdentity \? \(/,
+    treatment: "instant; absent it, the menu takes aria-label instead",
+  },
+  {
+    id: "C21",
     what: "the sr-only separator between name and role",
     marker: /avatar-menu-sr-separator/,
     treatment: "instant; screen-reader punctuation only",
   },
   {
-    id: "C19",
-    what: "the visible middot between name and role",
-    marker: /aria-hidden="true">\s*\n\s*\{" · "\}/,
-    treatment: "instant",
-  },
-  {
-    id: "C20",
-    what: "the theme row toggles light and dark",
-    marker: /setTheme\(isDark \? "light" : "dark"\)/,
-    treatment: "instant; the menu deliberately stays open",
-  },
-  {
-    id: "C21",
-    what: "the theme check glyph is visible only when mounted and dark",
-    marker: /mounted && isDark \? "visible" : "invisible"/,
-    treatment: "instant; invisible rather than absent, so the row cannot reflow",
-  },
-  {
     id: "C22",
-    what: "the failure alert renders only in Open-error",
-    marker: /\{switchStatus === "error" \? \(/,
-    treatment: "instant; a sibling of role=menu, and the menu stays open behind it",
+    what: "the visible middot between name and role",
+    marker: /aria-hidden="true">.*·/,
+    treatment: "instant; decorative, hidden from AT",
+  },
+  {
+    id: "C23",
+    what: "the theme row's roving tabindex",
+    marker: /^activeIndex === 0 \? 0 : -1$/,
+    treatment: "not a render branch; focus order, not paint",
   },
   {
     id: "C24",
+    what: "the theme row toggles light and dark",
+    marker: /^isDark \? "light" : "dark"$/,
+    treatment: "instant; the menu deliberately stays open",
+  },
+  {
+    id: "C25",
+    what: "the theme check glyph is visible only when mounted and dark",
+    marker: /^mounted && isDark \? "visible" : "invisible"$/,
+    treatment: "instant; invisible rather than absent, so the row cannot reflow",
+  },
+  {
+    id: "C26",
+    what: "the switch row's roving tabindex",
+    marker: /^activeIndex === 1 \? 0 : -1$/,
+    treatment:
+      "not a render branch; the pending row stays focusable, which is why aria-disabled is used over disabled",
+  },
+  {
+    id: "C27",
     what: "the visible timeout note renders only in the timed-out phase",
-    marker: /\{switchPhase === "timedout" \? \(/,
+    marker: /^switchPhase === "timedout" \? \(/,
     treatment:
       "instant; a sibling of role=menu, aria-hidden so the sr-only region stays the single AT channel",
   },
   {
-    // The census is a REGEX over the whole source, prose included, so the
-    // module header's "`Not you?` button" reads as a ternary. Declared rather
-    // than carved out: an exception for comments would also hide a real branch
-    // someone commented out, and the sibling's audit made the same choice by
-    // counting its own source whole.
-    id: "C23",
-    what: "the module header's `Not you?` sentence, which the census counts as a ternary",
-    marker: /an always-visible `Not you\?` button/,
-    treatment: "not a branch at all; prose, declared so the count stays honest",
+    id: "C28",
+    what: "the failure alert renders only in the error state",
+    marker: /^switchStatus === "error" \? \(/,
+    treatment: "instant; a sibling of role=menu, and the menu stays open behind it",
   },
 ] as const;
 
 describe("AvatarMenu transition audit (spec §4.6)", () => {
-  test.each(DECLARED)("$id is present and has a declared treatment", ({ marker, treatment }) => {
-    expect(SOURCE).toMatch(marker);
-    expect(treatment.length).toBeGreaterThan(0);
+  test("the AST census finds a real population", () => {
+    const sites = conditionalSites();
+    // Premise: an empty or tiny parse would make every assertion below vacuous.
+    premise("the component parses to a real conditional population", sites.length, 20);
+    expect(
+      sites.some((s) => s.kind === "switch"),
+      "the keyboard switch is seen",
+    ).toBe(true);
+    expect(
+      sites.some((s) => s.kind === "jsx-and"),
+      "JSX && guards are seen",
+    ).toBe(true);
+  });
+
+  test.each(DECLARED)("$id matches a real conditional", ({ marker }) => {
+    const sites = conditionalSites();
+    expect(sites.some((s) => marker.test(s.text))).toBe(true);
   });
 
   test("every conditional in the source is declared above", () => {
-    // Same census the sibling's audit uses: `? (`, `? <`, `? \``, `? "`,
-    // `&& (`, `&& <` and `if (`. The count is the completeness proof: a branch
-    // added later fails HERE rather than passing silently.
-    const ternaries = SOURCE.match(/\?\s*[(<`"']/g)?.length ?? 0;
-    const andGuards = SOURCE.match(/&&\s*[(<]/g)?.length ?? 0;
-    const ifGuards = SOURCE.match(/\bif\s*\(/g)?.length ?? 0;
-
+    const undeclared = conditionalSites()
+      .filter((s) => !DECLARED.some((d) => d.marker.test(s.text)))
+      .map((s) => `${FILE}:${s.line} [${s.kind}] ${s.text.slice(0, 80)}`);
     expect(
-      ternaries + andGuards + ifGuards,
-      `conditionals found: ${ternaries} ternaries + ${andGuards} && guards + ${ifGuards} if guards. ` +
-        `If you added a branch, add its row to DECLARED with its §4.6 treatment.`,
-    ).toBe(DECLARED.length);
+      undeclared,
+      "conditionals with no DECLARED row. Add one with its §4.6 treatment.",
+    ).toEqual([]);
+  });
+
+  test("every declared row has a treatment", () => {
+    for (const row of DECLARED) expect(row.treatment.length, row.id).toBeGreaterThan(0);
   });
 
   test("the pending affordances read the component's own phase, never React's flag", () => {
@@ -209,5 +293,13 @@ describe("AvatarMenu transition audit (spec §4.6)", () => {
     expect(SOURCE).not.toMatch(/\bswitchPending\b/);
     expect(SOURCE).toMatch(/aria-disabled=\{switchBusy\}/);
     expect(SOURCE).toMatch(/aria-busy=\{switchBusy \|\| undefined\}/);
+  });
+
+  test("no transition or duration class rides the switch-phase swap", () => {
+    // The watchdog re-enabling the row is instant by design: the row is
+    // returning to its resting appearance, not animating into a new one.
+    const note = /avatar-menu-switch-timeout-note[\s\S]{0,200}?>/.exec(SOURCE)?.[0] ?? "";
+    expect(note).not.toMatch(/\btransition-/);
+    expect(note).not.toMatch(/\banimate-/);
   });
 });
