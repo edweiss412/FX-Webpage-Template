@@ -693,6 +693,21 @@ const BACKLOG_GRADUATED = [
     id: "BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH",
     provenance: "docs/mutation-score-jurisdiction-gap",
   },
+  // feat/speclint-ac-unclaimed-arm (2026-08-27): graduates as a REPAIR, but not
+  // the one the row asked for. The row's premise was refuted before any code was
+  // written: it read the unclaimed pairs as "a criterion nobody scheduled", and
+  // measured against this corpus ZERO were that. 28 of the flagged pairs are
+  // discharged by a task outside the marker region with the plan saying so in
+  // prose. The arm shipped is therefore built from the measurement rather than
+  // the row's text, and the archive entry records the refutation first because a
+  // reader who trusts the row's own words will misread everything after them.
+  //
+  // Residues stay documented limits and NOT rows, per the process mint freeze
+  // and this arc's own no-new-rows constraint: the residue list itself IS the
+  // limits record (spec §7 limit 8), a residue row making its plan
+  // un-dispatchable through the lint gate is constraint 2 working rather than a
+  // defect, and spec §4.3's own RETIRED example loses to the ratified count cut.
+  { id: "BL-SPECLINT-AC-UNCLAIMED", provenance: "feat/speclint-ac-unclaimed-arm" },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */

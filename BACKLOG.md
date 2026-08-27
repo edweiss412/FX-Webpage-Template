@@ -20,27 +20,6 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
-## BL-SPECLINT-AC-UNCLAIMED — a plan can declare an acceptance criterion that no task is scheduled to prove
-
-**Status:** IN PROGRESS · **Branch:** feat/speclint-ac-unclaimed-arm · **Filed:** 2026-08-22 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** LOW (an unwritten assertion; caught downstream by review rather than shipped) · **Class:** spec-lint arm · **Effort:** S · **Incident:** plan review round 1 of this arc raised "AC-2 has no executable owner" as a BLOCKING finding against a plan `pnpm spec:lint` had just passed at **0 hard**; the round is recorded in `docs/review-rounds/fix/screenshots-drift-instrument/50ca72a566b0.jsonl`. · **Reachability:** PROBED — the asymmetry is at `lib/specLint/taskContract.ts:376`, and the missing direction was written and run against this arc's own plan before filing.
-
-`spec:lint` checks marker to AC but not AC to marker. `TASK_AC_UNRESOLVED` fires when a task marker cites an `ac=` id that appears nowhere in the plan's text. Nothing fires when a plan DECLARES an acceptance criterion in its own list and no task marker claims it — which means no task is scheduled to write that assertion, and the plan still lints clean.
-
-**ADDENDUM 2026-08-26 (`feat/speclint-dispatch-gates`, PR #904) — this row's premise is REFUTED on this corpus, and the follow-on starts from the measurement, not from the text above.**
-
-Four spec rounds and two diff rounds established the following. None of it should be re-derived.
-
-- **The premise is false.** "No marker cites it, therefore no task is scheduled to prove it" does not hold for a documented convention with 19 instances in the plans corpus, where a trailing criterion is discharged by a task OUTSIDE the marker region and the plan says so in prose. The clearest statement of that convention is `docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md:24`.
-- **There is no real-drift category.** Every flagged (plan, id) pair was classified against its own plan's prose: DISCHARGED 28, UNSETTLED 7, FOREIGN-ID 4, RETIRED 1, and ZERO "a criterion nobody scheduled". Transcript: `docs/superpowers/specs/probes/2026-08-26-ac-disposition-classification.md`.
-- **The recognizer needs a terminating cut, not a better pattern.** Three consecutive rounds each found a NEW lexical class on the declaration grammar. The shipped design declines any declaring line carrying more than one id and records it — a cut taken from a COUNT rather than a pattern, so it has no next grammar corner. Measurements: `docs/superpowers/specs/probes/2026-08-26-ac-declaration-grammar-probe.report.txt`.
-- **The done condition is residue EQUALITY, fail-closed** — not a flat zero, because a zero and the "unsettled rows stay flagged" constraint could not both hold.
-
-Design ratified at `docs/superpowers/specs/2026-08-26-speclint-dispatch-gates-design.md` §4.2 branch (A) with four binding constraints. Follow-on plan: `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md`. The lint-gate arm of that spec shipped in #904; this arm did not.
-
-**The check is the existing traversal read in the other direction**, and it was executed rather than proposed: collect the ids from every `ac=` field, collect the ids declared in the plan's acceptance-criteria list, report the set difference both ways. Run against this arc's pre-repair plan it reproduces the finding (AC-2 declared, unclaimed); run against the repaired plan it reports clean in both directions.
-
-**The reverse direction is a second real defect,** not a symmetry nicety. `TASK_AC_UNRESOLVED` fires on an id absent from the plan's TEXT, which a passing mention in prose satisfies — so a marker may cite `ac=AC-9` against a plan that merely mentions AC-9 in a sentence, without AC-9 ever being a declared criterion.
-
 ## BL-ADMIN-LOADER-INFRA-ERROR-TELEMETRY-SILENT — the loader is telemetry-silent on the fault this instrument measures
 
 **Status:** OPEN · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** MEDIUM (a diagnosable fault leaves no trace in the job log) · **Class:** observability · **Effort:** S · **Incident:** this arc's own diagnosis. `lib/admin/loadRecentAutoApplied.ts` imports `log` (`:28`) and none of its five `infra_error` return sites (`:145`, `:170`, `:176`, `:231`, `:241`) emit anything, so attributing run 32528532727 required downloading the failure artifact inside its 7-day retention window rather than reading a log. A code-carrying emit would have named it from the log. · **Reachability:** PROBED — the five return sites are read directly.
