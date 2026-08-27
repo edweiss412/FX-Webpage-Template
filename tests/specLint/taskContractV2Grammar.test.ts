@@ -281,11 +281,25 @@ describe("legacy corpus — v1 plans relint byte-identically (AC-4)", () => {
     const lines = text.split("\n");
     const markerIdx = lines.findIndex((l) => MARKER_ANY.test(l));
     premise(`${name} has a marker to corrupt`, markerIdx + 1, 0);
+    // The ids this marker CLAIMED. Stripping `ac=` does not only malform the
+    // marker: any of these the plan declares in its own body is now claimed by
+    // nothing, so `TASK_AC_UNCLAIMED` follows from the same corruption. Derived
+    // from the fixture's own bytes rather than listed, so the assertion below
+    // stays exact across every fixture instead of being loosened to a
+    // containment check.
+    const stripped = / ac=([^ ]+) /.exec(lines[markerIdx]!)?.[1]?.split(",") ?? [];
     lines[markerIdx] = lines[markerIdx]!.replace(/ ac=[^ ]+ /, " ");
 
     const found = checkTaskContract(parseDoc(lines.join("\n")), "plan");
-    expect(found).toEqual([
+    expect(found.filter((f) => f.code !== "TASK_AC_UNCLAIMED")).toEqual([
       expect.objectContaining({ code: "TASK_AC_MISSING", docLine: markerIdx + 1 }),
     ]);
+    // Every remaining finding is an id the corruption orphaned, and no other.
+    for (const f of found.filter((x) => x.code === "TASK_AC_UNCLAIMED")) {
+      const id = /`(AC-[^`]+)`/.exec(f.message)?.[1] ?? "";
+      expect(`${name} orphaned ${id}: ${stripped.includes(id)}`).toBe(
+        `${name} orphaned ${id}: true`,
+      );
+    }
   });
 });
