@@ -18,10 +18,16 @@
  * the pattern would only move the next hole. The AST cannot miss a node, and a
  * comment is not a node.
  *
- * The check is a BIJECTION, not a count: every conditional the AST finds must be
- * matched by some row, and every row must match at least one conditional. A count
- * tells you the number moved; this tells you WHICH conditional nobody declared,
- * with its line and its text.
+ * The check is a BIJECTION, not a count, and one-to-one in BOTH directions:
+ * every conditional is claimed by EXACTLY one row, every row matches EXACTLY one
+ * conditional, and the two counts are equal. "At least one" was the earlier
+ * shape and it is what let a deleted supersession guard stay green, because its
+ * row still matched a textually identical twin. The match key is
+ * `text + after + within` for the same reason: two `if` statements and two `&&`
+ * expressions in this component are byte-identical and differ only in context.
+ *
+ * A count tells you the number moved; this tells you WHICH conditional nobody
+ * declared, with its line and its text.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
