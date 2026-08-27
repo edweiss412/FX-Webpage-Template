@@ -418,10 +418,16 @@ describe("BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — reachability per h
       reportedFlags: null,
       secondPhoneAfter: "555-OLD",
       heldCollisions: [],
-      // The restore branch retains `rowFromHeldValue(held)` by design — this IS
-      // a resurrection of a deleted row, so the held snapshot is the right
-      // source and the reverted phone is intended, not the Q1 defect.
-      phoneAfter: HELD_PHONE,
+      // Reads LIVE_PHONE, not the snapshot, and the reason is spec §3.5.
+      // This row asserted HELD_PHONE "by design" until
+      // BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE, on the reading that the
+      // restore branch carries an UNDO's payload. That reading was refuted:
+      // `mi11_reject_hold` writes the same undo_override/crew_identity shape
+      // and never touches `crew_members`, so this site also serves Reject,
+      // where the live row is current and `held_value` lags it. Live-row
+      // presence is the discriminator; the snapshot still wins when there is
+      // no live row, which is the genuine-resurrection case.
+      phoneAfter: LIVE_PHONE,
     });
   });
 

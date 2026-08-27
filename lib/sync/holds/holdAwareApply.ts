@@ -276,6 +276,7 @@ export async function planHoldAwareApply(
         // WM-F4: same prior-live snapshot the rename-fold (WM-F3) + reservation (P2-F4) guards use.
         previousCrewNames: new Set(args.previousCrewNames ?? []),
         previousByName,
+        retainRowFor,
       });
       continue;
     }
@@ -476,6 +477,8 @@ function applyUndoOverrideToMaps(
   parseByName: Map<string, CrewMemberRow>,
   _parseByEmail: Map<string, CrewMemberRow>,
   maps: {
+    /** planHoldAwareApply's retainRowFor: live non-identity, held identity. */
+    retainRowFor: (entityKey: string, heldValue: Record<string, unknown>) => CrewMemberRow;
     protectedNames: Set<string>;
     suppressedNames: Set<string>;
     suppressedEmails: Set<string>;
@@ -515,9 +518,18 @@ function applyUndoOverrideToMaps(
     maps.suppressedNames.add(String((held as Record<string, unknown>).name ?? ""));
     return;
   }
-  // Held-present (restore): retain/re-insert the held row + exclude from delete.
+  // Held-present (restore): retain/re-insert the row + exclude from delete.
+  //
+  // This branch serves TWO producers with one persisted shape: undo_change, and
+  // mi11_reject_hold on a rejected rename or removal (20260608000002:83-98),
+  // which writes the same kind/domain and never touches crew_members. On the
+  // Reject path the live row is CURRENT and held_value lags it, so retaining the
+  // snapshot reproduced the very defect this arc closes. readOpenHolds carries
+  // no origin discriminator and none is needed: live-row presence already is
+  // one. Undo is unaffected because it re-inserted the row FROM held_value, so
+  // live equals the snapshot there and the rule returns the same row either way.
   maps.protectedNames.add(hold.entity_key);
-  maps.retainRows.set(hold.entity_key, rowFromHeldValue(held));
+  maps.retainRows.set(hold.entity_key, maps.retainRowFor(hold.entity_key, held));
   const baseline = baselineOf(held);
   if (baseline?.kind === "rename" && baseline.suppressed_added) {
     // Suppress the replacement by name AND email (resolution #16): a re-named replacement carrying
