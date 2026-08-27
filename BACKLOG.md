@@ -67,7 +67,7 @@ finishing the check rather than assuming the fix held.
 
 ## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
 
-**Status:** OPEN — filed at private-image-pipeline close-out · **Severity:** low · **Class:** PERF / consistency · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** perf/admin-diagram-next-image · **Severity:** low · **Class:** PERF / consistency · **Effort:** M
 
 `components/admin/wizard/step3ReviewSections.tsx` has two same-shape `<img>` sites — the staged-diagram
 preview and the published breakdown that builds `/api/asset/diagram/` srcs. They are the same defect
