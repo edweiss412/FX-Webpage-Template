@@ -13,9 +13,40 @@
 // `count` carries the true filtered total while `data` is bounded by the
 // captured limit — so overflowCount is proven to come from the total, not from
 // the capped row count (which production bounds and could never exceed +1).
-import { describe, expect, test, vi } from "vitest";
+import { afterAll, describe, expect, test, vi } from "vitest";
 import type { loadRecentAutoApplied as LoadFn } from "@/lib/admin/loadRecentAutoApplied";
-import { log } from "@/lib/log";
+import { log, resetLogSink, setLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
+
+// The PostgREST fields a returned error actually carries. Every expectation below
+// reads from THIS object, never from a literal repeated in an assertion: a fake
+// that stopped supplying `code` would still satisfy a hardcoded "42501".
+// The service-role factory, mocked so the construct row exercises the loader's
+// own catch at lib/admin/loadRecentAutoApplied.ts:141-153 rather than whatever
+// the ambient environment happens to do. Without this the row fails for a
+// test-local reason, which is an invalid red by construction.
+const factoryMock = vi.hoisted(() => ({ throws: false }));
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: () => {
+    if (factoryMock.throws) throw new Error("SIMULATED service-role construction failure");
+    throw new Error(
+      "unmocked service-role construction — inject a client or set factoryMock.throws",
+    );
+  },
+}));
+
+const PG_ERROR = {
+  message: "SIMULATED show_change_log error",
+  code: "42501",
+  details: "permission denied for table show_change_log",
+  hint: "grant select",
+} as const;
+const PG_RPC_ERROR = {
+  message: "SIMULATED rpc error",
+  code: "42883",
+  details: "function roster_shift_counts does not exist",
+  hint: "check the signature",
+} as const;
 
 type Row = Record<string, unknown>;
 type RosterRow = { show_id: string; added: number; removed: number; renamed: number };
@@ -76,7 +107,7 @@ function makeClient(opts: FakeOpts) {
           if (opts.errorOn === "from") {
             return Promise.resolve({
               data: null,
-              error: { message: "SIMULATED show_change_log error" },
+              error: { ...PG_ERROR },
             }).then(onf ?? undefined, onr ?? undefined);
           }
           let rows = (opts.rows ?? []).slice();
@@ -106,7 +137,7 @@ function makeClient(opts: FakeOpts) {
       captured.rpcArgs = args;
       if (opts.throwOn === "rpc") return Promise.reject(new Error("SIMULATED rpc throw"));
       if (opts.errorOn === "rpc") {
-        return Promise.resolve({ data: null, error: { message: "SIMULATED rpc error" } });
+        return Promise.resolve({ data: null, error: { ...PG_RPC_ERROR } });
       }
       return Promise.resolve({ data: opts.rosterRows ?? [], error: null });
     },
@@ -297,24 +328,90 @@ describe("loadRecentAutoApplied", () => {
     expect(result.rosterShiftByShow[B]).toBeUndefined();
   });
 
-  test.each([
-    ["from", "throwOn"],
-    ["from", "errorOn"],
-    ["rpc", "throwOn"],
-    ["rpc", "errorOn"],
-  ] as const)("client fault (%s via %s) → { kind: 'infra_error' }", async (surface, mode) => {
-    const { client } = makeClient({
-      rows: [clRow({ id: "x", show_id: "s", occurred_at: iso(10) })],
-      rosterRows: [],
-      [mode]: surface,
-    } as FakeOpts);
-    const { loadRecentAutoApplied } = await loader();
-    const result = await loadRecentAutoApplied({
-      publishedShowIds: ["s"],
-      supabase: client as unknown as InjectedClient,
-    });
-    expect(result.kind).toBe("infra_error");
+  // ── the five infra_error return sites, pinned by ONE derived table ─────────
+  //
+  // Coverage is DERIVED, in the shape of tests/auth/_metaInfraContract.test.ts:62-76
+  // and its afterAll set-equality at :216-218: each row records itself as it runs
+  // and the afterAll asserts the covered set equals the declared one, so a row that
+  // silently stops running fails the suite.
+  //
+  // What this table does NOT catch, stated because the obvious claim is false: a
+  // SIXTH return site added to the loader is not in the declared set and nothing
+  // here walks production source. tests/admin/_metaInfraEmitCover.test.ts is what
+  // catches that; this table proves the five named emits carry the code and the
+  // payload they claim.
+  const INFRA_EMITS = [
+    { surface: "construct", mode: "throwOn", code: "RECENT_AUTO_APPLIED_CLIENT_THREW" },
+    { surface: "from", mode: "throwOn", code: "SHOW_CHANGE_LOG_READ_THREW" },
+    { surface: "from", mode: "errorOn", code: "SHOW_CHANGE_LOG_READ_RETURNED_ERROR" },
+    { surface: "rpc", mode: "throwOn", code: "ROSTER_SHIFT_COUNTS_READ_THREW" },
+    { surface: "rpc", mode: "errorOn", code: "ROSTER_SHIFT_COUNTS_READ_RETURNED_ERROR" },
+  ] as const;
+  const covered = new Set<string>();
+
+  afterAll(() => {
+    expect([...covered].sort(), "every declared loader emit must have been exercised").toEqual(
+      INFRA_EMITS.map((e) => e.code).sort(),
+    );
   });
+
+  test.each(INFRA_EMITS)(
+    "$surface via $mode → infra_error AND a $code emit carrying the fault whole",
+    async ({ surface, mode, code }) => {
+      const records: LogRecord[] = [];
+      setLogSink((r) => {
+        records.push(r);
+      });
+      try {
+        const { loadRecentAutoApplied } = await loader();
+        const rows = [clRow({ id: "x", show_id: "s", occurred_at: iso(10) })];
+        let result: Awaited<ReturnType<typeof LoadFn>>;
+        if (surface === "construct") {
+          // No injected client → the loader constructs its own, and the mocked
+          // factory throws. This is the one row the makeClient fake cannot drive.
+          factoryMock.throws = true;
+          result = await loadRecentAutoApplied({ publishedShowIds: ["s"] });
+        } else {
+          const { client } = makeClient({ rows, rosterRows: [], [mode]: surface } as FakeOpts);
+          result = await loadRecentAutoApplied({
+            publishedShowIds: ["s"],
+            supabase: client as unknown as InjectedClient,
+          });
+        }
+        covered.add(code); // recorded even if the assertions below fail
+
+        expect(result.kind).toBe("infra_error");
+        const rec = records.find((r) => r.code === code);
+        expect(
+          rec,
+          `no record carrying ${code}; saw ${records.map((r) => r.code).join(",")}`,
+        ).toBeDefined();
+        expect(rec!.level).toBe("error");
+        expect(rec!.source).toBe("admin.recentAutoApplied");
+
+        // The whole-fault half of the bound. buildRecord runs serializeError on the
+        // `error` field (lib/log/logger.ts:38), so a PostgREST returned-error arrives
+        // as an OBJECT carrying its own code/details/hint. Passing `.message` makes
+        // context.error a string and this fails — which is the point at :247.
+        if (mode === "errorOn") {
+          const fixture = surface === "from" ? PG_ERROR : PG_RPC_ERROR;
+          const payload = rec!.context.error;
+          expect(
+            typeof payload,
+            "context.error must be the structure, not a flattened string",
+          ).toBe("object");
+          expect(payload).toMatchObject({
+            code: fixture.code,
+            details: fixture.details,
+            hint: fixture.hint,
+          });
+        }
+      } finally {
+        factoryMock.throws = false;
+        resetLogSink();
+      }
+    },
+  );
 
   test("diff projection: name-only From→To per kind; select pulls the images; no PII leaks", async () => {
     const S = "show-diff";

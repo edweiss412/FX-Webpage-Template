@@ -1,3 +1,104 @@
+## BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG — a hung switch-person clear dims the menu row for good — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** S · **Shipped by:** `fix/avatar-menu-switch-pending-watchdog` (PR #915) · **Spec:** `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4.6 (amended by this arc) · **Plan:** `docs/superpowers/plans/2026-08-27-avatar-menu-switch-watchdog/plan.md` · **Filed:** 2026-08-25 (`feat/switch-person-google-signout`, impeccable critique P1 at the invariant-8 gate) · **Facing:** product · **Severity:** LOW · **Class:** UX resilience · **Effort:** S · **Reachability:** PROBED 2026-08-27 — the probe the row named was run FIRST, against the unmodified component: a `clearIdentity` held unresolved past 60,000 ms under fake timers left the row `aria-disabled="true"` and `aria-busy="true"`, the announcer still reading `Switching person`, and a second tap never reaching the action. The row shipped INFERRED, NOT PROBED; this is what settled it.
+
+`components/auth/AvatarMenu.tsx` kept `switchPending` from `useTransition` with no watchdog, and the re-entry guard refused every further tap while it held, so a transition that never settled left "Not you? Switch person" dimmed and inert until the page was reloaded.
+
+**What shipped.** `PENDING_TIMEOUT_MS` moved to `components/shared/pendingTimeout.ts`, one declaration imported by this row and by the same-route sibling `app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx`. The component owns a three-valued `switchPhase` and does not read React's flag, which is entangled across concurrent transitions from one hook. The watchdog effect is keyed on that phase, so a retry arms a fresh window; its callback reads the phase functionally, so a callback arriving after a settle finds `idle` and returns; a monotonic attempt ordinal drops a superseded attempt's late result and gates the rethrow ahead of it; and `unstable_rethrow` classifies control flow, because Next stamps ordinary server failures with opaque string digests too.
+
+**Where the phase is written, and why it matters.** In the submit button's `onClick`, never in the form action. React holds updates scheduled inside an action until that action settles, so a clear that never settles never commits its own pending state. Measured at `aria-disabled="false"` with the action already called.
+
+**The timeout is visible, not only announced.** The invariant-8 critique's P1: a sighted crew member otherwise watches the row silently un-dim after eight seconds with nothing explaining it. The timed-out phase renders the notice as a sibling of `role="menu"`, `aria-hidden` so the always-mounted status region stays the single channel to assistive tech.
+
+**The residual is ratified, not eliminated.** Past the timeout a second tap issues a second `clearIdentity`, which lands on an already-cleared entry and an already-ended session. That is the sibling's R10 in this menu's terms and the accepted price of not stranding the row.
+
+**Where the design lives.** `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4.6, amended 2026-08-27 from four states on one axis to two independent axes and seven observable configurations, and the ONLY copy of that inventory: the plan points at it rather than restating it. `DESIGN.md` §5.5 carries the moved constant's row.
+
+---
+
+## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** XS · **Shipped by:** `chore/private-image-postmerge-probe` · **Class:** VERIFICATION DEBT · **Evidence:** https://github.com/edweiss412/FX-Webpage-Template/pull/761#issuecomment-5441921368
+
+Plan Task 11 step 6 (`docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md`) requires one
+validation-project sync of a diagram-bearing show showing (a) variant objects in storage and (b) no
+module-resolution telemetry, recorded as a comment on the merged PR (#761, merged
+`8739556586e5441d1b4f3fb905fe580c58b19b4e`). It was NOT run.
+
+**Why it could not be run at close-out, and this is measured rather than assumed:** the probe
+exercises the DEPLOYED validation app — `scripts/validation-smoke.ts` is deployed-side by
+construction ("agent smoke test of the DEPLOYED validation app", and its prerequisites are Vercel
+validation-project env vars). At merge time Vercel refused deployments account-wide:
+`Deployment rate limited — retry in 24 hours`, visible on PR #761's checks. No deploy, no sync, no
+evidence. The half that needs no deploy — that `sharp` resolves under a production-only install —
+WAS run pre-merge and is recorded in the arc (`pnpm install --prod && node -e "require('sharp')"`,
+resolving 0.34.5 after the dependency move).
+
+**The probe, verbatim, so this is a step rather than an intention:**
+
+1. Confirm the validation deployment carries the merge commit above.
+2. Trigger one sync of a diagram-bearing show against validation.
+3. `select name from storage.objects where bucket_id='diagram-snapshots'` — assert `@<width>.webp`
+   objects sit beside their originals under the show's current `snapshot_revision_id` prefix.
+4. `pnpm observe --env validation` — assert no module-resolution fault, and specifically no
+   `DIAGRAM_VARIANT_GENERATION_FAILED` row whose `error` names a missing module.
+5. Post the transcript as a comment on PR #761 and replace this entry's pointer in the plan's §12.
+
+**Why it is filed rather than left in the plan:** its only record was a step inside Task 11 of a plan
+whose other ten tasks are done. §12 was supposed to pre-carry a pointer and did not — that omission
+is the reason this row exists, and §12 now points here.
+
+**What is at risk if it is never run:** low but real. The failure it would catch is `sharp` failing to
+resolve or produce variants in the deployed Node runtime, which degrades silently — originals still
+render, so the only signal is telemetry nobody is reading. The production defect this arc already
+found by probe (sharp sitting in `devDependencies`) is exactly that shape, which is the argument for
+finishing the check rather than assuming the fix held.
+
+**It ran on 2026-08-27, and it passes.** Both numbers land. Fact (a): **5** `@<width>.webp` variant
+objects sit beside their **2** originals under the synced show's current `snapshot_revision_id`
+prefix (`shows/66d06361-…/1b950325-6f83-4988-94d3-240bcfa91b4d/`), 7 objects in total. Fact (b): **0**
+`DIAGRAM_VARIANT_GENERATION_FAILED` rows for all time, so none naming a missing module. `sharp`
+resolves and produces variants on the deployed runtime, which is the half a production-only install
+could only approximate. Transcript, with the baseline and every command:
+https://github.com/edweiss412/FX-Webpage-Template/pull/761#issuecomment-5441921368
+
+**The count was predicted before the sync, which is what makes it evidence.** The ladder emits a
+width only when strictly less than the original's, so measuring the two live originals (791x857 and
+1202x928) fixed the answer at 5 in advance. A pass is a match against that prediction rather than a
+reading of whatever turned up. The manifest's `variantWidths` agree with the storage listing, and its
+`intrinsicWidth`/`intrinsicHeight` match the two originals measured from their bytes before the sync;
+both queries are in the transcript.
+
+**What the automatic path had been doing, and only that.** Between PR #761's merge
+(`8739556586`, 2026-08-10T09:17:15-05:00) and the manual sync, `sync_log` holds **4826** rows for
+this show and every one records the outcome `watermark`, with no row of any other status in the
+window. Manual mode bypasses the watermark gate unconditionally
+(`lib/sync/perFileProcessor.ts:276-278`, pinned as leg (c) of
+`tests/sync/perFileProcessor.test.ts:357`), which is why a manual sync was the probe's instrument.
+
+**What that does NOT establish, written down because two review rounds were spent narrowing it to
+this.** It does not establish that polling was continuous, nor what `last_sync_status` and
+`snapshot_status` were at any point inside the window; both were read AFTER the sync. It does not
+establish that no automatic path COULD have produced variants. `perFileProcessor` proceeds past the
+watermark at `:322`, `:327` and `:341`, and the drift-resync arm at `:341` reads neither health
+field, so a healthy show can proceed under cron (`tests/sync/perFileProcessor.test.ts:357`, leg
+(b)); several earlier gates can also skip before those branches are reached. Which path applied
+across those 4826 rows is not settled here, and the probe does not need it settled.
+
+What it does establish is the comparison that matters: 4826 logged automatic outcomes produced no
+variant objects, and one manual sync produced 5. The row's "degrades silently" worry named the right
+mechanism; what it understated is that there was no telemetry to go unread, because across those
+4826 outcomes the generating code did not run.
+
+**One side effect, named rather than tidied away.** The resync raised one new alert,
+`RESYNC_QUALITY_REGRESSED` (16:09:18Z, on this show). Attributing it to the sheet's pre-existing
+`#REF!` breakage rather than to this pipeline is an INFERENCE from the `REF_ERROR_LITERAL` warnings
+the same sync returned, not something a query establishes. It is left standing rather than resolved,
+because it is a real signal about the sheet. It reaches nobody by email: `SYNC_PROBLEM_CODES`
+(`lib/notify/constants.ts:2-8`) does not include it and `lib/notify/monitorDigest.ts:164` skips a
+quality regression outright. `pending_syncs` was queried either side of the sync and held 0 both
+times.
+
 ## BL-SPECLINT-AC-UNCLAIMED — a plan could declare an acceptance criterion that no task was scheduled to prove — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** M · **Shipped by:** `feat/speclint-ac-unclaimed-arm` · **Spec:** `docs/superpowers/specs/2026-08-26-speclint-dispatch-gates-design.md` §4.2 branch (A) · **Plan:** `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md`
@@ -13181,3 +13282,85 @@ five further legs in the warn band (>75% of 3600 s)
 **What is genuinely closed here** is the row as filed: the `budget` job failed on four of four legs at `N = 4`, and at `N = 8` it passes on six of eight with one over. That is a repair, not a fiction. What is NOT closed is the growth curve underneath it, which is why this row graduates with the breach recorded instead of a clean subsumption.
 
 **Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`**, and the distinction held all the way to closure: that row is the source gate's COVERAGE failure set and explicitly disclaims the budget half. This was the `budget` job — a different job, a different failure, a different repair, closed by a different PR.
+
+## BL-ADMIN-LOADER-INFRA-ERROR-TELEMETRY-SILENT — the loader is telemetry-silent on the fault this instrument measures — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** M · **Shipped by:** `fix/observe-error-telemetry` · **Spec:** `docs/superpowers/specs/observability/2026-08-26-observe-error-telemetry.md`
+
+**The row's premise was true when filed and false one day later, and reconciling that is most of what this entry is for.** It named five `infra_error` return sites in `lib/admin/loadRecentAutoApplied.ts` and said none emitted. PR #882 (`fix/admin-loader-ci-transient`) repaired four of them the day after the filing, in two commits neither of which touched the row: `d9a039a94` added `ROSTER_SHIFT_COUNTS_READ_RETURNED_ERROR` on the rpc returned-error arm, and `17357a05c` added `RECENT_AUTO_APPLIED_CLIENT_THREW`, `SHOW_CHANGE_LOG_READ_THREW` and `ROSTER_SHIFT_COUNTS_READ_THREW`. The row's line numbers resolve against the pre-#882 file (`git show d9a039a94~1:lib/admin/loadRecentAutoApplied.ts`) and are correct for it.
+
+**The fifth site was the `show_change_log` returned-error branch**, and #882's title scopes that PR to the RPC boundary while this branch is a `.from()` table read — the likeliest reason it was missed rather than a decision.
+
+**Why the loader emit is not redundant with #899's transport observer, which is the question this row would otherwise reopen.** The observer records every 5xx from both server-side factories and emits at `debug`. `lib/log/logger.ts` returns `false` for `debug` unconditionally, so those records reach the app-e2e job log and never `app_events`. And a sub-500 returned error — `42501` permission denied, `42P01` missing relation, a PostgREST schema-cache miss — is below the observer's threshold entirely and reached nobody at any level. The loader emit is the persisted record for the first case and the only record for the second. They are different sinks by design.
+
+**The sweep, and the count it landed on.** The row filed under class-sweep exception (c). bl-orch ruled the whole derived cover on 2026-08-26 and reconfirmed it at each revision. The population is not a list: a structural walker (`tests/admin/infraEmitScan.ts` + `tests/admin/_metaInfraEmitCover.test.ts`) reads `lib/admin/**` from disk, so a new file fails by default.
+
+|                                                    |         |
+| -------------------------------------------------- | ------- |
+| constructions of an `infra_error` (the population) | 100     |
+| — object literals                                  | 77      |
+| — const aliases (`FAIL`, `INFRA_ERROR`)            | 23      |
+| files holding one / files parsed                   | 19 / 61 |
+| already satisfied — before Task 1                  | 9       |
+| exempt as propagation                              | 4       |
+| **reported, and repaired here**                    | **87**  |
+| repaired that the walker did not name              | **0**   |
+
+That table is stated at ONE moment — before any repair — because the two figures that move are easy to mix: Task 1 repaired the loader's 2 sites first, so when the walker ran for Task 2 it reported **85** and the satisfied count had risen to 11. 9 + 4 + 87 = 100 at the start; 11 + 4 + 85 = 100 after Task 1. An earlier version of this table mixed the two moments and summed to 98.
+
+The 23 const-alias sites are why the derivation is checker-backed rather than syntactic: an object-literal rule missed all of them, in three files, and looked complete while doing it.
+
+**Three files were doing something more interesting than nothing.** `readShowReviewSnapshot` logged on both fault paths but deliberately stamped no `code`, citing §12.4 — a reason that no longer holds, because `lib/messages/__internal__/stripLogEmissionCalls.ts` strips `log.*` spans before the producer scan, so a forensic code there is free and is what `observe events --code` filters on. `loadAlertSummary` and `loadTelemetryStats` carry codes but no `error` field on their malformed-row branches; a data-integrity fault has no error object, so the evidence is now the payload that came back instead of a row.
+
+**Registry and code completeness are DERIVED, not listed.** Every file the walker finds a construction in must appear in `infraRegistry`; every `code:` literal it sees in a `log.*` span must be in `NEW_FORENSIC_CODES`. Those checks reported `embeddedAdminEmails` and `roleTokenMappings` themselves and collected 82 unregistered codes. An earlier draft named the two files by hand, which is the case list this repo's rules refuse.
+
+**Documented limits, recorded on their owning surfaces rather than filed:** the cover is `lib/admin/**` and stops there (165 raw matches across 41 files outside it, `lib/sync/` having its own guard); an injected `loadHolds` test double is uncovered and is not a fault; a reconstructed partial object passes the payload rule and no static test separates it from the real thing; the walker resolves types and symbols, not values or control flow; and `noDoubleSerializedLogError` cannot see `error: X.message`, whose four in-cover instances are repaired here and whose five out-of-cover instances are named with the grep that finds them.
+
+**Also here:** the grep-shape guard's catch window moved 45 → 70, because these emits lengthen try bodies. Recorded as a documented limit rather than a fix — it is a line-window heuristic, and the structural answer is reading the enclosing try from the AST, which `infraEmitScan.guardScope` now does and that guard could adopt.
+
+No `BL-`/`DEF-` row was filed in either direction (Eric's directive, 2026-08-25).
+
+## BL-REPORT-CLIENT-ERROR-NON-ERROR-MESSAGE-ONLY — client boundary crashes collapse non-Error values to String(e) — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** M · **Shipped by:** `fix/observe-error-telemetry` · **Spec:** `docs/superpowers/specs/observability/2026-08-26-observe-error-telemetry.md` §6
+
+**The row named one defect and there were two.** `toError` returning `{ message: String(e) }` lost the crash's content — that is the one it named. The one it did not: a non-`Error` value has no `stack`, so the dedup key at `lib/observe/clientErrorTransport.ts` reduced to `source|level|[object Object]|`, and every plain-object crash in a page session after the first was silently dropped. The message defect loses one crash's content; the signature defect loses every crash after it.
+
+**Fixing the message does not fix the signature, and an early draft of the spec claimed it would.** Two independent reasons. A label built from a value's `name`/`code`/`message` collides across ordinary values — measured across four families and thirteen pairs. And the rejection listener sends the fixed string `"unhandled promise rejection"` for every rejection it ever handles, which no projection can make discriminating. So `message` became a legible label only, and `detail` joined the signature.
+
+**Three wire sites, not one.** The row named the boundary path. `GlobalErrorListener`'s rejection handler had the same collapse. Its window-error handler failed differently and worse: it never read `event.error` at all, so a plain object thrown at the window lost its fields entirely rather than collapsing to `"[object Object]"`. Class-sweep repaired all three.
+
+**The projection is measured, not argued**, because the design survived three adversarial rounds and the repo's three-round cap says to stop patching prose and build it. `docs/superpowers/specs/observability/probes/2026-08-26-client-value-projection.ts` runs it over every collision pair the rounds produced and reports `COLLISIONS: 4 of 25`. `render` writes leaves with `String()` rather than `JSON.stringify`, whose number grammar maps `NaN` and both infinities to `null` and collapsed `{ a: NaN }` into `{ a: null }`. A runtime-derived type tag separates the number `0` from the string `"0"`.
+
+**The remaining collisions are limits of text, not defects**, and each is recorded in `lib/observe/describeClientValue.ts` and asserted AS a collision in the suite. Two families: `-0` against `0`, which has no distinct string form in any renderer; and every value `serializeError` stringifies during its own traversal — a `Date` inside one second, a `RegExp` differing only in `lastIndex`, and any nested `bigint`/`Map`/`Set`/`Date`/`RegExp`/`URL` against its own string form, because the runtime type tag reaches depth 0 only. Chasing the nested family means editing the ratified helper or re-implementing its traversal; chasing the rest means a precision rule per built-in type, which is the per-round widening this arc refused everywhere else.
+
+**§9 limit 10, recorded here as the spec assigns it: the `context`-only `clientLog` callers are outside the wire.** `components/realtime/ShowRealtimeBridge.tsx` (four sites) and `components/admin/dev/DevCaptureControl.tsx` pass their value as `context`, which `lib/observe/clientLog.ts` never mirrors to `app_events`. They cannot produce an `"[object Object]"` row because they produce no row at all. Nothing to repair, and the reason is worth keeping so a later reader does not re-derive it.
+
+**The `Error` path's dedup behaviour is unchanged, and its bytes are unchanged EXCEPT where they carried a secret.** The share-token scrub added late in review rewrites any field — `url`, `message`, `stack`, `componentStack` — that contains a crew URL, on every path including this one. That is the point of it. Absent a crew URL the bytes are identical. The key gains a trailing separator over an empty term, which is constant across every `Error` call, so no two previously-distinct keys merge and no two previously-equal keys split. The tests assert that behaviour rather than the key's bytes, because byte-identity is impossible here and asserting it would be asserting a falsehood.
+
+**Neither `CAPS` copy moved and the route did not change.** `detail` already existed on the transport and the route with a 500 cap; the projection rides the field that was already there.
+
+## BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION — a clip ancestor that starts clipping is never observed, and the stale cap is silent — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 by `fix/fitwithinclip-stale-clip-subscription` · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, spec review R12 finding 1) · **Facing:** product · **Severity (as filed):** MEDIUM · **Class:** subscription freshness · **Effort (as shipped):** M · **Reachability:** PROBED, and the probe is the acceptance evidence below.
+
+`useFitWithinClip` resolved its observed ancestors once per ATTACH and wired its `ResizeObserver` from that one resolution. `apply()` re-walked on every invocation so the CAP was always recomputed, but the SUBSCRIPTION set never was, so an ancestor that started clipping after the attach was never observed and its resizes delivered nothing: neither correct nor signaled.
+
+**The done condition, as the row asked for it.** The filed transcript re-run against the shipped hook, same fixture, same geometry:
+
+```
+STALE   NEW_CLIP_RESIZE cap="322px" targets=[["inner"]]  deliverable=0 expectedCap="222px" diagnostics=0
+SHIPPED NEW_CLIP_RESIZE cap="222px" targets=[["outer"]]  deliverable=1 expectedCap="222px" diagnostics=0
+```
+
+The cap now equals the expected cap and the new clip ancestor's own resize is deliverable. `(h25)` in `tests/components/admin/useFitWithinClip.test.tsx` is that transcript as a deciding case; the suite went 33 to 47.
+
+**What shipped, beyond the row.** Three things the row did not name and the arc found:
+
+1. **The two roles alias.** `ResizeObserver` stores element TARGETS, not role-scoped subscriptions, so reconciling the clip and positioned roles independently makes one role's `unobserve` remove an element the other still wants. That is the likely shape of a `position: relative; overflow: clip` modal panel, which is where the one live consumer sits. The observer's target set is now DERIVED from the roles and reconciled by set difference, which cannot express the mistake. Five cases, `(h27)` to `(h31)`.
+2. **The wrong box.** `observe()` defaults to the CONTENT box while the cap is computed from two `getBoundingClientRect()` reads, which are border-box rectangles. Padding toggled from state on an auto-height ancestor moved the clip edge with the content box unchanged, so nothing was delivered and nothing warned. Pre-existing since the hook was written; every `observe()` now passes `{ box: "border-box" }`.
+3. **The positioned ancestor had the same defect as the clip one**, resolved once at the attach with its `transitionend` listener filtering against that attach-time value. Repaired under the class-sweep default rather than filed.
+
+**Not closed, and deliberately.** The cap arithmetic mixes coordinate spaces: `getBoundingClientRect()` reports post-transform viewport coordinates while `max-height` is an untransformed length, so a persistent scale on the chain writes a silently wrong cap. It is the MEASURE path, pre-existing on every version of the hook, and its repair is a coordinate-space redesign this branch does not open. Ratified 2026-08-27 as a documented limit rather than a row, recorded as L-8 in the spec with a re-file trigger: a consumer whose clip ancestor carries a CSS transform.
+
+**Spec:** `docs/superpowers/specs/admin/2026-08-27-fitwithinclip-clip-subscription.md` (limits L-1 to L-9). **Plan:** `docs/superpowers/plans/2026-08-27-fitwithinclip-clip-subscription.md`. **Review rounds:** `docs/review-rounds/fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md`, four spec and four plan rounds, nineteen findings, all accepted.

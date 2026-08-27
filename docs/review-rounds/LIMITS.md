@@ -14,6 +14,8 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Re-file trigger:** a product-facing arc measurably blocked by a red that could not fire (stated verbatim in the review-modal-strip-dock and nearmiss-surface filings)
 
+**Filed 2026-08-27** as `BL-SPECLINT-RED-TRUTH-PROBE` (owner-directed; incident: `fix/mi11-removal-fallback-live-row` plan round 1).
+
 ## LIM-NUMERIC-TABLE-PROVENANCE
 
 **Shape:** A numeric table or blast-radius transcript stated in a spec with no command producing it, so nothing can compare the table to the tree: `spec:lint` parses numerics and parses fenced commands without relating them, and a hand-maintained transcript of a command's output drifts in every direction. The sibling form is a plan that quotes a command's output without that command being re-run (a claimed 106 enrolled plans where the quoted command returns 108).
@@ -33,6 +35,8 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 **Owning record:** none — this index is the record (the premisescan filing recorded it as that surface's documented limit)
 
 **Re-file trigger:** the premisescan filing stated "if a second arc burns review rounds on this class, it has an incident and it should be filed then"; the app-e2e-batch2 filing (2026-08-22) is arguably that second arc, so the trigger may already be met
+
+**Filed 2026-08-27** as `BL-SPECLINT-EXPECT-N-EXIT-STATUS` (owner-directed; incident: `fix/fitwithinclip-stale-clip-subscription` plan round 2).
 
 ## LIM-TASK-MENTION-RESOLUTION
 
@@ -76,9 +80,9 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 ## LIM-PLAYWRIGHT-RED-TESTMATCH
 
-**Shape:** A playwright `red=` naming a file outside the config's testMatch alternation matches nothing and exits zero, reporting success; strictly worse than unrunnable because it fails green. One membership check per playwright red against the config it names, decidable statically.
+**Shape:** A playwright `red=` naming a file outside the config's testMatch alternation matches nothing and exits zero, reporting success; strictly worse than unrunnable because it fails green. One membership check per playwright red against the config it names, decidable statically. **Widened by the second arc to any DECLARED playwright command, not only a `red=` marker:** that arc's instance was a regression GATE which omitted `--config` entirely, so the default config's testMatch decided membership and collected nothing. It also measured the two sides, `Total: 0 tests in 0 files` against `Total: 34 tests in 1 file`.
 
-**Named by:** 1 arc — feat/review-modal-strip-dock/d4cd838727a3.md (plan)
+**Named by:** 2 arcs — feat/review-modal-strip-dock/d4cd838727a3.md (plan), fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md (plan)
 
 **Owning record:** none — this index is the record (the plan closed its own instances by hand: every playwright `red=` names its config)
 
@@ -223,6 +227,26 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 **Owning record:** none — this index is the record
 
 **Re-file trigger:** named by a 3rd distinct arc
+
+## LIM-AFTEREACH-ASSERT-BEFORE-TEARDOWN
+
+**Shape:** An `expect(...)` evaluated inside an `afterEach` BEFORE that hook's own teardown call. The failure aborts the hook, the teardown never runs, and the NEXT case fails for a reason that has nothing to do with it, so the corruption is not local to the failing case. Statically detectable as one AST walk over `tests/**`; the repair is uniform, tear down first and assert last on a captured copy.
+
+**Named by:** 1 arc — fix/fitwithinclip-stale-clip-subscription/5fccaaac7804.md (diff), where it left a failing case's DOM mounted, killed the next case with `Found multiple elements`, and recorded that case as reddening a mutant it had never detected: a false certificate in the artifact the plan offers as proof
+
+**Owning record:** none — this index is the record
+
+**Re-file trigger:** a second arc whose recorded evidence, a mutant table or a coverage claim, is falsified by a teardown that did not run
+
+## LIM-ADVISORY-UNDISPOSITIONED
+
+**Shape:** A lint advisory whose reasoning is correct is dismissed as noise because nothing requires it to be dispositioned before the artifact is dispatched for review, and it returns as a paid review finding. Distinct from LIM-RED-NAME-FILTER-SEVERITY, where the advisory's severity is the defect: here the severity is arguably right, since the arm genuinely cannot tell a stale claim from a drifted line anchor, and what is missing is a dispatch-time obligation to say which it is. Repairable without a new detector: one line per advisory in the brief, saying why it is noise.
+
+**Named by:** 1 arc — fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md (spec), where `CITATION_SYMBOL_ABSENT` named the symbol and the file in the round-1 lint output, was read as locator granularity, and came back nine minutes later as that round's fourth finding
+
+**Owning record:** none — this index is the record
+
+**Re-file trigger:** a second measured instance of an advisory that a dispatch dismissed and a reviewer then charged as a finding
 
 ## LIM-INDEX-RESTATEMENT-DRIFT
 

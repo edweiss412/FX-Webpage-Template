@@ -70,7 +70,12 @@ export async function loadHealthAlerts({
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
-  } catch {
+  } catch (err) {
+    void log.error("health-alerts client construction failed", {
+      source: "admin.healthAlerts",
+      code: "HEALTH_ALERTS_CLIENT_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 
@@ -90,7 +95,14 @@ export async function loadHealthAlerts({
       .is("resolved_at", null)
       .order("raised_at", { ascending: false })
       .range(safePage * SIZE, safePage * SIZE + SIZE); // SIZE+1 rows (inclusive range)
-    if (error) return { kind: "infra_error" };
+    if (error) {
+      void log.error("admin_alerts read returned error", {
+        source: "admin.healthAlerts",
+        code: "HEALTH_ALERTS_READ_RETURNED_ERROR",
+        error,
+      });
+      return { kind: "infra_error" };
+    }
     const arr = Array.isArray(data) ? data : [];
     hasMore = arr.length > SIZE;
     rows = arr.slice(0, SIZE).map((row) => {
@@ -105,7 +117,12 @@ export async function loadHealthAlerts({
         raised_at: r.raised_at as string,
       };
     });
-  } catch {
+  } catch (err) {
+    void log.error("admin_alerts read threw", {
+      source: "admin.healthAlerts",
+      code: "HEALTH_ALERTS_READ_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 

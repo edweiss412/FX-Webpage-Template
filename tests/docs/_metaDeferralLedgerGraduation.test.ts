@@ -708,6 +708,13 @@ const BACKLOG_GRADUATED = [
   // un-dispatchable through the lint gate is constraint 2 working rather than a
   // defect, and spec §4.3's own RETIRED example loses to the ratified count cut.
   { id: "BL-SPECLINT-AC-UNCLAIMED", provenance: "feat/speclint-ac-unclaimed-arm" },
+  // The subscription-freshness repair. Archived with the transcript that was
+  // the row's own done condition re-run against the shipped hook, and with the
+  // three defects the row did not name that the arc found and fixed in branch.
+  {
+    id: "BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION",
+    provenance: "fix/fitwithinclip-stale-clip-subscription",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
@@ -1752,6 +1759,23 @@ describe("supabase-upstream-fault-class: graduation carries its limits, and mint
         baseTexts.map((t) => t === null),
         "origin/main must be either fully readable or fully unreachable",
       ).toEqual(LEDGERS.map(() => true));
+      return;
+    }
+    // SCOPE (owner decision 2026-08-27): the directive was given to the graduating ARC, not to
+    // the repo. Once both ARC_IDS are archived on origin/main that arc has merged and there is
+    // no branch left for "this arc mints nothing" to bind; read repo-wide it reds EVERY later
+    // filing, including the ones AGENTS.md's freeze admits (`invariant`, `product-blocked`),
+    // which is what happened to the first owner-directed filing after it landed
+    // (`docs/ledger-lim-mechanization-rows`; measured: zero ids reached main between the guard's
+    // merge in #899 and that branch, so nothing was silently lost). The live comparison therefore
+    // runs only while the graduation is still in flight; afterwards the arm asserts the state it
+    // was written to reach and stops. The positive control above keeps the comparison honest.
+    const archiveOnMain = baseTexts[1] as string;
+    const graduatedOnMain = ARC_IDS.every((id) => archiveOnMain.includes(`## ${id}`));
+    if (graduatedOnMain) {
+      expect(ARC_IDS.map((id) => archiveOnMain.includes(`## ${id}`))).toEqual(
+        ARC_IDS.map(() => true),
+      );
       return;
     }
     const before = new Set(

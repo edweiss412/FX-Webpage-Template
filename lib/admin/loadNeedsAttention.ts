@@ -44,6 +44,11 @@ export async function loadNeedsAttention(opts: {
     try {
       supabase = await createSupabaseServerClient();
     } catch (err) {
+      void log.error("needs-attention client construction failed", {
+        source: "admin.loadNeedsAttention",
+        code: "NEEDS_ATTENTION_CLIENT_THREW",
+        error: err,
+      });
       return {
         kind: "infra_error",
         message: `supabase client construction failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -64,6 +69,11 @@ export async function loadNeedsAttention(opts: {
       .order("last_attempt_at", { ascending: false, nullsFirst: false })
       .limit(opts.cap + 1);
     if (ingestionRowsError) {
+      void log.error("pending_ingestions read returned error", {
+        source: "admin.loadNeedsAttention",
+        code: "PENDING_INGESTIONS_READ_RETURNED_ERROR",
+        error: ingestionRowsError,
+      });
       return {
         kind: "infra_error",
         message: `pending_ingestions query failed: ${ingestionRowsError.message}`,
@@ -71,6 +81,11 @@ export async function loadNeedsAttention(opts: {
     }
     ingestionRows = (ingestionData ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
+    void log.error("pending_ingestions read threw", {
+      source: "admin.loadNeedsAttention",
+      code: "PENDING_INGESTIONS_READ_THREW",
+      error: err,
+    });
     return {
       kind: "infra_error",
       message: `pending_ingestions query threw: ${err instanceof Error ? err.message : String(err)}`,
@@ -89,16 +104,31 @@ export async function loadNeedsAttention(opts: {
       .is("wizard_session_id", null);
     void _ingestionCountData;
     if (ingestionCountError) {
+      void log.error("pending_ingestions count returned error", {
+        source: "admin.loadNeedsAttention",
+        code: "PENDING_INGESTIONS_COUNT_RETURNED_ERROR",
+        error: ingestionCountError,
+      });
       return {
         kind: "infra_error",
         message: `pending_ingestions count query failed: ${ingestionCountError.message}`,
       };
     }
     if (typeof ingestionHeadCount !== "number") {
+      void log.error("pending_ingestions count returned a non-number", {
+        source: "admin.loadNeedsAttention",
+        code: "PENDING_INGESTIONS_COUNT_NOT_NUMBER",
+        error: { received: ingestionHeadCount },
+      });
       return { kind: "infra_error", message: "pending_ingestions head-count returned non-number" };
     }
     ingestionCount = ingestionHeadCount;
   } catch (err) {
+    void log.error("pending_ingestions count threw", {
+      source: "admin.loadNeedsAttention",
+      code: "PENDING_INGESTIONS_COUNT_THREW",
+      error: err,
+    });
     return {
       kind: "infra_error",
       message: `pending_ingestions count query threw: ${err instanceof Error ? err.message : String(err)}`,
@@ -116,6 +146,11 @@ export async function loadNeedsAttention(opts: {
       .order("staged_modified_time", { ascending: false })
       .limit(opts.cap + 1);
     if (syncRowsError) {
+      void log.error("pending_syncs read returned error", {
+        source: "admin.loadNeedsAttention",
+        code: "PENDING_SYNCS_READ_RETURNED_ERROR",
+        error: syncRowsError,
+      });
       return {
         kind: "infra_error",
         message: `pending_syncs query failed: ${syncRowsError.message}`,
@@ -123,6 +158,11 @@ export async function loadNeedsAttention(opts: {
     }
     syncRows = (syncData ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
+    void log.error("pending_syncs read threw", {
+      source: "admin.loadNeedsAttention",
+      code: "PENDING_SYNCS_READ_THREW",
+      error: err,
+    });
     return {
       kind: "infra_error",
       message: `pending_syncs query threw: ${err instanceof Error ? err.message : String(err)}`,
@@ -141,16 +181,31 @@ export async function loadNeedsAttention(opts: {
       .is("wizard_session_id", null);
     void _syncCountData;
     if (syncCountError) {
+      void log.error("pending_syncs count returned error", {
+        source: "admin.loadNeedsAttention",
+        code: "PENDING_SYNCS_COUNT_RETURNED_ERROR",
+        error: syncCountError,
+      });
       return {
         kind: "infra_error",
         message: `pending_syncs count query failed: ${syncCountError.message}`,
       };
     }
     if (typeof syncHeadCount !== "number") {
+      void log.error("pending_syncs count returned a non-number", {
+        source: "admin.loadNeedsAttention",
+        code: "PENDING_SYNCS_COUNT_NOT_NUMBER",
+        error: { received: syncHeadCount },
+      });
       return { kind: "infra_error", message: "pending_syncs head-count returned non-number" };
     }
     syncCount = syncHeadCount;
   } catch (err) {
+    void log.error("pending_syncs count threw", {
+      source: "admin.loadNeedsAttention",
+      code: "PENDING_SYNCS_COUNT_THREW",
+      error: err,
+    });
     return {
       kind: "infra_error",
       message: `pending_syncs count query threw: ${err instanceof Error ? err.message : String(err)}`,
@@ -177,6 +232,11 @@ export async function loadNeedsAttention(opts: {
         .select("drive_file_id, slug, title, archived, published")
         .in("drive_file_id", pendingDriveFileIds);
       if (existenceError) {
+        void log.error("shows existence read returned error", {
+          source: "admin.loadNeedsAttention",
+          code: "SHOWS_EXISTENCE_READ_RETURNED_ERROR",
+          error: existenceError,
+        });
         return {
           kind: "infra_error",
           message: `existence query failed: ${existenceError.message}`,
@@ -194,6 +254,11 @@ export async function loadNeedsAttention(opts: {
         };
       }
     } catch (err) {
+      void log.error("shows existence read threw", {
+        source: "admin.loadNeedsAttention",
+        code: "SHOWS_EXISTENCE_READ_THREW",
+        error: err,
+      });
       return {
         kind: "infra_error",
         message: `existence query threw: ${err instanceof Error ? err.message : String(err)}`,
@@ -220,6 +285,11 @@ export async function loadNeedsAttention(opts: {
         .order("raised_at", { ascending: false })
         .limit(opts.cap + 1);
       if (syncProblemRowsError) {
+        void log.error("admin_alerts sync-problem read returned error", {
+          source: "admin.loadNeedsAttention",
+          code: "SYNC_PROBLEM_READ_RETURNED_ERROR",
+          error: syncProblemRowsError,
+        });
         return {
           kind: "infra_error",
           message: `sync-problem query failed: ${syncProblemRowsError.message}`,
@@ -227,6 +297,11 @@ export async function loadNeedsAttention(opts: {
       }
       syncProblemRows = (syncProblemData ?? []) as ReadonlyArray<Record<string, unknown>>;
     } catch (err) {
+      void log.error("admin_alerts sync-problem read threw", {
+        source: "admin.loadNeedsAttention",
+        code: "SYNC_PROBLEM_READ_THREW",
+        error: err,
+      });
       return {
         kind: "infra_error",
         message: `sync-problem query threw: ${err instanceof Error ? err.message : String(err)}`,
@@ -247,16 +322,31 @@ export async function loadNeedsAttention(opts: {
         .eq("shows.archived", false);
       void _syncProblemCountData;
       if (syncProblemCountError) {
+        void log.error("admin_alerts sync-problem count returned error", {
+          source: "admin.loadNeedsAttention",
+          code: "SYNC_PROBLEM_COUNT_RETURNED_ERROR",
+          error: syncProblemCountError,
+        });
         return {
           kind: "infra_error",
           message: `sync-problem count query failed: ${syncProblemCountError.message}`,
         };
       }
       if (typeof syncProblemHeadCount !== "number") {
+        void log.error("admin_alerts sync-problem count returned a non-number", {
+          source: "admin.loadNeedsAttention",
+          code: "SYNC_PROBLEM_COUNT_NOT_NUMBER",
+          error: { received: syncProblemHeadCount },
+        });
         return { kind: "infra_error", message: "sync-problem head-count returned non-number" };
       }
       syncProblemCount = syncProblemHeadCount;
     } catch (err) {
+      void log.error("admin_alerts sync-problem count threw", {
+        source: "admin.loadNeedsAttention",
+        code: "SYNC_PROBLEM_COUNT_THREW",
+        error: err,
+      });
       return {
         kind: "infra_error",
         message: `sync-problem count query threw: ${err instanceof Error ? err.message : String(err)}`,
@@ -311,6 +401,11 @@ export async function loadNeedsAttention(opts: {
     }
     identityHolds = holdsResult.groups;
   } catch (err) {
+    void log.error("identity holds read threw", {
+      source: "admin.loadNeedsAttention",
+      code: "IDENTITY_HOLDS_READ_THREW",
+      error: err,
+    });
     return {
       kind: "infra_error",
       message: `identity holds read threw: ${err instanceof Error ? err.message : String(err)}`,

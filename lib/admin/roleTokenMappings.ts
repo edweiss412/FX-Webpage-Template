@@ -16,6 +16,7 @@
  */
 
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 import { normalizeRoleTokenMappings, type RoleTokenMapping } from "@/lib/sync/roleMappingOverlay";
 
 export type RoleMappingListResult =
@@ -26,7 +27,12 @@ export async function listRoleTokenMappings(): Promise<RoleMappingListResult> {
   let svc: ReturnType<typeof createSupabaseServiceRoleClient>;
   try {
     svc = createSupabaseServiceRoleClient();
-  } catch {
+  } catch (err) {
+    void log.error("role-token-mappings client construction failed", {
+      source: "admin.roleTokenMappings",
+      code: "ROLE_TOKEN_MAPPINGS_CLIENT_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 
@@ -35,9 +41,21 @@ export async function listRoleTokenMappings(): Promise<RoleMappingListResult> {
       .from("role_token_mappings")
       .select("token, grants, decided_by, decided_at")
       .order("decided_at", { ascending: false });
-    if (error) return { kind: "infra_error" };
+    if (error) {
+      void log.error("role_token_mappings read returned error", {
+        source: "admin.roleTokenMappings",
+        code: "ROLE_TOKEN_MAPPINGS_READ_RETURNED_ERROR",
+        error,
+      });
+      return { kind: "infra_error" };
+    }
     return { kind: "ok", rows: normalizeRoleTokenMappings(data ?? []) };
-  } catch {
+  } catch (err) {
+    void log.error("role_token_mappings read threw", {
+      source: "admin.roleTokenMappings",
+      code: "ROLE_TOKEN_MAPPINGS_READ_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 }

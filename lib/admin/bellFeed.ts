@@ -195,7 +195,12 @@ async function runBellPipeline(
   let supabase: ReturnType<typeof createSupabaseServiceRoleClient>;
   try {
     supabase = createSupabaseServiceRoleClient();
-  } catch {
+  } catch (err) {
+    void log.error("bell-feed client construction failed", {
+      source: "admin.bellFeed",
+      code: "BELL_FEED_CLIENT_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 
@@ -210,13 +215,25 @@ async function runBellPipeline(
       .select("bell_history_days, bell_feed_cap")
       .eq("id", "default")
       .limit(1);
-    if (error) return { kind: "infra_error" };
+    if (error) {
+      void log.error("app_settings bell-bounds read returned error", {
+        source: "admin.bellFeed",
+        code: "BELL_FEED_BOUNDS_READ_RETURNED_ERROR",
+        error,
+      });
+      return { kind: "infra_error" };
+    }
     const row = Array.isArray(data) ? (data[0] as Record<string, unknown> | undefined) : undefined;
     if (row) {
       if (typeof row.bell_history_days === "number") historyDays = row.bell_history_days;
       if (typeof row.bell_feed_cap === "number") feedCap = row.bell_feed_cap;
     }
-  } catch {
+  } catch (err) {
+    void log.error("app_settings bell-bounds read threw", {
+      source: "admin.bellFeed",
+      code: "BELL_FEED_BOUNDS_READ_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 
@@ -230,9 +247,21 @@ async function runBellPipeline(
       p_excluded_codes: bellExcludedCodes(viewerIsDeveloper),
       p_admin_email: viewerEmail,
     });
-    if (error) return { kind: "infra_error" };
+    if (error) {
+      void log.error("get_bell_feed_rows rpc returned error", {
+        source: "admin.bellFeed",
+        code: "BELL_FEED_ROWS_READ_RETURNED_ERROR",
+        error,
+      });
+      return { kind: "infra_error" };
+    }
     rows = (Array.isArray(data) ? data : []) as RpcRow[];
-  } catch {
+  } catch (err) {
+    void log.error("get_bell_feed_rows rpc threw", {
+      source: "admin.bellFeed",
+      code: "BELL_FEED_ROWS_READ_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 
@@ -241,7 +270,12 @@ async function runBellPipeline(
   let shaped: ReturnType<typeof shapeBellEntries>;
   try {
     shaped = shapeBellEntries(rows, feedCap);
-  } catch {
+  } catch (err) {
+    void log.error("bell-feed shaping threw", {
+      source: "admin.bellFeed",
+      code: "BELL_FEED_SHAPING_THREW",
+      error: err,
+    });
     return { kind: "infra_error" };
   }
 

@@ -286,7 +286,7 @@ EXEMPT-S / EXEMPT-C / EXEMPT-D = registry row in the named family (§4.1); SWAP 
 | `app/auth/sign-in/page.tsx:267` | Link | SWAP | →strong |
 | `app/me/meShowSections.tsx:122` | summary | EXEMPT-S | — |
 | `app/me/page.tsx:134` | button | SWAP | →strong |
-| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233` | button | EXEMPT-D (declaration site: `rowClasses` ternary; the subtle branch is DEAD here — claimed rows return earlier — and is RENDERED by `_ClaimedRowButton.tsx:101` via the `rowClassName` prop; row covers the pair) | — |
+| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233` | button | EXEMPT-D (declaration site: `rowClasses` ternary; the subtle branch is DEAD here — claimed rows return earlier — and is RENDERED by `_ClaimedRowButton.tsx:87` via the `rowClassName` prop; row covers the pair) | — |
 | `components/admin/AppHealthPopover.tsx:89` | button | SWAP | →strong |
 | `components/admin/BellPanel.tsx:686` | a | SWAP (`HELP_LINK` const) | →strong |
 | `components/admin/BellPanel.tsx:1210` | a | SWAP | same |
@@ -604,7 +604,7 @@ enumerates the affected manifest entries; heavy phases run under `pnpm heavy`.
 - **D2 partial classNames and prop-flow.** A hit is registered/failed when provable; a
   className whose only `text-text-subtle` arrives through an expression the resolver cannot
   read is invisible to the D2 scan. One live instance exists (round-2 F1):
-  `_ClaimedRowButton.tsx:101` renders the subtle claimed-row string via its `rowClassName`
+  `_ClaimedRowButton.tsx:87` renders the subtle claimed-row string via its `rowClassName`
   prop — the scan sees the DECLARATION (the `rowClasses` ternary in `_PickerInterstitial.tsx`,
   censused at §4.3) but not the prop flow, so the child element itself is not a hit. Registry
   coverage is at the declaration site by design; className-as-prop flows are a documented
