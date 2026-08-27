@@ -36,7 +36,7 @@ The three findings share one root, which is worth naming because it is what the 
 
 BLOCKING again, six findings, and four of them are the kind that only show up when someone drives the state rather than reads about it.
 
-**F1 (P1) — batching does not make the states exclusive; the callback's own predicate does.** A watchdog callback can already be QUEUED when the settle schedules its update, and `clearTimeout` in the effect cleanup cannot unfire it. The reviewer probed `Open-timedout` with `Open-error`, the exact combination the table calls impossible. Reproduced here, then closed with a functional read inside the callback that refuses to leave `pending` unless it finds `pending`. AC-12 drives the interleaving. A second guard, an attempt ordinal in the callback, was added in the same repair and REMOVED in round 3: see that section, and the mechanism, for why running its mutant beat defending it.
+**F1 (P1) — batching does not make the states exclusive; the callback's own predicate does.** A watchdog callback can already be QUEUED when the settle schedules its update, and `clearTimeout` in the effect cleanup cannot unfire it. The reviewer probed `Open-timedout` with `Open-error`, the exact combination the table calls impossible. Reproduced here, then closed with a functional read inside the callback that refuses to leave `pending` unless it finds `pending`. AC-12 drives the interleaving. A second guard, an attempt ordinal in the callback, was added in the same repair and REMOVED in round 3 for want of a failing case; round 4 found three places still describing it, all now gone.
 
 **F2 (P1) — a string `digest` is not Next control flow.** Next stamps ORDINARY server failures with an opaque string digest too; the reviewer's probe on the installed Next 16.3.0 returned `"3693416880"` for one. The digest sniff would therefore rethrow exactly the failures the catch exists to report, and AC-10's plain `Error("network")` passed while the production shape still escaped. Replaced with `unstable_rethrow` from `next/navigation`, which is Next's own classifier: probed returning for the opaque digest and rethrowing `NEXT_REDIRECT`. AC-14 asserts both directions, because a case with only a bare `Error` passes under either implementation and proves neither.
 
@@ -64,6 +64,18 @@ BLOCKING, five findings, and the useful thing about them is that four are about 
 
 The pattern across three rounds, stated so round 4 can check itself against it: every finding has been a claim the plan made about a mechanism it did not own, believed because the mechanism usually behaves that way. React's pending flag, batching, `clearTimeout`, a digest's type, and a state model that quietly assumed a node was inside the popover. In each case the code was fine and the SENTENCE was wrong. The check that would have caught all five: for every "cannot", name the line that refuses it, and for every "proved", name the mutant that reds.
 
+## Round 4 review, the cap round, and what it changed
+
+BLOCKING, three findings, and all three are mine rather than the mechanism's.
+
+**F1 (P1) — round 3's removal of the callback ordinal was incomplete.** Three places still described a guard that no longer exists: a compound, the GREEN checklist, and a comment claiming "two guards"; and the audit row that declared it aliased the settle-path ordinal it shares a spelling with, so it identified nothing. The arithmetic followed: the audit declared 24 rows against a mechanism producing 23. All three descriptions are gone, the settle-path row is anchored on what follows it so it cannot alias, and the count is reconciled below.
+
+**F2 (P1) — the §4.6 amendment instruction still described the table round 3 deleted**, a five-state, ten-pair inventory, which would have left the canonical spec asserting a model this plan replaced. It now says what it replaces §4.6 with. The same finding caught a false row in the new table: `error→idle` is not the first step of a retry, because `setSwitchStatus("idle")` and `setSwitchPhase("pending")` are one batched update and there is no intervening render. Probed on a React 19 render log. The row now says error→idle happens only when a retry SUCCEEDS.
+
+**F3 (P1) — the supersession ordinal ran after the rethrow**, so a superseded attempt rejecting with Next control flow escaped before the ordinal could drop it and would have taken the row down while a newer attempt was live. That contradicts the plan's own "a superseded attempt reports nothing, either way". The check now comes first and gates the rethrow: a redirect requested by a clear the person has already superseded by tapping again is not this row's to follow, and the live attempt decides the navigation. That is the fifth `if` the mechanism adds, and it is why this round's count is 24 where round 4 computed 23.
+
+Round 4 is this stage's cap. The filing is at `docs/review-rounds/fix/avatar-menu-switch-pending-watchdog/4cb585b3508a.md`, and whether the plan gets a fifth round is the orchestrator's call rather than this arc's.
+
 ## Citation drift, swept and bounded
 
 This diff adds roughly twenty-five lines near the top of `components/auth/AvatarMenu.tsx` and removes fourteen from the sibling, so every line-form citation into either file moves. Derived cover: every an AvatarMenu.tsx or _ClaimedRowButton.tsx line citation citation in a LIVE document, with historical records excluded by path (`docs/superpowers/plans/**`, `docs/review-rounds/**`, `**/probes/**`, `BACKLOG-archive.md`) because those record a past tree and rewriting them would falsify the record. Twenty live citations, across four specs and `BACKLOG.md`.
@@ -76,7 +88,7 @@ Not repaired, and this goes in the PR body under unfixed peers rather than into 
 
 tests/components/auth/avatarMenuTransitionAudit.test.ts, in the shape `tests/show/claimedRowTransitionAudit.test.ts:24` already uses on the sibling, because a second shape for the same job is a second thing to learn. It reads `components/auth/AvatarMenu.tsx` as text and holds a `DECLARED` list: one row per conditional, each with an `id`, what it is, a regex `marker`, and its §4.6 treatment. Two assertions carry it. Each row's marker must match the source, so a declared branch that disappears fails by name. And the totality assertion counts `? (`, `&& (` and `if (` across the whole source and pins the total against `DECLARED.length`, so a branch added later fails rather than passing silently.
 
-The census on the live tree today is 7 ternaries, 2 `&&` guards and 10 `if`s, and the authored list has 24 rows, because the mechanism adds five `if`s and one ternary and removes one ternary. Authored and RUN at plan time against the unmodified component: ten red, sixteen green, with the totality assertion reporting `expected 19 to be 24`. Two bookkeeping details are worth stating because both cost a wrong count once: the derived announcement is TWO rows, since the census counts `if` and `else if` separately; and the module header's sentence about the old `Not you?` button reads as a ternary to a regex over the whole source, so it is DECLARED as prose rather than carved out. An exception for comments would also hide a real branch somebody commented out, and the sibling's audit made the same choice.
+The census on the live tree today is 7 ternaries, 2 `&&` guards and 10 `if`s, and the authored list has 24 rows. Round 4 computed 23 and was right about the mechanism as it then stood; the same round's F3 repair adds one more `if`, the supersession check that now gates the rethrow. So: five new `if`s (the phase guard, the catch's ordinal, the settle's ordinal, and the announcement's two branches), one new ternary in the functional updater, one ternary removed with the old announcer, giving 15 + 7 + 2. Authored and RUN at plan time against the unmodified component: ten red, sixteen green, with the totality assertion reporting `expected 19 to be 24`. Two bookkeeping details are worth stating because both cost a wrong count once: the derived announcement is TWO rows, since the census counts `if` and `else if` separately; and the module header's sentence about the old `Not you?` button reads as a ternary to a regex over the whole source, so it is DECLARED as prose rather than carved out. An exception for comments would also hide a real branch somebody commented out, and the sibling's audit made the same choice.
 
 ```ts
 /**
@@ -114,7 +126,10 @@ const DECLARED = [
   {
     id: "C3",
     what: "the settle path drops a superseded attempt's result",
-    marker: /if \(switchAttempt\.current !== attempt\) return;/,
+    // Anchored on what FOLLOWS it, because the catch path (C6) spells the same
+    // condition and a bare marker would match either. Round 4 F1 caught exactly
+    // that aliasing in an earlier row.
+    marker: /if \(switchAttempt\.current !== attempt\) return;\s*\n\s*setSwitchPhase\("idle"\);/,
     treatment: "not a render branch; a superseded attempt enters no state",
   },
   {
@@ -131,9 +146,9 @@ const DECLARED = [
   },
   {
     id: "C6",
-    what: "the watchdog callback refuses a superseded attempt",
-    marker: /if \(switchAttempt\.current !== attempt\) return;\s*\n\s*setSwitchPhase\(/,
-    treatment: "not a render branch; Open-pending is preserved for the live attempt",
+    what: "the catch drops a superseded attempt BEFORE rethrowing control flow",
+    marker: /catch \(error\) \{[\s\S]*?if \(switchAttempt\.current !== attempt\) return;/,
+    treatment: "not a render branch; a superseded redirect is not this row's to follow",
   },
   {
     id: "C7",
@@ -415,6 +430,13 @@ const onSwitchSubmit = (formData: FormData): void => {
       const result = await clearAction(formData);
       failed = !result.ok;
     } catch (error) {
+      // The supersession check comes FIRST, and it gates the rethrow as well as
+      // the state writes. A superseded attempt reports NOTHING, and framework
+      // control flow is not an exception to that: a redirect requested by a
+      // clear the person has already superseded by tapping again would take
+      // this row down while a newer attempt is live (round 4 F3). The live
+      // attempt decides the navigation.
+      if (switchAttempt.current !== attempt) return;
       // Next's own classifier, NOT a digest sniff. Next stamps ORDINARY server
       // failures with an opaque string digest too, so `typeof digest ===
       // "string"` rethrows exactly the failures this catch exists to report and
@@ -451,7 +473,7 @@ round 2 F2  unstable_rethrow on an opaque digest "3693416880"        returns; th
 round 2 F2  unstable_rethrow on digest "NEXT_REDIRECT;replace;/x;307;"  rethrows
 ```
 
-The first round-2 line is the fault reproduced: `Open-timedout` and `Open-error` at once, which the five-state model calls impossible. The second is the same interleaving with the callback's two guards in place. Both guards are separately necessary and the third line is why: with only the functional read, a queued callback from a settled attempt still ends a LATER attempt's window.
+The first round-2 line is the fault reproduced: `Open-timedout` and `Open-error` at once, which the five-state model calls impossible. The second is the same interleaving with the callback's functional read in place. The third line was cited in rounds 2 and 3 as proof that a second guard, an attempt ordinal in the callback, was also necessary; round 3 ran the mutant and it was not, so that guard is gone and the line proves only that a later attempt's window is intact, which it is either way.
 
 **Ratified residual, stated rather than hidden, and the sibling's R10 in the menu's own terms.** Once the watchdog has fired, a second tap issues a second `clearIdentity`. That is the accepted price of not stranding the row: the action clears a cookie entry and signs the device out, so a second one lands on an already-cleared entry and a session that is already gone. It is not made impossible and this plan does not claim it is.
 
@@ -490,7 +512,7 @@ That leaves seven observable configurations rather than five: `closed × {idle, 
 | idle ↔ pending | **idle→pending:** submit; instant, the row becomes `aria-disabled` and stays focusable, and the announcer says `Switching person`. **pending→idle:** the clear settles ok without unmount; instant, the announcer empties |
 | pending ↔ timedout | **pending→timedout:** the watchdog fires; instant, `aria-disabled` false, `aria-busy` removed, the announcer swaps to the notice. No animation, because the row is returning to its resting appearance. **timedout→pending:** a retry; instant, busy again, and a FRESH window arms |
 | idle ↔ timedout | **timedout→idle:** the hung clear finally settles ok; instant, the announcer empties, the row was already enabled. **idle→timedout: IMPOSSIBLE, by the callback's own predicate** — reaching timed-out needs a clear in flight, and the one path that would violate that, a queued watchdog firing after a settle, finds the phase at idle and returns (round 2 F1, probed both ways) |
-| idle ↔ error | **idle→error: IMPOSSIBLE directly** — error is only reachable through a submit. **error→idle:** the first step of a retry, or a retry that then succeeds without unmount |
+| idle ↔ error | **idle→error: IMPOSSIBLE directly** — error is only reachable through a submit. **error→idle:** only when a retry SUCCEEDS without unmount. NOT the first step of a retry: `setSwitchStatus("idle")` and `setSwitchPhase("pending")` are one batched update, so there is no intervening idle render and the retry goes error→pending directly (round 4 F2, probed on a React 19 render log) |
 | pending ↔ error | **pending→error:** the clear settles `{ ok: false }`; instant, and the phase returns to idle in the same batched update, which is why error is never observed on a busy row. **error→pending:** retry; instant, the error clears at the start |
 | timedout ↔ error | **timedout→error:** the hung clear settles `{ ok: false }` with no retry in flight; instant, the alert appears and the announcer empties. **error→timedout: IMPOSSIBLE directly** — a retry out of error goes to pending first |
 
@@ -943,7 +965,7 @@ describe("the switch-person watchdog (BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG)", 
   it("COMPOUND C8: a settle and a due watchdog in one flush leave the alert standing alone (AC-12)", async () => {
     // Round 2 F1. The callback is already QUEUED when the settle schedules its
     // update, and clearTimeout cannot unfire it. Probed without the callback's
-    // two guards: phase=timedout status=error, the combination §4.6 forbids.
+    // the guard: phase=timedout status=error, the combination §4.6 forbids.
     vi.useFakeTimers();
     const first = held();
     const action = vi.fn(() => first.promise);
@@ -1101,11 +1123,11 @@ The file needs two new imports for these cases: `Component` and `type ReactNode`
 
 1. components/shared/pendingTimeout.ts: the constant, carrying the rationale currently at `app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx:35-48` plus a paragraph for the menu consumer. No `"use client"` — it is a constant, and adding one would put a needless boundary on both importers.
 2. `app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx`: delete the declaration and its comment, import the constant at the top with the other imports. Nothing else in that file moves.
-3. `components/auth/AvatarMenu.tsx`: the three-valued `switchPhase` state, the `switchAttempt` ordinal, the watchdog effect with BOTH callback guards, the derived `switchBusy` and `switchAnnouncement`, the `unstable_rethrow` import and the wrapped `await`. `aria-disabled` and `aria-busy` on the item read `switchBusy`; the announcer renders `switchAnnouncement`; the re-entry guard reads `switchBusy`. **There is no `switchTimedOut` boolean** — round 2 F6 caught this checklist still naming one from the first draft, and a separate boolean is exactly the shape whose extra state combinations round 1 removed.
+3. `components/auth/AvatarMenu.tsx`: the three-valued `switchPhase` state, the `switchAttempt` ordinal, the watchdog effect whose callback carries ONE guard, the functional read, the derived `switchBusy` and `switchAnnouncement`, the `unstable_rethrow` import, and the wrapped `await` whose catch checks the supersession ordinal BEFORE it rethrows. `aria-disabled` and `aria-busy` on the item read `switchBusy`; the announcer renders `switchAnnouncement`; the re-entry guard reads `switchBusy`. **There is no `switchTimedOut` boolean** — round 2 F6 caught this checklist still naming one from the first draft, and a separate boolean is exactly the shape whose extra state combinations round 1 removed.
 4. `DESIGN.md:740`: the owning-file cell becomes components/shared/pendingTimeout.ts, placed in the scanner's walk order.
 5. tests/components/auth/avatarMenuTransitionAudit.test.ts (new, authored in RED): the structural audit AC-15 describes.
 6. `tests/styles/tapTargetCensus.ts:439`: `line: 101` becomes `line: 87`. Nothing else in that row changes; the reason text is still accurate.
-7. `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4.6: a dated amendment carrying the five-state, ten-pair table above and the compounds, in the same shape §3 of the connector spec already uses for a ratified change.
+7. `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4.6: a dated amendment carrying the TWO-AXIS inventory above (seven observable configurations, the switch-axis table, the menu-axis table, the independence claim and its one coupling) plus the compounds, in the same shape §3 of the connector spec already uses for a ratified change. It replaces §4.6's four-state, six-pair table outright rather than extending it: round 4 F2 caught this step still describing a five-state, ten-pair table that round 3 had already deleted.
 
 **Gate commands.** Each as its own command, none chained into the commit:
 
