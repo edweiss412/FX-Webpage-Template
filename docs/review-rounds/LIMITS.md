@@ -46,7 +46,7 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 ## LIM-RECOGNIZER-ACCEPT-SET-PARITY
 
-**Shape:** A recognizer's accept-set disagreeing with its peers or its consumers, and nothing in the tree compares them: `lexShellWords` classified `<(` and `>(` as executing while `foreignConstructEnd` did not delegate on them (both literal opener tables in one file, so the comparison is derivable, with a load-bearing exclusion for `doubleQuotedEnd`), and widening `REGISTRARS` adopted nothing because three consumers each ranged over their own copy of some members.
+**Shape:** A recognizer's accept-set disagreeing with its peers or its consumers, and nothing in the tree compares them: `lexShellWords` classified `<(` and `>(` as executing while `foreignConstructEnd` did not delegate on them (both literal opener tables in one file, so the comparison is derivable, with a load-bearing exclusion for `doubleQuotedEnd`), and widening `REGISTRARS` adopted nothing because the walk dispatches on the root by name, so the added member was recognized and then dropped.
 
 **Named by:** 2 arcs — fix/shell-brace-cross-construct/d4324ba0a269.md (diff, its second, unlanded arm), fix/premisescan-registrar-accept-sets/c80f844278bd.md (spec)
 
