@@ -688,9 +688,11 @@ describe("useFitWithinClip", () => {
   });
 
   test("(h24) after unmount, transitionend on the former positioned ancestor schedules NO frame", () => {
-    // The hook captures `positioned` at attach, so the listener sits on `inner`
-    // and stays there after withOffsetParent restores the descriptor. Teardown
-    // must remove it from that same captured node.
+    // The positioned ROLE never moves in this fixture, so the listener sits on
+    // `inner` from the attach and stays there after withOffsetParent restores
+    // the descriptor. This case pins teardown for the never-moved case; (h38)
+    // pins it for a role that MOVED, which a teardown reading the attach-time
+    // node would leak while still passing here.
     const { view, inner } = withOffsetParent(() => mount());
 
     fireEvent(inner, transitionEnd("transform"));
@@ -1442,6 +1444,13 @@ describe("useFitWithinClip", () => {
       expect(state.targets.has(inner), "a null resolution dropped the target").toBe(true);
       expect(resize(inner), "the retained positioned target was not deliverable").toBe(true);
 
+      // FLUSH FIRST. `resize()` above already scheduled a frame, so asserting
+      // `frames.size === 1` after the transitionend would be satisfied by THAT
+      // frame whether the retained listener exists or not. Drain to zero, then
+      // assert the listener puts one back.
+      flushUntilQuiet();
+      expect(frames.size, "the queue must be empty before the listener is probed").toBe(0);
+
       // The listener is retained with the role, so the shown-again overlay's
       // own entrance still re-measures.
       fireEvent(inner, transitionEnd("transform"));
@@ -1465,9 +1474,59 @@ describe("useFitWithinClip", () => {
       flushFrames();
     }, "a reconcile site threw with no observer").not.toThrow();
 
-    // The roles still update with no observer, which is what keeps the window
-    // path correct and the transitionend listener following.
     expect(fitted.style.maxHeight, "the window path stopped writing the cap").toBe(expectedPx());
+    cleanup();
+
+    // The POSITIONED half of AC-7, which the clip-only fixture above cannot
+    // reach: with no observer the reconcile skips the target set whole, but the
+    // ROLES must still update, or the transitionend listener stops following
+    // and an implementation that returns early would pass the assertions above.
+    withMarkedOffsetParent(() => {
+      const three = render(<ThreeLevelHarness reapplyKey="k" positionedOn="inner" />);
+      const mid = screen.getByTestId("mid");
+      const inner = screen.getByTestId("inner");
+      premiseHolds(
+        "still no ResizeObserver constructor for the positioned half",
+        typeof (globalThis as { ResizeObserver?: unknown }).ResizeObserver !== "function",
+      );
+
+      three.rerender(<ThreeLevelHarness reapplyKey="k" positionedOn="mid" />);
+      fireEvent(window, new Event("resize"));
+      flushUntilQuiet();
+      expect(frames.size, "the queue must be empty before the listener is probed").toBe(0);
+
+      fireEvent(mid, transitionEnd("transform"));
+      expect(frames.size, "the role did not follow with no observer").toBe(1);
+      flushUntilQuiet();
+      fireEvent(inner, transitionEnd("transform"));
+      expect(frames.size, "the FORMER positioned ancestor still schedules").toBe(0);
+    });
+  });
+
+  test("(h38) teardown removes the listener from the CURRENT role, not the attach-time node", () => {
+    installTargetTrackingObserver();
+    withMarkedOffsetParent(() => {
+      const view = render(<ThreeLevelHarness reapplyKey="k" positionedOn="inner" />);
+      const mid = screen.getByTestId("mid");
+
+      // Move the role, so the listener is no longer where the attach put it.
+      view.rerender(<ThreeLevelHarness reapplyKey="k" positionedOn="mid" />);
+      fireEvent(window, new Event("resize"));
+      flushUntilQuiet();
+
+      // PREMISE (own inputs): the listener must actually have moved, or this
+      // case is (h24) again and says nothing new.
+      fireEvent(mid, transitionEnd("transform"));
+      premiseHolds("the listener moved to the current role", frames.size === 1);
+      flushUntilQuiet();
+
+      view.unmount();
+
+      // A teardown that removes from the attach-time node passes (h24) and
+      // leaks THIS listener. Only a teardown reading the current role clears it.
+      fireEvent(mid, transitionEnd("transform"));
+      expect(frames.size, "the moved listener outlived the component").toBe(0);
+    });
   });
 
   test("(h37) AC-8: the cost of a reconcile is one apply only when it ADDS a target with a box", () => {

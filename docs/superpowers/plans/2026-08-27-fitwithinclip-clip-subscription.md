@@ -228,8 +228,14 @@ This task's `red=` greps for a `| plant-N |` row rather than for the heading abo
 | plant-5 | reconcile without the `observer === null` guard | (h36), and (f) |
 | plant-6 | call `apply()` twice in the coalesced path | (h27) (h37) |
 | plant-7 | skip `observe()` when the resolved target is currently 0x0 | (h37) |
+| plant-8 | teardown removes the listener from the ATTACH-TIME node instead of the current role | (h38) |
+| plant-9 | `reconcile` returns before updating the roles when there is no observer | (h36) |
 
-Command for every row: `pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx`, with the plant applied to `components/admin/useFitWithinClip.ts` and reverted after. Baseline with no plant: 47 passed.
+Command for every row: `pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx`, with the plant applied to `components/admin/useFitWithinClip.ts` and reverted after. Baseline with no plant: 48 passed.
+
+**plant-8 and plant-9 were added by the whole-diff review**, which found three of these cases satisfiable without the behaviour they claimed. Worth recording as a pattern rather than three fixes: all three were the same mistake in different clothes, an assertion whose precondition was already true. `(h35)` asserted a frame appears after a `transitionend` while a frame from the preceding `resize()` was still queued, so it read 1 either way; the repair drains the queue and asserts it is empty first. `(h36)` exercised only the clip role, so an implementation returning early with no observer kept the positioned half untested; the repair adds that half and plant-9 is its proof. `(h24)` pinned teardown only for a listener that never moved, so a teardown reading the attach-time node passed while leaking a moved one; `(h38)` is the missing case and plant-8 is its proof.
+
+The sweep for that class was over every `frames.size` assertion in the file, not over the three lines the review named. Nine sites; one was defective.
 
 Two rows are worth reading rather than counting. **plant-1** reds five cases, which is the shape of the termination argument: an unconditional reconcile is not one defect but the same defect seen from five angles, and (h32) is the one that names it. **plant-7** is round 3's finding made executable: it satisfies both of AC-8's class-2 COUNTS, zero applies and zero walks, while subscribing to nothing at all, so only the observe-log half of that class can see it. A version of this suite that asserted counts alone would have shipped a hook that leaves every zero-sized ancestor permanently dark.
 
