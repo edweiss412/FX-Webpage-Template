@@ -1,3 +1,21 @@
+## BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG — a hung switch-person clear dims the menu row for good — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** S · **Shipped by:** `fix/avatar-menu-switch-pending-watchdog` (PR #915) · **Spec:** `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4.6 (amended by this arc) · **Plan:** `docs/superpowers/plans/2026-08-27-avatar-menu-switch-watchdog/plan.md` · **Filed:** 2026-08-25 (`feat/switch-person-google-signout`, impeccable critique P1 at the invariant-8 gate) · **Facing:** product · **Severity:** LOW · **Class:** UX resilience · **Effort:** S · **Reachability:** PROBED 2026-08-27 — the probe the row named was run FIRST, against the unmodified component: a `clearIdentity` held unresolved past 60,000 ms under fake timers left the row `aria-disabled="true"` and `aria-busy="true"`, the announcer still reading `Switching person`, and a second tap never reaching the action. The row shipped INFERRED, NOT PROBED; this is what settled it.
+
+`components/auth/AvatarMenu.tsx` kept `switchPending` from `useTransition` with no watchdog, and the re-entry guard refused every further tap while it held, so a transition that never settled left "Not you? Switch person" dimmed and inert until the page was reloaded.
+
+**What shipped.** `PENDING_TIMEOUT_MS` moved to `components/shared/pendingTimeout.ts`, one declaration imported by this row and by the same-route sibling `app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx`. The component owns a three-valued `switchPhase` and does not read React's flag, which is entangled across concurrent transitions from one hook. The watchdog effect is keyed on that phase, so a retry arms a fresh window; its callback reads the phase functionally, so a callback arriving after a settle finds `idle` and returns; a monotonic attempt ordinal drops a superseded attempt's late result and gates the rethrow ahead of it; and `unstable_rethrow` classifies control flow, because Next stamps ordinary server failures with opaque string digests too.
+
+**Where the phase is written, and why it matters.** In the submit button's `onClick`, never in the form action. React holds updates scheduled inside an action until that action settles, so a clear that never settles never commits its own pending state. Measured at `aria-disabled="false"` with the action already called.
+
+**The timeout is visible, not only announced.** The invariant-8 critique's P1: a sighted crew member otherwise watches the row silently un-dim after eight seconds with nothing explaining it. The timed-out phase renders the notice as a sibling of `role="menu"`, `aria-hidden` so the always-mounted status region stays the single channel to assistive tech.
+
+**The residual is ratified, not eliminated.** Past the timeout a second tap issues a second `clearIdentity`, which lands on an already-cleared entry and an already-ended session. That is the sibling's R10 in this menu's terms and the accepted price of not stranding the row.
+
+**Where the design lives.** `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4.6, amended 2026-08-27 from four states on one axis to two independent axes and seven observable configurations, and the ONLY copy of that inventory: the plan points at it rather than restating it. `DESIGN.md` §5.5 carries the moved constant's row.
+
+---
+
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** XS · **Shipped by:** `chore/private-image-postmerge-probe` · **Class:** VERIFICATION DEBT · **Evidence:** https://github.com/edweiss412/FX-Webpage-Template/pull/761#issuecomment-5441921368
