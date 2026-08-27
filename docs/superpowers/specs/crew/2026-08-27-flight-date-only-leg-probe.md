@@ -69,7 +69,9 @@ The row was filed honestly: it says the frequency is unmeasured and makes the re
 
 Two things worth separating. The defect is real and reproducible: the row's example itinerary does render as two unlabeled lines, and the test above proves the classifier sees it. What the probe settles is reach, and the reach today is nothing. A renderer change built on this evidence would ship a labeled treatment that no crew member is currently in a position to see.
 
-The disposition is not the probe's to make. Handed to bl-orch with these numbers.
+**Disposition, ruled 2026-08-27: record and park.** No renderer change. The row stays open and carries the number, so the queue holds a measured entry rather than an unmeasured one, and the next reader inherits the count instead of re-deriving it. It is re-filed the first time a date-only leg shows up in a live sheet, or if Doug adopts the pending-charter phrasing; rerunning the probe is the whole check.
+
+What that leaves behind is the probe itself, which is the durable half. The question this row was stuck on for seventeen days was a count, and it is now one command.
 
 ## Limits of this probe
 
