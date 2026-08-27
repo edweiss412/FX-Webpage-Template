@@ -47,6 +47,20 @@ const ID = "AC-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*";
 // declarations in four plans, which is v3's silent-loss defect under a new rule.
 const ID_BOUNDARY = "(?![A-Za-z0-9-])(?!\\.[A-Za-z0-9.])";
 const ID_ANYWHERE = new RegExp(`(?<![A-Za-z0-9.-])(${ID})${ID_BOUNDARY}`, "g");
+/**
+ * The head id of a declaring line must be a STANDALONE TOKEN.
+ *
+ * Corpus-forced narrowing, and the allowed repair direction on this axis: five
+ * live lines open with a possessive (`- **AC-5's digest cannot move.**`), which
+ * is a bullet ABOUT a criterion and never a declaration of one. Two of them are
+ * in a plan whose real criteria sit in a table, so disposing the possessive
+ * would have written a disposition mid-sentence into a wrapped bullet. The rule
+ * is structural rather than a special case for apostrophes: whatever follows the
+ * head id must be whitespace, ordinary sentence punctuation, a closing bracket,
+ * an emphasis run, or end of line. Measured over the live corpus it declines
+ * exactly those five and loses no real declaration.
+ */
+const HEAD_DELIMITER = /^(?:[\s:,.;)\]*_—]|$)/;
 const ID_AT_START = new RegExp(`^(${ID})${ID_BOUNDARY}`);
 /** A list item or ATX heading, plus at most one emphasis run. */
 const DECLARING_PREFIX = /^ {0,3}(?:[-*+]|\d{1,9}[.)]|#{1,6})[ \t]+(?:\*\*|__|\*|_)?/;
@@ -70,6 +84,17 @@ const DISPOSITION_NON_TASK = "closeout|the closeout|the PR's last commit";
 const DISPOSITION = new RegExp(
   `\\([ \\t]*(?:RETIRED(?::[ \\t]+[^)]*)?|discharged by (?:${DISPOSITION_TASKS}|${DISPOSITION_NON_TASK}))[ \\t]*\\)[ \\t]*$`,
 );
+
+/**
+ * Does this text END in a disposition the accept-set admits?
+ *
+ * Exported so a consumer can ask the question of a string it BUILDS — the
+ * residue's `owner-inexpressible` rows assert that `(discharged by <owner>)` is
+ * rejected, and asking a second copy of the grammar would let the two drift.
+ */
+export function acceptsDisposition(text: string): boolean {
+  return DISPOSITION.test(text);
+}
 
 export interface AcDeclaration {
   line: number;
@@ -105,7 +130,10 @@ function idsOn(lineText: string): string[] {
 export function declarationOn(lineText: string, lineNo: number): AcDeclaration | null {
   const prefix = DECLARING_PREFIX.exec(lineText);
   if (!prefix) return null;
-  if (!ID_AT_START.test(lineText.slice(prefix[0].length))) return null;
+  const rest = lineText.slice(prefix[0].length);
+  const head = ID_AT_START.exec(rest);
+  if (head === null) return null;
+  if (!HEAD_DELIMITER.test(rest.slice(head[1]!.length))) return null;
   const ids = idsOn(lineText);
   const certain = ids.length === 1 ? ids[0]! : null;
   const after =

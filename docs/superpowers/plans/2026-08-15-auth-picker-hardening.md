@@ -41,7 +41,7 @@ N/A. Neither the origin gate nor the failure state calls `pg_advisory*` or mutat
 - **AC-4:** `PICKER_SWITCH_FAILED` exists in the catalog with crew copy "Couldn't switch. Please try again." and passes `x1-catalog-parity`; no orphan producer is introduced.
 - **AC-5:** On a failed clear, `AvatarMenu` renders a `role="alert"` node (sibling of `role="menu"`) with `PICKER_SWITCH_FAILED`'s crew copy, the menu stays open, and the submit re-enables; on `ok:true`/idle no alert renders; reopening after a failure shows no stale alert.
 - **AC-6:** Existing `clearIdentity` suites pass with a same-origin default header context; the `tests/auth/picker/clearIdentity.test.ts:228` no-emit pin is unchanged; the 3 void-mock component test files are updated to return `{ ok: true }`.
-- **AC-7:** Backlog reconciliation lands correctly: the two closed entries are archived with their IN PROGRESS markers removed **in the PR's last commit** (after the impeccable dual-gate and whole-diff review, invariant 12), and the two follow-up entries (`BL-SERVER-ACTION-ORIGIN-GATE-SWEEP`, `BL-SWITCH-PERSON-GOOGLE-LOOPBACK`) are filed; `_metaLedgerInProgress` and `_metaLedgerReferentialIntegrity` pass.
+- **AC-7:** Backlog reconciliation lands correctly: the two closed entries are archived with their IN PROGRESS markers removed **in the PR's last commit** (after the impeccable dual-gate and whole-diff review, invariant 12), and the two follow-up entries (`BL-SERVER-ACTION-ORIGIN-GATE-SWEEP`, `BL-SWITCH-PERSON-GOOGLE-LOOPBACK`) are filed; `_metaLedgerInProgress` and `_metaLedgerReferentialIntegrity` pass (discharged by the PR's last commit)
 
 ## File structure
 

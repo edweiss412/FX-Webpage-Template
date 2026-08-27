@@ -22,7 +22,7 @@ cite it.
 - **AC-4** — the OUTER describe's own hooks still reach every descendant. Task 3.
 - **AC-5** — the stop fires on every `describe` spelling, from a DERIVED fixture set. Task 2.
 - **AC-6** — every hook registrar, derived from the matcher rather than typed beside it. Task 4.
-- **AC-7** — the source-mutation gate still passes with an empty unaccepted-survivor set. Task 5.
+- **AC-7** — the source-mutation gate still passes with an empty unaccepted-survivor set. Task 5 (discharged by Task 5)
 - **AC-8** — a hook in a nested registration's EAGER positions belongs to the parent. Task 2a.
 - **AC-9** — a nested body wrapped in a runtime-transparent expression is still a body. Task 2b.
 

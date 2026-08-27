@@ -553,6 +553,20 @@ residue and record paths; the migration by path; the 9/71 → 2/5 → 0 UNDECLAR
 sequence with the 1078-row measurement that bought the silent decline; and that
 `TASK_AC_UNDECLARED` is opt-in by shape.
 
+**Documented limit — a residue row makes its plan un-dispatchable through the
+lint gate, and that is the design working.** The residue is fail-closed by
+construction, so the eight plans holding one report `TASK_AC_UNCLAIMED` at hard
+severity forever: `spec:lint` on
+`docs/superpowers/plans/ci/2026-08-26-speclint-dispatch-gates.md` reports four,
+one per residue id. The lint gate that shipped in #904 refuses a `--stage
+spec|plan` dispatch whose `--lint-doc` carries hard findings, so a future arc
+naming one of those plans is refused and must pass `--no-lint-gate`, which is a
+real escape and meant to be used (spec §7 limit 3). This is the price of
+constraint 2: an id whose disposition would be a lie stays flagged, and staying
+flagged is what "flagged" means. It is not repaired by widening the owner set,
+and the residue shrinks only when an owning arc settles its own criterion in its
+own prose.
+
 **No `BL-`/`DEF-` row is filed by this arc**, of any facing.
 
 <!-- tasks: end -->

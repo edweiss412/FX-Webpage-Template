@@ -58,7 +58,7 @@ impeccable-gate: N/A — no UI surface
 - **AC-4** — No emit carries service-account key material, the `JSON.parse` error, or the raw rejected `next` value. Enforced by a **whole-record accept-set** over exactly the nine fields the sink persists (see the shared shape under Task 1). Narrower guards failed twice: a denylist ("no `error` key, no sentinel") was defeated in R2 by a parse message relocated to `message` and by a partial key fragment; a context-only accept-set was defeated in R3 by a fragment in `source`, which is promoted out of `context` into its own `app_events` column.
 - **AC-5** — `OnboardingWizard`'s rendered output is unchanged; the three shipped render assertions pass unmodified.
 - **AC-7** — Every emit is wrapped so a telemetry fault cannot escape over the caller: against a sink that throws, all six sites still produce their unchanged refusal (invariant 9, spec limit §5.5).
-- **AC-6** — Both ledger entries archive with provenance, and the `IN PROGRESS` markers come off in the PR's last commit. Verified by inspection of the final diff, not by a test — see the close-out step for why no executable gate discriminates it.
+- **AC-6** — Both ledger entries archive with provenance, and the `IN PROGRESS` markers come off in the PR's last commit. Verified by inspection of the final diff, not by a test — see the close-out step for why no executable gate discriminates it (discharged by closeout)
 
 <!-- tasks: depth=2 -->
 

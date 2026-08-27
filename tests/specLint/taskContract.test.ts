@@ -772,6 +772,31 @@ describe("checkTaskContract — the unclaimed direction (spec §4.1, §4.3)", ()
     ]);
   });
 
+  it("unclaimed: a POSSESSIVE head id is a line ABOUT a criterion, not a declaration of one", () => {
+    // Corpus-forced narrowing. Five live lines open `- **AC-5's digest cannot
+    // move.**`, whose real criteria sit in a table elsewhere; disposing one
+    // would have written a disposition mid-sentence into a wrapped bullet. The
+    // rule is that the head id must be a standalone token, not a special case
+    // for apostrophes, and it loses no real declaration on the live corpus.
+    expect(codes(plan(CLAIMED, "- **AC-2's digest cannot move.** Every one of the named mutants"))).toEqual(
+      [],
+    );
+    // The delimiters that DO declare, each on its own, so the narrowing cannot
+    // quietly widen into "any punctuation ends a declaration".
+    for (const decl of [
+      "- AC-2 plain space.",
+      "- AC-2: colon form.",
+      "- **AC-2** emphasis close.",
+      "- AC-2, comma form.",
+      "- **AC-2.** period inside the emphasis.",
+      "- AC-2",
+    ]) {
+      expect(`${decl} => ${codes(plan(CLAIMED, decl)).join(",")}`).toBe(
+        `${decl} => TASK_AC_UNCLAIMED`,
+      );
+    }
+  });
+
   it("unclaimed: a fenced declaration is inert, and so is a fenced marker's claim", () => {
     // Witness for the first: control-outline-forward-guard.md:326, a shell
     // comment beginning `# AC-10:` inside a fence.

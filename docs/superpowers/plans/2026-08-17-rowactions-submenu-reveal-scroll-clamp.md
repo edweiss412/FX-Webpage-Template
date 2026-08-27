@@ -23,8 +23,8 @@
 - **AC-3** (spec §6 AC-3): full CI file set green locally, no regression.
 - **AC-4** (spec §6 AC-4): derived-cover meta-test green, and red under a deliberate bare-clear reintroduction (verified at plan time: the pre-repair tree IS that reintroduction, red on exactly the four sites).
 - **AC-7** (spec §6 AC-7): §5.4 pins per the family matrix (family A at three sites; family B at all four; family C at the two scroll-listening surfaces), each shown red against every applicable migration mutant.
-- **AC-5** (spec §6 AC-5): nine-dispatch CI probe, 0/9 failures against the 4/9 baseline.
-- **AC-6** (spec §6 AC-6): ledger dispositions land in the PR's last commit.
+- **AC-5** (spec §6 AC-5): nine-dispatch CI probe, 0/9 failures against the 4/9 baseline (discharged by Task 6)
+- **AC-6** (spec §6 AC-6): ledger dispositions land in the PR's last commit (discharged by Task 6)
 
 ## Plan-time validation already executed (2026-08-17, this branch)
 
