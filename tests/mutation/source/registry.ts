@@ -845,19 +845,19 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "statement-removal:111:3:ID_ANYWHERE.lastIndex = 0;>(removed)",
         kind: "equivalent",
         reason:
-          "the while loop below runs the global regex to exhaustion, and a failing exec resets lastIndex to 0 itself, so the assignment is defensive and never observable; idsOn is the regex's only consumer",
+          "the while loop below runs the global regex to exhaustion, and a failing exec resets lastIndex to 0 itself, so the assignment is defensive and never observable; idsOn is the regex's only consumer. PROBED 2026-08-27: mutant applied by hand, all three deciding suites 136 passed, identical to baseline",
       },
       {
         siteId: "relational-boundary:465:21:<><=",
         kind: "equivalent",
         reason:
-          "the extra iteration reads model.lines[length] === undefined; DECLARING_PREFIX.exec coerces it to the string 'undefined', which matches no list or heading prefix, and idsOn finds no id in it",
+          "the extra iteration reads model.lines[length] === undefined; DECLARING_PREFIX.exec coerces it to the string 'undefined', which matches no list or heading prefix, and idsOn finds no id in it. PROBED 2026-08-27: mutant applied by hand, all three deciding suites 136 passed, identical to baseline, and no throw",
       },
       {
         siteId: "regex-quantifier-bound:71:50:{1,6}>{1,7}",
         kind: "equivalent",
         reason:
-          "STRUCTURED ends in an OPTIONAL [ \\t]?, so a run of six or more hashes matches whether the bound reads six or seven; unlike DECLARING_PREFIX, which requires [ \\t]+ and is discriminated by the seven-hash case in taskContract.test.ts",
+          "STRUCTURED ends in an OPTIONAL [ \\t]?, so a run of six or more hashes matches whether the bound reads six or seven; unlike DECLARING_PREFIX, which requires [ \\t]+ and is discriminated by the seven-hash case in taskContract.test.ts. PROBED 2026-08-27: mutant applied by hand, all three deciding suites 136 passed, identical to baseline",
       },
       {
         siteId: "regex-quantifier-bound:155:6:{0,3}>{0,4}",
