@@ -100,9 +100,17 @@ const R3: Pair[] = [
   ["array -Infinity/null", [-Infinity], [null]],
   ["array -0/0", [-0], [0]],
 ];
+// R4: built-ins whose String() form is coarser than the value. serializeError degrades an
+// object with no own enumerable keys to String(value) (its ratified §4 limit 5), and String()
+// is second-resolution for Date and ignores lastIndex for RegExp. Inherited, not introduced.
+const R4: Pair[] = [
+  ["Date same second", new Date(0), new Date(1)],
+  ["Date different second", new Date(0), new Date(1000)],
+  ["RegExp lastIndex", /re/g, (() => { const r = /re/g; r.lastIndex = 1; return r; })()],
+];
 
 let failures = 0;
-for (const [round, pairs] of [["R1", R1], ["R2", R2], ["R3", R3]] as const) {
+for (const [round, pairs] of [["R1", R1], ["R2", R2], ["R3", R3], ["R4", R4]] as const) {
   console.log(`\n── ${round} ${"─".repeat(46)}`);
   for (const [label, a, b] of pairs) {
     const c = collide(a, b);
@@ -119,4 +127,10 @@ for (const v of [{ code: "PGRST301", message: "planted" }, {}, [1, 2], "x", "", 
   const d = describeClientValue(v);
   console.log(`  ${String(tag(v)).padEnd(9)} message=${JSON.stringify(d.message).padEnd(24)} detail=${JSON.stringify(d.detail)}`);
 }
-console.log(`\nCOLLISIONS: ${failures} of ${R1.length + R2.length + R3.length} pairs`);
+const TOTAL = R1.length + R2.length + R3.length + R4.length;
+console.log(`\nCOLLISIONS: ${failures} of ${TOTAL} pairs`);
+console.log(
+  "Every collision is a value pair whose distinguishing information String() already discarded\n" +
+  "before this projection saw it: -0 has no distinct text form, and serializeError degrades a\n" +
+  "key-less object to String(value) by its ratified §4 limit 5. Recorded in the spec's §9.",
+);

@@ -52,6 +52,25 @@ const FIXTURES: Fixture[] = [
     src: `function f() { const error = raw.code; log.error("m", { code: CODE, error }); return { kind: "infra_error" as const }; }` },
   { name: "no error field at all", whole: false,
     src: `function f() { log.error("m", { code: CODE }); return { kind: "infra_error" as const }; }` },
+  // ── R4: non-string scalars and partial objects. The string-only rule accepts all of these.
+  { name: "number field (raw.status)", whole: false,
+    src: `function f() { const error = 403; log.error("m", { code: CODE, error }); return { kind: "infra_error" as const }; }` },
+  { name: "boolean field", whole: false,
+    src: `function f() { const error = true; log.error("m", { code: CODE, error }); return { kind: "infra_error" as const }; }` },
+  { name: "bigint field", whole: false,
+    src: `function f() { const error = 1n; log.error("m", { code: CODE, error }); return { kind: "infra_error" as const }; }` },
+  { name: "symbol field", whole: false,
+    src: `function f() { const error = Symbol("x"); log.error("m", { code: CODE, error }); return { kind: "infra_error" as const }; }` },
+  { name: "null payload", whole: false,
+    src: `function f() { const error = null; log.error("m", { code: CODE, error }); return { kind: "infra_error" as const }; }` },
+  { name: "undefined payload", whole: false,
+    src: `function f() { const error = undefined; log.error("m", { code: CODE, error }); return { kind: "infra_error" as const }; }` },
+  { name: "function payload", whole: false,
+    src: `function f() { const error = () => {}; log.error("m", { code: CODE, error }); return { kind: "infra_error" as const }; }` },
+  // The one the tightened rule still accepts, and §9 records it: a reconstructed partial object
+  // is an object, and no static rule distinguishes it from the whole fault.
+  { name: "partial object literal (DOCUMENTED LIMIT)", whole: false,
+    src: `function f() { const error = { message: raw.message }; log.error("m", { code: CODE, error }); return { kind: "infra_error" as const }; }` },
 ];
 
 const FNAME = "/probe.ts";
@@ -89,10 +108,23 @@ function analyse(src: string): { syntactic: boolean; typed: boolean } {
         if (!hasCode || !errExpr) continue;
         // R2 predicate: bare identifier, not a `.message` member access.
         syntactic = ts.isIdentifier(errExpr);
-        // R3 repair: the type must not be a string.
+        // R3 repair: the type must not be a string. R4 showed that is too narrow —
+        // `error: raw.status` is a number and sails through. The rule is now the
+        // category, not the member: every part of the type must be an OBJECT type.
+        // One rule, not a growing list of rejected scalars.
         const t = checker.getTypeAtLocation(errExpr);
         const parts = t.isUnion() ? t.types : [t];
-        typed = !parts.some((p) => !!(p.flags & (ts.TypeFlags.String | ts.TypeFlags.StringLiteral)));
+        const SCALAR =
+          ts.TypeFlags.String | ts.TypeFlags.StringLike | ts.TypeFlags.Number | ts.TypeFlags.NumberLike |
+          ts.TypeFlags.Boolean | ts.TypeFlags.BooleanLike | ts.TypeFlags.BigIntLike |
+          ts.TypeFlags.ESSymbolLike | ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void |
+          ts.TypeFlags.Never | ts.TypeFlags.Enum | ts.TypeFlags.EnumLike;
+        typed = parts.length > 0 && !parts.some((p) => {
+          if (p.flags & SCALAR) return true;
+          // a function type is callable, not a payload
+          if (p.getCallSignatures().length > 0) return true;
+          return false;
+        });
       }
     }
     ts.forEachChild(n, visit);
@@ -101,15 +133,15 @@ function analyse(src: string): { syntactic: boolean; typed: boolean } {
   return { syntactic, typed };
 }
 
-console.log("fixture                                          want   syntactic  typed");
+console.log("fixture                                                  want   string-only  object-rule");
 let synWrong = 0, typWrong = 0;
 for (const f of FIXTURES) {
   const { syntactic, typed } = analyse(f.src);
   if (syntactic !== f.whole) synWrong++;
   if (typed !== f.whole) typWrong++;
   console.log(
-    `${f.name.padEnd(48)} ${String(f.whole).padEnd(6)} ` +
-      `${(syntactic === f.whole ? "ok  " : "WRONG").padEnd(10)} ${typed === f.whole ? "ok" : "WRONG"}`,
+    `${f.name.padEnd(56)} ${String(f.whole).padEnd(6)} ` +
+      `${(syntactic === f.whole ? "ok  " : "WRONG").padEnd(12)} ${typed === f.whole ? "ok" : "WRONG"}`,
   );
 }
-console.log(`\nsyntactic predicate wrong on ${synWrong}/${FIXTURES.length}; type predicate wrong on ${typWrong}/${FIXTURES.length}`);
+console.log(`\nstring-only predicate wrong on ${synWrong}/${FIXTURES.length}; object-rule predicate wrong on ${typWrong}/${FIXTURES.length}`);
