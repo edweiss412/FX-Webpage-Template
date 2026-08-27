@@ -129,7 +129,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   // files import DIRECTLY at runtime. Depth 1, not the transitive closure: a
   // module a rendered file imports directly is on the render path, while one
   // four hops behind it is in the same module graph for reasons that have
-  // nothing to do with rendering. Measured -- depth 1 is 212 lib files and 13
+  // nothing to do with rendering. Measured -- depth 1 is 213 lib files and 13
   // violations, unbounded is 396 and 31, the whole directory is 532 and 55; all
   // three reach the survivor, and every violation unbounded depth adds sits in a
   // module whose only app/ importers are under app/api/** or a cron path.
@@ -180,7 +180,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 212 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 213 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -189,7 +189,11 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     const rel = libFiles.map((f) => relative(process.cwd(), f));
     expect(rel).toContain("lib/log/index.ts");
     expect(rel).toContain("lib/parser/index.ts");
-    expect(rel.length).toBe(212);
+    // 212 -> 213 (fix/observe-error-telemetry): components/observe/GlobalErrorListener.tsx
+    // is a rendered file and now imports lib/observe/describeClientValue.ts directly,
+    // so that module joins the depth-1 population. It makes no time call, and the
+    // violation count below is unchanged at 13.
+    expect(rel.length).toBe(213);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON
