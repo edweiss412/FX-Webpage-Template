@@ -152,7 +152,7 @@ B2 through B5 are exactly the four partial implementations spec round 1 found; e
 | --- | --- | --- |
 | S1 | any `retainRows.set` reverted to `rowFromHeldValue(held)` | RED |
 | S2 | a SIXTH `retainRows.set` added, in the admitted shape | RED, by the exact-count pin — the tripwire that makes someone come back to the spec |
-| S3 | a retain moved to a third function in the tree | RED |
+| S3 | a retain moved to a third function in the tree, including one with a DUPLICATE name in another `lib/sync/holds/**` module | RED, by the file-qualified multiset |
 | S4 | a lookalike callee, `retainRowFor2(hold.entity_key, held)` | RED |
 | S5 | `retainRowFor(hold.id, held)` — right callee, wrong argument | RED, by the argument pin |
 | S6 | `const row = retainRowFor(...); retainRows.set(k, row)` — indirection through a local | RED, a bare identifier is not admitted |
@@ -173,43 +173,31 @@ S8 is the string-presence rule's (a); S4 is (b); S7 is (c); S1/S2/S3/S5/S6 are (
 | C5 | the identity wording present ONLY inside an MDX or JSX comment | RED — comments are stripped before the positive match |
 | C6 | the identity wording's opening clause present, followed by a contradictory continuation | RED — the assertion spans the complete sentence, not a prefix |
 
-### 6.4 The deciding matrix
+### 6.4 The deciding cover: retain SITES, not input states
 
-The writer-set argument in §0 says live-wins is correct in EVERY state. A claim of that shape is proven by covering the state space, not by an example, so the probe suite is declared as a matrix and the declaration is asserted.
+**This replaces a cross-product matrix over the planner's inputs, and the replacement is a narrowing on purpose.** Plan round 1 said the three declared axes missed a split and added a fourth. Plan round 2 said the four still missed `domain`, `held_value.absent`, the `add` baseline and the email-equality input that drives release. Each round widened the enumeration and each widening was a bigger target for the next one; a cross product over a hold row's whole shape does not terminate, and a matrix that claims to be "the planner's branch product" is refuted by the next input nobody listed. Round 2 also caught the enumeration asserting something false: `lib/sync/holds/holdAwareApply.ts:259` gates the entire mi11 retain block on `!sheetForEntity`, so when the parse contains `entity_key` **no retain is created at all** — the matrix said one was set and discarded by `seen`.
 
-**Four axes, because three do not reach the planner's branches.** Plan round 1 showed a three-axis version folded three reachable splits into single labels, so the 24-cell equality proved only that every coarse LABEL had a disposition — not that every branch had a case. The missing axis is the one the planner actually tests: whether the other parse row is a truly-added replacement or a pre-existing live crew member (`!previousCrewNames.has(...)`, `lib/sync/holds/holdAwareApply.ts:295` and `lib/sync/holds/holdAwareApply.ts:495`). It is the difference between `lib/sync/holds/holdAwareApply.ts:300` and `lib/sync/holds/holdAwareApply.ts:321`, and between spec §3.7 rows 6 and 7.
+**The closed set is the retain SITES, and it is closed because the guard derives it.** The rule this arc ships is per-site: each `retainRows.set` sources live-or-snapshot. There are five, and Task 5's guard finds them by walking `lib/sync/holds/**` and parsing it — it does not read a list anybody wrote. So:
 
-- **hold kind** — `mi11_pending`, `undo_override`
-- **baseline** — none, `rename`, `removal`, `delete`
-- **sheet state** — absent, present under the old identity, present under the replacement
-- **replacement liveness** — truly added, pre-existing live owner, n/a (only meaningful when the sheet state is "present under the replacement")
+- every behavioural case **registers the site it exercises**, by the same `file:line` key the guard reports;
+- the suite asserts **the set of sites covered by cases equals the set of sites the guard derives**, in both directions;
+- a new retain site therefore turns the guard red (unregistered shape) AND the coverage assertion red (no case reaches it), and neither can be satisfied by editing a list.
 
-Every constructible cell whose hold survives asserts the live phone with the identity pinned, EXCEPT the two where a sheet row for this member exists, which assert the sheet's values. **A cell the fixture cannot construct is NAMED here with the code that makes it impossible; none is skipped silently**, and the suite asserts the declared cross product equals cases plus named impossibilities, so a cell cannot be dropped by deleting a case.
+That terminates, because the site set is finite and derived rather than declared. What it deliberately does NOT claim is an enumeration of the inputs that select a site. Those inputs are open — `domain`, `baseline`, `absent`, email equality, replacement liveness and whatever a later hold kind adds — and enumerating them is the thing that failed twice.
 
-| Cell | Status |
-| --- | --- |
-| `mi11_pending` x none x absent | CASE. The filed defect; live wins (AC-2). |
-| `mi11_pending` x none x old identity | CASE. The sheet row wins with the identity pin; the retain is set and `seen` discards it. |
-| `mi11_pending` x none x replacement x truly added | CASE. The rename fold at `lib/sync/holds/holdAwareApply.ts:300`; the sheet's fold-target row wins via `nonIdentityOverride`. Round 1 found the earlier matrix folded this into the WM-F6 cell and never exercised it. |
-| `mi11_pending` x none x replacement x live owner | CASE. WM-F6 at `lib/sync/holds/holdAwareApply.ts:321`; the held member's own live row wins and the owner is untouched (AC-3). |
-| `mi11_pending` x {rename, removal, delete} x * | IMPOSSIBLE, 9 label-cells. `writeMi11Holds` writes a plain crew row as `held_value` with no `baseline` key (`lib/sync/holds/writeMi11Holds.ts:52-61`); a baseline is added only by the reject and undo RPCs, which also set `kind='undo_override'`. The axes are not independent, and this is where they interact. |
-| `undo_override`/`crew_email` x none x absent | CASE. Spec §3.6's live retain (AC-8, AC-9). |
-| `undo_override`/`crew_email` x none x old identity | CASE. `seen` discards the retain; the sheet row wins. |
-| `undo_override`/`crew_email` x none x replacement | IMPOSSIBLE. The rejected change is an email on the SAME name, so there is no separately-named replacement row; that state IS the old-identity cell with a different email. |
-| `undo_override`/`crew_identity` x `removal` x absent | CASE. The Reject path, driven through the real RPC (AC-5). |
-| `undo_override`/`crew_identity` x `removal` x old identity | CASE asserting RELEASE, not a retain — `lib/sync/holds/holdAwareApply.ts:93-95` releases on reappearance. |
-| `undo_override`/`crew_identity` x `removal` x replacement | IMPOSSIBLE. A removal baseline carries no `suppressed_added` (`supabase/migrations/20260608000002_mi11_gate_rpcs.sql:90-91` sets `{kind: removal}` alone), so there is no replacement identity to be present under. |
-| `undo_override`/`crew_identity` x `delete` x absent | CASE. Live wins. |
-| `undo_override`/`crew_identity` x `delete` x old identity | CASE. The release check recognizes only `removal` (`lib/sync/holds/holdAwareApply.ts:93`), so a `delete` baseline SURVIVES a reappearance and `seen` then discards the retain — the sheet row wins. The committed probe already supplies this baseline (`tests/sync/capabilityLossReachability.probe.test.ts:316`). |
-| `undo_override`/`crew_identity` x `delete` x replacement | IMPOSSIBLE. Same reason as the removal row: a `delete` baseline carries no `suppressed_added`. |
-| `undo_override`/`crew_identity` x `rename` x absent | CASE. Releases when no parse row carries the suppressed email (`lib/sync/holds/holdAwareApply.ts:107-110`); asserts the release, not a retain. |
-| `undo_override`/`crew_identity` x `rename` x old identity | CASE asserting RELEASE via the FIRST arm, `parseByName.has(hold.entity_key)` at `lib/sync/holds/holdAwareApply.ts:103`. Round 1 was right that calling this a duplicate exercised nothing: it is a different release arm from the removal cell's, and a rename-specific release regression would have escaped. |
-| `undo_override`/`crew_identity` x `rename` x replacement x truly added | CASE. Spec §3.7 row 6: the hold survives, the replacement is suppressed by name and email, and the held member takes its OWN live row. L4a is the limit this cell pins. |
-| `undo_override`/`crew_identity` x `rename` x replacement x live owner | CASE. Spec §3.7 row 7: WM-F4 leaves the owner alone, the held member takes its own live row, and neither takes the other's. Round 1 found the earlier matrix named only row 6. |
-| the tombstone shape (`held_value.absent === true`) | CASE. Suppression only, NO retain — asserted as an absence, since a retain appearing here would be a new branch nothing governs. |
-| every remaining `n/a`-liveness combination | IMPOSSIBLE by construction: the liveness axis is only meaningful when the sheet state is "present under the replacement", and the suite encodes that as a precondition rather than as separate rows. |
+**The cases, each named with the site it reaches.** Existing suites that already reach a site count, and are registered rather than rewritten.
 
-Cells are declared as data — the four axes as exported tuples, the cross product computed, each cell resolved to a case factory or a named impossibility — and each case is generated from its row, so adding an axis value is a compile error rather than a silent gap.
+| Site | Case reaching it | Home |
+| --- | --- | --- |
+| `lib/sync/holds/holdAwareApply.ts:300` rename fold, truly-added target | the sheet's fold-target row wins via `nonIdentityOverride` | the existing `applyParseResult.holdAware.renameFold` suite, registered |
+| `lib/sync/holds/holdAwareApply.ts:321` WM-F6, live-owner target | the held member's own live row wins, the owner untouched, the collision recorded | Task 2 |
+| `lib/sync/holds/holdAwareApply.ts:337` genuine removal | live wins across all six non-identity fields, plus every empty shape and the two defensive pins | Task 1 |
+| `lib/sync/holds/holdAwareApply.ts:466` `crew_email` reject | live wins; and with no live row the snapshot is retained rather than nothing | Task 4 |
+| `lib/sync/holds/holdAwareApply.ts:477` `crew_identity` restore | the Reject path takes live, driven through the real RPC; the Undo path is a no-op | Task 3 |
+
+**Three RELEASE regression pins, kept because the cases above depend on the hold surviving.** They are not retain sites and they complete no enumeration; each pins one release arm a case rests on, so a release regression shows up as itself rather than as a mysteriously green retain case. Task 3 owns them: `mi11Reconciled` releasing on a reconciled name-and-email (`lib/sync/holds/holdAwareApply.ts:121-129`); the removal baseline releasing on reappearance (`lib/sync/holds/holdAwareApply.ts:93-95`); and the rename baseline releasing through its first arm, `parseByName.has(hold.entity_key)` (`lib/sync/holds/holdAwareApply.ts:103`).
+
+**One no-retain assertion.** The `crew_identity` tombstone (`held_value.absent === true`) suppresses and returns without a retain (`lib/sync/holds/holdAwareApply.ts:469-472`), and the live-owner suite's positive control already exercises the `add`-baseline form of it (`tests/sync/applyParseResult.holdAware.liveOwnerNeverDeleted.test.ts:303`). Task 3 asserts the absence: if a retain ever appears there it is a new site, which the guard's count catches first.
 
 ## 7. Task list
 
@@ -282,23 +270,25 @@ VERIFY:
 
 RED:
 
-1. New suite `holdRetainMatrix` under `tests/sync/` carrying §6.4's declaration as DATA — the three axes as exported tuples, the cross product computed, each cell either a case factory or a named impossibility with its reason. Assert first that cases plus named impossibilities equal the full cross product, so a dropped cell fails here rather than vanishing.
-2. The `undo_override`/`crew_identity` x `removal` x absent cell drives the real reject: seed a live member; write an mi11 hold with `disposition: 'removal'`; build the prior-crew snapshot from a row that diverges from the captured `held_value` (and seed the DB to match), because the planner reads `previousCrewMembers` from `snapshot(...)` and not from the database; call `mi11_reject_hold` through the authed admin path (`set_config('role','authenticated')` plus `request.jwt.claims`, the shape at `tests/sync/applyParseResult.holdAware.liveOwnerNeverDeleted.test.ts:228-240`); **then RESTORE the transaction role before anything else touches `sync_holds`** — `revoke all on table public.sync_holds from anon, authenticated` (`supabase/migrations/20260608000000_sync_holds.sql:46`) means the `authenticated` role cannot read the table, so the hold assertion and `applyParseResult` would both fail on a permission error before ever reaching line 477, and the case would report a red that has nothing to do with the defect. Reset the role and clear `request.jwt.claims` with `set_config(..., true)` immediately after the RPC returns. Only then assert the hold converted AND the crew row is still present, run `applyParseResult` with the member absent, and assert every non-identity field is the live one. The existing approve-driving test does not hit this because its RPC call is the LAST thing in its transaction.
-3. The remaining cells §6.4 marks CASE and Tasks 1, 2 and 4 do not already carry: the `removal` x old-identity release cell, both `delete` cells, all FOUR `rename` cells (absent, old identity via the first release arm, and the two replacement cells that split on liveness), the `crew_email` old-identity cell, and the tombstone no-retain assertion.
-4. Premises per cell on its OWN inputs: that the hold is in the state the cell names (kind, baseline, survived-or-released) and that live and `held_value` differ on the asserted fields. A cell that silently tested another branch is the failure mode this catches.
-5. In the probe suite, move the `undo_override/crew_identity(restore)` row to `phoneAfter: LIVE_PHONE` and rewrite its comment, which calls the snapshot retain intended by design — spec §3.5 refuted that. The new comment names §3.7's writer-set argument. The tombstone row is untouched.
-6. Observe red. Paste it.
+1. New suite `holdRetainMatrix` under `tests/sync/` carrying §6.4's SITE COVER: it imports the guard's own site-walking helper (the one Task 5 exports from the meta-suite's scan layer, so there is one derivation and not two), registers each case against the `file:line` of the site it reaches, and asserts in both directions that the covered set equals the derived set. A new retain site fails here for want of a case, and a case naming a site that no longer exists fails too.
+2. The `crew_identity` x `removal` Reject cell drives the real reject: seed a live member; write an mi11 hold with `disposition: 'removal'`; build the prior-crew snapshot from a row that diverges from the captured `held_value` (and seed the DB to match), because the planner reads `previousCrewMembers` from `snapshot(...)` and not from the database; call `mi11_reject_hold` through the authed admin path (`set_config('role','authenticated')` plus `request.jwt.claims`, the shape at `tests/sync/applyParseResult.holdAware.liveOwnerNeverDeleted.test.ts:228-240`); **then RESTORE the transaction role before anything else touches `sync_holds`** — `revoke all on table public.sync_holds from anon, authenticated` (`supabase/migrations/20260608000000_sync_holds.sql:46`) means the `authenticated` role cannot read the table, so the hold assertion and `applyParseResult` would both fail on a permission error before ever reaching line 477, and the case would report a red that has nothing to do with the defect. Reset the role and clear `request.jwt.claims` with `set_config(..., true)` immediately after the RPC returns. Only then assert the hold converted AND the crew row is still present, run `applyParseResult` with the member absent, and assert every non-identity field is the live one.
+3. The three RELEASE pins §6.4 names, each asserting its own arm fires: `mi11Reconciled` on a reconciled name-and-email, the removal baseline on reappearance, and the rename baseline's `parseByName.has(hold.entity_key)` arm. Each states its premise on its own inputs — that the hold was in the state the pin names before the sync, and that it is gone after.
+4. The tombstone no-retain assertion §6.4 names.
+5. Register the two existing suites that already reach the `lib/sync/holds/holdAwareApply.ts:300` and `lib/sync/holds/holdAwareApply.ts:321` sites (`applyParseResult.holdAware.renameFold` and the live-owner suite) so the coverage assertion sees them. Registration only; neither suite's assertions change here, and Task 2 owns the live-owner one's repair.
+6. Premises per case on its OWN inputs: that the hold is in the state the case names (kind, domain, baseline, survived-or-released) and that live and `held_value` differ on the asserted fields. A case that silently tested another branch is the failure mode this catches.
+7. In the probe suite, move the `undo_override/crew_identity(restore)` row to `phoneAfter: LIVE_PHONE` and rewrite its comment, which calls the snapshot retain intended by design — spec §3.5 refuted that. The new comment names §3.7's writer-set argument. The tombstone row is untouched.
+8. Observe red. Paste it.
 
 GREEN:
 
-7. `lib/sync/holds/holdAwareApply.ts:477` → `retainRowFor(hold.entity_key, held)`.
-8. Re-run. Green.
+9. `lib/sync/holds/holdAwareApply.ts:477` → `retainRowFor(hold.entity_key, held)`.
+10. Re-run. Green.
 
 VERIFY:
 
-9. Plant B6, observe the Reject cell AND the probe's restore row red, revert. Paste both. AC-11.
-10. The Undo cell drives `undo_change`, syncs with the member absent, and asserts the restored values survive. **It is a DOCUMENTATION CASE, not a regression pin, and NO declared mutant kills it** — `undo_change` re-inserts the crew row FROM `before_image` and `held_value` IS that `before_image`, so live and the snapshot are equal by construction on this path and B6 (which restores the snapshot preference) leaves it green. Recorded as such rather than paired with a mutant that does not kill it, per the RED-validity rule. What it would catch is a future change that makes the retain prefer something that is NEITHER the live row nor the snapshot on this path; that is worth a line, and claiming more for it would not be.
-11. `pnpm typecheck`.
+11. Plant B6, observe the Reject cell AND the probe's restore row red, revert. Paste both. AC-11.
+12. The Undo cell drives `undo_change`, syncs with the member absent, and asserts the restored values survive. **It is a DOCUMENTATION CASE, not a regression pin, and NO declared mutant kills it** — `undo_change` re-inserts the crew row FROM `before_image` and `held_value` IS that `before_image`, so live and the snapshot are equal by construction on this path and B6 (which restores the snapshot preference) leaves it green. Recorded as such rather than paired with a mutant that does not kill it, per the RED-validity rule. What it would catch is a future change that makes the retain prefer something that is NEITHER the live row nor the snapshot on this path; that is worth a line, and claiming more for it would not be.
+13. `pnpm typecheck`.
 
 ## Task 4 — the `crew_email` branch: the identity it never re-imposed, and the degrade it never closed
 
@@ -332,7 +322,7 @@ VERIFY:
 RED:
 
 1. Write the `_metaHoldRetainSource` suite under `tests/sync/`. It walks `lib/sync/holds/**` from disk — never a hardcoded file list, so a new module there is covered by default — and parses each file with the TypeScript compiler API, the idiom at `tests/cross-cutting/no-vestigial-middleware.test.ts:3`. For every `CallExpression` whose callee text ends in `retainRows.set` it records the enclosing function name, the second argument's classification, and that argument's argument text.
-2. Assert, per spec §5: every retain's value is a call to `retainRowFor` with arguments `hold.entity_key, held` (callee AND argument text, so S5 and S6 die); the site COUNT is exactly five (so S2 dies); and **the enclosing-function multiset is exactly `{ planHoldAwareApply: 3, applyUndoOverrideToMaps: 2 }`** (so S3 dies). The count alone does not kill S3: moving an existing retain into a third function preserves the count, the callee and both arguments, and the guard would record the new function name without ever asserting anything about it. The multiset is what makes the recorded value load-bearing.
+2. Assert, per spec §5: every retain's value is a call to `retainRowFor` with arguments `hold.entity_key, held` (callee AND argument text, so S5 and S6 die); the site COUNT is exactly five (so S2 dies); and **the FILE-QUALIFIED enclosing-function multiset is exactly `{ "lib/sync/holds/holdAwareApply.ts::planHoldAwareApply": 3, "lib/sync/holds/holdAwareApply.ts::applyUndoOverrideToMaps": 2 }`** (so S3 dies). Two narrowings, each from a round that got past the previous one: the count alone does not kill a retain MOVED to a third function, since count, callee and arguments all survive that; and a multiset keyed on the function NAME alone does not either, because another module under `lib/sync/holds/**` may declare a function with the same name, which round 2 pointed out. The key is the walked path plus the name, both of which the scan already has.
 3. State the premise unconditionally at describe scope, never inside a `.each` callback: `premise` that the walk found at least one `retainRows.set`. A parser that stopped matching then fails by name.
 4. Observe red on `lib/sync/holds/holdAwareApply.ts:300`. Paste it.
 
