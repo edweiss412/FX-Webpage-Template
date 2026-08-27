@@ -79,6 +79,22 @@ let applyCount: number;
 let zeroSized: Set<string>;
 
 /**
+ * Every `observe()` the hook issued on a target the stub was ALREADY holding.
+ *
+ * AC-9's second property, made structural. It was asserted per site through
+ * `expectObservedExactly`, which is a call someone has to remember: whole-diff
+ * round 2 found four sites that had not, and a sweep afterwards found four more
+ * that still had not. A per-site assertion cannot cover a site that forgot it.
+ * The stub records the violation itself and `afterEach` asserts the record is
+ * empty, so every case using this stub is covered by construction and a case
+ * added later is covered without being told.
+ *
+ * The per-site calls stay where they are: they assert exactly WHICH targets a
+ * reconcile added, which is strictly more than "none was re-observed".
+ */
+let reobservedTargets: string[];
+
+/**
  * Chain walks, counted exactly and independently of fixture depth: `apply()`
  * always begins its walk at the fitted node's parentElement, so one
  * `getComputedStyle` call on THAT node is one walk however deep the chain runs.
@@ -239,6 +255,7 @@ function installTargetTrackingObserver({ deliverInitial = false } = {}) {
   const state = {
     targets: new Set<Element>(),
     observeLog: [] as string[],
+    boxLog: [] as (string | undefined)[],
     unobserveLog: [] as string[],
     disconnects: 0,
     callbacks: [] as ResizeObserverCallback[],
@@ -250,9 +267,14 @@ function installTargetTrackingObserver({ deliverInitial = false } = {}) {
       constructor(cb: ResizeObserverCallback) {
         state.callbacks.push(cb);
       }
-      observe(t: Element) {
+      observe(t: Element, opts?: ResizeObserverOptions) {
+        if (state.targets.has(t)) reobservedTargets.push(idOf(t));
         state.targets.add(t);
         state.observeLog.push(idOf(t));
+        // Recorded so a MID-LIFE reconcile can be checked for it. `(h33)` moves
+        // `reapplyKey`, which tears down and re-attaches, so every call it sees
+        // is an attach call and it cannot speak for the reconcile path at all.
+        state.boxLog.push(opts?.box);
         // OFF by default. AC-8's cost rule is ABOUT the initial observation, so
         // its cases cannot run without this; every other case's subject is
         // target membership, and coupling those to delivery behaviour they are
@@ -405,6 +427,7 @@ beforeEach(() => {
   cancelledFrames = [];
   applyCount = 0;
   zeroSized = new Set();
+  reobservedTargets = [];
   walkAnchor = null;
   walkCount = 0;
   vi.stubGlobal("requestAnimationFrame", (cb: FrameCb): number => {
@@ -433,6 +456,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // AC-9's second property, over every case that used the tracking stub. A
+  // redundant `observe()` reaches the right target set, stays deliverable, and
+  // costs no apply under a stub that delivers on demand, so this is the only
+  // signal that sees it at all.
+  expect(reobservedTargets, "an already-held target was re-observed").toEqual([]);
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -1125,6 +1153,7 @@ describe("useFitWithinClip", () => {
       "nothing clips at attach and `outer` is not observed",
       fitted.style.maxHeight === "" && !state.targets.has(outer),
     );
+    const o0 = state.observeLog.length;
 
     view.rerender(<Harness reapplyKey="k" clips />);
     expect(
@@ -1145,6 +1174,7 @@ describe("useFitWithinClip", () => {
     // the subscription set is resolved once at attach, so the newly clipping
     // ancestor is never observed and stays dark for the overlay's whole life.
     expect(state.targets.has(outer), "the newly clipping ancestor was not subscribed").toBe(true);
+    expectObservedExactly(state.observeLog, o0, ["outer"]);
 
     geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
     expect(resize(outer), "the new clip ancestor's own resize was not deliverable").toBe(true);
@@ -1218,6 +1248,10 @@ describe("useFitWithinClip", () => {
       // AC-9's second half on an ADDITION path: `outer` is retained for the
       // clip role and must not be re-observed just because the set grew.
       expectObservedExactly(state.observeLog, o0, ["mid"]);
+      // AC-10's MID-LIFE half. `(h33)` can only see attach calls, because a
+      // `reapplyKey` change tears the ref down and re-attaches it; this is a
+      // reconcile on a live attachment, which is the other half of the claim.
+      expect(state.boxLog.slice(o0), "a reconcile observed the wrong box").toEqual(["border-box"]);
 
       geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
       const before = screen.getByTestId("fitted").style.maxHeight;
@@ -1425,6 +1459,9 @@ describe("useFitWithinClip", () => {
     // ORDER, which a target set cannot express: the log can.
     expect(clipped.state.observeLog, "attach order or count changed").toEqual(["outer", "inner"]);
     expect(clipped.state.unobserveLog, "the attach unobserved something").toEqual([]);
+    // The LOG alone is satisfied by two observers logging one target each.
+    // `(h21)` pins a single observer for the unclipped fixture only.
+    expect(clipped.state.callbacks.length, "the attach built more than one observer").toBe(1);
     cleanup();
     vi.unstubAllGlobals();
 
@@ -1433,6 +1470,7 @@ describe("useFitWithinClip", () => {
     // Nothing clips, so there is nothing to observe for the clip role, and
     // (h21) already pins that an observer still exists for the positioned one.
     expect(unclipped.state.observeLog, "the non-clipping attach changed").toEqual(["inner"]);
+    expect(unclipped.state.callbacks.length, "the attach built more than one observer").toBe(1);
   });
 
   test("(h34) AC-6: a clip ancestor that STOPS clipping keeps its target", () => {
@@ -1442,6 +1480,7 @@ describe("useFitWithinClip", () => {
       "the clip ancestor is observed and a cap exists",
       state.targets.has(outer) && fitted.style.maxHeight !== "",
     );
+    const o0 = state.observeLog.length;
 
     view.rerender(<Harness reapplyKey="k" clips={false} />);
     fireEvent(window, new Event("resize"));
@@ -1452,6 +1491,8 @@ describe("useFitWithinClip", () => {
     // right now" is not "this source is gone": dropping it would mean the same
     // ancestor clipping again delivers nothing at all (spec §4.1).
     expect(state.targets.has(outer), "the retained clip target was dropped").toBe(true);
+    // Retaining is a no-op at the observer: the desired set never changed.
+    expectObservedExactly(state.observeLog, o0, []);
 
     // ...and the proof that retaining is what matters: clipping again is
     // delivered by that node itself, with no bridging signal.
@@ -1467,6 +1508,7 @@ describe("useFitWithinClip", () => {
       const view = render(<ThreeLevelHarness reapplyKey="k" positionedOn="inner" />);
       const inner = screen.getByTestId("inner");
       premiseHolds("the positioned ancestor is observed at attach", state.targets.has(inner));
+      const o0 = state.observeLog.length;
 
       // `offsetParent` reads null for a `display: none` subtree, so this is the
       // hide-then-show path, not an exotic one.
@@ -1475,6 +1517,7 @@ describe("useFitWithinClip", () => {
       flushFrames();
 
       expect(state.targets.has(inner), "a null resolution dropped the target").toBe(true);
+      expectObservedExactly(state.observeLog, o0, []);
       expect(resize(inner), "the retained positioned target was not deliverable").toBe(true);
 
       // FLUSH FIRST. `resize()` above already scheduled a frame, so asserting
@@ -1537,15 +1580,17 @@ describe("useFitWithinClip", () => {
   });
 
   test("(h38) teardown removes the listener from the CURRENT role, not the attach-time node", () => {
-    installTargetTrackingObserver();
+    const { state } = installTargetTrackingObserver();
     withMarkedOffsetParent(() => {
       const view = render(<ThreeLevelHarness reapplyKey="k" positionedOn="inner" />);
       const mid = screen.getByTestId("mid");
+      const o0 = state.observeLog.length;
 
       // Move the role, so the listener is no longer where the attach put it.
       view.rerender(<ThreeLevelHarness reapplyKey="k" positionedOn="mid" />);
       fireEvent(window, new Event("resize"));
       flushUntilQuiet();
+      expectObservedExactly(state.observeLog, o0, ["mid"]);
 
       // PREMISE (own inputs): the listener must actually have moved, or this
       // case is (h24) again and says nothing new.
@@ -1600,6 +1645,7 @@ describe("useFitWithinClip", () => {
 
       // CLASS 3 — removes only. Back to both roles on `other`.
       const base3 = applyCount;
+      const observes3 = state.observeLog.length;
       view.rerender(<AliasHarness reapplyKey="k" clipOn="other" positionedOn="other" />);
       fireEvent(window, new Event("resize"));
       flushFrames();
@@ -1607,14 +1653,17 @@ describe("useFitWithinClip", () => {
       expect(afterSignal3 - base3, "the signal itself must apply exactly once").toBe(1);
       flushUntilQuiet();
       expect(applyCount - afterSignal3, "a removal-only reconcile cost an apply").toBe(0);
+      expectObservedExactly(state.observeLog, observes3, []);
 
       // CLASS 4 — neither. Same set, twice.
       const afterSignal4Base = applyCount;
+      const observes4 = state.observeLog.length;
       fireEvent(window, new Event("resize"));
       flushFrames();
       const afterSignal4 = applyCount;
       flushUntilQuiet();
       expect(applyCount - afterSignal4, "an unchanged reconcile cost an apply").toBe(0);
+      expectObservedExactly(state.observeLog, observes4, []);
       expect(afterSignal4 - afterSignal4Base, "the signal itself must apply exactly once").toBe(1);
 
       // CLASS 2 — adds a target that is currently 0x0. Both halves, because the
