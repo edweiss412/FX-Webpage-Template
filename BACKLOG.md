@@ -319,7 +319,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ## BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN — the portal measures three times on every open, and its placement loop is why
 
-**Status:** OPEN · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, class sweep §4.2) · **Facing:** product · **Severity:** LOW-MEDIUM (three forced synchronous reflows per menu open on a shipped admin surface; correct output, redundant cost) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — unpicking the convergence loop is a redesign of a placement surface the fitWithinClip arc does not otherwise touch, with its own e2e geometry suite and viewport-source registry. · **Reachability:** PROBED — the run below, against `origin/main` at `449f29fab`.
+**Status:** IN PROGRESS · **Branch:** perf/anchoredportal-measure-convergence · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, class sweep §4.2) · **Facing:** product · **Severity:** LOW-MEDIUM (three forced synchronous reflows per menu open on a shipped admin surface; correct output, redundant cost) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — unpicking the convergence loop is a redesign of a placement surface the fitWithinClip arc does not otherwise touch, with its own e2e geometry suite and viewport-source registry. · **Reachability:** PROBED — the run below, against `origin/main` at `449f29fab`.
 
 `components/admin/AnchoredPortal.tsx` runs `measureAndApply` three times for one closed → open
 transition. Counting anchor-rect reads, one per `measureAndApply`
