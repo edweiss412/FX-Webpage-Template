@@ -55,11 +55,17 @@ export async function readShowReviewSnapshot(
       // structurally, so the flat fields are now a RETAINED site-local choice —
       // stable field names for the §12.4 slots below — not a workaround
       // (docs/superpowers/specs/observability/2026-08-16-serialize-error-structure-design.md §1.1.6).
-      // The SQLSTATE rides under `pgrstCode`; `code` is the §12.4 telemetry slot
-      // and this read path deliberately stamps none.
+      // The SQLSTATE rides under `pgrstCode`. The `code` slot was left unstamped
+      // here on the belief that it is §12.4-gated; it is not — a `code:` literal
+      // inside a `log.*` span is stripped before the producer scan
+      // (lib/messages/__internal__/stripLogEmissionCalls.ts:4-11), so a forensic
+      // code costs nothing and is what `observe events --code` filters on. The
+      // flat pgrst* fields stay: stable named slots, and now redundant rather
+      // than load-bearing since `error` carries the structure.
       void log.error("get_admin_show_review_snapshot returned error", {
         source: "admin.showReview.snapshot",
-        error: error.message,
+        code: "SHOW_REVIEW_SNAPSHOT_READ_RETURNED_ERROR",
+        error,
         pgrstCode: error.code,
         pgrstDetails: error.details,
         pgrstHint: error.hint,
@@ -73,6 +79,7 @@ export async function readShowReviewSnapshot(
   } catch (err) {
     void log.error("get_admin_show_review_snapshot threw", {
       source: "admin.showReview.snapshot",
+      code: "SHOW_REVIEW_SNAPSHOT_READ_THREW",
       error: err,
     });
     return { kind: "infra_error", message: "show review snapshot read threw" };

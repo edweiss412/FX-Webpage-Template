@@ -16,6 +16,7 @@
  * tests/admin/_metaInfraContract.test.ts (infraRegistry).
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 
 export type IgnoredSheetRow = {
   driveFileId: string;
@@ -44,6 +45,11 @@ export async function loadIgnoredSheets(
     try {
       supabase = await createSupabaseServerClient();
     } catch (err) {
+      void log.error("ignored-sheets client construction failed", {
+        source: "admin.loadIgnoredSheets",
+        code: "IGNORED_SHEETS_CLIENT_THREW",
+        error: err,
+      });
       return {
         kind: "infra_error",
         message: `supabase client construction failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -61,6 +67,11 @@ export async function loadIgnoredSheets(
       .order("deferred_at", { ascending: false, nullsFirst: false })
       .limit(IGNORED_SHEETS_CAP);
     if (error) {
+      void log.error("deferred_ingestions read returned error", {
+        source: "admin.loadIgnoredSheets",
+        code: "IGNORED_SHEETS_READ_RETURNED_ERROR",
+        error,
+      });
       return {
         kind: "infra_error",
         message: `deferred_ingestions query failed: ${error.message}`,
@@ -68,6 +79,11 @@ export async function loadIgnoredSheets(
     }
     rawRows = (data ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
+    void log.error("deferred_ingestions read threw", {
+      source: "admin.loadIgnoredSheets",
+      code: "IGNORED_SHEETS_READ_THREW",
+      error: err,
+    });
     return {
       kind: "infra_error",
       message: `deferred_ingestions query threw: ${err instanceof Error ? err.message : String(err)}`,

@@ -17,9 +17,10 @@ export async function loadAlertSummary(): Promise<AlertSummary> {
       void log.error("admin_alert_summary returned error", {
         source: "admin.telemetry.alertSummary",
         code: "ALERT_SUMMARY_READ_RETURNED_ERROR",
-        // The message is the only thing that says WHICH infra fault this was. Dropping it
-        // made an upstream 502 here indistinguishable from any other read failure.
-        error: error.message,
+        // `error`, not `error.message`: serializeError captures the returned
+        // error's own code/details/hint (lib/log/logger.ts:38), which is strictly
+        // more than the message the flattened form kept.
+        error,
       });
       return FAIL;
     }
@@ -27,7 +28,14 @@ export async function loadAlertSummary(): Promise<AlertSummary> {
     if (!row) {
       void log.error("admin_alert_summary malformed row", {
         source: "admin.telemetry.alertSummary",
-        code: "ALERT_SUMMARY_READ_RETURNED_ERROR",
+        // A successful RPC that returned unusable data is NOT a returned error.
+        // Sharing the RETURNED_ERROR code conflated two faults an operator has to
+        // tell apart: one means the read failed, this one means the read
+        // succeeded and the shape was wrong.
+        code: "ALERT_SUMMARY_MALFORMED_ROW",
+        // A data-integrity fault has no error object, so the evidence IS the
+        // payload: what came back instead of a row.
+        error: { received: data },
       });
       return FAIL;
     }
@@ -36,7 +44,8 @@ export async function loadAlertSummary(): Promise<AlertSummary> {
     if (!isNonNegInt(total) || !isNonNegInt(degraded) || degraded > total) {
       void log.error("admin_alert_summary malformed row", {
         source: "admin.telemetry.alertSummary",
-        code: "ALERT_SUMMARY_READ_RETURNED_ERROR",
+        code: "ALERT_SUMMARY_MALFORMED_ROW",
+        error: { total, degraded },
       });
       return FAIL;
     }

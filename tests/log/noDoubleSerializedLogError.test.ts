@@ -9,6 +9,27 @@
 // (a `{name,message,stack}` object where a raw value belongs) plus redundant work, and this
 // scanner is what enforces it statically rather than any runtime assertion.
 //
+// DOCUMENTED LIMIT (fix/observe-error-telemetry, spec §9 limit 3): this scanner
+// does NOT see `error: X.message`. That form passes it while discarding exactly
+// the code/details/hint the guard exists to preserve — a flattening it was not
+// written to model, since it is neither String(e) nor JSON.stringify(e).
+//
+// Four in-cover instances were repaired by the lib/admin infra-emit sweep, which
+// reports them for its own reason (a payload whose type is not an object):
+// loadRecentAutoApplied, readShowReviewSnapshot, loadAlertSummary,
+// loadTelemetryStats. FIVE remain outside that cover and outside this arc's probe
+// domain: app/admin/_showReviewModal.tsx (three),
+// app/api/show/[slug]/version/route.ts, and lib/log/emitDiagramVariantFailures.ts
+// — the last passes `row.message` from a data row rather than a caught error and
+// may well be correct.
+//
+// Re-run trigger, which is the whole of the finding:
+//   grep -rn 'error: [a-zA-Z_][a-zA-Z0-9_]*\.message' lib/ app/ \
+//     --include='*.ts' --include='*.tsx' | grep -v '\.test\.'
+//
+// Widening this scanner to see `.message` is the mechanical repair and belongs to
+// whoever owns this guard, not to an arc whose cover is lib/admin/**.
+//
 // The residual DESTRUCTIVE vector moved: flattening BEFORE the helper — `String(e)` or
 // `JSON.stringify(e)` in the `error` initializer — still collapses structure, so this scanner
 // flags that family too (spec
