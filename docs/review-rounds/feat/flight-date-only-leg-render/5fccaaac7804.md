@@ -1,0 +1,11 @@
+# Review rounds — `feat/flight-date-only-leg-render`, base `5fccaaac7804`
+
+## diff — 2 rounds
+
+**Examined:** a docs-plus-probe branch that answers the promotion prerequisite on `BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK` and ships no renderer change. Two rounds, both BLOCKING, eight findings, all accepted. Round 1 (five) and round 2 (three) are one class between them: **a sentence in the report or the ledger row asserted more than the committed run and the suite established.** The instances differ only in which claim and which evidence — a denominator that could shrink silently, a confirmation-code count, a validation figure nothing committed could check, three of six table columns unasserted, an identity claim resting on aggregates, an unreadable sheet described from the outside.
+
+**Mechanizable:** the class has a mechanical cover now, and it is the only reason it should stop. The report's table columns are read out of the table's own HEADER and a header the suite cannot map to a probe field fails, so a column added to the report arrives pinned or the suite goes red — round 2's finding 1 was exactly the enumerated form of this loop drifting three columns behind the table. The quoted itinerary block is compared against the texts the committed run recorded. The validation cross-check compares sorted itinerary TEXTS, with a swap case asserting the comparison discriminates, because agreeing totals are satisfied by a database that lost one folder itinerary and gained one from outside the folder — the single case the cross-check exists to catch.
+
+**Judgment:** what stays judgment is prose that is arithmetic over pinned material rather than a transcription of it (the confirmation-code sentence counts codes in a block the suite now pins) and prose about what a hard parse error leaves unknown. Both were repaired by weakening the sentence to its evidence, and neither has a mechanical form worth the reach.
+
+**Infra:** both reviewers ran without vitest — the sandbox denied the temporary directory — and without Drive DNS, so every finding in both rounds came from reading committed artifacts and executing helpers directly. That it produced eight accepted findings anyway is the useful datum: the committed JSON output is what made the review possible at all.
