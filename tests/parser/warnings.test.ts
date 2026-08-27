@@ -169,9 +169,9 @@ describe("TYPO_NORMALIZED warning", () => {
   it("emits TYPO_NORMALIZED for 'Hotal Contact Info' typo inside the venue block", () => {
     // "Hotal Contact Info" resolves to venue.contact_info via the TYPO_ALIASES set.
     // The gate is VENUE-BLOCK MEMBERSHIP (field-near-miss spec §2.1) since the positional
-    // scope window was retired, so the table has to OPEN on a `VENUE` cell — the v2
-    // three-column shape. A v4 two-column table opens on `VENUE NAME`, which is a
-    // different namespace, and a typo row there is deliberately silent.
+    // scope window was retired. The predicate is `isVenueBlockOpener`, which covers BOTH
+    // corpus venue shapes, so this v2 three-column case and its v4 twin below differ only
+    // in the opener and both fire (2026-08-27-venue-block-predicate-design.md §2).
     const md = [
       "| VENUE | VENUE NAME | Test Venue |",
       "| Hotal Contact Info | Some Contact |",
@@ -188,6 +188,22 @@ describe("TYPO_NORMALIZED warning", () => {
     expect(w.code).toBe("TYPO_NORMALIZED");
     expect(w.rawSnippet).toBe("Hotal Contact Info");
     expect(w.blockRef?.kind).toBe("venue");
+  });
+
+  it("emits TYPO_NORMALIZED for the same typo row under a v4 VENUE NAME opener", () => {
+    // Byte-identical to the case above apart from the opener's SHAPE, so a pass in both is
+    // the shared predicate covering both corpus venue shapes rather than two separate gates.
+    // v4 is the current template; before the shared predicate this row emitted nothing.
+    const md = ["| VENUE NAME | Test Venue |", "| Hotal Contact Info | Some Contact |"].join("\n");
+
+    const agg = newAggregator();
+    parseVenue(md, "v4", agg);
+
+    const typoWarnings = agg.warnings.filter((w) => w.code === "TYPO_NORMALIZED");
+    expect(typoWarnings).toHaveLength(1);
+    expect(typoWarnings[0]!.severity).toBe("info");
+    expect(typoWarnings[0]!.rawSnippet).toBe("Hotal Contact Info");
+    expect(typoWarnings[0]!.blockRef?.kind).toBe("venue");
   });
 
   it("does NOT emit TYPO_NORMALIZED for correct spelling 'Hotel Contact Info'", () => {

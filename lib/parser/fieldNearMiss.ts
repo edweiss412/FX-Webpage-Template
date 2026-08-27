@@ -23,13 +23,10 @@ import { FIELD_ALIASES, resolveAlias } from "./aliases";
 import { clean, decodeEntities } from "./blocks/_helpers";
 import { scanRowsWithOpener } from "./blocks/_rowScan";
 import { matchesSectionHeader } from "./blocks/_sectionHeaderMatch";
+import { isVenueBlockOpener } from "./blocks/venue";
 import { isKnownSectionHeader } from "./knownSections";
 import { LABEL_TO_KIND_KEYS, canonicalSectionKind } from "./sectionKind";
-import {
-  EVENT_SECTION_HEADER_TOKENS,
-  SECTION_HEADER_TOKEN_SETS,
-  VENUE_SECTION_HEADER_TOKENS,
-} from "./sectionHeaderTokens";
+import { EVENT_SECTION_HEADER_TOKENS, SECTION_HEADER_TOKEN_SETS } from "./sectionHeaderTokens";
 import { consumptionKey, emitUnknownField, type ParseAggregator } from "./warnings";
 
 /** §3.1: decode HTML entities, casefold, collapse non-alphanumeric runs to one space, trim. */
@@ -197,7 +194,11 @@ function isCandidateLabel(col0: string): boolean {
  *
  * `kind` is a ROUTING key with three real consumers (anchor resolution, the swap
  * oracle, the persisted `block` column), so the venue and DETAILS-family arms return
- * the namespaces `lib/drive/unknownFieldAnchors.ts` scans under. Every other block
+ * the namespaces `lib/drive/unknownFieldAnchors.ts` scans under. The venue arm calls
+ * `isVenueBlockOpener` (`lib/parser/blocks/venue.ts`) — THE shared definition, the same
+ * one the TYPO_NORMALIZED gate calls, so this mapping and that gate cannot drift apart.
+ * It covers BOTH corpus venue shapes, including the v4 `VENUE NAME` opener of the
+ * current template. Every other block
  * returns its own normalized opener, which resolves no anchor — the documented-safe
  * outcome ("the correct cell or null"), and correct: those blocks never had anchors.
  *
@@ -214,7 +215,7 @@ function isCandidateLabel(col0: string): boolean {
  * caller makes for an unrecognized label. No corpus fixture reaches it.
  */
 function anchorNamespace(opener: string): string {
-  if (matchesSectionHeader(opener, VENUE_SECTION_HEADER_TOKENS)) return "venue";
+  if (isVenueBlockOpener(opener)) return "venue";
   if (matchesSectionHeader(opener, EVENT_SECTION_HEADER_TOKENS)) return "details";
   return normalizeV3(opener) || "section";
 }

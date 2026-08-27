@@ -2034,14 +2034,28 @@ export const MESSAGE_CATALOG = {
       "This sheet's DIAGRAMS tab is set up for pasted-in images, but we didn't find any (and no image-folder link was given). For a new show we'd rather check with you than publish an empty gallery; for an existing show, crew keep seeing the last set.",
     helpHref: "/help/errors#DIAGRAMS_EMBEDDED_NONE_FOUND",
   },
+  // Admin-log-only, and it STAYS that way: dougFacing/crewFacing/longExplanation/helpHref
+  // remain null and no /help/errors row appears. It renders on an operator note card through
+  // the CARD_SURFACED_LOG_ONLY carve-out, which is what requires title + helpfulContext.
+  //
+  // The copy claims RECOGNITION and nothing else, because that is all the parser does. Not
+  // "shows on the crew page" (the row's value is stored nowhere), not "correct the spelling"
+  // (that directs a sheet edit, which is the registry's own criterion for `actionable`, and
+  // this code is not-actionable), not "we read the row" (the value is stored nowhere), and
+  // not "misspelled" (TYPO_ALIASES holds "diagrams" and resolveAliasFull lowercases, so the
+  // correct spelling `Diagrams` emits this too). Four drafts were wrong in those four ways
+  // and every one cleared the banned-vocabulary regex and the caps.
   TYPO_NORMALIZED: {
     code: "TYPO_NORMALIZED",
     warningClass: "parse_warning",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
-    helpfulContext: null,
-    title: null,
+    helpfulContext:
+      "A row's label in your sheet matched one of the alternate spellings we keep for a field, so it wasn't listed as a row we didn't recognize. This is a record for us; there is nothing for you to fix.",
+    triggerContext:
+      "Appears when a row's label matches one of the alternate spellings we keep for a field.",
+    title: "Label we matched to a known field",
     longExplanation: null,
     helpHref: null,
   },

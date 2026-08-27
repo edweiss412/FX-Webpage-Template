@@ -4,8 +4,50 @@ import { type ParseAggregator, markConsumed } from "@/lib/parser/warnings";
 import { clean, presence } from "./_helpers";
 import { scanRowsWithOpener } from "./_rowScan";
 import { matchesSectionHeader } from "./_sectionHeaderMatch";
+import { normalizeHeader } from "@/lib/parser/knownSections";
 
 export const SECTION_HEADER_TOKENS = ["VENUE"] as const;
+
+/**
+ * Is this table the venue block? THE definition, called by both readers that need one: the
+ * `TYPO_NORMALIZED` gate below and the near-miss detector's anchor-namespace venue arm
+ * (`lib/parser/fieldNearMiss.ts`). One predicate rather than two matching calls, so venue
+ * membership cannot come to mean two things in two places.
+ *
+ * Two arms, because the corpus carries two venue table shapes:
+ *   v2 opens on a standalone `VENUE` cell   | VENUE | VENUE NAME | Four Seasons |
+ *   v4 opens on `VENUE NAME` itself         | VENUE NAME | Four Seasons |
+ * and v4 is the CURRENT template — 2026-03, 2026-04 and 2026-05 carry it and none carries a
+ * standalone `VENUE` cell at all.
+ *
+ * Both arms read the OPENER TEXT, which travels with its rows, so the predicate is
+ * swap-invariant by construction — the property the 497-swap sweep pins.
+ *
+ * BOTH ARMS NORMALIZE THROUGH `normalizeHeader`, and that is the point rather than a detail.
+ * `matchesSectionHeader` normalizes internally; a bare `resolveAlias` does not, so `VENUE
+ * NAME` with a double space, a tab or a non-breaking space would fail the second arm while
+ * the first accepts the same perturbation — two definitions wearing one name, which is the
+ * drift this predicate exists to remove. It stops at `normalizeHeader`: adding
+ * `decodeEntities` would accept a `&#10;` form that arm one REJECTS, overshooting parity in
+ * the other direction. Parity is the criterion, not permissiveness.
+ *
+ * The narrow arm is `venue.name` and NOT any `venue.*` canonical: `Hotal Contact Info` and
+ * `In House AV` are themselves `venue.*` aliases that OPEN their own hotel-contact tables in
+ * six corpus fixtures, so the wider form would pull those into the venue namespace and move
+ * the corpus TYPO_NORMALIZED census from 0 to 6.
+ *
+ * `SECTION_HEADER_TOKENS` is deliberately NOT widened to carry `VENUE NAME`: it also feeds
+ * the v2 three-column parse branch below, the near-miss vocabulary and `isKnownSectionHeader`.
+ * A v4 row entering the three-column branch would read its own value cell as a field label.
+ *
+ * Design: docs/superpowers/specs/parser/2026-08-27-venue-block-predicate-design.md §2.
+ */
+export function isVenueBlockOpener(opener: string): boolean {
+  return (
+    matchesSectionHeader(opener, SECTION_HEADER_TOKENS) ||
+    resolveAlias(normalizeHeader(opener)) === "venue.name"
+  );
+}
 
 // ── VENUE block shapes across corpus ─────────────────────────────────────────
 //
@@ -96,18 +138,21 @@ export function parseVenue(
       }
     }
 
-    // TYPO_NORMALIZED is gated on VENUE-BLOCK MEMBERSHIP (field-near-miss spec §2.1),
-    // not on the retired positional scope window. The predicate is the one the near-miss
-    // detector's anchor-namespace mapping uses for its "venue" arm — same helper, same
-    // token set — so a row's block reads identically on both sides. Content-keyed, so it
-    // is swap-invariant: the opener text moves with its rows.
+    // TYPO_NORMALIZED is gated on VENUE-BLOCK MEMBERSHIP (field-near-miss spec §2.1), not on
+    // the retired positional scope window. The predicate is `isVenueBlockOpener` above — THE
+    // definition, shared with the near-miss detector's anchor-namespace venue arm, so a row's
+    // block reads identically on both sides by construction rather than by two calls that
+    // happen to agree. Content-keyed, so it is swap-invariant.
     //
-    // Consequence, deliberate: a v4 two-column sheet opens its venue table on `VENUE NAME`
-    // rather than a standalone `VENUE` cell, so those rows are NOT the "venue" namespace
-    // and a typo alias sitting in one stays silent. The corpus census is 0 either way
-    // (every `Hotal Contact Info` row sits in a hotel block), which is the ratified
-    // outcome; the emission stays REACHABLE through the v2 three-column shape.
-    const inVenueBlock = matchesSectionHeader(opener, SECTION_HEADER_TOKENS);
+    // BOTH corpus venue shapes are inside it, which is the point. A v4 two-column sheet opens
+    // its venue table on `VENUE NAME` rather than a standalone `VENUE` cell, and v4 is the
+    // current template; a typo alias sitting in one is REPORTED. Before the shared predicate
+    // it emitted nothing at all — not this code, not FIELD_LABEL_AUTOCORRECTED (the alias
+    // resolves exactly), not UNKNOWN_FIELD (it resolved).
+    //
+    // The corpus census stays 0: every `Hotal Contact Info` row sits in a hotel block, and
+    // the seven tables the v4 arm adds carry no typo alias. Nothing on today's fixtures moved.
+    const inVenueBlock = isVenueBlockOpener(opener);
 
     // Emit TYPO_NORMALIZED if col0 matched a known-typo alias inside the venue block.
     if (col0Full?.isTypo && agg && inVenueBlock) {

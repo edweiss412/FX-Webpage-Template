@@ -30,6 +30,8 @@ import {
 } from "@/lib/drive/unknownFieldAnchors";
 import { FIXTURES } from "@/tests/parser/mutation/fixtures";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
+import { matchesSectionHeader } from "@/lib/parser/blocks/_sectionHeaderMatch";
+import { SECTION_HEADER_TOKENS as VENUE_SECTION_HEADER_TOKENS } from "@/lib/parser/blocks/venue";
 
 /** One emission's FULL identity (AC-N1) — a drifted block/kind mapping or a drifted
  *  matched candidate fails the pin, which a bare key multiset could not. */
@@ -274,7 +276,8 @@ describe("TYPO_NORMALIZED after the venue-block-membership re-gate (AC-N8)", () 
     // Every corpus venue block is clean (394-emission audit: 0 of 394 sit in one), so the
     // positive direction needs a constructed witness. Both rows are real sheet text: the
     // three-column `VENUE` opener is the v2 shape, and `Hotal Contact Info` is the corpus's
-    // own misspelling.
+    // own misspelling. The v4 twin below covers the other corpus shape; both go through the
+    // one shared predicate (2026-08-27-venue-block-predicate-design.md §2).
     const md = ["| VENUE | ADDRESS | LOADING DOCK |", "| Hotal Contact Info | Ashley M |"].join(
       "\n",
     );
@@ -305,6 +308,84 @@ describe("TYPO_NORMALIZED after the venue-block-membership re-gate (AC-N8)", () 
     parseVenue(md, "v4", agg);
     expect(agg.warnings.filter((w) => w.code === "TYPO_NORMALIZED")).toHaveLength(0);
   });
+
+  // ── the v4 shape, which was silent before the shared predicate ──────────────────────
+  //
+  // v4 is the CURRENT template: 2026-03, 2026-04 and 2026-05 all carry it and none carries
+  // a standalone `VENUE` cell at all. Before this arc a registered typo alias inside one of
+  // these tables emitted NOTHING — not TYPO_NORMALIZED (the gate was whole-cell equality
+  // against `VENUE`), not FIELD_LABEL_AUTOCORRECTED (the alias resolves exactly), not
+  // UNKNOWN_FIELD (it resolved). Spec: 2026-08-27-venue-block-predicate-design.md.
+
+  it("FIRES for a typo-alias row inside a v4 VENUE NAME-opened block", () => {
+    // Both rows are real sheet text: the opener is the shape at
+    // fixtures/shows/raw/2026-03-rpas-central-four-seasons.md:40, and `Hotal Contact Info`
+    // is the corpus's own misspelling.
+    const md = [
+      "| VENUE NAME | Four Seasons Hotel Chicago |",
+      "| Hotal Contact Info | Ashley M |",
+    ].join("\n");
+    premiseHolds(
+      "the label really resolves through a TYPO alias",
+      holdsTypoRow(md.split("\n")[1]!),
+    );
+    // THE discriminating premise: the opener is outside the OLD token set, so a green here
+    // can only come from the new predicate and never from the gate this arc replaced.
+    premiseHolds(
+      "the opener is the v4 spelling, outside the v2 token set",
+      !matchesSectionHeader("VENUE NAME", VENUE_SECTION_HEADER_TOKENS),
+    );
+    const agg = newAggregator();
+    parseVenue(md, "v4", agg);
+    const typo = agg.warnings.filter((w) => w.code === "TYPO_NORMALIZED");
+    expect(typo).toHaveLength(1);
+    expect(typo[0]!.severity).toBe("info");
+    expect(typo[0]!.blockRef?.kind).toBe("venue");
+    expect(typo[0]!.rawSnippet).toBe("Hotal Contact Info");
+  });
+
+  // ONE binding, read by BOTH the .each and its non-vacuity guard. An inline array in the
+  // .each with a separate list in the guard is the "premise validates something ADJACENT"
+  // defect: the real list could empty out while the duplicate stayed non-empty, and the
+  // guard would keep passing over zero executed cases.
+  //
+  // The non-breaking space is written as an ESCAPE. A literal is invisible in the source and
+  // an editor or formatter silently normalises it to a plain space, at which point the case
+  // still passes and proves nothing.
+  const OPENER_VARIANTS: ReadonlyArray<readonly [string, string]> = [
+    ["double space", "VENUE  NAME"],
+    ["tab", "VENUE\tNAME"],
+    ["non-breaking space", "VENUE\u00a0NAME"],
+  ];
+
+  it("the whitespace-variant openers really differ from the canonical spelling", () => {
+    // Non-vacuity for the .each below. It lives in a plain `it` because a premise inside an
+    // .each callback is unreachable when the case list is empty — the documented fifth shape
+    // — and it reads the SAME binding the .each consumes, never a second list.
+    premise("opener variants under test", OPENER_VARIANTS.length, 0);
+    for (const [label, opener] of OPENER_VARIANTS) {
+      expect(opener, `${label} collapsed to the canonical spelling`).not.toBe("VENUE NAME");
+    }
+  });
+
+  it.each(OPENER_VARIANTS)(
+    "FIRES for a typo-alias row under an ordinary %s variant of the v4 opener",
+    (_label, opener) => {
+      // Both arms of the predicate normalize through the same function, so ordinary sheet
+      // whitespace cannot put a table outside the venue block. An unwrapped resolveAlias
+      // rejects all three of these and leaves the typo row silent — this arc's own defect
+      // class, one layer down.
+      const md = [
+        `| ${opener} | Four Seasons Hotel Chicago |`,
+        "| Hotal Contact Info | Ashley M |",
+      ].join("\n");
+      const agg = newAggregator();
+      parseVenue(md, "v4", agg);
+      const typo = agg.warnings.filter((w) => w.code === "TYPO_NORMALIZED");
+      expect(typo).toHaveLength(1);
+      expect(typo[0]!.blockRef?.kind).toBe("venue");
+    },
+  );
 });
 
 function holdsTypoRow(line: string): boolean {
