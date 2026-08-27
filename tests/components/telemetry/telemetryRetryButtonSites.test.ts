@@ -90,6 +90,20 @@ function scanned(): { sites: Site[]; tagMentions: number } {
  * no preceding background className returns null and reds, instead of silently inheriting a
  * neighbour's answer.
  */
+/**
+ * A className is a TOKEN LIST, so every assertion about one goes through here.
+ *
+ * Both class-name checks in this file were written with `toContain` on the raw string and
+ * both were false-passing, but they were repaired one round apart: round 2 caught
+ * `"flex"` inside `"flex-col"`, round 3 caught `"bg-warning-bg"` inside `"bg-warning-bgg"`.
+ * Two instances of one shape, and fixing the first without sweeping for the second is the
+ * drip the class-sweep rule exists to stop. One function now, so a third assertion cannot
+ * reintroduce it by being written the old way.
+ */
+function classTokens(className: string): Set<string> {
+  return new Set(className.split(/\s+/).filter(Boolean));
+}
+
 function plateFor(site: Site): string | null {
   const before = site.src.slice(0, site.at);
   const all = [...before.matchAll(/className="([^"]*\bbg-[a-z0-9-]+[^"]*)"/g)];
@@ -150,7 +164,7 @@ describe("TelemetryRetryButton call sites", () => {
       // that had lost its standalone `flex` still passed at all three sites — and without
       // `display:flex` the `gap-2` this check exists to protect is inert, which is exactly
       // the regression it was written to catch.
-      const tokens = new Set(plate!.split(/\s+/).filter(Boolean));
+      const tokens = classTokens(plate!);
       for (const cls of ["flex", "flex-col", "items-start", "gap-2"]) {
         expect([...tokens], `${site.testId} plate is missing the ${cls} token`).toContain(cls);
       }
@@ -162,11 +176,39 @@ describe("TelemetryRetryButton call sites", () => {
   // colour and nothing would say so. Today every site is a warning plate; this is what makes
   // that hardcoding correct, and it turns "a non-warning caller ships a silent mismatch"
   // into a red at the moment such a caller is added.
+  // MODE-3 CHECK, from the four-way taxonomy of green mutation results: a mutant can be
+  // applied, in-window, and still sit on a branch the test never executes. `plateFor`'s
+  // refusal path is exactly that: every live site has a preceding plate, so the `null`
+  // return is never taken by the corpus, and a mutant that broke it would come back green
+  // for a reason that has nothing to do with the assertion. Exercised here on a synthetic
+  // source so the branch is actually run.
+  it("plateFor REFUSES rather than guessing when a site has no plate before it", () => {
+    const src = 'const X = () => <div><TelemetryRetryButton what="a" testId="b" /></div>;';
+    const at = src.indexOf("<TelemetryRetryButton");
+    premise("the synthetic source really contains a call site", at, 0);
+    expect(plateFor({ file: "synthetic.tsx", what: "a", testId: "b", at, src })).toBeNull();
+
+    // And the positive half on the same synthetic input, so the null above is a refusal
+    // rather than a function that returns null for everything.
+    const withPlate =
+      'const X = () => <div className="bg-warning-bg flex"><TelemetryRetryButton what="a" testId="b" /></div>;';
+    const at2 = withPlate.indexOf("<TelemetryRetryButton");
+    expect(
+      plateFor({ file: "synthetic.tsx", what: "a", testId: "b", at: at2, src: withPlate }),
+    ).toContain("bg-warning-bg");
+  });
+
   it("every site stands on the warning plate the control's focus offset assumes", () => {
     for (const site of found) {
       const plate = plateFor(site);
       expect(plate, `${site.testId} has no plate className before it`).not.toBeNull();
-      expect(plate!, `${site.testId} is not on the warning plate`).toContain("bg-warning-bg");
+      // Token-exact for the same reason the layout check is: `bg-warning-bgg` is a
+      // one-character typo that satisfies a substring test while carrying no background at
+      // all, and the control's hardcoded `ring-offset-warning-bg` would then paint against
+      // a plate that does not exist.
+      expect([...classTokens(plate!)], `${site.testId} is not on the warning plate`).toContain(
+        "bg-warning-bg",
+      );
     }
   });
 });
