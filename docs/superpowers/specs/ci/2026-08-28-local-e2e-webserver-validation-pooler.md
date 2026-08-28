@@ -64,11 +64,10 @@ Removing `TEST_DATABASE_URL` from the parent environment accomplishes nothing: N
 `.env.local` *inside* the server it boots, so the validation value walks straight back in. An
 explicit value in the child env survives that load.
 
-**Which `@next/env` this is measured against is load-bearing, and the first two drafts got it
-wrong.** Under pnpm the root `@next/env` is 16.2.4 while `next` 16.3.0 resolves its own 16.3.0 copy;
-they are different files with different loader bytes, and only the second one ever runs inside the
-server. Raised as BLOCKING in spec review round 3 and accepted. Every probe below, and every arm of
-T2, resolves the loader the way Next does:
+**Which `@next/env` this is measured against is load-bearing, and the obvious `require` is the wrong
+one.** Under pnpm the root `@next/env` is 16.2.4 while `next` 16.3.0 resolves its own 16.3.0 copy;
+they are different files with different loader bytes, and only the second ever runs inside the
+server. Every probe below, and every arm of T2, resolves the loader the way Next does:
 
 ```js
 const nextDir = path.dirname(require.resolve("next/package.json"));
@@ -204,7 +203,7 @@ the variable from the parent environment is a no-op: Next re-reads `.env.local` 
 
 **`playwright.screenshots.config.ts` needs no pin ADDED, but it IS inside the guard's walk.**
 Its single webServer is already pinned (lines 177-180), so this PR changes nothing in that file —
-that much stays ratified. What is NOT ratified, and was corrected after spec review round 1, is the
+that much is settled. What is separate, and easy to conflate, is the
 guard's scope: T1 walks that file too, so a future unpinned entry there fails rather than passing on
 the strength of the existing entry. Do not read "no change needed" as "out of scope for T1".
 
@@ -220,13 +219,12 @@ on two axes, neither of them an enumeration: the test DISCOVERS config files fro
 entry AND a new config file are covered by default rather than silently exempt. For each entry,
 assert `env.TEST_DATABASE_URL` and `env.DATABASE_URL` are present and loopback-hosted.
 
-**Both files, because one file was the hole.** Round 1 of spec review raised this as BLOCKING and it
-is accepted in full: a walk of `playwright.config.ts` alone leaves `playwright.screenshots.config.ts`
-guarded by nothing but the file-wide substring oracle in `tests/help/playwright-config.test.ts`,
-which its one correctly-pinned entry satisfies for the whole file. The reviewer's probe added a plain
-unpinned entry to that config and every specified guard stayed green. That is the same
-satisfied-by-one-occurrence defect this spec already identified in that test, and the first draft
-applied the critique to one file while leaving it open in the other.
+**Both files, and scoping to one is not an option.** A walk of `playwright.config.ts` alone leaves
+`playwright.screenshots.config.ts` guarded by nothing but the file-wide substring oracle in
+`tests/help/playwright-config.test.ts`, which its one correctly-pinned entry satisfies for the whole
+file. Probed: adding a plain unpinned entry to that config leaves every other guard green. That is
+the same satisfied-by-one-occurrence defect this spec identifies in that test, so applying the
+critique to one file and not the other would reproduce it.
 
 The oracle was probed on this branch before this spec was written, and the red is exactly as claimed:
 
@@ -281,8 +279,7 @@ each with a negative control and a positive assertion.
 this spec pins run in both: `pnpm dev` on port 3000 is development; `pnpm build && pnpm start` on the
 CI port 3000 and on 3001-3004, plus the screenshots config's server, are production. A
 development-only T2 stays green through a production-only precedence regression, which is failure
-mode (b) — a guard passing while an app server takes a remote DSN. Raised as BLOCKING in spec review
-round 2 and accepted in full.
+mode (b) — a guard passing while an app server takes a remote DSN.
 
 **`NODE_ENV` is set explicitly per arm and never inherited, and this is the trap.** Vitest runs with
 `NODE_ENV=test`, and in test mode `@next/env` does not read `.env.local` **at all**. A child
@@ -302,16 +299,16 @@ The `test` row is why the premise below is not optional: without it, that row is
 indistinguishable from a pass.
 
 **Every arm loads the package Next executes, not the root one.** T2 resolves `@next/env` through
-`next`'s own directory (§3). Binding it to the hoisted root copy was spec review round 3's BLOCKING
-finding: the root is 16.2.4, `next` 16.3.0 ships its own, and a Next upgrade could change the
-server's precedence while a root-bound T2 stayed green against a package no server runs.
+`next`'s own directory (§3). Binding it to the hoisted root copy is the trap: the root is 16.2.4,
+`next` 16.3.0 ships its own, and a Next upgrade could change the server's precedence while a
+root-bound T2 stayed green against a package no server runs.
 
 **Two executable premises.**
 
 *Premise 1 — the right package.* T2 asserts the loader path it required is the one `next` itself
 resolves, and is NOT the root resolution. Without this the binding silently reverts the first time
-someone simplifies the `require` back to `require("@next/env")`, which is exactly how the first two
-drafts were written.
+someone simplifies the `require` back to `require("@next/env")`, which is the form anyone would
+reach for.
 
 *Premise 2 — the fixture was actually read.* Each child reports `loadEnvConfig`'s own
 `loadedEnvFiles`, and T2 asserts `.env.local` is among them before trusting any arm. If a future
