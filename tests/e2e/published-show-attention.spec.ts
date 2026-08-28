@@ -336,18 +336,22 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     await page.evaluate(() => {
       (window as unknown as { __attnNoReload?: boolean }).__attnNoReload = true;
     });
-    // Resolve the overview banner first. The pill is the durable signal: the
-    // optimistic decrement fires immediately and the router.refresh()
-    // reconcile (which unmounts the transient "✓ Confirmed" swap) converges on
-    // the SAME count — asserting the pill covers both phases without racing
-    // the refresh. (The Confirmed swap itself is pinned in jsdom.)
+    // Resolve the overview banner first. What the pill assertions below prove
+    // is the OPTIMISTIC paint and nothing more: `onResolved` runs before
+    // `router.refresh()` (components/admin/PerShowAlertResolveButton.tsx:79-81),
+    // `doneIds` hides the item locally, and `expect.poll` resolves on its FIRST
+    // match, which is that paint. So a resolve that returned a success body
+    // without persisting would still satisfy every pill assertion here. The
+    // persistence half is asserted against the database at the end of this
+    // case, where it cannot be faked by a local paint. (The transient
+    // "✓ Confirmed" swap is pinned in jsdom.)
     await page
       .locator(`${MODAL} [data-testid="per-show-alert-resolve-${overviewAlertId}"]`)
       .click();
     // EXACT, not a substring: "1 issue" is also a substring of "11 issues", and
     // the composed form is what proves the issues segment decremented while the
-    // warnings segment stayed put. `expect.poll` because the optimistic
-    // decrement and the router.refresh() reconcile land in two paints.
+    // warnings segment stayed put. `expect.poll` retries because the decrement
+    // is a paint away from the click.
     await expect.poll(() => pillText(page)).toBe(`1 issue · ${WARN_SEGMENT}`);
     // The resolved item's actionable affordance is gone (either Confirmed swap
     // or reconciled unmount — never a still-clickable resolve button).
@@ -386,5 +390,27 @@ test.describe("published show attention surface (spec §5/§6)", () => {
       await page.evaluate(() => (window as unknown as { __attnNoReload?: boolean }).__attnNoReload),
       "resolve lifecycle must not reload the document",
     ).toBe(true);
+    // PERSISTENCE, read from the database rather than from the page. Every
+    // assertion above this line is satisfiable by the optimistic paint alone,
+    // so without this the case would pass against a resolve that answered
+    // success and wrote nothing. Asserting `resolved_at` is non-null on BOTH
+    // seeded rows is what makes the earlier pill readings mean the operator's
+    // click actually landed.
+    const { data: persisted, error: persistError } = await admin
+      .from("admin_alerts")
+      .select("id, resolved_at")
+      .in("id", [overviewAlertId, crewAlertId]);
+    if (persistError) throw new Error(`resolve persistence read failed: ${persistError.message}`);
+    expect(
+      persisted?.map((r) => r.id).sort(),
+      "both seeded alerts must still exist to be checked",
+    ).toEqual([overviewAlertId, crewAlertId].sort());
+    expect(
+      persisted
+        ?.filter((r) => r.resolved_at !== null)
+        .map((r) => r.id)
+        .sort(),
+      "both resolves must be persisted, not merely painted",
+    ).toEqual([overviewAlertId, crewAlertId].sort());
   });
 });

@@ -155,6 +155,23 @@ jobs:
       - name: Run published-modal e2e (desktop-chromium, :3000 only)
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/published-modal-e2e-report.json
+          # DATABASE_URL, not TEST_DATABASE_URL: the latter is this repo's name
+          # for the REMOTE validation project, and pointing it at the local
+          # stack here would read as that (app-e2e.yml:176-186 records the same
+          # rationale for the same pair).
+          #
+          # Required as of the resolve-lifecycle case being un-fixme'd: it is
+          # the only case in this job that POSTs to a route reaching the app's
+          # postgres.js path, and that path resolves
+          # `TEST_DATABASE_URL ?? DATABASE_URL` and THROWS under production
+          # posture when neither is set
+          # (app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts:36). This
+          # job's :3000 server IS production posture — CI=true selects
+          # `pnpm build && pnpm start` in playwright.config.ts — so without
+          # this the resolve returns 500 and the case is red in the very
+          # workflow that gates it. The other eight specs here never reach that
+          # path, which is why the job carried no DSN until now.
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
         run: pnpm exec playwright test --reporter=list,json --project=desktop-chromium tests/e2e/published-show-attention.spec.ts tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts tests/e2e/published-review-modal.prefetch.spec.ts tests/e2e/published-review-modal.crew-actions.spec.ts tests/e2e/published-review-modal.realtime.spec.ts tests/e2e/published-review-modal.reopen.spec.ts tests/e2e/published-review-modal.closeFreshness.spec.ts
       # Informational, never a gate (spec §4.3). `if: always()` is load-bearing: without it
       # this is an ordinary prerequisite-gated step, so a run that RECOVERS and then fails a
