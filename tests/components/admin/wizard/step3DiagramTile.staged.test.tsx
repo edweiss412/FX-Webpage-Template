@@ -25,6 +25,7 @@ import { cleanup, fireEvent, render, within } from "@testing-library/react";
 
 import {
   DIAGRAM_TILE_SIZES,
+  DiagramTile,
   DiagramsBreakdown,
 } from "@/components/admin/wizard/step3ReviewSections";
 import type { EmbeddedImageStub, ParseResult } from "@/lib/parser/types";
@@ -175,6 +176,51 @@ describe("staged wizard diagram tile — transition inventory", () => {
     const tile = scoped.getByTestId(TILE(0));
     expect(within(tile).getByText("Preview unavailable")).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
+  });
+
+  test("the placeholder NAMES which diagram is dark", () => {
+    // impeccable critique P1: a grid of failures read as N identical grey boxes,
+    // so the reviewer could not tell which sheet tab was missing on the surface
+    // where he confirms diagrams made it in before publishing. The name was
+    // already in hand as `alt` and was being discarded.
+    const stub = stagedStub({ objectId: "staged-obj-named", contentUrl: null });
+    const { scoped } = renderStaged([stub]);
+    const tile = scoped.getByTestId(TILE(0));
+    premiseHolds(
+      "the tile is on the placeholder branch, which is the branch under test",
+      within(tile).queryByText("Preview unavailable") !== null,
+    );
+    // Selected by `title`, not by a testid: a testid derived from the tile's
+    // own would be counted as a tile by the `[data-testid^="…-diagram-tile-"]`
+    // prefix selector the cap assertion uses. Derived from the fixture, never
+    // pasted: the stub carries its own alt.
+    const name = tile.querySelector("[title]");
+    expect(name).not.toBeNull();
+    expect(name!.textContent).toBe(stub.alt);
+    expect(name!.getAttribute("title")).toBe(stub.alt);
+  });
+
+  test("a placeholder with NO usable name renders no name node rather than an empty one", () => {
+    // Driven through DiagramTile DIRECTLY, because that is the level that owns
+    // this guard. Going through DiagramsBreakdown cannot reach it: an empty
+    // `stub.alt` falls back upstream to `Diagram from {sheetTab}`
+    // (step3ReviewSections.tsx, the `alt` prop on the tile), so the tile never
+    // sees an empty name from that path. An earlier draft of this case asserted
+    // through the breakdown and failed for exactly that reason — the fallback is
+    // correct behaviour, and the case was testing the wrong level.
+    const { container, getByTestId } = render(
+      <DiagramTile
+        href="/api/admin/onboarding/staged-diagram/ws/dfid/obj"
+        sourceKey="staged:ws:dfid:obj"
+        loader={() => "/api/admin/onboarding/staged-diagram/ws/dfid/obj"}
+        sizes="100px"
+        alt=""
+        testId="noname-tile"
+        hasPreviewSource={false}
+      />,
+    );
+    expect(within(getByTestId("noname-tile")).getByText("Preview unavailable")).toBeTruthy();
+    expect(container.querySelector("[title]")).toBeNull();
   });
 
   test("image -> placeholder on a runtime error, in one step and with no animation", () => {

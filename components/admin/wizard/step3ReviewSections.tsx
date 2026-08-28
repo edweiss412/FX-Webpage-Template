@@ -3890,10 +3890,29 @@ export function DiagramTile({
     return (
       <span
         data-testid={testId}
-        className="grid aspect-4/3 w-full place-items-center gap-1 rounded-md border border-border bg-surface-sunken text-center"
+        className="grid aspect-4/3 w-full place-items-center gap-1 overflow-hidden rounded-md border border-border bg-surface-sunken px-1 text-center"
       >
         <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
         <span className="text-xs text-text-subtle">Preview unavailable</span>
+        {/* WHICH diagram is dark. The name is already in hand as `alt` and was
+            being discarded, so a grid of failures read as N identical grey
+            boxes and the reviewer could not tell which sheet tab was missing —
+            on the surface where he confirms diagrams made it in before
+            publishing. Truncated because a tile is ~74px wide at 320px; the
+            full string stays available as the title. `overflow-hidden` on the
+            container keeps the box identical to the live tile's, which the
+            real-browser suite pins.
+
+            NO `data-testid` here, deliberately. The tile-count assertion selects
+            with `[data-testid^="…-diagram-tile-"]`, a PREFIX match, so any
+            testid derived from the tile's own would be counted AS a tile — the
+            cap assertion read 24 where 12 was correct at every breakpoint. The
+            title attribute is the handle instead. */}
+        {strippedAlt ? (
+          <span title={strippedAlt} className="max-w-full truncate text-xs text-text-subtle">
+            {strippedAlt}
+          </span>
+        ) : null}
       </span>
     );
   }
@@ -3925,7 +3944,13 @@ export function DiagramTile({
          a next/image adoption has no business moving an element out of the
          painted-child family that spec §15 table 3 counts. Consistency may be
          worth having; it is not this row's to take. */
-      className="relative block aspect-4/3 w-full overflow-hidden"
+      /* Focus ring: WCAG 2.4.7. This anchor is a link and had NO visible focus
+         indicator beyond the browser default, while every sibling link in this
+         file carries the recipe. The arc that rewrote this className is the one
+         that owes it. `overflow-hidden` above does not clip it — an element's
+         own overflow never clips its own ring — and the offset ground is
+         `surface`, the panel-card the grid sits in. */
+      className="relative block aspect-4/3 w-full overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       <Image
         loader={loader}

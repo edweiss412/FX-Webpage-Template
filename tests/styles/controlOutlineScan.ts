@@ -111,10 +111,10 @@ export const CENSUS: readonly CensusRow[] = [
   // itself survived every one of those merges untouched, and what moved is
   // where it sits. The suite RED that caught this drift is the pin working —
   // `resolveCensus` returns `null` rather than dropping the row.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4361 },
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4367 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4418 },
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4424 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21
