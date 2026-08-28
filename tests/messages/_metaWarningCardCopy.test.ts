@@ -214,6 +214,61 @@ describe("spec 2026-08-27-wizard-warning-row-links-copy §4: the control sentenc
     }
   });
 
+  it("no RENDERED prose field of a card code names a card control, not just helpfulContext", () => {
+    // Class sweep widened after the impeccable critique found the original miss: this
+    // arc's own repair covered `helpfulContext` and left `longExplanation` naming Report
+    // on PULL_SHEET_PARSE_PARTIAL - and `notePopoverParts` renders `longExplanation`
+    // FIRST (NoteWarningCard.tsx, firstNonBlank(longExplanation, helpfulContext)) on a
+    // card that mounts no mutate controls, plus /help/errors where there is no card at
+    // all. Same defect, one field over.
+    //
+    // Derived cover, not a list: every RENDERED prose field of every card code. `followUp`
+    // is deliberately excluded and inventoried - it is §12.4 routing prose ("Doug -> ...")
+    // rendered only by the health-alert surface for health codes, never on a warning card.
+    for (const field of ["helpfulContext", "longExplanation", "triggerContext"] as const) {
+      const offenders = [...WARNING_CARD_COPY_CODES]
+        .filter((code) => {
+          const v = CATALOG[code]?.[field];
+          return typeof v === "string" && /\b(Report|Ignore)\b/.test(v);
+        })
+        .sort();
+      expect(offenders, `${field} names a card control`).toEqual([]);
+    }
+  });
+
+  it("the COMPOSED guidance line stays under the cap, and no note carries an emphasis marker", () => {
+    // Two impeccable-audit P3s. (1) helpfulContext is capped at 300 chars above, but the
+    // card renders helpfulContext + " " + controlsNote in ONE span, so the cap stopped
+    // bounding what is on screen. (2) `renderEmphasis` scans the COMPOSED string, so an
+    // unbalanced `*` in one field could open an <em> spanning into the other; no carrier
+    // has a marker today and this keeps it that way.
+    for (const [code, note] of Object.entries(EXPECTED_CONTROLS_NOTE)) {
+      const hc = CATALOG[code]?.helpfulContext;
+      premiseHolds(`${code} has helpfulContext to compose with`, typeof hc === "string");
+      expect(`${hc as string} ${note}`.length, `${code} composed guidance cap`).toBeLessThanOrEqual(
+        300,
+      );
+      expect(/[*_]/.test(note), `${code}.controlsNote carries an emphasis marker`).toBe(false);
+    }
+  });
+
+  it("only UNKNOWN_FIELD's note names Ignore, because Ignore's render is conditional on rawSnippet", () => {
+    // The prop promises "Report + Ignore are mounted", but Ignore is gated on
+    // hasIgnorableSnippet (DataQualityWarningControls.tsx). UNKNOWN_FIELD always writes a
+    // rawSnippet, so the promise holds for it. A SECOND code whose note names Ignore
+    // would reopen the exact bug this arc closed - a sentence naming a button that did
+    // not render - silently. Adding one is then a deliberate act that must re-check the
+    // snippet condition first.
+    const namesIgnore = Object.entries(CATALOG)
+      .filter(
+        ([, e]) =>
+          typeof e?.controlsNote === "string" && /\bIgnore\b/.test(e.controlsNote as string),
+      )
+      .map(([c]) => c)
+      .sort();
+    expect(namesIgnore).toEqual(["UNKNOWN_FIELD"]);
+  });
+
   it("no helpfulContext of a card code names a card control; the sentence lives in controlsNote", () => {
     // Asserted over the WHOLE registry, not the three moved codes, so the class cannot
     // regrow on this surface. Scoped to the card codes on purpose: TILE_SERVER_RENDER_FAILED

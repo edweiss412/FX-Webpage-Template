@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
+import {
+  PerShowActionableWarnings,
+  withControlsNote,
+} from "@/components/admin/PerShowActionableWarnings";
 import type { ParseWarning } from "@/lib/parser/types";
 import { EXPECTED_CONTROLS_NOTE } from "@/tests/messages/warningCardCopyRegistry";
 
@@ -235,5 +238,43 @@ describe("controlsNote renders only beside the controls (spec 2026-08-27 §4.3)"
     expect(text.length).toBeGreaterThan(0);
     expect(text.includes(NOTE)).toBe(false);
     expect(/\b(Report|Ignore)\b/.test(text)).toBe(false);
+  });
+});
+
+describe("withControlsNote: spec §4.3's guard table, without a render", () => {
+  // The export exists FOR this - it was exported and then only ever called internally,
+  // which the impeccable audit caught: a docstring promising unit-testability with no
+  // unit test. Each row is one line of the §4.3 table.
+  test("catalog guidance + note composes; the note is last", () => {
+    expect(withControlsNote({ kind: "catalog", markup: "Guidance." }, "Note.")).toEqual({
+      kind: "catalog",
+      markup: "Guidance. Note.",
+    });
+  });
+
+  test("a null note leaves the guidance untouched, object and all", () => {
+    const g = { kind: "catalog", markup: "Guidance." } as const;
+    expect(withControlsNote(g, null)).toBe(g);
+  });
+
+  test("an INSTANCE line is returned unchanged: the note is a catalog-guidance affordance", () => {
+    const g = { kind: "instance", text: "We read Stage in place of Stge." } as const;
+    expect(withControlsNote(g, "Note.")).toBe(g);
+  });
+
+  test("null catalog guidance + a note renders the note alone", () => {
+    expect(withControlsNote({ kind: "catalog", markup: null }, "Note.")).toEqual({
+      kind: "catalog",
+      markup: "Note.",
+    });
+  });
+
+  test("null guidance and a blank note collapse to null, never an empty string", () => {
+    // The fallback the audit flagged as unreachable from the component (which pre-trims):
+    // reachable HERE, which is what makes stating it worthwhile.
+    expect(withControlsNote({ kind: "catalog", markup: null }, "   ")).toEqual({
+      kind: "catalog",
+      markup: null,
+    });
   });
 });

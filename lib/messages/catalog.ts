@@ -1749,7 +1749,7 @@ export const MESSAGE_CATALOG = {
     triggerContext: "Appears when a pull-sheet QTY cell isn't a plain number.",
     title: "Pull sheet rows we couldn't fully read",
     longExplanation:
-      "We couldn't read the QTY on some rows, usually it's a word, a range like '1-2', or another value that isn't a plain number. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
+      "We couldn't read the QTY on some rows, usually it's a word, a range like '1-2', or another value that isn't a plain number. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected.",
     helpHref: "/help/errors#PULL_SHEET_PARSE_PARTIAL",
   },
   PULL_SHEET_ON_ARCHIVED_TAB: {

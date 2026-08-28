@@ -87,16 +87,20 @@ export function withControlsNote(guidance: GuidanceResult, note: string | null):
  *  keeps its full-mode slot. Pure + exported so the 8-row table is unit-testable. */
 export function condensedPopoverSlots(args: {
   movedGuidance: string | null;
+  /** Appended LAST, after the trigger explanation. The controls note is an action
+   *  sentence; landing it between the advice and "Appears when …" announces the action
+   *  mid-description and then walks back to system state (impeccable audit P2). */
+  trailing?: string | null;
   context: string | null;
   followUp: string | null;
 }): { popoverBody: string | null; afterBodyText: string | null } {
-  const { movedGuidance, context, followUp } = args;
+  const { movedGuidance, context, followUp, trailing } = args;
   const fullBody = context ?? followUp;
   const fullAfter = context !== null ? followUp : null;
-  const popoverBody =
-    movedGuidance !== null && fullBody !== null
-      ? `${movedGuidance} ${fullBody}`
-      : (movedGuidance ?? fullBody);
+  const composed = [movedGuidance, fullBody, trailing ?? null].filter(
+    (p): p is string => typeof p === "string" && p.length > 0,
+  );
+  const popoverBody = composed.length > 0 ? composed.join(" ") : null;
   return { popoverBody, afterBodyText: fullAfter };
 }
 
@@ -161,6 +165,7 @@ export function PerShowActionableWarnings({
         // invariant 5 (whole-diff R1): catalog title when present, else the human
         // .message — but NEVER the bare code, even if a producer's .message IS its
         // code (defense beyond the four known human-message codes).
+        const isCondensedMode = condensed === true;
         const humanMessage = w.message && w.message !== w.code ? w.message : null;
         const title = (entry?.title ?? null) || humanMessage || "Data quality issue";
         // Inline guidance = condensed helpfulContext; popover = triggerContext
@@ -173,12 +178,17 @@ export function PerShowActionableWarnings({
         // control is on the card; the prop is the mount's promise, and only the two active
         // per-show mounts make it (spec §4.3, amended at plan review R1).
         const controlsNote =
-          showControlsNote === true &&
-          typeof entry?.controlsNote === "string" &&
-          entry.controlsNote.trim().length > 0
-            ? entry.controlsNote.trim()
+          showControlsNote === true && typeof entry?.controlsNote === "string"
+            ? entry.controlsNote.trim() || null
             : null;
-        const guidanceResult = withControlsNote(resolveGuidance(entry, w), controlsNote);
+        // Inline mode composes the note into the guidance line (spec §4.3). Condensed
+        // mode routes the catalog string into the `?` popover, where the note is added at
+        // the END instead, after the trigger explanation, so an action sentence is never
+        // announced mid-description (impeccable audit P2 / critique P1).
+        const baseGuidance = resolveGuidance(entry, w);
+        const guidanceResult = isCondensedMode
+          ? baseGuidance
+          : withControlsNote(baseGuidance, controlsNote);
         // §4.3 four-row guard table. Both inputs collapse to "absent" under one
         // rule, so `undefined`, null, "", and any whitespace run behave alike
         // and the table is total over each input's full domain.
@@ -211,7 +221,7 @@ export function PerShowActionableWarnings({
         // case — so the card keeps a described popover instead of losing its
         // trigger entirely. `context` is already `string | null` (the
         // warningCardCopyFields ternary above), the one nullable sentinel.
-        const isCondensed = condensed === true;
+        const isCondensed = isCondensedMode;
         const movedGuidance =
           isCondensed && guidanceResult.kind === "catalog" ? guidanceResult.markup : null;
         // Full mode: movedGuidance is null, so this degenerates to exactly the
@@ -221,6 +231,7 @@ export function PerShowActionableWarnings({
           movedGuidance,
           context,
           followUp,
+          trailing: isCondensed && guidanceResult.kind === "catalog" ? controlsNote : null,
         });
 
         // Branch on the RESULT, never on `sourceCell` alone: a non-null cell with a
