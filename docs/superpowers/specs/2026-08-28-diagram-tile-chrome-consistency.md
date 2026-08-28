@@ -29,6 +29,11 @@ gallery is already this arrangement and is not edited. The token is NOT changed 
 - **The failed branch is not edited.** See §6, L1.
 - **Both surfaces are already correct about `relative` and their focus rings.** Those placements carry
   their own measured justifications in the code comments and are untouched.
+- **Settled by probe at spec round 1, so a later round does not re-derive them.** The closed-domain
+  sweep in §2 accounts for every JSX image element in scope, with no omitted surface;
+  `app/help/_components/Screenshot.tsx` is honestly excluded under the runtime-no-image-state
+  criterion; and the anchor is admitted by the scanner as `"element"`, never `"painted-child"`, so §5's
+  4-to-3 arithmetic holds. All three were checked against the live tree with the exported scanner.
 
 ## 2. The class, derived rather than listed
 
@@ -54,33 +59,53 @@ have to paint the box with no image present?) precisely so it can be re-run rath
 
 Four reasons, each checkable. None of them is insetting.
 
-**3.1 The wrapper is the only element present in every state, and the image is not.** Both class
-members have a state with no image: the crew gallery's `ImageOff` branch
-(`components/diagrams/Gallery.tsx:416`) and the admin tile's `failed` branch
-(`components/admin/wizard/step3ReviewSections.tsx:3874`). Chrome on the image therefore has to be
-declared twice, once per branch, and the two copies must be kept in agreement by hand. In the admin
-tile they already disagree: the failed `<span>` paints `border-border`, the live `<Image>` paints
-`border-text-faint`. Chrome on the wrapper is one declaration that cannot drift from itself.
+**3.1 Both branches paint the box on the element that FORMS the box.** Both class members have a
+state with no image: the crew gallery's `ImageOff` branch (`components/diagrams/Gallery.tsx:416`) and
+the admin tile's `failed` branch (`components/admin/wizard/step3ReviewSections.tsx:3874`).
+
+For the admin tile this does NOT collapse to a single declaration, and an earlier draft of this section
+claimed it did. The failed branch returns at `components/admin/wizard/step3ReviewSections.tsx:3870-3898`, before
+the live anchor at `components/admin/wizard/step3ReviewSections.tsx:3909-3957` exists, so no element is present in
+both branches and the box is declared once per branch under either arrangement. What the move buys is
+that both declarations land on their branch's box-forming WRAPPER, so the shared-box contract
+(`aspect-4/3 w-full overflow-hidden rounded-md`) is one comparable statement per branch instead of a
+container in one branch and an image in the other. Today those two disagree about the kind of element
+as well as the token: the failed `<span>` paints `border-border` on the container, the live `<Image>`
+paints `border-text-faint` on the image.
+
+The crew gallery is the same rule's other shape, and there it DOES collapse: its `<li>` cell encloses
+both branches (`components/diagrams/Gallery.tsx:351`), so one declaration serves both.
 
 **3.2 The control-outline token belongs on the control.** `border-text-faint` is the control-outline
 token — a control edge that has to stand on its own needs text-grade contrast (DESIGN.md §1.2a;
 `--color-text-faint` as OUTLINE is pinned at DESIGN.md:183). Today it sits on an `<img>`, which is not
-a control. The anchor is. The 2026-08-26 ruling swept this element precisely because the image's border
-WAS serving as the control's visual edge; putting the class on the control states that directly instead
-of by proxy.
+a control. The anchor is. The 2026-08-26 ruling swept this element under its Family B sorting rule,
+which treats a painted child as the enclosing control's visual and therefore subject to the
+control-outline rule (`docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:169`
+states the rule while applying it to a sibling site). So the class was already being reasoned about as
+the control's edge; putting it on the control states that directly instead of by proxy.
 
-**3.3 The crew gallery cannot take the opposite arrangement, so only this one can be common to both.**
-Two placements on that cell are load-bearing and documented at
+**3.3 The opposite arrangement would cost the crew gallery a second declaration for nothing.** Two
+placements on that cell are load-bearing and documented at
 `components/diagrams/Gallery.tsx:338-350`: `relative` must stay on the `<li>` because WebKit resolves
 the button's `height: 100%` against the cell's aspect-ratio BORDER box, and the focus ring must stay on
 the cell because an outset ring on the size-full button is clipped by the cell's `overflow-hidden`
-while an inset one paints under the absolutely positioned fill image. A rule that says `chrome on the image` would have to except the crew gallery on its first
-application.
+while an inset one paints under the absolutely positioned fill image.
 
-**3.4 The radius clip already lives on the wrapper.** Both wrappers carry `overflow-hidden`
-(`components/diagrams/Gallery.tsx:351`, `components/admin/wizard/step3ReviewSections.tsx:3938`), so the
-wrapper is what clips the image to the corner radius. Chrome on the image puts the radius on an element
-whose corners are already being clipped by its parent — two elements describing one rounded box.
+Those two constraints pin `relative` and the ring. They pin nothing about the border, the radius or the
+background, so an image-side arrangement IS available to the crew gallery: paint the chrome on the live
+image and again on the `ImageOff` branch, leaving the load-bearing classes on the cell. This section
+previously called that impossible, which was too strong. It is possible and strictly worse — it takes
+the one surface that states its box once and makes it state it twice, in order to match a surface that
+states it twice. The rule is chosen in the direction that removes declarations rather than adds them.
+
+**3.4 The move puts the radius on the element that does the clipping.** Both wrappers carry
+`overflow-hidden` (`components/diagrams/Gallery.tsx:351`, `components/admin/wizard/step3ReviewSections.tsx:3938`),
+but only the crew cell also carries a radius (`rounded-sm`), so only there does the wrapper clip to a
+ROUNDED box today. An earlier draft of this section claimed the admin wrapper already did; it does not.
+`overflow-hidden` with no radius clips to a square, and the admin tile's rounded corners come entirely
+from the image's own `rounded-md`. After the move the clip and the radius sit on one element on both
+surfaces, which makes the rounded box a property of the box rather than of whatever is inside it.
 
 ## 4. The change
 
@@ -95,6 +120,29 @@ One file, one className pair.
 - `rounded-md border border-text-faint bg-surface-sunken object-cover` becomes `object-cover`
 
 `components/diagrams/Gallery.tsx` is NOT edited: it is already the chosen arrangement, and §3.3 is why.
+
+### 4.1 The two live consumers that assert or state the old placement
+
+Both land in the same commit as the className move. This list is the output of a sweep for every
+consumer that reads or describes where the tile's chrome lives, not only the one the change happened to
+break.
+
+**`tests/e2e/step3-review-modal.layout.spec.ts:626-637` asserts `imgBorderLeft > 0` in a real browser.** It reds
+after the move, and it should: it is a placement pin. Its own comment already says the pin is not there
+to discriminate placement — `measured, an anchor-side border renders in the same place` — and that the
+image is where it lives only because `a next/image adoption is not the arc that moves it`. This IS that
+arc. The assertion inverts: the ANCHOR must carry a border and the image must carry none, which pins the
+new arrangement in a real browser rather than merely ceasing to pin the old one. The comment is replaced
+by this ruling.
+
+What does NOT change: the image-equals-anchor-padding-box assertion immediately below it
+(`tests/e2e/step3-review-modal.layout.spec.ts:637-647`) is already expressed as `anchorW - borderLeft - borderRight`,
+so it passes with the border on either element. It was written to survive this move.
+
+**`tests/styles/tapTargetCensus.ts:321` states the old placement in a `reason` field.** The row's
+classification is unaffected — the prose itself says so, because that census row is about LAYOUT
+(`relative` plus the aspect box plus a `fill` child) and not about chrome. Only the parenthetical naming
+where the chrome lives goes stale, and it is updated in place.
 
 The tile's own code comment at `components/admin/wizard/step3ReviewSections.tsx:3926-3931` currently
 says the chrome "deliberately STAYS on the image" and cites the perf arc's scope decision. That comment
@@ -130,7 +178,10 @@ Landing in the same commit as the className move:
    and the comment above it, which says a fifth appearing is an inventory change, is extended to say
    the same of a fourth reappearing.
 
-§6.2 of that spec (`docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:320`) is NOT edited. It is a record of what the swap measured at the time, anchored
+`docs/superpowers/plans/2026-08-27-admin-diagram-next-image.md:244` is also NOT edited: it records why
+THAT arc declined the move and filed this row instead, which was true of that arc and is this one's
+provenance. §6.2 of the control-outline spec
+(`docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:320`) is NOT edited. It is a record of what the swap measured at the time, anchored
 to lines that have since drifted, and rewriting a past measurement to match today's tree would destroy
 the only evidence of what was measured.
 
@@ -164,9 +215,14 @@ child, so every relationship is listed even though none of them changes.
 | grid cell | anchor | anchor is full width of its cell | `w-full` |
 | live tile | placeholder tile | identical outer box | both `aspect-4/3 w-full`; asserted in a real browser at `tests/e2e/step3-review-modal.layout.spec.ts:659` |
 
-The one visible consequence: the image now insets 1px inside the border instead of painting under it.
-That is a rendering change of exactly the border width and is what putting a box on a box means. It is
-not offered as a reason for the change (§1.1).
+**The rendered rectangle does not change, and an earlier draft of this section said it did.** Before
+the move the bordered, border-box `<Image fill>` fills the borderless anchor, and its OWN border already
+insets its content by 1px. After the move the borderless image fills the bordered anchor's padding box,
+which is that same rectangle. The browser suite records the same fact independently — `measured, an
+anchor-side border renders in the same place` (`tests/e2e/step3-review-modal.layout.spec.ts:629-630`) — and its
+image-equals-padding-box assertion is already written in padding-box terms
+(`tests/e2e/step3-review-modal.layout.spec.ts:637-647`), so it holds before and after without being touched.
+This is a placement refactor with no visual delta, which is what the filing's mutant measured.
 
 ## 8. Transition inventory
 
@@ -190,7 +246,13 @@ change moves which element the claim is about, not the claim.
   in the same commit as AC-1.
 - **AC-5.** `tests/e2e/step3-review-modal.layout.spec.ts` is green in a real browser at this head, with
   its live-tile-equals-placeholder-tile box assertion among the passes. The count of tests it runs is
-  reported from the run, not carried over from the filing.
+  reported from the run, not carried over from the filing. AC-8 is a precondition: the suite cannot be
+  green until the placement pin is inverted.
+- **AC-8.** `tests/e2e/step3-review-modal.layout.spec.ts:626-637` asserts that the ANCHOR carries a border and
+  the image carries none — the new arrangement pinned in a real browser, not merely the old pin
+  deleted. The image-equals-padding-box assertion below it is NOT edited and still passes.
+- **AC-9.** `tests/styles/tapTargetCensus.ts:321`'s `reason` prose no longer states that the chrome
+  lives on the image, and that row's `category` and `line` are unchanged.
 - **AC-6.** The `border-text-faint` occurrence count for this file is unchanged, so
   `tests/styles/tintedPlateOutline.test.ts:224`'s `neutralFaintCount: 9` pin does not move: the class
   string is relocated within one file, not added or removed.
