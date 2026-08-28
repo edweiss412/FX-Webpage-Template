@@ -119,6 +119,12 @@ async function readBack(row: GalleryRow): Promise<ReadbackRow> {
       agendaStateKey: `${seeded.sessionId}:${pending.staged_id}:${pending.staged_modified_time}`,
       lastFinalizeFailureCode: (pending.last_finalize_failure_code as string | null) ?? null,
       useRawDecisions: normalizeUseRawDecisions(pending.use_raw_decisions ?? null),
+      // wizard-warning-ignore-controls §2.1. The `ignored_warnings` column arrives with
+      // the finalize-carry task's migration; selecting it here before then would red
+      // this DB-bound gallery on every intervening commit. The field feeds ENRICHMENT,
+      // which this gallery does not run — its subject is display-state derivation — so
+      // the placeholder costs the gallery nothing. Completed with the migration.
+      ignoredWarnings: null,
     };
   }
 

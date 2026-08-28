@@ -412,3 +412,69 @@ describe("fetchStep3Data — source_anchors threading (bug #316 item 3)", () => 
     expect(appliedRow?.sourceAnchors).toEqual(ANCHORS);
   });
 });
+
+/**
+ * wizard-warning-ignore-controls spec §2.1 Phase A — Task 3.
+ *
+ * The production SELECT column strings are the thing under test here. The mock
+ * builder returns the whole seeded row regardless of projection, so a seeded
+ * value reaching the row proves the PROJECTION only if the recorded column
+ * string is asserted too — otherwise dropping `slug` from the live select would
+ * still pass while breaking production, where PostgREST returns only what the
+ * projection names.
+ */
+describe("fetchStep3Data — wizard warning identity wiring (§2.1 Phase A)", () => {
+  test("the shows select projects slug and it reaches the assembled row", async () => {
+    seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
+    seed.dataByTable["pending_syncs"] = [
+      { staged_id: "s-1", drive_file_id: "dfid-1", parse_result: PARSE_RESULT_FIXTURE },
+    ];
+    seed.dataByTable["shows"] = [
+      {
+        id: "show-1",
+        drive_file_id: "dfid-1",
+        published: true,
+        archived: false,
+        wizard_created_session_id: null,
+        title: "II - East Coast Tour",
+        client_label: null,
+        venue: null,
+        dates: null,
+        slug: "east-coast-2026",
+      },
+    ];
+
+    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+    const result = await fetchStep3Data(SESSION_ID);
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(seed.selectByTable["shows"]?.split(/\s*,\s*/)).toContain("slug");
+    const row = result.rows.find((r) => r.driveFileId === "dfid-1");
+    expect(row?.linkedShowRef).toEqual({ id: "show-1", slug: "east-coast-2026" });
+  });
+
+  test("the pending_syncs select projects ignored_warnings and it reaches the assembled row", async () => {
+    const STAGED_IGNORES = [
+      { fingerprint: "fp-1", code: "UNKNOWN_FIELD", ignored_by: "doug@example.com" },
+    ];
+    seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
+    seed.dataByTable["pending_syncs"] = [
+      {
+        staged_id: "s-1",
+        drive_file_id: "dfid-1",
+        parse_result: PARSE_RESULT_FIXTURE,
+        ignored_warnings: STAGED_IGNORES,
+      },
+    ];
+
+    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+    const result = await fetchStep3Data(SESSION_ID);
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(seed.selectByTable["pending_syncs"]?.split(/\s*,\s*/)).toContain("ignored_warnings");
+    const row = result.rows.find((r) => r.driveFileId === "dfid-1");
+    expect(row?.stagedIgnoredWarnings).toEqual(STAGED_IGNORES);
+  });
+});

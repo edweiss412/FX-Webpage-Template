@@ -150,6 +150,15 @@ export type Step3Row = {
   // backfills its client · dates · venue line + a View from THIS instead of
   // rendering a bare title. Absent when no show is linked.
   linkedShowSummary?: LiveShowSummary | null;
+  // ── wizard-warning-ignore-controls (spec §2.1) ──
+  // The linked show's identity, captured from the SAME candidate that resolved
+  // `linkedShow`, and only when that candidate carries a usable slug. Its presence
+  // is the row-linkage discriminator (spec §2.0): present → LINKED (durable
+  // show-keyed ignores), absent on a reviewable row → FIRST-SEEN (staged column).
+  linkedShowRef?: { id: string; slug: string } | null;
+  // The row's raw `pending_syncs.ignored_warnings` jsonb, un-coerced. Normalized
+  // exactly once, by the enrichment pass, through `normalizeStagedIgnoredWarnings`.
+  stagedIgnoredWarnings?: unknown;
 };
 
 // The linked live show's display summary — raw `public.shows` columns (venue/
