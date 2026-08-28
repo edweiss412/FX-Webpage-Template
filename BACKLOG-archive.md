@@ -1,3 +1,21 @@
+## BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS — two `lib/parser/dataGaps.ts` filters drop a severity-less warning, a third in `lib/sync` writes one out, and what keeps it harmless is which codes happen to exist — CLOSED 2026-08-28, DEMOTED ON A QUALIFIED ZERO
+
+**Status:** CLOSED 2026-08-28 (`fix/severityless-warning-filters`), demoted to a documented limit rather than repaired · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 2 class sweep) · **Facing:** product · **Severity:** LOW-MEDIUM as filed · **Class:** severity-predicate divergence · **Effort:** S
+
+The row was filed `**Reachability:** INFERRED, NOT PROBED` and named its own probe as its first scheduled step. That probe ran, three times, and the first two answers were wrong. The full measurement, the queries that reproduce it and the re-file trigger live in `docs/superpowers/specs/2026-08-27-wizard-review-attention-menu-design.md` §10.1.
+
+**The class is three sites, not the two the row named.** Sweeping `lib/ components/ app/` rather than the row's inherited `lib/admin components/admin` plus `lib/parser` adds `lib/sync/phase1.ts:203`, `warningSummary`, which builds the persisted `pending_syncs.warning_summary`. Its own comment states `isWarnSeverity` intent while the code tests `=== "warn"`.
+
+**Severity-less warnings EXIST: 198 of them.** Measured on validation over an inventory DERIVED from `information_schema` rather than hand-listed, because two earlier drafts each missed a population (`sync_log`, then `pending_ingestions`). Of 43 jsonb columns, three hold warning-shaped elements: `shows_internal` 18 of 18 with 0 severity-less, `pending_syncs.parse_result.warnings` 55 of 55 with 0, and `sync_log.parse_warnings` 381 warning-shaped out of 400 array elements, with **198 severity-less** (179 carrying a `code` key, 19 carrying none). `pending_ingestions.last_warnings` and `shows_pending_changes.payload` are warning-bearing but empty; §10.1's query `left join`s a row-count arm precisely so an empty population appears as zero instead of vanishing from a `group by`.
+
+**The demotion does NOT rest on the code arm, which never executes here.** Both read sites evaluate severity FIRST and short-circuit, so a severity-less element never reaches their code test. A severity-less `FIELD_UNREADABLE`, a member of BOTH gating sets, is dropped today; that is the defect, and it is demonstrable. What makes it harmless is only which codes actually occur: the 198 carry `SYNC_INFRA_ERROR` (178), no `code` key at all (19) and `SYNC_FILE_FAILED` (1), none of which is in `DATA_GAP_CODES` (39) or `OPERATOR_ACTIONABLE_ANCHORED` (24). Repairing the predicate would route them to the code test and they would be rejected there, so the two read sites' output is byte-identical before and after. `warningSummary` has no code arm; what protects it is its own input holding 0 severity-less of 55. The repair would move counts on three pinned suites while changing nothing observable, which is what the filing bar demotes.
+
+**The strength of that basis, named:** empirical absence over an `information_schema`-derived population set, plus a trigger that detects its own condition by code. Absence-with-detection, strictly weaker than a structural guard, since nothing PREVENTS a severity-less element from carrying a gating-set code and both read sites would then drop a row the badge counts, silently. A limit with a live trigger, not a closed defect.
+
+**Re-file trigger, any one, each checkable:** a code returned by §10.1's code-grouped query that the published membership check reports as a gating-set member; any non-zero severity-less count in `pending_syncs.parse_result.warnings`; or an addition to either gating set, which can promote an already-stored code without any row changing. Re-deriving the column list is part of the procedure, so a new warning-bearing column is found rather than assumed absent.
+
+**Line numbers, live at close:** `lib/parser/dataGaps.ts:129` and `:466` (the row said `:465`; it drifted), `lib/sync/phase1.ts:203`. Durable anchors are the function names.
+
 ## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
 
 **Status:** RESOLVED 2026-08-27 (`perf/admin-diagram-next-image`) · **Severity:** low · **Class:** PERF / consistency · **Effort:** M

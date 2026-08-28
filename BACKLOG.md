@@ -93,6 +93,25 @@ Index entry: `LIM-AUTHORED-RED` in `docs/review-rounds/LIMITS.md`, named by six 
 
 ---
 
+## BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE — a stated numeric table with no command that produces it, named by four arcs and still unmechanized
+
+**Status:** OPEN · **Filed:** 2026-08-28 (`fix/severityless-warning-filters`, diff R3 finding 2) · **Facing:** process · **Mint-exception:** recurrence · **Severity:** LOW-MEDIUM (a spec table drifts from the tree with nothing able to compare them) · **Class:** evidence provenance · **Effort:** M
+
+**Incident** (four independent arcs, each naming the shape in its own filing before a slug existed):
+
+- `docs/review-rounds/fix/mutation-shard-budget-six/9a621a5792ea.md:32-35` (spec) — round 2's highest-value finding was §1.3's table carrying no command producing it.
+- `docs/review-rounds/feat/review-modal-strip-dock/ae8e9544b55a.md:38-39` (spec) — a hand-maintained blast-radius transcript, three rounds finding three defects in three different directions.
+- `docs/review-rounds/feat/speclint-ac-unclaimed-arm/44b0d74b1107.md:32-33` (plan) — the plan claimed 106 enrolled plans where the quoted command returns 108.
+- `docs/review-rounds/fix/severityless-warning-filters/b608e71b32b5.md` (diff, R3 finding 2) — the published SQL could not produce the published table, and a bare `group by` silently dropped an empty population rather than showing it as zero.
+
+Indexed as `LIM-NUMERIC-TABLE-PROVENANCE` in `docs/review-rounds/LIMITS.md`, whose stated re-file trigger is "a spec whose stated table cannot be reproduced from its own commands reaching a review round again". That fired on the fourth arc.
+
+**Why this is admissible under the 2026-08-25 process freeze.** Not on an incident alone, which the freeze stopped admitting. On recurrence: four independent arcs paid for the same shape, which is retrospective and countable and could not be manufactured by this arc. The freeze's admission test is also met, because the done condition names a number outside the tooling: rounds burned per arc on table-versus-tree drift, which is 1 here, 3 on review-modal-strip-dock, and 1 each on the other two.
+
+**Shape.** `spec:lint` parses numerics and parses fenced commands, and relates them to nothing. A table stated with no command producing it cannot be compared to the tree; a table stated WITH one drifts silently the moment the tree moves. The narrowing that would close it is a `<!-- table: cmd=`…` -->` marker binding a table to a command, checked the way `gate:` markers already are.
+
+**Not in scope for the arc that filed it.** `fix/severityless-warning-filters` is a docs-only demotion under an explicit no-code-change ruling; it repaired its own instance by publishing one query that produces every number in its table from a single transaction, and files the class here rather than widening.
+
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
 **Status:** OPEN · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS
@@ -340,28 +359,6 @@ The published number was taken against UNMODIFIED code — a temporary probe add
 **Where it is pinned today.** `tests/e2e/wizard-attention-menu.spec.ts` keeps the clip assertion at 1280x800 and registers the 375x667 case as `test.fixme` naming this row, so the gap is visible in the report rather than absent from it. Re-enable that case as the fix's own red.
 
 **Direction, not yet decided.** The panel cannot express "no wider than the distance from the clip's left edge to my anchor's right edge" in CSS, because that distance is a runtime measurement. So the candidates are: extend `useFitWithinClip` (or a sibling) to cap width the way it caps height; or re-anchor the panel to the modal panel rather than the pill wrapper. The first keeps the anchoring idiom and is where the existing measurement machinery already lives; the second is a bigger change. Whichever wins, it lands on the SHARED frame and both modals get it at once.
-
-### BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS — two `lib/parser/dataGaps.ts` filters still drop a severity-less warning from operator-visible lists
-
-**Status:** OPEN · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 2 class sweep) · **Facing:** product · **Severity:** LOW-MEDIUM (an operator-visible warnings list silently omits a row, if the shape occurs) · **Class:** severity-predicate divergence · **Effort:** S · **Class-sweep exception:** (b) + (c) — spec §2.1's sweep is ratified over `lib/admin components/admin` only, and repairing these two changes what the staged-show digest and the per-show actionable list COUNT, each with its own pinned suite, on surfaces this arc does not otherwise touch.
-
-**The defect shape, and where it now does not exist.** A persisted `ParseWarning` can lack the `severity` key entirely. `summarizeDataGaps` (the badge) has always counted such a row — the "#289 contract: skip only info (missing severity counts)" comment — while every review-surface filter tested `severity === "warn"` and dropped it, so badge and surface could disagree. This branch closes that for the seven ratified sites by routing them all through the new `isWarnSeverity` predicate (`lib/parser/dataGaps.ts`).
-
-**The two peers it does not close, with the sweep that found them.** After the seven landed:
-
-```
-$ rg -n 'severity (===|!==) "warn"' lib/admin components/admin
-(no hits)
-$ rg -n 'severity (===|!==) "warn"' lib/parser
-lib/parser/dataGaps.ts:129:  return !!w && w.severity === "warn" && DATA_GAP_CODES.has(w.code);
-lib/parser/dataGaps.ts:465:    if (w.severity !== "warn") continue;
-```
-
-`:129` is `isDataQualityWarning`, which gates the staged-show warnings digest (`app/admin/show/staged/[stagedId]/page.tsx:169`). `:465` is `operatorActionableWarnings`, the data-boundary filter behind `components/admin/PerShowActionableWarnings.tsx` and `components/admin/StagedReviewCard.tsx`. Both are operator-visible; both would drop a severity-less row that the badge counts, which is the same divergence §2.1 exists to end.
-
-**Reachability:** INFERRED, NOT PROBED. Spec §2.1 ratifies that persisted rows can lack the field, and `tests/parser/dataGaps.test.ts` ("counts a gap code whose warning is MISSING severity") pins the badge's handling of that shape — but nothing here measures whether such a row EXISTS in live data. The probe that settles it, and the first scheduled step of this entry: count elements of `shows_internal.parse_warnings` with no `severity` key across the validation deployment, per code. A zero makes this a documented limit rather than a defect; a non-zero names exactly which operator lists are short.
-
-**Why not fixed in the filing branch:** the repair is two one-line predicate swaps, but it moves counts on two surfaces with their own pinned suites (`tests/parser/operatorActionableWarnings.test.ts`, `tests/onboarding/firstSeenStagedWarnings.test.ts`, `tests/dataQuality/roleTokenIdentity.test.ts`) that this arc's review scope does not cover, and the probe above should direct it. Cheap once the count is known.
 
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
