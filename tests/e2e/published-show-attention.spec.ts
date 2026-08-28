@@ -301,17 +301,18 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     await expect(card).toHaveAttribute("data-step3-warning-flash", "");
   });
 
-  // FIXME, not deleted and not diagnosed: this case fails on UNMODIFIED code.
-  // Probed 2026-08-27 by reverting both files feat/wizard-review-attention-menu
-  // touches here and rerunning — the optimistic decrement never fires, the pill
-  // stays at its arrival count, and a later run failed differently
-  // (toBeVisible), so it is not a single deterministic assertion. No workflow
-  // has ever run this spec, which is how it drifted red unnoticed; the spec is
-  // wired into published-modal-e2e.yml by the same change that adds this
-  // marker, so the other six cases start gating now and this one stays visible
-  // in the report. Cause UNATTRIBUTED — product defect or stale spec — and
-  // attribution is the first task for whoever picks up
-  // BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED.
+  // Carried as `test.fixme` from 2026-08-27 to 2026-08-28 while its cause was
+  // unattributed. ATTRIBUTED and re-enabled: the optimistic decrement was never
+  // broken — both resolve POSTs return 200 and the pill was observed stepping
+  // "2 issues · 1 sheet warning" → "1 issue · 1 sheet warning" → "1 sheet
+  // warning". What was wrong is the terminal expectation, which asked for "In
+  // sync": unreachable while the fixture seeds a sheet warning, since the pill's
+  // interactive branch counts those and no resolve control clears one. The
+  // earlier "later run failed differently (toBeVisible)" is a separate 1-in-7
+  // race, filed as BL-PUBLISHED-ATTENTION-ESCAPE-CLOSES-MODAL-RACE and no longer
+  // reachable from this case, whose prelude no longer dismisses via Escape.
+  // No workflow ran this spec until published-modal-e2e.yml picked it up, which
+  // is how it drifted red unnoticed; all seven cases gate now.
   test("resolve lifecycle: 2 issues → 1 issue → warnings only, without reload (LAST — mutates)", async ({
     page,
   }) => {
