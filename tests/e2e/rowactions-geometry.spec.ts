@@ -751,21 +751,24 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
  * would be a guard-on-guard surface for someone else to maintain.
  */
 test("admin-layout-e2e names this component and this spec", () => {
-  // WHAT THIS PROVES, and nothing more: the workflow FILE still mentions this
-  // component as a paths entry and this spec inside a `run:` line. It catches
-  // the realistic failure — somebody deletes one of them while refactoring —
-  // and that is the whole of its claim.
+  // WHAT THIS PROVES, and nothing more: the workflow FILE still contains a
+  // list-item line bearing this component's path, and a `run:` line naming both
+  // `playwright test` and this spec. It matches LINE SHAPE, not the parent key —
+  // a list item under `sparse-checkout` or a matrix satisfies the first, and an
+  // `echo`-prefixed command satisfies the second. Verified: both pass.
+  //
+  // It catches the realistic failure — somebody deletes one of them while
+  // refactoring — and that is the whole of its claim.
   //
   // WHAT IT DOES NOT PROVE, named rather than implied. Deciding "GitHub will run
   // this spec when this file changes" needs a YAML parser, GitHub's path-matching
   // semantics, and a shell parser. Whole-diff review defeated two successive
   // attempts to approximate that, each time with one more grammar feature:
   //
-  //   - an ordered NEGATIVE pattern (`!components/admin/AnchoredPortal.tsx`)
-  //     after the positive entry, which GitHub honours and this does not read;
+  //   - an ordered NEGATIVE pattern repeating the path with a `!` prefix after
+  //     the positive entry, which GitHub honours and this does not read;
   //   - `paths-ignore` excluding the component;
-  //   - an unrelated later `jobs.*.strategy.matrix.paths` block this walk can
-  //     select instead;
+  //   - the same path as a list item under ANY other key;
   //   - `run: echo pnpm exec playwright test …`, which exits 0 without launching
   //     anything;
   //   - a `run` key nested under `env` rather than a step.

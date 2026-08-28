@@ -223,20 +223,35 @@ when only one had — twice, in two consecutive rounds. Remembering the rule did
 not work, so the table below is emitted by a script reading the sweep's result
 files, which makes the claim unwriteable ahead of the run that produces it.
 
-| Assertion | Mutant | Result |
-| --- | --- | --- |
-| A2 the paths ENTRY, scoped to the `pull_request.paths` block | delete the line | **RED** |
-| A2 (adversarial) the component under `with.args` instead of paths | reviewer's synthetic workflow | **RED** |
-| A3 a `run:` step that INVOKES playwright on this spec | delete it from the run line | **RED** |
-| A3 (adversarial) the spec named only in `run: echo` | reviewer's synthetic workflow | **RED** |
-| A1 the walk fails LOUDLY on a shape it cannot read | rewrite `paths:` as a flow sequence | **RED on the premise** |
-| B2/B3 origin premises | never place | **RED** |
-| B5 right-edge alignment | `left + 1` | **RED** |
-| B7 adjacency on the REPORTED side | invert the reported side | **RED** |
-| B9 a fitting panel carries no cap | non-binding `maxHeight` | **RED** |
-| B13 placement lands at the mount's frame | passive measurer, repair applied | **RED** |
-| INV-3 the commit-driven measure count | first measure commits a wrong placement, BOTH commit branches | **RED**, `expected 3 to be 2` |
-| **B4 exactly one settled placement** | **none found** | **see below** |
+**Generated against `793e2ffe4`.** A generated table is a SNAPSHOT OF A CODE STATE,
+not a self-maintaining record: once the code moves it lies with the authority of
+having been generated. This one already did — an earlier version recorded the
+`with.args` and `echo` inputs as RED against a role-aware implementation that was
+then deliberately narrowed away, which asserted the OPPOSITE of shipped
+behaviour. The sha makes staleness visible instead of silent: compare it to the
+head before trusting a row.
+
+Rows are marked by what the shipped code SHOULD do. A documented limit that
+passes looks identical to a guard that failed, so the two are distinguished here
+rather than left to the reader.
+
+| Assertion | Mutant | Expected | Observed |
+| --- | --- | --- | --- |
+| the paths entry is present | delete the line | RED | **RED** |
+| the invocation token is present | delete the spec from the run line | RED | **RED** |
+| workflow guard, list item under a NON-paths key | the path as a list item under `sparse-checkout` | PASS by design | **GREEN** |
+| workflow guard, invocation replaced by `echo` | `run: echo playwright test …` | PASS by design | **GREEN** |
+| B2/B3 origin premises | never place | RED | **RED** |
+| B5 right-edge alignment | `left + 1` | RED | **RED** |
+| B7 adjacency on the REPORTED side | invert the reported side | RED | **RED** |
+| B9 a fitting panel carries no cap | non-binding `maxHeight` | RED | **RED** |
+| B13 placement lands at the mount's frame | passive measurer, repair applied | RED | **RED** |
+| INV-3 the commit-driven measure count | first measure commits a wrong placement, BOTH commit branches | RED | **RED** |
+| **B4 exactly one settled placement** | **none found** | — | see below |
+
+The two PASS-by-design rows are the narrowing working, not a gap: they are the
+documented limits of §9.2, and a guard that reded them would be the recognizer
+this arc declined to grow.
 
 **B4 has no discriminating mutant, and the reason is worth more than a clean
 number.** Three were attempted and each is recorded rather than dropped: an extra
@@ -444,8 +459,9 @@ duplicate of something jsdom already covers.
 **The pins' CI coverage rests on one unguarded line.** `admin-layout-e2e.yml:64`
 lists `components/admin/AnchoredPortal.tsx` in the workflow's `pull_request.paths`,
 which is what makes INV-1 and INV-4 run on a PR touching this component. That
-fact is true and was verified directly. **Nothing in the repo pinned it, so this
-arc pins it** — see the closing paragraph of this section.
+fact is true and was verified directly. **Nothing in the repo pinned it. This arc
+pins it NARROWLY** — presence of the entry and of the invocation token, with the
+limits below — see the closing paragraph of this section.
 `tests/ci/_metaE2eWorkflowCoverage.test.ts:260` asserts that every e2e SPEC is
 PR-covered or allowlisted; it makes no claim about which SOURCE paths a
 workflow's filter names, and the `AnchoredPortal` text at
@@ -473,8 +489,10 @@ one of them — which is the failure this arc's threat fence declares.
    after the positive entry. GitHub honours later negatives; the check does not
    read them, so it reports the entry present while the path is excluded.
 2. `paths-ignore` excluding the component, which the check does not consult.
-3. An unrelated later `jobs.*.strategy.matrix.paths` block, which an
-   indentation walk can select instead of `pull_request.paths`.
+3. Any list-item line elsewhere in the file bearing the same path — under
+   `sparse-checkout`, a matrix, or any other key. The check matches the line
+   SHAPE, not its parent key. Verified: the path moved under `sparse-checkout`
+   passes.
 4. Shell-level non-invocation: `run: echo pnpm exec playwright test …` exits 0
    without launching anything, and a `run` key nested under `env` is not a step.
 
@@ -500,8 +518,8 @@ algebra. Checking the value would
 need the placement algebra as its oracle, and re-deriving that in the test would
 pass whenever the test and the code share a mistake — the tautology this arc has
 been removing rather than adding. The fixture also applies no cap at all
-(`maxH=none` in every recorded run), so a value assertion here would assert
-emptiness and discriminate nothing. Cap behaviour is exercised by the containment
+(`maxH=none` in every recorded run), so asserting emptiness is exactly the right expectation here, and it discriminates:
+the non-binding wrong cap mutant reds it (B9 above). Cap behaviour is exercised by the containment
 and flip cases in the same spec.
 
 ## 9.1 Documented coverage boundary: one of the two render sites

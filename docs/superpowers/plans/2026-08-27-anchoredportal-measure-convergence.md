@@ -312,7 +312,7 @@ never a fallback and was never load-bearing for the pre-paint guarantee, which i
 the same fact that makes the P0 unreachable.
 
 What survives of the finding is narrower and still worth stating: pre-paint now
-depends on ONE named property of ONE effect — the ungated effect having no
+depends on ONE named property of ONE effect — the ungated effect BEING a
 `useLayoutEffect`. Its absent dependency array is what makes it fire on the
 position-only re-renders of spec §2.1, and is NOT what makes the open commit
 pre-paint — a complete dependency array still covers opening, since `open`
@@ -342,11 +342,11 @@ on.
 
 So this arc pins it inside its own spec, in two parts, because either alone
 closes half the hole: that `AnchoredPortal.tsx` appears as an entry in the
-workflow's `pull_request.paths`, AND that the workflow INVOKES this spec in a
-`run:` step — a filter that fires a workflow which never runs the spec is equally
-dark. Both are anchored to their YAML role rather than matched as substrings,
-because the spec's own path appears three times in that file in three different
-roles. Each has an executed discriminating mutant (spec §4, `M-paths` and
+workflow file, AND that this spec is named in a `run:` line beside
+`playwright test`. After two whole-diff rounds the CLAIM was narrowed to that:
+these check PRESENCE, not that GitHub will run the spec. A list-item line under a
+non-paths key, and an `echo`-replaced invocation, both pass BY DESIGN — they are
+documented limits under the threat fence (spec §9.2), not gaps. Each has an executed discriminating mutant (spec §4, `M-paths` and
 `M-run2`).
 
 Stated at the size the evidence supports: this diff **removed a duplicate that
