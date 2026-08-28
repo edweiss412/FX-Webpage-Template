@@ -555,7 +555,7 @@ export function Step3ReviewModal({
                   aria-expanded={menuOpen}
                   aria-controls={menuId}
                   onClick={() => setMenuOpen((v) => !v)}
-                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums whitespace-nowrap transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums max-sm:max-w-40 max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                     n > 0
                       ? "border border-warning-text bg-warning-bg text-warning-text hover:bg-warning-bg/80"
                       : /* judgment-only: quiet, because a judgment call is not a

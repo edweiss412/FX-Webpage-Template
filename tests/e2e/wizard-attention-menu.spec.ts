@@ -271,6 +271,43 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
     expect(probe.inView).toBe(true);
   });
 
+  test("the composite pill leaves the show title legible at 375 (spec §9, PRODUCT.md persona)", async ({
+    page,
+  }) => {
+    // The defect this exists to catch, measured before the fix: the pill carried
+    // `whitespace-nowrap` with no wrap or width cap, so the composite state
+    // ("2 need a look · 1 judgment call") took 236px of a 375px viewport and the
+    // title — `min-w-0 flex-1`, so it absorbs every loss — collapsed to 6.97px.
+    // No document overflow, no scrollbar: the damage lands entirely on the one
+    // thing Doug needs to see on a venue floor, which show he is reviewing.
+    // Both clauses below fail on that geometry and pass on the fixed one
+    // (pill 160, title 83).
+    await openModal(page, 375, 667);
+    const m = await page.evaluate((chipSel) => {
+      const chip = document.querySelector(chipSel) as HTMLElement;
+      const header = document.querySelector('[data-testid$="-review-header"]') as HTMLElement;
+      const title = document.querySelector('[data-testid$="-review-title"]') as HTMLElement;
+      return {
+        text: chip.innerText.replace(/\s+/g, " ").trim(),
+        chipW: chip.getBoundingClientRect().width,
+        titleW: title.getBoundingClientRect().width,
+        headerW: header.getBoundingClientRect().width,
+        docScrollW: document.documentElement.scrollWidth,
+        docClientW: document.documentElement.clientWidth,
+      };
+    }, CHIP);
+    // Premise: the fixture really is in the COMPOSITE state, the widest one.
+    // A single-segment pill would satisfy the bounds without exercising them.
+    expect(m.text).toContain("need a look");
+    expect(m.text).toContain("judgment call");
+    // The pill may not eat half the header...
+    expect(m.chipW).toBeLessThanOrEqual(m.headerW / 2);
+    // ...and the title keeps a legible share of it.
+    expect(m.titleW).toBeGreaterThanOrEqual(m.headerW * 0.15);
+    // And none of this is bought with a horizontal scrollbar.
+    expect(m.docScrollW).toBe(m.docClientW);
+  });
+
   test("the menu's scroller is a nameable, focusable region", async ({ page }) => {
     // The contract most easily lost when a menu is rebuilt: a bare div maps to
     // `generic`, which is naming-prohibited, so the name would be dropped
