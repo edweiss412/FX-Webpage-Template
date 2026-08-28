@@ -295,11 +295,20 @@ describe("the scanner's population is pinned against resolver drift", () => {
           .join("\n"),
       )
       .digest("hex");
+    // Regenerated 2026-08-27 for feat/telemetry-fallback-retry, delta READ before it was
+    // replaced, same as the 2026-08-26 regeneration below it. Membership unchanged at 35
+    // both sides; exactly TWO rows moved, EventTimeline.tsx 14 -> 15 and
+    // HealthAlertsPanel.tsx 279 -> 280, each same file, same form (literal-comparison),
+    // same marked state, each +1 from the single import line that arc added to each file.
+    // Verified by scanning a detached checkout of origin/main through the identical code
+    // path: that scan reproduced the PREVIOUS digest exactly, which is what makes the
+    // two-row diff a measurement rather than an assumption.
+    //
     // Regenerated 2026-08-26 for feat/nearmiss-surface, and the delta was READ before
     // it was replaced, which is what "deliberately" means here: membership is unchanged
     // at 35 both sides, and exactly ONE row moved, step3ReviewSections.tsx 3755 -> 3800,
     // same file, same form, same marked state. A pure line shift from insertions above it.
-    expect(digest).toBe("8b2d031d8908348eae2947d704dca1b57d90be10702f46ad4edcf8cc9c62598e");
+    expect(digest).toBe("5cfa8b62a35ff985ad2cf0979c1307d3f0e408c7d28ae1c8825fa1758b02b457");
   });
 });
 

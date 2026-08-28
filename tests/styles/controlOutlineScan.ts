@@ -99,7 +99,9 @@ export const CENSUS: readonly CensusRow[] = [
   // spec §4.2 row 14
   { file: "components/admin/telemetry/HealthAlertResolveButton.tsx", line: 24 },
   // spec §4.2 row 15 — Link
-  { file: "components/admin/telemetry/HealthAlertsPanel.tsx", line: 256 },
+  // Line moved 256 -> 257 on 2026-08-27 by feat/telemetry-fallback-retry, which added one
+  // import to this file. The ELEMENT is untouched: same `<Link>`, same `border-text-faint`.
+  { file: "components/admin/telemetry/HealthAlertsPanel.tsx", line: 257 },
   // spec §4.2 row 16
   { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 604 },
   // spec §4.2 row 17

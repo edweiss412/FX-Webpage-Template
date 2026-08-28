@@ -1,8 +1,17 @@
 // @vitest-environment jsdom
 // tests/components/telemetry/eventTimeline.test.tsx
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { fireEvent, render, screen, cleanup, within } from "@testing-library/react";
+// The degraded branch gained a retry control that calls useRouter (BL-TELEMETRY-FALLBACK-RETRY);
+// without this mock the render throws the Next router invariant instead of testing. Same shape
+// as tests/components/telemetry/transitionAudit.test.tsx.
+const refresh = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh, push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(""),
+}));
+
 import { EventTimeline } from "@/components/admin/telemetry/EventTimeline";
 import type { AppEventRow, LoadAppEventsResult } from "@/lib/admin/telemetryTypes";
 
@@ -50,6 +59,18 @@ describe("EventTimeline", () => {
   test("infra_error → degraded panel", () => {
     render(<EventTimeline result={{ kind: "infra_error", message: "x" }} now={now} />);
     expect(screen.getByTestId("event-timeline-degraded")).toBeInTheDocument();
+  });
+  // Same class as the scheduled-job health fallback: it named a cause and offered no
+  // recourse. Scoped inside its own degraded testid, so a control elsewhere in the tree
+  // cannot satisfy it.
+  test("infra_error → the degraded panel offers a retry that refreshes", () => {
+    refresh.mockClear();
+    render(<EventTimeline result={{ kind: "infra_error", message: "x" }} now={now} />);
+    const retry = within(screen.getByTestId("event-timeline-degraded")).getByTestId(
+      "event-timeline-retry",
+    );
+    fireEvent.click(retry);
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
   test("renders ONE bordered event-log container, not gapped cards", () => {
     render(

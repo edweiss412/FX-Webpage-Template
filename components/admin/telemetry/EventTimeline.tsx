@@ -1,6 +1,7 @@
 import { EmptyState } from "@/components/atoms/EmptyState";
 import type { LoadAppEventsResult } from "@/lib/admin/telemetryTypes";
 import { EventRow } from "./EventRow";
+import { TelemetryRetryButton } from "@/components/admin/telemetry/TelemetryRetryButton";
 
 export function EventTimeline({
   result,
@@ -16,9 +17,10 @@ export function EventTimeline({
       <div
         data-testid="event-timeline-degraded"
         data-render-fault="event-timeline-load"
-        className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm"
+        className="flex flex-col items-start gap-2 rounded-md border border-border bg-warning-bg p-tile-pad text-sm"
       >
-        Couldn’t load activity right now.
+        <p>Couldn’t load activity right now.</p>
+        <TelemetryRetryButton what="activity" testId="event-timeline-retry" />
       </div>
     );
   }
