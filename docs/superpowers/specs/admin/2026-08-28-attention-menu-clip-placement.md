@@ -24,7 +24,7 @@ rather than re-deriving the decision.
 
 | Decision | Status | Ratification |
 | --- | --- | --- |
-| A width cap does not fix this; the x-clamp does. | RESOLVED on measurement, §2.1. `maxWidth` is `null` at the failing viewport — the cap is inert, not merely insufficient. | Probe §1.3; `lib/popover/position.ts:118`, `lib/popover/position.ts:137-138` |
+| A width cap does not fix this; the x-clamp does. | RESOLVED on measurement, §2.1. `maxWidth` is `null` at the failing viewport — the cap is inert, not merely insufficient. | Probe §1.3; `lib/popover/position.ts:118`, `lib/popover/position.ts:138-139` |
 | Direction is migration onto the shared stack, not a new cap on the old hook. | RESOLVED. The attention menu is the last `useFitWithinClip` consumer; the stack is where the algebra lives. | §2.2; `lib/popover/place.ts:54`; hook spec `docs/superpowers/specs/admin/2026-08-27-fitwithinclip-clip-subscription.md:233` |
 | `AnchoredPortal` is the wrong vehicle. | RESOLVED. It passes `hostRect: null`, so bounds degenerate to the viewport and containment is lost. | §2.3(D); `components/admin/AnchoredPortal.tsx:147` |
 | Portaling into the host does not break Escape, outside-click, or the focus trap. | RESOLVED by mechanism, §3.2. | `components/admin/showpage/AttentionMenu.tsx:365-369`, `components/admin/showpage/AttentionMenu.tsx:380`; `components/admin/showpage/ShareHub.tsx:878-880` |
@@ -124,15 +124,15 @@ matter:
 // position.ts:118, step 2, width
 const maxWidth = naturalSize.width > bounds.width ? bounds.width : null;
 
-// position.ts:137-138, step 4, horizontal
+// position.ts:138-139, step 4, horizontal
 let x = align === "right" ? trigger.right - effectiveWidth : trigger.left;
 x = Math.min(Math.max(x, bounds.left), bounds.right - effectiveWidth);
 ```
 
 `bounds` is the clip: `insetRect(intersectRects(hostRect ?? viewport, viewport), VIEWPORT_INSET)`
-(`lib/popover/place.ts:103`).
+(`lib/popover/place.ts:101-102`).
 
-**Line 138 is the fix, and line 118 is not.** Substituting the measured numbers
+**Line 139 is the fix, and line 118 is not.** Substituting the measured numbers
 from §1.3 at the failing viewport:
 
 ```
@@ -170,6 +170,29 @@ enforces it directly by moving the panel instead of shrinking it.
 Desktop is untouched by the same arithmetic: `x = max(1084 - 400, 136) = 684`,
 which is exactly the measured settled `menu.left`, and `maxWidth` is again `null`.
 AC-5 is therefore an identity, not an approximation.
+
+**The cap's inertness is provable over the whole probe domain, not just at the
+viewport measured.** On a modal spanning the viewport width W (measured true at
+375, where the clip is `[0, 375]`):
+
+```
+panel natural width = min(400, W - 32)          the CSS
+bounds.width        = W - 2*VIEWPORT_INSET = W - 16
+
+W - 32  <  W - 16   for every W
+```
+
+So when the `W - 32` arm is selected, `naturalSize.width > bounds.width` is false
+and `maxWidth` is `null`. When the 400 arm is selected instead (`W >= 432`), the
+modal is already wide enough that `400 < W - 16`, so it is null there too. **The
+width cap can never fire on a full-width modal at any width.** At 1280 the modal
+is not full width (clip `[128, 1152]`), and it is null there as well by the
+numbers above.
+
+This is a derivation, so it does not re-open when a viewport is added to the
+domain — which is what the class-sweep rule asks for in place of a per-viewport
+table. §6.3 still allocates every cell, but as confirmation of a proved claim
+rather than as its evidence.
 
 ### 2.2 Five overlays already use it; the attention menu is the last that does not
 
@@ -219,7 +242,7 @@ Recorded here so neither side is relitigated, per the disagreement-loop rule.
 - **(A) Extend `useFitWithinClip` (or a sibling) to cap width.** DECLINED on
   arithmetic, not on style: §2.1 shows a width cap leaves the left edge at -20.
   To work it would have to compute the anchor-to-clip-edge distance and clamp —
-  which is `lib/popover/position.ts:137-138`, re-implemented in a second place, against the
+  which is `lib/popover/position.ts:138-139`, re-implemented in a second place, against the
   explicit trajectory of `lib/popover/place.ts:54`. A reviewer proposing this should be shown
   the -20 arithmetic first.
 - **(B) Re-anchor the panel to the modal panel rather than the pill wrapper.**
@@ -304,10 +327,39 @@ placeWithinVisibleViewport(window, {
 })
 ```
 
-Applied to the panel: `left`, `top`, `maxHeight`, and **`maxWidth`** — the last of
-these being the one line that is identical in all four precedents
-(`components/admin/PublishedToggle.tsx:307`, `components/admin/ReSyncButton.tsx:243`, `components/admin/showpage/ShareHub.tsx:356`,
-`components/admin/HoverHelp.tsx:297`).
+**Where each output lands, and why this is not one element.** The four precedents
+all write `left`, `top`, `maxHeight` and `maxWidth` to a single node, because in
+each of them the positioned panel IS the scroller. ShareHub's body carries
+`flex max-h-[min(70vh,30rem)] w-[308px] flex-col … overflow-y-auto` on the very
+element placement writes to (`components/admin/showpage/ShareHub.tsx:908`).
+
+**The attention menu is the one consumer where those are two different elements.**
+The panel positions (`components/admin/showpage/AttentionMenu.tsx:405`); the
+scroller inside it owns `max-h-96 overflow-y-auto`
+(`components/admin/showpage/AttentionMenu.tsx:426`), and a heading may sit above
+it (`components/admin/showpage/AttentionMenu.tsx:409`). Copying the precedents
+literally would put `maxHeight` on a non-scrolling parent whose scrolling child is
+free to paint straight through it, and because the written cap would still be
+above `MIN_FITTED_HEIGHT`, neither diagnostic in `lib/popover/place.ts:75-99`
+would fire. That is a SILENT violation of the consequence bound in §10, and it is
+why `useFitWithinClip` caps the SCROLLER today
+(`components/admin/showpage/AttentionMenu.tsx:422`) rather than the panel.
+
+So the assignment is:
+
+| Output | Element | Note |
+| --- | --- | --- |
+| `left`, `top` | panel | Host-relative, converted as `components/admin/PublishedToggle.tsx:291-296` does. |
+| `maxWidth` | panel | The one line identical in all four precedents (`components/admin/PublishedToggle.tsx:307`, `components/admin/ReSyncButton.tsx:243`, `components/admin/showpage/ShareHub.tsx:356`, `components/admin/HoverHelp.tsx:297`). Inert over the probe domain (§2.1), written for correctness outside it. |
+| `maxHeight` | panel | Bounds the WHOLE overlay, heading included. |
+| effective scroll cap | scroller, via flexbox | NOT written directly. The panel becomes a flex column that clips; the scroller shrinks inside the panel's cap. §7.1 pins the invariant that makes this true. |
+
+The scroller keeps its declared `max-h-96` as the authored maximum, matching
+ShareHub's note that its own `max-h-…` class *"stays as the DECLARED cap the
+placement core reads as its `cap` input"*
+(`components/admin/showpage/ShareHub.tsx:902-907`). The two caps compose: the
+panel's fitted `maxHeight` bounds the total, `max-h-96` bounds the scroller's own
+growth, and whichever binds first wins.
 
 Removed from the panel:
 
@@ -355,17 +407,56 @@ about the deletion only; the migration in §3.1-3.3 stands either way.
 
 ## 4. Files
 
+### 4.1 Source and executable contracts
+
+Every one of these fails before its edit, so the set is discovered rather than
+remembered. `grep -rln 'useFitWithinClip\|fit-within-clip' components app lib tests`
+is the derivation.
+
 | File | Change |
 | --- | --- |
-| `components/admin/showpage/AttentionMenu.tsx` | The frame portals into the host and is placed by the shared module; the viewport-sized width class, `right-0`, and the `useFitWithinClip` call go. |
+| `components/admin/showpage/AttentionMenu.tsx` | The frame portals into the host and is placed by the shared module; the viewport-sized width class, `right-0`, `top-[calc(100%+8px)]` and the `useFitWithinClip` call go. Panel becomes a clipping flex column (§7.1). |
 | `components/admin/useFitWithinClip.ts` | Deleted (§3.4). |
 | `tests/components/admin/useFitWithinClip.test.tsx` | Deleted with its subject. |
-| `tests/components/admin/_metaPopoverViewportSource.test.ts` | The derived registry discovers a sixth consumer; its exemption/consumer rows are updated to match. |
-| `tests/e2e/wizard-attention-menu.spec.ts` | The 375 characterization branch is deleted and the viewport-agnostic `toBeGreaterThanOrEqual` form takes over (§6.1). |
-| `tests/e2e/popover-clip-fit.spec.ts` | Gains the horizontal edge the suite never asserted (§6.2). |
-| `docs/superpowers/specs/admin/2026-08-27-fitwithinclip-clip-subscription.md` | Dated header note recording the retirement. |
+| `tests/components/admin/_metaPopoverViewportSource.test.ts` | Derived registry discovers a sixth placement consumer; consumer/exemption rows updated. |
+| `tests/components/admin/showpage/popoverOverlayRegistry.ts` | AttentionMenu's row moves from `disposition: "fit-within-clip"` (`tests/components/admin/showpage/popoverOverlayRegistry.ts:123`) to `"placement-module"`, with a reason citing the 2026-08-25 toggle-banner migration at `tests/components/admin/showpage/popoverOverlayRegistry.ts:108-110`. Held both ways, so a stale row fails. |
+| `tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` | Validates the `"fit-within-clip"` disposition through an import of the deleted module; the contract row follows the disposition change. |
+| `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` | Three edits: the row REQUIRING AttentionMenu to call `useFitWithinClip`, the hook's registration as a `createRafCoalescer` consumer, and the deleted module named as a defining module (`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:169-170`). |
+| `tests/components/admin/showpage/attentionMenu.test.tsx` | The case at `tests/components/admin/showpage/attentionMenu.test.tsx:336` asserts the scroller receives the fitted INLINE cap. That behavior is what §3.3 changes: the cap lands on the panel and the scroller shrinks by flex. The case is rewritten to the new invariant, not deleted. |
+| `tests/e2e/wizard-attention-menu.spec.ts` | Measures at rest, drops the `w === 375` branch, and gains two viewports (§6.1, §6.3). |
+| `tests/e2e/popover-clip-fit.spec.ts` | Gains both horizontal edges and the 1280x800 cell (§6.2, §6.3). |
+| `tests/components/admin/transitionAudit.test.tsx` | The `transitionend` re-place (§7) is new transition-adjacent behavior; the audit covers it. |
+
+### 4.2 Baselines — three move, not one
+
+An earlier draft named only the screenshot baseline.
+
+| Baseline | Why it moves | Regeneration |
+| --- | --- | --- |
+| `tests/components/admin/showpage/__fixtures__/published-attention-menu-baseline.html` | Captures the panel's exact class string, including `w-[min(400px,calc(100vw-32px))]` and `right-0`, both removed. | `PUBLISHED_ATTENTION_CAPTURE=1`, deliberately never a `-u` side effect. Diff reviewed line by line. |
+| `tests/e2e/standalone-baseline.json` | The standalone gate's baseline is `--list`; §6.1/§6.3 add cases and §3.4 deletes a suite. | Per its own documented procedure. |
+| published screenshot byte baseline | Published geometry changes (§8). | Pinned Docker image, `--platform linux/amd64`, never from this host. |
+
+### 4.3 Historical prose that is NOT changed
+
+Four files mention the hook in docblocks explaining provenance:
+`lib/popover/place.ts:52`, `lib/popover/place.ts:72`,
+`tests/components/ReSyncButton.test.tsx:555`,
+`tests/lib/popover/placeWarning.test.ts:6-8`,
+`tests/e2e/popover-clip-fit.spec.ts:614`. None is executable. They stay, because
+they explain why the current code is shaped as it is, and rewriting history is
+not a repair. **One judgment call flagged for review:**
+`tests/lib/popover/placeWarning.test.ts:8` cites the deleted module BY PATH, so
+after retirement it is a dead path reference in live prose. The proposal is to
+leave it and let the hook spec's retirement note (§3.4) be the pointer; the
+alternative is a one-word edit to mark it retired.
+
+### 4.4 Ledger
+
+| File | Change |
+| --- | --- |
+| `docs/superpowers/specs/admin/2026-08-27-fitwithinclip-clip-subscription.md` | Dated header note recording the retirement (§3.4). |
 | `BACKLOG.md` | Row archived; in-progress marker removed in the PR's last commit. |
-| published byte baseline | Regenerated (§8). |
 
 ---
 
@@ -374,12 +465,28 @@ about the deletion only; the migration in §3.1-3.3 stands either way.
 **Shape:** an overlay sized or positioned against the layout viewport while
 anchored inside a clipping ancestor that is inset from that viewport.
 
-**Derived cover, not a list.** `_metaPopoverViewportSource.test.ts` already walks
-`components/`, `app/` and `lib/` and bans JS layout-viewport reads outside the
-placement policy. **It does not scan CSS**, which is exactly how this defect
-survived it: `100vw` in a Tailwind class is the same measurement in a channel the
-guard does not read. The sweep is therefore
-`rg '100vw|100vh|100dvh|100dvw|100svh|100lvh' components app`, and the
+**Derived cover, and NOT a raw grep — the grep was tried and produced a false
+row.** Two covers, used together:
+
+1. `tests/components/admin/showpage/popoverOverlayRegistry.ts` is a per-overlay
+   registry of every anchored, internally-scrolling overlay in `components/**`,
+   each row carrying an explicit decision about how that overlay survives a
+   clipping ancestor. Detection is a per-element AST walk
+   (`tests/components/admin/showpage/_popoverOverlayExtract.ts`) over static
+   className forms and literal inline styles, and rows are held BOTH ways: a
+   missing row fails and a stale row fails. **This is the authoritative cover for
+   this class**, because it reads structure rather than text and so cannot match
+   a comment.
+2. `tests/components/admin/_metaPopoverViewportSource.test.ts:125` walks
+   `components/`, `app/` and `lib/` and bans JS layout-viewport reads outside the
+   placement policy. **It does not scan CSS**, which is how this defect survived
+   it: `100vw` in a Tailwind class is the same measurement in a channel that guard
+   does not read (recorded as L-3).
+
+A text sweep, `rg '100vw|100vh|100dvh|100dvw|100svh|100lvh' components app`, is
+run only to enumerate CANDIDATES for the table below, never to decide one. Each
+hit is then read as source, because two of them are not layout CSS at all: a
+comment in ShareHub and an `Image` `sizes` attribute in GalleryLightbox. The
 discriminator is three conditions that must all hold:
 
 1. right-anchored (or otherwise clip-relative) positioning,
@@ -394,7 +501,7 @@ Every hit, with its disposition:
 | `components/auth/AvatarMenu.tsx:388` | Not in class — condition 1 holds, but its clip IS the viewport (header chip, no modal ancestor), so `100vw` is the correct bound. |
 | `components/admin/FinalizeButton.tsx:1092` | Not in class — condition 2 fails; it is portaled (`createPortal`, `components/admin/FinalizeButton.tsx:773`), so the viewport is again the correct bound. |
 | `components/admin/CleanupAbandonedFinalizeButton.tsx:169` | Not in class — condition 1 fails; a centered `role="dialog"` panel, not anchored to anything. |
-| `components/admin/showpage/ShareHub.tsx:906` | Not in class — already on the stack; its `max-w-[calc(100vw-2rem)]` is a redundant CSS belt behind the live JS `maxWidth` at `components/admin/showpage/ShareHub.tsx:356`. Harmless; noted, not touched. |
+| `components/admin/showpage/ShareHub.tsx:906` | **Not a match — the grep hit a COMMENT.** Line 906 is prose recording that the old `right-0 … max-w-[calc(100vw-2rem)]` anchoring *"is gone"*; the live class at `components/admin/showpage/ShareHub.tsx:908` is `w-[308px]` and carries no viewport unit. An earlier draft read that comment as executable CSS and called it a redundant belt. Corrected, and recorded rather than silently deleted, because it is why the cover above is no longer a raw grep. |
 | `components/diagrams/GalleryLightbox.tsx:999`, `components/diagrams/GalleryLightbox.tsx:1161` | N/A — `sizes="100vw"` is a Next `Image` srcset hint, not layout. |
 
 **These dispositions are static reads and Task 1 confirms them in a browser**
@@ -460,13 +567,36 @@ a container that also renders the pill — so a menu that failed to open cannot 
 by rendering nothing. The case asserts a non-zero `menu.width` first, for exactly
 that reason.
 
-### 6.3 Structural
+### 6.3 The acceptance matrix is allocated, cell by cell
+
+§9 requires both modals at all four probe-domain viewports. That is eight cells,
+and the suites as they stand cover five. Naming them individually, because an
+earlier draft asserted the domain without allocating it:
+
+| | 375x667 | 375x844 | 390x560 | 1280x800 |
+| --- | --- | --- | --- | --- |
+| **wizard** (`tests/e2e/wizard-attention-menu.spec.ts`) | exists (§6.1) | **ADD** | **ADD** | exists (§6.1) |
+| **published** (`tests/e2e/popover-clip-fit.spec.ts`) | anchor-room only today, gains containment (§6.2) | gains containment (§6.2) | exists (§6.2) | **ADD** |
+
+Three cells are new: wizard 375x844, wizard 390x560, published 1280x800. The
+wizard file already loops a viewport list
+(`tests/e2e/wizard-attention-menu.spec.ts:201-203`), so the two wizard cells are
+two entries in that array, not two new cases. Published 1280x800 is the cell that
+carries AC-6's discriminator (§9), so it is load-bearing rather than
+completeness-for-its-own-sake.
+
+**Alternative considered and declined:** narrowing the declared PROBE DOMAIN to
+the five cells that exist. Declined because 1280x800 is exactly where a frozen
+placement is distinguishable from a re-measured one, so dropping it would remove
+the only viewport at which AC-6 can be falsified.
+
+### 6.4 Structural
 
 `_metaPopoverViewportSource.test.ts` fails by default on the new consumer, because
 its registry is derived from source (`tests/components/admin/_metaPopoverViewportSource.test.ts:183`). That is a second red, and it is the
 guard working as designed rather than an obstacle.
 
-### 6.4 Real-browser only
+### 6.5 Real-browser only
 
 Per the writing-plans layout-dimensions rule: jsdom computes no layout, so every
 assertion above is Playwright. **The row exists precisely because nothing asserted
@@ -492,26 +622,41 @@ under-read of `naturalSize.width`. Feed that to `computePopoverPlacement` and
 sized from a stale natural width, and nothing re-places it when the transform
 settles unless a re-measure is wired.
 
-Today `useFitWithinClip` handles this with `entered` as its re-apply key
-(`components/admin/showpage/AttentionMenu.tsx:338`, `components/admin/showpage/AttentionMenu.tsx:417-419`). **The migration must carry an equivalent
-re-measure across, and this is the highest-risk part of the change** — it is the
-one behavior the old hook had that is not automatic on the new stack. Two
-requirements follow:
+**The stack does not have a transition-settle path, and the hook does.** Stated
+precisely, because an earlier draft of this section asserted the opposite:
 
-- The placement re-runs on transition settle, not only at mount. The stack's
-  `transitionend` path is the mechanism; `entered` remains the trigger.
-- **Measurement must be transform-neutral or taken at rest.** Measuring a scaled
-  box is a documented pre-existing limit of the measure path (the hook spec's
-  L-8 records the `transform: scale` case as unrepaired). This spec does not fix
-  that limit; it avoids depending on it, by re-measuring once `transform` is
-  `none`.
+- `rg -n 'transitionend' lib/popover components/admin/HoverHelp.tsx
+  components/admin/PublishedToggle.tsx components/admin/ReSyncButton.tsx
+  components/admin/AnchoredPortal.tsx components/admin/showpage/ShareHub.tsx
+  components/admin/showpage/AttentionMenu.tsx` exits 1. **No consumer of the
+  shared stack, and no module inside it, listens for a transition.**
+- `useFitWithinClip` does, on the positioned ancestor, filtered to the
+  `transform` property (`components/admin/useFitWithinClip.ts:253`,
+  `components/admin/useFitWithinClip.ts:300-304`). The panel is `absolute`, so it
+  IS the scroller's positioned ancestor — the hook is listening for this exact
+  panel's own scale settling.
+- The stack's re-place triggers are scroll, window resize, visual-viewport
+  scroll/resize, and a `ResizeObserver`
+  (`components/admin/AnchoredPortal.tsx:229-236`). **A CSS `transform` does not
+  change an element's border box, so `ResizeObserver` does not fire when the
+  scale settles.** Nothing in the stack observes it.
+
+**Therefore a naive migration silently DELETES a signal.** Placement computed
+mid-entrance from a 325.85px natural width is never recomputed, because no
+subscribed source ever reports the change. The repair must ADD a `transitionend`
+re-place to the migrated component, filtered to `propertyName === "transform"`
+and scoped to the panel, porting `components/admin/useFitWithinClip.ts:300-304`
+rather than inheriting something that does not exist.
+
+`entered` is not a substitute and must not be presented as one: it flips at the
+START of the transition, which is the moment whose measurement is wrong.
 
 Verified by a test that opens the menu and asserts containment **after** the
 transition settles, mirroring the existing animated-path case at
 `tests/e2e/popover-clip-fit.spec.ts:308` — and, per §6.1, by fixing the wizard case that
 currently asserts before it.
 
-### 7.1 Guard conditions
+### 7.2 Guard conditions
 
 Every input, and what renders when it is absent or degenerate. The stack already
 decides most of these; the rows record which behavior is inherited rather than
@@ -519,21 +664,40 @@ authored here.
 
 | Input | Degenerate value | Behavior |
 | --- | --- | --- |
-| `hostRect` (from `PopoverHostContext`) | `null` — no provider, e.g. a future unclipped mount | Bounds degenerate to the viewport (`lib/popover/place.ts:103`, `components/admin/AnchoredPortal.tsx:147` precedent). The panel is placed against the viewport, which is correct when nothing clips it. |
+| `hostRect` (from `PopoverHostContext`) | `null` — no provider, e.g. a future unclipped mount | Bounds degenerate to the viewport (`lib/popover/place.ts:101-102`, `components/admin/AnchoredPortal.tsx:147` precedent). The panel is placed against the viewport, which is correct when nothing clips it. |
 | `hostRect` | zero-area (host `display:none` mid-toggle) | `bounds.width <= 0` → `HIDDEN` (`lib/popover/position.ts:110`); panel is `visibility: hidden`, recovers next frame. |
 | `pillRef.current` | `null` (pill unmounted while menu open) | No trigger rect; placement is skipped and the prior placement is cleared rather than left stale — the `resetPlacement` posture at `components/admin/PublishedToggle.tsx:277-281`. |
-| trigger rect | zero-area | `HIDDEN` (`lib/popover/position.ts:111`), explicitly guarded on width **and** height — a lesson already paid for on `components/admin/PublishedToggle.tsx:255-266`. |
+| trigger rect | zero-area | `HIDDEN` (`lib/popover/position.ts:111`), explicitly guarded on width **and** height — a lesson already paid for on `components/admin/PublishedToggle.tsx:261-266`. |
 | `naturalSize` | 0 or non-finite (measured while detached) | `HIDDEN` (`lib/popover/position.ts:105`, `lib/popover/position.ts:109`), recovers on the next frame. |
 | `items` | empty array | Out of scope: the menu does not open with zero items, and the pill is not rendered. Unchanged by this spec. |
 | `warningIndex` | `undefined` | Unchanged (`components/admin/showpage/AttentionMenu.tsx:58-65`) — the panel is byte-identical to the alerts-only menu. Placement is indifferent to it. |
-| viewport | narrower than the panel's minimum usable width | Panel is clamped to `bounds.left` and capped to `bounds.width`; if the resulting height falls under the floor, the stack's dev diagnostic fires (`lib/popover/place.ts:76-99`). Conservative and signaled — §10. |
+| viewport | narrower than the panel's minimum usable width | Panel is clamped to `bounds.left` and capped to `bounds.width`; if the resulting height falls under the floor, the stack's dev diagnostic fires (`lib/popover/place.ts:75-99`). Conservative and signaled — §10. |
 
-**Dimensional invariants.** The panel is not a fixed-dimension parent, and the
-scroller's height comes from `max-h-96` plus a written cap, so there is no
-flex/grid stretch relationship to pin. The invariants that ARE load-bearing are
-geometric and are asserted in §6.2 and §9: `menu.left >= clip.left`,
-`menu.right <= clip.right`, `menu.bottom <= clip.bottom`, all within 0.5px, in a
-real browser.
+### 7.1 Dimensional Invariants
+
+**This section exists because §3.3 changed the answer.** An earlier draft said the
+panel is not a fixed-dimension parent and there was nothing to pin. Once the
+fitted cap moves from the scroller to the panel, the panel IS a
+constrained-height parent whose children must distribute inside it, which is
+exactly the configuration this project requires be enumerated — and Tailwind v4
+here does not default `.flex` to `align-items: stretch`, so nothing is assumed.
+
+| Parent → child | Relationship | Exact guarantee |
+| --- | --- | --- |
+| panel → itself | Receives the fitted `maxHeight`; content must not paint past it | `overflow-hidden` on the panel. Without it a child overflows a `max-height` parent by default and the clip edge does the cutting, which is the defect F1 named |
+| panel → children | Heading and scroller stack and share the panel's height | `flex flex-col` on the panel |
+| panel → heading | Never compressed; it labels the panel while the list scrolls | `shrink-0` on the heading wrapper |
+| panel → scroller | Absorbs the remaining height and no more | `flex-1` **and** `min-h-0` on the scroller. `min-h-0` is load-bearing: a flex item's default `min-height: auto` refuses to shrink below content, so without it the scroller keeps its content height, the panel's `max-height` is exceeded, and the fitted cap silently does nothing |
+| scroller → itself | Scrolls rather than grows | `overflow-y-auto` unchanged, plus its declared `max-h-96` |
+
+**Verified in a real browser, not jsdom**, per the layout-dimensions rule: a
+Playwright assertion reads `getBoundingClientRect()` on panel, heading and
+scroller, asserting `heading.height + scroller.height === panel.height` and
+`panel.height <= fitted cap`, each within 0.5px. jsdom computes no layout and
+would pass on every failure mode above.
+
+**Geometric invariants**, asserted in §6.2 and §9: `menu.left >= clip.left`,
+`menu.right <= clip.right`, `menu.bottom <= clip.bottom`, within 0.5px, at rest.
 
 ---
 
@@ -563,12 +727,28 @@ overhang by 5%. AC-6 is the one that additionally checks the transient.
   failure (`menu.left = -36` against `clip.left = 0`, §1.3) is gone. Expected
   post-fix value at 375x667 is `bounds.left = 8`, derived in §2.1.
 - **AC-2.** `menu.right <= clip.right + TOL`, so the repair does not move the
-  overhang to the other edge. Expected `351 ≤ 367`. **This AC is why the right
-  anchor is deliberately given up**: at 375 the panel shifts right by 44px and is
-  no longer flush with the pill. Containment and right-alignment are not
-  simultaneously satisfiable at that width — the panel needs 343px and has 299px
-  to the left of its anchor — and containment wins. Stated as a ratified
-  trade-off so review does not read the shift as a regression.
+  overhang to the other edge. Expected `351 ≤ 367`.
+
+  **The panel shifts right by 44px at 375 and is no longer flush with the pill.
+  That is a CHOICE, not a geometric necessity, and an earlier draft wrongly
+  called it forced.** Containment and right-alignment ARE simultaneously
+  satisfiable: a 299px panel spans `x = 8` to `x = 307`, contained and still
+  flush with the trigger. What is not simultaneously satisfiable is containment,
+  right-alignment, AND the 343px natural width. One of the three gives.
+
+  **Ratified: the width is preserved and the alignment gives.** Three reasons,
+  recorded so the alternative is not re-proposed as a discovery:
+  1. It is what the shared stack does. `lib/popover/position.ts:138-139` clamps
+     `x`; narrowing to preserve alignment would need a cap of
+     `trigger.right - bounds.left`, a quantity the core does not compute. Getting
+     it would mean either changing the core for all six consumers or overriding
+     locally — a bespoke seventh variant, which is the thing §2 declines.
+  2. 375 is the most cramped viewport, where 44px of content width is worth more
+     than flushness. The rows are `title + second line`; narrowing costs wrapping.
+  3. The other five overlays already shift. A menu that narrows instead would be
+     the only one behaving differently.
+
+  The alternative is recorded in §11 as L-4 with its trigger, not discarded.
 - **AC-3.** `menu.bottom <= clip.bottom + TOL` — the existing height contract
   survives the hook's removal. **The regression that matters most**, since the
   height cap changes hands from `useFitWithinClip` to `placement.maxHeight`.
@@ -578,10 +758,22 @@ overhang by 5%. AC-6 is the one that additionally checks the transient.
 - **AC-5.** At 1280x800 the settled geometry is **identical** to today's measured
   values: `menu.left = 684`, `menu.width = 400`. Derived as an identity in §2.1,
   not an approximation, so any drift is a real defect rather than tolerance.
-- **AC-6.** Containment holds after the entrance settles **and** the panel is
-  placed from a settled `naturalSize` — the compound case in §7. Concretely: the
-  post-fix settled width at 375 is 343, not 325.85, proving placement did not
-  freeze a mid-scale measurement.
+- **AC-6.** Placement is RE-COMPUTED when the transform settles, and the assertion
+  discriminates that from a frozen placement.
+
+  **A settled width of 343 does NOT prove this** and must not be used: the rect
+  grows from 325.85 to 343 when the CSS transform finishes whether or not any
+  code ran. Nor does containment at 375, where a frozen and a re-measured
+  placement both clamp `x` to `bounds.left = 8` and are indistinguishable.
+
+  The assertion is therefore made where the two answers DIFFER — a viewport with
+  enough room that the clamp does not fire, so `x` tracks
+  `trigger.right - effectiveWidth` and moves by exactly the 5% width difference
+  when the natural size is re-read. At 1280x800: frozen gives
+  `1084 - 380 = 704`; re-measured gives `1084 - 400 = 684`, the measured settled
+  value in §1.3. Asserting `menu.left === 684` at rest fails on a frozen
+  placement and passes on a re-measured one. Task 5 additionally proves the
+  listener by removing it and observing 704.
 - **AC-7.** No `useFitWithinClip` import remains in the tree, and no
   `100vw`-derived width remains on a clipped, non-portaled overlay (§5).
 
@@ -592,7 +784,7 @@ overhang by 5%. AC-6 is the one that additionally checks the transient.
 Stated per the convergence criterion, since the change pins geometry.
 
 **Consequence bound.** Every geometry either places the panel wholly inside its
-clip, or is signaled — `lib/popover/place.ts:76-99` already warns on `hidden` and on a
+clip, or is signaled — `lib/popover/place.ts:75-99` already warns on `hidden` and on a
 sub-floor cap, and that diagnostic is inherited, not rebuilt. A panel that cannot
 be placed is `visibility: hidden` with a dev warning, never a silently
 half-rendered menu. **A conservative outcome plus a surfaced signal is a documented
@@ -624,6 +816,14 @@ degrade to the signaled outcomes above and file to documented limits.
   regression returning on the published surface, but only because the pixels move;
   it makes no assertion about `menu.left`. The e2e assertions in §6.2 are the real
   guard. Recorded so nobody reads a green baseline as containment evidence.
+- **L-4. Containment is bought with alignment, not with width.** AC-2 ratifies the
+  shift; the alternative that narrows the panel to `trigger.right - bounds.left`
+  (299px at 375x667) keeps it flush with the pill and is equally contained. It is
+  declined for the three reasons in AC-2, none of which is that it fails to work.
+  **Trigger:** an operator report that the shifted menu reads as detached from its
+  pill, or a design decision making flushness a contract — at which point the
+  repair is a new cap quantity in the shared core, affecting all six consumers,
+  never a local override.
 - **L-3. `_metaPopoverViewportSource.test.ts` still does not scan CSS.** This
   change empties the class, but the guard that would keep it empty reads JS only —
   a future `100vw` width on a new clipped overlay would not fail it. Extending the
