@@ -12,9 +12,16 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Owning record:** the out-of-scope fence in docs/superpowers/specs/2026-08-15-spec-lint-intent-red-arms.md (mechanizing existence-of-declaration is that arm; truth-of-claim is not), plus this index
 
-**Re-file trigger:** a product-facing arc measurably blocked by a red that could not fire (stated verbatim in the review-modal-strip-dock and nearmiss-surface filings)
+**Re-file trigger (narrowed 2026-08-28):** a product-facing arc measurably blocked by a red that could not fire, **plus an observable that is not the red command's exit status at the merge base** — that one is measured and refuted above, and re-filing it costs another arc for the same answer. A candidate observable must separate honest authoring from the defect on evidence available before the task's test is written; if the proposal is base execution in any form, it is already answered.
 
-**Filed 2026-08-27** as `BL-SPECLINT-RED-TRUTH-PROBE` (owner-directed; incident: `fix/mi11-removal-fallback-live-row` plan round 1).
+**Filed 2026-08-27** as `BL-SPECLINT-RED-TRUTH-PROBE` (owner-directed; incident: `fix/mi11-removal-fallback-live-row` plan round 1). **DEMOTED BACK HERE 2026-08-28** (`feat/speclint-red-truth-probe`) on measurement, before anything was built. The full write-up is the archive entry; the part that matters for anyone meeting this shape again:
+
+- **The incident pair is not a known-positive for base execution.** All three of that plan's authored reds exit 0 at its merge base `fb464274`, including Task 1, which was not a finding. The two real defects were "a mismatch between where the test writes state and where the code reads it", both living inside a test the task had not written yet, so nothing at the base can see them. The arc's own filing says they "took a reviewer tracing a data path".
+- **Exit status cannot carry the signal.** A `red=` naming only an absent file exits 1; the same command with one existing file added exits 0 and silently swallows the absent path; a `-t` matching no case exits 0 with everything skipped. Honest authoring and the defect produce the same exit code in both the path form and the case form.
+- **Neither scoping has a population worth firing on.** File-level would fire on 139 of 309 authored markers, essentially all correctly authored. Case-level covers the 23 markers carrying `-t`; the 9 whose file exists at base were each run there and every one matched no case. Zero true positives corpus-wide.
+- **Executed-case count, the only observable that separates them, is independently retired** by `BL-SPECLINT-RED-REASON-VERIFICATION`: a module-scope `premise()` failure reports zero cases while an assertion failed, and a `beforeEach` throw reports failed entries whose bodies never ran.
+
+Reproduce the populations with `python3 scripts/probe/red-truth-census.py`.
 
 ## LIM-NUMERIC-TABLE-PROVENANCE
 
