@@ -19,11 +19,24 @@ Both warning families in the owner's screenshot are ignorable today: `UNKNOWN_FI
 2. **Announcer widening is in scope and supersedes one clause.** Announcer spec 2026-07-22 §2.5 ratified the wizard no-op default ("a control mounted outside the provider (wizard, standalone harnesses) announces nothing", `components/admin/review/warningAnnounceContext.ts:5-9`). With mutate controls arriving on the wizard panel, a silent state change is an a11y defect, so the provider gate at `components/admin/review/ShowReviewSurface.tsx:864-866` widens to staged mounts (§2.5 below). Standalone harnesses keep the no-op default. Do not relitigate the widening; do not propose keeping the wizard silent.
 3. **Bulk ignore is deferred, deliberately.** Published `BulkIgnoreControls` (>=2 distinct-content same-code, `components/admin/BulkIgnoreControls.tsx:19`) does not come to the wizard in v1. The wizard panel is a flat list, not per-code eyebrow groups; restructuring it into grouped card slots is UI churn out of proportion to wizard list sizes. Per-warning Ignore covers the ask. Not a class-sweep gap: the defect class repaired here is "per-warning affordances missing"; bulk is a separate feature.
 4. **Info-severity rows get no controls.** The published surface routes only `warn`-severity rows into control-bearing cards (`lib/admin/sectionWarningModel.ts:24-25` — "info is dropped by `warningsBySection`"); wizard parity keeps info rows control-free. Documented limit, not a finding.
-5. **No new mutation surfaces, routes, tables, or migrations.** The wizard reuses `POST /api/admin/show/[slug]/data-quality/ignore` and `/unignore` verbatim (slug-keyed; the route resolves any `shows` row — publication status is irrelevant to it) and the existing report submit path, which already supports staged wizard rows (`lib/reports/submit.ts:279` and `lib/reports/submit.ts:290`). Invariant 10 is satisfied by the existing route emits; nothing new to register in `AUDITABLE_MUTATIONS`.
+5. **Mutation-surface footprint: one new staged server action, one new `pending_syncs` column, no new tables.** R2 established the first-seen wizard row has NO `shows` row during review (`created_show_id` is stamped by finalize — `app/api/admin/onboarding/finalize/route.ts:568`; "first-seen: no show id existed until this apply", `lib/sync/phase2.ts:497`), so a slug-keyed route cannot serve the wizard's primary path. The design therefore forks by row linkage (§2.0): LINKED rows reuse `POST /api/admin/show/[slug]/data-quality/ignore` and `/unignore` verbatim; FIRST-SEEN rows get a staged ignore server action writing a new `pending_syncs.ignored_warnings` jsonb column (migration), mirrored on the ratified staged use-raw architecture (fence 8). Report needs no fork: the submit path already supports staged wizard sheets with no show record (`lib/reports/submit.ts:279` and `lib/reports/submit.ts:290`), with `ReportButton.showId` nullable (`components/shared/ReportButton.tsx:48`). The new action registers in `AUDITABLE_MUTATIONS` with success-branch behavioral proof (invariant 10); the migration follows the validation-schema-parity checklist.
 6. **No prune-on-rescan.** `ignored_warnings` orphan pruning runs on the cron sync path only (DQIGNORE-3, `lib/sync/runScheduledCronSync.ts:1885`). A wizard re-scan does not prune; an orphaned ignore row is invisible (its fingerprint matches nothing) and the next cron sync of the published show prunes it. Documented limit.
 7. **Fail-open on ignore-set read faults.** `loadIgnoredWarnings` infra_error resolves to an empty fingerprint set — every warning renders active (fail toward VISIBLE), matching the published modal's posture (`app/admin/_showReviewModal.tsx:314-318`). Do not propose fail-closed.
 
+8. **The staged ignore store mirrors staged use-raw — do not relitigate the storage location.** Pre-create decisions live on `pending_syncs` and migrate at finalize; that architecture is ratified (spec 2026-07-10-structural-transform-use-raw §9a; `app/admin/onboarding/_actions/useRawStaged.ts:1-30`; migration `supabase/migrations/20260711000000_use_raw_decisions.sql`; finalize ride-along `app/api/admin/onboarding/finalize/route.ts:1049`). Staged ignores take the same shape: column on `pending_syncs`, admin-gated server action under `withShowLock(driveFileId)` (invariant 2, single JS-wrapper holder — the same layer the use-raw staged action holds), post-commit `logAdminOutcome`, and survival across rescan by OMISSION from the scan upsert's `do update set` list (`lib/sync/runOnboardingScan.ts:564-575` replaces `parse_result` and peers while `use_raw_decisions` survives by being absent from that list; the new column does the same).
+9. **Dual backend by row linkage is deliberate.** Linked rows write the durable show-keyed table directly (those ignores are already prune-managed); first-seen rows write the staged column, and finalize carries the fingerprints into `public.ignored_warnings` for the created show (§2.7). One control component with a discriminated target (the `UseRawControlBoundary` surface-locator precedent, `components/admin/UseRawControlBoundary.tsx:41`) renders both. Do not propose collapsing to a single backend: the staged-only form loses durable ignores on linked re-scans, and the show-only form cannot exist pre-create (R2 F1).
+
 ## 2. Design
+
+### 2.0 Row-linkage taxonomy (drives everything below)
+
+A staged step-3 row is exactly one of:
+
+- **FIRST-SEEN** — a reviewable parse preview (`pending_syncs` row with a structurally valid `parse_result`) and NO `linkedShowRef` (no resolved candidate, or a candidate without a usable slug — Phase A emits the field only for a usable pair). This is the wizard's primary path: the show is created only by finalize. Ignore backend: the staged column + server action (§2.6). Report backend: staged submit (no show record). Fingerprint source: `pending_syncs.ignored_warnings`.
+- **LINKED** — a reviewable parse preview AND a resolved candidate (`matchedCandidate` from either branch, §2.1 Phase A) with a usable `slug`. Ignore backend: the existing slug-keyed routes. Report backend: show-keyed submit. Fingerprint source: `loadIgnoredWarnings(showId)`.
+- **NO-PREVIEW** — no structurally valid `parse_result` (hard_failed / skipped / resolved / badge-only post-finalize rows, and malformed-jsonb shapes per §3). No warning model, no controls, chrome unchanged.
+
+The `warningModel` is present for FIRST-SEEN and LINKED rows; the `dq` threading (§2.2) carries a discriminated backend target so the client renders one control component either way.
 
 ### 2.1 Server derivation (two phases: sync identity capture, then async enrichment)
 
@@ -48,7 +61,15 @@ export async function enrichStep3WarningModels(
 ): Promise<Step3Row[]>;
 ```
 
-For each row with a `linkedShowRef` AND a non-null `parseResult`, it awaits the loader (`Promise.all` across qualifying rows), treats `infra_error` as an empty fingerprint set (§1.1.7), and attaches `warningModel` built by the pure stamping helper below. Rows without both inputs pass through untouched. The loader parameter exists so the presence-matrix tests exercise the helper directly; production passes `loadIgnoredWarnings` (`lib/admin/loadIgnoredWarnings.ts:16`, already registered in `tests/admin/_metaInfraContract.test.ts`).
+Per row, by taxonomy (§2.0):
+
+- **LINKED** (has `linkedShowRef` + valid preview): awaits the loader (`Promise.all` across qualifying rows), treats `infra_error` as an empty fingerprint set (§1.1.7), stamps the model with report scope `linkedShowRef.slug`.
+- **FIRST-SEEN** (valid preview, no `linkedShowRef`): NO loader call — the fingerprint set is read from the row's own `pending_syncs.ignored_warnings` column, which the step-3 `pending_syncs` select (`components/admin/OnboardingWizard.tsx:380`) gains alongside `use_raw_decisions`. Malformed column shapes (non-array, entries without a string `fingerprint`) coerce to the empty set — fail toward VISIBLE, same posture as §1.1.7. Report scope is `staged-${driveFileId}`.
+- **NO-PREVIEW**: passes through untouched.
+
+**Structural validity of the preview (R2 F2):** the wizard's parse loader accepts ANY non-null object as `ParseResult` (`components/admin/OnboardingWizard.tsx:497-499`), and the card already tolerates `warnings` being absent, null, or non-array (the `arr()` coercion, `lib/admin/step3Buckets.ts:39`). Enrichment applies the same coercion — `warnings` reaches `buildWizardWarningModel` only via an `arr()`-style guard (the `warningsOf` precedent at `app/admin/onboarding/_actions/useRawStaged.ts:64-70`), and a row whose coerced warnings are empty gets `{ active: [], ignored: [] }`, never a throw. One malformed row degrades to its existing card, never a failed step-3 render.
+
+The loader parameter exists so the presence-matrix tests exercise the helper directly; production passes `loadIgnoredWarnings` (`lib/admin/loadIgnoredWarnings.ts:16`, already registered in `tests/admin/_metaInfraContract.test.ts`).
 
 **The stamping helper** (SERVER-ONLY — it transitively pulls `node:crypto` via `buildReportSurfaceId`, the same constraint documented at `lib/admin/sectionWarningModel.ts:14-20`):
 
@@ -60,14 +81,17 @@ export type WizardWarningItem = {
    *  keys are NOT indices: they stay content-derived via `stableWarningKeys`
    *  (`lib/dataQuality/warningIdentity.ts:46`), exactly as today. */
   index: number;
-  reportSurfaceId: string; // buildReportSurfaceId(slug, warning)
+  reportSurfaceId: string; // buildReportSurfaceId(reportScope, warning)
 };
 export type WizardWarningModel = {
   active: WizardWarningItem[];   // fingerprint not in the ignored set (or no fingerprint)
   ignored: WizardWarningItem[];  // fingerprint in the ignored set
 };
 export function buildWizardWarningModel(args: {
-  slug: string;
+  /** LINKED: the show slug; FIRST-SEEN: `staged-${driveFileId}`. Only a stable
+   *  scope string for the opaque surface id (`lib/dataQuality/warningFingerprint.ts:18`
+   *  hashes the identity; the scope only namespaces it). */
+  reportScope: string;
   warnings: readonly ParseWarning[];
   ignoredFingerprints: ReadonlySet<string>;
 }): WizardWarningModel;
@@ -75,32 +99,35 @@ export function buildWizardWarningModel(args: {
 
 Partition semantics are `partitionByIgnored`'s (`lib/dataQuality/partitionByIgnored.ts:4-16`): a warning with a `null` fingerprint is always active. Items carry indices, not copies of the warnings, so every consumer re-joins against the one `warnings` array it already holds and no second copy can drift.
 
-New `Step3Row` field `warningModel?: WizardWarningModel` — present exactly when `linkedShowRef` is present and `parseResult` is non-null (an empty warnings array yields `{ active: [], ignored: [] }`).
+New `Step3Row` field `warningModel?: WizardWarningModel` — present exactly for FIRST-SEEN and LINKED rows (§2.0); an empty or fully coerced-away warnings array yields `{ active: [], ignored: [] }`.
 
 ### 2.2 Threading (staged section data)
 
 `StagedSectionData` (`components/admin/review/sectionData.ts:62-68`) gains:
 
 ```ts
-dq?: { slug: string; showId: string; model: WizardWarningModel };
+export type WizardDqTarget =
+  | { kind: "show"; slug: string; showId: string }        // LINKED rows
+  | { kind: "staged"; wizardSessionId: string; driveFileId: string }; // FIRST-SEEN rows
+dq?: { target: WizardDqTarget; model: WizardWarningModel };
 ```
 
-populated by `buildStagedSectionData` from the new `Step3Row` fields at its existing construction sites, absent when either is missing (`exactOptionalPropertyTypes` — key omitted, never `undefined`). The registry's warnings row (`step3ReviewSections.tsx`, the `id: "warnings"` def) passes it to `WarningsBreakdown` as a new optional prop, staged-gated with the same `isStaged(s)` spread pattern the `wizardSessionId` threading uses.
+populated by `buildStagedSectionData` from the new `Step3Row` fields at its existing construction sites — `target.kind` follows the §2.0 taxonomy — and absent for NO-PREVIEW rows (`exactOptionalPropertyTypes` — key omitted, never `undefined`). The discriminated locator is the `UseRawControlBoundary` surface precedent (`components/admin/UseRawControlBoundary.tsx:41`). The registry's warnings row (`step3ReviewSections.tsx`, the `id: "warnings"` def) passes it to `WarningsBreakdown` as a new optional prop, staged-gated with the same `isStaged(s)` spread pattern the `wizardSessionId` threading uses.
 
 ### 2.3 Client render (`WarningsBreakdown`)
 
-New optional prop `dq?: { slug: string; showId: string; model: WizardWarningModel }`. Behavior:
+New optional prop `dq?: { target: WizardDqTarget; model: WizardWarningModel }`. Behavior:
 
 - **Absent** (published mount, standalone fixtures, staged row without a linked show): byte-identical rendering to today. This is the guard for every partial-data case.
 - **Present:** the visible list renders the ACTIVE rows only (in existing order — active items' `index` fields select from the already-computed `rows`). **Jump-anchor contract:** each rendered active row carries its ORIGINAL full-array index in BOTH jump attributes — `data-warning-index` AND `data-attention-anchor={`warning:${index}`}` (today both use the rendered position `i`, `components/admin/wizard/step3ReviewSections.tsx:3078` and `components/admin/wizard/step3ReviewSections.tsx:3082`, valid only because staged rendered index equals full index; active-only rendering breaks that equality). The attention menu resolves rows by `[data-attention-anchor]` (`components/admin/review/ShowReviewSurface.tsx:568`) against ids minted as `warning:${e.index}` over the full array (`components/admin/wizard/Step3ReviewModal.tsx:319`), so original indices are the only values that keep menu jumps landing. The per-row testid keeps the original index too (`warning-${index}`). Rows in the Ignored disclosure carry NEITHER jump attribute — they are filtered out of attention (§2.4), so a stale anchor must not shadow an active target. **React keys are unchanged:** `stableWarningKeys` (content identity + occurrence suffix, `lib/dataQuality/warningIdentity.ts:43-52`) computed over each rendered subset (active list; disclosure list) — never model indices, which would reintroduce the state-migration-on-rescan problem the content keys exist to prevent. Each active `warn`-severity row appends, after the existing use-raw / recognize-role boundaries:
   ```tsx
   <DataQualityWarningControls
-    slug={dq.slug} showId={dq.showId} warning={w}
+    target={dq.target} warning={w}
     driveFileId={dfid} mode="active"
     reportSurfaceId={item.reportSurfaceId}
   />
   ```
-  (`components/admin/DataQualityWarningControls.tsx:43-49` — props verified; the component self-gates Ignore on `hasIgnorableSnippet`, Report always renders.) Active `info`-severity rows are unchanged (§1.1.4).
+  `DataQualityWarningControls` generalizes from `{slug, showId}` props to the discriminated `target` (§1.1.9): the `show` arm keeps today's fetch to `/api/admin/show/[slug]/data-quality/{ignore|unignore}` byte-identical (`components/admin/DataQualityWarningControls.tsx:63-70`); the `staged` arm calls the §2.6 server action pair instead. The Report half needs no fork beyond identity: `ReportButton.showId` takes the linked show id or `null` (`components/shared/ReportButton.tsx:48`; staged submit support `lib/reports/submit.ts:279`). Every published mount site (`components/admin/showpage/sectionWarningExtras.tsx:120-127` and peers) passes `target={{ kind: "show", slug, showId }}` — a mechanical call-site migration with unchanged behavior. The component still self-gates Ignore on `hasIgnorableSnippet`; Report always renders. Active `info`-severity rows are unchanged (§1.1.4).
 - The catalog `controlsNote` line (spec 2026-08-27 §4.3 gate: shown only where controls actually mount) renders on control-bearing rows, sourced from the catalog entry when present.
 - **Ignored disclosure:** below the list, when `dq.model.ignored.length > 0`, a native `<details>` "Ignored (N)" disclosure — same pattern, chrome, and instant-body treatment as the published one (`components/admin/showpage/sectionWarningExtras.tsx:280-314`) — renders the ignored rows muted with `mode="ignored"` controls (Un-ignore + Report).
 - After a successful ignore/unignore the control calls `router.refresh()` (existing component behavior); the wizard modal survives refresh and receives the recomputed partition as new props — the exact mechanism the in-modal Re-scan already relies on (`components/admin/wizard/Step3ReviewModal.tsx:211-212`).
@@ -134,12 +161,59 @@ The ignored index set crosses the RSC boundary once (`Step3Row.warningModel`, re
 
 The provider gate `value={routedWarningsRenderElsewhere ? announceCtx : NOOP_WARNING_ANNOUNCE}` (`components/admin/review/ShowReviewSurface.tsx:864-866`) widens so staged mounts also receive the real `announceCtx` (the `useAnnounceLog` region already lives in the shared surface). "Warning ignored." / "Warning restored." then announce in the wizard exactly as on the published surface. Standalone mounts outside the surface keep `NOOP_WARNING_ANNOUNCE` (context default, unchanged).
 
+### 2.6 Staged ignore server action (FIRST-SEEN backend)
+
+A new admin server action pair (one module, mirror of `app/admin/onboarding/_actions/useRawStaged.ts` clause for clause):
+
+```ts
+// app/admin/onboarding/_actions/stagedWarningIgnore.ts ("use server")
+export async function setStagedWarningIgnore(args: {
+  wizardSessionId: string;
+  driveFileId: string;
+  action: "ignore" | "unignore";
+  code: string;
+  rawSnippet: string;
+}): Promise<SetStagedWarningIgnoreResult>;
+```
+
+Contract, each clause inherited from the ratified staged use-raw action:
+
+- `assertSameOriginServerAction` + `requireAdmin`/`requireAdminIdentity` gate (admin mutation).
+- **Pre-lock pairing verify:** the `(wizardSessionId, driveFileId)` pair must exist in `pending_syncs` before locking, so a client arg can never steer the advisory lock onto an unrelated show (`useRawStaged.ts:15-21` rationale).
+- **Under `withShowLock(driveFileId)`** (invariant 2 — the JS-wrapper layer is the SINGLE holder for this hashkey on this path, same as use-raw): locked re-read of that row's `parse_result` + current `ignored_warnings`; compute `warningFingerprint({code, rawSnippet})` and validate it matches a live ignorable warning of the locked parse (stale/absent → typed refusal, mirroring `warning_not_found` / `warning_stale`); `ignore` upserts `{ fingerprint, code, ignored_by }` (ignored_by = canonicalized admin email, invariant 3 — same shape the durable table's CHECK enforces, `supabase/migrations/20260702120000_ignored_warnings.sql:8-9`); `unignore` removes the entry; commit.
+- **Post-commit, outside the lock tx** (invariant 10): `logAdminOutcome` with `STAGED_WARNING_IGNORED` / `STAGED_WARNING_UNIGNORED` (forensic codes, NOT §12.4 rows), emitted only on a real mutation. The action registers in `AUDITABLE_MUTATIONS` with a success-branch sink-spy behavioral test.
+- Invariant 9 throughout: every await destructures `{ data, error }`; infra faults are typed `infra_error` results, never silent.
+
+**Storage shape:** `pending_syncs.ignored_warnings jsonb not null default '[]'::jsonb` — an array of `{ fingerprint, code, ignored_by }`. New migration; the scan upsert's `do update set` list does NOT touch it (survives rescan, §1.1.8); the finalize cleanup that deletes the `pending_syncs` row disposes of it with the row.
+
+**Client behavior on success:** identical to the show arm — announce ("Warning ignored." / "Warning restored.") then `router.refresh()`; the wizard re-reads the column through Phase B and the partition moves.
+
+### 2.7 Finalize carry (staged fingerprints become durable ignores)
+
+The finalize path already locked-reads the `pending_syncs` row's decision columns and rides them into the apply payload (`app/api/admin/onboarding/finalize/route.ts:1039-1049` selects `use_raw_decisions`; `app/api/admin/onboarding/finalize/route.ts:1338` forwards). `ignored_warnings` joins that select and payload. Where phase 2 knows the created (or updated) show's id (`lib/sync/phase2.ts:497-552` — the same site that re-persists kept use-raw decisions), it inserts each staged entry into `public.ignored_warnings (show_id, fingerprint, code, ignored_by)` with `on conflict (show_id, fingerprint) do nothing` — the staging-time `ignored_by` is preserved (it already satisfies the canonical CHECK). Orphaned fingerprints (warning vanished between staging and apply) carry harmlessly and the cron prune removes them later (§1.1.6). Carry failures follow the surrounding phase-2 fault posture; they never abort an otherwise successful apply silently — same discipline as the use-raw re-persist.
+
+**DB completeness matrix (tier × layer):**
+
+| Layer | `pending_syncs.ignored_warnings` | `public.ignored_warnings` |
+|---|---|---|
+| DDL | new migration: jsonb NOT NULL DEFAULT '[]' | unchanged |
+| CHECK | none (shape enforced by the single writer action; malformed → empty-set coercion on read, §2.1) | existing canonical CHECK unchanged |
+| Write paths | §2.6 action (only writer); scan upsert omits it; finalize row-delete disposes | existing routes; NEW: §2.7 finalize carry insert |
+| Read paths | step-3 select (§2.1 Phase B); finalize locked select (§2.7) | `loadIgnoredWarnings` (unchanged) |
+| Cleanup | dies with the `pending_syncs` row | DQIGNORE-3 cron prune (unchanged) |
+| Frontend | §2.3 staged arm | §2.3 show arm (published + LINKED) |
+| Tests | §6 action + carry + coercion suites | existing suites unchanged |
+| Validation project | migration applied surgically + `pnpm gen:schema-manifest` (validation-schema-parity gate) | N/A — no DDL change |
+
 ## 3. Guard conditions
 
 | Input | Case | Render |
 |---|---|---|
-| `Step3Row.linkedShowRef` | absent/null (no show row, hard_failed, skipped, candidate without slug) | no `warningModel`, no `dq` prop → panel byte-identical to today |
-| `loadIgnoredWarnings` | `infra_error` | empty set → all rows active, controls still mount (§1.1.7) |
+| row taxonomy | NO-PREVIEW (hard_failed, skipped, resolved, badge-only) | no `warningModel`, no `dq` prop → panel byte-identical to today |
+| `parse_result` | non-null but malformed (no `warnings`, `warnings: null`, non-array) | `arr()`-coerced to empty (§2.1); model `{active: [], ignored: []}`, no throw, existing degraded card unchanged |
+| `pending_syncs.ignored_warnings` | malformed column value (non-array, entries missing string `fingerprint`) | coerced to empty set — all rows active, controls still mount (fail toward VISIBLE) |
+| `linkedShowRef` | matched candidate without a usable string `slug` (defensive — `shows.slug` is populated in practice) | the row degrades to the staged arm: the staged backend needs only `(wizardSessionId, driveFileId)`, both always present on a reviewable pending row, and the finalize carry (§2.7) still lands the fingerprints on the applied show |
+| `loadIgnoredWarnings` (LINKED rows) | `infra_error` | empty set → all rows active, controls still mount (§1.1.7) |
 | `dq.model.active` | empty, `ignored` non-empty | the CLEAN sentence ("Nothing needs a look on this sheet." — the published branch's wording at `components/admin/wizard/step3ReviewSections.tsx:2988-2992`, whose own comment already covers the all-ignored case) renders for the visible list, PLUS the Ignored (N) disclosure below it; the `warnings-empty` sentence ("No parse warnings for this sheet.") stays reserved for a genuinely empty warnings array |
 | `dq.model.ignored` | empty | no disclosure element at all (not an empty `<details>`) |
 | `warning.rawSnippet` | absent/blank on an active warn row | Report renders, Ignore self-hides (`components/admin/DataQualityWarningControls.tsx:53` and `components/admin/DataQualityWarningControls.tsx:85`) |
@@ -168,7 +242,7 @@ States of one warn row's control cluster: `idle`, `running`, `error` (component-
 | disclosure closed ↔ open | chevron rotate transition only, body instant (existing published pattern, copied) |
 | compound: ignore fired while Re-scan/publish run active | ignore POST is independent of the publish run; the refresh lands whenever it lands — no freeze is added (the panel's controls are not part of the §4.4 footer freeze set, same as use-raw today) |
 | compound: second row's Ignore pressed while first is running | each control instance owns its state; both refresh once each on success (existing published behavior, unchanged) |
-| compound: attention menu open when an ignore's refresh lands | the ignored row's menu entry vanishes with the re-render (instant — server truth); the menu stays mounted, and the pill hides entirely when the active count reaches zero (existing `pillInteractive` gate, `components/admin/wizard/Step3ReviewModal.tsx:340`) |
+| compound: attention menu open when an ignore's refresh lands | the ignored row's menu entry vanishes with the re-render (instant — server truth). When the active count reaches zero, `pillInteractive` goes false and BOTH the pill's interactive state and the menu UNMOUNT in that render — the gate "gates BOTH the button states and the menu mount" (`components/admin/wizard/Step3ReviewModal.tsx:331-340`, mount site `components/admin/wizard/Step3ReviewModal.tsx:549-643`). Instant, deliberate: existing contract, unchanged by this spec |
 
 No new animation anywhere; every treatment is instant and deliberate except the existing chevron rotate.
 
@@ -182,12 +256,16 @@ TDD per task (plan defines tasks; anchors here):
 
 - **Model:** unit tests for `buildWizardWarningModel` — partition against fingerprints, index fidelity, null-fingerprint always active, empty-warnings shape. Derive expectations from fixture warnings run through the REAL `warningFingerprint`, never hardcoded hashes (anti-tautology).
 - **Assembly (Phase A):** `assembleStep3Row` tests — `linkedShowRef` from both resolution branches, absent-slug candidate → null.
-- **Enrichment (Phase B):** `enrichStep3WarningModels` tests with an injected loader — the presence matrix (`linkedShowRef` × `parseResult` × loader ok/infra_error), pass-through of non-qualifying rows, infra_error → all-active.
+- **Enrichment (Phase B):** `enrichStep3WarningModels` tests with an injected loader — the presence matrix over the §2.0 taxonomy (LINKED × loader ok/infra_error; FIRST-SEEN reading the staged column, well-formed and malformed; NO-PREVIEW pass-through), infra_error → all-active.
 - **Choke points:** `gapWarnings`-level tests through its public consumers (`nonAmbiguityGapTotal`, `rowIsJudgment`, `deriveStep3Buckets` with a `warningModel`-bearing row — the ignored warn row stops counting; absent model → unchanged), and wrapper-level tests for the SectionData entries filter (original `index` preserved on survivors; identity when `dq` absent; warn-only precondition maintained so `deriveWarningAttention`'s info-severity throw stays unreachable).
 - **Render:** `WarningsBreakdown` with `dq` — controls on warn rows only, Ignore hidden for snippet-less rows, Ignored (N) disclosure content (no jump attributes on disclosure rows), byte-identical no-`dq` render (existing snapshot/suite must stay green untouched), controlsNote gate, all-ignored clean sentence.
 - **Jump-anchor contract:** with warning 0 ignored and warning 1 active, the rendered active row carries `data-attention-anchor="warning:1"` and `data-warning-index="1"`, and the attention menu's entry id resolves to it (assert via the same `[data-attention-anchor="${id}"]` selector the surface uses, `components/admin/review/ShowReviewSurface.tsx:568`); React keys assert `stableWarningKeys` output, not indices.
 - **Counts:** shared-derivation tests per §2.4 consumer asserting the surface reads the active partition (fixture with 1 ignored warn + 1 active warn + 1 info; expected counts derived from the fixture, and the ignored row's label must be ABSENT from the counted chrome — scope the extraction so the disclosure's copy of the label can't satisfy the assertion).
 - **Structural guard:** the §2.4 registered-site walk ships in the same PR as the first choke-point edit, discovered from the filesystem (a new file in the walked tree is covered by default).
+- **Staged action (§2.6):** suite mirroring the staged use-raw action's — pairing-verify refusal on an unknown `(wizardSessionId, driveFileId)`; advisory lock HELD during the mutation (the `withShowLock` topology assertion, template `tests/auth/advisoryLockRpcDeadlock.test.ts`); fingerprint validation against the LOCKED parse (stale/absent → typed refusal); ignore/unignore jsonb round-trip; idempotent duplicate ignore mutates nothing and emits nothing; post-commit emit only on real mutation. `AUDITABLE_MUTATIONS` registry row + sink-spy success-branch proof (invariant 10, `tests/log/adminOutcomeBehavior.test.ts` pattern).
+- **Finalize carry (§2.7):** staged fingerprints land in `public.ignored_warnings` for the applied show with `on conflict do nothing`; staging-time `ignored_by` preserved; orphaned fingerprints carry without error; the carry site's fault posture matches the surrounding phase-2 discipline.
+- **Malformed-shape matrix (§2.1):** enrichment over rows with `parse_result` = null / non-object / object without `warnings` / `warnings: null` / non-array — no throw, model per the guard table; malformed `ignored_warnings` column values coerce to the empty set.
+- **Migration:** local apply + `pnpm gen:schema-manifest` committed + surgical validation-project apply, per the validation-schema-parity checklist (three steps, one PR).
 - **Announce:** staged surface mounts real announce (provider widening) — producer announce fires on the success branch in a staged mount.
 - **Routes:** untouched — existing route suites stand; no new mutation-surface registry rows (§1.1.5). The meta-tests that walk surfaces (`tests/log/_metaMutationSurfaceObservability.test.ts`) see no new surface by construction.
 - **Real-browser:** none required — no fixed-dimension parent/child relationship is introduced (controls join an existing flex column flow). Invariant-8 impeccable critique + audit run on the diff regardless.
@@ -198,8 +276,10 @@ TDD per task (plan defines tasks; anchors here):
 - No bulk ignore in the wizard (§1.1.3). Re-file trigger: an owner hits a wizard sheet where per-row ignoring is materially slower (≥ roughly 5 same-code rows).
 - Wizard re-scan does not prune orphaned ignores (§1.1.6); cron sync does.
 - An ignore landed from the wizard survives into the published surface (same table, same fingerprints) — intended, not incidental: the wizard decision IS the show's decision.
-- `loadIgnoredWarnings` per staged row adds one read per linked staged row to the step-3 wave; wizard manifests are small (bounded by a scan batch), so no batching in v1. Re-file trigger: a measured step-3 load regression attributable to this wave.
+- `loadIgnoredWarnings` per LINKED row adds one read per such row to the enrichment pass; FIRST-SEEN rows read their own already-selected column. Wizard manifests are small (bounded by a scan batch), so no batching in v1. Re-file trigger: a measured step-3 load regression attributable to this pass.
+- A staged ignore on a row whose finalize never runs (abandoned session) dies with the `pending_syncs` row via the existing cleanup — by design; nothing to prune.
+- Staged and linked backends can in principle hold the same fingerprint twice for one show (staged before finalize, direct route after); the carry's `on conflict do nothing` makes the duplicate harmless.
 
 ## 8. Citations pass
 
-Verified live in the worktree at `b608e71b3` (2026-08-28): every `file:line` in this document was read this session before drafting; key anchors — `DataQualityWarningControls` props (`components/admin/DataQualityWarningControls.tsx:10-17`), ignore route slug resolution + body contract (`app/api/admin/show/[slug]/data-quality/ignore/route.ts:96-113`), `partitionByIgnored` (`lib/dataQuality/partitionByIgnored.ts:4`), `buildReportSurfaceId(slug, w)` (`lib/dataQuality/warningFingerprint.ts:18`), `loadIgnoredWarnings` (`lib/admin/loadIgnoredWarnings.ts:16`), `Step3Row` (`components/admin/wizard/Step3Review.tsx:83`), staged data builder (`components/admin/review/sectionData.ts:104`), announce gate (`components/admin/review/ShowReviewSurface.tsx:864-866`), attention memo (`components/admin/wizard/Step3ReviewModal.tsx:313-329`), shows select (`components/admin/OnboardingWizard.tsx:425-433`), `visibleWarningRows` (`lib/admin/visibleWarningRows.ts`), panel count helper (`lib/admin/sheetWarningsCount.ts:17-21`), row-bucket accessor + consumers (`lib/admin/step3Buckets.ts:47`, `lib/admin/step3Buckets.ts:68`, `lib/admin/step3Buckets.ts:94`, `lib/admin/step3Buckets.ts:114`), stable keys (`lib/dataQuality/warningIdentity.ts:46`), attention derivation info-throw (`lib/admin/warningAttention.ts:27-35`), attention selector (`components/admin/review/ShowReviewSurface.tsx:568`), card derivations (`components/admin/wizard/Step3SheetCard.tsx:513-520`), summary buckets (`components/admin/wizard/Step3Review.tsx:1039-1042`). R1 probes (2026-08-28) re-verified the sequential read shape of the step-3 loader and the `[data-attention-anchor]` selector path.
+Verified live in the worktree at `b608e71b3` (2026-08-28): every `file:line` in this document was read this session before drafting; key anchors — `DataQualityWarningControls` props (`components/admin/DataQualityWarningControls.tsx:10-17`), ignore route slug resolution + body contract (`app/api/admin/show/[slug]/data-quality/ignore/route.ts:96-113`), `partitionByIgnored` (`lib/dataQuality/partitionByIgnored.ts:4`), `buildReportSurfaceId(slug, w)` (`lib/dataQuality/warningFingerprint.ts:18`), `loadIgnoredWarnings` (`lib/admin/loadIgnoredWarnings.ts:16`), `Step3Row` (`components/admin/wizard/Step3Review.tsx:83`), staged data builder (`components/admin/review/sectionData.ts:104`), announce gate (`components/admin/review/ShowReviewSurface.tsx:864-866`), attention memo (`components/admin/wizard/Step3ReviewModal.tsx:313-329`), shows select (`components/admin/OnboardingWizard.tsx:425-433`), `visibleWarningRows` (`lib/admin/visibleWarningRows.ts`), panel count helper (`lib/admin/sheetWarningsCount.ts:17-21`), row-bucket accessor + consumers (`lib/admin/step3Buckets.ts:47`, `lib/admin/step3Buckets.ts:68`, `lib/admin/step3Buckets.ts:94`, `lib/admin/step3Buckets.ts:114`), stable keys (`lib/dataQuality/warningIdentity.ts:46`), attention derivation info-throw (`lib/admin/warningAttention.ts:27-35`), attention selector (`components/admin/review/ShowReviewSurface.tsx:568`), card derivations (`components/admin/wizard/Step3SheetCard.tsx:513-520`), summary buckets (`components/admin/wizard/Step3Review.tsx:1039-1042`). R1 probes (2026-08-28) re-verified the sequential read shape of the step-3 loader and the `[data-attention-anchor]` selector path. R2-repair probes verified: staged use-raw action contract (`app/admin/onboarding/_actions/useRawStaged.ts:1-80`), finalize decision ride-along (`app/api/admin/onboarding/finalize/route.ts:1039-1049` and `app/api/admin/onboarding/finalize/route.ts:1338`), phase-2 re-persist site (`lib/sync/phase2.ts:552`), first-seen show creation (`lib/sync/phase2.ts:497`, `app/api/admin/onboarding/finalize/route.ts:568`), scan-upsert column preservation by omission (`lib/sync/runOnboardingScan.ts:564-575`), parse-result loose coercion (`components/admin/OnboardingWizard.tsx:497-499`), durable-table canonical CHECK (`supabase/migrations/20260702120000_ignored_warnings.sql:8-9`), pending select (`components/admin/OnboardingWizard.tsx:380`), attention-menu mount gate (`components/admin/wizard/Step3ReviewModal.tsx:331-340` and `components/admin/wizard/Step3ReviewModal.tsx:549-643`).
