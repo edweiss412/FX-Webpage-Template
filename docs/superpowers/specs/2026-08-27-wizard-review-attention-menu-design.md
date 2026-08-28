@@ -460,7 +460,7 @@ Real browser (Playwright, new file tests/e2e/wizard-attention-menu.spec.ts on th
 
 ## 15. Review triage record
 
-Amendment record: plan round 4 (2026-08-27) found that over-cap crew cards are present in the DOM inside a closed `<details>`, not absent; §4.4, §7, §10 and §12.19 were amended so the jump opens the disclosure. Reported to bl-orch with the plan-stage cap report.
+Amendment record: plan round 4 (2026-08-27) found that over-cap crew cards are present in the DOM inside a closed `<details>`, not absent; §4.4, §7, §10 and §12.19 were amended so the jump opens the disclosure. Reported to bl-orch with the plan-stage cap report and RATIFIED by bl-orch on 2026-08-27 (plan accepted at round 4).
 
 
 Refuted claims are recorded so later rounds do not re-derive them.
