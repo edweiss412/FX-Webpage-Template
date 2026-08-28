@@ -38,8 +38,6 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Filed 2026-08-27** as `BL-SPECLINT-EXPECT-N-EXIT-STATUS` (owner-directed; incident: `fix/fitwithinclip-stale-clip-subscription` plan round 2).
 
-**MECHANIZED 2026-08-28** by `feat/speclint-expect-n-exit-status` (`docs/superpowers/specs/ci/2026-08-28-speclint-expect-n-exit-status.md`): the `# expect N` and Playwright zero-collection shapes are `EXPECT_N_UNENFORCED` and `PLAYWRIGHT_COLLECTS_NOTHING` in `lib/specLint/expectContract.ts`. The unmechanized residue (non-integer expectations, integer-plus-trailing-prose, whole-line comments, `--project` filtering, continuation and multi-invocation declines) is parked in that spec's §7 documented limits with per-limit re-file triggers; truth-of-claim stays `BL-SPECLINT-RED-TRUTH-PROBE`.
-
 ## LIM-TASK-MENTION-RESOLUTION
 
 **Shape:** An intra-document task or step reference left stale by a restructure: a `Task <n>` mention that resolves to no `## Task <n>` heading (or a checklist naming a `red-state=live` marker the plan does not contain), and the sibling form, a `Step <n>` reference invalidated by renumbering. `spec:lint` already parses task topology and compares nothing.

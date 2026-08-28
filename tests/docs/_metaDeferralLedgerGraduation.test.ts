@@ -658,10 +658,6 @@ const BACKLOG_GRADUATED = [
   // multi-token SSID — so every candidate rule is a recognizer calibrated on
   // nothing, and the limit is documented in the spec rather than left open.
   {
-    id: "BL-SPECLINT-EXPECT-N-EXIT-STATUS",
-    provenance: "feat/speclint-expect-n-exit-status",
-  },
-  {
     id: "BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY",
     provenance: "feat/wifi-password-legibility",
   },
