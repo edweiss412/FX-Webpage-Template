@@ -13,9 +13,14 @@ spec's §2.
 **Files:**
 
 - `lib/popover/naturalSize.ts` (edited — two `&&` operands in one `finally` block)
-- `tests/components/naturalSize.test.ts` (extended — TWO new cases: INV-F, and
-  the mixed offset case where one is zero and one is scrolled. INV-G is the two
-  merged cases at `tests/components/naturalSize.test.ts:46` and
+- `tests/components/naturalSize.test.ts` (extended — FOUR new cases, one per
+  claim the arc makes: INV-F (no scroll read after the cap restore when both
+  offsets are zero); the mixed case `(0, non-zero)`; the fourth combination
+  `(non-zero, 0)`, which an asymmetric guard would otherwise pass; and a NEGATIVE
+  held `scrollLeft` as an RTL container reports, which `heldScrollLeft > 0` would
+  otherwise pass. The last two were added at diff review R2 — the inventory said
+  two until R3 caught it. INV-G is the two merged cases at
+  `tests/components/naturalSize.test.ts:46` and
   `tests/components/naturalSize.test.ts:60`, asserted to stay green rather than
   rewritten)
 - `BACKLOG.md` (the row's body becomes the park record; its `IN PROGRESS` marker

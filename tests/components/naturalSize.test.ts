@@ -270,7 +270,12 @@ describe("withNaturalSize", () => {
     const realStyle = el.style;
     const styleProxy = new Proxy(realStyle, {
       set(t, prop, value) {
-        if (prop === "maxWidth" || prop === "maxHeight") trace.push(`write style.${String(prop)}`);
+        // The VALUE is traced, not just the fact of a write. Without it
+        // "the last write is the restore" has nothing to compare against —
+        // diff review R3 finding 1, where the repair for R1 compared
+        // `lastIndexOf(x)` with `lastIndexOf(x)` and could not fail.
+        if (prop === "maxWidth" || prop === "maxHeight")
+          trace.push(`write style.${String(prop)}=${String(value)}`);
         return Reflect.set(t, prop, value);
       },
       get(t, prop) {
@@ -282,17 +287,30 @@ describe("withNaturalSize", () => {
 
     withNaturalSize(el, () => 1);
 
-    const lastCapWrite = trace.lastIndexOf("write style.maxHeight");
-    // PREMISE (own inputs): the last `maxHeight` write must be the RESTORE, not
-    // the clear. `lastCapWrite >= 0` alone proves only that some write happened,
-    // which the clear satisfies on its own — diff review R1 finding 1. The
-    // helper writes each cap exactly twice, clear then restore, so requiring
-    // BOTH writes and taking the last one pins the restore specifically.
-    const capWrites = trace.filter((t) => t === "write style.maxHeight").length;
-    premiseHolds(`the helper cleared AND restored maxHeight (saw ${capWrites})`, capWrites === 2);
+    const capWrites = trace.filter((t) => t.startsWith("write style.maxHeight"));
+    const lastCapWrite = trace.lastIndexOf(capWrites[capWrites.length - 1] ?? "\u0000");
+    // PREMISE (own inputs): the last `maxHeight` write must be the RESTORE — it
+    // must write BACK the cap the box started with.
+    //
+    // Two earlier attempts failed differently and both are recorded, because the
+    // second is the more instructive. `lastCapWrite >= 0` proves only that some
+    // write happened, which the CLEAR satisfies alone (R1 finding 1). The repair
+    // for that then compared `lastIndexOf(x)` against `lastIndexOf(x)` — an
+    // assertion that cannot fail, which is a WORSE defect than the one it
+    // replaced (R3 finding 1). A premise repaired into a tautology is the shape
+    // the round-economy rule warns about: the repair introduced the next round's
+    // finding.
+    //
+    // The value settles it. `box()` starts at `max-height: 200px`, the helper
+    // clears to `""` and restores to `200px`, so the last write carrying the
+    // ORIGINAL value is the restore and nothing else can be.
     premiseHolds(
-      "the restore is the last cap write",
-      lastCapWrite === trace.lastIndexOf("write style.maxHeight"),
+      `the helper wrote maxHeight twice (saw ${capWrites.length})`,
+      capWrites.length === 2,
+    );
+    premiseHolds(
+      `the last maxHeight write restores the original cap (saw ${capWrites[capWrites.length - 1]})`,
+      capWrites[capWrites.length - 1] === "write style.maxHeight=200px",
     );
     // PREMISE (own inputs): it must have read the held offsets up front, or the
     // instrumentation is not attached to the property the helper actually uses
