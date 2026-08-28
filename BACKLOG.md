@@ -317,47 +317,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ---
 
-## BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN — the portal measures three times on every open, and its placement loop is why
-
-**Status:** IN PROGRESS · **Branch:** perf/anchoredportal-measure-convergence · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, class sweep §4.2) · **Facing:** product · **Severity:** LOW-MEDIUM (three forced synchronous reflows per menu open on a shipped admin surface; correct output, redundant cost) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — unpicking the convergence loop is a redesign of a placement surface the fitWithinClip arc does not otherwise touch, with its own e2e geometry suite and viewport-source registry. · **Reachability:** PROBED — the run below, against `origin/main` at `449f29fab`.
-
-`components/admin/AnchoredPortal.tsx` runs `measureAndApply` three times for one closed → open
-transition. Counting anchor-rect reads, one per `measureAndApply`
-(`components/admin/AnchoredPortal.tsx:141`), in a jsdom harness that renders the portal closed and
-then re-renders it open:
-
-```
-PROBE closedReads=0 measureRunsOnOpenCommit=3
-```
-
-Two layout effects both cover the open commit: the gated one
-(`components/admin/AnchoredPortal.tsx:199`, the gated effect) and the deliberately ungated every-commit one
-(`components/admin/AnchoredPortal.tsx:261`, the ungated every-commit effect). The `setApplied` they produce re-renders, which fires
-the ungated effect a third time; `commit` then drops the unchanged placement and the loop settles.
-So the third run is a convergence step of the design, not a stray call, and the second is the only
-plainly redundant one.
-
-**Why it is not a one-line deletion.** `components/admin/AnchoredPortal.tsx:252-260` (the rationale comment above the ungated effect) documents at
-length why the every-commit effect is unconditional: it is the only subscription that catches a
-POSITION-ONLY anchor move, which `ResizeObserver` explicitly does not report — a background
-`router.refresh()` that reorders rows without changing any dimension moves the anchor under a panel
-that is a body child with absolute coordinates. Deleting the gated effect's own `measureAndApply`
-instead would leave the pre-paint guarantee resting on the ungated effect being declared after it,
-which is a silent coupling rather than a repair. Either direction is a design decision on the
-placement loop, so it wants its own arc and its own review.
-
-This row does not assert what the converged number should be. Deciding that is the work.
-
-**Trigger:** an arc that already restructures `AnchoredPortal`'s placement effects, or profiling
-that shows open-time reflow cost is material on the shows dashboard.
-
-**First scheduled step:** re-run the probe against the live surface (not only jsdom) via
-`tests/e2e/rowactions-geometry.spec.ts`, to establish whether the third run's placement is ever
-DIFFERENT from the second's — if it never is, the convergence step is dead weight and the repair
-narrows to the gated effect.
-
----
-
 ## BL-ROWACTIONS-SUBMENU-STALE-ON-ROW-MENU-REPLACE — the submenu is anchored inside the row menu, and does not follow when the row menu re-places
 
 **Status:** OPEN · **Filed:** 2026-08-27 (`perf/anchoredportal-measure-convergence`, blast-radius pass) · **Facing:** product · **Severity:** LOW-MEDIUM (a visibly mis-anchored submenu on the shipped admin dashboard; narrow trigger, correct output everywhere else) · **Class:** cross-instance placement subscription · **Effort:** M · **Class-sweep exception:** (c) — the repair is a redesign of the placement subscription model across two `AnchoredPortal` instances, which is the SAME scope already fenced when `MutationObserver` was declined for that arc (`docs/superpowers/specs/admin/2026-08-27-anchoredportal-measure-convergence.md` §2.4), not a fresh or unexplained deferral. · **Reachability:** INFERRED, NOT PROBED.
