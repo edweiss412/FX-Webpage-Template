@@ -13419,3 +13419,27 @@ The cap now equals the expected cap and the new clip ancestor's own resize is de
 - **No live row, no repair.** With no prior-crew entry for the member the held snapshot is still retained. It is the pre-arc behaviour at four sites and an improvement on retaining nothing at the fifth.
 - **Sheet edits under a suppressed replacement never reach the retained row.** When a rename is undone or a folded rename rejected, the sheet keeps listing the member under the replacement name; that row is suppressed by name and email, so an edit to it does not reach them. True before this arc; the arc neither creates nor closes it. A `nonIdentityOverride` that would have preferred those fields was specced and then DROPPED by ruling, on two grounds: the writer-set argument makes live-wins already correct there, and spec round 4 found a mixed-liveness defect in the mechanism itself — its guard tested the stored `suppressed_added.name` for prior liveness while its lookup matched by canonical email under ANY name.
 - **The class guard pins what each retain is GIVEN and how many there are, not the lexical scope the call sits in.** Two rounds of trying to pin scope each drew the next mutant, and the survivor is behaviour-preserving.
+
+---
+
+## BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN — the portal measures three times on every open, and its placement loop is why — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 by `perf/anchoredportal-measure-convergence` · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, class sweep §4.2) · **Facing:** product · **Severity (as filed):** LOW-MEDIUM · **Class:** measure-path redundancy · **Effort (as shipped):** M · **Reachability:** PROBED at filing against `449f29fab`, and RE-PROBED at the shipping base before anything was repaired.
+
+**The row did not assert what the converged number should be. Deciding that was the work.** The answer is 2, and the spec is `docs/superpowers/specs/admin/2026-08-27-anchoredportal-measure-convergence.md`.
+
+**The done condition, as the row asked for it.** The row's own first scheduled step was to re-run the probe against the LIVE surface, not only jsdom, to establish whether the third run's placement is ever different from the second's.
+
+```
+PROBE      closedReads=0 measureRunsOnOpenCommit=3 panelReads=3      (before)
+PROBE-LIVE styleWrites=2 placements=2 sequence=["0px|0px|||bottom","695px|1251.47px|||bottom"]
+```
+
+One settled placement is applied, and the count is now 2. The three measures are named A, B and C in the spec: A and B are the same computation on the same DOM in one commit, so exactly one was always redundant, and A is the one deleted.
+
+**What the arc found that the row did not name.**
+
+- **2 is not a floor over all mechanisms.** An earlier draft claimed it was FORCED. Review refuted that with `MutationObserver`, whose callbacks are microtasks and so can carry a pre-paint correction unlike `IntersectionObserver`. It is fenced in the spec as plausible-but-not-taken, with a re-file trigger, not as refuted.
+- **The count is scoped.** It counts measures React commits drive, in the jsdom harness whose `ResizeObserver` is a no-op stub. A browser adds an observer-delivery measure.
+- **Pre-paint is not pinnable in jsdom at all.** Testing Library's `act` flushes passive effects before `render()` returns, so no mutant discriminates there. That pin lives in the browser on frame ordering, and was proved by its own plant before it was trusted.
+- **Two peers, both filed:** `BL-ROWACTIONS-SUBMENU-STALE-ON-ROW-MENU-REPLACE` and `BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES`. The second is the same shape as this row, differing only in trigger — gesture frame rather than open commit.
