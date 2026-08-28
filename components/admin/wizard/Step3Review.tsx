@@ -50,6 +50,7 @@ import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
 import { deriveStep3Buckets } from "@/lib/admin/step3Buckets";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import type { WizardWarningModel } from "@/lib/admin/wizardWarningModel";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import type { OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
@@ -159,6 +160,11 @@ export type Step3Row = {
   // The row's raw `pending_syncs.ignored_warnings` jsonb, un-coerced. Normalized
   // exactly once, by the enrichment pass, through `normalizeStagedIgnoredWarnings`.
   stagedIgnoredWarnings?: unknown;
+  // The active/ignored partition of this row's warnings, with ORIGINAL indices.
+  // Present exactly for FIRST-SEEN and LINKED rows (spec §2.0); absent for
+  // NO-PREVIEW rows and for every non-wizard mount, where the chrome stays
+  // byte-identical to today.
+  warningModel?: WizardWarningModel;
 };
 
 // The linked live show's display summary — raw `public.shows` columns (venue/

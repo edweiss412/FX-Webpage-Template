@@ -40,6 +40,8 @@ import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { buildAdminAgendaPreview, type AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
+import { enrichStep3WarningModels } from "@/lib/admin/enrichStep3WarningModels";
+import { loadIgnoredWarnings } from "@/lib/admin/loadIgnoredWarnings";
 import {
   assembleStep3Row,
   type PendingSyncRowForBuild,
@@ -586,7 +588,14 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   const finishable =
     rows.length === 0 || rows.every((r) => !BLOCKING.has(r.status) && !r.lastFinalizeFailureCode);
 
-  return { kind: "ok", rows, finishable };
+  // wizard-warning-ignore-controls §2.1 Phase B: attach each reviewable row's
+  // active/ignored warning partition. LINKED rows read the durable show-keyed table
+  // through `loadIgnoredWarnings`; FIRST-SEEN rows read the column already selected
+  // above and issue no query. A read fault renders every warning active (§1.1.7), so
+  // this pass can degrade the partition but never the step-3 render.
+  const enriched = await enrichStep3WarningModels(rows, loadIgnoredWarnings);
+
+  return { kind: "ok", rows: enriched, finishable };
 }
 
 async function Step3Container({

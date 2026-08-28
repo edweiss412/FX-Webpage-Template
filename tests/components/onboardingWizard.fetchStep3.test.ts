@@ -478,3 +478,45 @@ describe("fetchStep3Data — wizard warning identity wiring (§2.1 Phase A)", ()
     expect(row?.stagedIgnoredWarnings).toEqual(STAGED_IGNORES);
   });
 });
+
+/**
+ * wizard-warning-ignore-controls spec §2.1 Phase B — Task 4.
+ *
+ * The enrichment call itself is the wiring under test. Without it every row
+ * reaches the modal with no `warningModel`, the panel renders every warning
+ * active, and the feature is silently absent — no error, no failing render.
+ */
+describe("fetchStep3Data — warning-model enrichment wiring (§2.1 Phase B)", () => {
+  test("returned rows carry a warningModel built from the staged ignore column", async () => {
+    const { warningFingerprint } = await import("@/lib/dataQuality/warningFingerprint");
+    const warn = {
+      severity: "warn" as const,
+      code: "UNKNOWN_FIELD",
+      message: "Unrecognized field.",
+      rawSnippet: "Hotel notes | double occupancy",
+    };
+    const fingerprint = warningFingerprint(warn);
+    expect(typeof fingerprint).toBe("string");
+
+    seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
+    seed.dataByTable["pending_syncs"] = [
+      {
+        staged_id: "s-1",
+        drive_file_id: "dfid-1",
+        parse_result: { ...PARSE_RESULT_FIXTURE, warnings: [warn] },
+        ignored_warnings: [{ fingerprint, code: warn.code, ignored_by: "doug@example.com" }],
+      },
+    ];
+
+    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+    const result = await fetchStep3Data(SESSION_ID);
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    const row = result.rows.find((r) => r.driveFileId === "dfid-1");
+    // The ignored partition is what proves enrichment RAN: an unenriched row has no
+    // model at all, and a model built without the column would put this index active.
+    expect(row?.warningModel?.ignored.map((i) => i.index)).toEqual([0]);
+    expect(row?.warningModel?.active).toEqual([]);
+  });
+});
