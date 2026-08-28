@@ -69,18 +69,6 @@ The card then tells Doug to "rename this row in your sheet so it matches the row
 
 **Done condition (outside the process):** on the RIA sheet, the wizard's Sheet warnings panel lists no near-miss row for `Room Diagram`, `Backdrop`, or `Speaker`, and the baseline suite's corpus multiset is re-measured and re-ratified.
 
-## BL-SPECLINT-RED-TRUTH-PROBE — a declared `red=` that cannot be red for its stated reason, and nothing executes it to find out
-
-**Status:** OPEN · **Filed:** 2026-08-27 (`docs/ledger-lim-mechanization-rows`; owner-directed 2026-08-27 from the `docs/lim-slug-convention` session, which is the scheduling decision) · **Facing:** process · **Mint-exception:** product-blocked · **Severity:** MEDIUM (a task whose red can never turn green burns a review round per instance and stalls the arc that owns it) · **Class:** spec-lint mechanization · **Effort:** M · **Incident:** `fix/mi11-removal-fallback-live-row` (product-facing, `BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE`), plan round 1 BLOCKING/8 on 2026-08-27: two tasks could not turn green at all, both the same shape (the test writes state where the code does not read it: Task 2 diverged the crew member's database row while `applyParseResult` reads `previousCrewMembers` from the `snapshot()` argument; Task 3 set the transaction role to `authenticated` for the reject RPC and never restored it, and `sync_holds` revokes all from that role, so the hold read died on a permission error before reaching the site under test). Corpus row `docs/review-rounds/fix/mi11-removal-fallback-live-row/4cb585b3508a.jsonl`, stage plan, round 1. · **Reachability:** PROBED — the two findings are quoted in that arc's plan repair commit history.
-
-Index entry: `LIM-AUTHORED-RED` in `docs/review-rounds/LIMITS.md`, named by six arcs (the strongest recurrence in the corpus) and fenced out of scope by `docs/superpowers/specs/2026-08-15-spec-lint-intent-red-arms.md` (mechanizing existence-of-declaration is that arm; truth-of-claim is not). Collectability is already mechanized in `lib/specLint/redContract.ts`; this row is the unmechanized truth half: a plan `red=` already green at the merge base, or a killing case that passes against clean production the moment it is written. The index's own re-file trigger ("a product-facing arc measurably blocked by a red that could not fire") is met by the incident above.
-
-**Done condition, as a number outside the process:** for every `red=` target in a plan under review, `spec:lint --exec-red` (or its successor) runs the target against the merge base and reports GREEN-AT-BASE when it passes, so the holdstale round-1 pair is flagged before dispatch; measured on the live plans corpus with the false-advisory count at zero. Rounds per product-arc plan stage is the number that should move.
-
-**Trigger:** owner-directed; schedule after `BL-SPECLINT-EXPECT-N-EXIT-STATUS`.
-
----
-
 ## BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE — a stated numeric table with no command that produces it, named by four arcs and still unmechanized
 
 **Status:** OPEN · **Filed:** 2026-08-28 (`fix/severityless-warning-filters`, diff R3 finding 2) · **Facing:** process · **Mint-exception:** recurrence · **Severity:** LOW-MEDIUM (a spec table drifts from the tree with nothing able to compare them) · **Class:** evidence provenance · **Effort:** M

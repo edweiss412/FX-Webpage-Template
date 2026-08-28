@@ -1,3 +1,66 @@
+## BL-SPECLINT-RED-TRUTH-PROBE — a declared `red=` that cannot be red for its stated reason, and nothing executes it to find out — CLOSED 2026-08-28, DEMOTED ON A MEASURED REFUTATION
+
+**Status:** CLOSED 2026-08-28 (`feat/speclint-red-truth-probe`), demoted to a documented limit rather than built · **Filed:** 2026-08-27 (owner-directed, `docs/ledger-lim-mechanization-rows`) · **Facing:** process · **Mint-exception:** product-blocked · **Severity:** MEDIUM as filed · **Class:** spec-lint mechanization · **Effort:** M as filed
+
+The row asked for `spec:lint --exec-red` to run each declared `red=` against the merge base and report GREEN-AT-BASE when it passes, naming the `fix/mi11-removal-fallback-live-row` plan round-1 pair as the catch that would prove it. The arc probed the done condition before building it. **The mechanism does not detect the pair it names, no narrowing of it detects anything on the live corpus, and exit status cannot carry the signal in the first place.** No lint ships. The content moves to the records that own the shape: `LIM-AUTHORED-RED` in `docs/review-rounds/LIMITS.md`, and item 15 of `docs/superpowers/specs/2026-08-15-spec-lint-intent-red-arms.md` §8.
+
+### What the row actually asked for
+
+`--exec-red` already ships and already reports hard `RED_ALREADY_GREEN` on exit 0, but only for `red-state=live` markers. The 2026-08-15 arms spec fences out "Running `red-state=authored` commands, ever (their failing case does not exist at plan time by declaration)". That fence is the unmechanized half, and it is what `LIM-AUTHORED-RED` is named after. It is also where the mass is. Census over well-formed one-line task markers in the tracked plans corpus:
+
+| `red-state`               | markers |
+| ------------------------- | ------- |
+| `authored`                | 309     |
+| `live`                    | 20      |
+| field absent (v1 markers) | 367     |
+| **total**                 | **696** |
+
+So execution reaches 20 of the 329 markers that declare a state, 6.1%. (Two earlier figures in this arc's own reporting were wrong and are corrected here: a raw `grep -o red-state=` gave 12% by counting occurrences inside fenced examples and spec prose, and the first census script gave 6.4% because its regex was not line-anchored and counted six marker-shaped strings quoted inside test fixtures. Diff review R1 refuted the second independently, at the same six lines.)
+
+### The named catch is a coincidence at those markers, not a detection
+
+The plan carries six `red-state=authored` markers, and all six were run at that arc's own merge base `fb46427406222a1a481ab670a02eb752688e7aef` in a detached worktree. Three exit 0: Task 2 (2 files, 9 tests passed), Task 3 (1 file, 4 passed), and **Task 1, which drew neither of the two findings and whose red the round-1 repair left untouched** (1 file, 4 passed). The other three exit 1 with `No test files found`: Tasks 4, 5 and 6, each naming only a file absent at base, which is the honest new-file shape. So a GREEN-AT-BASE rule fires on three of the six, and flags the healthy marker alongside the two defective ones. Two true positives and one false, on the very plan the row named as the catch that would prove it. It does not discriminate.
+
+It cannot, because the defects are not at the base. That arc's own filing (`docs/review-rounds/fix/mi11-removal-fallback-live-row/4cb585b3508a.md`, plan section) records what the two findings were: "a mismatch between where the test writes state and where the code reads it", and "neither is visible by reading the plan for plausibility; both took a reviewer tracing a data path". Both defects live inside a test the task has not written yet, so no execution at the merge base can observe either. The reason-classifying direction that could is separately retired by ratified scope decision (`BL-SPECLINT-RED-REASON-VERIFICATION`, this file).
+
+### Both populations, measured
+
+**File-level.** Authored markers classified by whether the test files their `red=` names exist at that plan's introducing-commit parent:
+
+| existence at base     | no `-t` | with `-t` |
+| --------------------- | ------- | --------- |
+| all named files exist | **139** | 9         |
+| some exist            | 11      | 0         |
+| none exist            | 124     | 14        |
+| no test-file token    | 12      | 0         |
+
+Total 309. The file-level rule's firing set is the 139: commands selecting only pre-existing files. Two of those 139 were run at their own bases, the holdstale Task 2 red and the one at `e47657bf0`, and both exit 0; the other 137 were not run, though a command selecting only files already on a green main is expected to pass. Two further commands were run at base, holdstale Task 1 and Task 3, but they name a mix of present and absent files and so fall in the 11 rather than the 139. Firing on that population is noise that cannot move rounds per plan stage.
+
+**Case-level.** Scoping the claim to the declared killing case (does the `-t` title exist and pass at base?) covers the 23 authored markers carrying `-t`, in 5 plans. Fourteen name a file absent at their base and cannot match. The 9 whose file exists were each run at that plan's own base in a detached worktree, and **every one matched no case at all**: `premiseScan.test.ts` 139 skipped on each of 5 titles at `72eae6c63`, `psqlStartupFileSuppression.test.ts` 819 skipped on each of 3 at `28ddec6c8`, `guardSurfaceGate.test.ts` 31 skipped at `e1b908060`. **Zero true positives corpus-wide**, which is the condition the arc's ruling set for demotion.
+
+Reproduce both tables from a checkout of this branch:
+
+```
+python3 scripts/probe/red-truth-census.py
+```
+
+### Why exit status can never carry this signal
+
+Three runs at `fb464274`, plus the `-t` row from the case-level runs at `72eae6c63`, `28ddec6c8` and `e1b908060`; exit codes exact:
+
+| shape                             | exit  | observed                                                      |
+| --------------------------------- | ----- | ------------------------------------------------------------- |
+| `red=` names only an absent file  | 1     | `No test files found, exiting with code 1`                    |
+| absent file **and** a present one | **0** | `Test Files 1 passed (1)`, the absent path silently swallowed |
+| present files only                | 0     | `Test Files 2 passed (2)`, 9 tests                            |
+| `-t` filter matching no case      | 0     | every case skipped, none run                                  |
+
+Rows 2 and 4 are the finding, and they are the reason no variant of this rule works. The universal is structural rather than a generalization from four samples: an exit status reports whether anything FAILED, and "nothing failed because nothing ran" is not distinguishable from "nothing failed because everything passed". A red command naming a to-be-created file **alongside** an existing one loses the one signal the collection arm relies on, and a `-t` matching nothing is indistinguishable by exit status from one whose case passed. In both the path form and the case form, honest authoring produces exit 0, the same value the defect produces. Executed-case count is the only observable that separates them, and it is unavailable for the same reason recorded under `BL-SPECLINT-RED-REASON-VERIFICATION`: a module-scope `premise()` failure reports zero cases while an assertion genuinely failed, and a `beforeEach` throw reports failed entries whose bodies never ran.
+
+### Disposition
+
+The 2026-08-15 fence was right, and now carries the measurement behind it. `LIM-AUTHORED-RED` keeps the shape and gains a narrowed re-file trigger, so the next arc that meets it does not re-derive this. Nothing in `lib/specLint/` changed.
+
 ## BL-SPECLINT-EXPECT-N-EXIT-STATUS — a plan command's stated expectation is not enforced by its exit status — CLOSED 2026-08-28
 
 **Filed:** 2026-08-27 (owner-directed, `docs/ledger-lim-mechanization-rows`) · **Facing:** process · **Mint-exception:** product-blocked · **Resolved by:** `feat/speclint-expect-n-exit-status` · **Spec:** `docs/superpowers/specs/ci/2026-08-28-speclint-expect-n-exit-status.md` · **Incident:** `fix/fitwithinclip-stale-clip-subscription` plan round 2 P1 (a declared Playwright gate collected `0 tests in 0 files`; nothing at authoring time verified collection — current Playwright exits 1 on zero collection, a nonzero-for-a-collection-reason a red-then-green cycle misreads as red observed, per the diff-r1 probe).
