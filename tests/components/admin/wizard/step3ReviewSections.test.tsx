@@ -30,6 +30,21 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+// The staged ignore action is a "use server" module; the focus repair below asserts
+// what happens on its SUCCESS branch, which the real action never reaches under test
+// (no admin session). Mocked to the ok arm so the branch is reachable at all.
+const stagedIgnoreImpl: { current: () => Promise<unknown> } = {
+  current: async () => ({ ok: true, state: "ignored" }),
+};
+vi.mock("@/app/admin/onboarding/_actions/stagedWarningIgnore", () => ({
+  setStagedWarningIgnore: () => stagedIgnoreImpl.current(),
+}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => "/admin",
+  useSearchParams: () => new URLSearchParams(),
+}));
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { isMessageCode } from "@/lib/messages/lookup";
@@ -1573,10 +1588,11 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
     }
 
     test("active list: the error plate follows the row's CONTENT, not its position", async () => {
-      const fetchMock = vi.fn(async () => {
+      // The staged arm calls the server action, not fetch — fail the action so the
+      // row-local error plate opens.
+      stagedIgnoreImpl.current = async () => {
         throw new Error("network down");
-      });
-      vi.stubGlobal("fetch", fetchMock);
+      };
       const warnings = [WARN_B];
       const first = sectionData({ warnings }, { dq: dqFor(warnings, []) });
       const q = renderBody(first, "warnings");
@@ -1593,7 +1609,7 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
       // The plate is on WARN_B's NEW surface id — it travelled with the content.
       await waitFor(() => expect(q.queryByTestId("dq-error-sid-1")).toBeTruthy());
       expect(q.queryByTestId("dq-error-sid-0")).toBeNull();
-      vi.unstubAllGlobals();
+      stagedIgnoreImpl.current = async () => ({ ok: true, state: "ignored" });
     });
   });
 });
@@ -1776,5 +1792,79 @@ describe("§5 transition dispositions — publish-run independence", () => {
       </Step3RunStateContext.Provider>,
     );
     expect((q.getByTestId("dq-ignore-sid-0") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+// ── Impeccable critique repairs (2026-08-28) ───────────────────────────────────
+describe("impeccable critique repairs", () => {
+  const W = (snippet: string): ParseWarning => ({
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized field.",
+    rawSnippet: snippet,
+  });
+  const dqFor = (activeIdx: number[], ignoredIdx: number[]) => ({
+    target: {
+      kind: "staged" as const,
+      wizardSessionId: STEP3_FIXTURE_WSID,
+      driveFileId: DFID,
+    },
+    model: {
+      active: activeIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+      ignored: ignoredIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+    },
+  });
+
+  test("P1: an ignored row carries its Sheet row label, so identical titles stay distinguishable", () => {
+    // Both warnings share the code, so `reviewWarningTitle` gives both the SAME class
+    // title. Without the row label the drawer renders two identical lines above two
+    // identical Un-ignore buttons and the operator cannot tell them apart.
+    const warnings = [W("Hotel notes | double occupancy"), W("Parking | validated onsite")];
+    const q = renderBody(sectionData({ warnings }, { dq: dqFor([], [0, 1]) }), "warnings");
+    const list = q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`);
+    const rows = Array.from(list.querySelectorAll("li"));
+    expect(rows).toHaveLength(2);
+
+    const texts = rows.map((r) => r.textContent ?? "");
+    // Derived from the fixture snippets, not hardcoded: the label is the part before
+    // the pipe.
+    expect(texts[0]).toContain("Hotel notes");
+    expect(texts[1]).toContain("Parking");
+    // And the premise that makes this test mean anything: the TITLES really are equal,
+    // so the label is the only thing telling the rows apart.
+    const titles = rows.map((r) => r.querySelector("span.text-sm")?.textContent ?? "");
+    expect(titles[0]).toBe(titles[1]);
+  });
+
+  test("P1: the controls declare the panel's own ground, not a published card's", () => {
+    // The panel card is `bg-surface`. Shipping the published `warning-bg` /
+    // `surface-sunken` offsets here paints a focus halo in a colour the ground never
+    // has — the exact defect the component's own comment warns about.
+    const warnings = [W("Hotel notes | double occupancy")];
+    const q = renderBody(sectionData({ warnings }, { dq: dqFor([0], []) }), "warnings");
+    const btn = q.getByTestId("dq-ignore-sid-0");
+    expect(btn.className).toContain("focus-visible:ring-offset-surface");
+    expect(btn.className).not.toContain("ring-offset-warning-bg");
+    expect(btn.className).not.toContain("ring-offset-surface-sunken");
+  });
+
+  test("P0: a successful ignore leaves focus INSIDE the panel, never on <body>", async () => {
+    // Inside the review modal, focus on <body> escapes the Tab trap
+    // (lib/a11y/dialogFocus.ts binds keydown to the panel container), so the next Tab
+    // walks the background behind the dialog. The control hands focus to the panel's
+    // anchor before the refresh unmounts it.
+    const warnings = [W("Hotel notes | double occupancy")];
+    const q = renderBody(sectionData({ warnings }, { dq: dqFor([0], []) }), "warnings");
+    const panel = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
+    const btn = q.getByTestId("dq-ignore-sid-0");
+    btn.focus();
+    expect(document.activeElement).toBe(btn);
+
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(btn);
+    });
+    expect(document.activeElement).not.toBe(document.body);
+    expect(panel.contains(document.activeElement)).toBe(true);
   });
 });

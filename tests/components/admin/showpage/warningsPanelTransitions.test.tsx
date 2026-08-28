@@ -166,11 +166,14 @@ describe("transition audit: nothing in the four-state path animates", () => {
     //   +1  `allRows.length > 0 ? clean : empty` — all-ignored vs genuinely no warnings
     //   +1 `&&` in `item.index >= 0 && item.index < allRows.length` — the defensive
     //      re-join bound, spec §3's out-of-range row
+    //   +1  `dq ? <focus anchor> : null` — the sr-only `tabIndex={-1}` target the
+    //       controls hand focus to before a refresh unmounts them (impeccable critique
+    //       P0). It renders nothing and has no state of its own.
     // Every one is a content fact of a single render, decided from props the server
     // already computed. None introduces a state that persists across renders, so none
     // can animate — which is what this audit is actually asserting.
     expect({ ternaries, ifs, guards }, "the region's branch positions").toEqual({
-      ternaries: 9,
+      ternaries: 10,
       ifs: 0,
       guards: 2,
     });

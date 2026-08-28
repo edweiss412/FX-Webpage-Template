@@ -1547,7 +1547,7 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // same `PackCountPill` <span>.
       // Then 2441 -> 2446 when the wizard-ignore arc added its imports above this span.
       // Located on the live tree: 2446 is that same border-border pill.
-      "components/admin/wizard/step3ReviewSections.tsx:2446",
+      "components/admin/wizard/step3ReviewSections.tsx:2447",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

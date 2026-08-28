@@ -27,6 +27,21 @@ type Props = {
   driveFileId: string | null;
   mode: "active" | "ignored";
   reportSurfaceId: string;
+  /** The background this cluster is painted on, for the focus-ring offset and the
+   *  outline token. Defaults to the PUBLISHED card grounds the two modes have always
+   *  implied, so every existing mount renders byte-identically. */
+  ground?: DqControlGround;
+  /** Called on the success branch, after the announce and BEFORE `router.refresh()`.
+   *
+   *  A successful ignore MOVES this row to the other list, which unmounts this
+   *  component — the button holding focus disappears and focus falls to `<body>`.
+   *  On the published page that is merely rude. Inside the wizard's review modal it
+   *  escapes the Tab trap: `useDialogFocus` binds its keydown handler to the panel
+   *  container (`lib/a11y/dialogFocus.ts:137`), so an event fired on `<body>` never
+   *  reaches it, and its recovery effect runs only on mount. Tab then walks the
+   *  background behind the dialog (WCAG 2.4.3 / 2.1.2). The mount that can be
+   *  unmounted by its own success is the one that has to hand focus somewhere first. */
+  onBeforeRefresh?: () => void;
 };
 type State = { kind: "idle" } | { kind: "running" } | { kind: "error"; copy: string };
 
@@ -48,9 +63,21 @@ const NEUTRAL_BTN = cn(
 // non-text floor in dark; the Ignored card is surface-sunken, a neutral ground
 // where text-faint already clears (3.02 / 4.11). DESIGN §1.2a, design doc
 // 2026-08-25-ui-polish-class-sweep-design.md D2.
-const PLATE: Record<"active" | "ignored", string> = {
-  active: cn("focus-visible:ring-offset-warning-bg border-control-outline-tinted"),
-  ignored: cn("focus-visible:ring-offset-surface-sunken border-text-faint"),
+//
+// Impeccable critique P1 (2026-08-28): the two published grounds are NOT the only
+// ones any more. The wizard panel mounts these controls directly on the section
+// card, which is `bg-surface` — untinted, and neither `warning-bg` nor
+// `surface-sunken`. Keying the plate on `mode` was a proxy for the ground that held
+// only while every mount was a published card, so it now names the ground itself
+// and the call site says which one it is. On an untinted ground the outline is the
+// neutral `border-text-faint`, by the same contrast argument recorded above: the
+// tinted token exists for tinted plates.
+export type DqControlGround = "warning-bg" | "surface-sunken" | "surface";
+
+const PLATE: Record<DqControlGround, string> = {
+  "warning-bg": cn("focus-visible:ring-offset-warning-bg border-control-outline-tinted"),
+  "surface-sunken": cn("focus-visible:ring-offset-surface-sunken border-text-faint"),
+  surface: cn("focus-visible:ring-offset-surface border-text-faint"),
 };
 
 export function DataQualityWarningControls({
@@ -59,7 +86,10 @@ export function DataQualityWarningControls({
   driveFileId,
   mode,
   reportSurfaceId,
+  ground,
+  onBeforeRefresh,
 }: Props) {
+  const plate: DqControlGround = ground ?? (mode === "active" ? "warning-bg" : "surface-sunken");
   const router = useRouter();
   const { announce } = useContext(WarningAnnounceContext);
   const [state, setState] = useState<State>({ kind: "idle" });
@@ -106,6 +136,9 @@ export function DataQualityWarningControls({
         // Announcer spec 2026-07-22 §2.3: completion clause BEFORE the refresh
         // (ordering pinned by the producer tests); failures never announce.
         announce(status === "ignored" ? "Warning ignored." : "Warning restored.");
+        // Hand focus somewhere that survives this refresh, BEFORE the refresh: this
+        // component is about to be unmounted by its own success.
+        onBeforeRefresh?.();
         router.refresh();
         return;
       }
@@ -125,7 +158,7 @@ export function DataQualityWarningControls({
           label="Report"
           showId={target.kind === "show" ? target.showId : null}
           surfaceId={reportSurfaceId}
-          ringOffset={mode === "active" ? "warning-bg" : "surface-sunken"}
+          ringOffset={plate}
           messageOptional
           autocapture={{
             parseWarnings: [warning],
@@ -152,7 +185,7 @@ export function DataQualityWarningControls({
             onClick={run}
             disabled={state.kind === "running"}
             aria-busy={state.kind === "running"}
-            className={`${NEUTRAL_BTN} ${PLATE[mode]}`}
+            className={`${NEUTRAL_BTN} ${PLATE[plate]}`}
           >
             {mode === "active"
               ? state.kind === "running"

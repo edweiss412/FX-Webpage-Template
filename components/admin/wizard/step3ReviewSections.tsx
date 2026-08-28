@@ -30,6 +30,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useCallback,
   useRef,
   useState,
   type ReactNode,
@@ -2949,6 +2950,18 @@ export function WarningsBreakdown({
   // Keyed on the RENDERED rows so a trimmed list cannot shift control state.
   const keys = stableWarningKeys(rows);
   const ignoredKeys = stableWarningKeys(ignoredItems.map((item) => item.w));
+  // Impeccable critique P0 (2026-08-28): a successful ignore moves its row to the
+  // other list, unmounting the button that holds focus. Focus then falls to `<body>`,
+  // which is OUTSIDE the review modal's Tab trap — `useDialogFocus` binds its keydown
+  // handler to the panel container (`lib/a11y/dialogFocus.ts:137`), so an event fired
+  // on `<body>` never reaches it, and its recovery effect runs only on mount. Tab
+  // would then walk the background behind the dialog. The controls hand focus here
+  // first. `tabIndex={-1}` is focusable programmatically without joining the Tab
+  // order, so the operator's next Tab continues from inside the panel.
+  const focusAnchorRef = useRef<HTMLDivElement | null>(null);
+  const holdFocusInPanel = useCallback(() => {
+    focusAnchorRef.current?.focus({ preventScroll: true });
+  }, []);
   // §3.4: ACTIVE warn rows split into those rendering directly BELOW this panel
   // and those in other sections. Present exactly when the gate is on.
   const here = chrome?.routedWarnings?.here ?? 0;
@@ -2970,6 +2983,15 @@ export function WarningsBreakdown({
             wizardPanelCount({ rows: rows.length, ignoredWarnCount: 0 })
       }
     >
+      {/* §11: instant — deliberate (a zero-size focus target; nothing renders) */}
+      {dq ? (
+        <div
+          ref={focusAnchorRef}
+          tabIndex={-1}
+          data-testid={`wizard-step3-card-${dfid}-warnings-focus-anchor`}
+          className="sr-only"
+        />
+      ) : null}
       {parseNotes && parseNotes.length > 0 ? (
         <div
           data-testid="parse-attention-notes"
@@ -3269,6 +3291,10 @@ export function WarningsBreakdown({
                           driveFileId={dfid}
                           mode="active"
                           reportSurfaceId={reportSurfaceId}
+                          // The panel card is `bg-surface` (BreakdownSection), not either
+                          // published card ground — impeccable critique P1.
+                          ground="surface"
+                          onBeforeRefresh={holdFocusInPanel}
                         />
                       ) : null}
                     </div>
@@ -3301,20 +3327,40 @@ export function WarningsBreakdown({
             data-testid={`wizard-step3-card-${dfid}-ignored-list`}
             className="mt-3 flex flex-col gap-3"
           >
-            {ignoredItems.map(({ w, reportSurfaceId }, pos) => (
-              <li key={ignoredKeys[pos]} className="flex min-w-0 flex-col gap-0.5">
-                <span className="text-sm text-text-subtle">{reviewWarningTitle(w)}</span>
-                {/* no-newtab-announcement: `target` is the discriminated ignore BACKEND
-                    (spec §2.3), not a browser window target. No anchor. */}
-                <DataQualityWarningControls
-                  target={dq.target}
-                  warning={w}
-                  driveFileId={dfid}
-                  mode="ignored"
-                  reportSurfaceId={reportSurfaceId}
-                />
-              </li>
-            ))}
+            {ignoredItems.map(({ w, reportSurfaceId }, pos) => {
+              // Impeccable critique P1 (2026-08-28): the catalog title names the CLASS
+              // ("Row we couldn't match"), never the row — the same fact the active
+              // row's own comment records above. The title alone gave three ignored
+              // UNKNOWN_FIELD rows three identical lines and three identical Un-ignore
+              // buttons, so the operator could not tell which one they were restoring.
+              // The row label is the discriminator, gated to UNKNOWN_FIELD for exactly
+              // the reason the active row gates it.
+              const rowLabel =
+                w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
+              return (
+                <li key={ignoredKeys[pos]} className="flex min-w-0 flex-col gap-0.5">
+                  <span className="text-sm text-text-subtle">{reviewWarningTitle(w)}</span>
+                  {rowLabel ? (
+                    <span className="wrap-break-word text-xs text-text-subtle">
+                      Sheet row <span className="text-text">{rowLabel}</span>
+                    </span>
+                  ) : null}
+                  {/* no-newtab-announcement: `target` is the discriminated ignore BACKEND
+                      (spec §2.3), not a browser window target. No anchor. */}
+                  <DataQualityWarningControls
+                    target={dq.target}
+                    warning={w}
+                    driveFileId={dfid}
+                    mode="ignored"
+                    reportSurfaceId={reportSurfaceId}
+                    // Same `bg-surface` panel card as the active list; this is not a
+                    // muted published card.
+                    ground="surface"
+                    onBeforeRefresh={holdFocusInPanel}
+                  />
+                </li>
+              );
+            })}
           </ul>
         </details>
       ) : null}
