@@ -18,7 +18,9 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 **Why it WAS deferred rather than fixed by `perf/admin-diagram-next-image`.** Class-sweep exception (a): splitting the states needed NEW Doug-facing copy for a state that had never had its own words, which is a product decision that arc could not settle. **That exception is now RESOLVED — see the ratified copy below.** Blast radius is real too: `failed` is a single boolean, so the split threads a three-state value through the component, and every suite asserting the current string by text moves with it. The defect predates the arc — line 3896 is untouched by its diff, verified against the hunks — so shipping today is no worse than yesterday's main.
 
-**RATIFIED COPY (2026-08-28, Eric, via mockup — Option A, consequence-stating).** The product
+**RATIFIED COPY (2026-08-28).** Meaning ratified by Eric via mockup at 10:30, Option A,
+consequence-stating; punctuation conformed to the `DESIGN.md` §9 em-dash ban by bl-orch ruling the
+same day, meaning unchanged. Eric holds veto on the punctuation and may restore a colon form. The product
 decision that held this row is made, so exception (a) no longer applies and this is ready to
 build. Both strings state the CONSEQUENCE rather than the mechanism, which is the whole point:
 "Preview unavailable" described the component's problem, and these describe Doug's. Use verbatim:
@@ -26,27 +28,25 @@ build. Both strings state the CONSEQUENCE rather than the mechanism, which is th
 - **Not in the snapshot** (`useState(!hasPreviewSource)` seeded true, no image element ever
   mounts) — warn tone:
 
-  > Not captured — won't appear on the crew page
+  > Not captured. Won't appear on the crew page.
 
 - **Load failure** (`onError` after a real request) — reassure tone:
 
-  > Preview couldn't load — diagram will still publish
+  > Preview couldn't load. The diagram will still publish.
 
 The tones are part of the ruling, not decoration: the first state is the one that can cost Doug a
 show, and the second is the one that must NOT make him think it will. Whoever picks this up
 threads the three-state value, applies these two strings, and folds in the P2 border restyle
 below in the same change.
 
-**Build-time conflict the implementer WILL hit, flagged here so it is not discovered at the
-gate.** Both ratified strings use an em dash, and `DESIGN.md` §9 bans em dashes in user-visible
-copy — enforced mechanically by `tests/styles/_metaEmDashCopy.test.ts`, which covers `lib`,
-`components` and `app`. This ledger file is outside that accept-set, so the copy is recorded here
-verbatim as ratified; the conflict bites the moment it is typed into `DiagramTile`. It is a
-product call, not an implementer's: either the ratified punctuation stands and the guard carries
-an explicit carve-out for these two strings, or the copy is re-rendered without the dash (a colon
-or a period both preserve the consequence-stating shape — "Not captured: won't appear on the crew
-page"). Raised with bl-orch on 2026-08-28 at the moment of ratification; whoever builds this
-should confirm which way it was settled rather than choosing.
+**The em-dash ban was caught and settled BEFORE this row was built, which is the whole point of
+the pre-code mechanical gate.** The originally ratified strings used em dashes, which `DESIGN.md`
+§9 bans in user-visible copy — enforced by `tests/styles/_metaEmDashCopy.test.ts` over `lib`,
+`components` and `app`. `DEFERRED.md` sits outside that accept-set, so the conflict would not have
+surfaced until the copy was typed into `DiagramTile` and the gate went red. Settled by bl-orch on
+2026-08-28: the strings above are period form and conform mechanically. A guard carve-out was
+considered and DECLINED — weakening a ratified guard to admit copy is the wrong direction. The
+strings above are final; type them verbatim.
 
 **Partially mitigated in the meantime.** That arc DID land the half that needed no product decision: the placeholder now names which diagram is dark, using the `alt` already in hand (`…-diagram-tile-N-name`). A reviewer can now see WHICH tile failed, just not WHY.
 
