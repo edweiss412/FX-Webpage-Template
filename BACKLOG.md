@@ -71,7 +71,7 @@ The card then tells Doug to "rename this row in your sheet so it matches the row
 
 ## BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE — a stated numeric table with no command that produces it, named by four arcs and still unmechanized
 
-**Status:** OPEN · **Filed:** 2026-08-28 (`fix/severityless-warning-filters`, diff R3 finding 2) · **Facing:** process · **Mint-exception:** recurrence · **Severity:** LOW-MEDIUM (a spec table drifts from the tree with nothing able to compare them) · **Class:** evidence provenance · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** feat/speclint-table-provenance · **Filed:** 2026-08-28 (`fix/severityless-warning-filters`, diff R3 finding 2) · **Facing:** process · **Mint-exception:** recurrence · **Severity:** LOW-MEDIUM (a spec table drifts from the tree with nothing able to compare them) · **Class:** evidence provenance · **Effort:** M
 
 **Incident** (four independent arcs, each naming the shape in its own filing before a slug existed):
 
