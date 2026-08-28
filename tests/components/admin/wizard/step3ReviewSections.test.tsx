@@ -60,12 +60,7 @@ import {
   buildStagedSectionData,
   type StagedSectionData,
 } from "@/components/admin/review/sectionData";
-import {
-  buildParseResult,
-  stagedRow,
-  show,
-  STEP3_FIXTURE_WSID,
-} from "./_step3ReviewFixture";
+import { buildParseResult, stagedRow, show, STEP3_FIXTURE_WSID } from "./_step3ReviewFixture";
 
 // AgendaBreakdown (rendered by the agenda registry entry) calls fetch in an
 // effect; no test here renders it (the hideDot modal tests use an empty
@@ -1405,10 +1400,7 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
       // Index 0 ignored, index 1 active. A row that kept its RENDERED position would
       // carry 0 here and send the attention menu's `warning:1` entry nowhere.
       const warnings = [WARN_A, WARN_B];
-      const q = renderBody(
-        sectionData({ warnings }, { dq: dqFor(warnings, [0]) }),
-        "warnings",
-      );
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, [0]) }), "warnings");
       const items = q.container.querySelectorAll("li[data-warning-index]");
       expect(items.length).toBe(1);
       const only = items[0]!;
@@ -1419,10 +1411,7 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
 
     test("warn rows get dq-controls; info rows get none", () => {
       const warnings = [WARN_A, INFO_C];
-      const q = renderBody(
-        sectionData({ warnings }, { dq: dqFor(warnings, []) }),
-        "warnings",
-      );
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, []) }), "warnings");
       const rows = Array.from(q.container.querySelectorAll("li[data-warning-index]"));
       const byIndex = new Map(rows.map((r) => [r.getAttribute("data-warning-index"), r]));
       expect(within(byIndex.get("0") as HTMLElement).queryByTestId("dq-controls")).toBeTruthy();
@@ -1436,10 +1425,7 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
         message: "Unrecognized field.",
       };
       const warnings = [noSnippet];
-      const q = renderBody(
-        sectionData({ warnings }, { dq: dqFor(warnings, []) }),
-        "warnings",
-      );
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, []) }), "warnings");
       const controls = q.getByTestId("dq-controls");
       expect(within(controls).getByRole("button", { name: /report/i })).toBeTruthy();
       expect(within(controls).queryByRole("button", { name: /^ignore$/i })).toBeNull();
@@ -1447,10 +1433,7 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
 
     test("dfid null renders NO controls in either arm (the panel's existing gate)", () => {
       const warnings = [WARN_A];
-      for (const target of [
-        STAGED_TARGET,
-        { kind: "show" as const, slug: "s", showId: "id-1" },
-      ]) {
+      for (const target of [STAGED_TARGET, { kind: "show" as const, slug: "s", showId: "id-1" }]) {
         const q = renderBody(
           sectionData(
             { warnings },
@@ -1499,10 +1482,7 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
   describe("Ignored (N) disclosure (§2.3)", () => {
     test("renders a details disclosure with ignored rows in ignored mode and NO jump attributes", () => {
       const warnings = [WARN_A, WARN_B];
-      const q = renderBody(
-        sectionData({ warnings }, { dq: dqFor(warnings, [0]) }),
-        "warnings",
-      );
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, [0]) }), "warnings");
       const details = q.getByTestId(`wizard-step3-card-${DFID}-ignored-warnings`);
       expect(details.tagName.toLowerCase()).toBe("details");
       expect(details.textContent).toContain("Ignored (1)");
@@ -1518,19 +1498,13 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
 
     test("no ignored rows → no disclosure element at all, not an empty one", () => {
       const warnings = [WARN_A];
-      const q = renderBody(
-        sectionData({ warnings }, { dq: dqFor(warnings, []) }),
-        "warnings",
-      );
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, []) }), "warnings");
       expect(q.queryByTestId(`wizard-step3-card-${DFID}-ignored-warnings`)).toBeNull();
     });
 
     test("closed → open reveals the body INSTANTLY, with only the chevron animating", () => {
       const warnings = [WARN_A, WARN_B];
-      const q = renderBody(
-        sectionData({ warnings }, { dq: dqFor(warnings, [0]) }),
-        "warnings",
-      );
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, [0]) }), "warnings");
       const details = q.getByTestId(
         `wizard-step3-card-${DFID}-ignored-warnings`,
       ) as HTMLDetailsElement;
@@ -1548,10 +1522,7 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
 
     test("all rows ignored → the clean sentence PLUS the disclosure, never the empty-warnings one", () => {
       const warnings = [WARN_A];
-      const q = renderBody(
-        sectionData({ warnings }, { dq: dqFor(warnings, [0]) }),
-        "warnings",
-      );
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, [0]) }), "warnings");
       expect(q.getByTestId(`wizard-step3-card-${DFID}-warnings-clean`).textContent).toContain(
         "Nothing needs a look on this sheet.",
       );
@@ -1560,10 +1531,7 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
     });
 
     test("zero warnings → the existing empty sentence and no disclosure", () => {
-      const q = renderBody(
-        sectionData({ warnings: [] }, { dq: dqFor([], []) }),
-        "warnings",
-      );
+      const q = renderBody(sectionData({ warnings: [] }, { dq: dqFor([], []) }), "warnings");
       expect(q.getByTestId(`wizard-step3-card-${DFID}-warnings-empty`)).toBeTruthy();
       expect(q.queryByTestId(`wizard-step3-card-${DFID}-ignored-warnings`)).toBeNull();
     });
@@ -1575,19 +1543,13 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
       // pass-through is the wiring under test, and a panel that accepts the prop while
       // the registry never sends it renders no controls in production.
       const warnings = [WARN_A];
-      const q = renderBody(
-        sectionData({ warnings }, { dq: dqFor(warnings, []) }),
-        "warnings",
-      );
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, []) }), "warnings");
       expect(q.getByTestId("dq-controls")).toBeTruthy();
     });
 
     test("no BulkIgnoreControls in the wizard panel (§1.1.3 deferred, absence probe)", () => {
       const warnings = [WARN_A, WARN_B];
-      const q = renderBody(
-        sectionData({ warnings }, { dq: dqFor(warnings, []) }),
-        "warnings",
-      );
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, []) }), "warnings");
       expect(q.queryByTestId("bulk-ignore-controls")).toBeNull();
     });
   });
@@ -1619,7 +1581,10 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
 
       // Insert WARN_A above WARN_B. WARN_B is now index 1, surface id sid-1.
       const grown = [WARN_A, WARN_B];
-      const def = defById(step3Sections(sectionData({ warnings: grown }, { dq: dqFor(grown, []) })), "warnings");
+      const def = defById(
+        step3Sections(sectionData({ warnings: grown }, { dq: dqFor(grown, []) })),
+        "warnings",
+      );
       q.rerender(<>{def.render(sectionData({ warnings: grown }, { dq: dqFor(grown, []) }))}</>);
 
       // The plate is on WARN_B's NEW surface id — it travelled with the content.
