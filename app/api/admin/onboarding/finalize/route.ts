@@ -34,6 +34,10 @@ import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
 import { assertRoleMappingsFresh } from "@/lib/onboarding/roleMappingsFreshnessGate";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { asParseResult, coerceJsonbArray, coerceJsonbObject } from "@/lib/db/coerceJsonbObject";
+import {
+  normalizeStagedIgnoredWarnings,
+  type StagedIgnoreEntry,
+} from "@/lib/admin/wizardWarningModel";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { hashForLog } from "@/lib/email/hashForLog";
 import { revalidateShow } from "@/lib/data/showCacheTag";
@@ -650,6 +654,11 @@ async function stageExistingShowShadow(
   // be {} (the scan computed none); the Phase-D call site is where that case is handled, by
   // OMITTING the core arg so applyShowSnapshot's coalesce preserves the stored anchors.
   sourceAnchors: Record<string, SourceAnchor>,
+  // wizard-warning-ignore-controls §2.7: the staged ignore decisions, for the same reason
+  // use_raw_decisions rides the payload — deleteApprovedPending consumes the pending_syncs
+  // row in THIS transaction, so a value not baked in here does not exist by Phase D, and
+  // every warning the operator dismissed would return on the published surface.
+  stagedIgnoredWarnings: StagedIgnoreEntry[],
 ): Promise<void> {
   // F1 Task 1.4: deleteApprovedPending consumes the pending_syncs row right after this INSERT,
   // so triggered_review_items + base_modified_time exist ONLY in this payload by Phase D —
@@ -693,7 +702,11 @@ async function stageExistingShowShadow(
                -- Deep-link region anchors persisted at scan (raw object → $::jsonb; postgres.js
                -- serializes, never JSON.stringify). Consumed at Phase-D by finalize-cas
                -- applyShadow → parsed.sourceAnchors → the applyStagedCore arg.
-               'source_anchors', $14::jsonb
+               'source_anchors', $14::jsonb,
+               -- §2.7: staged ignore decisions travel with the shadow (raw array →
+               -- $::jsonb; postgres.js serializes). Consumed at Phase-D by finalize-cas
+               -- applyShadow → parsed.ignoredWarnings → the phase-2 carry.
+               'ignored_warnings', $15::jsonb
              ),
              $7, $10::timestamptz
         from public.shows s
@@ -722,6 +735,7 @@ async function stageExistingShowShadow(
       pullSheetOverrideApplied,
       useRawDecisions,
       sourceAnchors,
+      stagedIgnoredWarnings,
     ],
   );
 }
@@ -1037,6 +1051,8 @@ async function processApprovedRow(
     pull_sheet_override_applied: unknown;
     // Task 6: staged "use raw" decisions, read under the same generation-scoped show: lock.
     use_raw_decisions: unknown;
+    // wizard-warning-ignore-controls §2.7: staged ignore decisions, same locked read.
+    ignored_warnings: unknown;
   }>(
     `select parse_result,
             wizard_approved,
@@ -1046,7 +1062,8 @@ async function processApprovedRow(
             source_anchors,
             pull_sheet_override,
             pull_sheet_override_applied,
-            use_raw_decisions
+            use_raw_decisions,
+            ignored_warnings
        from public.pending_syncs
       where wizard_session_id = $1::uuid
         and drive_file_id = $2
@@ -1207,6 +1224,7 @@ async function processApprovedRow(
         pullSheetOverrideApplied,
         normalizeUseRawDecisions(locked.use_raw_decisions),
         sourceAnchors,
+        normalizeStagedIgnoredWarnings(locked.ignored_warnings),
       );
       await stampManifestPublishIntent(tx, wizardSessionId, row.drive_file_id, true);
       await deleteApprovedPending(tx, wizardSessionId, row);
@@ -1336,6 +1354,10 @@ async function processApprovedRow(
     // Task 6: thread the staged "use raw" decisions (read under the generation-scoped lock) into
     // the runPhase2 overlay. First-seen wizard finalize still honors an admin's use-raw choice.
     useRawDecisions: normalizeUseRawDecisions(locked.use_raw_decisions),
+    // §2.7: the staged ignore decisions read under the same generation-scoped lock. The
+    // first-seen apply CREATES the show, so this is the first moment they can become
+    // durable rows at all.
+    stagedIgnoredWarnings: normalizeStagedIgnoredWarnings(locked.ignored_warnings),
     // Deep-link anchors (computed pre-lock) → the first-seen INSERT writes shows.source_anchors so
     // "In sheet" links resolve to the right tab immediately, matching the cron path. Omitted (never
     // {}) on a Drive failure so the apply still succeeds (the #gid=0 fallback keeps links safe).

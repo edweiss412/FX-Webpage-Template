@@ -561,6 +561,10 @@ async function applyShadow(
     sourceScope: "wizard",
     driveFileId: row.drive_file_id,
     useRawDecisions: parsed.useRawDecisions,
+    // wizard-warning-ignore-controls §2.7: the existing-show apply's only channel for the
+    // operator's staged ignore decisions — the pending_syncs row they came from was
+    // consumed at Phase B.
+    stagedIgnoredWarnings: parsed.ignoredWarnings,
     show: {
       showId: live.id,
       lastSeenModifiedTime: normalizeTimestamptz(live.last_seen_modified_time),
