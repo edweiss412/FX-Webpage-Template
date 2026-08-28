@@ -31,7 +31,7 @@
 - **Invariant 2, advisory locks.** N/A. No path that mutates `shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, or `pending_ingestions` is touched; `attachWarningAnchors` is a pure raw-workbook read on both ingestion paths (`lib/sync/attachWarningAnchors.ts:12-15`), and this plan adds no acquisition and moves none.
 - **Invariant 5, no raw codes in UI.** The new strings are catalog fields read through `messageFor`; no code literal reaches the DOM.
 - **Invariant 7, spec is canonical.** No amendment.
-- **Invariant 8, UI gate.** IN SCOPE: `components/admin/PerShowActionableWarnings.tsx` changes its guidance composition and its correction-sentence gate, and `NoteWarningCard.tsx` its sentence gate (all Task 5). Task 7 runs the critique + audit pair and writes the marker line.
+- **Invariant 8, UI gate.** IN SCOPE, three files under `components/`: `components/admin/PerShowActionableWarnings.tsx` (guidance composition, the correction-sentence gate), `components/admin/NoteWarningCard.tsx` (sentence gate), `components/admin/showpage/sectionWarningExtras.tsx` (the `showControlsNote` prop on the two active mounts); all Task 5. The wizard row's rendered copy changes through the catalog without a component edit. Task 7 runs the critique + audit pair and writes the marker line.
 - **Invariant 9, Supabase call boundaries.** N/A. No Supabase client call is added or edited.
 - **Invariant 10, mutation-surface observability.** N/A. No route handler or server action is added or edited.
 - **Invariant 12, ledger.** This arc closes no row, so no in-progress marker; the row it FILES is `OPEN` from its first commit (Task 6).
@@ -50,6 +50,7 @@ Spec §1.1 in full, plus:
 - EXTENDS `tests/parser/operatorActionableWarnings.test.ts`: negative assertion, no `HOTEL_*` member (Task 4).
 - CREATES new file synthesizeBlocks.test.ts under `tests/drive/` (Task 2, structure with coordinates) and new file synthesizeBlocksEquivalence.test.ts under `tests/drive/` (Task 3: the coordinate path and the markdown path agree over the whole xlsx corpus, and every anchor binds all four join components).
 - `tests/docs/_metaLedgerMintBar.test.ts` reads the new row by walker (Task 6); no edit.
+- RE-DERIVES the `rowScanOpener` row of `tests/mutation/source/registry.ts` (Task 1): the control site and accepted survivors are line-keyed into code the refactor moves.
 - Not applicable: `tests/auth/_metaInfraContract.test.ts` (no Supabase call), `tests/log/_metaMutationSurfaceObservability.test.ts` (no mutation surface), `tests/auth/advisoryLockRpcDeadlock.test.ts` (no lock).
 
 ## 3. Pre-draft verification (run 2026-08-27 on `origin/main` at `66c9857f5`)
@@ -99,6 +100,7 @@ Every symbol below was grepped on the live tree; line numbers are drafting-time 
 
 **Files:**
 - Modify: `lib/parser/blocks/_rowScan.ts:25-60`
+- Modify: `tests/mutation/source/registry.ts:2532-2559` (the `rowScanOpener` row: `control.from` and both `accepted` site ids are line/column-keyed into the code this task rewrites)
 - Create: new file rowScanCore.test.ts under `tests/parser/`
 
 **Interfaces:**
@@ -215,10 +217,14 @@ Expected: PASS.
 Run: `pnpm vitest run tests/parser/fieldNearMiss.test.ts tests/parser/fieldNearMissBaseline.test.ts`
 Expected: PASS. The baseline suite is the proof the shell's output did not move (65 rows, unchanged).
 
+- [ ] **Step 4c: Re-derive the `rowScanOpener` mutation registry row (the source is enrolled)**
+
+`tests/mutation/source/registry.ts:2532-2559` enrols `lib/parser/blocks/_rowScan.ts` with `control: { from: 'opener = clean(cells[0] ?? "")', to: 'opener = ""' }` and two `accepted` survivors keyed by site id (`relational-boundary:57:22:>>>=` on `cells.length > 0`; `statement-removal:85:7:opener = "";>(removed)` on the shell's reset). This task moves both sites and renames the control's operand (`first[0]`), so the row as committed is false: the control no longer resolves and both accepted ids point at nothing (probed by the reviewer: `controlFromPresent: false`, both `resolves: false`). Re-derive, never hand-type: run `pnpm heavy:mutation pnpm mutation:guards` (`DB-free`: the harness runs the two parser suites; heavy-class wrapped because it is a score run), read the `rowScanOpener` result, and edit the row: `control.from` becomes the new opener line verbatim (`const opener = clean(first[0] ?? "")` → `from: 'opener = clean(first[0] ?? "")'`, `to: 'opener = ""'`); the `cells.length > 0` survivor keeps its `equivalent` reason at its NEW site id as the run reports it (the `every(...)` vacuous-true argument is unchanged: the skip still precedes the push); the `opener = ""` reset no longer exists (the shell keeps no cross-run `opener` variable), so that accepted row is DELETED, not re-pointed. Any NEW unaccepted survivor the run reports is a test gap: add the deciding case to the new rowScanCore suite under `tests/parser/` rather than accepting it. Record the before/after score in the commit body (floor 0.95).
+
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/parser/blocks/_rowScan.ts tests/parser/rowScanCore.test.ts
+git add lib/parser/blocks/_rowScan.ts tests/parser/rowScanCore.test.ts tests/mutation/source/registry.ts
 git commit -m "refactor(parser): extract scanBlockCells from scanRowsWithOpener
 
 <paste the red line from Step 2>"
@@ -256,10 +262,16 @@ import * as XLSX from "xlsx";
 import { renderRow, synthesizeBlocksFromXlsx, synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
 import { buildXlsx } from "../helpers/buildXlsx";
 
-// `regionA`: copy the constant of that name from tests/drive/exportSheetArchivedPullSheet.test.ts
-// lines 7-16 VERBATIM (it is module-local there, not exported); it begins
-// ["PULL SHEET", "PULL SHEET"], ["RIA - CHICAGO, IL"], [], ["QTY", "ITEM"], ["2", "Shure SM58"].
-const regionA: string[][] = [/* paste the ten rows here */];
+// Verbatim copy of `regionA` from tests/drive/exportSheetArchivedPullSheet.test.ts lines 7-13
+// (module-local there, not exported): five rows, which that suite proves yield exactly one
+// archived pull-sheet region.
+const regionA: string[][] = [
+  ["PULL SHEET", "PULL SHEET"],
+  ["RIA - CHICAGO, IL"],
+  [], // separator -> collectDataBlock scans forward
+  ["QTY", "ITEM"],
+  ["2", "Shure SM58"],
+];
 
 function workbook(tabs: Record<string, string[][]>): ArrayBuffer {
   const wb = XLSX.utils.book_new();
@@ -289,7 +301,7 @@ describe("synthesizeBlocksFromXlsx carries coordinates the markdown loses (spec 
 
   it("a non-included OLD tab yields no block; an included OLD pull-sheet region is opaque", () => {
     // `regionA` is the pull-sheet region fixture `tests/drive/exportSheetArchivedPullSheet.test.ts`
-    // lines 7-16 already prove `collectPullSheetRegionsFromMarkdown` recognizes (a `PULL SHEET`
+    // lines 7-13 already prove `collectPullSheetRegionsFromMarkdown` recognizes (a `PULL SHEET`
     // header row, a title row, a blank, `QTY | ITEM`, item rows); copy it verbatim and build the
     // workbook with `buildXlsx` from `tests/helpers/buildXlsx`, as that suite does. A bare
     // `1 | Cable` row is NOT a region (probed: zero regions, so the earlier draft's fixture
@@ -542,13 +554,14 @@ bytes unchanged (round-trip-fixture green). <paste the red line from Step 2>"
 
 ### Task 3: the anchor scanner reads the same blocks the detector reads
 
-<!-- task: red=`pnpm vitest run tests/drive/unknownFieldAnchors.test.ts tests/drive/synthesizeBlocksEquivalence.test.ts tests/sheet-links/buildSheetDeepLink.test.ts tests/sync/attachWarningAnchors.test.ts tests/parser/fieldNearMissBaseline.test.ts` red-state=authored red-target=`lib/drive/unknownFieldAnchors.ts:158` why=`extractUnknownFieldAnchors iterates the BLOCKS header families (venue, details) only, so a Timestamp-opened INFO block and a Console-opened GEAR block yield no anchor and the three new cases resolve null` ac=AC-1,AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/drive/unknownFieldAnchors.test.ts tests/drive/unknownFieldAnchors.live.test.ts tests/drive/synthesizeBlocksEquivalence.test.ts tests/sheet-links/buildSheetDeepLink.test.ts tests/sync/attachWarningAnchors.test.ts tests/parser/fieldNearMissBaseline.test.ts` red-state=authored red-target=`lib/drive/unknownFieldAnchors.ts:158` why=`extractUnknownFieldAnchors iterates the BLOCKS header families (venue, details) only, so a Timestamp-opened INFO block and a Console-opened GEAR block yield no anchor and the three new cases resolve null` ac=AC-1,AC-3,AC-4 -->
 
 **Files:**
 - Modify: `lib/parser/fieldNearMiss.ts:217` (add `export`)
 - Modify: `lib/sheet-links/buildSheetDeepLink.ts` lines 3 and 10-26 (`scope` field; scoped anchors bypass the title gate) and `tests/sheet-links/buildSheetDeepLink.test.ts` (two new cases)
 - Modify: `lib/drive/unknownFieldAnchors.ts` lines 16-108 and 118-215
 - Modify: `tests/drive/unknownFieldAnchors.test.ts:110-120` (retire), plus new cases
+- Modify: `tests/drive/unknownFieldAnchors.live.test.ts:71-75` (the exact-object `GS Podium Type` assertion gains `scope: "cell"`)
 - Create: new file synthesizeBlocksEquivalence.test.ts under `tests/drive/` (spec T1, both halves)
 - Modify: `tests/parser/fieldNearMissBaseline.test.ts:498-540` (the two asymmetry pins flip, spec §2.6)
 - Modify: `docs/superpowers/specs/parser/2026-08-15-field-near-miss-detector-design.md` (dated note under the §2.2 ratified amendment)
@@ -801,7 +814,7 @@ Reconcile the four live assertions the new resolver contract changes (spec §2.4
 - line 105 (`"details", "Nonexistent", "x"`): becomes `toEqual({ title: "INFO", gid: 0, scope: "tab" })`; the `undefined`-kind assertion on the next line stays `toBeNull()` (no kind, no join) and the `new Map()` assertion stays `[]`.
 - line 133 (`"details", "Details Notes", "some note"`): becomes `toEqual({ title: "INFO", gid: 0, scope: "tab" })`; the comment above it ("never scanned as a details row") stays true: it is not a cell.
 
-`tests/sync/attachWarningAnchors.test.ts` line 134: `toEqual({ title: "INFO", gid: 0, a1: "A2" })` becomes `toEqual({ title: "INFO", gid: 0, a1: "A2", scope: "cell" })`. Sweep, run at plan time, of every exact-object anchor assertion an UNKNOWN_FIELD anchor can reach (`rg -n "toEqual\(\{ title: \"INFO\"|sourceCell\)\.toEqual|\?\.a1\)\.toBe"` over the five anchor suites): `attachWarningAnchors.test.ts` lines 34, 96, 111 are crew-role and show-day anchors (unchanged producers, no `scope`); line 134 is the UNKNOWN_FIELD one above; `showDayTimeAnchors.test.ts` lines 461 and 493 build `unknownField` anchors by hand and get them back by identity or get `null` from an empty anchor list (no kind present, no tab), unchanged; its remaining hits are schedule/crew/region anchors, unchanged; `unknownFieldAnchors.test.ts` `?.a1` reads (lines 61, 95, 96, 131, 220, 233, 234, 237) read a cell's `a1` and stay cells.
+`tests/sync/attachWarningAnchors.test.ts` line 134: `toEqual({ title: "INFO", gid: 0, a1: "A2" })` becomes `toEqual({ title: "INFO", gid: 0, a1: "A2", scope: "cell" })`. `tests/drive/unknownFieldAnchors.live.test.ts` lines 71-75 (`GS Podium Type` → `A65`): the expected object gains `scope: "cell"` (probed by the reviewer: strict deep-equal fails on the missing key otherwise). Sweep, run at plan time, of every exact-object anchor assertion an UNKNOWN_FIELD anchor can reach (`rg -n "toEqual\(\{ title: \"INFO\"|sourceCell\)\.toEqual|\?\.a1\)\.toBe"` over the five anchor suites): `attachWarningAnchors.test.ts` lines 34, 96, 111 are crew-role and show-day anchors (unchanged producers, no `scope`); line 134 is the UNKNOWN_FIELD one above; `showDayTimeAnchors.test.ts` lines 461 and 493 build `unknownField` anchors by hand and get them back by identity or get `null` from an empty anchor list (no kind present, no tab), unchanged; its remaining hits are schedule/crew/region anchors, unchanged; `unknownFieldAnchors.test.ts` `?.a1` reads (lines 61, 95, 96, 131, 220, 233, 234, 237) read a cell's `a1` and stay cells.
 
 Retire the case at line 110 ("over-inclusive: does NOT stop at an internal blank row within the block") and replace it with the truth spec §2.6 states:
 
@@ -821,7 +834,7 @@ Retire the case at line 110 ("over-inclusive: does NOT stop at an internal blank
 
 - [ ] **Step 2: Run it, expect red**
 
-Run: `pnpm vitest run tests/drive/unknownFieldAnchors.test.ts tests/drive/synthesizeBlocksEquivalence.test.ts tests/sheet-links/buildSheetDeepLink.test.ts tests/sync/attachWarningAnchors.test.ts tests/parser/fieldNearMissBaseline.test.ts`
+Run: `pnpm vitest run tests/drive/unknownFieldAnchors.test.ts tests/drive/unknownFieldAnchors.live.test.ts tests/drive/synthesizeBlocksEquivalence.test.ts tests/sheet-links/buildSheetDeepLink.test.ts tests/sync/attachWarningAnchors.test.ts tests/parser/fieldNearMissBaseline.test.ts`
 Expected: FAIL: the equivalence suite cannot import `blockRowsForScan`; the two new `buildSheetDeepLink` cases collapse to `#gid=0`; the reconciled `attachWarningAnchors` expectation lacks `scope`; the corpus case and the four new cases (`sourceCell` null where a cell is expected; the tab-level case gets `null` instead of `{title, gid}`). The retired case's replacement is also red (kind `stage sze` matches no `BLOCKS` family).
 
 - [ ] **Step 3: Implement**
@@ -927,20 +940,20 @@ If `lib/drive/unknownFieldAnchors.ts` and `lib/drive/exportSheetToMarkdown.ts` n
 
 - [ ] **Step 4: Run the SAME command green**
 
-Run: `pnpm vitest run tests/drive/unknownFieldAnchors.test.ts tests/drive/synthesizeBlocksEquivalence.test.ts tests/sheet-links/buildSheetDeepLink.test.ts tests/sync/attachWarningAnchors.test.ts tests/parser/fieldNearMissBaseline.test.ts`
+Run: `pnpm vitest run tests/drive/unknownFieldAnchors.test.ts tests/drive/unknownFieldAnchors.live.test.ts tests/drive/synthesizeBlocksEquivalence.test.ts tests/sheet-links/buildSheetDeepLink.test.ts tests/sync/attachWarningAnchors.test.ts tests/parser/fieldNearMissBaseline.test.ts`
 Expected: PASS, every case. `fieldNearMissBaseline` AC-N9 (the "Stage/Storage rows stay anchored" describe) is AC-3.
 
 - [ ] **Step 4b: Regression, every other suite that resolves through the scanner or the link builder**
 
-Run: `pnpm vitest run tests/drive/unknownFieldAnchors.live.test.ts tests/drive/showDayTimeAnchors.test.ts tests/parser/fieldNearMiss.test.ts tests/sheet-links/allowlistMeta.test.ts tests/components/admin/review/sectionFreshness.test.ts tests/drive/synthesizeBlocks.test.ts`
-Expected: PASS. Read `tests/drive/unknownFieldAnchors.live.test.ts` line 63 before running: it resolves a live DETAILS label to a cell and stays a cell under the new scanner; if any of its assertions expects `null` for a label whose kind is on one tab, it now gets a tab anchor and the assertion is reconciled the same way as Step 1's four. `fieldNearMissBaseline` AC-N9 (line 448) is AC-3: the east-coast `Stage`/`Storage` rows still resolve. Add `tests/drive/unknownFieldAnchors.live.test.ts` to the same run: it is not env-gated (line 52, a committed-workbook DETAILS fidelity case) and must stay green.
+Run: `pnpm vitest run tests/drive/showDayTimeAnchors.test.ts tests/parser/fieldNearMiss.test.ts tests/sheet-links/allowlistMeta.test.ts tests/components/admin/review/sectionFreshness.test.ts tests/drive/synthesizeBlocks.test.ts`
+Expected: PASS. `fieldNearMissBaseline` AC-N9 (line 448) is AC-3: the east-coast `Stage`/`Storage` rows still resolve. Add `tests/drive/unknownFieldAnchors.live.test.ts` to the same run: it is not env-gated (line 52, a committed-workbook DETAILS fidelity case) and must stay green.
 
 - [ ] **Step 5: Lint, typecheck, commit**
 
 Run: `pnpm exec eslint lib/drive/unknownFieldAnchors.ts lib/parser/fieldNearMiss.ts && pnpm typecheck` (`DB-free`).
 
 ```bash
-git add lib/parser/fieldNearMiss.ts lib/sheet-links/buildSheetDeepLink.ts tests/sheet-links/buildSheetDeepLink.test.ts tests/sync/attachWarningAnchors.test.ts lib/drive/unknownFieldAnchors.ts tests/drive/unknownFieldAnchors.test.ts tests/drive/synthesizeBlocksEquivalence.test.ts tests/parser/fieldNearMissBaseline.test.ts docs/superpowers/specs/parser/2026-08-15-field-near-miss-detector-design.md
+git add lib/parser/fieldNearMiss.ts lib/sheet-links/buildSheetDeepLink.ts tests/sheet-links/buildSheetDeepLink.test.ts tests/sync/attachWarningAnchors.test.ts lib/drive/unknownFieldAnchors.ts tests/drive/unknownFieldAnchors.test.ts tests/drive/unknownFieldAnchors.live.test.ts tests/drive/synthesizeBlocksEquivalence.test.ts tests/parser/fieldNearMissBaseline.test.ts docs/superpowers/specs/parser/2026-08-15-field-near-miss-detector-design.md
 git commit -m "feat(sync): anchor UNKNOWN_FIELD rows through the exporter's blocks, every kind and tab
 
 Tab-level fallback when the cell is not unique. <paste the red line from Step 2>"
@@ -1438,7 +1451,7 @@ Run: `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` (`DB-free`). E
 
 - [ ] **Step 2: Run the impeccable pair on the diff, write the sibling**
 
-`/impeccable critique` then `/impeccable audit` on `components/admin/PerShowActionableWarnings.tsx`, `components/admin/NoteWarningCard.tsx`, and the wizard row render (copy changed): canonical v3 setup (the context.mjs load of PRODUCT.md + DESIGN.md, then the register read). P0/P1: fix in-round (a fix commit per the normal cycle, with its own tests) or a `DEFERRED.md` entry. Write the closeout sibling with `## 12. Invariant 8 — the impeccable dual gate`, the marker line `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=recorded`, and the findings table with dispositions (shape: `docs/superpowers/plans/2026-08-27-mi11-removal-fallback-live-row-closeout.md`).
+`/impeccable critique` then `/impeccable audit` on the whole affected UI diff: `components/admin/PerShowActionableWarnings.tsx`, `components/admin/NoteWarningCard.tsx`, `components/admin/showpage/sectionWarningExtras.tsx` (every file under `components/` the diff touches, `git diff --name-only origin/main -- components/ app/` is the list, not memory), plus the wizard row render (copy changed): canonical v3 setup (the context.mjs load of PRODUCT.md + DESIGN.md, then the register read). P0/P1: fix in-round (a fix commit per the normal cycle, with its own tests) or a `DEFERRED.md` entry. Write the closeout sibling with `## 12. Invariant 8 — the impeccable dual gate`, the marker line `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=recorded`, and the findings table with dispositions (shape: `docs/superpowers/plans/2026-08-27-mi11-removal-fallback-live-row-closeout.md`).
 
 - [ ] **Step 3: Same command green, commit**
 
@@ -1487,7 +1500,7 @@ Poll CI via GraphQL from a `nohup` loop writing to a file under the worktree's `
 
 ## 6. Registry reconciliation, run at plan time
 
-`OPERATOR_ACTIONABLE_ANCHORED`: 24 members before, 24 after (Task 4 adds none; its test asserts the count and the absence of `HOTEL_*`). `CELL_ANCHORED_CODES`: 24 before, 29 after (the five hotel codes). `CELL_ANCHORED_CODES` is no longer the same object as the render gate: `tests/parser/parseWarningDeepLinkRender.test.tsx` flips from identity to superset-plus-exact-difference (Task 4). `WARNING_CARD_COPY_CODES`: unchanged; the three codes carrying `controlsNote` are already members (`tests/messages/warningCardCopyRegistry.ts:35` `UNKNOWN_FIELD`; rows for `PULL_SHEET_PARSE_PARTIAL` and `UNKNOWN_SECTION_HEADER` at lines 88 and 110). `tests/mutation/source/registry.ts`: no row added or edited.
+`OPERATOR_ACTIONABLE_ANCHORED`: 24 members before, 24 after (Task 4 adds none; its test asserts the count and the absence of `HOTEL_*`). `CELL_ANCHORED_CODES`: 24 before, 29 after (the five hotel codes). `CELL_ANCHORED_CODES` is no longer the same object as the render gate: `tests/parser/parseWarningDeepLinkRender.test.tsx` flips from identity to superset-plus-exact-difference (Task 4). `WARNING_CARD_COPY_CODES`: unchanged; the three codes carrying `controlsNote` are already members (`tests/messages/warningCardCopyRegistry.ts:35` `UNKNOWN_FIELD`; rows for `PULL_SHEET_PARSE_PARTIAL` and `UNKNOWN_SECTION_HEADER` at lines 88 and 110). `tests/mutation/source/registry.ts`: no row added; the `rowScanOpener` row (line 2533) is re-derived by Task 1 (control text and one accepted site id move with the refactor, one accepted row is deleted because its site no longer exists); the `fieldNearMiss` row (line 2500) is untouched.
 
 ## 7. Sweeps authored and run at plan time
 
