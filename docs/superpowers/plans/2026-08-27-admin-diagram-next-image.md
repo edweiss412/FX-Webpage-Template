@@ -1,6 +1,6 @@
 # Plan: the two admin wizard diagram sites render through the diagram loader
 
-**Row:** `BL-ADMIN-DIAGRAM-NEXT-IMAGE` (`BACKLOG.md:35`). **Branch:** `perf/admin-diagram-next-image`. **Base:** `66c9857f5`.
+**Row:** `BL-ADMIN-DIAGRAM-NEXT-IMAGE`, graduated into `BACKLOG-archive.md` by this arc's last commit. Cited without a line NUMBER deliberately: the archive is prepend-ordered, so every later graduation moves it, and a line-form citation into a file this branch does not own is the drift class this plan's own AC-8 step exists to catch — it caught this one, pointing at `BACKLOG.md:35` after two rows were added above it and the row itself was archived. **Branch:** `perf/admin-diagram-next-image`. **Base:** `66c9857f5`.
 **No spec.** The crew gallery's shipped shape is the design; `docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §6 is the contract this plan reuses without amending.
 
 Every task is TDD per invariant 1: failing test, minimal implementation, passing test, one commit. Each marker's `red=` is the command that must be observed failing before the implementation and passing after.

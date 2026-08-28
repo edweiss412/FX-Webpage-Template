@@ -67,27 +67,6 @@ Index entry: `LIM-AUTHORED-RED` in `docs/review-rounds/LIMITS.md`, named by six 
 
 ---
 
-## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
-
-**Status:** IN PROGRESS · **Branch:** perf/admin-diagram-next-image · **Severity:** low · **Class:** PERF / consistency · **Effort:** M
-
-`components/admin/wizard/step3ReviewSections.tsx` has two same-shape `<img>` sites — the staged-diagram
-preview and the published breakdown that builds `/api/asset/diagram/` srcs. They are the same defect
-shape the crew gallery just fixed, and the loader plus the ingest variant ladder are reusable there
-as-is: `makeDiagramLoader` (`lib/images/diagramLoader.ts`) already takes manifest `variants` and
-returns asset-route URLs, and the manifest fields land for every show at its next snapshot.
-
-Deferred under the class-sweep disposition rule's exception **(c)**, ratified in the design session
-(`docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §1.1): the repair lands
-inside a ~4000-line admin wizard file the shipping PR does not otherwise touch, which blows its review
-scope; and the value driver — crew bandwidth on venue 4G — does not apply to a desktop admin surface.
-This is NOT "same defect, different file" with nothing more to say: the exception is named, and the
-reason it applies is that the cost of the repair is dominated by the file it lives in rather than by
-the change itself.
-
-**Un-defer trigger:** any work that already opens `step3ReviewSections.tsx` for another reason should
-carry these two sites with it, since the marginal cost then collapses to the edit itself.
-
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
 **Status:** OPEN · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS
