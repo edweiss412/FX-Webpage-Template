@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { stripCommentsForFile } from "../_shared/stripComments";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import {
   latestResetValidationDataBody,
   latestResetValidationDataFile,
@@ -916,4 +916,224 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
       ).not.toMatch(/getFile|downloadFileBytes/i);
     },
   );
+});
+
+// ── Parallel arm: the `withShowLock` JS wrapper (invariant 2 single-holder) ─────────
+//
+// The arm above scans `withShowAdvisoryLock` (`lib/db/advisoryLock.ts`). `withShowLock`
+// (`lib/sync/lockedShowTx.ts:88`) is a DIFFERENT wrapper over the same hashkey
+// (`hashtext('show:' || drive_file_id)`), so it needs its own scan or its acquirers go
+// unguarded. Both wrappers, one rule: for a given hashkey the lock is acquired at
+// exactly ONE layer. A body that calls an RPC which self-locks deadlocks under burst
+// (the M5 R20 class), so the pin is that nothing under the lock reaches for an RPC.
+//
+// Discovery is FILESYSTEM-WALKED, so an acquirer added tomorrow is scanned by default,
+// and EVERY match is classified — none is silently dropped, because a dropped site is
+// indistinguishable from a clean one. Four shapes exist:
+//
+//   inline       `withShowLock(id, async (tx) => { … })` — the body is right here.
+//   delegate     `withShowLock(id, (tx) => helper(tx, …))` — an expression arrow whose
+//                work is a named same-file function. The arm scans THAT function's body.
+//                One hop, same file, deliberately not a cross-module resolver: a
+//                recognizer that chases delegation everywhere becomes a bigger target
+//                than the defect it guards.
+//   passthrough  the callback is a parameter the CALLER supplies (`fn`), so this site
+//                has no body of its own. DOCUMENTED LIMIT: the arm inspects nothing
+//                here. It costs nothing, because every caller that supplies a real
+//                callback does so at its own `withShowLock` / `deps.withShowLock` call
+//                site, which this same walk discovers and scans.
+//   declaration  the wrapper's own definition, or an interface member / method that
+//                declares one. Detected STRUCTURALLY (a parameter list carries top-level
+//                `name: Type` annotations), never by filename — excluding by filename
+//                would blind the arm the day someone re-homes the wrapper.
+//
+// The classification is asserted complete in BOTH directions against the registry below.
+// An unregistered site lands on one side; a registered one the walk can no longer see
+// lands on the other, which is the premise failing rather than production being wrong.
+// A rename that demotes a `delegate` to `passthrough` changes its registry string and
+// fails here too, so the weaker classification can never be reached quietly.
+
+type LockSiteKind = "inline" | "delegate" | "passthrough" | "declaration";
+type LockCallSite = { file: string; kind: LockSiteKind; label: string; span: string };
+
+/** Every `withShowLock` site in `app/` + `lib/`, as `file::kind::label`. */
+const WITH_SHOW_LOCK_SITES: readonly string[] = [
+  "app/admin/onboarding/_actions/stagedWarningIgnore.ts::inline::callback",
+  "app/admin/onboarding/_actions/useRawStaged.ts::inline::callback",
+  "app/admin/show/[slug]/_actions/useRaw.ts::inline::callback",
+  // The injectable deps member (declaration), the method that implements it
+  // (declaration), and that method's forward of the caller's own `fn` (passthrough).
+  // The two real bodies are the `deps.withShowLock` call sites.
+  "lib/sync/assetRecovery.ts::declaration::withShowLock",
+  "lib/sync/assetRecovery.ts::declaration::withShowLock",
+  "lib/sync/assetRecovery.ts::inline::callback",
+  "lib/sync/assetRecovery.ts::inline::callback",
+  "lib/sync/assetRecovery.ts::passthrough::fn",
+  // The wrapper itself.
+  "lib/sync/lockedShowTx.ts::declaration::withShowLock",
+  "lib/sync/promoteSnapshot.ts::inline::callback",
+  "lib/sync/promoteSnapshot.ts::inline::callback",
+  "lib/sync/runOnboardingScan.ts::delegate::recordLiveRowConflict",
+  // withPostgresSyncPipelineLock forwards the caller's `fn`; the cron callers' own
+  // bodies are scanned where they are written.
+  "lib/sync/runScheduledCronSync.ts::passthrough::fn",
+  "lib/sync/unpublishShow.ts::delegate::unpublishShowViaEmailedLink_unlocked",
+];
+
+function walkSourceFiles(root: string): string[] {
+  const out: string[] = [];
+  const visit = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) visit(full);
+      else if (/\.tsx?$/.test(entry.name)) out.push(full);
+    }
+  };
+  visit(join(ROOT, root));
+  return out;
+}
+
+/** Index of the `}` / `)` matching the opener at `open`, or -1. */
+function matchDelim(source: string, open: number, oc: string, cc: string): number {
+  let depth = 0;
+  for (let i = open; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === oc) depth += 1;
+    else if (ch === cc) {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** True iff the argument list carries a top-level `name: Type` annotation — the shape a
+ *  PARAMETER list has and a call's argument list does not. Depth-aware, so a `:` inside
+ *  an options object literal or a nested type never counts.
+ *
+ *  Angle brackets are deliberately NOT depth delimiters. They do not nest reliably in
+ *  source text: the `>` of an arrow `=>` decrements the depth, after which every `:` in
+ *  an inline callback body reads as top-level and EVERY call misclassifies as a
+ *  declaration — which is exactly what it did before this note existed. Parens and
+ *  braces are enough, because a generic in a parameter position always sits inside one. */
+function looksLikeParameterList(argList: string): boolean {
+  let depth = 0;
+  for (let i = 0; i < argList.length; i += 1) {
+    const ch = argList[i];
+    if (ch === "(" || ch === "{" || ch === "[") depth += 1;
+    else if (ch === ")" || ch === "}" || ch === "]") depth -= 1;
+    else if (ch === ":" && depth === 1) return true;
+  }
+  return false;
+}
+
+/** The body of a same-file `function NAME(...) { … }`, or null when unresolvable. */
+function sameFileFunctionBody(source: string, name: string): string | null {
+  const decl = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*(?:<[^>]*>)?\\s*\\(`).exec(source);
+  if (!decl) return null;
+  const paramOpen = source.indexOf("(", decl.index + decl[0].length - 1);
+  const paramClose = matchDelim(source, paramOpen, "(", ")");
+  if (paramClose === -1) return null;
+  const bodyOpen = source.indexOf("{", paramClose);
+  const bodyClose = matchDelim(source, bodyOpen, "{", "}");
+  if (bodyOpen === -1 || bodyClose === -1) return null;
+  return source.slice(bodyOpen + 1, bodyClose);
+}
+
+function withShowLockSites(source: string, file: string): LockCallSite[] {
+  const sites: LockCallSite[] = [];
+  const call = /(?:\w+\.)?withShowLock\s*(?:<[^>()]*>)?\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = call.exec(source)) !== null) {
+    const openParen = source.indexOf("(", m.index + m[0].length - 1);
+    const closeParen = matchDelim(source, openParen, "(", ")");
+    if (closeParen === -1) continue;
+    const argList = source.slice(openParen, closeParen);
+
+    if (looksLikeParameterList(argList)) {
+      sites.push({ file, kind: "declaration", label: "withShowLock", span: "" });
+      continue;
+    }
+
+    const blockArrow = argList.indexOf("=> {");
+    if (blockArrow !== -1) {
+      const bodyOpen = argList.indexOf("{", blockArrow);
+      const bodyClose = matchDelim(argList, bodyOpen, "{", "}");
+      if (bodyClose !== -1) {
+        sites.push({
+          file,
+          kind: "inline",
+          label: "callback",
+          span: argList.slice(bodyOpen + 1, bodyClose),
+        });
+        continue;
+      }
+    }
+
+    // `(tx) => name(...)`, or a bare identifier argument — the delegate / passthrough
+    // split is decided by whether `name` resolves to a same-file function.
+    const named =
+      /=>\s*([A-Za-z_$][\w$]*)\s*\(/.exec(argList) ?? /,\s*([A-Za-z_$][\w$]*)\s*,/.exec(argList);
+    const label = named?.[1] ?? "unknown";
+    const body = named ? sameFileFunctionBody(source, label) : null;
+    sites.push(
+      body === null
+        ? { file, kind: "passthrough", label, span: "" }
+        : { file, kind: "delegate", label, span: body },
+    );
+  }
+  return sites;
+}
+
+function discoverWithShowLockSites(): LockCallSite[] {
+  const found: LockCallSite[] = [];
+  for (const root of ["app", "lib"]) {
+    for (const full of walkSourceFiles(root)) {
+      const rel = relative(ROOT, full);
+      found.push(...withShowLockSites(stripCommentsForFile(readFileSync(full, "utf8"), rel), rel));
+    }
+  }
+  return found;
+}
+
+describe("withShowLock acquirer topology (invariant 2, single holder)", () => {
+  test("site discovery is complete in both directions", () => {
+    const discovered = discoverWithShowLockSites()
+      .map((s) => `${s.file}::${s.kind}::${s.label}`)
+      .sort();
+    expect(discovered).toEqual([...WITH_SHOW_LOCK_SITES].sort());
+  });
+
+  test("every scannable site yields a non-empty span", () => {
+    // Without this, an inline body the extractor failed to close, or a delegate whose
+    // target moved, would contribute an empty span and sail through the `.rpc(`
+    // assertion below having inspected nothing at all.
+    for (const site of discoverWithShowLockSites()) {
+      if (site.kind === "passthrough" || site.kind === "declaration") continue;
+      expect(
+        site.span.trim().length,
+        `${site.file}::${site.kind}::${site.label}: empty span — nothing would be inspected`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  test("nothing under a withShowLock call reaches for an RPC", () => {
+    const sites = discoverWithShowLockSites();
+    for (const site of sites) {
+      expect(
+        site.span,
+        `${site.file} (${site.kind}: ${site.label}) calls .rpc(...) under withShowLock; if that ` +
+          `RPC also acquires pg_advisory_xact_lock on another connection the request deadlocks ` +
+          `(M5 R20 class). Acquire at exactly one layer: the JS wrapper here, or the RPC's own body.`,
+      ).not.toMatch(/\.rpc\s*\(/);
+    }
+    // Non-vacuous self-check: an extractor that silently returns nothing would turn the
+    // assertion above into a pass for every file at once.
+    const scannable = sites.filter((s) => s.kind === "inline" || s.kind === "delegate");
+    expect(
+      scannable.length,
+      "no scannable withShowLock bodies were extracted — the assertion above is vacuous",
+    ).toBeGreaterThan(0);
+  });
 });
