@@ -231,3 +231,29 @@ TABLE-L (spec AC-10) — does the DETECTOR gate on the predicate, or just on 3 k
   disagreements: 33
   UNBOUND: the detector does not gate on the predicate.
   positive control, blocks where the injected label DID emit: 514 (zero here means the probe cannot observe an emission at all, and its verdict is vacuous)
+  ambiguity control, blocks already containing the injected label: 0 (must be 0, or an emission cannot be attributed to the injected row)
+  SHAPE INVARIANCE, blocks whose (opener, minValueCells) the injection changed: 0 (must be 0, or the probe is testing a block the rule would classify differently)
+
+TABLE-K (spec AC-9) — TOTAL blocks per namespace family, regardless of verdict
+  The premise counts AC-9 asserts before it asserts anything about verdicts. A
+  family with zero exclusions appears HERE and nowhere else, because TABLE-I lists
+  only blocks the rule excludes. Without this table two of AC-9's three premise
+  numbers would be stated in the spec and derivable from nothing.
+  namespace | total blocks | excluded | kept
+  venue | 21 | 0 | 21
+  details | 13 | 0 | 13
+  client | 25 | 0 | 25
+  client contact | 1 | 0 | 1
+  timestamp | 15 | 15 | 0
+  console | 4 | 4 | 0
+  joann | 1 | 0 | 1
+
+TABLE-M (spec 3.5) — regression witness: what the NAIVE injection would have done
+  Spec round 3's defect, kept measurable rather than only described. Appending a
+  row with ONE value cell (instead of padding to the block's own minimum) changes
+  the classification input the expectation was computed from. The first number is
+  the blast radius; the second is how many of those cross the exclusion boundary
+  and would have made AC-10 unsatisfiable.
+  blocks whose minValueCells the naive append changed: 151
+  of those, blocks whose EXCLUSION VERDICT it flipped: 18
+  the shipped min-preserving injection changes both to 0 (see TABLE-L's controls).
