@@ -1,0 +1,1 @@
+{"stage":"diff","round":1,"branch":"fix/bare-typeof-id-guards","baseSha":"60dece4d5722","label":null,"status":"verdict","verdict":"NEEDS-ATTENTION","failureReason":null,"findingCount":1,"startedAt":"2026-08-28T23:28:49.663Z","endedAt":"2026-08-28T23:38:00.457Z","briefPath":"/tmp/idg_brief.md","outDir":"/tmp/idg-codex/r1-182849","guardVersion":1,"recoveredFrom":null}
