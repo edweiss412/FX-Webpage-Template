@@ -584,34 +584,70 @@ console.log("  the shipped min-preserving injection changes both to 0 (see TABLE
 console.log("");
 console.log("TABLE-N (spec AC-11) — does the form-dump arm compare NORMALIZED openers?");
 console.log("  Spec round 4: every corpus form dump spells its opener exactly `Timestamp`, so an");
-console.log("  implementation writing `opener === \"Timestamp\"` satisfies AC-5, AC-9 and AC-10");
-console.log("  while violating §3.1, which requires normalizeV3(opener) === \"timestamp\". The");
-console.log("  criteria could not tell the two apart because no corpus input distinguishes them.");
+console.log("  implementation writing `opener === \"Timestamp\"` satisfies AC-5, AC-9 and AC-10 while");
+console.log("  violating §3.1, which requires normalizeV3(opener) === \"timestamp\".");
 console.log("");
-console.log("  Each row is the RIA form-dump block with its opener spelled differently — one");
-console.log("  ordinary sheet edit, inside the declared probe domain. `normative` is the shipped");
-console.log("  rule; `exact` is the impostor. Where they differ, the impostor emits the very rows");
-console.log("  this arc exists to suppress.");
-console.log("  opener spelling | normalizeV3 | normative excludes | exact-compare excludes | differ");
-const formDumpBlock = blocks.find((b) => isFormDump(b));
-if (formDumpBlock === undefined) {
-  console.log("  NO FORM-DUMP BLOCK FOUND — this table cannot make its claim (premise failed)");
+console.log("  Round 5 found the first version of this table did not prove that. It compared two");
+console.log("  local expressions over hardcoded strings: it never rebuilt the block, never ran the");
+console.log("  detector, and never checked that the opener alone had changed, so it printed the");
+console.log("  same 4 whatever an implementation did. This version REBUILDS a real corpus form-dump");
+console.log("  block with each spelling, asserts only the opener moved, and runs the real detector.");
+const formDump = blocks.find((b) => isFormDump(b));
+if (formDump === undefined) {
+  console.log("  PREMISE FAILED: no form-dump block in the corpus, so this table proves nothing.");
 } else {
+  console.log("  source block: " + formDump.fixture + " opener=" + JSON.stringify(formDump.opener));
+  console.log(
+    "  spelling | normalizeV3 | rule excludes | impostor excludes | shape held | detector emits if admitted",
+  );
   let differing = 0;
-  for (const spelling of ["Timestamp", "TIMESTAMP", "timestamp", "Timestamp:", " Timestamp "]) {
-    const norm = normalizeV3(spelling);
-    const normative = norm === "timestamp";
-    const exact = spelling === "Timestamp";
-    if (normative !== exact) differing += 1;
+  let shapeBroken = 0;
+  // The first four are one-edit spellings that STILL normalize to `timestamp`, so the rule must
+  // exclude them and an exact-string impostor must not. `Time stamp` is the honest boundary case:
+  // an internal space normalizes to `time stamp`, which the RULE does not match either, so both
+  // agree and it is a documented limit (§6.6) rather than a discriminating case.
+  for (const spelling of ["Timestamp", "TIMESTAMP", "timestamp", "Timestamp:", " Timestamp ", "Time stamp"]) {
+    // Rebuild the REAL block with only its opener cell replaced.
+    const mutatedRows = formDump.rows.map((cells, i) =>
+      i === 0 ? [spelling, ...cells.slice(1)] : cells,
+    );
+    const doc = mutatedRows.map((cells) => "| " + cells.join(" | ") + " |").join("\n");
+
+    // Shape invariance: the rebuild must change the opener and NOTHING else the rule reads.
+    const reRows = scanRowsWithOpener(doc);
+    const reFirst = reRows[0];
+    const reCells = reRows.map((r) => r.cells.map((c) => clean(c)));
+    const reMin = Math.min(...reCells.map((c) => c.slice(1).filter((x) => x !== "").length));
+    const shapeHeld =
+      reFirst !== undefined &&
+      clean(reFirst.opener) === clean(spelling) &&
+      reMin === minValueCells(formDump) &&
+      reRows.length === formDump.rows.length;
+    if (!shapeHeld) shapeBroken += 1;
+
+    // The rule, and the impostor, both applied to the MUTATED block.
+    const opener = reFirst?.opener ?? "";
+    const ruleExcludes = normalizeV3(opener) === "timestamp" || reMin >= MATRIX_MIN_VALUE_CELLS;
+    const impostorExcludes = opener === "Timestamp" || reMin >= MATRIX_MIN_VALUE_CELLS;
+    if (ruleExcludes !== impostorExcludes) differing += 1;
+
+    // What the REAL detector emits from this block when nothing excludes it. This is the
+    // consequence the impostor ships: the very rows this arc exists to suppress.
+    const agg = newAggregator();
+    detectFieldNearMisses(doc, agg);
+    const names = [...new Set(agg.warnings.map((w) => w.blockRef?.name ?? "?"))].sort();
     console.log(
-      "  " + JSON.stringify(spelling) + " | " + JSON.stringify(norm) + " | " + normative +
-        " | " + exact + " | " + (normative !== exact ? "YES" : "no"),
+      "  " + JSON.stringify(spelling) + " | " + JSON.stringify(normalizeV3(opener)) +
+        " | " + ruleExcludes + " | " + impostorExcludes +
+        " | " + (shapeHeld ? "yes" : "NO") +
+        " | " + (names.length ? names.join(", ") : "(none)"),
     );
   }
   console.log("  spellings where the impostor disagrees with the rule: " + differing);
+  console.log("  spellings where the rebuild changed more than the opener: " + shapeBroken + " (must be 0)");
   console.log(
-    differing === 0
-      ? "  VACUOUS: no spelling separates the two, so AC-11 could not discriminate."
-      : "  DISCRIMINATING: AC-11 has cases that fail an exact-string implementation.",
+    differing > 0 && shapeBroken === 0
+      ? "  DISCRIMINATING: AC-11 has real-block cases an exact-string implementation fails."
+      : "  NOT DISCRIMINATING: this table cannot separate the rule from the impostor.",
   );
 }

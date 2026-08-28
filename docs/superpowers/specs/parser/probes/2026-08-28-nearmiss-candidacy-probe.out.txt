@@ -260,19 +260,22 @@ TABLE-M (spec 3.5) — regression witness: what the NAIVE injection would have d
 
 TABLE-N (spec AC-11) — does the form-dump arm compare NORMALIZED openers?
   Spec round 4: every corpus form dump spells its opener exactly `Timestamp`, so an
-  implementation writing `opener === "Timestamp"` satisfies AC-5, AC-9 and AC-10
-  while violating §3.1, which requires normalizeV3(opener) === "timestamp". The
-  criteria could not tell the two apart because no corpus input distinguishes them.
+  implementation writing `opener === "Timestamp"` satisfies AC-5, AC-9 and AC-10 while
+  violating §3.1, which requires normalizeV3(opener) === "timestamp".
 
-  Each row is the RIA form-dump block with its opener spelled differently — one
-  ordinary sheet edit, inside the declared probe domain. `normative` is the shipped
-  rule; `exact` is the impostor. Where they differ, the impostor emits the very rows
-  this arc exists to suppress.
-  opener spelling | normalizeV3 | normative excludes | exact-compare excludes | differ
-  "Timestamp" | "timestamp" | true | true | no
-  "TIMESTAMP" | "timestamp" | true | false | YES
-  "timestamp" | "timestamp" | true | false | YES
-  "Timestamp:" | "timestamp" | true | false | YES
-  " Timestamp " | "timestamp" | true | false | YES
-  spellings where the impostor disagrees with the rule: 4
-  DISCRIMINATING: AC-11 has cases that fail an exact-string implementation.
+  Round 5 found the first version of this table did not prove that. It compared two
+  local expressions over hardcoded strings: it never rebuilt the block, never ran the
+  detector, and never checked that the opener alone had changed, so it printed the
+  same 4 whatever an implementation did. This version REBUILDS a real corpus form-dump
+  block with each spelling, asserts only the opener moved, and runs the real detector.
+  source block: fixtures/shows/exporter-xlsx/consultants.md opener="Timestamp"
+  spelling | normalizeV3 | rule excludes | impostor excludes | shape held | detector emits if admitted
+  "Timestamp" | "timestamp" | true | true | yes | Backdrop, Room Diagram
+  "TIMESTAMP" | "timestamp" | true | false | yes | Backdrop, Room Diagram
+  "timestamp" | "timestamp" | true | false | yes | Backdrop, Room Diagram
+  "Timestamp:" | "timestamp" | true | false | yes | Backdrop, Room Diagram
+  " Timestamp " | "timestamp" | true | true | yes | Backdrop, Room Diagram
+  "Time stamp" | "time stamp" | false | false | yes | Backdrop, Room Diagram
+  spellings where the impostor disagrees with the rule: 3
+  spellings where the rebuild changed more than the opener: 0 (must be 0)
+  DISCRIMINATING: AC-11 has real-block cases an exact-string implementation fails.
