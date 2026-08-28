@@ -29,8 +29,26 @@ import { FIXTURES, readFixture } from "@/tests/parser/mutation/fixtures";
 
 type BaselineRow = { fixture: string; key: string; block: string; kind: string; candidate: string };
 
-const BASELINE_PATH = "tests/parser/__fixtures__/fieldNearMiss.baseline.json";
-const baseline: BaselineRow[] = JSON.parse(readFileSync(BASELINE_PATH, "utf8")).rows;
+/**
+ * THE FROZEN PRE-CHANGE BASELINE, not the live one.
+ *
+ * Spec round 1 finding 1: reading `tests/parser/__fixtures__/fieldNearMiss.baseline.json`
+ * made this probe self-invalidating. That file is what AC-2 REGENERATES from 65 rows to 33,
+ * and every table below selects its rows through the baseline's key set — so the moment the
+ * spec was implemented, TABLE-D would print `FP removed: 0`, TABLE-E would print zero
+ * exclusions, and the evidence for the whole design would evaporate. The probe could
+ * reproduce the spec only until the spec shipped.
+ *
+ * The removed-set and the two refutations are claims about the corpus AS IT WAS at the merge
+ * base, so their input is frozen here at 65 rows, copied from the live baseline at
+ * `origin/main` 31beee5de. `LIVE_BASELINE_PATH` is read separately and only for the
+ * after-the-change comparison, which is the one table that SHOULD move.
+ */
+const FROZEN_BASELINE_PATH =
+  "docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-baseline-at-merge-base.json";
+const LIVE_BASELINE_PATH = "tests/parser/__fixtures__/fieldNearMiss.baseline.json";
+const baseline: BaselineRow[] = JSON.parse(readFileSync(FROZEN_BASELINE_PATH, "utf8")).rows;
+const liveBaseline: BaselineRow[] = JSON.parse(readFileSync(LIVE_BASELINE_PATH, "utf8")).rows;
 
 /**
  * The three rows BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS names as false positives, keyed
@@ -173,14 +191,26 @@ console.log("");
 console.log("TABLE-D (spec 3.2) — candidate rules scored against the baseline");
 console.log("  rule | kept | FP removed | TP lost | true positives lost");
 
-/** The shipped rule after this spec: neither a form dump nor an inventory matrix. */
+/**
+ * The shipped rule after this spec: neither a form dump nor an inventory matrix.
+ *
+ * The threshold is ONE named constant referenced by the predicate AND by the printed label
+ * below, so a table can never state a bound the rule it scored did not use. Lifting it out
+ * of the four literals it started as is the local defence against the class
+ * `BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE` names: a published table its own command
+ * cannot produce.
+ */
+const MATRIX_MIN_VALUE_CELLS = 6;
 const isFormDump = (b: Block): boolean => normalizeV3(b.opener) === "timestamp";
-const isInventoryMatrix = (b: Block): boolean => minValueCells(b) >= 3;
+const isInventoryMatrix = (b: Block): boolean => minValueCells(b) >= MATRIX_MIN_VALUE_CELLS;
 
 const RULES: { name: string; admit: (b: Block) => boolean }[] = [
   { name: "R0 current, admit every block", admit: () => true },
   { name: "R1 not a form dump (opener normalizes to timestamp)", admit: (b) => !isFormDump(b) },
-  { name: "R2 not an inventory matrix (block minValueCells >= 3)", admit: (b) => !isInventoryMatrix(b) },
+  {
+    name: "R2 not an inventory matrix (block minValueCells >= " + MATRIX_MIN_VALUE_CELLS + ")",
+    admit: (b) => !isInventoryMatrix(b),
+  },
   {
     name: "R3 positive: block holds >=1 resolving row",
     admit: (b) => resolvingRows(b, false) >= 1,
@@ -307,3 +337,71 @@ console.log("  minValueCells | blocks");
 for (const [k, v] of [...dist.entries()].sort((a, b) => a[0] - b[0])) {
   console.log("  " + k + " | " + v);
 }
+
+// ---------------------------------------------------------------- TABLE-H
+console.log("");
+console.log("TABLE-H (spec 3.1) — which NAMESPACE FAMILIES the matrix arm withdraws candidacy from");
+console.log("  Row counts cannot answer this: a family hosting no baseline emission loses");
+console.log("  candidacy without moving a single row. That is how threshold 3 swallowed four");
+console.log("  venue blocks while every outcome table read green.");
+console.log("  threshold | blocks excluded | notable families hit");
+const NOTABLE = ["venue", "details", "client", "client contact", "timestamp", "console", "joann"];
+for (const t of [3, 4, 5, 6, 7]) {
+  const excluded = blocks.filter((b) => minValueCells(b) >= t);
+  const byNs = new Map<string, number>();
+  for (const b of excluded) byNs.set(b.ns, (byNs.get(b.ns) ?? 0) + 1);
+  const hit = NOTABLE.filter((n) => byNs.has(n))
+    .map((n) => n + "=" + byNs.get(n))
+    .join(", ");
+  console.log("  " + t + " | " + excluded.length + " | " + (hit || "none"));
+}
+
+// ---------------------------------------------------------------- TABLE-I
+console.log("");
+console.log("TABLE-I (spec 3.5) — the BLOCK CLASSIFICATION CENSUS, every corpus block");
+console.log("  Spec round 1 finding 2: the rule classifies BLOCKS, but every other table");
+console.log("  selects rows through the baseline key set, so an implementation that merely");
+console.log("  hardcoded suppression of the three known keys would satisfy them all, and a");
+console.log("  wrong exclusion among the emission-free excluded blocks would be invisible.");
+console.log("  This census is the pinned artifact: it records a verdict for EVERY block,");
+console.log("  whether or not any row in it ever fired.");
+const censusByNs = new Map<string, { excluded: number; kept: number; arms: Set<string> }>();
+let totalExcluded = 0;
+for (const b of blocks) {
+  const formDump = isFormDump(b);
+  const matrix = isInventoryMatrix(b);
+  const rec = censusByNs.get(b.ns) ?? { excluded: 0, kept: 0, arms: new Set<string>() };
+  if (formDump || matrix) {
+    rec.excluded += 1;
+    totalExcluded += 1;
+    rec.arms.add(formDump ? "form-dump" : "inventory-matrix");
+  } else {
+    rec.kept += 1;
+  }
+  censusByNs.set(b.ns, rec);
+}
+console.log("  namespace | excluded | kept | arms");
+for (const [ns, rec] of [...censusByNs.entries()].filter((e) => e[1].excluded > 0).sort()) {
+  console.log("  " + ns + " | " + rec.excluded + " | " + rec.kept + " | " + [...rec.arms].join(","));
+}
+const emissionFree = blocks.filter((b) => {
+  if (!(isFormDump(b) || isInventoryMatrix(b))) return false;
+  return !b.rows.some((cells) => wanted.has(b.ns + " " + (cells[0] ?? "")));
+}).length;
+console.log("  blocks excluded: " + totalExcluded + " of " + blocks.length);
+console.log("  of those, emission-free at the merge base: " + emissionFree);
+console.log(
+  "  families with ANY block excluded: " +
+    [...censusByNs.entries()].filter((e) => e[1].excluded > 0).length,
+);
+
+// ---------------------------------------------------------------- TABLE-J
+console.log("");
+console.log("TABLE-J — the LIVE baseline, for comparison against the frozen one");
+console.log("  frozen (merge base): " + baseline.length + " rows");
+console.log("  live (working tree): " + liveBaseline.length + " rows");
+console.log(
+  "  delta: " +
+    (liveBaseline.length - baseline.length) +
+    (liveBaseline.length === baseline.length ? "  (spec not yet implemented)" : ""),
+);

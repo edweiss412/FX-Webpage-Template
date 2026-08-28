@@ -4,7 +4,11 @@
 **Date:** 2026-08-28
 **Branch:** `fix/nearmiss-non-field-blocks` (closes `BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS`)
 **Predecessor:** `docs/superpowers/specs/parser/2026-08-15-field-near-miss-detector-design.md` (the detector this narrows; its §3.1 rule and §3.2 baseline are unchanged except where §3 below moves the corpus multiset)
-**Evidence base:** `docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-candidacy-probe.ts`. Every number in this document is printed by that one script. Reproduce all of it with:
+**Evidence base:** `docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-candidacy-probe.ts`, reading the frozen pre-change baseline at `docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-baseline-at-merge-base.json` (65 rows, copied from the live baseline at `origin/main` 31beee5de). Every number in this document is printed by that one script.
+
+The frozen copy exists because spec round 1 found the probe self-invalidating: it read the LIVE baseline, which AC-2 regenerates from 65 rows to 33, so the moment this spec shipped its own evidence would have collapsed (TABLE-D would print zero false positives removed). The removed-set and both refutations are claims about the corpus as it was at the merge base, so their input is pinned there. TABLE-J reads the live baseline separately and is the one table that SHOULD move when the change lands.
+
+Reproduce all of it with:
 
 ```
 pnpm exec tsx docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-candidacy-probe.ts
@@ -29,7 +33,7 @@ The link arc (`docs/superpowers/specs/2026-08-27-wizard-warning-row-links-copy-d
 4. **The consumption ledger is untouched.** Draw-down semantics, `consumptionKey`, and the local-copy discipline (`fieldNearMiss.ts:247`) ship unchanged.
 5. **`UNKNOWN_FIELD` keeps its identity.** Same §12.4 row, same gap class, same anchor routing, same help family. No new warn code, no enum churn, no copy change. The set of emissions shrinks; nothing about an emission changes.
 6. **Threat model.** The narrowing defends against real sheet shapes as they occur in the corpus. A block hand-constructed to sit exactly on a boundary is out of scope and files to §6 documented limits, not to a finding.
-7. **Consequence bound.** Every block is either classified a field list and kept as a candidate home, or classified a non-home and excluded WITH its classification recorded. A wrong exclusion costs one missing advisory card, which the committed baseline diff surfaces at review time. It can never corrupt a parse, drop a curated field, mis-route an anchor, or change a rendered value. There is no silent-corruption branch, because the change only ever REMOVES emissions from an advisory surface.
+7. **Consequence bound.** Every block is either classified a field list and kept as a candidate home, or classified a non-home and excluded WITH its classification recorded. A wrong exclusion costs one missing advisory card, which the committed block-classification census (§3.5) surfaces at review time. The census, not the baseline diff: an excluded block that hosts no emission today moves no baseline row, so the baseline alone would leave that case silent. It can never corrupt a parse, drop a curated field, mis-route an anchor, or change a rendered value. There is no silent-corruption branch, because the change only ever REMOVES emissions from an advisory surface.
 8. **NARROWING is the required direction.** The repair excludes candidacy. Any round that grows the recognizer instead of shrinking it is the forbidden direction for this arc.
 
 ## 2. Measurement
@@ -100,25 +104,34 @@ This is why the shipped rule is two named shape exclusions rather than a positiv
 A pipe-run block is **not a candidate home** when either arm holds. Every other block is a candidate home and the detector's behavior inside it is unchanged.
 
 - **Form dump.** `normalizeV3(opener) === "timestamp"`. A Google Form response export opens on the `Timestamp` column; its rows are questions, not fields.
-- **Inventory matrix.** Every row in the block carries at least 3 value cells, where a value cell is a non-empty cleaned cell after column 0. Equivalently, the block's MINIMUM value-cell count is 3 or more.
+- **Inventory matrix.** Every row in the block carries at least 6 value cells, where a value cell is a non-empty cleaned cell after column 0. Equivalently, the block's MINIMUM value-cell count is 6 or more.
 
 The matrix arm is a MINIMUM over the block, not a test on the firing row, and not an average or a share. That is deliberate and load-bearing. A minimum states exactly the property that separates the two shapes: an inventory matrix is uniformly wide because every row is a grid line, whereas a field list always contains at least one narrow label-and-value row even when other rows in it are wide. Measured, `console` has minimum 6 and `client` has minimum 1, despite `client` containing rows with 8 value cells. A share-based or average-based threshold would introduce a tuned constant with no corpus justification; the minimum introduces none.
 
-The threshold of 3 is the ledger row's own boundary ("more than two"), preserved verbatim, and it is the only number in this rule. It is not tuned to the corpus outcome, and the sensitivity is measured rather than asserted (TABLE-F):
+The threshold of 6 is selected by a stated criterion, not fitted to an instance: **take the largest threshold that still excludes every inventory matrix in the corpus.** All four `console` blocks have a minimum of 6, so 6 is that largest value; at 7 the arm catches only two of the four and stops doing its job. Taking the largest is what makes the exclusion the NARROWEST one that satisfies the ratification.
+
+The corpus row outcome is insensitive to the constant across a wide band, which is why the row-count table alone cannot choose it (TABLE-F):
 
 | threshold | blocks excluded by the matrix arm | baseline rows removed | TP lost |
 | --- | --- | --- | --- |
 | 2 | 151 | 2 | 0 |
-| **3 SHIPPED** | **78** | **2** | **0** |
+| 3 | 78 | 2 | 0 |
 | 4 | 35 | 2 | 0 |
 | 5 | 22 | 2 | 0 |
-| 6 | 18 | 2 | 0 |
+| **6 SHIPPED** | **18** | **2** | **0** |
 | 7 | 13 | 0 | 0 |
-| 8 | 8 | 0 | 0 |
 
-Every threshold from 2 through 6 produces the identical corpus outcome: the two `console` rows removed, zero true positives lost. At 7 the arm stops catching the `console` block at all, because that block's minimum is 6, and the false positive survives. So the constant is free within a five-wide band and the band's upper edge is where the rule breaks.
+Every threshold from 2 through 6 removes the same two rows and loses nothing. Read alone, that table says the constant does not matter. It does, and the reason is the subject of §3.5: **a threshold also decides which blocks can EVER report a near-miss, and a family that hosts no emission today loses candidacy without moving a single row.** Measured per family (TABLE-H):
 
-Two honest consequences. The choice of 3 within that band is the ledger row's ratified boundary and the semantic claim behind it, that a row carrying three or more values is not a label-and-value pair, rather than a value fitted to the one `console` instance; fitting to that instance would pick 6 and would be tuning. But the threshold is NOT free in how much candidacy it withdraws: 78 of 514 corpus blocks lose candidacy at 3 against 18 at 6. Those 60 blocks hold no baseline firing today, which is why the outcome is invariant, and they are the blocks where a FUTURE near-miss would now go unreported. That breadth difference is recorded as a documented limit (§6.4), not hidden inside an invariant-outcome claim.
+| threshold | blocks excluded | notable families hit |
+| --- | --- | --- |
+| 3 | 78 | `venue`=4, `console`=4 |
+| 4 | 35 | `console`=4 |
+| 5 | 22 | `console`=4 |
+| **6 SHIPPED** | **18** | **`console`=4** |
+| 7 | 13 | `console`=2 |
+
+A threshold of 3 withdraws candidacy from **four `venue` blocks**. Venue is the canonical field-list family: the predecessor detector's positional sweep lived inside `parseVenue` (`lib/parser/blocks/venue.ts`), and this whole product exists because that sweep was keyed on the wrong thing, not because venue stopped being where fields live. Excluding venue blocks is the one exclusion this arc must not make, and no row-count table could see it, because no venue row fires today. At 6, zero `venue` and zero `details` blocks are touched and the only family hit is the intended one.
 
 ### 3.2 Scored against the baseline
 
@@ -153,6 +166,29 @@ All 32 removed rows, each with the arm that removed it, the block opener, the bl
 
 `joann | Diagrams?` is the one surviving row whose home is arguably not a field list: a five-row block opening on a crew member's name, with no resolving rows and no values. It survives because the ratification names exactly two non-home shapes, and this block is neither. Excluding it would need a third arm keyed on something this spec has not measured and the ratification did not authorize, which is the forbidden direction for this arc (§1.1.8). It is recorded as a documented limit (§6) with a re-file trigger, not carried as a hidden decision.
 
+### 3.5 The block classification census, and why row counts cannot stand in for it
+
+Spec round 1 raised this and it is confirmed. Every table in §2 and §3.2 selects its rows through the baseline's key set, so all of them measure the same thing: what happens to rows that already fire. Two failures are invisible to all of them at once.
+
+- **Under-implementation.** An implementation that simply suppressed the three known keys `timestamp Room Diagram`, `timestamp Backdrop` and `console Speaker` would produce the 33-row baseline, satisfy AC-1, and pass the fixture cases at AC-5 and AC-6, while implementing no block classification at all. The rule in §3.1 classifies BLOCKS; nothing that counts rows can tell the difference.
+- **Wrong exclusion.** A block wrongly excluded that happens to host no emission today moves no row, so it appears nowhere. That is not hypothetical: it is exactly how a threshold of 3 withdrew candidacy from four `venue` blocks while every outcome table in this spec read green (§3.1).
+
+The second one defeats the consequence bound as §1.1.7 originally stated it. That clause promised a wrong exclusion would be surfaced by the committed baseline diff. For an emission-free block it is not, so the promise was only true of the blocks that already fire.
+
+**The census is what makes the bound true.** The pinned artifact is a verdict for EVERY corpus block, not for every firing row (TABLE-I):
+
+| namespace | blocks excluded | blocks kept | arm |
+| --- | --- | --- | --- |
+| `timestamp` | 15 | 0 | form-dump |
+| `console` | 4 | 0 | inventory-matrix |
+| `audio` | 4 | 9 | inventory-matrix |
+| `section` | 1 | 3 | inventory-matrix |
+| 9 room-dimension and pull-sheet families | 1 each | varies | inventory-matrix |
+
+33 of 514 blocks excluded, 16 of them emission-free at the merge base, 13 families touched, and no `venue`, `details`, `client` or `client contact` block among them. A change to any cell of that census is a diff in a committed file, which is what §1.1.7's bound now rests on.
+
+The census is DERIVED by walking the corpus, never enumerated by hand: adding a fixture extends it rather than silently leaving the new blocks unpinned.
+
 ## 4. Acceptance criteria
 
 - **AC-1.** On `fixtures/shows/raw/2025-06-ria-investment-forum.md`, a full `parseSheet` emits NO `UNKNOWN_FIELD` for `Room Diagram` or `Backdrop` in the `timestamp` namespace, and none for `Speaker` in the `console` namespace. This is the ledger row's done condition at the parse seam. RED before the change: all three are emitted today.
@@ -162,16 +198,19 @@ All 32 removed rows, each with the arm that removed it, the block opener, the bl
 - **AC-5.** A `Timestamp`-opener block is excluded even though it contains resolving rows and is single-column. Pinned with a premise assertion that the block WOULD have fired before the change, so the test cannot pass by the block being uninteresting.
 - **AC-6.** A `Console`-shaped block is excluded by the matrix arm, with a premise assertion that its `Speaker` row matches the vocabulary and clears the guards. The premise is what distinguishes "excluded by the new rule" from "never matched anyway".
 - **AC-7.** `matchVocabulary`, `passesGuards`, `normalizeV3`, `fusedForm` and the consumption draw-down are unchanged. Pinned structurally, so a future edit that moves matching behavior under cover of this narrowing fails.
+- **AC-9.** The block classification census (§3.5) is pinned as a committed artifact, asserted at CANDIDACY level rather than through emissions. The test walks every corpus block, applies the candidacy predicate, and compares the full verdict set. It carries a premise that the walk actually saw the families it claims to cover (21 `venue` blocks, 13 `details`, 4 `console`), so a scoping bug that selects nothing cannot pass it vacuously, and it asserts BOTH directions: every `venue` and `details` block is admitted, and every `console` block is refused. A pin that only asserted admission would pass against a predicate that admits everything, which is the pre-change detector. This is the criterion that fails an implementation which hardcodes suppression of the three known keys, and the one that would have caught the threshold-3 venue defect.
 - **AC-8.** The source-mutation surface `fieldNearMiss` (`tests/mutation/source/registry.ts:2550`, floor 0.95, all operators) scores at or above its floor with an empty unaccepted-survivor set after the change, and the two existing accepted rows are re-keyed if line movement drifts their `siteId`.
 
 ## 5. Testing
 
 The suites are the two the registry already names, so the mutation surface keeps deciding this code.
 
-- `tests/parser/fieldNearMiss.test.ts` gains the per-class cases: AC-4, AC-5, AC-6, AC-7. Each shape case states its premise executably via `tests/_shared/premise.ts` and asserts the exclusion, never merely the absence of output. A test that only shows "nothing was emitted" would pass against a detector that emits nothing at all, which is exactly the mutant the registry's `control` row plants.
+- `tests/parser/fieldNearMiss.test.ts` gains the per-class cases: AC-4, AC-5, AC-6, AC-7, AC-9. Each shape case states its premise executably via `tests/_shared/premise.ts` and asserts the exclusion, never merely the absence of output. A test that only shows "nothing was emitted" would pass against a detector that emits nothing at all, which is exactly the mutant the registry's `control` row plants.
 - `tests/parser/fieldNearMissBaseline.test.ts` carries AC-1, AC-2 and AC-3 at the `parseSheet` document seam. `EXPECTED_TOTAL` moves 65 to 33 in the same commit as the regenerated baseline JSON, and the baseline note gains a line recording this spec as the reason the multiset moved.
 
-Anti-tautology: the shape-arm tests derive their expectations from the fixture's own measured shape rather than hardcoding, and every exclusion case is paired with a positive control in the same block family that must still fire. The `client` positive control at AC-4 is the one that catches a per-row reimplementation of the matrix arm.
+Anti-tautology: the shape-arm tests derive their expectations from the fixture's own measured shape rather than hardcoding, and every exclusion case is paired with a positive control in the same block family that must still fire. The `client` positive control at AC-4 is the one that catches a per-row reimplementation of the matrix arm; the census at AC-9 is the one that catches an implementation which suppresses three keys and classifies nothing.
+
+Note on what each level of test can see. AC-1 through AC-3 work in emission space and answer "what changes today". AC-9 works in candidacy space and answers "what can ever be reported". The threshold-3 venue defect was invisible to the first and obvious to the second, so a change to this rule is not adequately tested by emission counts alone, however many of them there are.
 
 ## 6. Documented limits
 
@@ -180,7 +219,8 @@ Filed here rather than as ledger rows, per the 2026-08-25 process freeze: each n
 1. **A field list opening on the literal word `Timestamp`.** The form-dump arm is keyed on the opener string. A legitimate field list whose first cell is `Timestamp` would be excluded wholesale. Zero corpus instances; a live sheet exhibiting one is the re-file trigger.
 2. **An inventory matrix carrying one narrow row.** The matrix arm takes the block minimum, so a grid with a single trailing note row at 1 value cell is admitted and its rows can fire again. This fails toward today's shipped behavior rather than away from it. A live sheet where this produces a wrong card is the re-file trigger.
 3. **The `joann` block shape.** §3.4. A name-opener block with no resolving rows is not obviously a field list, but excluding it is outside this arc's ratification. The re-file trigger is a second corpus instance of the shape, or an owner decision that name-opener blocks are not homes.
-4. **The matrix arm withdraws candidacy from 78 of 514 corpus blocks.** Only 2 of those blocks hold a baseline firing today (the `console` pair), so the measured outcome is unchanged, but a near-miss appearing in any of the other 76 in a future sheet would now go unreported. A threshold of 6 would withdraw candidacy from 18 blocks instead with the identical outcome today (§3.1 TABLE-F). The re-file trigger is a live sheet where a real near-miss is suppressed by this arm; the repair would be raising the threshold within the 3-to-6 band, which costs nothing measured.
+4. **Sixteen excluded blocks host no emission today.** The matrix and form-dump arms together withdraw candidacy from 33 of 514 corpus blocks (§3.5), and 16 of those hold no baseline row at the merge base. A near-miss appearing in one of those 16 in a future sheet would go unreported. This is a genuinely reduced surface rather than a deferred question: the earlier draft of this spec used a threshold of 3, which withdrew candidacy from 78 blocks including four `venue` blocks, and §3.1 retires that by construction. The re-file trigger is a live sheet where a real near-miss is suppressed by either arm; §3.5's census is what makes such a suppression visible rather than silent.
+
 5. **Fixtures are the corpus, not the workbooks.** The markdown fixtures concatenate tabs, so the block boundaries measured here are the fixture's pipe runs. The three named rows were probed against the live RIA workbook by the filing arc; this spec's tables are fixture-derived by construction, and the two agree on all three rows.
 
 ## 7. Non-goals
