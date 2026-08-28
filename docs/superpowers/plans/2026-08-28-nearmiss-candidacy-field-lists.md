@@ -146,34 +146,86 @@ Round 1 returned BLOCKING on the previous split, and the diagnosis was structura
 
 Two consequences drive the shape below. First, the behaviour change and ALL of its test dispositions are ONE task: one commit, one command pair, red then green. Second, the two steps that are gates rather than red-green cycles — the mutation score and the ledger graduation — sit OUTSIDE the checked region, next to base re-verification, because neither has a failing case it authors and then fixes.
 
-### The complete disposition set: EIGHT cases, not four
+### The affected-test set, DERIVED rather than enumerated
 
-Round 1 found that the previous draft named four. Read at plan time, the full set is:
+Rounds 1 and 2 each found dispositions the previous draft missed, and the cause was the same both
+times: the set was assembled by thinking about the files the change is *in*, not the files that
+*depend on* what it changes. Enumeration re-opens the moment anyone adds a test, so the set below is
+derived from two mechanical covers, and the covers are the thing to re-run, not the list.
 
-**`tests/parser/fieldNearMissBaseline.test.ts`**
+**Cover A — anything that reads the scanner's row shape.** Task 1 adds a REQUIRED field to
+`ScannedRow` and `ScannedBlockRow`, so any assertion on a whole row object breaks.
 
-1. line 44 / line 167 `EXPECTED_TOTAL` 65 to 33.
-2. lines 188-190 `n("Backdrop")`, `n("Room Diagram")`, `n("Speaker")` to 0 — asserted explicitly, not deleted, so the keys stay in the partition and red if they return.
-3. lines 194-197 the partition cover keeps working unchanged: 32 + 0 + 0 + 0 + 1 = 33. It is what catches a NEW key appearing anywhere.
-4. lines 205-215 `it("every Room Diagram row sits in a Timestamp block")` loses its subject and fails by construction, as its own comment predicts. INVERT it: no `Room Diagram` row survives in any namespace, with a premise that the frozen baseline still contains the 15 it is asserting the absence of. Deleting it would drop a real ledger-regression guard as cleanup.
-5. line 498 `it("a Timestamp-block row resolves null against an anchor set that has no Timestamp block")` carries `premiseHolds("the baseline carries a Timestamp-block row", row !== undefined)`, which dies when timestamp emissions reach zero. RETIRE it, and record why in the same commit: the case pins anchor resolution for a namespace the detector no longer emits into, so its subject is gone rather than its claim being wrong. `tests/drive/unknownFieldAnchors.test.ts` continues to pin Timestamp-row anchoring in its own workbook, which its comment already names as the live home of that behaviour.
+```
+grep -rln --include='*.ts' 'blocks/_rowScan' tests/ lib/
+```
 
-**`tests/parser/fieldNearMiss.test.ts`**
+Five hits. `lib/parser/fieldNearMiss.ts` and `lib/drive/unknownFieldAnchors.ts` are production
+consumers that destructure and are unaffected. `tests/mutation/source/registry.ts` reads source text,
+not row objects. `tests/drive/synthesizeBlocksEquivalence.test.ts` PROJECTS to `{opener, cells}`
+before comparing (line 97) and is therefore immune by construction. **`tests/parser/rowScanCore.test.ts`
+breaks**: six `toEqual` assertions on full `{cells, opener, index}` objects.
 
-6. line 542 `it("the Timestamp-block Google-Forms echo fires")` asserts `emissionFor(fixtureTable(CONSULTANTS_RAW, "Timestamp"), "Room Diagram")` has kind `timestamp`. This arc removes exactly that emission, so `emissionFor` throws. INVERT: the same block now contributes nothing, asserted differentially so "nothing fired" cannot mean "the detector never ran".
-7. line 549 `it("Speaker fires against Virtual Speaker")` asserts the Console-block emission this arc removes. INVERT the same way.
-8. line 853 the registry-validity case reds from `siteId` drift once Task 1 edits `_rowScan.ts`.
+**Cover B — anything that requires an emission from a block the rule now excludes.** A parse-running
+test that names a removed key or an excluded opener:
 
-Cases 6 and 7 sit in `describe("calibrated residual classes fire exactly as baselined")`. That describe's whole subject is the residual set this arc narrows, so the two cases are not incidental casualties: they are the previous calibration, and inverting them is how this arc records that the calibration moved.
+```
+for f in $(grep -rln --include='*.test.ts' 'UNKNOWN_FIELD|detectFieldNearMisses|anchoredUnknownFields' tests/); do
+  grep -c '"Timestamp"|"Console"|"Room Diagram"|"Backdrop"|"Speaker"' "$f"
+done
+```
 
-### Registry: FOUR accepted rows, not three
+Five hits, of which two are safe and three carry work. `tests/parser/event.test.ts:167` asserts
+ABSENCE (`not.toContain("Room Diagram")`) and this change only adds absence.
+`tests/parser/consumptionLedger.test.ts` asserts the LEDGER (`agg.consumed`), which the gate never
+touches — the gate is a `continue` before the draw-down, and `markConsumed` is a block-parser call.
 
-Round 1 corrected the count. `rowScanOpener` carries TWO rows, not one:
+**The discriminator is the BLOCK, not the label**, which is why a grep for the three keys alone
+misleads in both directions: `fieldNearMiss.test.ts:458` and line 502 both name `Room Diagram` and are
+UNAFFECTED, because their block is `DETAILS` (opener `DETAILS`, min 0, admitted).
 
-- `fieldNearMiss`: `statement-removal:158:11:break;>(removed)`, `relational-boundary:153:27:>>>=` — inside `matchVocabulary`'s subset loop, which nothing here edits, so neither should drift.
-- `rowScanOpener`: `relational-boundary:47:22:>>>=` (the `cells.length > 0` site in `scanBlockCells`) and `statement-removal:115:7:opener = "";>(removed)` (`tests/mutation/source/registry.ts:2603`, a site in `openerByLine`). Task 1 adds lines inside `scanBlockCells`, so BOTH shift.
+### The dispositions, by file
 
-Re-keying therefore belongs in Task 1, the task that causes the drift, not in a later scoring step. Re-key by kind plus mutated text, and verify siteIds AFTER the commit hooks run.
+**`tests/parser/rowScanCore.test.ts`** — Cover A.
+
+1. Six `toEqual` row-object assertions gain `blockMinValueCells`. Expectations derive from each
+   fixture's own shape, never typed, so they cannot drift from what the scanner computes.
+
+**`tests/parser/fieldNearMissBaseline.test.ts`** — Cover B.
+
+2. `EXPECTED_TOTAL` 65 to 33.
+3. The three count assertions to 0, asserted explicitly rather than deleted so the keys stay in the
+   partition and red if they return.
+4. The partition cover keeps working unchanged: 32 + 0 + 0 + 0 + 1 = 33.
+5. `it("every Room Diagram row sits in a Timestamp block")` loses its subject and fails by
+   construction, as its own comment predicts. INVERT.
+6. `it("a Timestamp-block row resolves null against an anchor set that has no Timestamp block")`
+   carries a premise requiring a surviving Timestamp emission. RETIRE, recording that
+   `tests/drive/unknownFieldAnchors.test.ts` remains the live home of Timestamp-row anchoring.
+
+**`tests/parser/fieldNearMiss.test.ts`** — Cover B.
+
+7. `it("keys consumption by block OPENER, so a byte-identical row elsewhere still fires")` appends a
+   literal `| Timestamp |` block and requires exactly one emission from it. Its SUBJECT is that
+   consumption is keyed by opener, which is still true and still worth pinning, so re-point the
+   second block to another ADMITTED block family rather than retiring the case: the assertion
+   becomes "the same row in two admitted blocks, consumed in one, fires in the other".
+8. `it("the Timestamp-block Google-Forms echo fires")` INVERT: that block now contributes nothing,
+   asserted differentially against a control measured to fire.
+9. `it("Speaker fires against Virtual Speaker")` INVERT the same way.
+
+**`tests/drive/unknownFieldAnchors.test.ts`** — Cover B, and the largest group.
+
+10. Five cases build `Timestamp` or `Console` blocks as near-miss CARRIERS in order to test ANCHOR
+    RESOLUTION, a mechanism this arc does not change. Their subject is live; only their carrier is
+    dead. RE-POINT each to a block family the rule admits, which preserves exactly what they test.
+11. `it("the dispatching show's workbook (ria.xlsx): the three near-miss rows resolve to their own
+    cells")` is the exception: its subject IS the three rows. It becomes an assertion that the RIA
+    workbook produces no near-miss rows to anchor, keeping the file's coverage of that workbook
+    rather than deleting it.
+
+Task 2's command therefore spans all four suites, because a change that reds four suites is green
+only when all four are.
 
 ### Task 0 (setup, outside the checked region): fresh base + anchor re-verification
 
@@ -183,7 +235,7 @@ Run the committed probe and diff against `…-probe.out.txt`. Any difference mea
 
 ### Task 1: block shape in the scanner, with its registry re-key
 
-<!-- task: red=`pnpm vitest run tests/parser/fieldNearMiss.test.ts` red-state=authored red-target=`lib/parser/blocks/_rowScan.ts:40` why=`the task lands blockMinValueCells as a skeleton returning 0 on both ScannedRow construction sites FIRST, so imports resolve and the observed RED is behavioral: the shape cases assert a two-column list reports 1, a uniform grid reports its true minimum and a mixed block reports the NARROW row, none of which a constant 0 satisfies, and the registry-validity case at :853 reds alongside them once the edit shifts both rowScanOpener siteIds; the SAME command greens when the real minimum lands and both rows are re-keyed` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/parser/fieldNearMiss.test.ts tests/parser/rowScanCore.test.ts` red-state=authored red-target=`lib/parser/blocks/_rowScan.ts:25` why=`the task lands blockMinValueCells as a skeleton returning 0 on both ScannedRow construction sites FIRST, so imports resolve and the observed RED is behavioral: the shape cases assert a two-column list reports 1, a uniform grid reports its true minimum and a mixed block reports the NARROW row, none of which a constant 0 satisfies, and the registry-validity case at :853 reds alongside them once the edit shifts both rowScanOpener siteIds; the SAME command greens when the real minimum lands and both rows are re-keyed` ac=AC-4 -->
 
 `blockMinValueCells` computed once in `scanBlockCells`, over cleaned cells after column 0, taken across the KEPT rows only — alignment rows are dropped above it and every number in the spec was measured post-drop.
 
@@ -195,7 +247,7 @@ Cases: a two-column field list reports 1; a uniformly wide grid reports its true
 
 ### Task 2: the candidacy gate, with every disposition it forces
 
-<!-- task: red=`pnpm vitest run tests/parser/fieldNearMiss.test.ts tests/parser/fieldNearMissBaseline.test.ts` red-state=authored red-target=`lib/parser/fieldNearMiss.ts:184` why=`the task lands isCandidateHome as a skeleton returning true FIRST, so the observed RED is behavioral rather than a missing symbol: a predicate admitting everything IS the pre-change detector, so the new candidacy, census, binding and normalized-opener cases all fail while the client positive control already passes; the SAME command greens only when the two 3.1 arms land AND all eight dispositions are in, which is why they are one task rather than several` ac=AC-1,AC-2,AC-3,AC-5,AC-6,AC-7,AC-9,AC-10,AC-11 -->
+<!-- task: red=`pnpm vitest run tests/parser/fieldNearMiss.test.ts tests/parser/fieldNearMissBaseline.test.ts tests/drive/unknownFieldAnchors.test.ts` red-state=authored red-target=`lib/parser/fieldNearMiss.ts:184` why=`the task lands isCandidateHome as a skeleton returning true FIRST, so the observed RED is behavioral rather than a missing symbol: a predicate admitting everything IS the pre-change detector, so the new candidacy, census, binding and normalized-opener cases all fail while the client positive control already passes; the SAME command greens only when the two 3.1 arms land AND all eight dispositions are in, which is why they are one task rather than several` ac=AC-1,AC-2,AC-3,AC-5,AC-6,AC-7,AC-9,AC-10,AC-11 -->
 
 One task because one behaviour change: the gate reds both suites the instant it works, and only the full disposition set returns them to green. Splitting it produces an intermediate red commit and a later task whose red is inherited rather than authored, which is exactly what round 1 rejected.
 
@@ -225,9 +277,15 @@ This is a GATE, not a red-green cycle: it has no failing case it authors and the
 
 ## Gate B (closeout, outside the checked region): ledger graduation
 
-Strip the `**Status:** IN PROGRESS · **Branch:**` marker from `BACKLOG.md:56` in the PR's LAST commit, per plan-wide invariant 12, so it never reaches main. `tests/docs/_metaLedgerInProgress.test.ts` requires an in-progress entry's branch to exist on origin, and the merge deletes that branch.
+Round 2 found the previous version incomplete: it stripped the in-progress marker and stopped, which leaves the entry OPEN but unclaimed. Graduation in this repo is three things, and the suite only enforces the third once the second exists.
 
-Outside the region deliberately: no production surface, no acceptance criterion, and a red that exists only after a merge this arc never performs.
+1. **Move the whole entry to `BACKLOG-archive.md`.** `BACKLOG.md:5` states the contract: the file is the OPEN queue only, and a shipped item's entire entry moves rather than being annotated resolved in place, "otherwise this queue silently turns into a changelog."
+2. **Enrol it in `BACKLOG_GRADUATED`** (`tests/docs/_metaDeferralLedgerGraduation.test.ts:100`), with its provenance. Without a registry row the whole suite can stay green while the entry sits in neither place properly, which is exactly why the previous draft's omission was invisible.
+3. **Strip the `**Status:** IN PROGRESS · **Branch:**` marker**, in the SAME commit that archives it, per plan-wide invariant 12: archives categorically reject in-progress entries, so the marker cannot ride along, and a marker that reaches main names a branch the merge just deleted.
+
+All three land in the PR's LAST commit. Verified by `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaDeferralLedgerGraduation.test.ts`.
+
+Outside the checked region deliberately: no production surface, no acceptance criterion, and a state that only exists after a merge this arc never performs.
 
 ## Marker command validation, run at plan time
 
@@ -244,12 +302,12 @@ Every red is `red-state=authored` — each task writes its own failing case — 
 
 **Every `red-target` cites a line my own edits cannot move.** Path-only would be the safer-looking choice against drift, but `spec:lint` refuses it outright ("cite the defective line instead of the bare path"), so the question is not whether to cite a line but which line survives the task that cites it. The documented limit of `RED_TARGET_INVALID` is that it checks a tracked path has an IN-RANGE line, never what is AT that line, so a drifted citation resolves green while pointing at unrelated code — and the drift is usually caused by the citing task's own implementation.
 
-Both citations are chosen to be stable under exactly that pressure:
+Both citations are the FIRST line their task edits, which is the only property that makes a line-form target survive its own task:
 
-- `lib/parser/blocks/_rowScan.ts:40` is `scanBlockCells`'s signature line. Task 1 adds lines INSIDE its body, below 40, so the signature does not move.
-- `lib/parser/fieldNearMiss.ts:184` is `isCandidateLabel`'s signature line. Task 2 inserts `isCandidateHome` AFTER that function ends at 190, so 184 does not move either.
+- `lib/parser/blocks/_rowScan.ts:25` is `ScannedRow`'s declaration. Round 2 caught the previous citation of line 40 (`scanBlockCells`'s signature): the task also adds the required field to the two TYPE declarations at lines 25 and 28, which sit ABOVE 40, so the signature moves. The reviewer probed it with a formatter and measured 40 becoming 45. Line 25 is edited in place and nothing is inserted above it, so it holds.
+- `lib/parser/fieldNearMiss.ts:184` is `isCandidateLabel`'s signature. Task 2 inserts `isCandidateHome` AFTER that function ends at 190, so 184 does not move.
 
-Neither task inserts above its own citation, which is the only property that makes a line-form target survive its task. Closeout re-verification is still by READING each cited line and matching it to the symbol its `why=` names: confirming a citation merely RESOLVES establishes nothing.
+Neither task inserts above its own citation. Closeout re-verification is still by READING each cited line and matching it to the symbol its `why=` names: confirming a citation merely RESOLVES establishes nothing.
 
 ## Verification (whole-arc)
 
