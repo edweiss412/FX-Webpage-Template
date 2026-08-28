@@ -1,0 +1,84 @@
+// SERVER-ONLY module — never import from a "use client" file. It pulls node:crypto
+// transitively through `buildReportSurfaceId` / `warningFingerprint`
+// (`lib/dataQuality/warningFingerprint.ts:1-2`), the same constraint documented on
+// `lib/admin/sectionWarningModel.ts`. Client code receives the built model as data
+// across the RSC boundary; it never builds one.
+//
+// Spec: docs/superpowers/specs/2026-08-28-wizard-warning-ignore-controls.md §2.1.
+import type { ParseWarning } from "@/lib/parser/types";
+import { warningFingerprint, buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
+
+export type WizardWarningItem = {
+  /** Index into the row's FULL ParseResult.warnings array — the JUMP-TARGET identity
+   *  only (`data-warning-index` / `data-attention-anchor`). React keys stay
+   *  content-derived via `stableWarningKeys` (`lib/dataQuality/warningIdentity.ts:46`). */
+  index: number;
+  reportSurfaceId: string;
+};
+
+export type WizardWarningModel = {
+  /** Fingerprint absent from the ignored set, or no fingerprint at all. */
+  active: WizardWarningItem[];
+  ignored: WizardWarningItem[];
+};
+
+/** One row of the `pending_syncs.ignored_warnings` jsonb array. */
+export type StagedIgnoreEntry = { fingerprint: string; code: string; ignored_by: string };
+
+/**
+ * Read-side coercion for the untrusted `pending_syncs.ignored_warnings` column.
+ *
+ * Strips every entry to exactly the three stored fields: the column is jsonb with
+ * no CHECK (spec §2.7 matrix — one writer, coercion on read), so an entry carrying
+ * extra keys must not round-trip them back into storage on the next write. A
+ * wholly malformed value degrades to `[]`, which renders every warning ACTIVE —
+ * fail toward VISIBLE (spec §1.1.7).
+ */
+export function normalizeStagedIgnoredWarnings(raw: unknown): StagedIgnoreEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: StagedIgnoreEntry[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const e = entry as Record<string, unknown>;
+    // An empty fingerprint can never match a real one (sha256 base64url is never
+    // empty), so it is dropped with the missing and non-string cases.
+    if (typeof e.fingerprint !== "string" || e.fingerprint.length === 0) continue;
+    out.push({
+      fingerprint: e.fingerprint,
+      code: typeof e.code === "string" ? e.code : "",
+      ignored_by: typeof e.ignored_by === "string" ? e.ignored_by : "",
+    });
+  }
+  return out;
+}
+
+/**
+ * Partition a row's warnings into active and ignored, carrying ORIGINAL indices.
+ *
+ * Same semantics as `partitionByIgnored` (`lib/dataQuality/partitionByIgnored.ts:4-16`) —
+ * a null fingerprint is always active — but items carry `{index, reportSurfaceId}`
+ * instead of copies of the warnings, so every consumer re-joins against the one
+ * `warnings` array it already holds and no second copy can drift.
+ */
+export function buildWizardWarningModel(args: {
+  /** LINKED rows: the show slug. FIRST-SEEN rows: `staged-${driveFileId}`. Only a
+   *  stable namespace for the opaque surface id. */
+  reportScope: string;
+  warnings: readonly ParseWarning[];
+  ignoredFingerprints: ReadonlySet<string>;
+}): WizardWarningModel {
+  const { reportScope, warnings, ignoredFingerprints } = args;
+  const active: WizardWarningItem[] = [];
+  const ignored: WizardWarningItem[] = [];
+  for (let index = 0; index < warnings.length; index += 1) {
+    const w = warnings[index] as ParseWarning;
+    const item: WizardWarningItem = {
+      index,
+      reportSurfaceId: buildReportSurfaceId(reportScope, w),
+    };
+    const fp = warningFingerprint(w);
+    if (fp !== null && ignoredFingerprints.has(fp)) ignored.push(item);
+    else active.push(item);
+  }
+  return { active, ignored };
+}
