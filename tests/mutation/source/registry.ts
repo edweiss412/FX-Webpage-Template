@@ -2541,16 +2541,16 @@ export const GUARD_SURFACES: GuardSurface[] = [
     scoreFloor: 0.95,
     // The opener is the whole reason this module exists; pinning it to the empty string
     // collapses every block namespace onto one and the row-scan cases red immediately.
-    control: { from: 'opener = clean(cells[0] ?? "")', to: 'opener = ""' },
+    control: { from: 'opener = clean(first[0] ?? "")', to: 'opener = ""' },
     accepted: [
       {
-        siteId: "relational-boundary:57:22:>>>=",
+        siteId: "relational-boundary:47:22:>>>=",
         kind: "equivalent",
         reason:
           "`cells.length > 0` can never be reached with a length of 0, so widening it to `>= 0` admits nothing: the alignment-row skip one line above is `cells.every(...)`, and `[].every(...)` is VACUOUSLY TRUE, so an empty cell array always `continue`s first. An empty array is itself only producible by a bare `|` line (`splitRow` slices off the leading and trailing fragments), which that same vacuous-true path already drops. Probed differentially — the mutated scan against the shipped one over all 20 corpus fixtures plus 14 adversarial documents (`|`, `||`, `|||`, alignment-only tables, table/non-table interleavings): zero output divergence",
       },
       {
-        siteId: 'statement-removal:85:7:opener = "";>(removed)',
+        siteId: 'statement-removal:115:7:opener = "";>(removed)',
         kind: "equivalent",
         reason:
           "the reset is redundant with the reassignment it precedes. On a non-table line the branch pushes the `\"\"` LITERAL, not `opener`, so the stale value is not read there; and the same branch sets `inTable = false`, which makes `!inTable` true at the next table line and reassigns `opener` from that line's first cell before any push reads it. No path exists on which the removed assignment's value is ever observed. Probed differentially — the mutated `openerByLine` against the shipped one over all 20 corpus fixtures plus the same 14 adversarial documents: zero output divergence",

@@ -38,7 +38,7 @@ function stripEdgeWhitespace(value: string): string {
   return value.replace(/^\s+|\s+$/g, "");
 }
 
-function escapeCell(value: string): string {
+export function escapeCell(value: string): string {
   const escaped = value
     .replace(/\\/g, "\\\\")
     .replace(/#/g, "\\#")
@@ -104,34 +104,49 @@ function expandMerges(grid: CellGrid, merges: readonly XLSX.Range[] = []): void 
   }
 }
 
-function sheetGrid(sheet: XLSX.WorkSheet): CellGrid {
+/**
+ * A grid row that remembers where it came from. `absRow` is the row's absolute 0-based
+ * sheet row; `null` marks a row this pipeline SYNTHESIZED (the pull-sheet title row),
+ * which has no cell to link to. Spec 2026-08-27-wizard-warning-row-links-copy §2.2.
+ */
+export type GridBlockRow = { absRow: number | null; cells: string[] };
+type TrackedGrid = GridBlockRow[];
+type TrackedBlock = { absCol0: number; rows: GridBlockRow[] };
+
+/** One block of the exporter's own segmentation, with the coordinates the markdown loses. */
+export type GridBlock = { kind: "grid"; sheetName: string; absCol0: number; rows: GridBlockRow[] };
+/** An included OLD-tab pull-sheet region: collected from rendered markdown, so it has no grid. */
+export type OpaqueBlock = { kind: "opaque"; markdown: string };
+export type SynthesizedBlock = GridBlock | OpaqueBlock;
+
+function sheetGrid(sheet: XLSX.WorkSheet): { grid: TrackedGrid; firstCol: number } {
   const ref = sheet["!ref"];
-  if (!ref) return [];
+  if (!ref) return { grid: [], firstCol: 0 };
   const range = XLSX.utils.decode_range(ref);
-  const grid: CellGrid = [];
+  const cells: CellGrid = [];
 
   for (let row = range.s.r; row <= range.e.r; row += 1) {
     const outputRow: string[] = [];
     for (let col = range.s.c; col <= range.e.c; col += 1) {
       outputRow.push(cellText(sheet[XLSX.utils.encode_cell({ r: row, c: col })]));
     }
-    grid.push(outputRow);
+    cells.push(outputRow);
   }
 
-  expandMerges(grid, sheet["!merges"]);
-  return grid;
+  expandMerges(cells, sheet["!merges"]);
+  return { grid: cells.map((c, i) => ({ absRow: range.s.r + i, cells: c })), firstCol: range.s.c };
 }
 
 function rowIsBlank(row: readonly string[]): boolean {
   return row.every(isBlank);
 }
 
-function splitBlocks(grid: CellGrid): CellGrid[] {
-  const blocks: CellGrid[] = [];
-  let current: CellGrid = [];
+function splitBlocks(grid: TrackedGrid, firstCol: number): TrackedBlock[] {
+  const blocks: TrackedGrid[] = [];
+  let current: TrackedGrid = [];
 
   for (const row of grid) {
-    if (rowIsBlank(row)) {
+    if (rowIsBlank(row.cells)) {
       if (current.length > 0) {
         blocks.push(current);
         current = [];
@@ -143,7 +158,7 @@ function splitBlocks(grid: CellGrid): CellGrid[] {
     // starts a new block, so a stray value in a spacer row can no longer fuse two
     // sections (audit #10). The corpus round-trip fixtures pin zero live hits.
     if (current.length > 0) {
-      const firstCell = row.find((cell) => !isBlank(cell)) ?? "";
+      const firstCell = row.cells.find((cell) => !isBlank(cell)) ?? "";
       if (isMidBlockSectionStart(firstCell)) {
         blocks.push(current);
         current = [];
@@ -153,12 +168,14 @@ function splitBlocks(grid: CellGrid): CellGrid[] {
   }
   if (current.length > 0) blocks.push(current);
 
-  return blocks.map(trimBlock).filter((block) => block.length > 0);
+  return blocks
+    .map((block) => trimBlock(block, firstCol))
+    .filter((block): block is TrackedBlock => block !== null);
 }
 
-function normalizePullSheetGrid(sheetName: string, grid: CellGrid): CellGrid {
+function normalizePullSheetGrid(sheetName: string, grid: TrackedGrid): TrackedGrid {
   if (!/PULL SHEET/i.test(sheetName)) return grid;
-  const firstDataRow = grid.findIndex((row) => {
+  const firstDataRow = grid.findIndex(({ cells: row }) => {
     const quantity = Number(row[0]);
     return Number.isFinite(quantity) && !isBlank(row[1] ?? "");
   });
@@ -166,23 +183,28 @@ function normalizePullSheetGrid(sheetName: string, grid: CellGrid): CellGrid {
 
   const titleParts = grid
     .slice(0, firstDataRow)
-    .flatMap((row) => row.filter((value) => !isBlank(value)))
+    .flatMap(({ cells: row }) => row.filter((value) => !isBlank(value)))
     .filter((value, index, values) => values.indexOf(value) === index);
   if (titleParts.length === 0) return grid;
 
   const width = Math.max(
     1,
-    ...grid.slice(firstDataRow).map((row) => {
+    ...grid.slice(firstDataRow).map(({ cells: row }) => {
       for (let col = row.length - 1; col >= 0; col -= 1) {
         if (!isBlank(row[col] ?? "")) return col + 1;
       }
       return 0;
     }),
   );
-  return [Array.from({ length: width }, () => titleParts.join("/")), ...grid.slice(firstDataRow)];
+  // The title row is SYNTHESIZED from the rows above the data, so it is not any one
+  // sheet row: absRow null, and the anchor scanner never links to it.
+  return [
+    { absRow: null, cells: Array.from({ length: width }, () => titleParts.join("/")) },
+    ...grid.slice(firstDataRow),
+  ];
 }
 
-function normalizeBlock(block: CellGrid): CellGrid {
+function normalizeBlock(block: TrackedBlock): TrackedBlock {
   // NOTE: a bare "DETAILS" block was previously collapsed to label-only
   // (`block.map((row) => [row[0]])`) on the premise that v2 DETAILS sections
   // carry no values. The 2026-06-18 grounding audit disproved that premise:
@@ -206,36 +228,47 @@ function normalizeBlock(block: CellGrid): CellGrid {
   return block;
 }
 
-function trimBlock(block: CellGrid): CellGrid {
-  const firstNonBlankCol = block.reduce<number | null>((first, row) => {
+function trimBlock(block: TrackedGrid, firstCol: number): TrackedBlock | null {
+  const firstNonBlankCol = block.reduce<number | null>((first, { cells: row }) => {
     for (let col = 0; col < row.length; col += 1) {
       if (!isBlank(row[col] ?? "")) return first === null ? col : Math.min(first, col);
     }
     return first;
   }, null);
-  if (firstNonBlankCol === null) return [];
+  if (firstNonBlankCol === null) return null;
 
-  const lastNonBlankCol = block.reduce((last, row) => {
+  const lastNonBlankCol = block.reduce((last, { cells: row }) => {
     for (let col = row.length - 1; col >= 0; col -= 1) {
       if (!isBlank(row[col] ?? "")) return Math.max(last, col);
     }
     return last;
   }, firstNonBlankCol);
 
-  return block.map((row) => row.slice(firstNonBlankCol, lastNonBlankCol + 1));
+  // Columns are sliced, rows never are, so a row's absRow survives the trim and the
+  // block records where its first column sits on the sheet.
+  return {
+    absCol0: firstCol + firstNonBlankCol,
+    rows: block.map((row) => ({
+      absRow: row.absRow,
+      cells: row.cells.slice(firstNonBlankCol, lastNonBlankCol + 1),
+    })),
+  };
 }
 
-function tableMarkdown(block: CellGrid): string {
+/** One table row exactly as `tableMarkdown` emits it: padded to `width`, each cell escaped. */
+export function renderRow(cells: readonly string[], width: number): string {
+  const padded = Array.from({ length: width }, (_, index) => escapeCell(cells[index] ?? ""));
+  return `| ${padded.join(" | ")} |`;
+}
+
+function tableMarkdown(block: readonly (readonly string[])[]): string {
   const width = block.reduce((max, row) => Math.max(max, row.length), 0);
-  const rows = block.map((row) =>
-    Array.from({ length: width }, (_, index) => escapeCell(row[index] ?? "")),
-  );
   const delimiter = Array.from({ length: width }, () => ":---:");
 
   return [
-    `| ${rows[0]?.join(" | ") ?? ""} |`,
+    renderRow(block[0] ?? [], width),
     `| ${delimiter.join(" | ")} |`,
-    ...rows.slice(1).map((row) => `| ${row.join(" | ")} |`),
+    ...block.slice(1).map((row) => renderRow(row, width)),
   ].join("\n");
 }
 
@@ -330,12 +363,23 @@ export class WorkbookSynthesisError extends Error {
   }
 }
 
-export function synthesizeMarkdownFromXlsx(
+/**
+ * The exporter's block segmentation as a VALUE, coordinates included.
+ *
+ * `synthesizeMarkdownFromXlsx` is a renderer over this (the markdown is unchanged byte
+ * for byte, pinned by tests/drive/round-trip-fixture.test.ts). The second consumer is
+ * the raw-workbook anchor scanner (`lib/drive/unknownFieldAnchors.ts`), which needs the
+ * A1 coordinates the markdown throws away and, more importantly, needs the SAME notion
+ * of "which block is this row in" that the detector gets from the markdown. Two
+ * implementations of that question were the defect this replaces
+ * (spec 2026-08-27-wizard-warning-row-links-copy §2.1/§2.2).
+ */
+export function synthesizeBlocksFromXlsx(
   buffer: ArrayBuffer,
   opts?: { includePullSheetFromTab?: string },
-): { markdown: string; archivedPullSheetTabs: ArchivedPullSheetTab[] } {
+): { blocks: SynthesizedBlock[]; archivedPullSheetTabs: ArchivedPullSheetTab[] } {
   try {
-    return synthesizeMarkdownFromXlsxUnguarded(buffer, opts);
+    return synthesizeBlocksFromXlsxUnguarded(buffer, opts);
   } catch (cause) {
     // Idempotent, defensively: nothing inside the body can currently raise this type
     // (the reader throws its own errors), so this branch guards a future nested caller.
@@ -345,16 +389,29 @@ export function synthesizeMarkdownFromXlsx(
   }
 }
 
-function synthesizeMarkdownFromXlsxUnguarded(
+export function synthesizeMarkdownFromXlsx(
   buffer: ArrayBuffer,
   opts?: { includePullSheetFromTab?: string },
 ): { markdown: string; archivedPullSheetTabs: ArchivedPullSheetTab[] } {
+  // No second guard: synthesizeBlocksFromXlsx already wraps the body, and rendering a
+  // block list cannot throw a workbook fault.
+  const { blocks, archivedPullSheetTabs } = synthesizeBlocksFromXlsx(buffer, opts);
+  const tables = blocks.map((b) =>
+    b.kind === "grid" ? tableMarkdown(b.rows.map((r) => r.cells)) : b.markdown,
+  );
+  return { markdown: tables.join("\n\n"), archivedPullSheetTabs };
+}
+
+function synthesizeBlocksFromXlsxUnguarded(
+  buffer: ArrayBuffer,
+  opts?: { includePullSheetFromTab?: string },
+): { blocks: SynthesizedBlock[]; archivedPullSheetTabs: ArchivedPullSheetTab[] } {
   const workbook = XLSX.read(buffer, {
     type: "array",
     cellText: true,
     cellDates: false,
   });
-  const tables: string[] = [];
+  const blocks: SynthesizedBlock[] = [];
   const archivedPullSheetTabs: ArchivedPullSheetTab[] = [];
 
   for (const sheetName of workbook.SheetNames) {
@@ -369,9 +426,12 @@ function synthesizeMarkdownFromXlsxUnguarded(
     // surface them for admin review and opt-in re-inclusion via `includePullSheetFromTab`.
     if (/\bOLD\b/i.test(sheetName)) {
       const rawGrid = sheetGrid(sheet);
-      const tabMarkdown = splitBlocks(normalizePullSheetGrid(sheetName, rawGrid))
+      const tabMarkdown = splitBlocks(
+        normalizePullSheetGrid(sheetName, rawGrid.grid),
+        rawGrid.firstCol,
+      )
         .map(normalizeBlock)
-        .map(tableMarkdown)
+        .map((b) => tableMarkdown(b.rows.map((r) => r.cells)))
         .join("\n\n");
       const regions = collectPullSheetRegionsFromMarkdown(tabMarkdown);
       if (regions.length > 0) {
@@ -387,7 +447,7 @@ function synthesizeMarkdownFromXlsxUnguarded(
         const fingerprint = createHash("sha256")
           .update(regions.map((r) => stripBlankLines(r.regionMarkdown)).join("\n\x00\n"), "utf8")
           .digest("hex");
-        const rawPreviews = collectRawPullSheetPreviews(rawGrid);
+        const rawPreviews = collectRawPullSheetPreviews(rawGrid.grid.map((r) => r.cells));
         archivedPullSheetTabs.push({
           tabName: cleanTabName,
           headerPreviews: regions.map((_, index) =>
@@ -399,17 +459,22 @@ function synthesizeMarkdownFromXlsxUnguarded(
         });
         if (included) {
           // Emit EXACTLY the collected region markdown (same bytes hashed); other blocks
-          // (rooms, etc.) are discarded (D6, I1).
-          tables.push(...regions.map((r) => r.regionMarkdown));
+          // (rooms, etc.) are discarded (D6, I1). Opaque: collected from rendered
+          // markdown, so there is no grid behind it and it never anchors.
+          blocks.push(
+            ...regions.map((r) => ({ kind: "opaque" as const, markdown: r.regionMarkdown })),
+          );
         }
       }
       continue; // non-included OLD tabs (and non-pull-sheet OLD tabs) stay dropped
     }
-    const grid = normalizePullSheetGrid(sheetName, sheetGrid(sheet));
-    for (const block of splitBlocks(grid).map(normalizeBlock)) {
-      tables.push(tableMarkdown(block));
+    const { grid, firstCol } = sheetGrid(sheet);
+    for (const block of splitBlocks(normalizePullSheetGrid(sheetName, grid), firstCol).map(
+      normalizeBlock,
+    )) {
+      blocks.push({ kind: "grid", sheetName, absCol0: block.absCol0, rows: block.rows });
     }
   }
 
-  return { markdown: tables.join("\n\n"), archivedPullSheetTabs };
+  return { blocks, archivedPullSheetTabs };
 }

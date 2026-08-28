@@ -66,22 +66,41 @@ export function resolveGuidance(
   return { kind: "catalog", markup: warningCardCopyFields(entry).guidance };
 }
 
+/**
+ * Append the catalog's controls note to CATALOG guidance, and only then. An INSTANCE
+ * (autocorrect) line is left alone - it describes what we read on this row, and the
+ * controls sentence is a property of the card, not of the instance - and a null note
+ * leaves the guidance untouched. Pure and exported so spec §4.3's guard table is
+ * unit-testable without a render.
+ */
+export function withControlsNote(guidance: GuidanceResult, note: string | null): GuidanceResult {
+  if (guidance.kind === "instance" || note === null) return guidance;
+  const markup = [guidance.markup, note]
+    .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+    .join(" ");
+  return { kind: "catalog", markup: markup.length > 0 ? markup : null };
+}
+
 /** Condensed popover slots (spec 2026-07-23-crewwarn-underrow-polish §3): DERIVED
  *  from full mode's two slots so the described set is {movedGuidance} ∪ full mode's
  *  described set in every row — fullBody keeps its described position, followUp
  *  keeps its full-mode slot. Pure + exported so the 8-row table is unit-testable. */
 export function condensedPopoverSlots(args: {
   movedGuidance: string | null;
+  /** Appended LAST, after the trigger explanation. The controls note is an action
+   *  sentence; landing it between the advice and "Appears when …" announces the action
+   *  mid-description and then walks back to system state (impeccable audit P2). */
+  trailing?: string | null;
   context: string | null;
   followUp: string | null;
 }): { popoverBody: string | null; afterBodyText: string | null } {
-  const { movedGuidance, context, followUp } = args;
+  const { movedGuidance, context, followUp, trailing } = args;
   const fullBody = context ?? followUp;
   const fullAfter = context !== null ? followUp : null;
-  const popoverBody =
-    movedGuidance !== null && fullBody !== null
-      ? `${movedGuidance} ${fullBody}`
-      : (movedGuidance ?? fullBody);
+  const composed = [movedGuidance, fullBody, trailing ?? null].filter(
+    (p): p is string => typeof p === "string" && p.length > 0,
+  );
+  const popoverBody = composed.length > 0 ? composed.join(" ") : null;
   return { popoverBody, afterBodyText: fullAfter };
 }
 
@@ -92,6 +111,7 @@ export function PerShowActionableWarnings({
   tone = "warning",
   followUpCopy,
   condensed,
+  showControlsNote,
 }: {
   items: ParseWarning[];
   driveFileId: string | null;
@@ -117,6 +137,14 @@ export function PerShowActionableWarnings({
    *  stays inline. Switches on `condensed === true`; false ≡ omitted. Group,
    *  fallback, ignored, and staged surfaces omit this — full copy unchanged. */
   condensed?: boolean;
+  /** Spec 2026-08-27-wizard-warning-row-links-copy §4.3: append the catalog's
+   *  `controlsNote` to catalog guidance. Passed by the two ACTIVE per-show mounts only
+   *  (`components/admin/showpage/sectionWarningExtras.tsx`), because they are the mounts
+   *  that render `DataQualityWarningControls` with Report + Ignore. The ignored list does
+   *  NOT pass it: its controls read Report + Un-ignore, and a sentence naming "Ignore"
+   *  beside an Un-ignore button is wrong. StagedReviewCard and the attention gallery pass
+   *  nothing and are unchanged. */
+  showControlsNote?: boolean;
 }) {
   if (items.length === 0) return null;
   // Order-independent keys so an ignore-driven refresh does not remount surviving
@@ -137,6 +165,7 @@ export function PerShowActionableWarnings({
         // invariant 5 (whole-diff R1): catalog title when present, else the human
         // .message — but NEVER the bare code, even if a producer's .message IS its
         // code (defense beyond the four known human-message codes).
+        const isCondensedMode = condensed === true;
         const humanMessage = w.message && w.message !== w.code ? w.message : null;
         const title = (entry?.title ?? null) || humanMessage || "Data quality issue";
         // Inline guidance = condensed helpfulContext; popover = triggerContext
@@ -144,7 +173,22 @@ export function PerShowActionableWarnings({
         const { trigger: context } = warningCardCopyFields(entry);
         // Inline guidance: the composed autocorrect instance line (plain text) when
         // available, else catalog helpfulContext markup (spec §4.4).
-        const guidanceResult = resolveGuidance(entry, w);
+        // Gated on the EXPLICIT PROP only. React renders `undefined`, `false` and `""` as
+        // nothing, so a `renderItemControls` that returned a node is not evidence that a
+        // control is on the card; the prop is the mount's promise, and only the two active
+        // per-show mounts make it (spec §4.3, amended at plan review R1).
+        const controlsNote =
+          showControlsNote === true && typeof entry?.controlsNote === "string"
+            ? entry.controlsNote.trim() || null
+            : null;
+        // Inline mode composes the note into the guidance line (spec §4.3). Condensed
+        // mode routes the catalog string into the `?` popover, where the note is added at
+        // the END instead, after the trigger explanation, so an action sentence is never
+        // announced mid-description (impeccable audit P2 / critique P1).
+        const baseGuidance = resolveGuidance(entry, w);
+        const guidanceResult = isCondensedMode
+          ? baseGuidance
+          : withControlsNote(baseGuidance, controlsNote);
         // §4.3 four-row guard table. Both inputs collapse to "absent" under one
         // rule, so `undefined`, null, "", and any whitespace run behave alike
         // and the table is total over each input's full domain.
@@ -160,8 +204,14 @@ export function PerShowActionableWarnings({
         // popover whose entire content was advice that does not apply to them.
         // The cell is the referent the sentence already names, so this is the
         // condition the copy was always making — now stated.
+        // Gated on a1, not on the anchor (spec 2026-08-27 §2.4): the sentence says "Edit
+        // the cell", and a TAB-level anchor names no cell. A cell anchor and a region
+        // range both keep it exactly as before.
         const followUp =
-          w.sourceCell && typeof followUpCopy === "string" && followUpCopy.trim().length > 0
+          typeof w.sourceCell?.a1 === "string" &&
+          w.sourceCell.a1.trim().length > 0 &&
+          typeof followUpCopy === "string" &&
+          followUpCopy.trim().length > 0
             ? followUpCopy.trim()
             : null;
         // Spec 2026-07-22-warning-panel-polish §3.1: the follow-up is a second
@@ -171,7 +221,7 @@ export function PerShowActionableWarnings({
         // case — so the card keeps a described popover instead of losing its
         // trigger entirely. `context` is already `string | null` (the
         // warningCardCopyFields ternary above), the one nullable sentinel.
-        const isCondensed = condensed === true;
+        const isCondensed = isCondensedMode;
         const movedGuidance =
           isCondensed && guidanceResult.kind === "catalog" ? guidanceResult.markup : null;
         // Full mode: movedGuidance is null, so this degenerates to exactly the
@@ -181,6 +231,7 @@ export function PerShowActionableWarnings({
           movedGuidance,
           context,
           followUp,
+          trailing: isCondensed && guidanceResult.kind === "catalog" ? controlsNote : null,
         });
 
         // Branch on the RESULT, never on `sourceCell` alone: a non-null cell with a

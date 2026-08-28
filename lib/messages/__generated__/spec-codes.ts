@@ -984,7 +984,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We couldn't fully read _<N>_ row(s) on _<sheet-name>_'s PULL SHEET, so those rows show their original text. Let us know if you'd like us to handle that format.",
     "followUp": "Doug → optional Report",
-    "helpfulContext": "Some pull-sheet rows have a QTY we couldn't read (a word, or a range like '1-2'), so those rows show their original text. The Report button on this card sends it to us if you'd like the format supported.",
+    "helpfulContext": "Some pull-sheet rows have a QTY we couldn't read (a word, or a range like '1-2'), so those rows show their original text.",
   },
   "PULL_SHEET_UNKNOWN_VARIANT": {
     "crewFacing": null,
@@ -1554,7 +1554,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Rename the row labeled _<key>_ in _<sheet-name>_ so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. When we can tell which row you meant, the notice names it.",
     "followUp": "Doug → rename the row in the sheet (or optional Report)",
-    "helpfulContext": "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. Report flags it to us; Ignore hides this notice.",
+    "helpfulContext": "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read.",
   },
   "UNKNOWN_ROLE_TOKEN": {
     "crewFacing": null,
@@ -1566,7 +1566,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": null,
     "followUp": null,
-    "helpfulContext": "A header in your sheet isn't a section we know, so the rows under it aren't shown on the crew page. Rename it to a standard section, or use the Report button on this card if it should be supported.",
+    "helpfulContext": "A header in your sheet isn't a section we know, so the rows under it aren't shown on the crew page. Rename it to a standard section.",
   },
   "UNKNOWN_STAGE_RESTRICTION": {
     "crewFacing": null,

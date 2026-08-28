@@ -53,7 +53,12 @@ describe("unknownFieldAnchors — live DETAILS block fidelity (AII/III Consultan
   it("anchors every DETAILS row to a distinct label cell; scan stops at GENERAL SESSION", () => {
     const { buffer, gids } = buildLiveInfo();
     const anchors = extractUnknownFieldAnchors(buffer, gids).filter((a) => a.kind === "details");
-    expect(anchors).toHaveLength(DETAILS_ROWS.length); // one per field row, no GENERAL SESSION
+    // One per field row PLUS the block's own opener row (`DETAILS` at A55), which the
+    // scanner now anchors like any other row of the block (spec 2026-08-27 §2.6). Derived
+    // from the fixture, not a literal: the header is a row of the block, not a marker the
+    // scanner consumes. GENERAL SESSION sits after a blank row, so it is a different block
+    // and a different kind - the scan does not "stop" at it, it never reaches it as details.
+    expect(anchors).toHaveLength(DETAILS_ROWS.length + 1);
     expect(anchors.some((a) => a.label.startsWith("general session"))).toBe(false);
     const a1s = anchors.map((a) => a.anchor.a1);
     expect(new Set(a1s).size).toBe(a1s.length); // every row → a distinct cell
@@ -73,6 +78,7 @@ describe("unknownFieldAnchors — live DETAILS block fidelity (AII/III Consultan
       title: "INFO",
       gid: 0,
       a1: "A65",
+      scope: "cell",
     });
   });
 });

@@ -88,6 +88,15 @@ const EXEMPT_SITES: Readonly<Record<string, readonly string[]>> = {
   "components/admin/review/sectionFreshness.ts": [
     "renderedTransportation :: filter(…) :: row.date, row.time",
   ],
+  // Two PROSE joins, not class lists: the warning card's guidance line and its condensed
+  // popover body, both assembling user-visible sentences with a single space between them
+  // (spec 2026-08-27-wizard-warning-row-links-copy §4.3). Neither is in className position,
+  // and each is recorded with its exact operand signature so a future className join in
+  // this file still fails.
+  "components/admin/PerShowActionableWarnings.tsx": [
+    "withControlsNote :: filter(…) :: guidance.markup, note",
+    "condensedPopoverSlots :: filter(…) :: movedGuidance, fullBody, trailing ?? null",
+  ],
 };
 
 type JoinSite = {

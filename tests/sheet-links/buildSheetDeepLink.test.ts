@@ -36,6 +36,21 @@ describe("buildSheetDeepLink", () => {
   it("disallowed title → first tab (#gid=0) (read-time allowlist guard)", () => {
     expect(buildSheetDeepLink(ID, { title: "CLIENT", gid: 9, a1: "A1:B2" })).toBe(`${base}#gid=0`);
   });
+  // Spec 2026-08-27-wizard-warning-row-links-copy §2.5. A SCOPED anchor was located by
+  // content on its own tab by the anchor scanner, so the wrong-tab hazard the guard above
+  // defends against (a region header regex matching inside a master-library tab) cannot
+  // arise for it. The unscoped case above is kept verbatim: the allowlist still governs
+  // every region anchor, every legacy persisted anchor, and the crew-role/show-day cells.
+  it("scope 'cell' on a non-allowlisted tab → that tab's cell, not the first tab", () => {
+    expect(buildSheetDeepLink(ID, { title: "FORM", gid: 3, a1: "A29", scope: "cell" })).toBe(
+      `${base}#gid=3&range=A29`,
+    );
+  });
+  it("scope 'tab' → the tab alone, no range", () => {
+    expect(buildSheetDeepLink(ID, { title: "3rd Level", gid: 10, scope: "tab" })).toBe(
+      `${base}#gid=10`,
+    );
+  });
   it("missing anchor → first tab (#gid=0), never a gid-less base URL", () => {
     expect(buildSheetDeepLink(ID, null)).toBe(`${base}#gid=0`);
     expect(buildSheetDeepLink(ID, undefined)).toBe(`${base}#gid=0`);

@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 
 import { parseSheet } from "@/lib/parser";
+import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
 import { parseVenue } from "@/lib/parser/blocks/venue";
 import { splitRow } from "@/lib/parser/blocks/_helpers";
 import { resolveAliasFull } from "@/lib/parser/aliases";
@@ -494,7 +495,12 @@ describe("Stage/Storage rows stay anchored (AC-N9)", () => {
     ).toBeNull();
   });
 
-  it("a non-anchor-block baseline row resolves null (documented-safe)", () => {
+  it("a Timestamp-block row resolves null against an anchor set that has no Timestamp block", () => {
+    // NOT a claim that Timestamp rows are unanchorable. Null here because `anchors` is
+    // the east-coast Stage table, which contains no Timestamp block at all; a Timestamp
+    // row in its OWN workbook now anchors to its own cell (spec 2026-08-27 §2, pinned in
+    // tests/drive/unknownFieldAnchors.test.ts). The "documented-safe" framing this case
+    // used to carry was retired with the scanner's two-family limit.
     const row = actual.find((r) => r.kind === "timestamp");
     premiseHolds("the baseline carries a Timestamp-block row", row !== undefined);
     const parsed = parseSheet(readFileSync(row!.fixture, "utf8"), row!.fixture);
@@ -512,26 +518,38 @@ describe("Stage/Storage rows stay anchored (AC-N9)", () => {
     ).toBeNull();
   });
 
-  it("the anchor scanner's header set is narrower than the detector's DETAILS family", () => {
-    // The executable statement of the spec §2.2 correction landed in this commit: the
-    // scanner recognizes `DETAILS`, and does NOT recognize `DETAILS/Room Diagram`, so a
-    // row keyed on the wider spelling would resolve null. Asserted through the public
-    // surface (an anchor set built from each header) rather than by reading the regex.
-    const withHeader = (header: string): number => {
+  it("every DETAILS-family spelling anchors the Stage row: one kind function on both sides (spec 2026-08-27 §2.2)", () => {
+    // The retired asymmetry, stated in its new direction. The scanner used to recognize
+    // `DETAILS` and NOT `DETAILS/Room Diagram` or `GS DETAILS (FOR BOTH)`, so a row keyed
+    // on a wider spelling resolved null. It now keys on `anchorNamespace` itself, so
+    // there is ONE family because there is one function. Asserted through resolution, not
+    // through a count: the opener row now yields an anchor too, so the old count of 1 was
+    // wrong for the first case as well.
+    for (const header of ["DETAILS", "DETAILS/Room Diagram", "GS DETAILS (FOR BOTH)"]) {
       const ws = XLSX.utils.aoa_to_sheet([
         [header, ""],
-        ["Stage", "8' x 24' x 2'"],
+        ["Stage", "8' x 24' x 2'"], // the AC-N9 row itself: probed 2026-08-27, flagged under all three headers
       ]);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "INFO");
-      const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
-      return extractUnknownFieldAnchors(buf, new Map([["INFO", 0]])).filter(
-        (a) => a.kind === "details",
-      ).length;
-    };
-    expect(withHeader("DETAILS")).toBe(1);
-    expect(withHeader("DETAILS/Room Diagram")).toBe(0);
-    expect(withHeader("GS DETAILS (FOR BOTH)")).toBe(0);
+      const out = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+      const buf =
+        out instanceof Uint8Array
+          ? (out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) as ArrayBuffer)
+          : (out as ArrayBuffer);
+      const md = synthesizeMarkdownFromXlsx(buf).markdown;
+      const w = parseSheet(md, "probe.md").warnings.find(
+        (x) => x.code === "UNKNOWN_FIELD" && x.blockRef?.name === "Stage",
+      );
+      premiseHolds(`${header}: the near-miss row is emitted`, w !== undefined);
+      const cell = resolveUnknownFieldCell(
+        extractUnknownFieldAnchors(buf, new Map([["INFO", 0]])),
+        w!.blockRef?.kind,
+        w!.blockRef?.name,
+        valueFromRawSnippet(w!.rawSnippet),
+      );
+      expect(cell, header).toEqual({ title: "INFO", gid: 0, a1: "A2", scope: "cell" });
+    }
   });
 
   it("the two east-coast transcriptions agree on the Stage/Storage label+value pairs", () => {

@@ -36,7 +36,12 @@ export function notePopoverParts(w: ParseWarning): {
 } {
   const entry = isMessageCode(w.code) ? messageFor(w.code as MessageCode) : null;
   const copy = firstNonBlank(entry?.longExplanation, entry?.helpfulContext);
-  const sentence = w.sourceCell ? correctionLoopCopy("resync") : null;
+  // a1, not the anchor (spec 2026-08-27 §2.4): "Edit the cell" is wrong advice at tab
+  // grain, so a tab-level anchor keeps its link and drops the sentence.
+  const sentence =
+    typeof w.sourceCell?.a1 === "string" && w.sourceCell.a1.trim().length > 0
+      ? correctionLoopCopy("resync")
+      : null;
   return { copy, sentence };
 }
 

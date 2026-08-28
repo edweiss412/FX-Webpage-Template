@@ -50,6 +50,17 @@ export type MessageCatalogEntry = {
   crewFacing: string | null;
   followUp: string | null;
   helpfulContext: string | null;
+  /**
+   * One sentence naming the mutate controls on the published per-show card
+   * (Report / Ignore). Catalog-internal, NOT §12.4 prose - x1 parity compares
+   * dougFacing, crewFacing, followUp and helpfulContext, and never reads this.
+   * Rendered ONLY where `DataQualityWarningControls` is mounted; every other surface
+   * that shows `helpfulContext` (the wizard step-3 row, note cards, help popovers)
+   * omits it because it has no such controls, which is the whole point: the wizard row
+   * used to end with a sentence naming two buttons that are not on it.
+   * Spec 2026-08-27-wizard-warning-row-links-copy §4.
+   */
+  controlsNote?: string | null;
   title: string | null;
   longExplanation: string | null;
   helpHref: string | null;
@@ -1338,10 +1349,11 @@ export const MESSAGE_CATALOG = {
     // `longExplanation` are never interpolated (lookup.ts messageFor), so a placeholder would
     // render literally. The matched candidate rides `ParseWarning.candidate` structurally
     // (warnings.ts emitUnknownField), which is exactly what the render sites read.
-    // Impeccable gate dispositions, unchanged: `helpfulContext` documents BOTH card controls
-    // (F4), because the Ignore button still renders for this code
-    // (DataQualityWarningControls.tsx:85, gated on the always-present rawSnippet); and every
-    // action string leads with the imperative rather than system state (F5). F1 is CLOSED by
+    // Impeccable gate dispositions: the card's controls are documented by `controlsNote`,
+    // rendered only where those controls mount (spec 2026-08-27-wizard-warning-row-links-copy
+    // §4), so F4 holds on the published card and no surface WITHOUT the buttons names them —
+    // the wizard's step-3 row named both and mounts neither. Every action string still leads
+    // with the imperative rather than system state (F5). F1 is CLOSED by
     // this arc: it objected that no string may ask Doug to judge a suggestion he was never
     // shown, and he is now shown it.
     dougFacing:
@@ -1349,7 +1361,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → rename the row in the sheet (or optional Report)",
     helpfulContext:
-      "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. Report flags it to us; Ignore hides this notice.",
+      "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read.",
+    controlsNote: "Use Report to flag it to us, or Ignore to hide this notice.",
     triggerContext: "Appears when a row's label doesn't exactly match a row we know how to show.",
     title: "Row we couldn't match",
     longExplanation:
@@ -1731,11 +1744,12 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "Some pull-sheet rows have a QTY we couldn't read (a word, or a range like '1-2'), so those rows show their original text. The Report button on this card sends it to us if you'd like the format supported.",
+      "Some pull-sheet rows have a QTY we couldn't read (a word, or a range like '1-2'), so those rows show their original text.",
+    controlsNote: "Use Report if you'd like the format supported.",
     triggerContext: "Appears when a pull-sheet QTY cell isn't a plain number.",
     title: "Pull sheet rows we couldn't fully read",
     longExplanation:
-      "We couldn't read the QTY on some rows, usually it's a word, a range like '1-2', or another value that isn't a plain number. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
+      "We couldn't read the QTY on some rows, usually it's a word, a range like '1-2', or another value that isn't a plain number. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected.",
     helpHref: "/help/errors#PULL_SHEET_PARSE_PARTIAL",
   },
   PULL_SHEET_ON_ARCHIVED_TAB: {
@@ -2101,7 +2115,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: null,
     helpfulContext:
-      "A header in your sheet isn't a section we know, so the rows under it aren't shown on the crew page. Rename it to a standard section, or use the Report button on this card if it should be supported.",
+      "A header in your sheet isn't a section we know, so the rows under it aren't shown on the crew page. Rename it to a standard section.",
+    controlsNote: "Use Report if this section should be supported.",
     triggerContext: "Appears when a header row doesn't match any section we know.",
     title: "Section we didn't recognize",
     longExplanation: null,

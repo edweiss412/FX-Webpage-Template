@@ -5,6 +5,8 @@ import {
   extractShowDayTimeAnchors,
   hasCellAnchoredWarning,
   resolveSourceCell,
+  CELL_ANCHORED_CODES,
+  HOTEL_REGION_ANCHORED,
   type ShowDayTimeAnchor,
 } from "@/lib/drive/showDayTimeAnchors";
 import { normalizeDate } from "@/lib/parser/blocks/_helpers";
@@ -517,5 +519,55 @@ describe("attachSourceCellAnchors — ORPHANED_CREW_ROWS crew-region fallback", 
     const warnings: ParseWarning[] = [orphanWarning()];
     attachSourceCellAnchors(warnings, { showDay: [], crewRole: [], region: {} });
     expect(warnings[0]!.sourceCell).toBeUndefined();
+  });
+});
+
+describe("attachSourceCellAnchors: HOTEL ambiguity codes region-anchor to the hotels block (spec 2026-08-27 §3)", () => {
+  const hotels = { title: "INFO", gid: 0, a1: "A40:C46" };
+  const hotel = (code: string): ParseWarning => ({
+    severity: "warn",
+    code,
+    message: "m",
+    blockRef: { kind: "hotels", field: "guests", index: 0, name: "Park Hyatt Chicago" },
+    rawSnippet: "Park Hyatt Chicago | ...",
+  });
+
+  // The five codes as LITERALS, never derived from the set under test: a set that dropped
+  // HOTEL_CARDINALITY_EXCEEDED, or gained a sixth for a bogus name, must fail here.
+  const HOTEL_CODES = [
+    "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+    "HOTEL_CARDINALITY_EXCEEDED",
+    "HOTEL_INLINE_GROUP_OWN_HOTEL",
+    "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+  ] as const;
+
+  it("HOTEL_REGION_ANCHORED is exactly the five ambiguity codes", () => {
+    expect([...HOTEL_REGION_ANCHORED].sort()).toEqual([...HOTEL_CODES].sort());
+  });
+
+  it("every one of the five codes gets the hotels region, and nothing else", () => {
+    const warnings = HOTEL_CODES.map(hotel);
+    attachSourceCellAnchors(warnings, {
+      showDay: [],
+      crewRole: [],
+      region: { hotels, crew: { title: "INFO", gid: 0, a1: "A2:D5" } },
+    });
+    for (const w of warnings) expect(w.sourceCell, w.code).toEqual(hotels);
+  });
+
+  it("no hotels region -> link-less, never another section's range", () => {
+    const w = hotel("HOTEL_GUEST_SPLIT_AMBIGUOUS");
+    attachSourceCellAnchors([w], {
+      showDay: [],
+      crewRole: [],
+      region: { crew: { title: "INFO", gid: 0, a1: "A2:D5" } },
+    });
+    expect(w.sourceCell ?? null).toBeNull();
+  });
+
+  it("the gid-fetch gate sees a hotel warning; it is a POPULATION gate, not the render gate", () => {
+    expect(hasCellAnchoredWarning([hotel("HOTEL_ADDRESS_SPLIT_AMBIGUOUS")])).toBe(true);
+    for (const code of HOTEL_CODES) expect(CELL_ANCHORED_CODES.has(code), code).toBe(true);
   });
 });
