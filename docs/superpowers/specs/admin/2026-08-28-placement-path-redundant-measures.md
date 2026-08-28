@@ -116,14 +116,23 @@ range-shrink argument above covers it. **What could is the measure CALLBACK
 scrolling the element itself**, since the callback is caller-supplied and runs
 between the clear and the restore.
 
-**No shipped caller does.** All five composers were read
+**No shipped caller does.** All SIX composers were read
 (`components/admin/AnchoredPortal.tsx`, `components/admin/HoverHelp.tsx`,
 `components/admin/PublishedToggle.tsx`, `components/admin/ReSyncButton.tsx`,
-`components/admin/showpage/ShareHub.tsx`): every `scroll*` reference inside a
-measure callback is a read of `window.scrollX`/`scrollY` or of the HOST element's
-`scrollLeft`/`scrollTop` for coordinate conversion — never a write, and never to
-the element being measured. `HoverHelp`'s only focus call passes
-`preventScroll: true` and sits outside the callback.
+`components/admin/showpage/ShareHub.tsx`, `components/admin/useFitWithinClip.ts`):
+every `scroll*` reference inside a measure callback is a read of
+`window.scrollX`/`scrollY` or of the HOST element's `scrollLeft`/`scrollTop` for
+coordinate conversion — never a write, and never to the element being measured.
+`HoverHelp`'s only focus call passes `preventScroll: true` and sits outside the
+callback; `useFitWithinClip`'s callback
+(`components/admin/useFitWithinClip.ts:126`) touches no scroll property at all.
+
+**The first draft of this census said FIVE and missed `useFitWithinClip`** — diff
+review R1 finding 2, on the very claim this arc offered as its own blast-radius
+answer. The list is now derived rather than recalled:
+`rg -l 'withNaturalSize' components lib app` minus the helper itself returns
+exactly these six, and re-running that command is the check, not re-reading this
+paragraph.
 
 **This is a claim about today's callers, so it is a DOCUMENTED LIMIT rather than
 a proof.** A future caller that scrolls the measured element inside its own
@@ -295,17 +304,20 @@ ids it will see cited there.
   makes AC-10's `N/A` true.
 - `lib/popover/place.ts` and `lib/popover/position.ts` (§6 refutes the only filed
   reason to touch them).
-- Every popover surface other than `AnchoredPortal` that composes
-  `withNaturalSize`: they inherit site 2's repair without a per-surface pin,
-  because the repair is inside the shared helper. That is the reach the shipped
-  change actually has, and it is larger than the site it was filed against —
-  `HoverHelp`, `PublishedToggle`, `ReSyncButton` and `ShareHub` all measure
-  through it.
+- Every surface other than `AnchoredPortal` that composes `withNaturalSize`:
+  they inherit site 2's repair without a per-surface pin, because the repair is
+  inside the shared helper. That is the reach the shipped change actually has,
+  and it is larger than the site it was filed against — `HoverHelp`,
+  `PublishedToggle`, `ReSyncButton`, `ShareHub` and `useFitWithinClip` all
+  measure through it.
 
 ## Appendix A — probe transcripts
 
-Run on branch `perf/placement-measure-memo` at base `b608e71b3`. Probe sources
-are reproduced in the plan's task bodies, where they become the shipped cases.
+Run on branch `perf/placement-measure-memo` at base `b608e71b3`. **Site 1's probe
+sources are not reproduced anywhere in this branch**: they were scratch harnesses
+whose transcripts are below, and the tasks that would have carried them left with
+site 1 under ship-and-fence. Site 2's probe became the shipped case at
+`tests/components/naturalSize.test.ts`.
 
 ### A.1 Site 1, the count per gesture frame, in jsdom
 

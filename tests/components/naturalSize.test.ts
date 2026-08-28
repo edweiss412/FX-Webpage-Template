@@ -141,8 +141,15 @@ describe("withNaturalSize", () => {
    * the held one (lib/popover/naturalSize.ts:70-71). Both comparisons READ the
    * element after the cap-restore WRITES two lines above, so both force a
    * synchronous layout — and on an unscrolled panel both are provably no-ops,
-   * because clearing a cap can only clamp an offset DOWNWARD and there is
-   * nowhere below zero to go.
+   * because ZERO IS ALWAYS INSIDE THE SCROLL RANGE: clearing a cap only reduces
+   * overflow, which shrinks the range, and an element with no overflow reports
+   * exactly 0.
+   *
+   * NOT "clamping only moves downward", which an earlier draft of this comment
+   * said and which is false for `scrollLeft` under `direction: rtl` — there the
+   * range runs from negative up to 0, so 0 is its MAXIMUM and a clamp moves
+   * UPWARD toward it. The production comment and the spec use the range-shrink
+   * argument; this comment now matches them (diff review R1 finding 3).
    *
    * That is the whole claim, and it is an ORDER rather than a timing: jsdom
    * computes no layout, so "this read forces a reflow" is not observable here.
@@ -187,9 +194,17 @@ describe("withNaturalSize", () => {
     withNaturalSize(el, () => 1);
 
     const lastCapWrite = trace.lastIndexOf("write style.maxHeight");
-    // PREMISE (own inputs): the helper must have RESTORED a cap at all, or
-    // "nothing follows the last cap write" holds because there was no cap write.
-    premiseHolds("the helper wrote a cap restore", lastCapWrite >= 0);
+    // PREMISE (own inputs): the last `maxHeight` write must be the RESTORE, not
+    // the clear. `lastCapWrite >= 0` alone proves only that some write happened,
+    // which the clear satisfies on its own — diff review R1 finding 1. The
+    // helper writes each cap exactly twice, clear then restore, so requiring
+    // BOTH writes and taking the last one pins the restore specifically.
+    const capWrites = trace.filter((t) => t === "write style.maxHeight").length;
+    premiseHolds(`the helper cleared AND restored maxHeight (saw ${capWrites})`, capWrites === 2);
+    premiseHolds(
+      "the restore is the last cap write",
+      lastCapWrite === trace.lastIndexOf("write style.maxHeight"),
+    );
     // PREMISE (own inputs): it must have read the held offsets up front, or the
     // instrumentation is not attached to the property the helper actually uses
     // and this case would pass against an element it never touched.
@@ -214,6 +229,7 @@ describe("withNaturalSize", () => {
   it("restores a scrolled offset while skipping the zero one", () => {
     const el = box();
     const reads: string[] = [];
+    const writes: string[] = [];
     let top = 0;
     let left = 90;
     Object.defineProperty(el, "scrollTop", {
@@ -223,6 +239,7 @@ describe("withNaturalSize", () => {
         return top;
       },
       set: (v: number) => {
+        writes.push("set scrollTop");
         top = v;
       },
     });
@@ -233,6 +250,7 @@ describe("withNaturalSize", () => {
         return left;
       },
       set: (v: number) => {
+        writes.push("set scrollLeft");
         left = v;
       },
     });
@@ -244,9 +262,19 @@ describe("withNaturalSize", () => {
       return 1;
     });
 
-    // PREMISE (own inputs): the measurement must actually have moved the
-    // scrolled offset, or "it was restored" is a claim about a no-op.
-    premiseHolds("the measurement clamped the scrolled offset", reads.length > 0);
+    // PREMISE (own inputs): the measurement must actually have MOVED the scrolled
+    // offset, or "it was restored" is a claim about a no-op.
+    //
+    // `reads.length > 0` did NOT establish that — the two held-snapshot reads at
+    // the top of the helper satisfy it before the callback runs, so deleting the
+    // fixture's `left = 0` left every assertion below green (diff review R1
+    // finding 1). The observable that actually discriminates is the WRITE: the
+    // helper writes an offset back only when it differs from the held value, so
+    // a `set scrollLeft` in the trace is the restore having been necessary.
+    premiseHolds(
+      `the measurement clamped the scrolled offset (trace: ${writes.join(",") || "none"})`,
+      writes.includes("set scrollLeft"),
+    );
 
     expect(left, "the non-zero offset is restored").toBe(90);
     expect(top, "the zero offset is untouched").toBe(0);

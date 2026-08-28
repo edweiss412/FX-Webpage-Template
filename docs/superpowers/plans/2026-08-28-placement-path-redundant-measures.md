@@ -13,13 +13,21 @@ spec's §2.
 **Files:**
 
 - `lib/popover/naturalSize.ts` (edited — two `&&` operands in one `finally` block)
-- `tests/components/naturalSize.test.ts` (extended — INV-F; INV-G is the two
+- `tests/components/naturalSize.test.ts` (extended — TWO new cases: INV-F, and
+  the mixed offset case where one is zero and one is scrolled. INV-G is the two
   merged cases at `tests/components/naturalSize.test.ts:46` and
   `tests/components/naturalSize.test.ts:60`, asserted to stay green rather than
   rewritten)
 - `BACKLOG.md` (the row's body becomes the park record; its `IN PROGRESS` marker
   comes off in the PR's last commit)
-- this plan and its spec (closeout marker and dispositions)
+- `docs/superpowers/specs/admin/2026-08-28-placement-path-redundant-measures.md`
+  (reduced to site 2; site 1's design sections removed)
+- this plan (reduced to two tasks; closeout marker at Task 2)
+- `docs/review-rounds/perf/placement-measure-memo/b608e71b32b5.md` (the six-round
+  filing, plus the JSONL rows the wrapper appends per dispatch)
+- `docs/agents/writing-plans.md` (the enrolled-plans corpus counts move because
+  this plan is a new enrolled unit: 117 to 118, 55 to 56, and 1224 rows across
+  105 plans to 1226 across 106 — the two new rows are this plan's coverage map)
 
 **No file under `app/` or `components/` is touched**, which is what makes the
 invariant-8 marker `N/A` true rather than convenient — and Task 2's `red=` asserts
@@ -159,10 +167,10 @@ one `app/` or `components/` file, which must flip the check red.
 **Every criterion this plan's markers cite is declared in the sibling spec, and
 this plan declares none of its own.** That is deliberate rather than incidental:
 `spec:lint`'s `TASK_AC_UNDECLARED` fires only in a plan that declares at least
-one criterion, so a plan that declared a single extra id would put all nine
-spec-declared ids into scope and draw nine findings. The closeout criterion is
-therefore AC-10 in the spec, next to the other nine, and this plan carries the
-coverage map above instead.
+one criterion, so a plan that declared a single extra id would put every
+spec-declared id into scope and draw a finding for each. The reduced spec
+declares TWO — AC-6 and AC-10 — and the closeout criterion is AC-10 there rather
+than here, so this plan carries the coverage map above and declares nothing.
 
 **Verified against the implementation, not inferred from the guidance.** The
 coverage map is a TABLE, and `lib/specLint/taskContract.ts:466-478` declines any
@@ -184,14 +192,8 @@ separate gates rather than one: each has caught something the others do not see.
 | --- | --- | --- |
 | full unit suite | `pnpm heavy pnpm test` | a scoped run misses regressions in files this diff does not name; `pnpm heavy` is mandatory for a full-suite run |
 | typecheck | `pnpm typecheck` | vitest strips types, so a type error survives a green suite |
-| lint | `pnpm exec eslint .` | this diff moves entries OUT of a `useCallback` dep array (`components/admin/AnchoredPortal.tsx:186`), which is exactly what `react-hooks/exhaustive-deps` adjudicates |
+| lint | `pnpm exec eslint .` | cheap, and the arc commits with `--no-verify` so nothing else runs it |
 | format | `pnpm format:check` | the arc commits with `--no-verify`, which bypasses the Prettier hook |
-
-The lint gate is not boilerplate here. After the props-ref change
-`measureAndApply` no longer references `align` or `preferredSide` in its body, so
-`[anchorRef, commit]` is the correct array and the rule should be satisfied; if it
-is not, the reading of the change is wrong and that is worth learning before a
-reviewer says so.
 
 ## Self-review, adversarial review, closeout
 
@@ -200,8 +202,8 @@ reviewer says so.
 2. **Adversarial review (cross-model)** — Codex, `--stage plan --round 1`.
 3. Whole-diff Codex review after implementation, on a tree whose full suite is
    green — never on a red one.
-4. Closeout per Task 7.
+4. Closeout per Task 2.
 
 ## 12. Invariant-8 findings and dispositions
 
-Filled by Task 7.
+Filled by Task 2.
