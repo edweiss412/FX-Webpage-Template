@@ -75,11 +75,15 @@ It catches a position-only anchor move — a `router.refresh()` that reorders ro
 without changing any dimension. `ResizeObserver` reports size and cannot see a
 translation, so nothing else catches it.
 
-The effect answers one question: **has the anchor moved since the last
-measurement?** Today it answers by recomputing the entire placement and throwing
-the answer away when it matches. It can answer the same question by reading the
-anchor's rect and comparing, which is one rect read against a whole natural-size
-pass.
+The effect answers one question: **has anything the placement depends on changed
+since the last measurement?** Today it answers by recomputing the entire
+placement and throwing the answer away when it matches. It can answer the same
+question by comparing a KEY — one rect read plus five reference comparisons —
+against a whole natural-size pass.
+
+An earlier draft of this paragraph asked the narrower `has the ANCHOR moved?`,
+and that narrowing is exactly what three review rounds were spent
+widening back. The key's membership is settled in §3.1 and nowhere else.
 
 ## 3. The repair
 
@@ -93,8 +97,10 @@ site is unchanged and always measures.
 Concretely:
 
 - a `lastMeasureRef` holding the KEY of the most recent PLACED measurement, or
-  `null`. The key is `{ rect, align, preferredSide }`, not the rect alone — see
-  "What the key must contain" below;
+  `null`. The key is
+  `{ rect, align, preferredSide, className, children, side }` — the normative
+  definition is the table under "What the key must contain" below, and this
+  bullet names its members rather than restating them;
 - `measureAndApply` takes one optional argument, `{ skipIfUnchanged?: boolean }`;
   the early return sits AFTER the existing null-ref guard
   (`components/admin/AnchoredPortal.tsx:131`) and AFTER the trigger-rect read
@@ -131,22 +137,49 @@ placement reads.** The redundant run is the follow-up to a commit this component
 produced ITSELF, and that is the only commit on which every prop reference is
 preserved: React creates fresh element objects and a fresh props object on a
 parent render, so a parent re-render changes them by identity whatever their
-values. The key is therefore the trigger rect PLUS every prop that can change
-what is measured, each compared the way React compares it:
+values. The key is therefore the trigger rect, every prop that can change what is
+measured, and the one attribute this component's own commit writes that CSS can
+select on — each compared the way React compares it:
 
 | Key member | Compared by | Closes |
 | --- | --- | --- |
 | the trigger rect, all six fields | value | a position-only move under a caller that memoizes its props |
 | `align`, `preferredSide` | `===` | a placement prop changing with the anchor still |
 | `className` | `===` | a transform, or any other class-borne change to the measured rect, that `ResizeObserver` cannot see |
-| `children` | `===` | a content change whose effect on the measured rect the content box does not report |
+| `children` | `===` | a content change that must re-place IN the commit, ahead of the `ResizeObserver` frame |
+| the panel's rendered `data-portal-side` | `===` | a SIDE-DEPENDENT style under a stable `className` — see below |
 
-**The two halves close each other's hole, which is why both are present.** Prop
-identity alone fails for a caller that memoizes `children` and passes stable
-props while the anchor moves — the position-only case. The rect alone fails for
-the transform case above. Neither costs the optimization anything: on the run the
-guard exists to skip, the rect is unchanged AND every prop reference is
-preserved, because that run follows this component's own `setApplied`.
+**Three halves, and the third one is the correction round 3 forced.** The first
+two are prop identity and the rect. The third exists because the derivation's own
+premise was too generous: it assumed this component's own commit changes nothing
+that can be measured. **It can.** The commit writes
+`data-portal-side` (`components/admin/AnchoredPortal.tsx:278`) and a stable
+`className` may carry a
+side-dependent rule — `data-[portal-side=top]:-translate-y-2` is an ordinary
+Tailwind variant. On a frame where the placement FLIPS the side, that rule
+changes `getBoundingClientRect` with the content box, the anchor rect and every
+prop reference all unchanged. Today the follow-up effect re-measures and catches
+it; a key without `side` skips and loses a placement the component computes now.
+
+**`side` is the complete addition, and that is an enumeration over a closed set
+rather than another guess.** What the commit writes to the DOM is one render
+function's attribute list (`components/admin/AnchoredPortal.tsx:275-297`):
+`data-testid` and `data-portal-scroll`, both constant; the inline `style`; and
+`data-portal-side`. CSS cannot select on an inline style VALUE, so the style
+cannot drive a rule. `data-portal-side` is the only member that both varies and
+is selectable.
+
+**It costs the optimization only on frames that flip.** A scroll frame that moves
+the panel without changing its side leaves `side` equal, so the follow-up still
+skips. A flip is rare by construction — it needs the preferred side to run out of
+room — and paying one extra pass there is the correct trade against silently
+dropping the re-place.
+
+Neither of the first two halves costs anything: on the run the guard exists to
+skip, the rect is unchanged AND every prop reference is preserved, because that
+run follows this component's own `setApplied`. Prop identity alone fails for a
+caller that memoizes `children` and passes stable props while the anchor moves —
+the position-only case. The rect alone fails for the transform case above.
 
 Three placement inputs remain covered by subscriptions that route through the
 coalescer, which never skips: panel content size by `ResizeObserver`, the
@@ -212,11 +245,12 @@ also gate the coalescer, and a window resize that grows the viewport downward ca
 change `maxHeight` while leaving the trigger's rect untouched — the guard would
 skip a measurement that was needed. On the ungated effect's path that cannot
 happen: viewport changes arrive as `resize` and `visualViewport` events
-(`components/admin/AnchoredPortal.tsx:230-235`) and panel size changes arrive as
-`ResizeObserver` callbacks (`components/admin/AnchoredPortal.tsx:236`), and all
-three route through the coalescer, which does not skip. The anchor rect is the
-complete key for THAT path and for no other, which is why the guard lives at that
-call site.
+(`components/admin/AnchoredPortal.tsx:230-235`) and panel content-box changes
+arrive as `ResizeObserver` callbacks
+(`components/admin/AnchoredPortal.tsx:236`), and all three route through the
+coalescer, which does not skip. The key covers what those subscriptions do not,
+and it is complete for THAT path and for no other, which is why the guard lives
+at that one call site.
 
 ### 3.2 Site 2 — do not read a scroll offset that cannot have changed
 
@@ -269,7 +303,9 @@ helper takes the path this repair makes free.
 | INV-J | A measurement that returns `kind: "hidden"` leaves the guard UNARMED, from a `null` ref and from a placed one alike, and the follow-up run terminates without a further render | jsdom degenerate-panel case, run from both starting states | decline to write the ref on the hidden branch instead of clearing it |
 | INV-K | A re-render that changes `preferredSide` with the anchor still re-places the panel | jsdom prop-change case through the existing `Harness`'s `preferredSide` parameter | drop `preferredSide` from the key |
 | INV-L | A re-render that changes `align` with the anchor still re-places the panel | jsdom prop-change case through an `align` parameter added to the harness | drop `align` from the key |
-| INV-M | A re-render that changes `className` with the anchor still re-places the panel | jsdom prop-change case applying a transform through `className` | drop `className` from the key |
+| INV-M | A re-render that changes `className` with the anchor still re-places the panel | jsdom prop-change case applying a `scale()` through `className` | drop `className` from the key |
+| INV-N | A re-render that changes `children` so the panel measures differently re-places it IN THAT COMMIT, ahead of any `ResizeObserver` frame | jsdom children-change case asserting synchronously after `rerender`, with no flush | drop `children` from the key |
+| INV-O | A commit that FLIPS the side re-places the panel, so a side-dependent rule under a stable `className` cannot strand it | jsdom flip case: a fixture with room only above, asserted after the flip commit | drop `side` from the key |
 
 **INV-E is the one that keeps this arc honest with the merged contract**, and it
 is why the early return is specified to sit AFTER the trigger-rect read rather
@@ -413,6 +449,13 @@ enumerated here because the ref is what the repair adds:
 | a key equal to the live one | the redundant re-run after a commit this component's own measure produced | skips `withNaturalSize`; the placement already held is correct |
 | a key whose rect differs in any of the six fields | a position-only move | measures |
 | a key whose `align` or `preferredSide` differs | a re-render that changed a placement prop with the anchor still | measures |
+| a key whose `className` differs | a re-render that changed the class, which may carry a transform | measures |
+| a key whose `children` differs | any parent re-render, since fresh element objects are created each time | measures |
+| a key whose `side` differs | the placement flipped, so a side-dependent rule under a stable class may now apply | measures |
+
+**This table is derived from the key table in §3.1 and adds nothing to it.** One
+row per member plus the two `null` and all-equal states; if the two disagree, §3.1
+is normative.
 
 A `Rect` field is never `null`, `undefined` or `NaN` in this path: it is built by
 `toRect` (`components/admin/AnchoredPortal.tsx:74`) from a live `DOMRect`. A
@@ -422,7 +465,17 @@ already handles separately (`lib/popover/position.ts:104`).
 
 `align` and `preferredSide` are never absent in the key: both have defaults at
 the destructure (`components/admin/AnchoredPortal.tsx:88-89`), so the key holds
-`"right"` and `"bottom"` for a caller that passes neither.
+`"right"` and `"bottom"` for a caller that passes neither. `className` defaults to
+the empty string at the same destructure, so it is never `undefined`. `children`
+may legitimately be `undefined` or `null` and needs no guard: the comparison is
+`===`, and `undefined === undefined` holds, so an always-empty surface skips
+exactly as it should.
+
+`side` is read from the panel's live `data-portal-side` attribute rather than from
+`applied`, so it reflects what the panel is CURRENTLY rendering under. Before the
+first placement that attribute already carries `preferredSide`
+(`components/admin/AnchoredPortal.tsx:278`), never absent, so there is no
+undefined state to handle.
 
 ## 8. Dimensional invariants, transition inventory
 
@@ -494,6 +547,16 @@ a placement, which moves the per-frame count directly.
 - **AC-12** — a re-render that changes `className` with the anchor rect unchanged
   re-places the panel, using a class that changes the measured rect without
   changing the content box `ResizeObserver` reports.
+- **AC-13** — a re-render that changes `children` so the panel measures
+  differently re-places it IN THAT COMMIT. The timing is the criterion, not the
+  eventual outcome: `ResizeObserver` would deliver a content-box change on a
+  LATER frame, so a key without `children` leaves one painted frame at the old
+  placement. Asserted synchronously after the re-render with no flush, which is
+  what makes the case discriminate — jsdom's observer is a no-op stub
+  (`tests/setup.ts:70-81`) and cannot rescue it either way.
+- **AC-14** — a commit that flips the placement's side re-places the panel, so a
+  side-dependent rule carried by a stable `className` cannot strand it at a
+  measurement taken under the other side.
 - **AC-10** — the invariant-8 dual gate ran on the diff, its P0 and P1 findings
   are dispositioned, and the row is archived without an in-flight marker. Owned
   by the plan's closeout task; declared here so the sibling plan declares no
