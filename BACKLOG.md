@@ -374,6 +374,7 @@ armB actionable 1-0-1, no warning goneAtZero=true  menuAfterRebound=false  shell
 armD actionable 1-0-1, WITH warn  goneAtZero=false menuAfterRebound=true   shellHandler=false
 armE items AND warnings blip      goneAtZero=true  menuAfterRebound=false  shellHandler=true
 armF loaded modal -> skeleton     menuGone=true modalStillThere=true titleGone=true shellHandler=true
+armG modal REMOUNT, no rAF yet    menuGone=true  remounted=true          shellHandler=true
 armC control, no items at all     shellHandler=true
 ```
 
@@ -383,7 +384,17 @@ Arm C is the positive control and arm A the no-defect baseline, so the `shellHan
 
 **Arm F needs no data blip at all**, and it reproduces the row's exact Playwright text. The assertion locator is compound and requires the modal to carry its title, so a title-less skeleton frame reads as `element(s) not found` for `MODAL` while `MENU` legitimately reads 0. That is precisely the pair the observed red reported.
 
-**What is left for the browser, stated as a decision procedure rather than a hunt.** Candidates E and F emit disjoint signatures on the shared timeline. E: a `modal:state` record with `needsYou`, `k` and `selfHeal` all zero, followed by `modal:setMenuOpen(false):render-reconcile`. F: no `modal:state` at all around the key, a `modal:unmount` / `skeleton:mount` pair, and a `doc:capture` record carrying `modalInDom: true` with `titleInDom: false`. Whichever appears in a losing iteration is the attribution. Reachability of F's window is the one thing no DB-free arm can settle: `router.refresh()` runs inside a transition, and whether React drops this boundary to its fallback or holds the stale content is a runtime question.
+**A FOURTH candidate falls out of the bundled Next 16.3 documentation, and the same instrument already separates it.** `router.refresh()` "will merge the updated React Server Component payload without losing unaffected client-side React (e.g. `useState`) or browser state" (`node_modules/next/dist/docs/01-app/03-api-reference/04-functions/use-router.md:46`). A merge that preserves client state should not re-enter an already-resolved Suspense boundary, which weakens the revalidate-on-open as F's trigger while leaving F live for any real fallback drop. What the same sentence does NOT rule out is a fresh `PublishedReviewModal` INSTANCE: `menuOpen` resets to false, `autoOpenFiredRef` resets with it, and the gap between the remount and the auto-open's `requestAnimationFrame` is a menu-less window with the shell's listener live. Arm G measures exactly that gap and the shell claims the key.
+
+**What is left for the browser, stated as a decision procedure rather than a hunt.** Three mechanisms are now sufficient DB-free, and each writes a signature the others cannot:
+
+| candidate                  | signature in the trace                                                                                                 |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| E — whole-data blip        | a `modal:state` record with `needsYou`, `k` and `selfHeal` all zero, then `modal:setMenuOpen(false):render-reconcile`  |
+| F — Suspense fallback swap | `modal:unmount` paired with `skeleton:mount`, and a `doc:capture` carrying `modalInDom: true` with `titleInDom: false` |
+| G — modal remount          | `modal:unmount` then a second `modal:mount`, with NO `skeleton:mount`                                                  |
+
+Whichever appears in a losing iteration is the attribution, and a losing iteration with none of the three refutes all of them at once. The one thing no jsdom arm can settle is which of these the runtime actually produces, because `router.refresh()` runs inside a transition and the choice between dropping a boundary to its fallback, remounting a subtree, and merging in place is made there.
 
 **One candidate IS ruled out, for this surface only.** `escTransparentUntilEngaged` (`AttentionMenu.tsx:94`, on `AttentionMenuFrameProps`) is the 2026-08-28 amendment that makes an auto-opened panel Escape-transparent until the user engages. Its only opt-in is the WIZARD menu (`components/admin/wizard/WizardAttentionMenu.tsx:102`). The published modal renders `AttentionMenu`, whose props do not include the flag (`AttentionMenuProps`, `AttentionMenu.tsx:52-65`) and which does not pass it to the `AttentionMenuFrame` it renders (`AttentionMenu.tsx:138-146`), so it defaults false there (`AttentionMenu.tsx:327`) and `engagedRef` starts true (`AttentionMenu.tsx:333`, `useRef(!escTransparentUntilEngaged)`), which makes the early return at `:358` unreachable on this surface. An earlier draft claimed the prop had no opt-in call site ANYWHERE, which is false: it came from a `grep -v "AttentionMenu.tsx"` exclusion that also swallowed `WizardAttentionMenu.tsx`. The conclusion for the published surface survives the correction; the repo-wide claim does not.
 
