@@ -73,7 +73,7 @@ import { deriveSectionStatuses, type SectionId } from "@/lib/admin/step3SectionS
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { withReducedMotion } from "../../../helpers/reducedMotion";
-import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
+import { buildParseResult, sectionDataArgs, stagedRow } from "./_step3ReviewFixture";
 
 const DFID = "drive-abc-123";
 const WSID = "00000000-1111-4222-8333-444444444444";
@@ -105,29 +105,12 @@ function sectionData(
   prOverrides: Partial<ParseResult> = {},
   dataOverrides: Partial<StagedSectionData> = {},
 ): StagedSectionData {
-  const pr = buildParseResult(prOverrides);
   // Row/dfid may be overridden via dataOverrides (e.g. sourceAnchors injected on
-  // the row); derive the row/dfid-dependent SectionCore fields from the FINAL
-  // values so an overridden row propagates to title/sourceAnchors/driveFileId.
-  const row = dataOverrides.row ?? stagedRow(pr);
-  const dfid = dataOverrides.dfid ?? DFID;
+  // the row); the shared builder derives the row/dfid-dependent SectionCore
+  // fields from the FINAL values so an overridden row propagates to
+  // title/sourceAnchors/driveFileId.
   return {
-    ...buildStagedSectionData({
-      pr,
-      row,
-      dfid,
-      wizardSessionId: WSID,
-      crewMembers: pr.crewMembers,
-      rooms: pr.rooms,
-      hotels: pr.hotelReservations,
-      pullSheet: pr.pullSheet ?? [],
-      archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
-      pullSheetOverride: null,
-      ros: pr.runOfShow ?? {},
-      warnings: pr.warnings,
-      agendaBaseline: [],
-      useRawDecisions: [],
-    }),
+    ...buildStagedSectionData(sectionDataArgs(prOverrides, dataOverrides)),
     ...dataOverrides,
   };
 }

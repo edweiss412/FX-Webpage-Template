@@ -18,7 +18,11 @@ import { premiseHolds } from "@/tests/_shared/premise";
 // NAMED import fails at module load — which would red every case for the same
 // uninformative reason instead of at each site's own assertion.
 import * as gaps from "@/lib/parser/dataGaps";
-import { sectionForWarning, sectionStatus, warningsBySection } from "@/lib/admin/step3SectionStatus";
+import {
+  sectionForWarning,
+  sectionStatus,
+  warningsBySection,
+} from "@/lib/admin/step3SectionStatus";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
 import { rowIsJudgment } from "@/lib/admin/step3Buckets";
 import { isAmbiguityCode } from "@/lib/parser/ambiguityCodes";

@@ -356,7 +356,7 @@ git commit --no-verify -m "fix(admin): one isWarnSeverity predicate across the s
 **Interfaces:**
 - Produces (spec §2, verbatim types): `WarningTone`, `WarningAttentionInput`, `WarningAttentionEntry<T>`, `WarningAttention<T>`, `deriveWarningAttention<T extends WarningAttentionInput>(entries, sections)`.
 
-<!-- task: red=`pnpm exec vitest run tests/lib/admin/warningAttention.test.ts` red-state=authored red-target=`lib/admin/warningAttention.ts` why=`the module does not exist (an untracked path is the legal red-target for a module the task creates, lib/specLint/redContract.ts targetProblem), so the import fails; nothing in lib/admin derives a per-warning partition today, only the per-section sectionStatus` ac=AC-1,AC-9 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/admin/warningAttention.test.ts` red-state=authored red-target=`lib/admin/warningAttention.ts:27` why=`at RED the module did not exist, so the import failed with "Cannot find package '@/lib/admin/warningAttention'" (the marker cited the path alone then, the legal form for a module the task creates, lib/specLint/redContract.ts targetProblem; re-cited to the line once the file was tracked, per this task's Step 5); nothing in lib/admin derives a per-warning partition today, only the per-section sectionStatus` ac=AC-1,AC-9 -->
 
 Path-only citation discipline: this red-target is legal only while the path is untracked; Step 5 edits the marker and stages the plan in the same commit (the lint reads the whole plan at any later time; precedent `docs/superpowers/plans/2026-08-25-planlint-ac-command-observability.md`).
 
