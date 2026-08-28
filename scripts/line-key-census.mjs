@@ -5,7 +5,14 @@
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const TEST_ROOT = "tests";
+// `--root <dir>` exists so the census can be pointed at a fixture tree; the
+// suite in tests/scripts/lineKeyCensus.test.ts is its only caller. Default is
+// the repo's own tests/ tree.
+const rootFlag = process.argv.indexOf("--root");
+const TEST_ROOT =
+  rootFlag !== -1 && process.argv[rootFlag + 1]
+    ? join(process.argv[rootFlag + 1], "tests")
+    : "tests";
 
 function walk(dir, out = []) {
   for (const e of readdirSync(dir)) {
@@ -52,6 +59,35 @@ const isSynthetic = (target) => !existsSync(target);
  * A shape it cannot classify stays COUNTED, so it is wrong loudly in the totals rather
  * than silently excluded.
  */
+/**
+ * The opening-tag span of the JSX element at `ln`: from the tag line forward
+ * until the tag closes at attribute-brace depth 0, or `maxLines` is reached.
+ *
+ * Truncating at the first ">" is WRONG and was wrong in this file: an inline
+ * `onClick={() => ...}` contains one, so the window could end before the
+ * element's own attributes and a present data-testid read as absent. That
+ * defect put the JSX anchorability figure at 79% when it is 39%.
+ */
+function openingTagSpan(src, ln, maxLines = 14) {
+  const L = src.split("\n");
+  const out = [];
+  let depth = 0;
+  for (let i = ln - 1; i < Math.min(L.length, ln - 1 + maxLines); i++) {
+    const line = L[i];
+    out.push(line);
+    for (let c = 0; c < line.length; c++) {
+      const ch = line[c];
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      else if (ch === ">" && depth === 0) {
+        if (c > 0 && line[c - 1] === "=") continue; // an arrow, not the tag close
+        return out.join("\n");
+      }
+    }
+  }
+  return out.join("\n");
+}
+
 function isConstructed(lines, i) {
   for (let j = i; j >= Math.max(0, i - 3); j--) {
     if (/:\s*ScanElement\b/.test(lines[j].raw)) return true;
@@ -293,4 +329,127 @@ if (process.argv.includes("--proximity")) {
     }
     if (tot > 1) console.log(`${r.f}\t${tot}\t${pairs}\t${atRisk}`);
   }
+}
+
+// --ambiguity: an anchor must EXIST and DISCRIMINATE. Recomputes the §4.3 split
+// counting a row as anchored only when its anchor is unique in its target file.
+if (process.argv.includes("--ambiguity")) {
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  console.log("\nregistry\trows\ttestid-uniq\ttestid-dup\tlabel-uniq\tlabel-dup\temit\tno-anchor");
+  let T = [0, 0, 0, 0, 0, 0, 0];
+  for (const r of rows) {
+    let tu = 0,
+      td = 0,
+      lu = 0,
+      ld = 0,
+      em = 0,
+      na = 0;
+    const regLines = classifyLines(readFileSync(r.f, "utf8"));
+    for (let i = 0; i < regLines.length; i++) {
+      if (regLines[i].isComment) continue;
+      let target = null,
+        ln = null;
+      const sm = [...regLines[i].raw.matchAll(PATH_LINE)][0];
+      if (sm) {
+        target = sm[1];
+        ln = +sm[2];
+      } else {
+        const lm = regLines[i].raw.match(/\blines?:\s*(\d+)/);
+        if (!lm) continue;
+        for (let j = i; j >= Math.max(0, i - 8); j--) {
+          const fm = regLines[j].raw.match(/\bfile:\s*"([^"]+)"/);
+          if (fm) {
+            target = fm[1];
+            ln = +lm[1];
+            break;
+          }
+        }
+      }
+      if (target === null || !existsSync(target)) continue;
+      if (isConstructed(regLines, i)) continue; // same exclusion the base census applies
+      const src = readFileSync(target, "utf8");
+      const open = openingTagSpan(src, ln);
+      const tm = open.match(/data-testid=\{?["`]([^"`}]+)["`]\}?/);
+      if (tm) {
+        const n = [...src.matchAll(new RegExp(`data-testid=\\{?["\`]${esc(tm[1])}["\`]\\}?`, "g"))]
+          .length;
+        if (n > 1) td++;
+        else tu++;
+        continue;
+      }
+      const lb = open.match(/(?:aria-label|\bid)=\{?["`]([^"`}]+)["`]\}?/);
+      if (lb) {
+        const n = [
+          ...src.matchAll(new RegExp(`(?:aria-label|\\bid)=\\{?["\`]${esc(lb[1])}["\`]\\}?`, "g")),
+        ].length;
+        if (n > 1) ld++;
+        else lu++;
+        continue;
+      }
+      if (/^(lib|app\/api)\//.test(target)) {
+        em++;
+        continue;
+      }
+      na++;
+    }
+    if (tu + td + lu + ld + em + na === 0) continue;
+    console.log(`${r.f}\t${tu + td + lu + ld + em + na}\t${tu}\t${td}\t${lu}\t${ld}\t${em}\t${na}`);
+    T = [
+      T[0] + tu + td + lu + ld + em + na,
+      T[1] + tu,
+      T[2] + td,
+      T[3] + lu,
+      T[4] + ld,
+      T[5] + em,
+      T[6] + na,
+    ];
+  }
+  console.log(`TOTAL\t${T[0]}\t${T[1]}\t${T[2]}\t${T[3]}\t${T[4]}\t${T[5]}\t${T[6]}`);
+  console.log(`\nDECLINE = testid-dup + label-dup + no-anchor = ${T[2] + T[4] + T[6]}`);
+  console.log(`ANCHORED = testid-uniq + label-uniq + emit = ${T[1] + T[3] + T[5]}`);
+}
+
+// --derivability: an emit anchor is only content-anchored if the SCANNER can
+// derive its fields from the site. A row flagged `dynamic` has `code == null`
+// at discovery, a row flagged `computedContext` has hand-authored context, and
+// `scope` is registry-authored for every row. Comparing those against the
+// registry compares the row to itself. This mode prints that split, which is
+// the measurement the arc's scope decision turned on.
+if (process.argv.includes("--derivability")) {
+  const REG = "tests/adminAlerts/alertProducerScope.registry.ts";
+  const regSrc = readFileSync(REG, "utf8");
+  const blocks = [...regSrc.matchAll(/\{[^{}]*?site:\s*"([^"]+)"[^{}]*?\}/gs)].map((m) => m[0]);
+  const rows = blocks.map((b) => ({
+    site: (b.match(/site:\s*"([^"]+)"/) || [])[1],
+    code: (b.match(/code:\s*"([^"]+)"/) || [])[1] ?? null,
+    ctx: ((b.match(/contextKeys:\s*\[([^\]]*)\]/) || [])[1] || "")
+      .replace(/["\s]/g, "")
+      .split(",")
+      .filter(Boolean)
+      .sort()
+      .join(","),
+    dynamic: /dynamic:\s*true/.test(b),
+    computed: /computedContext:\s*true/.test(b),
+  }));
+  const dyn = rows.filter((r) => r.dynamic).length;
+  const comp = rows.filter((r) => r.computed).length;
+  const both = rows.filter((r) => r.dynamic && r.computed).length;
+  const derivable = rows.filter((r) => !r.dynamic && !r.computed);
+  const g = new Map();
+  for (const r of derivable) {
+    const k = [r.site.replace(/:\d+$/, ""), r.code, r.ctx].join("  ");
+    if (!g.has(k)) g.set(k, []);
+    g.get(k).push(r);
+  }
+  let bound = 0,
+    ambiguous = 0;
+  for (const [, a] of g) a.length === 1 ? bound++ : (ambiguous += a.length);
+  console.log(`\n${REG}`);
+  console.log(`rows=${rows.length}  dynamic=${dyn}  computedContext=${comp}  both=${both}`);
+  console.log(
+    `site-derivable (neither flag) = ${derivable.length} of ${rows.length} = ${Math.round((100 * derivable.length) / rows.length)}%`,
+  );
+  console.log(
+    `  of those: Bound=${bound}  Ambiguous=${ambiguous}   (anchor without the registry-authored scope)`,
+  );
 }

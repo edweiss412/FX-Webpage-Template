@@ -18,7 +18,7 @@ This is a guard-adjacent arc. The four bounds below are stated before the design
 
 **Threat fence.** The defect this defends against is the ordinary refactor: a hoisted emit, a new import, a new header button, a reordered block. An author deliberately constructing two indistinguishable sites to defeat the key is out of scope and files to §7. Nothing here is a security boundary.
 
-**Narrowing.** Where the key form cannot express a site, it DECLINES with a surfaced reason and the row stays line-keyed. The key grammar is closed and stated in §3.2. It does not grow a new anchor kind to capture the next awkward site. §4.3 measures the decline set at 40 of 207 rows and treats that as the design working, not as debt.
+**Narrowing.** Where the key form cannot express a site, it DECLINES with a surfaced reason and the row stays line-keyed. The key grammar is closed and stated in §3.2. It does not grow a new anchor kind to capture the next awkward site. §4.3 measures declining as the common case rather than the exception, and treats that as the design working, not as debt: 97 of 158 JSX rows and 8 of 47 emit rows decline. Once the declining set is the majority, the honest reading is §4.5's, that the key does not pay.
 
 ## 1. What is actually keyed by line
 
@@ -181,7 +181,7 @@ One registry the ledger row mentions is deliberately ABSENT from this table: `te
 | `tests/styles/controlOutlineScan.ts` | 62 | 35 | 19 | 4 | 50 | 3 | 0 | 9 |
 | `tests/db/postgrest-dml-lockdown.test.ts` | 33 | 35 | 4 | 11 | 0 | 0 | 0 | **33** |
 | `tests/styles/subtleInteractiveExemptions.ts` | 13 | 9 | 9 | 1 | 8 | 0 | 0 | 5 |
-| `tests/styles/_metaControlOutlineResidue.test.ts` | 12 | 9 | 8 | 2 | 8 | 0 | 0 | 4 |
+| `tests/styles/_metaControlOutlineResidue.test.ts` | 10 | 9 | 8 | 2 | 2 | 0 | 0 | 8 |
 | `tests/styles/_metaControlOutlineFill.test.ts` | 22 | 3 | 3 | 1 | 17 | 2 | 0 | 3 |
 | `tests/help/_metaServerTimeGuard.test.ts` | 13 | **0** | 0 | 0 | 0 | 0 | 13 | 0 |
 | `tests/specLint/expectContractCorpus.test.ts` | 10 | n/a | n/a | n/a | 0 | 0 | 0 | 10 |
@@ -200,8 +200,18 @@ trusted, and they are kept because the error is the reusable part.
 ### 4.3 Anchorability, measured three times, wrong twice
 
 **JSX side: 39%, not the 79% first stated.** The opening-tag window truncated at the first
-`>`, and an inline `onClick={() => ...}` contains one. Corrected over 160 rows: 59 unique
-testid, 4 duplicated testid, 3 unique label, 94 no anchor.
+`>`, and an inline `onClick={() => ...}` contains one. `node scripts/line-key-census.mjs
+--ambiguity` now prints the corrected split, over the five style registries (158 rows after the
+constructed-input exclusion):
+
+```
+controlOutlineScan          62   testid-uniq 26  dup 2  label 0   no-anchor 34
+tapTargetCensus             51   testid-uniq 19  dup 1  label 3   no-anchor 28
+_metaControlOutlineFill     22   testid-uniq  8  dup 0  label 0   no-anchor 14
+subtleInteractiveExemptions 13   testid-uniq  3  dup 1  label 0   no-anchor  9
+_metaControlOutlineResidue  10   testid-uniq  2  dup 0  label 0   no-anchor  8
+                           158   anchored 61 (58 testid + 3 label)   declining 97   = 39%
+```
 
 **A duplicate anchor is not rare, and one case carries seven rows.** `app/me/meShowSections.tsx`
 renders `` data-testid={`me-show-card-${show.slug}`} `` at three separate sites in that one file (lines 175, 214 and 259).
@@ -211,14 +221,16 @@ all return `Ambiguous`. They had been counted as migrating testid rows. This is 
 case, not a constructed one, and it is the clearest evidence that a template-literal testid is
 an identifier for a RUNTIME instance and not for a SITE.
 
-**Emit side: 43%, not the 83% stated when the scope call was made.** This is the one that
+**Emit side: 43%, not the 83% stated when the scope call was made.** Reproduced by
+`node scripts/line-key-census.mjs --derivability`. This is the one that
 mattered, and it is the sharpest error in the arc. The grammar requires `code`, `context` and
 `scope`, and §3.2 says anchor content is read out of the SITE. For most rows it cannot be:
 
 ```
-rows=47  dynamic=20  computedContext=12  both=5  seed=3
-site-derivable (neither dynamic nor computed): 20 of 47 = 43%
-  of those 20, resolving uniquely without the registry-authored scope: 20, ZERO ambiguous
+$ node scripts/line-key-census.mjs --derivability
+rows=47  dynamic=20  computedContext=12  both=5
+site-derivable (neither flag) = 20 of 47 = 43%
+  of those: Bound=20  Ambiguous=0   (anchor without the registry-authored scope)
 ```
 
 Discovery represents a dynamic code as `code == null`
@@ -245,8 +257,10 @@ Two further census defects, both found by review rather than by me:
   files (`ShareHub.tsx`, `PublishedToggle.tsx`); they are test-local inputs, never joined to a
   recomputed line, and cannot churn. The census counted them.
 - **The `decline` column measures "no syntactic anchor present", not the final declined
-  population.** Adding §5's emit declines to it gives 49 of 207, not 40. Three sections
-  asserted the smaller number.
+  population.** The column counts rows with no syntactic anchor at all; a row whose anchor
+  exists but does not discriminate declines too, and is counted nowhere in it. Three sections
+  asserted the column's figure as if it were the final one. `--ambiguity` now prints both, and
+  §4.3 quotes it.
 
 Every one of these shares a shape: **an anchor, or a row, that EXISTS counted as one that
 DISCRIMINATES.** On an arc whose subject is keys drifting from their referents, a
@@ -297,8 +311,9 @@ No registry migrates and no resolver ships. Three things do.
 
 ### 6.1 The measurement instrument
 
-`scripts/line-key-census.mjs` — walker-derived, four modes (`--anchors`, `--collisions`,
-`--proximity`, `--ambiguity`), producing every number in this document. It carries the two
+`scripts/line-key-census.mjs` — walker-derived, five modes (`--anchors`, `--collisions`,
+`--proximity`, `--ambiguity`, `--derivability`), producing every number in this document that is
+not explicitly marked a historical git-history measurement (§4.5). It carries the two
 repairs review found: a row is load-bearing only when it is actually joined against a
 recomputed line, so a constructed `ScanElement` naming a real file no longer counts (§4.4);
 and the `decline` column is named for what it measures, "no syntactic anchor present", with
@@ -378,7 +393,8 @@ someone could measure rather than feel.
 6. **An anchor that EXISTS is not an anchor that DISCRIMINATES**, and the shape appeared five
    times in this document's own numbers before review caught the last of them (§4.4). Swept
    across every anchor kind rather than patched per instance: `emit` declines 8 of 47 on
-   ambiguity and cannot derive 27 more; `testid` is duplicated in 15 of 74 files; `label`
+   ambiguity under the full anchor (9 under `--collisions`' coarser `(file, code)` grouping, §4.4
+   item 3) and cannot derive 27 more; `testid` is duplicated in 15 of 74 files; `label`
    measured unique, 0 ambiguous. The derived cover is the census's `--ambiguity` mode, not this
    list, so a newly-duplicated anchor is caught without re-running the analysis.
 

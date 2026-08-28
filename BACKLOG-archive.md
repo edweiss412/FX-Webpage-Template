@@ -25,7 +25,7 @@ The arc's own prototype passed 14 of 14 and did not catch this, because it compa
 
 ### What shipped instead
 
-`scripts/line-key-census.mjs`, walker-derived, four modes (`--anchors`, `--collisions`, `--proximity`, `--ambiguity`), producing every number above and in the spec. It is what will settle this question in minutes next time rather than in an arc.
+`scripts/line-key-census.mjs`, walker-derived, five modes (`--anchors`, `--collisions`, `--proximity`, `--ambiguity`, `--derivability`), producing every number above except the git-history attribution, which the spec's §4.5 marks as a historical measurement and names both of its methods. It is what will settle this question in minutes next time rather than in an arc.
 
 One finding is worth carrying on its own: **today's `file:line` keys can already misbind SILENTLY**, which the row did not claim. `controlOutlineScan.ts:261` resolves whatever element now occupies the keyed line, and 16 keyed-row pairs across six registries sit within 20 lines of each other (`--proximity`). That is a defect, not merely a maintenance cost, and it is recorded in the spec's §2 rather than repaired here.
 
