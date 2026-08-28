@@ -14,7 +14,7 @@ import {
   synthesizeFixtureFindings,
   type FixtureSpliceEntry,
 } from "../lib/specLint/fixtureContract";
-import { splitLines } from "../lib/specLint/parse";
+import { parseDoc, splitLines } from "../lib/specLint/parse";
 import {
   collectionProbePlanForText,
   parseCheckPlanForText,
@@ -30,6 +30,11 @@ import {
 import { acCommandPlan } from "../lib/specLint/acCoverage";
 import { acKey, type AcParseResults } from "../lib/specLint/types";
 import { exitCodeForResult, runLint } from "../lib/specLint/run";
+import {
+  configsToProbe,
+  playwrightCollectionPlan,
+  type PlaywrightCandidate,
+} from "../lib/specLint/expectContract";
 import { CHECK_ORDER } from "../lib/specLint/types";
 // The adapter may import from tests/ — established by scripts/print-mutation-sites.ts,
 // which imports tests/mutation/source/operators. This is precisely why the registry is
@@ -170,6 +175,86 @@ function usage(json: boolean, msg: string): CliOutput {
     stderr: json ? JSON.stringify({ error: msg }) : msg,
     exitCode: 2,
   };
+}
+
+/** One record per DISTINCT config the expect-N Arm B plan wants observed. */
+export interface CollectionSpawnRecord {
+  /** The candidate's config value — `(default)` or a config path (§5.1). */
+  config: string;
+  outcome: ExecOutcome;
+  stdout: string;
+  stderrTail: string;
+}
+
+/**
+ * Expect-N Arm B normalization (spec §5.2): reporter `file` values are
+ * relative to that report's own `config.rootDir`, so each is joined to it and
+ * repo-relativized into the §5.1 token spelling. A record that did not exit 0,
+ * or whose stdout does not parse as a reporter document, becomes
+ * `{ unavailable }` carrying the reason AND the stderr tail (§5.3) — absence
+ * of an observation is never an observation of absence.
+ */
+export function buildCollectedSets(
+  records: readonly CollectionSpawnRecord[],
+  repoRoot: string,
+): Map<string, ReadonlySet<string> | { unavailable: string }> {
+  const out = new Map<string, ReadonlySet<string> | { unavailable: string }>();
+  for (const record of records) {
+    if (record.outcome.kind !== "exit" || record.outcome.code !== 0) {
+      const reason =
+        record.outcome.kind === "exit"
+          ? `--list exited ${record.outcome.code}`
+          : record.outcome.kind === "timeout"
+            ? "--list timed out"
+            : record.outcome.kind === "signal"
+              ? `--list was signalled (${record.outcome.signal})`
+              : `--list could not be spawned`;
+      out.set(record.config, { unavailable: `${reason}; stderr: ${record.stderrTail}` });
+      continue;
+    }
+    try {
+      // `pnpm exec` may prefix non-JSON output; the report is the first `{`.
+      const raw = record.stdout;
+      const parsed = JSON.parse(raw.slice(raw.indexOf("{"))) as {
+        config?: { rootDir?: string };
+        suites?: unknown[];
+      };
+      const rootDir = parsed.config?.rootDir;
+      if (typeof rootDir !== "string" || rootDir === "") {
+        out.set(record.config, {
+          unavailable: `reporter output carries no config.rootDir; stderr: ${record.stderrTail}`,
+        });
+        continue;
+      }
+      const files = new Set<string>();
+      const walk = (suite: unknown): void => {
+        if (typeof suite !== "object" || suite === null) return;
+        const s = suite as { file?: unknown; specs?: unknown[]; suites?: unknown[] };
+        for (const spec of s.specs ?? []) {
+          const f = (spec as { file?: unknown }).file;
+          if (typeof f === "string") {
+            const abs = resolve(rootDir, f);
+            const rel = abs.startsWith(repoRoot + sep)
+              ? abs
+                  .slice(repoRoot.length + 1)
+                  .split(sep)
+                  .join("/")
+              : abs;
+            files.add(rel);
+          }
+        }
+        for (const child of s.suites ?? []) walk(child);
+      };
+      for (const suite of parsed.suites ?? []) walk(suite);
+      out.set(record.config, files);
+    } catch (e) {
+      const detail = e instanceof Error ? e.message.split("\n")[0] : String(e);
+      out.set(record.config, {
+        unavailable: `reporter output is not parseable JSON (${detail}); stderr: ${record.stderrTail}`,
+      });
+    }
+  }
+  return out;
 }
 
 export function renderText(result: LintResult): string {
@@ -691,6 +776,8 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
     let execResults: ExecResults | null = null;
     let probeResults: ProbeResults | null = null;
     let fixtureResults: FixtureResults | null = null;
+    let expectPlan: readonly PlaywrightCandidate[] | null = null;
+    let expectCollected: Map<string, ReadonlySet<string> | { unavailable: string }> | null = null;
     if (execRed) {
       const outcomes = new Map<number, ExecOutcome>();
       const stderrTails = new Map<number, string>();
@@ -721,6 +808,28 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       // Fixture blocks run LAST: they are whole vitest boots, and a boot
       // between two red observations would run another suite's module scope.
       fixtureResults = runFixtureSplice(spliceFixturePlanForText(text), deps, timeoutMs).results;
+
+      // Expect-N Arm B (spec §5.2): one `--list` spawn per DISTINCT config of
+      // the candidate plan — collection is a property of the config, not the
+      // command. `--list` boots no webServer.
+      if (docKind === "plan") {
+        expectPlan = playwrightCollectionPlan(parseDoc(text), docKind);
+        const records: CollectionSpawnRecord[] = [];
+        for (const config of configsToProbe(expectPlan)) {
+          const command =
+            config === "(default)"
+              ? "pnpm exec playwright test --list --reporter=json"
+              : `pnpm exec playwright test --list --reporter=json --config ${config}`;
+          const r = deps.spawn(command, root, timeoutMs, "exec");
+          records.push({
+            config,
+            outcome: classifySpawnResult(r),
+            stdout: r.stdout ?? "",
+            stderrTail: tailOf(r),
+          });
+        }
+        expectCollected = buildCollectedSets(records, root);
+      }
     }
 
     // ---- claim sweep (claim-sweep spec §3.3): the swept set is DECLARED ----
@@ -801,6 +910,10 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       { surfaces: enrolledSurfaces, dispositions: NOT_A_PIN, prepareSuite: prepareSuiteText },
       sweepInput,
       { blocks: acBlocks, parse: acParse },
+      // Expect-N Arm B observation (spec §6): present only under --exec-red.
+      expectPlan !== null && expectCollected !== null
+        ? { plan: expectPlan, collected: expectCollected }
+        : null,
     );
     return {
       stdout: json ? JSON.stringify(result) + "\n" : renderText(result),
