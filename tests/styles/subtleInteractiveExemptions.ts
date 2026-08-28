@@ -61,7 +61,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/showpage/sectionWarningExtras.tsx",
-    line: 272,
+    // :272 until 2026-08-27 — the two anchorIds props (spec §4.4) sit above it.
+    line: 277,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

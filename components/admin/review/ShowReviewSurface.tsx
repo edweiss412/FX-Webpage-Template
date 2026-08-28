@@ -570,6 +570,17 @@ export function ShowReviewSurface({
       handleNavClick(jump.sectionId); // anchor missing → section-top, no flash
       return;
     }
+    // §4.4 (amended plan R4): a crew warning past the under-row cap renders
+    // INSIDE a closed `<details>` (CrewUnderRowStack, CAP = 2), whose contents
+    // have no layout — so the scroll would land on a collapsed box and the flash
+    // would fire on something the operator cannot see. Open every closed
+    // disclosure ancestor BEFORE measuring. Inert for alert/hold anchors, none
+    // of which sits inside a `<details>` today.
+    for (let el: HTMLElement | null = target; el && el !== scroller; el = el.parentElement) {
+      if (el.tagName === "DETAILS" && !(el as HTMLDetailsElement).open) {
+        (el as HTMLDetailsElement).open = true;
+      }
+    }
     setActive(jump.sectionId);
     if (hashSync && typeof window !== "undefined") {
       window.history.replaceState(null, "", `#${jump.sectionId}`);

@@ -43,7 +43,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:3800":
+  "components/admin/wizard/step3ReviewSections.tsx:3801":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -299,7 +299,15 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // it was replaced, which is what "deliberately" means here: membership is unchanged
     // at 35 both sides, and exactly ONE row moved, step3ReviewSections.tsx 3755 -> 3800,
     // same file, same form, same marked state. A pure line shift from insertions above it.
-    expect(digest).toBe("8b2d031d8908348eae2947d704dca1b57d90be10702f46ad4edcf8cc9c62598e");
+    //
+    // Regenerated again 2026-08-27 for feat/wizard-review-attention-menu, delta read
+    // the same way — by mapping every candidate row through the branch's own diff
+    // hunks against the merge base, not by eyeballing the failure. Membership
+    // unchanged at 35, and again exactly ONE row moved, step3ReviewSections.tsx
+    // 3800 -> 3801: the isWarnSeverity import line (spec §2.1) sits above it. Same
+    // file, same form, same marked state. Only ONE of the 35 rows lives in any file
+    // this branch touched at all.
+    expect(digest).toBe("3e6d0e4031f21eccde93d587c0cc9696776f68fd0c680799da535ceb38fbc4dc");
   });
 });
 

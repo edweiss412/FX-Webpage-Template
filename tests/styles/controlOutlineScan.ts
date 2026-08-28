@@ -180,9 +180,13 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/dev/SwitcherControls.tsx", line: 142 },
   { file: "components/admin/nav/UserMenu.tsx", line: 51 },
   // :814 / :993 until 2026-08-27 — the isWarnSeverity import line (spec §2.1).
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 815 },
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 994 },
-  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 979 },
+  // :815 / :994 until 2026-08-27 — the attentionJump effect gained the
+  // details-opening loop (spec §4.4), 11 lines above both.
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 826 },
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1005 },
+  // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
+  // above the pill button (spec §4.1/§4.4).
+  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1006 },
   { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 119 },
   { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
   { file: "components/agenda/AgendaEmbed.tsx", line: 83 },
@@ -214,7 +218,7 @@ export const DIVIDERS: readonly CensusRow[] = [
   // :189 until 2026-08-27. The needs-you row moved into the exported
   // AttentionMenuRow (spec §5) so the wizard index renders the same row; the
   // divider recipe itself is byte-identical, pinned by the committed baseline.
-  { file: "components/admin/showpage/AttentionMenu.tsx", line: 206 },
+  { file: "components/admin/showpage/AttentionMenu.tsx", line: 269 },
   // :85 until 2026-08-26. The control-outline-cover sweep gave `FilterTextInput`
   // its own outline recipe and a `cn` import, which moved every element below
   // it. The divider itself is untouched; what moved is where it sits.

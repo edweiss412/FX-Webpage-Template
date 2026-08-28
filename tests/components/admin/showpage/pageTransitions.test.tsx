@@ -138,7 +138,12 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // two, retiring the confirm segment's cap conditional, the review segment and
   // its own cap conditional, and one separator conditional. MEASURED by running
   // the scanner, not predicted.
-  "components/admin/showpage/PublishedReviewModal.tsx": 8,
+  // 8 → 11 (wizard-review-attention-menu §4.2, Task 6): the sheet-warnings pill
+  // segment adds three instant sites — the segment itself, its leading
+  // separator, and its own 99+ sr-only cap expansion — the same three shapes the
+  // issues and monitoring segments already carry. All follow derived counts; no
+  // AnimatePresence, no enter/exit. MEASURED by running the scanner.
+  "components/admin/showpage/PublishedReviewModal.tsx": 11,
   // attention split 2026-07-21 §8: AttentionMenu enters the audit registry with
   // its new clearing groups (needs-a-look rows: subtitle, hint, action anchor,
   // external arrow; monitoring summary; group wrappers). Every site is an
@@ -164,7 +169,11 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // attentionMenuFrame.test.tsx (its placement between panel edge and
   // scroller). A NEW conditional in this file still bumps the count and fails.
   // MEASURED by running the scanner, not predicted.
-  "components/admin/showpage/AttentionMenu.tsx": 2,
+  // 2 → 3 (wizard-review-attention-menu §4.3, Task 6): the optional Sheet
+  // warnings group is one instant omit/mount, absent → the panel is
+  // byte-identical (pinned by publishedAttentionBaseline.test.tsx). MEASURED by
+  // running the scanner.
+  "components/admin/showpage/AttentionMenu.tsx": 3,
   // modal-header-reconciliation §9: 8 → 7 (Task 2, the `renderTitle` head site —
   // which covered the h1 AND its adjacent title divider — deleted with the prop)
   // → 6 (Task 5, the alert badge relocated to the modal header, §6.6). Task 7

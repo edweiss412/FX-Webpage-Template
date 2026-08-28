@@ -31,9 +31,23 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
+import { reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
+import type { WarningAttentionEntry } from "@/lib/admin/warningAttention";
+import type { SectionId } from "@/lib/admin/step3SectionStatus";
+import type { ParseWarning } from "@/lib/parser/types";
 import { autoResolveNote, NEEDS_LOOK_CODES, type NeedsLookCode } from "@/lib/adminAlerts/audience";
 import { NEEDS_LOOK_HINTS } from "@/lib/admin/needsLookHints";
 import { cn } from "@/lib/ui/cn";
+
+/** One indexed sheet warning. `reportSurfaceId` is content-derived, so two
+ *  identical warnings in a section share an `id` (spec §10) — which is why the
+ *  row testid and React key carry the entry's POSITION as well. */
+export type SheetWarningEntry = WarningAttentionEntry<{
+  id: string;
+  sectionId: SectionId;
+  warning: ParseWarning;
+  reportSurfaceId: string;
+}>;
 
 export type AttentionMenuProps = {
   items: AttentionItem[];
@@ -41,6 +55,13 @@ export type AttentionMenuProps = {
   onClose: () => void;
   onNavigate: (item: AttentionItem) => void;
   pillRef: RefObject<HTMLButtonElement | null>;
+  /** ABSENT → the panel is byte-identical to the alerts-only menu (spec §4.3).
+   *  Entries and their handler travel together so the type cannot express a
+   *  list of rows with nothing to do when one is clicked. */
+  warningIndex?: {
+    entries: readonly SheetWarningEntry[];
+    onNavigate: (entry: SheetWarningEntry) => void;
+  };
 };
 
 const TONE_DOT: Record<AttentionItem["tone"], { dot: string; srText: string }> = {
@@ -76,7 +97,14 @@ export type AttentionMenuRowProps = {
   onSelect: () => void;
 };
 
-export function AttentionMenu({ items, open, onClose, onNavigate, pillRef }: AttentionMenuProps) {
+export function AttentionMenu({
+  items,
+  open,
+  onClose,
+  onNavigate,
+  pillRef,
+  warningIndex,
+}: AttentionMenuProps) {
   if (!open) return null;
 
   // attention-index §2.1: TWO groups. `monitoring` is the former self-heal
@@ -93,11 +121,14 @@ export function AttentionMenu({ items, open, onClose, onNavigate, pillRef }: Att
   // A monitoring-only open must not render an empty "Needs you" section; the
   // panel takes its accessible name from the first group actually present.
   const hasNeedsYou = needsYou.length > 0;
+  const sheetWarningRows = warningIndex?.entries ?? [];
 
   return (
     <AttentionMenuFrame
       testId="published-show-review-attention-menu"
-      ariaLabel={hasNeedsYou ? "Needs you" : "Monitoring"}
+      ariaLabel={
+        hasNeedsYou ? "Needs you" : sheetWarningRows.length > 0 ? "Sheet warnings" : "Monitoring"
+      }
       scrollerLabel="Attention items"
       pillRef={pillRef}
       onClose={onClose}
@@ -144,20 +175,52 @@ export function AttentionMenu({ items, open, onClose, onNavigate, pillRef }: Att
           />
         );
       })}
+      {sheetWarningRows.length > 0 ? (
+        /* Sheet warnings (spec §4.3): an index of the sheet's own parse
+           warnings, between the alert rows and the monitoring rows. Same row
+           component as Needs you, so the two can never drift apart visually. */
+        <div data-testid="attention-sheetwarnings-group">
+          <div
+            data-testid="attention-sheetwarnings-heading"
+            className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasNeedsYou ? "border-t border-border" : "rounded-t-md"}`}
+          >
+            <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+              Sheet warnings
+            </span>
+          </div>
+          {sheetWarningRows.map((entry, i) => (
+            <AttentionMenuRow
+              key={`${entry.id}:${i}`}
+              testId={`attention-menu-row-${entry.id}-${i}`}
+              dotClassName={entry.tone === "judgment" ? "bg-text-faint" : "bg-status-review"}
+              srText={entry.tone === "judgment" ? "judgment call: " : "needs review: "}
+              title={reviewWarningTitle(entry.warning)}
+              secondLine={entry.sectionLabel}
+              truncateSecondLine
+              onSelect={() => {
+                onClose();
+                warningIndex!.onNavigate(entry);
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
       {monitoring.length > 0 ? (
         /* Monitoring group (monitoring-badge-expand §3.2): one read-only row
            per item - title + auto-resolve note. No interactive descendants,
            no transitions (§3.4: instant; computed-style pinned in e2e). */
         <div
           data-testid="attention-monitoring-group"
-          className={hasNeedsYou ? "border-t border-border" : undefined}
+          className={
+            hasNeedsYou || sheetWarningRows.length > 0 ? "border-t border-border" : undefined
+          }
         >
           {/* rounded-t when this group leads the panel: the sunken header must
               not bleed past the rounded border. Testid on the CONTAINER, per
               the needs-you heading above. */}
           <div
             data-testid="attention-monitoring-heading"
-            className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasNeedsYou ? "" : "rounded-t-md"}`}
+            className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasNeedsYou || sheetWarningRows.length > 0 ? "" : "rounded-t-md"}`}
           >
             <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
               Monitoring
