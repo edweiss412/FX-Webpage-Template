@@ -11,6 +11,53 @@ Shipped two `spec:lint` arms in `lib/specLint/expectContract.ts`, both reporting
 
 Mutation enrolment `specLintExpectContract`: score 38/38 at floor 0.94, zero unaccepted survivors, 3 ledgered equivalents, full operator set. Residual limits (non-integer expectations, trailing prose, whole-line comments, `--project` filtering, continuation/multi-invocation declines) live in the spec's §7 with re-file triggers, per the process mint freeze.
 
+## BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS — two `lib/parser/dataGaps.ts` filters drop a severity-less warning, a third in `lib/sync` writes one out, and what keeps it harmless is which codes happen to exist — CLOSED 2026-08-28, DEMOTED ON A QUALIFIED ZERO
+
+**Status:** CLOSED 2026-08-28 (`fix/severityless-warning-filters`), demoted to a documented limit rather than repaired · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 2 class sweep) · **Facing:** product · **Severity:** LOW-MEDIUM as filed · **Class:** severity-predicate divergence · **Effort:** S
+
+The row was filed `**Reachability:** INFERRED, NOT PROBED` and named its own probe as its first scheduled step. That probe ran, three times, and the first two answers were wrong. The full measurement, the queries that reproduce it and the re-file trigger live in `docs/superpowers/specs/2026-08-27-wizard-review-attention-menu-design.md` §10.1.
+
+**The class is three sites, not the two the row named.** Sweeping `lib/ components/ app/` rather than the row's inherited `lib/admin components/admin` plus `lib/parser` adds `lib/sync/phase1.ts:203`, `warningSummary`, which builds the persisted `pending_syncs.warning_summary`. Its own comment states `isWarnSeverity` intent while the code tests `=== "warn"`.
+
+**Severity-less warnings EXIST: 198 of them.** Measured on validation over an inventory DERIVED from `information_schema` rather than hand-listed, because two earlier drafts each missed a population (`sync_log`, then `pending_ingestions`). Of 43 jsonb columns, three hold warning-shaped elements: `shows_internal` 18 of 18 with 0 severity-less, `pending_syncs.parse_result.warnings` 55 of 55 with 0, and `sync_log.parse_warnings` 381 warning-shaped out of 400 array elements, with **198 severity-less** (179 carrying a `code` key, 19 carrying none). `pending_ingestions.last_warnings` and `shows_pending_changes.payload` are warning-bearing but empty; §10.1's query `left join`s a row-count arm precisely so an empty population appears as zero instead of vanishing from a `group by`.
+
+**The demotion does NOT rest on the code arm, which never executes here.** Both read sites evaluate severity FIRST and short-circuit, so a severity-less element never reaches their code test. A severity-less `FIELD_UNREADABLE`, a member of BOTH gating sets, is dropped today; that is the defect, and it is demonstrable. What makes it harmless is only which codes actually occur: the 198 carry `SYNC_INFRA_ERROR` (178), no `code` key at all (19) and `SYNC_FILE_FAILED` (1), none of which is in `DATA_GAP_CODES` (39) or `OPERATOR_ACTIONABLE_ANCHORED` (24). Repairing the predicate would route them to the code test and they would be rejected there, so the two read sites' output is byte-identical before and after. `warningSummary` has no code arm; what protects it is its own input holding 0 severity-less of 55. The repair would move counts on three pinned suites while changing nothing observable, which is what the filing bar demotes.
+
+**The strength of that basis, named:** empirical absence over an `information_schema`-derived population set, plus a trigger that detects its own condition by code. Absence-with-detection, strictly weaker than a structural guard, since nothing PREVENTS a severity-less element from carrying a gating-set code and both read sites would then drop a row the badge counts, silently. A limit with a live trigger, not a closed defect.
+
+**Re-file trigger, any one, each checkable:** a code returned by §10.1's code-grouped query that the published membership check reports as a gating-set member; any non-zero severity-less count in `pending_syncs.parse_result.warnings`; or an addition to either gating set, which can promote an already-stored code without any row changing. Re-deriving the column list is part of the procedure, so a new warning-bearing column is found rather than assumed absent.
+
+**Line numbers, live at close:** `lib/parser/dataGaps.ts:129` and `:466` (the row said `:465`; it drifted), `lib/sync/phase1.ts:203`. Durable anchors are the function names.
+
+## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
+
+**Status:** RESOLVED 2026-08-27 (`perf/admin-diagram-next-image`) · **Severity:** low · **Class:** PERF / consistency · **Effort:** M
+
+`components/admin/wizard/step3ReviewSections.tsx` has two same-shape `<img>` sites — the staged-diagram
+preview and the published breakdown that builds `/api/asset/diagram/` srcs. They are the same defect
+shape the crew gallery just fixed, and the loader plus the ingest variant ladder are reusable there
+as-is: `makeDiagramLoader` (`lib/images/diagramLoader.ts`) already takes manifest `variants` and
+returns asset-route URLs, and the manifest fields land for every show at its next snapshot.
+
+Deferred under the class-sweep disposition rule's exception **(c)**, ratified in the design session
+(`docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §1.1): the repair lands
+inside a ~4000-line admin wizard file the shipping PR does not otherwise touch, which blows its review
+scope; and the value driver — crew bandwidth on venue 4G — does not apply to a desktop admin surface.
+This is NOT "same defect, different file" with nothing more to say: the exception is named, and the
+reason it applies is that the cost of the repair is dominated by the file it lives in rather than by
+the change itself.
+
+**Un-defer trigger:** any work that already opens `step3ReviewSections.tsx` for another reason should
+carry these two sites with it, since the marginal cost then collapses to the edit itself.
+
+**Resolution:** Both sites now render through `makeDiagramLoader`. The STAGED site supplies a width-independent loader — a staged stub can never carry a ladder, since `variants` lives on the persisted entry types only — and the PUBLISHED site builds width-matched variant URLs from the manifest. The file held ONE raw `<img>` element inside the shared `DiagramTile`; the two sites the row named are the two src BUILDERS that feed it, the staged default and the published `/api/asset/diagram/` builder.
+
+**Measured, which is the point of a PERF row.** Over the real ingest ladder on a real 1280×1776 PNG (99,456 bytes): tiers at 2,282 / 7,422 / 21,124 bytes. For the 12-tile grid at the desktop tile width, DPR 2 selects the 512 tier — **1,193,472 bytes before, 89,064 after, 92.5% fewer**; 97.7% at DPR 1 and on the 390px sheet. Stated as what it is: the ingest ladder measured on a real image, not a live show's asset route, because no local show carries diagram snapshots.
+
+**Three things the arc found that the row did not anticipate.** The tile's failure state was a one-way trapdoor under a stable React key — an unavailable diagram that became available stayed a placeholder forever, and a failed tile never recovered when a snapshot landed a ladder; that is repaired. A revision-less published row was building a doubled-slash URL and depending on the asset route to 410 it, so the tile now declines to ask. And the tile anchor had no focus-visible ring while all nine sibling links in the file did.
+
+**Filed forward:** `DIAGRAMTILE-FAILURE-STATE-COPY-1` (DEFERRED.md — one string for two failure states, plus the placeholder's 1.22:1 border, deferred as a product-copy decision), `BL-DIAGRAM-TILE-CHROME-CONSISTENCY` (the crew gallery puts the tile border on the cell, this one on the image — measured cosmetic, ruled out of scope for a perf arc), and `BL-BARE-TYPEOF-STRING-ID-GUARDS` (12 of 27 id-like guards in `lib/` accept an empty string as a usable id; this arc closed the diagrams door only).
+
 ## BL-TELEMETRY-FALLBACK-RETRY — the scheduled-job health fallback states the cause but offers no retry — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** S for the row's own site, M with the two peers the sweep found · **Shipped by:** `feat/telemetry-fallback-retry` (PR #924) · **Plan:** `docs/superpowers/plans/2026-08-27-telemetry-fallback-retry.md` · **Closeout:** the stem-named sibling beside it
@@ -3797,6 +3844,26 @@ Order follows the original BACKLOG.md layout, not resolution date — **grep by 
 Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-archive.md): the working queue stays a queue, the changelog lives here.
 
 ---
+
+### BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED — the published attention spec's resolve-lifecycle case fails on unmodified code, cause unattributed
+
+**Status:** RESOLVED 2026-08-28 (`fix/published-attention-resolve-red`, PR #931) · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9 Step 5) · **Facing:** product · **Severity:** MEDIUM-UNKNOWN (either an operator cannot resolve an alert from the published modal, or a spec has gone stale — the severity depends entirely on which, and that is the open question) · **Class:** unattributed e2e red · **Effort:** S to attribute, unknown to fix · **Class-sweep exception:** (a) — the repair direction cannot be chosen before attribution, and attribution is itself the first task.
+
+**What is red.** `tests/e2e/published-show-attention.spec.ts` "resolve lifecycle: 2 issues → 1 issue → In sync, without reload (LAST — mutates)". After clicking the overview alert's resolve control, the header pill does not decrement: it stays at its arrival count for the full 5s expect window (`Expected substring: "1 issue" / Received string: "2 issues · 1 sheet warning"`). A later run failed earlier and differently, on a `toBeVisible`, so it is not one deterministic assertion.
+
+**Reachability:** PROBED 2026-08-27. Not inferred from a red on a modified tree: both files this branch touches in that spec's dependency set (`published-show-attention.spec.ts`, `tests/e2e/helpers/seedShowWithCrew.ts`) were reverted to HEAD, the spec was rerun against the local stack, and the case failed identically — 5 passed, 1 failed. So the red predates this branch.
+
+**Why nobody knew.** No workflow runs this spec. `rg -n "^\s+run:.*published-show-attention" .github/workflows/*.yml` matches nothing (a `paths:` mention does not count — the structural position is the `run:` step). An unrun spec is a dark surface, and this is what dark looks like: a case that has been red for an unknown length of time with nothing reporting it.
+
+**What shipped alongside this row.** The spec IS now wired into `published-modal-e2e.yml`, so its other six cases begin gating, and this one case carries `test.fixme` naming this row rather than being deleted or left to red CI. That is the ruled disposition (bl-orch 2026-08-27): wiring is what stops the next case drifting unnoticed; the fixme is what keeps an unrelated PR from being blocked on a foreign defect.
+
+**First task is ATTRIBUTION, not repair.** Determine whether the optimistic decrement is genuinely broken on the published modal (a product defect an operator would hit) or whether the fixture, the seeded alert shape, or the resolve control's testid has drifted under the spec. Only then is the repair direction decidable. Remove the `test.fixme` as that work's own red.
+
+**RESOLVED 2026-08-28 — attribution was (b), stale spec, and the severity collapsed.** The optimistic decrement was never broken. Both resolve POSTs return 200 and the pill was observed stepping `2 issues · 1 sheet warning` → `1 issue · 1 sheet warning` → `1 sheet warning`. What was wrong is the terminal expectation of `In sync`, which is unreachable while the fixture seeds a sheet warning: the pill's interactive branch is `needsYou.length > 0 || k > 0 || selfHeal.length > 0` (`components/admin/showpage/PublishedReviewModal.tsx:359`), `k` counts sheet warnings, and no resolve control clears one. The fixture grew that warning in `wizard-review-attention-menu` §4; the sibling auto-open case was updated to compose the new segment and this one was not. So no operator was ever unable to resolve an alert from the published modal.
+
+**What the repair changed.** The terminal and intermediate pill assertions are now exact and derived from `SEEDED_WARNINGS.length`, so adding a warning to the fixture moves every assertion that reads it rather than leaving one stale — the defect's own shape, closed. The case also reads `admin_alerts` back and asserts `resolved_at` on both rows, because every pill assertion is satisfiable by the optimistic paint alone (`expect.poll` resolves on first match; `onResolved` fires before `router.refresh()`), which review round 2 identified and a fulfil-without-server mutant then demonstrated. `published-modal-e2e.yml` gained a `DATABASE_URL`: that job is production posture, where the resolve route throws before its loopback fallback, so the re-enabled case would have been red there — invisible to all 16 local runs, and filed as `LIM-PROD-POSTURE-INVISIBLE-LOCALLY`.
+
+**Two rows filed from the attribution, neither repaired here:** `BL-LOCAL-E2E-APP-SERVER-QUERIES-VALIDATION` (the local e2e app server resolves its DB from the validation pooler) and `BL-PUBLISHED-ATTENTION-ESCAPE-CLOSES-MODAL-RACE` (the second, non-deterministic failure this row recorded, now separated from the first and carrying its own probe evidence). The `test.fixme` is gone; all seven cases gate.
 
 ### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
 

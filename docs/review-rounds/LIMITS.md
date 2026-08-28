@@ -20,7 +20,7 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Shape:** A numeric table or blast-radius transcript stated in a spec with no command producing it, so nothing can compare the table to the tree: `spec:lint` parses numerics and parses fenced commands without relating them, and a hand-maintained transcript of a command's output drifts in every direction. The sibling form is a plan that quotes a command's output without that command being re-run (a claimed 106 enrolled plans where the quoted command returns 108).
 
-**Named by:** 3 arcs — fix/mutation-shard-budget-six/9a621a5792ea.md (spec), feat/review-modal-strip-dock/ae8e9544b55a.md (spec, its second candidate; that arc's repair deleted the transcript outright), feat/speclint-ac-unclaimed-arm/44b0d74b1107.md (plan, its third shape)
+**Named by:** 4 arcs — fix/mutation-shard-budget-six/9a621a5792ea.md (spec), feat/review-modal-strip-dock/ae8e9544b55a.md (spec, its second candidate; that arc's repair deleted the transcript outright), feat/speclint-ac-unclaimed-arm/44b0d74b1107.md (plan, its third shape), fix/severityless-warning-filters/b608e71b32b5.md (diff; the published SQL could not produce the published table, and a bare `group by` dropped an empty population). **Trigger FIRED at the fourth naming; filed as `BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE` under the process freeze's `recurrence` exception.**
 
 **Owning record:** none — this index is the record
 
@@ -86,7 +86,7 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Shape:** A playwright `red=` naming a file outside the config's testMatch alternation matches nothing and exits zero, reporting success; strictly worse than unrunnable because it fails green. One membership check per playwright red against the config it names, decidable statically. **Widened by the second arc to any DECLARED playwright command, not only a `red=` marker:** that arc's instance was a regression GATE which omitted `--config` entirely, so the default config's testMatch decided membership and collected nothing. It also measured the two sides, `Total: 0 tests in 0 files` against `Total: 34 tests in 1 file`.
 
-**Named by:** 2 arcs — feat/review-modal-strip-dock/d4cd838727a3.md (plan), fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md (plan)
+**Named by:** 3 arcs — feat/review-modal-strip-dock/d4cd838727a3.md (plan), fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md (plan), perf/admin-diagram-next-image/66c9857f56a5.md (plan). At three distinct arcs the re-file trigger has fired; the freeze's admission test still governs whether anything is minted.
 
 **Owning record:** none — this index is the record (the plan closed its own instances by hand: every playwright `red=` names its config)
 
@@ -246,7 +246,9 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Shape:** A lint advisory whose reasoning is correct is dismissed as noise because nothing requires it to be dispositioned before the artifact is dispatched for review, and it returns as a paid review finding. Distinct from LIM-RED-NAME-FILTER-SEVERITY, where the advisory's severity is the defect: here the severity is arguably right, since the arm genuinely cannot tell a stale claim from a drifted line anchor, and what is missing is a dispatch-time obligation to say which it is. Repairable without a new detector: one line per advisory in the brief, saying why it is noise.
 
-**Named by:** 1 arc — fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md (spec), where `CITATION_SYMBOL_ABSENT` named the symbol and the file in the round-1 lint output, was read as locator granularity, and came back nine minutes later as that round's fourth finding
+**Named by:** 1 arc — fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md (spec), where `CITATION_SYMBOL_ABSENT` named the symbol and the file in the round-1 lint output, was read as locator granularity, and came back nine minutes later as that round's fourth finding.
+
+**Near-miss, recorded so it is not miscounted:** perf/admin-diagram-next-image/66c9857f56a5.md (plan) first claimed this slug for its stale-citation finding and then REFUTED itself by probe — restoring the stale citation left the advisory set byte-identical at 35 rows, so no advisory was ever raised and none was dismissed. That arc's instance is LIM-FOREIGN-CITATION-DRIFT. This slug's count stays at 1.
 
 **Owning record:** none — this index is the record
 
@@ -261,3 +263,44 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 **Owning record:** the no-gate fence in the README's parked-class-slugs paragraph, plus this index
 
 **Re-file trigger:** named by a 3rd distinct arc
+
+## LIM-GATE-EVIDENCE-SHAPE-ONLY
+
+**Shape:** A declared gate command whose predicate tests the SHAPE of its evidence rather than its presence, so an empty or placeholder section passes. Three sub-forms, all decidable from the gate command alone: a `grep` for a heading, which the heading satisfies while the section under it reads "Pending"; a `grep` for a table pipe, which the table HEADER satisfies with no data row; and a check for the ABSENCE of a placeholder word, which an empty section satisfies vacuously. Distinct from LIM-SWEEP-POSITIVE-CONTROL, which is about a sweep's count being unverified: here the gate reports on evidence that is simply not there. The mutant-red rule for declared gate commands already prescribes the repair — probe each against a constructed failing input — so what is parked is the obligation's placement, not the technique.
+
+**Named by:** 2 arcs — perf/admin-diagram-next-image/66c9857f56a5.md (plan), where two consecutive rounds landed on one close-out gate: the first version passed with both evidence sections reading "Pending" under real headings, and the repaired version passed on the findings table's header row; and fix/severityless-warning-filters/b608e71b32b5.md (diff), where a documented limit's re-file trigger named a condition its published query could not decide, twice in succession, the first repair still answering a different question than the trigger asked. That second naming extends the shape beyond a plan's gate command to any declared check whose command does not decide the condition its prose states.
+
+**Owning record:** none — this index is the record (the plan closed its own instance by hand: the gate now requires a P-tier data row or an explicit no-findings sentence, and names the four checklist items the pre-code section must carry)
+
+**Re-file trigger:** same as LIM-AUTHORED-RED: a product-facing arc measurably blocked
+
+## LIM-FOREIGN-CITATION-DRIFT
+
+**Shape:** A `file:line` citation into a file the branch does not own drifts onto unrelated content when the merge base moves, and NOTHING reports it — not a hard finding and not an advisory. The citation arms report only where same-line identifiers can be extracted from the citing sentence and compared against the cited file; a bare anchor (a ledger row id, a rule bullet) offers none, so the check establishes that the line is IN RANGE and never what is AT it. Same documented limit `RED_TARGET_INVALID` already carries for `red-target=`, extended to prose citations. Distinct from LIM-ADVISORY-UNDISPOSITIONED, which requires an advisory to have been raised and dismissed: here none is raised, which is why the drift survives to a paid review round.
+
+**Named by:** 1 arc — perf/admin-diagram-next-image/66c9857f56a5.md (plan), where three citations (`BACKLOG.md`, two into `docs/agents/writing-plans.md`) drifted across two `origin/main` absorbs and were charged as round 3's finding 7. Probed: restoring the stale `BACKLOG.md:68` against the corrected `:35` leaves the advisory set byte-identical, 35 rows to 35, with no row naming the file.
+
+**Owning record:** none — this index is the record (the arc's own repair is procedural: re-read every foreign line-form citation after the final absorb, matching each cited line to the symbol its sentence names)
+
+**Re-file trigger:** a second arc charged a review finding for a drifted foreign citation that produced no lint signal
+
+## LIM-HAND-LISTED-POPULATION-SET
+
+**Shape:** A measurement whose conclusion quantifies over "every X" while the X-set is hand-listed rather than derived from an authority the tree can be asked for (`information_schema`, a registry, a filesystem walk), so each review round adds one more member and the conclusion is re-falsified rather than converging. Distinct from `LIM-SWEEP-POSITIVE-CONTROL`, which is about an instrument's sensitivity to a known member; this is about the completeness of the set the instrument is pointed at. The arc that named it had a probe over "every table holding a warning array" miss `sync_log` in one round and `pending_ingestions` in the next, and each miss looked like a fresh finding rather than one class.
+
+**Named by:** 1 arc — fix/severityless-warning-filters/b608e71b32b5.md (diff)
+
+**Owning record:** the filing is the documented limit; the repair that held is deriving the column set from `information_schema` and writing the re-derivation into the re-file procedure, at `docs/superpowers/specs/2026-08-27-wizard-review-attention-menu-design.md` §10.1
+
+**Re-file trigger:** named by a 3rd distinct arc
+
+
+## LIM-PROD-POSTURE-INVISIBLE-LOCALLY
+
+**Shape:** A code path whose behavior branches on `NODE_ENV` is exercised by a test that runs green in every local run and red in CI, because the two run under different postures and nothing reports the difference. The instance: 40 sites resolve `TEST_DATABASE_URL ?? process.env.DATABASE_URL` and, when neither is set, THROW under production instead of reaching their `127.0.0.1:54322` fallback (e.g. `app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts:34-40`). A local Playwright run boots `pnpm dev`, where the fallback is live; a CI job boots `pnpm build && pnpm start`, where it is not (`playwright.config.ts:263-267`). So an arc that enables a test reaching such a path for the first time in a workflow that sets no DSN cannot observe the failure locally, at any number of runs. Distinct from an ordinary missing-env defect, which fails everywhere: this one fails only where nobody is looking, and the local greens actively argue against the defect existing.
+
+**Named by:** 1 arc — fix/published-attention-resolve-red/b608e71b32b5.md (diff), where it was round 2's P1. The arc held 6 consecutive green local runs and had written into a ledger row that CI "falls through to the loopback default"; the claim and the shipping defect were one error. `.github/workflows/app-e2e.yml:176-187` already carried the corrective DSN and a comment naming the production throw, and the arc did not find it until the reviewer named the failure.
+
+**Owning record:** none — this index is the record. The mechanizable form would relate a workflow's server-start posture to the env-gated paths its named specs can reach, which needs a reachability model no lint here has.
+
+**Re-file trigger:** a second arc charged a review finding, or a red CI run, for a test that passes locally and fails in CI on an `NODE_ENV`-gated branch

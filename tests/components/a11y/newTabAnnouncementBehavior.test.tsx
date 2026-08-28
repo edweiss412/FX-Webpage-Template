@@ -1071,7 +1071,10 @@ describe("interpolated labels never stack the appended suffix (spec 2026-07-31 Â
   test("DiagramTile: alt ending in the phrase announces it once", () => {
     const { getByRole } = render(
       <DiagramTile
-        src="https://x/img"
+        href="https://x/img"
+        sourceKey="diagram-t3"
+        loader={() => "https://x/img"}
+        sizes="100px"
         alt="Stage plot (opens in a new tab)"
         testId="t3"
         hasPreviewSource={true}

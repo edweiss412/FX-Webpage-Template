@@ -8,6 +8,54 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### DIAGRAMTILE-FAILURE-STATE-COPY-1 — impeccable P1: the failed diagram tile cannot say WHY it is dark, on the surface that gates publishing (2026-08-27)
+
+**Effort:** S-M · **Facing:** product · **Un-defer trigger:** any work that opens `DiagramTile`'s placeholder branch, or the first report of a diagram publishing absent.
+
+`DiagramTile` renders one string, "Preview unavailable" (`components/admin/wizard/step3ReviewSections.tsx:3896`), for two states the component already distinguishes INTERNALLY: not in the snapshot (`useState(!hasPreviewSource)` seeds `failed` true, no image element ever mounts) and the image failed to load (`onError` sets it true after a real request). They are merged at render.
+
+**Why it matters where it is.** This grid is how Doug confirms diagrams made it into a show BEFORE he publishes. "Preview unavailable" reads as a rendering hiccup, so a diagram that is genuinely absent from the snapshot looks like a diagram that is present and slow. He can publish believing it is there.
+
+**Why it WAS deferred rather than fixed by `perf/admin-diagram-next-image`.** Class-sweep exception (a): splitting the states needed NEW Doug-facing copy for a state that had never had its own words, which is a product decision that arc could not settle. **That exception is now RESOLVED — see the ratified copy below.** Blast radius is real too: `failed` is a single boolean, so the split threads a three-state value through the component, and every suite asserting the current string by text moves with it. The defect predates the arc — line 3896 is untouched by its diff, verified against the hunks — so shipping today is no worse than yesterday's main.
+
+**RATIFIED COPY (2026-08-28).** Meaning ratified by Eric via mockup at 10:30, Option A,
+consequence-stating; punctuation conformed to the `DESIGN.md` §9 em-dash ban by bl-orch ruling the
+same day, meaning unchanged. Eric holds veto on the punctuation and may restore a colon form. The product
+decision that held this row is made, so exception (a) no longer applies and this is ready to
+build. Both strings state the CONSEQUENCE rather than the mechanism, which is the whole point:
+"Preview unavailable" described the component's problem, and these describe Doug's. Use verbatim:
+
+- **Not in the snapshot** (`useState(!hasPreviewSource)` seeded true, no image element ever
+  mounts) — warn tone:
+
+  > Not captured. Won't appear on the crew page.
+
+- **Load failure** (`onError` after a real request) — reassure tone:
+
+  > Preview couldn't load. The diagram will still publish.
+
+The tones are part of the ruling, not decoration: the first state is the one that can cost Doug a
+show, and the second is the one that must NOT make him think it will. Whoever picks this up
+threads the three-state value, applies these two strings, and folds in the P2 border restyle
+below in the same change.
+
+**The em-dash ban was caught and settled BEFORE this row was built, which is the whole point of
+the pre-code mechanical gate.** The originally ratified strings used em dashes, which `DESIGN.md`
+§9 bans in user-visible copy — enforced by `tests/styles/_metaEmDashCopy.test.ts` over `lib`,
+`components` and `app`. `DEFERRED.md` sits outside that accept-set, so the conflict would not have
+surfaced until the copy was typed into `DiagramTile` and the gate went red. Settled by bl-orch on
+2026-08-28: the strings above are period form and conform mechanically. A guard carve-out was
+considered and DECLINED — weakening a ratified guard to admit copy is the wrong direction. The
+strings above are final; type them verbatim.
+
+**Partially mitigated in the meantime.** That arc DID land the half that needed no product decision: the placeholder now names which diagram is dark, using the `alt` already in hand (`…-diagram-tile-N-name`). A reviewer can now see WHICH tile failed, just not WHY.
+
+**Fold in when this is picked up — impeccable P2, same surface.** The placeholder's border is `border-border` at roughly 1.22–1.38:1 against `bg-surface-sunken`, while the live tile's is `border-text-faint` at 3.02:1. The state that most needs to be noticed has the faintest edge, and on a sunlit loading dock it reads as empty space rather than as a failure. Whoever splits the states restyles this placeholder once, so the two belong in one change.
+
+**New since 2026-08-27, and the reason this is more urgent than its age suggests.** The presentation is now DYNAMIC. `perf/admin-diagram-next-image` made the tile reconcile its failure state when the source changes under a stable React key, so a tile can flip between the 3.02:1 live edge and the 1.22:1 failed edge while Doug is looking at it, without a remount. Before that arc a tile's appearance was fixed once per mount.
+
+**Evidence:** `/impeccable critique` on `perf/admin-diagram-next-image`, Assessment A, priority issues 1 and 4 (heuristic 9, Diagnose and Recover, scored 1/4 — the lowest score on the surface). The two-state claim is not inferred from the copy: it is read off the component, where the seed and the `onError` write are separate code paths that produce one indistinguishable render.
+
 ### TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1 — impeccable P1: the retry announces intent, never outcome (2026-08-27)
 
 **Effort:** S for the mechanism, M with the prop threading and its tests

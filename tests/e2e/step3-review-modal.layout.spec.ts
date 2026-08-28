@@ -104,7 +104,13 @@ const MODES = [
 // count and fails §K15 here, correctly.
 const DIAGRAM_TILE_CAP = 12;
 
+// The one diagram stub the harness makes servable, so exactly one tile mounts a
+// `fill` image. Spec-local for the same reason DIAGRAM_TILE_CAP is, and asserted
+// against the harness JSON in beforeAll.
+const SERVABLE_DIAGRAM_INDEX = 0;
+
 let server: Server;
+let diagramPng: Buffer;
 let baseUrl: string;
 let workDir: string;
 let compiledCss: string;
@@ -132,6 +138,7 @@ test.beforeAll(async () => {
   const pages = JSON.parse(readFileSync(pagesJson, "utf8")) as {
     dfid: string;
     diagramStubCount: number;
+    servableDiagramIndex: number;
     normal: string;
     long: string;
     resolution: string;
@@ -141,6 +148,13 @@ test.beforeAll(async () => {
   // §K15 anti-tautology: expected tile/overflow numbers derive from the
   // FIXTURE's stub count (harness JSON), never from the rendered page.
   diagramStubCount = pages.diagramStubCount;
+  // The ONE servable stub, asserted equal to the spec-local constant the same
+  // way `dfid` is: the spec must not learn which tile mounts an image from the
+  // rendered page, or the geometry rows below could not fail on an empty one.
+  expect(
+    pages.servableDiagramIndex,
+    "spec-local servable-tile index matches the harness fixture",
+  ).toBe(SERVABLE_DIAGRAM_INDEX);
   expect(
     diagramStubCount,
     "fixture exceeds the tile cap (otherwise the cap assertion is vacuous)",
@@ -167,8 +181,40 @@ test.beforeAll(async () => {
   compileEntryCss({ entryCss: entryCss, outFile: join(workDir, "out.css") });
   compiledCss = readFileSync(join(workDir, "out.css"), "utf8");
 
+  // A real 4:3 raster for the ONE servable diagram stub
+  // (HARNESS_SERVABLE_DIAGRAM_INDEX). Generated rather than committed: the
+  // assertions below are about the tile's BOX, and a generated image keeps the
+  // bytes out of the tree while still giving the browser something to decode.
+  // Structured rather than a flat fill so a decode failure is visible.
+  diagramPng = await sharp({
+    create: { width: 640, height: 480, channels: 3, background: { r: 240, g: 240, b: 245 } },
+  })
+    .composite([
+      {
+        input: Buffer.from(
+          '<svg width="640" height="480">' +
+            '<rect x="40" y="40" width="260" height="180" fill="#4a5568"/>' +
+            '<rect x="340" y="260" width="260" height="180" fill="#2d3748"/>' +
+            "</svg>",
+        ),
+        top: 0,
+        left: 0,
+      },
+    ])
+    .png()
+    .toBuffer();
+
   server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0] ?? "/";
+    // The staged-diagram preview route the servable stub's tile requests. The
+    // harness renders static markup with no hydration, so `onError` is never
+    // attached and a 404 would leave a broken element whose box still measures
+    // — serving real bytes makes the load deterministic instead.
+    if (url.startsWith("/api/")) {
+      res.setHeader("content-type", "image/png");
+      res.end(diagramPng);
+      return;
+    }
     const file = url === "/" || url === "" ? "harness.html" : url.replace(/^\//, "");
     try {
       const body = readFileSync(join(workDir, file));
@@ -522,6 +568,152 @@ for (const { mode, width, height, maxRatio } of MODES) {
       sectionText,
       `diagrams section carries the "+${expectedExtra} more" overflow note @ ${mode}`,
     ).toContain(`+${expectedExtra} more`);
+  });
+
+  // ── BL-ADMIN-DIAGRAM-NEXT-IMAGE: the tile's containing block ──────────────
+  //
+  // `fill` resolves `position: absolute; inset: 0` against the nearest
+  // POSITIONED ancestor's PADDING box. Two things follow and neither is visible
+  // to jsdom, which computes no layout:
+  //
+  //  1. If the anchor is not positioned the image escapes to the modal panel,
+  //     which IS positioned (ReviewModalShell.tsx:624), and one thumbnail covers
+  //     the whole dialog. The anchor is `className="block"` before this change,
+  //     so `position` reads `static` and this row is the honest RED.
+  //  2. The comparison is padding box against BORDER box: getBoundingClientRect
+  //     returns the border box, and the anchor carries a 1px border, so the two
+  //     rects differ by twice the border width on each axis. The anchor's rect is
+  //     deflated by its OWN computed border widths — read from the browser, so no
+  //     token literal enters this test.
+  test(`diagram tile containing block: positioned anchor, image fills its padding box @ ${mode} ${width}px`, async ({
+    page,
+  }) => {
+    await openHarness(page, { width, height });
+
+    const box = await page
+      .locator(
+        `[data-testid="wizard-step3-card-${HARNESS_DFID}-diagram-tile-${SERVABLE_DIAGRAM_INDEX}"]`,
+      )
+      .evaluate((el) => {
+        const img = el.querySelector("img");
+        if (!img) return null;
+        const cs = getComputedStyle(el);
+        const ics = getComputedStyle(img);
+        const a = el.getBoundingClientRect();
+        const i = img.getBoundingClientRect();
+        return {
+          position: cs.position,
+          imgBorderLeft: parseFloat(ics.borderLeftWidth),
+          borderLeft: parseFloat(cs.borderLeftWidth),
+          borderRight: parseFloat(cs.borderRightWidth),
+          borderTop: parseFloat(cs.borderTopWidth),
+          borderBottom: parseFloat(cs.borderBottomWidth),
+          anchorW: a.width,
+          anchorH: a.height,
+          imgW: i.width,
+          imgH: i.height,
+        };
+      });
+
+    // Premise: the servable stub must actually have mounted an image, or every
+    // row below is vacuous. A null here means the fixture stopped being servable,
+    // not that the component is wrong.
+    expect(box, `the servable tile must mount an image @ ${mode} (premise)`).not.toBeNull();
+    const b = box!;
+
+    expect(b.position, `tile anchor is a positioned containing block @ ${mode}`).toBe("relative");
+
+    // The IMAGE carries the tile's border, which is where it has always been.
+    // Pinned on its own merits: removing it is a visible regression on a bordered
+    // grid of thumbnails and nothing else in this suite would notice. It is NOT
+    // here to discriminate WHERE the border lives — measured, an anchor-side
+    // border renders in the same place — but the image is where spec §15's
+    // painted-child family counts it, and a next/image adoption is not the arc
+    // that moves it.
+    expect(
+      b.imgBorderLeft,
+      `tile image carries its own border, so the grid stays bordered @ ${mode}`,
+    ).toBeGreaterThan(0);
+
+    const padW = b.anchorW - b.borderLeft - b.borderRight;
+    const padH = b.anchorH - b.borderTop - b.borderBottom;
+    expect(
+      Math.abs(b.imgW - padW),
+      `image width ${b.imgW} === anchor padding-box width ${padW} @ ${mode}`,
+    ).toBeLessThanOrEqual(TOL);
+    expect(
+      Math.abs(b.imgH - padH),
+      `image height ${b.imgH} === anchor padding-box height ${padH} @ ${mode}`,
+    ).toBeLessThanOrEqual(TOL);
+
+    // The tile's own aspect ratio, which is what keeps the grid rhythm when a
+    // tile swaps between the live and placeholder branches.
+    expect(
+      Math.abs(b.anchorW / b.anchorH - 4 / 3),
+      `tile anchor holds the 4:3 ratio (${b.anchorW}x${b.anchorH}) @ ${mode}`,
+    ).toBeLessThanOrEqual(0.01);
+  });
+
+  // The placeholder branch must keep the SAME box as the live branch, or a
+  // runtime failure reflows the grid under the reader.
+  test(`diagram tile branches share one box: live tile === placeholder tile @ ${mode} ${width}px`, async ({
+    page,
+  }) => {
+    await openHarness(page, { width, height });
+
+    const rects = await page.evaluate(
+      ({ dfid, servable }) => {
+        const q = (i: number) =>
+          document.querySelector(`[data-testid="wizard-step3-card-${dfid}-diagram-tile-${i}"]`);
+        const live = q(servable);
+        const placeholder = q(servable === 0 ? 1 : 0);
+        if (!live || !placeholder) return null;
+        const l = live.getBoundingClientRect();
+        const p = placeholder.getBoundingClientRect();
+        return {
+          liveHasImg: live.querySelector("img") !== null,
+          placeholderHasImg: placeholder.querySelector("img") !== null,
+          lw: l.width,
+          lh: l.height,
+          pw: p.width,
+          ph: p.height,
+        };
+      },
+      { dfid: HARNESS_DFID, servable: SERVABLE_DIAGRAM_INDEX },
+    );
+
+    expect(rects, `both tiles present @ ${mode} (premise)`).not.toBeNull();
+    const r = rects!;
+    // Premise: the two tiles must actually be the two DIFFERENT branches, or
+    // this compares a box to itself.
+    expect(r.liveHasImg, `the servable tile is the live branch @ ${mode} (premise)`).toBe(true);
+    expect(
+      r.placeholderHasImg,
+      `the non-servable tile is the placeholder branch @ ${mode} (premise)`,
+    ).toBe(false);
+
+    expect(Math.abs(r.lw - r.pw), `branch widths agree @ ${mode}`).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(r.lh - r.ph), `branch heights agree @ ${mode}`).toBeLessThanOrEqual(TOL);
+  });
+
+  // AC-5's other half, and the admin twin of the crew AC-3 pin: the custom
+  // loader emits our own asset-route URLs, so Next's optimizer is never reached
+  // and no auth cookie is ever stripped.
+  test(`diagram tiles never reach the /_next/image optimizer @ ${mode} ${width}px`, async ({
+    page,
+  }) => {
+    const optimizerHits: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/_next/image")) optimizerHits.push(r.url());
+    });
+    await openHarness(page, { width, height });
+    // Premise: a request-bearing tile must exist, or "zero optimizer hits" is
+    // true of a page that fetched nothing at all.
+    const imgCount = await page
+      .locator(`[data-testid^="wizard-step3-card-${HARNESS_DFID}-diagram-tile-"] img`)
+      .count();
+    expect(imgCount, `at least one tile fetched an image @ ${mode} (premise)`).toBeGreaterThan(0);
+    expect(optimizerHits, `no /_next/image requests @ ${mode}`).toEqual([]);
   });
 
   test(`§15 tap-target audit @ ${mode} ${width}px`, async ({ page }) => {

@@ -88,6 +88,13 @@ import {
   isAllowedDiagramMime,
   resolveCurrentDiagrams,
 } from "@/lib/data/diagrams";
+import Image, { type ImageLoader } from "next/image";
+import { diagramAssetUrl, makeDiagramLoader } from "@/lib/images/diagramLoader";
+import {
+  ANNOUNCE_LOG_TTL_MS,
+  AnnounceLogRegion,
+  useAnnounceLog,
+} from "@/components/admin/announceLog";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
@@ -153,6 +160,7 @@ import {
   PublishedArchivedTabIncludedNote,
 } from "@/components/admin/review/PublishedArchivedTabOffer";
 import type { PullSheetOverrideWire } from "@/components/admin/review/sectionData";
+import { DIAGRAM_TILE_SIZES } from "./diagramTileGeometry";
 import { NewTabHint, stripNewTabSuffix } from "@/components/shared/NewTabHint";
 import { isParseableUrl } from "@/lib/url/isParseableUrl";
 import {
@@ -3786,30 +3794,106 @@ export const STEP3_SECTION_GROUPS: readonly string[] = [
 /** Thumbnail-grid cap (spec §B3): overflow renders the quiet "+N more" note. */
 export const DIAGRAM_TILE_CAP = 12;
 
-/** One thumbnail tile — raw <img> + onError placeholder, mirroring the crew
- *  Gallery pattern (components/diagrams/Gallery.tsx:130-144; raw <img> is a
- *  documented revert — next/image drops cookies). */
+/**
+ * One thumbnail tile: a `next/image` driven by a CALLER-SUPPLIED loader, with
+ * the onError placeholder unchanged.
+ *
+ * The crew gallery is the shipped shape (components/diagrams/Gallery.tsx). The
+ * revert that once put a raw <img> here was about the `/_next/image` optimizer,
+ * which strips auth cookies and rewrites Cache-Control — a custom loader emits
+ * our own route URLs, so the optimizer is never involved and the cookies these
+ * admin routes authenticate with survive.
+ *
+ * `href` and `sourceKey` are separate on purpose. `href` is the full-resolution
+ * URL the anchor opens; `sourceKey` is `next/image`'s `src` identity, which
+ * every loader here ignores. next warns when a loader returns the `src` it was
+ * handed, and the staged loader is width-independent by construction, so a
+ * sourceKey set to the URL would warn on every staged tile.
+ */
 export function DiagramTile({
-  src,
+  href,
+  sourceKey,
+  loader,
+  sizes,
   alt,
   testId,
   hasPreviewSource,
+  anchorRef,
+  onFailure,
 }: {
-  src: string;
+  href: string;
+  sourceKey: string;
+  loader: ImageLoader;
+  sizes: string;
   alt: string;
   testId: string;
   hasPreviewSource: boolean;
+  /** Registers the live anchor with the grid, which needs a NODE to move focus
+   *  off and to compare against — see `handleTileFailure`. */
+  anchorRef?: (node: HTMLAnchorElement | null) => void;
+  /** Called with the failing anchor BEFORE `failed` flips. The grid relocates
+   *  focus and announces; the tile owns only its own render. */
+  onFailure?: (node: HTMLAnchorElement | null) => void;
 }) {
   const [failed, setFailed] = useState(!hasPreviewSource);
+  /** The live anchor, readable from the `onError` closure. */
+  const anchorNodeRef = useRef<HTMLAnchorElement | null>(null);
+  /**
+   * Reconcile the failure state when the tile's SOURCE changes under a stable
+   * React key.
+   *
+   * The grid keys tiles by `${stub.objectId}-${i}`, so a manifest change
+   * re-renders the same component instance rather than remounting it. `failed`
+   * is seeded once and the only other write sets it true, so without this the
+   * tile is a one-way trapdoor: an unavailable diagram that becomes available
+   * stays a placeholder forever, an available one that becomes unavailable keeps
+   * requesting bytes until something 4xxs, and a tile that failed on one source
+   * stays failed when handed a good one — including when a show's next snapshot
+   * lands a variant ladder, where serving variants exist and none renders.
+   *
+   * Adjust-state-during-render rather than an effect: React's documented form
+   * for derived state, and it re-renders before paint instead of after, so no
+   * stale frame is shown. `sourceKey` is the comparison and the loader is not —
+   * the loader is a fresh closure every render, so comparing it would clear a
+   * genuine failure on every parent re-render.
+   */
+  const [lastSource, setLastSource] = useState({ hasPreviewSource, href, sourceKey });
+  if (
+    lastSource.hasPreviewSource !== hasPreviewSource ||
+    lastSource.href !== href ||
+    lastSource.sourceKey !== sourceKey
+  ) {
+    setLastSource({ hasPreviewSource, href, sourceKey });
+    setFailed(!hasPreviewSource);
+  }
   const strippedAlt = stripNewTabSuffix(alt);
   if (failed) {
     return (
       <span
         data-testid={testId}
-        className="grid aspect-4/3 w-full place-items-center gap-1 rounded-md border border-border bg-surface-sunken text-center"
+        className="grid aspect-4/3 w-full place-items-center gap-1 overflow-hidden rounded-md border border-border bg-surface-sunken px-1 text-center"
       >
         <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
         <span className="text-xs text-text-subtle">Preview unavailable</span>
+        {/* WHICH diagram is dark. The name is already in hand as `alt` and was
+            being discarded, so a grid of failures read as N identical grey
+            boxes and the reviewer could not tell which sheet tab was missing —
+            on the surface where he confirms diagrams made it in before
+            publishing. Truncated because a tile is ~74px wide at 320px; the
+            full string stays available as the title. `overflow-hidden` on the
+            container keeps the box identical to the live tile's, which the
+            real-browser suite pins.
+
+            NO `data-testid` here, deliberately. The tile-count assertion selects
+            with `[data-testid^="…-diagram-tile-"]`, a PREFIX match, so any
+            testid derived from the tile's own would be counted AS a tile — the
+            cap assertion read 24 where 12 was correct at every breakpoint. The
+            title attribute is the handle instead. */}
+        {strippedAlt ? (
+          <span title={strippedAlt} className="max-w-full truncate text-xs text-text-subtle">
+            {strippedAlt}
+          </span>
+        ) : null}
       </span>
     );
   }
@@ -3823,25 +3907,52 @@ export function DiagramTile({
        an earlier belt-and-braces audit fix deliberately: the fallback here
        makes the duplicate redundant rather than defensive. */
     <a
-      href={src}
+      ref={(node) => {
+        anchorNodeRef.current = node;
+        anchorRef?.(node);
+      }}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
       aria-label={
         strippedAlt ? `${strippedAlt} (opens in a new tab)` : "Staged diagram (opens in a new tab)"
       }
       data-testid={testId}
-      className="block"
+      /* `relative` and the aspect box are REQUIRED, and only these: without a
+         positioned ancestor a `fill` image resolves against the modal panel,
+         which IS positioned, and one thumbnail covers the whole dialog —
+         measured at all three modes.
+
+         The tile's chrome deliberately STAYS on the image. Moving it here would
+         match the crew gallery's arrangement, and mutant (b) measured that the
+         two render identically — which is exactly why this arc does not do it:
+         a next/image adoption has no business moving an element out of the
+         painted-child family that spec §15 table 3 counts. Consistency may be
+         worth having; it is not this row's to take. */
+      /* Focus ring: WCAG 2.4.7. This anchor is a link and had NO visible focus
+         indicator beyond the browser default, while every sibling link in this
+         file carries the recipe. The arc that rewrote this className is the one
+         that owes it. `overflow-hidden` above does not clip it — an element's
+         own overflow never clips its own ring — and the offset ground is
+         `surface`, the panel-card the grid sits in. */
+      className="relative block aspect-4/3 w-full overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- staged-diagram
-          preview route is admin-cookie-authed; next/image drops cookies (same
-          documented revert as components/diagrams/Gallery.tsx). */}
-      <img
-        src={src}
+      <Image
+        loader={loader}
+        src={sourceKey}
         alt=""
-        loading="lazy"
-        decoding="async"
-        onError={() => setFailed(true)}
-        className="aspect-4/3 w-full rounded-md border border-text-faint bg-surface-sunken object-cover"
+        fill
+        sizes={sizes}
+        /* ORDER IS LOAD-BEARING, and it is the crew gallery's
+           (components/diagrams/Gallery.tsx:286-293): the grid is handed the
+           anchor BEFORE `failed` flips, because after the flip there is no
+           anchor left to move focus off and no node left to compare the
+           active element against. */
+        onError={() => {
+          onFailure?.(anchorNodeRef.current);
+          setFailed(true);
+        }}
+        className="rounded-md border border-text-faint bg-surface-sunken object-cover"
       />
     </a>
   );
@@ -3859,6 +3970,8 @@ export function DiagramsBreakdown({
   wizardSessionId,
   diagrams,
   buildSrc,
+  buildLoader,
+  buildSourceKey,
   previewSourceFor,
 }: {
   dfid: string | null;
@@ -3870,16 +3983,83 @@ export function DiagramsBreakdown({
   // wizard-session staged-diagram preview route. Published passes the
   // `/api/asset/diagram/...` asset-route builder (crew Gallery pattern).
   buildSrc?: (stub: EmbeddedImageStub) => string;
+  // Mode-derived width-responsive loader. Absent → the staged default below,
+  // which is width-INDEPENDENT: a staged stub can never carry a variant ladder
+  // (`variants` lives on the persisted entry types only, lib/parser/types.ts),
+  // so the only URL it can serve is the original.
+  buildLoader?: (stub: EmbeddedImageStub) => ImageLoader;
+  // `next/image`'s `src` identity, which every loader ignores. Deliberately not
+  // URL-shaped: next warns when a loader returns the `src` it was handed.
+  buildSourceKey?: (stub: EmbeddedImageStub) => string;
   // Mode-derived servability gate. Absent → `hasStagedPreviewSource` (trusted
   // legacy contentUrl OR fingerprint-addressable media). Published passes the
   // persisted-snapshot gate (non-null snapshotPath + allowed MIME).
   previewSourceFor?: (stub: EmbeddedImageStub) => boolean;
 }) {
+  // ── Failed-tile focus + announcement ──────────────────────────────────────
+  //
+  // The crew gallery's shipped recipe (components/diagrams/Gallery.tsx:276-293),
+  // reused rather than re-invented. A runtime image failure removes an
+  // interactive element; if that element held focus, focus falls to `<body>`
+  // and a keyboard user is dropped to the top of the document mid-review, while
+  // a screen-reader user is told nothing at all.
+  const tileAnchors = useRef(new Map<number, HTMLAnchorElement>());
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  /* A LOG, not a string. Two tiles may carry the same name -- an author can
+     reuse an alt, and every blank alt falls back to the same
+     `Diagram from <sheet>` string -- and setting a plain state value to the
+     text it already holds is a no-op React bails out of, so the region never
+     mutates and the second failure is announced to nobody. The shipped log
+     keys each entry on a per-mount monotonic ref, so an identical repeat is
+     still a new node. Same helper the crew gallery uses
+     (components/diagrams/Gallery.tsx:459). */
+  const { announce: announceFailure, entries: failureAnnouncements } = useAnnounceLog({
+    ttlMs: ANNOUNCE_LOG_TTL_MS,
+  });
+
+  /**
+   * Move focus off the failing tile, then say what happened.
+   *
+   * Called from `onError` BEFORE the tile flips itself to the placeholder, so
+   * `node` is still connected and `document.activeElement` still means what it
+   * meant to the user.
+   */
+  const handleTileFailure = (index: number, name: string, node: HTMLAnchorElement | null): void => {
+    // STALE HANDLER GUARD (gallery:276-279): `onError` can fire after its tile
+    // stopped rendering — the cap collapsed the grid, or the manifest replaced
+    // the entry. Announcing about a tile nobody can see is noise.
+    if (!node?.isConnected) return;
+
+    // Only relocate focus if the failing tile HELD it. A tile failing in the
+    // background must not yank the caret away from wherever the user is.
+    if (document.activeElement === node) {
+      const usable = (at: number): HTMLAnchorElement | null => {
+        const candidate = tileAnchors.current.get(at) ?? null;
+        return candidate && candidate !== node && candidate.isConnected ? candidate : null;
+      };
+      let successor: HTMLElement | null = null;
+      for (let at = index + 1; successor === null && at < DIAGRAM_TILE_CAP; at += 1) {
+        successor = usable(at);
+      }
+      for (let at = index - 1; successor === null && at >= 0; at -= 1) {
+        successor = usable(at);
+      }
+      // Forward first, then backward, then the grid itself — never `<body>`.
+      (successor ?? gridRef.current)?.focus();
+    }
+
+    announceFailure(`${name} could not be loaded.`);
+  };
+
   const resolveSrc =
     buildSrc ??
     ((stub: EmbeddedImageStub) =>
       `/api/admin/onboarding/staged-diagram/${wizardSessionId}/${dfid}/${encodeURIComponent(stub.objectId)}`);
   const resolvePreviewSource = previewSourceFor ?? hasStagedPreviewSource;
+  const resolveLoader = buildLoader ?? ((stub: EmbeddedImageStub) => () => resolveSrc(stub));
+  const resolveSourceKey =
+    buildSourceKey ??
+    ((stub: EmbeddedImageStub) => `staged:${wizardSessionId}:${dfid}:${stub.objectId}`);
   // Explicit type argument: `diagrams` is a union of the parser's stub shape and the
   // persisted shape, and the persisted entries carry the optional §4 variant fields.
   // Inference across a union of arrays does not pick the supertype on its own.
@@ -3910,12 +4090,25 @@ export function DiagramsBreakdown({
         <p className="text-xs text-text-subtle">{summaryParts.join(" · ")}</p>
       ) : null}
       {shown.length > 0 ? (
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+        /* `tabIndex={-1}` is the last resort of the successor chain below: with
+           one tile in the grid there is no sibling to receive focus, and the
+           alternative is `<body>`. Not reachable by tab, only programmatically. */
+        <div ref={gridRef} tabIndex={-1} className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {shown.map((stub, i) => (
             <DiagramTile
               key={`${stub.objectId}-${i}`}
+              anchorRef={(node) => {
+                if (node) tileAnchors.current.set(i, node);
+                else tileAnchors.current.delete(i);
+              }}
+              onFailure={(node) =>
+                handleTileFailure(i, stub.alt?.trim() || `Diagram from ${stub.sheetTab}`, node)
+              }
               testId={`wizard-step3-card-${dfid}-diagram-tile-${i}`}
-              src={resolveSrc(stub)}
+              href={resolveSrc(stub)}
+              sourceKey={resolveSourceKey(stub)}
+              loader={resolveLoader(stub)}
+              sizes={DIAGRAM_TILE_SIZES}
               // `?? ` only catches null/undefined — a persisted `alt: ""`
               // rendered a nameless link (impeccable audit P2); blank/space
               // alts fall back to the generic sheet-tab string too.
@@ -3929,6 +4122,17 @@ export function DiagramsBreakdown({
           ))}
         </div>
       ) : null}
+      {/* A runtime failure REMOVES a link. Sighted reviewers see the tile go
+          grey; without this nobody else is told, on the surface where Doug
+          confirms diagrams made it in before publishing. Always mounted, so the
+          region exists in the accessibility tree before it has anything to say
+          (an `aria-live` node inserted together with its text is not reliably
+          announced). */}
+      <AnnounceLogRegion
+        entries={failureAnnouncements}
+        label="Diagram updates"
+        testId={`wizard-step3-card-${dfid}-diagrams-announce-log`}
+      />
       {extra > 0 ? (
         <p className="text-xs text-text-subtle">
           +{extra} more. All images are snapshotted when the show publishes.
@@ -4011,6 +4215,30 @@ export function RoomsDiagramsSubBlock({ data }: { data: SectionData }): React.Re
  * NO staged-diagram route → zero `/api/admin/onboarding/*` traffic. Owns its
  * own §6.4 "Diagrams" sub-heading chrome so it reads as part of Rooms & scope.
  */
+/**
+ * The identity of the bytes a published tile can serve: its asset key plus the
+ * manifest ladder that selects within it. The tile reconciles its failure state
+ * on this string, so a ladder arriving at a show's next snapshot must move it —
+ * the asset key alone would not, and a failed tile would then never recover the
+ * variants it could now serve.
+ *
+ * `variants` is untrusted persisted JSONB and reaches this function raw, so it
+ * NEVER throws: a non-array degrades to the key alone, and a malformed row is
+ * stringified rather than dereferenced. This is an IDENTITY, not an accept-set —
+ * `makeDiagramLoader` owns which rows are servable (lib/images/diagramLoader.ts).
+ * Over-including a rejected row only means reconciliation fires on a change that
+ * selects nothing new, which is harmless; throwing at a render boundary is not.
+ */
+function variantIdentity(assetKey: string, variants: unknown): string {
+  if (!Array.isArray(variants)) return assetKey;
+  const rows = variants.map((row) => {
+    if (typeof row !== "object" || row === null) return String(row);
+    const { width, key } = row as { width?: unknown; key?: unknown };
+    return `${String(width)}:${String(key)}`;
+  });
+  return [assetKey, ...rows].join("|");
+}
+
 export function PublishedDiagramsBreakdown({
   showId,
   driveFileId,
@@ -4023,8 +4251,12 @@ export function PublishedDiagramsBreakdown({
   const persisted = resolveCurrentDiagrams(diagrams);
   if (!hasDiagramSignal(persisted)) return null;
   // `snapshot_revision_id` is required on PersistedDiagrams; "" only if a
-  // malformed persisted row slipped the resolver gate — the asset route 410s it.
+  // malformed persisted row slipped the resolver gate. The tile no longer asks
+  // for such a row's bytes — see `previewSourceFor` below.
   const rev = persisted?.snapshot_revision_id ?? "";
+  /** The asset key, derived ONCE so the href and the loader cannot disagree. */
+  const keyOf = (stub: EmbeddedImageStub) =>
+    diagramAssetKeyFromPath((stub as PersistedEmbeddedImage).snapshotPath, stub.objectId);
   return (
     <Step3SectionChromeContext.Provider
       value={{ Icon: Images, label: "Diagrams", flagged: false, headingLevel: 4 }}
@@ -4032,13 +4264,30 @@ export function PublishedDiagramsBreakdown({
       <DiagramsBreakdown
         dfid={driveFileId}
         diagrams={persisted}
-        buildSrc={(stub) =>
-          `/api/asset/diagram/${showId}/${rev}/${diagramAssetKeyFromPath(
-            (stub as PersistedEmbeddedImage).snapshotPath,
-            stub.objectId,
-          )}`
+        buildSrc={(stub) => diagramAssetUrl(showId, rev, keyOf(stub))}
+        buildLoader={(stub) =>
+          makeDiagramLoader({
+            showId,
+            rev,
+            key: keyOf(stub),
+            variants: (stub as PersistedEmbeddedImage).variants,
+          })
+        }
+        // The bytes this tile can serve, as ONE string: the asset key plus the
+        // ladder that selects within it. The tile reconciles its failure state
+        // on this, so a ladder arriving at the show's next snapshot has to move
+        // it — the asset key alone would not, and a failed tile would then never
+        // recover the variants it could now serve.
+        buildSourceKey={(stub) =>
+          variantIdentity(keyOf(stub), (stub as PersistedEmbeddedImage).variants)
         }
         previewSourceFor={(stub) =>
+          // `rev` is required on PersistedDiagrams and is "" only for a malformed
+          // row that slipped the resolver gate. Such a row has no fetchable bytes
+          // at ANY width, and building a URL for it yields a doubled slash — a
+          // malformed src, which this surface's contract forbids outright. So the
+          // tile takes the placeholder branch instead of asking.
+          rev !== "" &&
           (stub as PersistedEmbeddedImage).snapshotPath !== null &&
           isAllowedDiagramMime(stub.mimeType)
         }

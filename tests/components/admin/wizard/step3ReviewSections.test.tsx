@@ -951,8 +951,17 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
     const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
     const img = tile.querySelector("img");
     const expected = `/api/admin/onboarding/staged-diagram/${WSID}/${DFID}/${encodeURIComponent(stub.objectId)}`;
-    expect(img?.getAttribute("src")).toBe(expected);
+    // Path and origin separately: `next/image` writes an absolute `src`, so the
+    // single relative literal this replaces compared a path to a full URL. The
+    // pair is stronger than the literal was — that one string pinned neither
+    // path nor origin on its own. Convention from
+    // tests/components/diagrams/Gallery.test.tsx:246-248.
+    const src = new URL(img?.getAttribute("src") ?? "", document.baseURI);
+    expect(src.pathname).toBe(expected);
+    expect(src.origin).toBe(window.location.origin);
     expect(tile.tagName).toBe("A");
+    // The anchor href is authored by us and stays relative — asserted as the
+    // literal, which is the right form for a value nothing normalizes.
     expect(tile.getAttribute("href")).toBe(expected);
   });
 });

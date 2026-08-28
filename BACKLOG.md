@@ -8,6 +8,41 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
+## BL-DIAGRAM-TILE-CHROME-CONSISTENCY — the admin diagram tile and the crew gallery put the tile border on different elements
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`; owner-directed by bl-orch after that arc reverted the change as out of scope, which is the scheduling decision) · **Facing:** product · **Severity:** LOW (cosmetically identical today; it is a consistency and maintenance question, not a rendering defect) · **Class:** design consistency · **Effort:** S · **Reachability:** PROBED — see the mutant below.
+
+The crew gallery puts the tile's box chrome on the grid CELL and leaves `object-cover` on the image (`components/diagrams/Gallery.tsx:351`). The admin wizard tile puts `rounded-md border border-text-faint bg-surface-sunken` on the `<img>` and leaves the anchor carrying only `relative` and its aspect box (`components/admin/wizard/step3ReviewSections.tsx`). Two arrangements for one visual idiom across the two diagram surfaces.
+
+**It is cosmetic, and that is measured rather than assumed.** `perf/admin-diagram-next-image` tried the move and ran it as a mutant: with the border on the anchor instead of the image, the whole real-browser layout suite passed, 44 of 44, including the geometry row. With no border on the anchor its padding box IS its border box, so a `fill` image insets to the same rectangle either way. An earlier justification claiming the move was required by that insetting is disproved and must not be revived.
+
+**Why it is a row and not a rider.** That arc is a `next/image` adoption, and the image change demonstrably does not require the move. Taking it would also move the tile's `<img>` out of the painted-child family counted by `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` §15 table 3 — spending a ratified design claim on a preference a perf arc picked up in passing. The honest home is the UI polish class sweep, where the same question can be asked of every surface that has a bordered thumbnail rather than of one.
+
+**Done condition:** one arrangement across both diagram surfaces, with §15 table 3's family membership re-derived and the count updated in the same change rather than left to drift.
+
+## BL-BARE-TYPEOF-STRING-ID-GUARDS — an empty string passes as a usable id at 12 of 27 id-like guards
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`, class sweep; owner-directed by bl-orch, which is the scheduling decision) · **Facing:** product · **Severity:** MEDIUM (auth and visibility surfaces are among the sites; an empty share token or viewer id is a security-posture question, not tooling hygiene) · **Class:** input validation · **Effort:** M · **Class-sweep exception:** (c) — a repair spanning auth, visibility and notify is a different blast radius from the diagram tile this arc opened, and an admin-diagram arc must not rewrite share-token validation under review pressure. · **Reachability:** INFERRED, NOT PROBED — see the probe below, which is this row's first scheduled step.
+
+`typeof x === "string"` is used as a stand-in for "is a usable id". An empty string satisfies it, so a corrupt or partially-written row can carry an id-shaped field that is present, correctly typed, and useless. The diagrams instance was found by execution, not by reading: `isPersistedDiagrams` (`lib/data/diagrams.ts:45-52`) accepts `snapshot_revision_id: ""`, and the published wizard tile then built `/api/asset/diagram/<show>//<key>` — a doubled slash the surface's own contract calls malformed. That door is closed (`perf/admin-diagram-next-image`: the published servability gate now requires a non-empty `rev`). The rest are open.
+
+**Derived cover, not an enumeration.** Over `lib/**/*.ts`: 191 `typeof … === "string"` guards in total; 27 of them sit on id-like fields (`revision`, `_id`/`Id`, `token`, `slug`, `key`); of those 27, **14 already guard non-emptiness** with a truthiness check, a `.length`, or a shape regex (`lib/data/showCacheTag.ts:84` is the correct form, `typeof showId === "string" && showId`; `lib/drive/isPlausibleFolderId.ts:20` is the regex form), and **12 are bare**. The derivation is the command plus that 191 / 27 / 14 / 12 split, so a new site changes the count rather than stranding a list.
+
+**The 12 bare sites, ranked by blast radius rather than by file order.** Auth and visibility first, because those are the ones where an empty id is a posture question:
+
+1. `lib/auth/picker/intentToken.ts:28` and `:30` — `slug`, `shareToken`.
+2. `lib/auth/picker/rotateShareToken.ts:24` — `new_share_token`.
+3. `lib/auth/picker/clearIdentity.ts:76` — the `s` passthrough.
+4. `lib/visibility/scopeTiles.ts:213` — `viewerId`.
+5. `lib/notify/detect/emailDeliveryFailed.ts:248` and `:249` — `live_token`, `mint_id`.
+6. `lib/realtime/subscribeToShow.ts:184` — `token`.
+7. `lib/sync/roleMappingOverlay.ts:74` and `:120`, `lib/parser/dataGaps.ts:471` — `roleToken` (three sites, one shape).
+8. `lib/drive/sheetGids.ts:31` — `props.title`.
+
+**The probe, and it is the first scheduled step.** For each site, decide whether an empty string can actually ARRIVE there, which the count above does not establish: read the producer of the field (RPC return shape, cookie/JWT claim, persisted column, Drive API response), and where the producer cannot be pinned by type, write a case feeding `""` through the guard and assert what the caller does with it. Rank as listed — `intentToken`, `rotateShareToken`, `clearIdentity` and `scopeTiles` before the rest. A site whose producer guarantees non-empty is dispositioned in place with the citation; a site where `""` reaches a URL, a query, or an authorization decision is the actual finding this row exists to surface.
+
+**Not proposed: a lint arm.** "Every id-like typeof-string guard must also check non-emptiness" is a recognizer over an open grammar of what counts as id-like, and the 27/14 split shows the codebase already disagrees with any single naming heuristic. The probe answers the question the row asks; a detector would answer a different and unbounded one.
+
 ## BL-LINE-KEYED-REGISTRY-ROWS — registries keyed by `file:line` are invalidated wholesale by any edit above the row
 
 **Status:** OPEN · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`; owner-directed 2026-08-27 by bl-orch under the recurrence exception that PR #922 added the same day) · **Facing:** process · **Mint-exception:** recurrence (`LIM-LINE-KEYED-SITEID`, three independent arcs) · **Severity:** MEDIUM (every hoist, import, or new control above a keyed row costs a re-key per row, and a mis-keyed row is a false pass) · **Class:** structural-registry keying · **Effort:** M · **Incident:** three independent arcs, each with its corpus row: (1) `feat/speclint-ac-unclaimed-arm`, diff stage, `docs/review-rounds/feat/speclint-ac-unclaimed-arm/44b0d74b1107.md`: 37 accepted-survivor siteIds (`operator:line:col:text`) re-keyed across three mutation score runs, two runs failing before the re-key cause was separated from genuine gaps; (2) `feat/private-image-pipeline`, diff stage, `docs/review-rounds/feat/private-image-pipeline/d2a31e4aa021.md`: one hoisted emit in `alertProducerScope.registry.ts` invalidated 19 line-pinned rows across three files; (3) `feat/wizard-review-attention-menu`, spec stage, `docs/review-rounds/feat/wizard-review-attention-menu/66c9857f56a5.md` (rounds 1 and 3): one new header button moves eight line-keyed rows (`tests/styles/controlOutlineScan.ts` `CENSUS` ×3 and `DIVIDERS` ×1, `tests/styles/_metaControlOutlineFill.test.ts` `HOVER_SUBTLE`, `tests/styles/tapTargetCensus.ts`, `tests/styles/controlOutlineResidue.ts`, `tests/styles/_metaControlOutlineResidue.test.ts`) plus two count pins, and the spec needed two review rounds to enumerate them because no reader lists which registries key on a given file. · **Reachability:** PROBED — each filing quotes the re-keyed rows; `rg -n "AttentionMenu.tsx|Step3ReviewModal.tsx|PublishedReviewModal.tsx" tests/styles/*.ts tests/styles/*.test.ts` reproduces occurrence (3) on `origin/main`.
@@ -46,26 +81,24 @@ Index entry: `LIM-AUTHORED-RED` in `docs/review-rounds/LIMITS.md`, named by six 
 
 ---
 
-## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
+## BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE — a stated numeric table with no command that produces it, named by four arcs and still unmechanized
 
-**Status:** OPEN — filed at private-image-pipeline close-out · **Severity:** low · **Class:** PERF / consistency · **Effort:** M
+**Status:** OPEN · **Filed:** 2026-08-28 (`fix/severityless-warning-filters`, diff R3 finding 2) · **Facing:** process · **Mint-exception:** recurrence · **Severity:** LOW-MEDIUM (a spec table drifts from the tree with nothing able to compare them) · **Class:** evidence provenance · **Effort:** M
 
-`components/admin/wizard/step3ReviewSections.tsx` has two same-shape `<img>` sites — the staged-diagram
-preview and the published breakdown that builds `/api/asset/diagram/` srcs. They are the same defect
-shape the crew gallery just fixed, and the loader plus the ingest variant ladder are reusable there
-as-is: `makeDiagramLoader` (`lib/images/diagramLoader.ts`) already takes manifest `variants` and
-returns asset-route URLs, and the manifest fields land for every show at its next snapshot.
+**Incident** (four independent arcs, each naming the shape in its own filing before a slug existed):
 
-Deferred under the class-sweep disposition rule's exception **(c)**, ratified in the design session
-(`docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §1.1): the repair lands
-inside a ~4000-line admin wizard file the shipping PR does not otherwise touch, which blows its review
-scope; and the value driver — crew bandwidth on venue 4G — does not apply to a desktop admin surface.
-This is NOT "same defect, different file" with nothing more to say: the exception is named, and the
-reason it applies is that the cost of the repair is dominated by the file it lives in rather than by
-the change itself.
+- `docs/review-rounds/fix/mutation-shard-budget-six/9a621a5792ea.md:32-35` (spec) — round 2's highest-value finding was §1.3's table carrying no command producing it.
+- `docs/review-rounds/feat/review-modal-strip-dock/ae8e9544b55a.md:38-39` (spec) — a hand-maintained blast-radius transcript, three rounds finding three defects in three different directions.
+- `docs/review-rounds/feat/speclint-ac-unclaimed-arm/44b0d74b1107.md:32-33` (plan) — the plan claimed 106 enrolled plans where the quoted command returns 108.
+- `docs/review-rounds/fix/severityless-warning-filters/b608e71b32b5.md` (diff, R3 finding 2) — the published SQL could not produce the published table, and a bare `group by` silently dropped an empty population rather than showing it as zero.
 
-**Un-defer trigger:** any work that already opens `step3ReviewSections.tsx` for another reason should
-carry these two sites with it, since the marginal cost then collapses to the edit itself.
+Indexed as `LIM-NUMERIC-TABLE-PROVENANCE` in `docs/review-rounds/LIMITS.md`, whose stated re-file trigger is "a spec whose stated table cannot be reproduced from its own commands reaching a review round again". That fired on the fourth arc.
+
+**Why this is admissible under the 2026-08-25 process freeze.** Not on an incident alone, which the freeze stopped admitting. On recurrence: four independent arcs paid for the same shape, which is retrospective and countable and could not be manufactured by this arc. The freeze's admission test is also met, because the done condition names a number outside the tooling: rounds burned per arc on table-versus-tree drift, which is 1 here, 3 on review-modal-strip-dock, and 1 each on the other two.
+
+**Shape.** `spec:lint` parses numerics and parses fenced commands, and relates them to nothing. A table stated with no command producing it cannot be compared to the tree; a table stated WITH one drifts silently the moment the tree moves. The narrowing that would close it is a `<!-- table: cmd=`…` -->` marker binding a table to a command, checked the way `gate:` markers already are.
+
+**Not in scope for the arc that filed it.** `fix/severityless-warning-filters` is a docs-only demotion under an explicit no-code-change ruling; it repaired its own instance by publishing one query that produces every number in its table from a single transaction, and files the class here rather than widening.
 
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
@@ -282,19 +315,80 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation, in a case that turns out not to arise. **Promotion prerequisite (RUN 2026-08-27, returned zero):** a corpus probe over live `flight_info` values counting how often a segment parses but carries no displayable field beyond its date — see `**Reachability:**` above. Should it ever return non-zero, the direction is a renderer question, because the segments ARE structured: give the date-only segment a labeled treatment of its own, rather than the parser widening an earlier draft implied.
 
-### BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED — the published attention spec's resolve-lifecycle case fails on unmodified code, cause unattributed
+### BL-PUBLISHED-ATTENTION-ESCAPE-CLOSES-MODAL-RACE — Escape can close the whole published modal instead of just the attention menu, about one time in seven
 
-**Status:** OPEN · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9 Step 5) · **Facing:** product · **Severity:** MEDIUM-UNKNOWN (either an operator cannot resolve an alert from the published modal, or a spec has gone stale — the severity depends entirely on which, and that is the open question) · **Class:** unattributed e2e red · **Effort:** S to attribute, unknown to fix · **Class-sweep exception:** (a) — the repair direction cannot be chosen before attribution, and attribution is itself the first task.
+**Status:** OPEN · **Filed:** 2026-08-28 (`fix/published-attention-resolve-red`, Task 1 attribution) · **Facing:** product · **Severity:** MEDIUM-LOW (an operator who presses Escape to dismiss the auto-opened attention menu occasionally loses the entire review modal, and any scroll position and section they had reached goes with it; nothing is corrupted and reopening restores the state) · **Class:** listener-lifecycle race · **Effort:** S to attribute the losing interleaving, unknown to fix · **Class-sweep exception:** (a) — the repair direction cannot be chosen before the interleaving is known, and that attribution is this row's first task.
 
-**What is red.** `tests/e2e/published-show-attention.spec.ts` "resolve lifecycle: 2 issues → 1 issue → In sync, without reload (LAST — mutates)". After clicking the overview alert's resolve control, the header pill does not decrement: it stays at its arrival count for the full 5s expect window (`Expected substring: "1 issue" / Received string: "2 issues · 1 sheet warning"`). A later run failed earlier and differently, on a `toBeVisible`, so it is not one deterministic assertion.
+**What happens.** The attention menu auto-opens on arrival. Pressing Escape should close the menu and leave the modal open: `ReviewModalShell` closes the dialog from a document-level BUBBLE-phase Escape listener (`components/admin/review/ReviewModalShell.tsx:244-252`), and while the menu is open `AttentionMenuFrame` claims the key first from a document-level CAPTURE-phase listener that calls `stopPropagation` (`components/admin/showpage/AttentionMenu.tsx:353-388`). About one time in seven the modal closes too.
 
-**Reachability:** PROBED 2026-08-27. Not inferred from a red on a modified tree: both files this branch touches in that spec's dependency set (`published-show-attention.spec.ts`, `tests/e2e/helpers/seedShowWithCrew.ts`) were reverted to HEAD, the spec was rerun against the local stack, and the case failed identically — 5 passed, 1 failed. So the red predates this branch.
+**Reachability:** PROBED 2026-08-28, on unmodified `origin/main`, by 7 runs of
 
-**Why nobody knew.** No workflow runs this spec. `rg -n "^\s+run:.*published-show-attention" .github/workflows/*.yml` matches nothing (a `paths:` mention does not count — the structural position is the `run:` step). An unrun spec is a dark surface, and this is what dark looks like: a case that has been red for an unknown length of time with nothing reporting it.
+```
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test tests/e2e/published-show-attention.spec.ts --project=desktop-chromium --reporter=list
+```
 
-**What shipped alongside this row.** The spec IS now wired into `published-modal-e2e.yml`, so its other six cases begin gating, and this one case carries `test.fixme` naming this row rather than being deleted or left to red CI. That is the ruled disposition (bl-orch 2026-08-27): wiring is what stops the next case drifting unnoticed; the fixme is what keeps an unrelated PR from being blocked on a foreign defect.
+Observed once, at `tests/e2e/published-show-attention.spec.ts` line 318 as it then stood: after `expect(MENU).toHaveCount(0)` passed, `expect(MODAL).toBeVisible()` failed for the full 5s window. Playwright's own message:
 
-**First task is ATTRIBUTION, not repair.** Determine whether the optimistic decrement is genuinely broken on the published modal (a product defect an operator would hit) or whether the fixture, the seeded alert shape, or the resolve control's testid has drifted under the spec. Only then is the repair direction decidable. Remove the `test.fixme` as that work's own red.
+```
+Locator: locator('[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])')
+Expected: visible
+Timeout: 5000ms
+Error: element(s) not found
+```
+
+A temporary snapshot probe at that point reported `{"modalAny":0,"title":0,"menu":0,"url":"http://127.0.0.1:3000/admin"}` — no modal element at all and the `?show=` parameter gone from the URL, so a real dialog close rather than a title-less skeleton. Rate: 1 of those 7 runs. The probe was removed before commit; it is reproduced in this row because the run artifacts are not durable.
+
+**What an 8-run instrumented hunt established, and what it did not.** A temporary recorder was added to the case (removed before commit) capturing, at the instant Escape is delivered, whether the menu element is in the DOM — read from a document capture-phase listener the recorder registers itself — and whether the key survives to a document bubble-phase listener. It was validated against a deliberate mutant that closes the menu before pressing Escape, which reported
+
+```
+PROBE-ESC {"esc":{"captureSawMenu":false,"bubbleSaw":true},"menuTimeline":["37:out"]}
+```
+
+with the modal closed, so the recorder does register the bubble-phase arrival when it happens. Across 8 further runs of the command above the flake did not reproduce, and all 8 reported the same signature, e.g.
+
+```
+PROBE-ESC {"esc":{"captureSawMenu":false},"menuTimeline":["12:out"]}
+```
+
+**What that supports, stated no wider than the evidence.** In all 8 passing runs the menu's testid was already out of the DOM when Escape was delivered, and the recorder's own bubble-phase listener did not run, so SOMETHING stopped propagation before it. The recorder does not identify which listener did so, and it does not establish its own registration order against the other document listeners, so "the menu's capture handler claimed it" is the likely reading and not a measured one. The one observed red was never instrumented — the recorder was written after it — so nothing here connects these 8 passing signatures to that failure beyond both involving the same keypress. Treat this paragraph as a characterization of the passing path, not as a cause of the red.
+
+**The losing interleaving is NOT established, and naming it is this row's first task.** Two candidates, neither settled:
+
+1. **The listener outliving its own element.** The probe evidence points AT this one rather than away from it: in all 8 runs a capture handler stopped Escape while the menu's testid was already out of the DOM. It cannot be settled from the render path. `AttentionMenu` returns null when closed (`AttentionMenu.tsx:119`) and `AttentionMenuFrame`, which owns the listeners, renders only while open (`AttentionMenu.tsx:315`) — but those listeners are installed and removed by a passive `useEffect` (`AttentionMenu.tsx:353-388`), and conditional rendering says nothing about when that cleanup runs relative to the DOM removal and the next key event. Settling this needs a probe on the cleanup's timing, not a reading of the structure. (An earlier draft of this row called the candidate DISPROVED on exactly that structural reading. It was not; adversarial review round 1 caught it.)
+2. **The actionable-count blip**, untested, that `PublishedReviewModal`'s auto-open effect already documents in its own comment (`components/admin/showpage/PublishedReviewModal.tsx:693`): a 1 to 0 to 1 rebound during the revalidate-on-open `router.refresh()`, which would unmount and remount the menu around the keypress.
+
+**One candidate IS ruled out, for this surface only.** `escTransparentUntilEngaged` (`AttentionMenu.tsx:94`, on `AttentionMenuFrameProps`) is the 2026-08-28 amendment that makes an auto-opened panel Escape-transparent until the user engages. Its only opt-in is the WIZARD menu (`components/admin/wizard/WizardAttentionMenu.tsx:102`). The published modal renders `AttentionMenu`, whose props do not include the flag (`AttentionMenuProps`, `AttentionMenu.tsx:52-65`) and which does not pass it to the `AttentionMenuFrame` it renders (`AttentionMenu.tsx:138-146`), so it defaults false there (`AttentionMenu.tsx:327`) and `engagedRef` starts true (`AttentionMenu.tsx:333`, `useRef(!escTransparentUntilEngaged)`), which makes the early return at `:358` unreachable on this surface. An earlier draft claimed the prop had no opt-in call site ANYWHERE, which is false: it came from a `grep -v "AttentionMenu.tsx"` exclusion that also swallowed `WizardAttentionMenu.tsx`. The conclusion for the published surface survives the correction; the repo-wide claim does not.
+
+**Where it is no longer pinned, and the expansion trigger.** The resolve-lifecycle case used to dismiss the auto-opened menu with Escape; it now uses the pill toggle, because overlap clearance was all it wanted from the dismissal and the coupling bought it a foreign flake. The Escape contract stays pinned by that spec's "Esc closes the MENU first (modal stays), second Esc closes the modal" case. Its prelude is byte-identical to the one that was removed — `expect(MENU).toBeVisible()`, `keyboard.press("Escape")`, `expect(MENU).toHaveCount(0)`, `expect(MODAL).toBeVisible()` — so its exposure is the same by inspection, not by argument. It was not observed failing in any of the 13 full-file runs of the command above (the 8 hunt runs were scoped with `-g "resolve lifecycle"` and never executed it), which is weak evidence at a 1-in-7 rate and is recorded as such rather than as a clean bill. If it ever flakes, this row stops being a tail and becomes a gating defect: re-file it as such rather than adding a retry.
+
+### BL-LOCAL-E2E-APP-SERVER-QUERIES-VALIDATION — the app server under local e2e resolves its DB from `TEST_DATABASE_URL`, which points at the validation pooler
+
+**Status:** OPEN · **Filed:** 2026-08-28 (`fix/published-attention-resolve-red`, Task 1 attribution) · **Facing:** process · **Mint-exception:** product-blocked · **Severity:** MEDIUM (a local e2e run drives a real Next server whose route handlers open transactions against the shared validation deployment; here it only read, but the same resolution governs every write path behind those routes) · **Class:** env resolution · **Effort:** S to repair one site, M for the class · **Incident:** `fix/published-attention-resolve-red` (product-facing, `BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED`), attribution run 1, 2026-08-28: the arc's first run of `tests/e2e/published-show-attention.spec.ts` returned `POST /api/admin/show/picker-e2e-07be4dc6/alerts/9d33af9d-.../resolve 404` and the arc spent a full run plus a discriminating second run separating that from the defect it was sent to attribute. The 404 is `ADMIN_ALERT_NOT_FOUND` raised against a database that never held the seeded show. · **Reachability:** PROBED — two runs of the same spec on the same tree, differing only in `TEST_DATABASE_URL`. Unset, so `.env.local`'s validation pooler wins:
+
+```
+pnpm heavy pnpm exec playwright test tests/e2e/published-show-attention.spec.ts --project=desktop-chromium --reporter=list
+[WebServer] POST /api/admin/show/picker-e2e-07be4dc6/alerts/9d33af9d-0f13-40b6-8d36-445f7fd5584d/resolve 404 in 966ms
+```
+
+Set to the loopback DSN:
+
+```
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test tests/e2e/published-show-attention.spec.ts --project=desktop-chromium --reporter=list
+[WebServer] POST /api/admin/show/picker-e2e-81fb20e3/alerts/cafac661-8bcb-48b6-a7f1-763a75fcedf0/resolve 200 in 557ms
+[WebServer] POST /api/admin/show/picker-e2e-81fb20e3/alerts/764123a7-f57c-4fe1-9f62-fcec1bb77672/resolve 200 in 32ms
+```
+
+**The resolution, and why the loopback stack does not win it.** Route handlers resolve their connection as `process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL`, then fall back to `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (`app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts:34`). That idiom is repo-wide: 40 sites across `app/api/**` and `lib/**` (`rg -n 'TEST_DATABASE_URL \?\? process.env.DATABASE_URL' app lib`). `.env.local` sets `TEST_DATABASE_URL` to the validation pooler deliberately, for the schema-parity gates, and `pnpm preflight` says so in its own warning (`scripts/preflight-env.mjs:185-189`). Next loads `.env.local` into the dev server Playwright boots (`playwright.config.ts:263-267`, the non-CI `pnpm dev` branch), and that `webServer` entry sets no DB variable and scrubs none, so the app server inherits it. Everything ELSE in the run is loopback, by three different mechanisms rather than one: the alert seeding and the assertions go through `tests/e2e/helpers/supabaseAdmin.ts:11`, which reads `SUPABASE_URL` (`.env.local` sets it to `http://127.0.0.1:54321`); the show and crew seeding runs `psql` against a target that DELIBERATELY refuses to honour `TEST_DATABASE_URL` (`tests/e2e/helpers/seedShowWithCrew.ts:192-211`); and the modal's page loader builds its own server client (`app/admin/_showReviewModal.tsx:77-79`), which resolves the same loopback Supabase URL.
+
+That seeder comment is worth reading in full, because it names this exact hazard and defends against it: "honoring an ambient validation `TEST_DATABASE_URL` would seed one database and read another." The test helpers have already been hardened against the split target. The app's own route handlers have not, and that asymmetry is this row. The raw-`postgres` route handlers are the only dissenters in this spec, which is the shape the first run showed: `1 failed, 6 passed`, the sole failure being the one case that POSTs to such a route.
+
+**CI never reaches validation, but not by falling through.** `.github/workflows/published-modal-e2e.yml` sets neither `TEST_DATABASE_URL` nor `DATABASE_URL` in its job env (lines 88-123 set the Supabase URLs and keys only). An earlier draft of this row said the `??` therefore falls through to the loopback default. It does not: that job's `:3000` server is production posture, since `CI=true` selects the `pnpm build && pnpm start` branch (`playwright.config.ts:263-265`), and under production the resolver THROWS before reaching the fallback (`app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts:36-38`). So CI is safe from the validation pooler, and separately gets a 500 on any route that reaches this path unless the workflow supplies a DSN. `app-e2e.yml:176-187` already supplies one for exactly that reason, and the arc that filed this row added the same line to `published-modal-e2e.yml` when it re-enabled the one case there that reaches such a route. (Caught by adversarial review round 2; the draft claim was wrong in the direction that would have shipped a red case into a gating workflow.)
+
+The validation exposure is therefore local-only, which makes it exactly the kind that greets each new contributor once and is diagnosed from scratch each time.
+
+**The preflight advice is wrong as written.** `scripts/preflight-env.mjs:188` warns that `TEST_DATABASE_URL` is non-loopback and tells the reader to "Export DATABASE_URL (loopback) to point local DB runs at a specific local Postgres." Exporting `DATABASE_URL` cannot work for any of these sites: `TEST_DATABASE_URL` is the LEFT operand of the `??` and always wins. The working override is to set `TEST_DATABASE_URL` itself to the loopback URL, which is the form quoted in the Reachability probe above and the one this arc used for all 13 of its remaining full-file runs. A reader who follows the printed advice gets the same 404 and no signal that they did anything wrong.
+
+**Direction, not yet decided, and deliberately not taken in the filing arc** (bl-orch ruling 2026-08-28). Three candidates, in ascending blast radius: correct the preflight sentence, which costs one line and removes the misdirection but leaves the trap; scrub or override `TEST_DATABASE_URL` in the Playwright `webServer` env so the app server under e2e is loopback by construction, which fixes every route at once and is the narrowest real repair; or revisit the `??` idiom itself, which is 40 sites and wants its own arc. The first two are compatible and could ship together.
 
 ### BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW — the attention menu overflows its clipping panel on the LEFT at phone widths, on both review modals
 
@@ -314,28 +408,6 @@ The published number was taken against UNMODIFIED code — a temporary probe add
 **Where it is pinned today.** `tests/e2e/wizard-attention-menu.spec.ts` keeps the clip assertion at 1280x800 and registers the 375x667 case as `test.fixme` naming this row, so the gap is visible in the report rather than absent from it. Re-enable that case as the fix's own red.
 
 **Direction, not yet decided.** The panel cannot express "no wider than the distance from the clip's left edge to my anchor's right edge" in CSS, because that distance is a runtime measurement. So the candidates are: extend `useFitWithinClip` (or a sibling) to cap width the way it caps height; or re-anchor the panel to the modal panel rather than the pill wrapper. The first keeps the anchoring idiom and is where the existing measurement machinery already lives; the second is a bigger change. Whichever wins, it lands on the SHARED frame and both modals get it at once.
-
-### BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS — two `lib/parser/dataGaps.ts` filters still drop a severity-less warning from operator-visible lists
-
-**Status:** OPEN · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 2 class sweep) · **Facing:** product · **Severity:** LOW-MEDIUM (an operator-visible warnings list silently omits a row, if the shape occurs) · **Class:** severity-predicate divergence · **Effort:** S · **Class-sweep exception:** (b) + (c) — spec §2.1's sweep is ratified over `lib/admin components/admin` only, and repairing these two changes what the staged-show digest and the per-show actionable list COUNT, each with its own pinned suite, on surfaces this arc does not otherwise touch.
-
-**The defect shape, and where it now does not exist.** A persisted `ParseWarning` can lack the `severity` key entirely. `summarizeDataGaps` (the badge) has always counted such a row — the "#289 contract: skip only info (missing severity counts)" comment — while every review-surface filter tested `severity === "warn"` and dropped it, so badge and surface could disagree. This branch closes that for the seven ratified sites by routing them all through the new `isWarnSeverity` predicate (`lib/parser/dataGaps.ts`).
-
-**The two peers it does not close, with the sweep that found them.** After the seven landed:
-
-```
-$ rg -n 'severity (===|!==) "warn"' lib/admin components/admin
-(no hits)
-$ rg -n 'severity (===|!==) "warn"' lib/parser
-lib/parser/dataGaps.ts:129:  return !!w && w.severity === "warn" && DATA_GAP_CODES.has(w.code);
-lib/parser/dataGaps.ts:465:    if (w.severity !== "warn") continue;
-```
-
-`:129` is `isDataQualityWarning`, which gates the staged-show warnings digest (`app/admin/show/staged/[stagedId]/page.tsx:169`). `:465` is `operatorActionableWarnings`, the data-boundary filter behind `components/admin/PerShowActionableWarnings.tsx` and `components/admin/StagedReviewCard.tsx`. Both are operator-visible; both would drop a severity-less row that the badge counts, which is the same divergence §2.1 exists to end.
-
-**Reachability:** INFERRED, NOT PROBED. Spec §2.1 ratifies that persisted rows can lack the field, and `tests/parser/dataGaps.test.ts` ("counts a gap code whose warning is MISSING severity") pins the badge's handling of that shape — but nothing here measures whether such a row EXISTS in live data. The probe that settles it, and the first scheduled step of this entry: count elements of `shows_internal.parse_warnings` with no `severity` key across the validation deployment, per code. A zero makes this a documented limit rather than a defect; a non-zero names exactly which operator lists are short.
-
-**Why not fixed in the filing branch:** the repair is two one-line predicate swaps, but it moves counts on two surfaces with their own pinned suites (`tests/parser/operatorActionableWarnings.test.ts`, `tests/onboarding/firstSeenStagedWarnings.test.ts`, `tests/dataQuality/roleTokenIdentity.test.ts`) that this arc's review scope does not cover, and the probe above should direct it. Cheap once the count is known.
 
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 

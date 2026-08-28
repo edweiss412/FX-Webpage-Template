@@ -43,7 +43,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:3805":
+  "components/admin/wizard/step3ReviewSections.tsx:3870":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -295,6 +295,31 @@ describe("the scanner's population is pinned against resolver drift", () => {
           .join("\n"),
       )
       .digest("hex");
+    // Regenerated a third time 2026-08-28, same branch, for the diff-R1 focus and
+    // announcement repair (the tile now hands its anchor to the grid before it
+    // flips, and the grid carries a live region). Membership unchanged at 35 and
+    // the step3 row moved 3850 -> 3860; reverting that ONE row reproduces the
+    // 18b5f2b6 below, so the sets again differ by that row alone.
+    //
+    // Regenerated again 2026-08-28, same branch, when `diagramTileWidthAt` and
+    // `DIAGRAM_TILE_SIZES` moved out to `diagramTileGeometry.ts` so no Playwright
+    // spec has to load the client component. Membership unchanged at 35 and the
+    // step3 row moved 3889 -> 3850; reverting that ONE row reproduces the digest
+    // below it (18d9a51f) byte-for-byte, so again the sets differ by that row alone.
+    //
+    // Regenerated 2026-08-27 for the merge of `perf/admin-diagram-next-image` into
+    // `feat/telemetry-fallback-retry`'s base. BOTH sides had regenerated this digest, so
+    // neither side's value describes the merged tree and the conflict could not be taken
+    // by picking one.
+    //
+    // Membership unchanged at 35. Against origin/main the merged tree moves exactly ONE
+    // row, step3ReviewSections.tsx 3800 -> 3889 (`unknown:false` both sides), a pure line
+    // shift from the `DIAGRAM_TILE_SIZES` / `diagramTileWidthAt` block inserted above it.
+    // PROVED rather than asserted: reverting that single row in the merged scan output
+    // reproduces main's previous digest 5cfa8b62... byte-for-byte, which is only possible
+    // if the two sets differ by that row alone. Main's own two rows (EventTimeline 15,
+    // HealthAlertsPanel 280) are present and unmoved.
+    //
     // Regenerated 2026-08-27 for feat/telemetry-fallback-retry, delta READ before it was
     // replaced, same as the 2026-08-26 regeneration below it. Membership unchanged at 35
     // both sides; exactly TWO rows moved, EventTimeline.tsx 14 -> 15 and
@@ -330,7 +355,26 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // EventTimeline.tsx 14 -> 15 and HealthAlertsPanel.tsx 279 -> 280, same file,
     // same form, same marked state each. This branch's own row
     // (step3ReviewSections.tsx:3805) is unchanged by the merge.
-    expect(digest).toBe("ed2c13fac523d3582c382b789833134d1896541bd9ac84235a347a6f7e54a655");
+    //
+    // Regenerated on the MERGE of origin/main (6441d5e4c, PR #927
+    // feat/wizard-review-attention-menu) into perf/admin-diagram-next-image. BOTH
+    // parents had regenerated this literal, so neither describes the merged tree and
+    // the conflict could not be settled by picking a side. Recomputed against the
+    // merged tree and PROVED two-sided, not asserted: membership is unchanged at 35,
+    // and exactly ONE row moves against EACH parent — step3ReviewSections.tsx, the
+    // same `unknown:false` row, at 3865 on the merged tree against 3805 on main and
+    // 3860 on this branch. Reverting that single row to 3805 reproduces main's
+    // ed2c13fa... byte-for-byte, and reverting it to 3860 reproduces this branch's
+    // 6671b92f... byte-for-byte, which is only possible if each pair of sets differs
+    // by that row alone. Its residue key moved with it, to 3865, and was located by
+    // the scanner rather than bumped.
+    //
+    // Regenerated for the repeated-failure announcement repair (diff R1's one MEDIUM):
+    // the bespoke announcement string gave way to the shipped useAnnounceLog helper, and
+    // its import block moved the row five lines. Membership unchanged at 35, exactly ONE
+    // row moved, step3ReviewSections.tsx 3865 -> 3870, same `unknown:false` form. Reverting
+    // that single row reproduces b4df1bc6... byte-for-byte, so the sets differ by it alone.
+    expect(digest).toBe("b3464cf008593a349a7e78ac93035c0ff1c1bd7c6b1c5a92d0d92e50e4049952");
   });
 });
 

@@ -217,7 +217,17 @@ describe("published mode — zero staged (onboarding) traffic (spec §3.5)", () 
       .querySelector("img");
     expect(img).not.toBeNull();
     // Derived from the fixture: show id, snapshot revision, snapshotPath last segment.
-    expect(img!.getAttribute("src")).toBe(`/api/asset/diagram/${SHOW_ID}/${REV}/${DIAGRAM_KEY}`);
+    //
+    // Path and origin are asserted SEPARATELY. `next/image` writes an absolute
+    // `src`, so a single relative literal would compare a path to a full URL —
+    // and the literal it replaces was weaker than this pair, not stronger: it
+    // conflated the two into one string and therefore pinned neither
+    // independently. Comparing pathnames against the document origin is the
+    // convention the crew gallery suite already uses for this reason
+    // (tests/components/diagrams/Gallery.test.tsx:246-248).
+    const src = new URL(img!.getAttribute("src") ?? "", document.baseURI);
+    expect(src.pathname).toBe(`/api/asset/diagram/${SHOW_ID}/${REV}/${DIAGRAM_KEY}`);
+    expect(src.origin).toBe(window.location.origin);
   });
 
   test("packlist renders read-only: no wizard-session identifier and no archived-tab affordance", () => {
