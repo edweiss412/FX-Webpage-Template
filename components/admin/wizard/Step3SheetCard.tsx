@@ -42,7 +42,7 @@ import type { RunOfShow } from "@/lib/parser/types";
 import { Step3RowBadge, type Step3Row } from "@/components/admin/wizard/Step3Review";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { summarizeDataGaps, stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
-import { nonAmbiguityGapTotal, rowIsJudgment } from "@/lib/admin/step3Buckets";
+import { activeGapWarnings, nonAmbiguityGapTotal, rowIsJudgment } from "@/lib/admin/step3Buckets";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 // The section bodies + agenda live-fill machine live in the section module
 // (Task 3, spec §4/§6.1) and are rendered by the review modal's registry.
@@ -508,9 +508,14 @@ export function Step3SheetCard({
   // clean row WITH a NON-ambiguity gap warning gets the warn border + Review
   // button; an ambiguity-only (judgment) or clean row gets the plain border +
   // View (spec 2026-07-07 §7.3a — the needs-look chrome is partitioned by
-  // isAmbiguityCode via rowNeedsLookPure/nonAmbiguityGapTotal). `gaps` (the FULL
-  // count) still feeds DataQualityBadge, which keeps the un-partitioned total.
-  const gaps = summarizeDataGaps(warnings);
+  // isAmbiguityCode via rowNeedsLookPure/nonAmbiguityGapTotal).
+  //
+  // wizard-warning-ignore-controls §2.4: `gaps` feeds DataQualityBadge, and it now reads
+  // the ACTIVE partition through the same accessor every other row-level derivation uses.
+  // This was the one row-level site outside that accessor, calling summarizeDataGaps on a
+  // raw array — so without this line the glyph would keep counting warnings the operator
+  // dismissed, and the card would show "2" over a panel listing one.
+  const gaps = summarizeDataGaps(activeGapWarnings(row));
   const needsLook = nonAmbiguityGapTotal(row) > 0;
   // Third state (spec 2026-07-07 §7.3a): a row with NO needs-look gap but ≥1
   // ambiguity-class warning is "parsed with judgment" — a calm, informational
