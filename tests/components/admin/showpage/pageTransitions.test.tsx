@@ -174,6 +174,14 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // byte-identical (pinned by publishedAttentionBaseline.test.tsx). MEASURED by
   // running the scanner.
   "components/admin/showpage/AttentionMenu.tsx": 3,
+  // wizard-review-attention-menu §3.3, Task 7. ONE conditional mount in
+  // JSX-child position: the judgment group, an instant omit/mount that follows
+  // the derived count. The needs-look heading is also conditional but sits in
+  // the frame's `heading={...}` PROP, which findConditionalLines does not match
+  // — the same shape recorded on the AttentionMenu row above. The rows
+  // themselves render through AttentionMenuRow, whose conditional second line is
+  // counted in AttentionMenu.tsx. MEASURED by running the scanner.
+  "components/admin/wizard/WizardAttentionMenu.tsx": 1,
   // modal-header-reconciliation §9: 8 → 7 (Task 2, the `renderTitle` head site —
   // which covered the h1 AND its adjacent title divider — deleted with the prop)
   // → 6 (Task 5, the alert badge relocated to the modal header, §6.6). Task 7

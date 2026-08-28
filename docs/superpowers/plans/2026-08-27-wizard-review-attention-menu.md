@@ -697,7 +697,7 @@ Run: `pnpm exec vitest run tests/styles tests/components/admin/showpage/pageTran
 - Consumes: `AttentionMenuFrame`, `AttentionMenuRow`, `WarningAttention`, `reviewWarningTitle`.
 - Produces: `WizardAttentionMenu` with spec §3.3 props; `export type WizardAttentionEntry = WarningAttentionEntry<{ id: string; sectionId: SectionId; warning: ParseWarning; index: number }>`.
 
-<!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/wizardAttentionMenu.test.tsx` red-state=authored red-target=`components/admin/wizard/WizardAttentionMenu.tsx` why=`the module does not exist (untracked path, the legal form for a module the task creates), so the import fails; no file under components/admin/wizard renders a warning index` ac=AC-3 -->
+<!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/wizardAttentionMenu.test.tsx` red-state=authored red-target=`components/admin/wizard/WizardAttentionMenu.tsx:54` why=`at RED the module did not exist, so the import failed with "Failed to resolve import '@/components/admin/wizard/WizardAttentionMenu'" (the marker cited the path alone then, the legal form for a module the task creates; re-cited to the line once the file was tracked, per this task's Step 5); no file under components/admin/wizard renders a warning index` ac=AC-3 -->
 
 Path-only citation discipline: Step 5 edits the marker and stages the plan in the same commit, as Task 3 does.
 
