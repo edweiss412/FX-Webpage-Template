@@ -57,6 +57,12 @@ on:
       - "tests/e2e/published-review-modal.realtime.spec.ts"
       - "tests/e2e/published-review-modal.reopen.spec.ts"
       - "tests/e2e/published-review-modal.closeFreshness.spec.ts"
+      # Wired 2026-08-27 (wizard-review-attention-menu Task 9 Step 5). This spec
+      # existed with NO `run:` step behind it, which is how one of its cases
+      # drifted red unnoticed (BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED,
+      # carried as test.fixme); the other six gate from here on.
+      - "tests/e2e/published-show-attention.spec.ts"
+      - "tests/e2e/helpers/seedShowWithCrew.ts"
       - "components/realtime/ShowRealtimeBridge.tsx"
       - "components/admin/wizard/step3ReviewSections.tsx"
       - "components/admin/wizard/CrewRowActions.tsx"
@@ -149,7 +155,7 @@ jobs:
       - name: Run published-modal e2e (desktop-chromium, :3000 only)
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/published-modal-e2e-report.json
-        run: pnpm exec playwright test --reporter=list,json --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts tests/e2e/published-review-modal.prefetch.spec.ts tests/e2e/published-review-modal.crew-actions.spec.ts tests/e2e/published-review-modal.realtime.spec.ts tests/e2e/published-review-modal.reopen.spec.ts tests/e2e/published-review-modal.closeFreshness.spec.ts
+        run: pnpm exec playwright test --reporter=list,json --project=desktop-chromium tests/e2e/published-show-attention.spec.ts tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts tests/e2e/published-review-modal.prefetch.spec.ts tests/e2e/published-review-modal.crew-actions.spec.ts tests/e2e/published-review-modal.realtime.spec.ts tests/e2e/published-review-modal.reopen.spec.ts tests/e2e/published-review-modal.closeFreshness.spec.ts
       # Informational, never a gate (spec §4.3). `if: always()` is load-bearing: without it
       # this is an ordinary prerequisite-gated step, so a run that RECOVERS and then fails a
       # downstream assertion skips the print entirely — the recovery happened, the list

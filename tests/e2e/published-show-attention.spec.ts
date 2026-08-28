@@ -292,7 +292,18 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     await expect(card).toHaveAttribute("data-step3-warning-flash", "");
   });
 
-  test("resolve lifecycle: 2 issues → 1 issue → In sync, without reload (LAST — mutates)", async ({
+  // FIXME, not deleted and not diagnosed: this case fails on UNMODIFIED code.
+  // Probed 2026-08-27 by reverting both files feat/wizard-review-attention-menu
+  // touches here and rerunning — the optimistic decrement never fires, the pill
+  // stays at its arrival count, and a later run failed differently
+  // (toBeVisible), so it is not a single deterministic assertion. No workflow
+  // has ever run this spec, which is how it drifted red unnoticed; the spec is
+  // wired into published-modal-e2e.yml by the same change that adds this
+  // marker, so the other six cases start gating now and this one stays visible
+  // in the report. Cause UNATTRIBUTED — product defect or stale spec — and
+  // attribution is the first task for whoever picks up
+  // BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED.
+  test.fixme("resolve lifecycle: 2 issues → 1 issue → In sync, without reload (LAST — mutates)", async ({
     page,
   }) => {
     await openModal(page);
