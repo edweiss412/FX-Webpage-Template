@@ -521,10 +521,18 @@ vi.mock("@/lib/onboarding/rescanWizardSheet", async (importActual) => ({
 // opens a postgres connection, which the high-level sync entries above never reach
 // (all mocked). `useRawTxState` scripts the in-lock reads so computeUseRawToggle
 // reaches its mutated branch and the post-commit emit fires.
-const useRawTxState: { warnings: unknown[]; decisions: unknown[]; pendingRow: boolean } = {
+const useRawTxState: {
+  warnings: unknown[];
+  decisions: unknown[];
+  pendingRow: boolean;
+  // Wizard staged warning ignore (spec 2026-08-28 §2.6): the same in-lock pending_syncs
+  // read serves both actions, so the scripted row carries both columns.
+  ignoredWarnings: unknown[];
+} = {
   warnings: [],
   decisions: [],
   pendingRow: true,
+  ignoredWarnings: [],
 };
 const withShowLockMock = vi.fn(async (_driveFileId: string, fn: (tx: unknown) => unknown) => {
   const tx = {
@@ -536,6 +544,7 @@ const withShowLockMock = vi.fn(async (_driveFileId: string, fn: (tx: unknown) =>
           ? {
               parse_result: { warnings: useRawTxState.warnings },
               use_raw_decisions: useRawTxState.decisions,
+              ignored_warnings: useRawTxState.ignoredWarnings,
             }
           : null;
       }
@@ -554,7 +563,7 @@ vi.mock("@/lib/sync/lockedShowTx", async (importActual) => {
   return {
     ...actual,
     withShowLock: (...a: unknown[]) =>
-      a[0] === "df-uraw"
+      a[0] === "df-uraw" || a[0] === "df-wign"
         ? (withShowLockMock as unknown as (...x: unknown[]) => unknown)(...a)
         : (actual.withShowLock as unknown as (...x: unknown[]) => unknown)(...a),
   };
@@ -562,6 +571,7 @@ vi.mock("@/lib/sync/lockedShowTx", async (importActual) => {
 
 import { setUseRawDecisionAction } from "@/app/admin/show/[slug]/_actions/useRaw";
 import { setStagedUseRawDecisionAction } from "@/app/admin/onboarding/_actions/useRawStaged";
+import { setStagedWarningIgnore } from "@/app/admin/onboarding/_actions/stagedWarningIgnore";
 // Extend role→scope vocabulary (spec 2026-07-15 §8.3) — the four role-mapping actions.
 import { mapRoleToken } from "@/app/admin/show/[slug]/_actions/roleToken";
 import { mapRoleTokenStaged } from "@/app/admin/onboarding/_actions/roleTokenStaged";
@@ -3599,6 +3609,90 @@ describe("use-raw toggle actions — post-commit forensic emit", () => {
       ),
     );
     expect(staleCodes).not.toContain("USE_RAW_DECISION_SET");
+  });
+});
+
+// ── Wizard staged per-warning ignore (spec 2026-08-28-wizard-warning-ignore-controls
+// §2.6) ──
+// ONE admin action with an `action` discriminator, emitting STAGED_WARNING_IGNORED /
+// STAGED_WARNING_UNIGNORED post-commit, outside the advisory-lock tx, and ONLY on a
+// real mutation. Two registry rows, so both {file,fn,code} keys are proven here.
+// Negative branch: an already-ignored fingerprint mutates nothing, so no code is emitted
+// — which is what makes an observed code mean the committed-mutation branch ran.
+describe("staged warning ignore action — post-commit forensic emit", () => {
+  const STAGED_IGNORE_FILE = "app/admin/onboarding/_actions/stagedWarningIgnore.ts";
+  const IGNORE_SNIPPET = "Hotel notes | double occupancy";
+  const IGNORE_CODE = "UNKNOWN_FIELD";
+  const IGNORABLE_WARNING = {
+    severity: "warn",
+    code: IGNORE_CODE,
+    message: "Unrecognized field.",
+    rawSnippet: IGNORE_SNIPPET,
+  };
+  const ignoreArgs = (action: "ignore" | "unignore") => ({
+    wizardSessionId: "wiz-wign",
+    driveFileId: "df-wign",
+    action,
+    code: IGNORE_CODE,
+    rawSnippet: IGNORE_SNIPPET,
+  });
+  // The pre-lock pairing verify reads pending_syncs through the thenable list builder.
+  function seedStagedIgnorePairing() {
+    serverClientImpl.current = async () =>
+      makeClient({ from: { data: [{ drive_file_id: "df-wign" }], error: null } });
+  }
+
+  test("setStagedWarningIgnore emits IGNORED then UNIGNORED; nothing on a no-op", async () => {
+    // Fingerprint from the REAL production function, so the seeded store below is one
+    // the action can actually match (a hand-written constant could never be found).
+    const { warningFingerprint } = await import("@/lib/dataQuality/warningFingerprint");
+    const fp = warningFingerprint({ code: IGNORE_CODE, rawSnippet: IGNORE_SNIPPET }) as string;
+
+    // ignore from absent → upserts the entry → emits IGNORED.
+    seedStagedIgnorePairing();
+    useRawTxState.pendingRow = true;
+    useRawTxState.warnings = [IGNORABLE_WARNING];
+    useRawTxState.ignoredWarnings = [];
+    const ignoredCodes = await observeSuccessCodes(() =>
+      setStagedWarningIgnore(ignoreArgs("ignore")),
+    );
+    expect(ignoredCodes).toContain("STAGED_WARNING_IGNORED");
+    recordAdminOutcomeBehavior({
+      file: STAGED_IGNORE_FILE,
+      fn: "setStagedWarningIgnore",
+      code: "STAGED_WARNING_IGNORED",
+    });
+
+    // unignore from present → removes the entry → emits UNIGNORED.
+    seedStagedIgnorePairing();
+    useRawTxState.ignoredWarnings = [
+      { fingerprint: fp, code: IGNORE_CODE, ignored_by: "admin@example.com" },
+    ];
+    const unignoredCodes = await observeSuccessCodes(() =>
+      setStagedWarningIgnore(ignoreArgs("unignore")),
+    );
+    expect(unignoredCodes).toContain("STAGED_WARNING_UNIGNORED");
+    recordAdminOutcomeBehavior({
+      file: STAGED_IGNORE_FILE,
+      fn: "setStagedWarningIgnore",
+      code: "STAGED_WARNING_UNIGNORED",
+    });
+
+    // Already ignored → no mutation → no emit. This is the paired negative that makes
+    // the two positives above mean "the committed-mutation branch ran".
+    seedStagedIgnorePairing();
+    useRawTxState.ignoredWarnings = [
+      { fingerprint: fp, code: IGNORE_CODE, ignored_by: "admin@example.com" },
+    ];
+    const noopCodes = await observeCodes(() => setStagedWarningIgnore(ignoreArgs("ignore")));
+    expect(noopCodes).not.toContain("STAGED_WARNING_IGNORED");
+
+    // A warning that is not in the locked parse → typed refusal → no emit.
+    seedStagedIgnorePairing();
+    useRawTxState.warnings = [];
+    useRawTxState.ignoredWarnings = [];
+    const staleCodes = await observeCodes(() => setStagedWarningIgnore(ignoreArgs("ignore")));
+    expect(staleCodes).not.toContain("STAGED_WARNING_IGNORED");
   });
 });
 
