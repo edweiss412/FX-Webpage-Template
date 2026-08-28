@@ -134,11 +134,15 @@ export async function setStagedWarningIgnore(args: {
   code: string;
   rawSnippet: string;
 }): Promise<SetStagedWarningIgnoreResult> {
-  const { wizardSessionId, driveFileId, action, code, rawSnippet } = args;
+  // The origin gate is the FIRST statement, before even destructuring the args: a
+  // cross-site POST that omits `Origin` must reach nothing at all, and the structural
+  // guard (tests/auth/_metaServerActionOriginGate.test.ts) pins that position rather
+  // than merely the call's presence.
   await assertSameOriginServerAction(
     "setStagedWarningIgnore",
     "admin.onboarding.stagedWarningIgnore",
   );
+  const { wizardSessionId, driveFileId, action, code, rawSnippet } = args;
   await requireAdmin();
   const { email } = await requireAdminIdentity();
 

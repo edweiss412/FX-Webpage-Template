@@ -180,7 +180,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 214 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 219 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -212,7 +212,22 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // as well as counted, per the note above: a count alone cannot say WHICH
     // member joined, and it passes just as happily on a swap.
     expect(rel).toContain("lib/admin/warningAttention.ts");
-    expect(rel.length).toBe(215);
+    // 215 -> 219 (2026-08-28, wizard-warning-ignore-controls). FOUR joined, and only
+    // three of them are new files — which is exactly why this block names members
+    // instead of trusting the count. The fourth, lib/admin/loadIgnoredWarnings.ts,
+    // already existed and joined because a RENDERED file (OnboardingWizard) now
+    // imports it directly for the first time.
+    //
+    // The arc's own fourth new module, lib/sync/carryStagedIgnoredWarnings.ts, is
+    // deliberately ABSENT: it is reached only from the finalize / phase-2 path, which
+    // is not on the render walk. That is the depth-1 rule working, not an omission,
+    // and it is asserted so a later widening cannot pull it in unnoticed.
+    expect(rel).toContain("lib/admin/wizardWarningModel.ts");
+    expect(rel).toContain("lib/admin/enrichStep3WarningModels.ts");
+    expect(rel).toContain("lib/admin/activeWarningEntries.ts");
+    expect(rel).toContain("lib/admin/loadIgnoredWarnings.ts");
+    expect(rel).not.toContain("lib/sync/carryStagedIgnoredWarnings.ts");
+    expect(rel.length).toBe(219);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

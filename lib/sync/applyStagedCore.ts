@@ -460,7 +460,9 @@ export type ApplyStagedCoreArgs = {
   // Absent → the overlay is a no-op ([]).
   useRawDecisions?: UseRawDecision[];
   // wizard-warning-ignore-controls §2.7: staged ignore decisions read from
-  // pending_syncs.ignored_warnings (first-seen path) or out of the shadow payload
+  // pending_syncs.ignored_warnings (live-partition:n/a — doc reference, no statement;
+  // the read is the finalize route's, the write is phase 2's) on the first-seen path,
+  // or out of the shadow payload
   // (existing-show path). Forwarded to runPhase2, which makes them durable. Absent → none.
   stagedIgnoredWarnings?: StagedIgnoreEntry[];
   // §6.2: the global role-mapping vocabulary (normalized), forwarded to runPhase2's overlay so

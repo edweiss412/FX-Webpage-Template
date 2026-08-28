@@ -43,7 +43,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:3870":
+  "components/admin/wizard/step3ReviewSections.tsx:4026":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -119,10 +119,10 @@ const REPORTED_RESIDUE: Record<string, string> = {
     reason:
       'reaches dashboard-overview and IS captured: Dashboard derives `degraded` from `ignoredResult.kind === "infra_error"` (Dashboard.tsx:489) and passes it here, where a `degraded ?` ternary renders a visible Couldn\'t-load chip on /admin. MARKED BY HAND via data-render-fault. Not scanner-reachable because the guard is a bare prop, so classifyExpression returns null and the ConditionalExpression arm drops it. Found by whole-diff review r1, which is the point worth recording: the residue registry named the ASSIGNMENT site in Dashboard and missed that the RENDER lives in another component.',
   },
-  "components/admin/OnboardingWizard.tsx:803:OperatorErrorBlock": {
+  "components/admin/OnboardingWizard.tsx:820:OperatorErrorBlock": {
     cause: "unreached-ternary",
     reason:
-      "reaches dashboard-overview and IS captured: the ternary at OnboardingWizard.tsx:803 renders it from the FALSE arm of `service.ok ? healthy : <OperatorErrorBlock />`, at OnboardingWizard.tsx:828, painting a Setup-is-paused section on /admin. MARKED BY HAND at the component, which renders the fault unconditionally, so the marker always reaches the DOM and the capture refuses. Unreachable for a DIFFERENT reason from the other ternaries: the arm inspects only `whenTrue`, so a fault in the false arm is invisible to it whatever its guard looks like. That distinction is prose because no AST predicate decides which arm holds the fault without a fault oracle the scanner does not have; the blind spot is declared here rather than widened into the recognizer.",
+      "reaches dashboard-overview and IS captured: the ternary at OnboardingWizard.tsx:820 renders it from the FALSE arm of `service.ok ? healthy : <OperatorErrorBlock />`, at OnboardingWizard.tsx:828, painting a Setup-is-paused section on /admin. MARKED BY HAND at the component, which renders the fault unconditionally, so the marker always reaches the DOM and the capture refuses. Unreachable for a DIFFERENT reason from the other ternaries: the arm inspects only `whenTrue`, so a fault in the false arm is invisible to it whatever its guard looks like. That distinction is prose because no AST predicate decides which arm holds the fault without a fault oracle the scanner does not have; the blind spot is declared here rather than widened into the recognizer.",
   },
   "app/admin/layout.tsx:130:inOnboarding": {
     cause: "unreached-no-ternary",
@@ -374,7 +374,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // its import block moved the row five lines. Membership unchanged at 35, exactly ONE
     // row moved, step3ReviewSections.tsx 3865 -> 3870, same `unknown:false` form. Reverting
     // that single row reproduces b4df1bc6... byte-for-byte, so the sets differ by it alone.
-    expect(digest).toBe("b3464cf008593a349a7e78ac93035c0ff1c1bd7c6b1c5a92d0d92e50e4049952");
+    //
+    // Regenerated again for wizard-warning-ignore-controls (2026-08-28): the warnings
+    // panel gained the active/ignored partition, the dq controls and the Ignored (N)
+    // disclosure, which moved the same `unknown:false` row down the file. Membership
+    // unchanged at 35 (the sibling case asserts that independently), exactly ONE row
+    // moved, step3ReviewSections.tsx 3870 -> 4026, same form. Its residue key moved with
+    // it and was located by the scanner rather than bumped.
+    expect(digest).toBe("ea811345e285de8676f153ceba59aaa2cc2a5bec1e56e24af5b3b041e956c1ff");
   });
 });
 
@@ -402,7 +409,7 @@ function parseSite(key: string): Site {
   // (`SystemHealthCard.unavailable`).
   //
   // SYMBOL, not flag: three entries name a boolean flag, but
-  // `OnboardingWizard.tsx:803:OperatorErrorBlock` names an exported COMPONENT
+  // `OnboardingWizard.tsx:820:OperatorErrorBlock` names an exported COMPONENT
   // (`components/admin/OnboardingWizard.tsx:666`). Calling the field `flag` is
   // what produced two universal claims this registry cannot support.
   const lastColon = key.lastIndexOf(":");

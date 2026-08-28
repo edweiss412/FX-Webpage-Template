@@ -140,6 +140,13 @@ export function DataQualityWarningControls({
         // component is about to be unmounted by its own success.
         onBeforeRefresh?.();
         router.refresh();
+        // Impeccable audit P1 (2026-08-28): do NOT rely on being unmounted to clear
+        // this. A LINKED row whose loader read faults resolves fail-OPEN to an empty
+        // ignore set (`lib/admin/enrichStep3WarningModels.ts`), so the row comes back
+        // ACTIVE, React keeps this instance alive on its content-derived key, and the
+        // button would sit disabled at "Ignoring…" forever — after a SUCCESS, with no
+        // error and no way to retry.
+        setState({ kind: "idle" });
         return;
       }
       setState({ kind: "error", copy: failCopy });

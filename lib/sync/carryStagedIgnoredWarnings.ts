@@ -69,12 +69,20 @@ export async function carryStagedIgnoredWarnings(
     );
   }
   for (const entry of carryable) {
+    // Invariant 3 at the boundary that WRITES, not only at the filter upstream.
+    // `carryableIgnoreEntries` has already dropped everything that cannot canonicalize,
+    // so this is total and returns the same string — but the canonicalization has to be
+    // visible HERE, where the row enters the database, both for the reader and for the
+    // X.5 audit, which follows the written expression and cannot see through a helper
+    // two calls back.
+    const ignoredBy = canonicalize(entry.ignored_by);
+    if (ignoredBy === null) continue;
     // not-subject-to-meta: service-role SQL inside the JS-held show lock (no {data,error} client).
     await port.unsafe(
       `insert into public.ignored_warnings (show_id, fingerprint, code, ignored_by)
        values ($1, $2, $3, $4)
        on conflict (show_id, fingerprint) do nothing`,
-      [args.showId, entry.fingerprint, entry.code, entry.ignored_by],
+      [args.showId, entry.fingerprint, entry.code, ignoredBy],
     );
   }
 }

@@ -146,8 +146,9 @@ export type Phase2Args = {
   // Absent/[] → overlay no-op.
   useRawDecisions?: UseRawDecision[];
   // wizard-warning-ignore-controls §2.7: the staged ignore decisions read (through
-  // normalizeStagedIgnoredWarnings) from pending_syncs.ignored_warnings by each finalize
-  // caller. Carried into public.ignored_warnings for snapshot.showId below — the first
+  // normalizeStagedIgnoredWarnings) from pending_syncs.ignored_warnings
+  // (live-partition:n/a — doc reference, no statement; the read is the finalize
+  // caller's) by each finalize caller. Carried into public.ignored_warnings for snapshot.showId below — the first
   // moment a show id exists on the first-seen path. Absent → nothing to carry.
   stagedIgnoredWarnings?: StagedIgnoreEntry[];
   // "Recognize this role" mappings (spec 2026-07-15-extend-role-scope-vocab §6.2), loaded

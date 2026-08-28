@@ -2934,12 +2934,17 @@ export function WarningsBreakdown({
   // every menu jump to the wrong warning. `items` pairs each warning with the index it
   // must keep. Out-of-range items are skipped: server-side both sides derive from one
   // array in one pass, which is precisely why the client must not assume it.
+  // Impeccable audit P3 (2026-08-28): index the RAW `warnings` array, which is what
+  // model indices address. Indexing `allRows` was correct only by a coupling —
+  // `visibleWarningRows` is identity when the published gate is off, and `dq` is
+  // staged-only — so the two happened to be the same array. A mismatch would not have
+  // been caught by the range filter below; it would have picked the WRONG warnings.
   const pick = (
     partition: readonly { index: number; reportSurfaceId: string }[],
   ): Array<{ w: ParseWarning; index: number; reportSurfaceId: string }> =>
     partition
-      .filter((item) => item.index >= 0 && item.index < allRows.length)
-      .map((item) => ({ w: allRows[item.index] as ParseWarning, ...item }));
+      .filter((item) => item.index >= 0 && item.index < warnings.length)
+      .map((item) => ({ w: warnings[item.index] as ParseWarning, ...item }));
   const activeItems = dq
     ? pick(dq.model.active)
     : allRows.map((w, index) => ({ w, index, reportSurfaceId: "" }));
@@ -2990,7 +2995,9 @@ export function WarningsBreakdown({
           tabIndex={-1}
           data-testid={`wizard-step3-card-${dfid}-warnings-focus-anchor`}
           className="sr-only"
-        />
+        >
+          Sheet warnings
+        </div>
       ) : null}
       {parseNotes && parseNotes.length > 0 ? (
         <div
@@ -3339,7 +3346,7 @@ export function WarningsBreakdown({
                 w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
               return (
                 <li key={ignoredKeys[pos]} className="flex min-w-0 flex-col gap-0.5">
-                  <span className="text-sm text-text-subtle">{reviewWarningTitle(w)}</span>
+                  <span className="wrap-break-word text-sm text-text">{reviewWarningTitle(w)}</span>
                   {rowLabel ? (
                     <span className="wrap-break-word text-xs text-text-subtle">
                       Sheet row <span className="text-text">{rowLabel}</span>
@@ -3347,17 +3354,23 @@ export function WarningsBreakdown({
                   ) : null}
                   {/* no-newtab-announcement: `target` is the discriminated ignore BACKEND
                       (spec §2.3), not a browser window target. No anchor. */}
-                  <DataQualityWarningControls
-                    target={dq.target}
-                    warning={w}
-                    driveFileId={dfid}
-                    mode="ignored"
-                    reportSurfaceId={reportSurfaceId}
-                    // Same `bg-surface` panel card as the active list; this is not a
-                    // muted published card.
-                    ground="surface"
-                    onBeforeRefresh={holdFocusInPanel}
-                  />
+                  {/* Impeccable audit P3 (2026-08-28): the SAME warn-severity gate the
+                      active rows carry (§1.1.4). Without it a legacy info-severity
+                      ignore renders an Un-ignore whose success moves the row to a list
+                      that will never offer Ignore back. */}
+                  {isWarnSeverity(w) ? (
+                    <DataQualityWarningControls
+                      target={dq.target}
+                      warning={w}
+                      driveFileId={dfid}
+                      mode="ignored"
+                      reportSurfaceId={reportSurfaceId}
+                      // Same `bg-surface` panel card as the active list; this is not a
+                      // muted published card.
+                      ground="surface"
+                      onBeforeRefresh={holdFocusInPanel}
+                    />
+                  ) : null}
                 </li>
               );
             })}

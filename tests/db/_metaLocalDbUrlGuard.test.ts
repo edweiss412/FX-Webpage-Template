@@ -484,8 +484,11 @@ describe(
           "a transaction that is always rolled back, local-only) " +
           "+ tests/supabase/_metaRetryableRpcVolatility.test.ts (the RETRYABLE_RPCS volatility " +
           "guard, 2026-08-24; it reads pg_proc and executes each member inside a READ ONLY " +
-          "transaction that is always rolled back, local-only)",
-      ).toBe(74);
+          "transaction that is always rolled back, local-only) " +
+          "+ tests/sync/stagedIgnoreCarry.test.ts (the staged-ignore finalize carry, 2026-08-28; " +
+          "it seeds shows / pending_syncs / onboarding_scan_manifest rows, runs the REAL finalize " +
+          "and finalize-cas handlers over them, and deletes every one in cleanup, local-only)",
+      ).toBe(75);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {
