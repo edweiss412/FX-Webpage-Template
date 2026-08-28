@@ -91,19 +91,39 @@ describe("verifyPickerIntent expiry boundary", () => {
  */
 describe("verifyPickerIntent rejects empty id fields (non-emptiness rests on the adjacent regexes)", () => {
   test("empty slug is rejected", () => {
-    expect(verifyPickerIntent(signRaw({ slug: "", shareToken: SHARE_TOKEN, exp: NOW + 60 }), SIGNING_KEY, NOW)).toBeNull();
+    expect(
+      verifyPickerIntent(
+        signRaw({ slug: "", shareToken: SHARE_TOKEN, exp: NOW + 60 }),
+        SIGNING_KEY,
+        NOW,
+      ),
+    ).toBeNull();
   });
 
   test("empty shareToken is rejected", () => {
-    expect(verifyPickerIntent(signRaw({ slug: "sample-show", shareToken: "", exp: NOW + 60 }), SIGNING_KEY, NOW)).toBeNull();
+    expect(
+      verifyPickerIntent(
+        signRaw({ slug: "sample-show", shareToken: "", exp: NOW + 60 }),
+        SIGNING_KEY,
+        NOW,
+      ),
+    ).toBeNull();
   });
 
   test("both ids empty is rejected", () => {
-    expect(verifyPickerIntent(signRaw({ slug: "", shareToken: "", exp: NOW + 60 }), SIGNING_KEY, NOW)).toBeNull();
+    expect(
+      verifyPickerIntent(signRaw({ slug: "", shareToken: "", exp: NOW + 60 }), SIGNING_KEY, NOW),
+    ).toBeNull();
   });
 
   test("whitespace-only slug is rejected (SLUG_RE anchors on [a-z0-9], so a blank is not a short id)", () => {
-    expect(verifyPickerIntent(signRaw({ slug: " ", shareToken: SHARE_TOKEN, exp: NOW + 60 }), SIGNING_KEY, NOW)).toBeNull();
+    expect(
+      verifyPickerIntent(
+        signRaw({ slug: " ", shareToken: SHARE_TOKEN, exp: NOW + 60 }),
+        SIGNING_KEY,
+        NOW,
+      ),
+    ).toBeNull();
   });
 
   test("control: the same signRaw path with BOTH ids well-formed verifies, so the rejections above are about the ids and not about signRaw", () => {
