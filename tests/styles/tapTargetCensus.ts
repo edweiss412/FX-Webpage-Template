@@ -205,7 +205,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     file: "components/admin/wizard/Step3ReviewModal.tsx",
     // :783 until 2026-08-27 — the attention pill's state block and its effects
     // (spec §3.2/§3.5) sit above the resolution radios.
-    line: 972,
+    line: 979,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",
@@ -317,7 +317,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // Then 3909 -> 3998 when the wizard-ignore arc added the panel's active/ignored
     // partition and its Ignored (N) disclosure above this component. Located on the live
     // tree by running the scanner, not by adding a delta: 4002 is that same `<a>`.
-    line: 4002,
+    line: 4006,
     tag: "a",
     category: "full-bleed",
     reason:

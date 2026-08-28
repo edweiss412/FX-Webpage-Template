@@ -3156,3 +3156,59 @@ describe("Step3ReviewModal — §S3C-2 background inert", () => {
     }
   });
 });
+
+// ── wizard-warning-ignore-controls spec §2.4 / §5 — Task 11 ────────────────────
+//
+// The attention pill and its menu are the last consumers of a row's warnings, and
+// they read through the §2.4 wrapper like everything else. Two properties matter:
+// the counts follow the ACTIVE partition, and when the active count reaches zero the
+// pill and the menu unmount in the SAME render (the `pillInteractive` gate) rather
+// than leaving an orphan panel over an empty list.
+describe("attention pill reads the active warning partition (§2.4)", () => {
+  function dqFor(activeIdx: number[], ignoredIdx: number[]) {
+    return {
+      target: { kind: "staged" as const, wizardSessionId: WSID, driveFileId: DFID },
+      model: {
+        active: activeIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+        ignored: ignoredIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+      },
+    };
+  }
+
+  test("ignoring a needs-look warning drops the pill count by exactly one", () => {
+    const warnings = [warning("crew"), warning("rooms")];
+    const before = sectionData({ warnings });
+    const { n: nBefore } = expectedCounts(before);
+    premiseHolds("the fixture starts with two needs-look warnings", nBefore === 2);
+
+    const after = sectionData({ warnings }, { dq: dqFor([1], [0]) });
+    const { q } = renderModal({ d: after });
+    // Derived from the fixture: two warnings, one ignored.
+    expect(q.getByTestId(tid("chip")).textContent).toContain(String(nBefore - 1));
+  });
+
+  test("when every warning is ignored the pill goes non-interactive and the menu does not mount", () => {
+    const warnings = [warning("crew")];
+    const d = sectionData({ warnings }, { dq: dqFor([], [0]) });
+    const { q } = renderModal({ d });
+    const chip = q.getByTestId(tid("chip"));
+    // `pillInteractive` gates BOTH the button state and the menu mount, so a span
+    // here (no aria-expanded) and no menu is the whole contract in one assertion.
+    expect(chip.getAttribute("aria-expanded")).toBeNull();
+    expect(chip.getAttribute("aria-controls")).toBeNull();
+    expect(q.queryByTestId("wizard-attention-needslook-heading")).toBeNull();
+    expect(q.queryByTestId("wizard-attention-judgment-group")).toBeNull();
+  });
+
+  test("an ignored row's menu entry is gone, and the surviving entry keeps its ORIGINAL id", () => {
+    const warnings = [warning("crew"), warning("rooms")];
+    const d = sectionData({ warnings }, { dq: dqFor([1], [0]) });
+    const { q } = renderModal({ d });
+    fireEvent.click(q.getByTestId(tid("chip")));
+    // The row testid carries the FULL-array index, which is what the jump resolves
+    // against. Asserting the React key would prove nothing — keys are not in the DOM,
+    // so an implementation that renumbered every survivor would pass it.
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-attention-row-1`)).toBeTruthy();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-attention-row-0`)).toBeNull();
+  });
+});

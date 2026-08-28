@@ -27,6 +27,8 @@
  * label scans are scoped `within(...)` the section's own testid container so a
  * sibling can never satisfy an assertion by accident.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
@@ -52,6 +54,7 @@ import {
   DiagramsBreakdown,
   reviewWarningTitle,
   roomHasScope,
+  Step3RunStateContext,
   step3Sections,
   STEP3_SECTION_GROUPS,
   type Step3SectionDef,
@@ -1592,5 +1595,186 @@ describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
       expect(q.queryByTestId("dq-error-sid-0")).toBeNull();
       vi.unstubAllGlobals();
     });
+  });
+});
+
+// ── wizard-warning-ignore-controls spec §2.4 counts + §5 transitions — Task 11 ──
+describe("panel + rail counts read the active partition (§2.4)", () => {
+  const ACTIVE_WARN: ParseWarning = {
+    severity: "warn",
+    code: "FIELD_UNREADABLE",
+    message: "Unreadable field.",
+    rawSnippet: "Parking | validated onsite",
+  };
+  const IGNORED_WARN: ParseWarning = {
+    severity: "warn",
+    code: "FIELD_UNREADABLE",
+    message: "Unreadable field.",
+    rawSnippet: "Hotel notes | double occupancy",
+  };
+  const INFO_ROW: ParseWarning = {
+    severity: "info",
+    code: "SCHEDULE_NOTE",
+    message: "Informational.",
+  };
+  // 1 ignored warn + 1 active warn + 1 info.
+  const FIXTURE = [IGNORED_WARN, ACTIVE_WARN, INFO_ROW];
+  const DQ = {
+    target: {
+      kind: "staged" as const,
+      wizardSessionId: STEP3_FIXTURE_WSID,
+      driveFileId: DFID,
+    },
+    model: {
+      active: [
+        { index: 1, reportSurfaceId: "sid-1" },
+        { index: 2, reportSurfaceId: "sid-2" },
+      ],
+      ignored: [{ index: 0, reportSurfaceId: "sid-0" }],
+    },
+  };
+  // Derived from the fixture: three rows, one ignored.
+  const EXPECTED = FIXTURE.length - DQ.model.ignored.length;
+
+  test("the heading count shows the active total, not the raw row count", () => {
+    const q = renderBody(sectionData({ warnings: FIXTURE }, { dq: DQ }), "warnings");
+    const heading = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
+    // Scope the extraction: clone the section and REMOVE the disclosure subtree first,
+    // so the ignored row's own copy of a count-shaped string cannot satisfy this.
+    const clone = heading.cloneNode(true) as HTMLElement;
+    clone.querySelector(`[data-testid="wizard-step3-card-${DFID}-ignored-warnings"]`)?.remove();
+    expect(clone.textContent).toContain(String(EXPECTED));
+  });
+
+  test("the rail count matches the heading for the same row", () => {
+    const d = sectionData({ warnings: FIXTURE }, { dq: DQ });
+    const def = defById(step3Sections(d), "warnings");
+    expect(def.railCount?.(d, { routedWarningsRenderElsewhere: false })).toBe(EXPECTED);
+  });
+
+  test("with no dq the rail count is unchanged (published and standalone)", () => {
+    const d = sectionData({ warnings: FIXTURE });
+    const def = defById(step3Sections(d), "warnings");
+    expect(def.railCount?.(d, { routedWarningsRenderElsewhere: false })).toBe(FIXTURE.length);
+  });
+});
+
+describe("panel transition inventory (spec §5)", () => {
+  const W: ParseWarning = {
+    severity: "warn",
+    code: "FIELD_UNREADABLE",
+    message: "Unreadable field.",
+    rawSnippet: "Parking | validated onsite",
+  };
+  const dq = (activeIdx: number[], ignoredIdx: number[]) => ({
+    target: {
+      kind: "staged" as const,
+      wizardSessionId: STEP3_FIXTURE_WSID,
+      driveFileId: DFID,
+    },
+    model: {
+      active: activeIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+      ignored: ignoredIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+    },
+  });
+
+  test("no new AnimatePresence anywhere in the panel — every treatment is instant", () => {
+    // §5: the ONLY animation this feature introduces is the disclosure chevron rotate,
+    // which is a CSS transform. A mount/unmount animation would make the active↔ignored
+    // swap lag the server truth it is supposed to be showing.
+    const source = readFileSync(
+      join(process.cwd(), "components/admin/wizard/step3ReviewSections.tsx"),
+      "utf8",
+    );
+    expect(source).not.toMatch(/AnimatePresence/);
+  });
+
+  test("two active rows each own their control state (compound: second while first runs)", () => {
+    const warnings = [W, { ...W, rawSnippet: "Storage | second row" }];
+    const q = renderBody(sectionData({ warnings }, { dq: dq([0, 1], []) }), "warnings");
+    const controls = q.getAllByTestId("dq-controls");
+    expect(controls.length).toBe(2);
+    // Distinct testids per row means distinct component instances, so neither row's
+    // running state can disable the other's button.
+    expect(q.getByTestId("dq-ignore-sid-0")).toBeTruthy();
+    expect(q.getByTestId("dq-ignore-sid-1")).toBeTruthy();
+    expect((q.getByTestId("dq-ignore-sid-1") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("jump-anchor contract survives the partition (§2.4)", () => {
+  const W = (snippet: string): ParseWarning => ({
+    severity: "warn",
+    code: "FIELD_UNREADABLE",
+    message: "Unreadable field.",
+    rawSnippet: snippet,
+  });
+
+  test("the menu's `warning:1` entry resolves through the SAME selector the surface uses", () => {
+    // With warning 0 ignored, the surviving row is the FULL-array index 1. The surface
+    // resolves an attention jump with
+    // `scroller.querySelector('[data-attention-anchor="${id}"]')`
+    // (components/admin/review/ShowReviewSurface.tsx:583), so this asserts against that
+    // exact selector expression rather than a testid that only the test knows.
+    const warnings = [W("Hotel notes | double"), W("Parking | validated")];
+    const q = renderBody(
+      sectionData(
+        { warnings },
+        {
+          dq: {
+            target: {
+              kind: "staged" as const,
+              wizardSessionId: STEP3_FIXTURE_WSID,
+              driveFileId: DFID,
+            },
+            model: {
+              active: [{ index: 1, reportSurfaceId: "sid-1" }],
+              ignored: [{ index: 0, reportSurfaceId: "sid-0" }],
+            },
+          },
+        },
+      ),
+      "warnings",
+    );
+    const target = q.container.querySelector('[data-attention-anchor="warning:1"]');
+    expect(target).toBeTruthy();
+    // And the STALE anchor is gone — an ignored row keeping it would shadow this one.
+    expect(q.container.querySelector('[data-attention-anchor="warning:0"]')).toBeNull();
+  });
+});
+
+describe("§5 transition dispositions — publish-run independence", () => {
+  test("an ignore control is NOT disabled while a publish run is active", () => {
+    // The §4.4 footer freeze set does not include these controls, exactly as it does not
+    // include the use-raw toggle. A freeze here would strand the operator mid-run with no
+    // way to dismiss a warning they had already judged.
+    const warnings: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "Unreadable field.",
+        rawSnippet: "Parking | validated onsite",
+      },
+    ];
+    const d = sectionData(
+      { warnings },
+      {
+        dq: {
+          target: {
+            kind: "staged" as const,
+            wizardSessionId: STEP3_FIXTURE_WSID,
+            driveFileId: DFID,
+          },
+          model: { active: [{ index: 0, reportSurfaceId: "sid-0" }], ignored: [] },
+        },
+      },
+    );
+    const def = defById(step3Sections(d), "warnings");
+    const q = render(
+      <Step3RunStateContext.Provider value={{ isPublishRunActive: true }}>
+        {def.render(d)}
+      </Step3RunStateContext.Provider>,
+    );
+    expect((q.getByTestId("dq-ignore-sid-0") as HTMLButtonElement).disabled).toBe(false);
   });
 });

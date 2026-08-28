@@ -118,7 +118,7 @@ import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStat
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
 import { reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
-import { sheetWarningsPanelCount } from "@/lib/admin/sheetWarningsCount";
+import { sheetWarningsPanelCount, wizardPanelCount } from "@/lib/admin/sheetWarningsCount";
 import { NoteWarningCard } from "@/components/admin/NoteWarningCard";
 import { fieldLabelFor } from "@/lib/admin/step3Buckets";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
@@ -2963,7 +2963,11 @@ export function WarningsBreakdown({
       count={
         routedWarningsRenderElsewhere
           ? sheetWarningsPanelCount({ visibleInfoRows: rows.length, activeHere: here })
-          : rows.length
+          : // §2.4: `rows` is ALREADY the active list, so the ignored count is zero here
+            // by construction. Routed through the shared helper anyway, because the rail
+            // closure below reads the same function and a rail that disagrees with its
+            // own heading is the defect the single-predicate rule exists to prevent.
+            wizardPanelCount({ rows: rows.length, ignoredWarnCount: 0 })
       }
     >
       {parseNotes && parseNotes.length > 0 ? (
@@ -4858,7 +4862,12 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
               visibleInfoRows: visibleWarningRows(s.warnings, true).length,
               activeHere: opts.activeHere ?? 0,
             })
-          : visibleWarningRows(s.warnings, false).length,
+          : // §2.4: the rail subtracts the ignored partition, arriving at the same number
+            // the heading shows for the same row.
+            wizardPanelCount({
+              rows: visibleWarningRows(s.warnings, false).length,
+              ignoredWarnCount: isStaged(s) ? (s.dq?.model.ignored.length ?? 0) : 0,
+            }),
       // spec 2026-07-16 §4.2: thread the staged decisions + session so the full
       // list renders the per-warning controls (complete render site, §4.6).
       // driveFileId is the mode-agnostic SectionCore locator (nullable); the

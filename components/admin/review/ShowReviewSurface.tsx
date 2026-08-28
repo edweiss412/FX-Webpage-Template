@@ -39,7 +39,8 @@ import {
   type RefObject,
 } from "react";
 import type { LucideIcon } from "lucide-react";
-import { sectionStatus, warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
+import { activeWarningEntries, ignoredWarningIndices } from "@/lib/admin/activeWarningEntries";
+import { sectionStatus, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { AnnounceLogRegion, useAnnounceLog } from "@/components/admin/announceLog";
 import {
@@ -279,9 +280,16 @@ export function ShowReviewSurface({
   // §E3 callout map: warn-severity warnings keyed by section (index = FULL
   // warnings-array position — the §E4 jump-target key). The §7.1 section-status
   // split reads from THIS map so flags and callouts can never disagree.
+  // §2.4 choke point 2: every consumer of this map — the section dots, both rails,
+  // and the staged callouts with their overflow line — inherits the ACTIVE partition
+  // from here, so none of them re-derives ignore state on its own.
+  const ignoredIndices = useMemo(
+    () => ignoredWarningIndices(isStaged(data) ? data.dq : undefined),
+    [data],
+  );
   const bySection = useMemo(
-    () => warningsBySection(data.warnings, new Set(sections.map((s) => s.id))),
-    [sections, data.warnings],
+    () => activeWarningEntries(data.warnings, new Set(sections.map((s) => s.id)), ignoredIndices),
+    [sections, data.warnings, ignoredIndices],
   );
   // §7.1 (spec 2026-07-07): each section carrying warnings is either flagged
   // (≥1 NON-ambiguity warn) or judgment (≥1 warn, ALL ambiguity-class) — mutually
@@ -340,8 +348,12 @@ export function ShowReviewSurface({
       // and those warnings already light their own sections' dots via `flagged`.
       return routedWarnings.here > 0;
     }
-    return data.warnings.some(isWarnSeverity);
-  }, [data.warnings, routedWarnings, routedWarningsRenderElsewhere]);
+    // §2.4: "any ACTIVE warn entry", not any warn entry — a dot over a panel whose
+    // rows the operator has all dismissed is the chrome-contradicts-the-list defect.
+    return data.warnings.some(
+      (w, index) => isWarnSeverity(w) && !(ignoredIndices?.has(index) ?? false),
+    );
+  }, [data.warnings, routedWarnings, routedWarningsRenderElsewhere, ignoredIndices]);
 
   // Combined rail order (spec §5): Overview (extraSectionsBefore), the registry
   // sections, then Changes (extraSectionsAfter) — in the SAME order they mount in

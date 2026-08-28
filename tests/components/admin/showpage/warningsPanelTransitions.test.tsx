@@ -157,10 +157,22 @@ describe("transition audit: nothing in the four-state path animates", () => {
     // — added by warning-trim un-defer §2.3 — the published-vs-wizard `count`
     // expression on the BreakdownSection. All are content facts of one render
     // (instant; §2.6 precedent). 1 `&&`: the parse-notes null check.
+    //
+    // 6 -> 9 ternaries and 1 -> 2 guards, added by wizard-warning-ignore-controls §2.3.
+    // Enumerated rather than bumped, because "the count moved" is the only thing this
+    // assertion can say and the reader needs to know WHICH branches moved it:
+    //   +1  `dq ? pick(dq.model.active) : …`   — active list vs the unpartitioned rows
+    //   +1  `dq ? pick(dq.model.ignored) : []` — the ignored list
+    //   +1  `allRows.length > 0 ? clean : empty` — all-ignored vs genuinely no warnings
+    //   +1 `&&` in `item.index >= 0 && item.index < allRows.length` — the defensive
+    //      re-join bound, spec §3's out-of-range row
+    // Every one is a content fact of a single render, decided from props the server
+    // already computed. None introduces a state that persists across renders, so none
+    // can animate — which is what this audit is actually asserting.
     expect({ ternaries, ifs, guards }, "the region's branch positions").toEqual({
-      ternaries: 6,
+      ternaries: 9,
       ifs: 0,
-      guards: 1,
+      guards: 2,
     });
 
     // WD2 P2: the extracted `ElsewherePointerSentence` carries the relocated
