@@ -16,52 +16,15 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { createRef } from "react";
 import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
 import { ATTENTION_FALLBACK_TITLE, type AttentionItem } from "@/lib/admin/attentionItems";
+// Moved to a shared module so the published byte baselines render the SAME items.
+import {
+  item,
+  needsLookItem as needsLook,
+  selfHealItem as selfHeal,
+} from "./_attentionItemFixture";
 import { autoResolveNote } from "@/lib/adminAlerts/audience";
 
 afterEach(cleanup);
-
-type AlertItem = Extract<AttentionItem, { kind: "alert" }>;
-
-function item(
-  id: string,
-  code: string,
-  over: Partial<AlertItem> & { action?: AlertItem["alert"]["action"] } = {},
-): AttentionItem {
-  const { action = null, ...rest } = over;
-  return {
-    id: `alert:${id}`,
-    kind: "alert",
-    tone: "notice",
-    sectionId: "overview",
-    crewKey: null,
-    actionable: false,
-    menuTitle: `Title ${id}`,
-    menuSubtitle: null,
-    alert: {
-      alertId: id,
-      code,
-      template: null,
-      params: {},
-      action,
-      helpHref: null,
-      raisedAt: "2026-07-21T09:00:00.000Z",
-      occurrenceCount: 1,
-      autoClearNote: "note",
-      failedKeys: null,
-      dataGaps: null,
-      errorCode: null,
-    },
-    ...rest,
-  };
-}
-
-const needsLook = (
-  id: string,
-  code = "SHEET_UNAVAILABLE",
-  action: AlertItem["alert"]["action"] = null,
-) => item(id, code, { clearingKind: "needs_look", action });
-const selfHeal = (id: string, menuTitle: string) =>
-  item(id, "SYNC_STALLED", { clearingKind: "self_heal", menuTitle });
 
 const SHEET = "https://docs.google.com/spreadsheets/d/FILE/edit#gid=0";
 

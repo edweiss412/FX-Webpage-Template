@@ -43,6 +43,7 @@ import {
   normalizeIds,
   STEP3_BASELINE_DFID,
   STEP3_BASELINE_FIXTURE_PATH,
+  STEP3_DIRTY_BASELINE_FIXTURE_PATH,
 } from "@/tests/helpers/step3HeaderBaseline";
 
 afterEach(cleanup);
@@ -360,6 +361,26 @@ describe("Step 3 is provably unchanged by the shell's subHeader slot (T-STEP3-IN
     // Anti-vacuity: an empty/stub fixture would make this assertion pass for
     // any header at all.
     expect(expected.length).toBeGreaterThan(500);
+    expect(normalizeIds(header.innerHTML)).toBe(expected);
+  });
+
+  it("Step 3 DIRTY header markup matches the pre-change baseline byte-for-byte (T-STEP3-DIRTY-INVARIANT)", () => {
+    render(
+      <Step3ReviewModal
+        data={buildStep3BaselineData()}
+        checked={false}
+        isDirtyRescan={true}
+        onRequestSetChecked={async () => true}
+        onClose={() => {}}
+      />,
+    );
+    const header = screen.getByTestId(`wizard-step3-card-${STEP3_BASELINE_DFID}-review-header`);
+    const expected = readFileSync(
+      join(process.cwd(), STEP3_DIRTY_BASELINE_FIXTURE_PATH),
+      "utf8",
+    ).trim();
+    expect(expected.length).toBeGreaterThan(500);
+    expect(expected).toContain("Sheet changed");
     expect(normalizeIds(header.innerHTML)).toBe(expected);
   });
 });
