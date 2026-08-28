@@ -22,9 +22,15 @@ import { readFileSync } from "node:fs";
 
 import { clean } from "@/lib/parser/blocks/_helpers";
 import { resolveAlias } from "@/lib/parser/aliases";
-import { anchorNamespace, normalizeV3, scanRowsWithOpener } from "@/lib/parser/fieldNearMiss";
+import {
+  anchorNamespace,
+  detectFieldNearMisses,
+  normalizeV3,
+  scanRowsWithOpener,
+} from "@/lib/parser/fieldNearMiss";
 import { isKnownSectionHeader } from "@/lib/parser/knownSections";
 import { canonicalSectionKind } from "@/lib/parser/sectionKind";
+import { newAggregator } from "@/lib/parser/warnings";
 import { FIXTURES, readFixture } from "@/tests/parser/mutation/fixtures";
 
 type BaselineRow = { fixture: string; key: string; block: string; kind: string; candidate: string };
@@ -358,42 +364,55 @@ for (const t of [3, 4, 5, 6, 7]) {
 
 // ---------------------------------------------------------------- TABLE-I
 console.log("");
-console.log("TABLE-I (spec 3.5) — the BLOCK CLASSIFICATION CENSUS, every corpus block");
-console.log("  Spec round 1 finding 2: the rule classifies BLOCKS, but every other table");
-console.log("  selects rows through the baseline key set, so an implementation that merely");
-console.log("  hardcoded suppression of the three known keys would satisfy them all, and a");
-console.log("  wrong exclusion among the emission-free excluded blocks would be invisible.");
-console.log("  This census is the pinned artifact: it records a verdict for EVERY block,");
-console.log("  whether or not any row in it ever fired.");
-const censusByNs = new Map<string, { excluded: number; kept: number; arms: Set<string> }>();
+console.log("TABLE-I (spec 3.5) — the BLOCK CLASSIFICATION CENSUS, one line PER BLOCK");
+console.log("  Spec round 2 finding 2: an earlier version of this table aggregated by");
+console.log("  namespace, printing {excluded, kept} totals. That is not a verdict per block:");
+console.log("  `audio` has 13 blocks, 4 excluded and 9 kept, so admitting one intended-excluded");
+console.log("  audio block while excluding one intended-kept one left the table byte-identical,");
+console.log("  and a wrong exclusion did not have to change any committed cell. Each block now");
+console.log("  carries its own identity (fixture, ordinal within fixture, opener, minVC), so any");
+console.log("  swap moves a line.");
+console.log("  verdict | arm | namespace | fixture#ordinal | minVC | rows | opener");
 let totalExcluded = 0;
+const perFixtureOrdinal = new Map<string, number>();
+const censusLines: string[] = [];
 for (const b of blocks) {
+  const n = (perFixtureOrdinal.get(b.fixture) ?? 0) + 1;
+  perFixtureOrdinal.set(b.fixture, n);
   const formDump = isFormDump(b);
   const matrix = isInventoryMatrix(b);
-  const rec = censusByNs.get(b.ns) ?? { excluded: 0, kept: 0, arms: new Set<string>() };
-  if (formDump || matrix) {
-    rec.excluded += 1;
-    totalExcluded += 1;
-    rec.arms.add(formDump ? "form-dump" : "inventory-matrix");
-  } else {
-    rec.kept += 1;
-  }
-  censusByNs.set(b.ns, rec);
+  const excluded = formDump || matrix;
+  if (excluded) totalExcluded += 1;
+  censusLines.push(
+    "  " +
+      (excluded ? "EXCLUDED" : "kept") +
+      " | " +
+      (formDump ? "form-dump" : matrix ? "inventory-matrix" : "-") +
+      " | " +
+      b.ns +
+      " | " +
+      b.fixture +
+      "#" +
+      n +
+      " | " +
+      minValueCells(b) +
+      " | " +
+      b.rows.length +
+      " | " +
+      JSON.stringify(b.opener),
+  );
 }
-console.log("  namespace | excluded | kept | arms");
-for (const [ns, rec] of [...censusByNs.entries()].filter((e) => e[1].excluded > 0).sort()) {
-  console.log("  " + ns + " | " + rec.excluded + " | " + rec.kept + " | " + [...rec.arms].join(","));
-}
+// EXCLUDED blocks in full: these are the ones the rule acts on, and the set the
+// consequence bound rests on. Kept blocks are summarised, since the census artifact would
+// otherwise be 514 lines of mostly "kept | - " and the excluded set is what can be wrong.
+for (const l of censusLines.filter((l) => l.startsWith("  EXCLUDED")).sort()) console.log(l);
 const emissionFree = blocks.filter((b) => {
   if (!(isFormDump(b) || isInventoryMatrix(b))) return false;
   return !b.rows.some((cells) => wanted.has(b.ns + " " + (cells[0] ?? "")));
 }).length;
 console.log("  blocks excluded: " + totalExcluded + " of " + blocks.length);
 console.log("  of those, emission-free at the merge base: " + emissionFree);
-console.log(
-  "  families with ANY block excluded: " +
-    [...censusByNs.entries()].filter((e) => e[1].excluded > 0).length,
-);
+console.log("  kept blocks: " + (blocks.length - totalExcluded));
 
 // ---------------------------------------------------------------- TABLE-J
 console.log("");
@@ -404,4 +423,71 @@ console.log(
   "  delta: " +
     (liveBaseline.length - baseline.length) +
     (liveBaseline.length === baseline.length ? "  (spec not yet implemented)" : ""),
+);
+
+// ---------------------------------------------------------------- TABLE-L
+console.log("");
+console.log("TABLE-L (spec AC-10) — does the DETECTOR gate on the predicate, or just on 3 keys?");
+console.log("  Spec round 2 finding 1: the census proves a predicate classifies blocks. It does");
+console.log("  NOT prove `detectFieldNearMisses` gates emissions through that predicate. An");
+console.log("  implementation could expose a correct predicate for the census and separately");
+console.log("  hardcode suppression of the three known keys in the detector, satisfying every");
+console.log("  other criterion.");
+console.log("");
+console.log("  The binding probe: into EVERY corpus block, inject one row whose label is a known");
+console.log("  near-miss that is NOT one of the three known keys, run the real detector over");
+console.log("  that block alone with a fresh aggregator, and require the detector to emit IF AND");
+console.log("  ONLY IF the predicate admits the block. A three-key hardcode emits on every");
+console.log("  excluded block and fails immediately. Injecting one label row into a real corpus");
+console.log("  block is one ordinary edit, so every input stays inside the declared probe domain.");
+const INJECTED_LABEL = "Address:";
+let agree = 0;
+let disagree = 0;
+let emittedAnywhere = 0;
+const disagreements: string[] = [];
+for (const b of blocks) {
+  const admitted = !(isFormDump(b) || isInventoryMatrix(b));
+  // The block re-rendered as markdown, plus the injected row. `splitRow` strips the
+  // leading and trailing fragments, so each line is fenced with pipes exactly as a
+  // fixture writes it.
+  const lines = b.rows.map((cells) => "| " + cells.join(" | ") + " |");
+  lines.push("| " + INJECTED_LABEL + " | 123 Example Street |");
+  const agg = newAggregator();
+  detectFieldNearMisses(lines.join("\n"), agg);
+  // `blockRef.name` is where emitUnknownField puts the row label (lib/parser/warnings.ts:419).
+  // An earlier version of this probe read a `detail` field that does not exist, so it
+  // reported "not emitted" for every block and would have declared the binding broken no
+  // matter what the detector did. A probe whose negative result is unconditional proves
+  // nothing, which is why the positive control below is asserted rather than assumed.
+  const emitted = agg.warnings.some(
+    (w) => w.code === "UNKNOWN_FIELD" && w.blockRef?.name === INJECTED_LABEL,
+  );
+  if (emitted) emittedAnywhere += 1;
+  if (emitted === admitted) agree += 1;
+  else {
+    disagree += 1;
+    if (disagreements.length < 8) {
+      disagreements.push(
+        "  MISMATCH " + b.ns + " | " + b.fixture + " | admitted=" + admitted + " emitted=" + emitted,
+      );
+    }
+  }
+}
+for (const d of disagreements) console.log(d);
+console.log(
+  "  blocks where detector emission agrees with predicate admission: " +
+    agree +
+    " of " +
+    blocks.length,
+);
+console.log("  disagreements: " + disagree);
+console.log(
+  disagree === 0
+    ? "  BOUND: the detector's emission tracks the predicate on every corpus block."
+    : "  UNBOUND: the detector does not gate on the predicate.",
+);
+console.log(
+  "  positive control, blocks where the injected label DID emit: " +
+    emittedAnywhere +
+    " (zero here means the probe cannot observe an emission at all, and its verdict is vacuous)",
 );

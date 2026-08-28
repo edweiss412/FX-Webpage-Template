@@ -155,32 +155,79 @@ TABLE-H (spec 3.1) — which NAMESPACE FAMILIES the matrix arm withdraws candida
   6 | 18 | console=4
   7 | 13 | console=2
 
-TABLE-I (spec 3.5) — the BLOCK CLASSIFICATION CENSUS, every corpus block
-  Spec round 1 finding 2: the rule classifies BLOCKS, but every other table
-  selects rows through the baseline key set, so an implementation that merely
-  hardcoded suppression of the three known keys would satisfy them all, and a
-  wrong exclusion among the emission-free excluded blocks would be invisible.
-  This census is the pinned artifact: it records a verdict for EVERY block,
-  whether or not any row in it ever fired.
-  namespace | excluded | kept | arms
-  adler ballroom 3d view | 1 | 0 | inventory-matrix
-  audio | 4 | 9 | inventory-matrix
-  ballroom a b 8th floor room dimensions total 82 x 94 x 14 a b 82 x 63 x 14 | 1 | 0 | inventory-matrix
-  console | 4 | 0 | inventory-matrix
-  east coast single family office symposium ft lauderdale set 5 13 24 | 1 | 0 | inventory-matrix
-  general session adler ballroom 75 x 37 x 15th floor | 1 | 2 | inventory-matrix
-  general session grand ballroom a b total 82 x 94 x 14 a b 82 x 63 x 14 8th floor | 1 | 1 | inventory-matrix
-  general session salon abc 43 x 49 x 12 | 1 | 1 | inventory-matrix
-  lakeview ballroom 7th floor room dimensions 61 x 55 x 11 | 1 | 0 | inventory-matrix
-  orange case 3 eiki projectors park hyatt only 1 ab168 digital snake 1 confidence monitor stand 2 projector stands 1 15 camlock set | 1 | 0 | inventory-matrix
-  salon abcd 41 x 73 x 12 | 1 | 0 | inventory-matrix
-  section | 1 | 3 | inventory-matrix
-  timestamp | 15 | 0 | form-dump
+TABLE-I (spec 3.5) — the BLOCK CLASSIFICATION CENSUS, one line PER BLOCK
+  Spec round 2 finding 2: an earlier version of this table aggregated by
+  namespace, printing {excluded, kept} totals. That is not a verdict per block:
+  `audio` has 13 blocks, 4 excluded and 9 kept, so admitting one intended-excluded
+  audio block while excluding one intended-kept one left the table byte-identical,
+  and a wrong exclusion did not have to change any committed cell. Each block now
+  carries its own identity (fixture, ordinal within fixture, opener, minVC), so any
+  swap moves a line.
+  verdict | arm | namespace | fixture#ordinal | minVC | rows | opener
+  EXCLUDED | form-dump | timestamp | fixtures/shows/exporter-xlsx/consultants.md#38 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/exporter-xlsx/fintech.md#25 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/exporter-xlsx/fixed-income.md#23 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/exporter-xlsx/redefining-fi.md#26 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/exporter-xlsx/ria.md#27 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/exporter-xlsx/rpas.md#45 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/raw/2025-03-dci-rpas-central.md#21 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md#17 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/raw/2025-05-redefining-fixed-income-private-credit.md#16 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/raw/2025-06-ria-investment-forum.md#17 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/raw/2025-10-consultants-roundtable.md#24 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/raw/2025-10-fixed-income-trading-summit.md#14 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/raw/2026-03-rpas-central-four-seasons.md#28 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md#13 | 0 | 50 | "Timestamp"
+  EXCLUDED | form-dump | timestamp | fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md#14 | 0 | 50 | "Timestamp"
+  EXCLUDED | inventory-matrix | adler ballroom 3d view | fixtures/shows/exporter-xlsx/fintech.md#24 | 7 | 1 | "ADLER BALLROOM 3D VIEW"
+  EXCLUDED | inventory-matrix | audio | fixtures/shows/exporter-xlsx/ria.md#41 | 8 | 1 | "AUDIO"
+  EXCLUDED | inventory-matrix | audio | fixtures/shows/exporter-xlsx/ria.md#43 | 8 | 1 | "AUDIO"
+  EXCLUDED | inventory-matrix | audio | fixtures/shows/raw/2025-06-ria-investment-forum.md#25 | 8 | 1 | "AUDIO"
+  EXCLUDED | inventory-matrix | audio | fixtures/shows/raw/2025-06-ria-investment-forum.md#26 | 8 | 1 | "AUDIO"
+  EXCLUDED | inventory-matrix | ballroom a b 8th floor room dimensions total 82 x 94 x 14 a b 82 x 63 x 14 | fixtures/shows/exporter-xlsx/consultants.md#37 | 8 | 1 | "BALLROOM A/B - 8th Floor ROOM DIMENSIONS: TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14'"
+  EXCLUDED | inventory-matrix | console | fixtures/shows/exporter-xlsx/ria.md#44 | 6 | 7 | "Console"
+  EXCLUDED | inventory-matrix | console | fixtures/shows/exporter-xlsx/ria.md#45 | 10 | 1 | "Console"
+  EXCLUDED | inventory-matrix | console | fixtures/shows/raw/2025-06-ria-investment-forum.md#29 | 6 | 7 | "Console"
+  EXCLUDED | inventory-matrix | console | fixtures/shows/raw/2025-06-ria-investment-forum.md#30 | 10 | 1 | "Console"
+  EXCLUDED | inventory-matrix | east coast single family office symposium ft lauderdale set 5 13 24 | fixtures/shows/exporter-xlsx/east-coast.md#21 | 6 | 1 | "East Coast Single Family Office Symposium Ft Lauderdale Set 5/13/24"
+  EXCLUDED | inventory-matrix | general session adler ballroom 75 x 37 x 15th floor | fixtures/shows/exporter-xlsx/fintech.md#23 | 7 | 1 | "GENERAL SESSION ADLER BALLROOM 75' x 37' x 15th Floor"
+  EXCLUDED | inventory-matrix | general session grand ballroom a b total 82 x 94 x 14 a b 82 x 63 x 14 8th floor | fixtures/shows/exporter-xlsx/rpas.md#26 | 7 | 1 | "GENERAL SESSION GRAND BALLROOM A/B TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14' 8th Floor"
+  EXCLUDED | inventory-matrix | general session salon abc 43 x 49 x 12 | fixtures/shows/exporter-xlsx/fixed-income.md#22 | 7 | 1 | "GENERAL SESSION SALON ABC 43' x 49' x 12'"
+  EXCLUDED | inventory-matrix | lakeview ballroom 7th floor room dimensions 61 x 55 x 11 | fixtures/shows/exporter-xlsx/redefining-fi.md#25 | 6 | 1 | "LAKEVIEW BALLROOM - 7th Floor ROOM DIMENSIONS: 61' x 55' x 11'"
+  EXCLUDED | inventory-matrix | orange case 3 eiki projectors park hyatt only 1 ab168 digital snake 1 confidence monitor stand 2 projector stands 1 15 camlock set | fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md#24 | 10 | 1 | "ORANGE CASE/(3) EIKI Projectors (PARK HYATT ONLY)&#10;(1) AB168 Digital Snake&#10;(1) Confidence Monitor Stand&#10;(2) Projector Stands&#10;(1) 15' Camlock Set"
+  EXCLUDED | inventory-matrix | salon abcd 41 x 73 x 12 | fixtures/shows/exporter-xlsx/ria.md#26 | 6 | 1 | "SALON ABCD&#10;41' x 73' x 12'"
+  EXCLUDED | inventory-matrix | section | fixtures/shows/exporter-xlsx/consultants.md#21 | 7 | 2 | ""
   blocks excluded: 33 of 514
   of those, emission-free at the merge base: 16
-  families with ANY block excluded: 13
+  kept blocks: 481
 
 TABLE-J — the LIVE baseline, for comparison against the frozen one
   frozen (merge base): 65 rows
   live (working tree): 65 rows
   delta: 0  (spec not yet implemented)
+
+TABLE-L (spec AC-10) — does the DETECTOR gate on the predicate, or just on 3 keys?
+  Spec round 2 finding 1: the census proves a predicate classifies blocks. It does
+  NOT prove `detectFieldNearMisses` gates emissions through that predicate. An
+  implementation could expose a correct predicate for the census and separately
+  hardcode suppression of the three known keys in the detector, satisfying every
+  other criterion.
+
+  The binding probe: into EVERY corpus block, inject one row whose label is a known
+  near-miss that is NOT one of the three known keys, run the real detector over
+  that block alone with a fresh aggregator, and require the detector to emit IF AND
+  ONLY IF the predicate admits the block. A three-key hardcode emits on every
+  excluded block and fails immediately. Injecting one label row into a real corpus
+  block is one ordinary edit, so every input stays inside the declared probe domain.
+  MISMATCH section | fixtures/shows/exporter-xlsx/consultants.md | admitted=false emitted=true
+  MISMATCH ballroom a b 8th floor room dimensions total 82 x 94 x 14 a b 82 x 63 x 14 | fixtures/shows/exporter-xlsx/consultants.md | admitted=false emitted=true
+  MISMATCH timestamp | fixtures/shows/exporter-xlsx/consultants.md | admitted=false emitted=true
+  MISMATCH east coast single family office symposium ft lauderdale set 5 13 24 | fixtures/shows/exporter-xlsx/east-coast.md | admitted=false emitted=true
+  MISMATCH general session adler ballroom 75 x 37 x 15th floor | fixtures/shows/exporter-xlsx/fintech.md | admitted=false emitted=true
+  MISMATCH adler ballroom 3d view | fixtures/shows/exporter-xlsx/fintech.md | admitted=false emitted=true
+  MISMATCH timestamp | fixtures/shows/exporter-xlsx/fintech.md | admitted=false emitted=true
+  MISMATCH general session salon abc 43 x 49 x 12 | fixtures/shows/exporter-xlsx/fixed-income.md | admitted=false emitted=true
+  blocks where detector emission agrees with predicate admission: 481 of 514
+  disagreements: 33
+  UNBOUND: the detector does not gate on the predicate.
+  positive control, blocks where the injected label DID emit: 514 (zero here means the probe cannot observe an emission at all, and its verdict is vacuous)
