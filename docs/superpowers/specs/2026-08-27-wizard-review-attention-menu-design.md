@@ -394,7 +394,7 @@ Line numbers are drafting-time locators and drift. The durable anchors are the t
 
 **Why all three escaped §2.1.** §2.1 ran `rg -n 'severity (===|!==) "warn"' lib/admin components/admin`, and the plan's verification step widened that to `lib/parser` only, where it correctly found and filed two. `lib/sync` was in neither domain, which is the whole reason the third site went unnamed for a day. Sweeping `lib/ components/ app/` returns five hits: these three, plus two that are not instances and should stay as they are. `lib/observe/query/serializeWarning.ts:40` maps any severity that is neither `"info"` nor `"warn"` to `""`, which makes it the detector the probe below depends on rather than a dropper, and `lib/dev/attentionScenarios/validate.ts:364` asserts that a dev fixture author wrote `severity: "warn"`, which is not an operator surface.
 
-**Probed 2026-08-28 on the validation deployment (`vzakgrxqwcalbmagufjh`). Zero, in both populations.** The two read-time sites consume different tables, so both were counted:
+**Probed 2026-08-28 on the validation deployment (`vzakgrxqwcalbmagufjh`). Zero, in all three populations that hold these warnings.** The two read-time sites consume different tables, so both were counted:
 
 ```
 $ pnpm observe warnings --env validation --limit 500 --json   # shows_internal.parse_warnings
@@ -403,13 +403,22 @@ $ pnpm observe staged --env validation --warnings-only --since all --limit 500 -
 7 rows, 55 warning elements, all severity "warn", 0 severity-less
 ```
 
-Neither result reached the 500 cap, so each is the full set rather than a page of one. `--env local` returns 0 rows against validation's 2, which is how the run is known to have reached the remote target; no separate prod target exists, since ambient `SUPABASE_URL` is loopback and `SUPABASE_SECRET_KEY` is unset, so validation is the entire declared domain.
+A third table holds parse results too, and was counted separately: onboarding copies a parse result into `shows_pending_changes.payload` and then DELETES the `pending_syncs` row (`lib/onboarding/shadowPayload.ts:14`, `app/api/admin/onboarding/finalize/route.ts:663` and the `deleteApprovedPending` below it), so a staged row's warnings can outlive the row the staged probe reads. On validation that table is empty:
+
+```sql
+-- read-only transaction against the validation pooler
+select count(*) from public.shows_pending_changes;   -- 0 rows, so 0 warning elements
+```
+
+Neither observe result reached the 500 cap, so each is the full set rather than a page of one. `--env local` returns 0 rows against validation's 2, which is how the run is known to have reached the remote target; no separate prod target exists, since ambient `SUPABASE_URL` is loopback and `SUPABASE_SECRET_KEY` is unset, so validation is the entire declared domain.
 
 **Why the count is trustworthy.** `serializeParseWarning` maps an element whose severity is neither `"info"` nor `"warn"` to the empty string, and `serializeWarningArray` maps 1:1 without dropping anything, so a severity-less element cannot pass the CLI unseen. Positive-controlled by feeding one severity-less warning, one `info` and one `warn` through the serializer and confirming the three come back as `""`, `"info"` and `"warn"` with the count preserved. That collapse of absent-and-malformed into one bucket is exactly the divergence set here, because `isWarnSeverity` is `severity !== "info"` while all three sites test `=== "warn"`: the set they disagree on is precisely the set the serializer blanks.
 
-**The zero bounds the write-time site too.** `warningSummary` filters `parseResult.warnings` as the row is written, so it never persists its own input. It does not need to: the array it filters is the same array persisted alongside it as `parse_result.warnings`, which the staged probe read raw and unfiltered. Zero severity-less elements in the persisted raw form means zero reached the filter, so one measurement bounds all three sites rather than only the two that read.
+**What the zero does and does not bound at the write-time site, stated exactly.** `warningSummary` filters `parseResult.warnings` as the row is written and never persists its own input, so it is reached only through the array persisted beside it. For every row still in either table that array was counted, and it is clean. It does NOT follow that no severity-less warning has EVER reached the filter: a row that was staged, finalized, and had its shadow consumed is gone from `pending_syncs`, from `shows_pending_changes`, and therefore from every read path. No probe can reach one, and none is claimed to.
 
-**Re-file trigger, either one.** Any severity-less element observed in either population, by re-running the two commands above. Or a parser change that can emit a warning without a `severity` key, which would make the shape reachable before any row shows it. Until one of those happens the divergence is real in code and unreached in data, and the worst case is conservative: a list is short by a row the badge still counts, never a wrong value and never a silent corruption of one. Graduated from `BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS` (`BACKLOG-archive.md`) on the probe above.
+That gap costs nothing here, because the output drains with the input. `warningSummary`'s result is written to `pending_syncs.warning_summary` and nowhere else: the column exists on no other table, and the shadow payload's key list (`parse_result`, `staged_modified_time`, `staged_id`, `reviewer_choices`, `triggered_review_items`, `base_modified_time`, `pull_sheet_override`, `pull_sheet_override_applied`, `use_raw_decisions`, `source_anchors`) does not carry it. A drained row's summary was deleted with the row. So an unobservable past input has an equally unobservable past output, and no operator surface can be short today because of one.
+
+**Re-file trigger, either one.** Any severity-less element observed in any of the three populations, by re-running the three queries above. Or a parser change that can emit a warning without a `severity` key, which would make the shape reachable before any row shows it. Until one of those happens the divergence is real in code and unreached in data, and the worst case is conservative: a list is short by a row the badge still counts, never a wrong value and never a silent corruption of one. Graduated from `BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS` (`BACKLOG-archive.md`) on the probe above.
 
 ## 11. Out of scope
 
