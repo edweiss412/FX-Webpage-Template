@@ -62,32 +62,44 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm h
 
 Removing `TEST_DATABASE_URL` from the parent environment accomplishes nothing: Next loads
 `.env.local` *inside* the server it boots, so the validation value walks straight back in. An
-explicit value in the child env survives that load. Probed on this branch at `@next/env` 16.2.4,
-both arms, in the worktree:
+explicit value in the child env survives that load.
 
-```
-$ node -e 'process.env.TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-  const b=process.env.TEST_DATABASE_URL; require("@next/env").loadEnvConfig(process.cwd(),true,{info(){},error(){}});
-  console.log("before          :",b);
-  console.log("after env load  :",process.env.TEST_DATABASE_URL);
-  console.log("OVERRIDE_HELD   :",b===process.env.TEST_DATABASE_URL)'
-before          : postgresql://postgres:postgres@127.0.0.1:54322/postgres
-after env load  : postgresql://postgres:postgres@127.0.0.1:54322/postgres
-OVERRIDE_HELD   : true
-```
+**Which `@next/env` this is measured against is load-bearing, and the first two drafts got it
+wrong.** Under pnpm the root `@next/env` is 16.2.4 while `next` 16.3.0 resolves its own 16.3.0 copy;
+they are different files with different loader bytes, and only the second one ever runs inside the
+server. Raised as BLOCKING in spec review round 3 and accepted. Every probe below, and every arm of
+T2, resolves the loader the way Next does:
 
-Negative control on the same tree, proving the probe discriminates rather than asserting a value that
-was already there — with nothing pre-set, `.env.local` supplies the remote host:
-
-```
-$ node -e 'delete process.env.TEST_DATABASE_URL;
-  require("@next/env").loadEnvConfig(process.cwd(),true,{info(){},error(){}});
-  console.log("unset -> host:", new URL(process.env.TEST_DATABASE_URL).host)'
-unset -> host: aws-1-us-east-2.pooler.supabase.com:5432
+```js
+const nextDir = path.dirname(require.resolve("next/package.json"));
+const { loadEnvConfig } = require(require.resolve("@next/env", { paths: [nextDir] }));
 ```
 
-Both probes above run in development mode; §7's T2 generalises them to production, which is the mode
-`pnpm build && pnpm start` uses, and pins both.
+The binding gap, measured on this branch:
+
+```
+next version              : 16.3.0
+root @next/env version    : 16.2.4
+next-resolved @next/env   : 16.3.0
+same package              : false
+root loader hash          : 44e84a28e712
+next-resolved loader hash : c3100f65b607
+```
+
+The precedence itself is unchanged on 16.3.0 — the finding moved what the guard measures, not what
+the repair does. Probed against the next-resolved package, both modes, both arms:
+
+```
+development  unset  : postgresql://u:p@remote.sentinel.invalid:5432/postgres | files=.env.local | pkg=16.3.0
+development  preset : postgresql://postgres:postgres@127.0.0.1:54322/postgres | files=.env.local | pkg=16.3.0
+production   unset  : postgresql://u:p@remote.sentinel.invalid:5432/postgres | files=.env.local | pkg=16.3.0
+production   preset : postgresql://postgres:postgres@127.0.0.1:54322/postgres | files=.env.local | pkg=16.3.0
+```
+
+The `unset` rows are the negative controls: with nothing pre-set the fixture's remote value lands, so
+the `preset` rows are asserting something that could have failed rather than reading back a value
+that was already in place. The fixture is a tmpdir carrying its own `.env.local`, so none of this
+depends on the developer's real one.
 
 So the working form is **pin the key to a loopback value**, never drop it. The port 3004 entry already
 says exactly this in prose (`playwright.config.ts:412-414`): "The key is PINNED rather than dropped:
@@ -289,10 +301,22 @@ test         preset  : postgresql://postgres:postgres@127.0.0.1:54322/postgres |
 The `test` row is why the premise below is not optional: without it, that row is
 indistinguishable from a pass.
 
-**Premise, executable.** Each child reports `loadEnvConfig`'s own `loadedEnvFiles`, and T2 asserts
-`.env.local` is among them before trusting any arm. If a future change lets the child inherit
-`NODE_ENV=test` — or the fixture stops being read for any other reason — `loadedEnvFiles` is empty
-and the premise fails loud instead of the arms passing vacuously.
+**Every arm loads the package Next executes, not the root one.** T2 resolves `@next/env` through
+`next`'s own directory (§3). Binding it to the hoisted root copy was spec review round 3's BLOCKING
+finding: the root is 16.2.4, `next` 16.3.0 ships its own, and a Next upgrade could change the
+server's precedence while a root-bound T2 stayed green against a package no server runs.
+
+**Two executable premises.**
+
+*Premise 1 — the right package.* T2 asserts the loader path it required is the one `next` itself
+resolves, and is NOT the root resolution. Without this the binding silently reverts the first time
+someone simplifies the `require` back to `require("@next/env")`, which is exactly how the first two
+drafts were written.
+
+*Premise 2 — the fixture was actually read.* Each child reports `loadEnvConfig`'s own
+`loadedEnvFiles`, and T2 asserts `.env.local` is among them before trusting any arm. If a future
+change lets the child inherit `NODE_ENV=test` — or the fixture stops being read for any other
+reason — `loadedEnvFiles` is empty and the premise fails loud instead of the arms passing vacuously.
 
 The mode set is closed, not open: it is the two modes the two Playwright configs actually boot, read
 off their own commands. `test` is asserted against rather than covered, because no webServer runs in
@@ -322,9 +346,9 @@ reason. Had the in-process shape shipped, T2 would have failed on correct code a
 would have been to weaken or delete the assertion.
 
 *Failure mode caught:* a Next upgrade flipping `.env.local` precedence to override the parent
-environment — in EITHER load mode — which would re-expose validation through a config that still
-*looks* pinned. Nothing in the repo would otherwise notice, and a single-mode guard would notice only
-half of it.
+environment — in EITHER load mode, in the package the server ACTUALLY runs — which would re-expose
+validation through a config that still *looks* pinned. Nothing in the repo would otherwise notice; a
+single-mode guard would notice half of it, and a root-bound guard none of it.
 
 **T3 — the preflight remedy is executable advice.** Extend `tests/scripts/`'s existing spawn-based
 preflight coverage: run the script with a non-loopback `TEST_DATABASE_URL` and assert the emitted
@@ -354,6 +378,12 @@ one for the same reason. T3 asserts on the child process's real stdout, not on t
   bounded by `config.webServer` being the array Playwright actually boots.
 - **`playwright.screenshots.config.ts` is already correct** — one webServer, pinned at lines 177-180 —
   so it needs no repair, but it is inside T1's walk so a later entry cannot escape.
+- **T2 follows `next`'s resolution, so it tracks whatever loader `next` ships.** It asserts the two
+  resolutions differ today, which is true under pnpm's layout; a future hoisting change that made
+  the root and next-resolved paths identical would fail that premise loudly rather than silently
+  measuring the wrong package. That is the intended direction: the premise is about binding, and a
+  changed layout is a fact worth surfacing.
+  *Re-file trigger:* the premise failing because the two resolutions converged.
 - **T1's discovery is rooted at the repo root.** A Playwright config placed in a subdirectory would
   not be found. No such file exists today (`ls playwright*.config.ts` returns exactly two), and the
   root is where both live and where Playwright's own conventions put them.
