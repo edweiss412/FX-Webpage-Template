@@ -295,15 +295,33 @@ describe("the scanner's population is pinned against resolver drift", () => {
           .join("\n"),
       )
       .digest("hex");
-    // Regenerated 2026-08-27 for perf/admin-diagram-next-image, and the delta was READ
-    // before it was replaced, which is what "deliberately" means here: membership is
-    // unchanged at 35 both sides, and exactly ONE row moved, step3ReviewSections.tsx
-    // 3800 -> 3889 (`unknown:false` both sides), a pure line shift from the
-    // `DIAGRAM_TILE_SIZES` / `diagramTileWidthAt` block inserted above it.
+    // Regenerated 2026-08-27 for the merge of `perf/admin-diagram-next-image` into
+    // `feat/telemetry-fallback-retry`'s base. BOTH sides had regenerated this digest, so
+    // neither side's value describes the merged tree and the conflict could not be taken
+    // by picking one.
     //
-    // The prior regeneration, 2026-08-26 for feat/nearmiss-surface, was the same shape:
-    // 35 both sides, one row moving 3755 -> 3800.
-    expect(digest).toBe("a86894119999319958a5668cf2c9fd5a68a7439fe9e31c755a1e85c1cdfa0b0f");
+    // Membership unchanged at 35. Against origin/main the merged tree moves exactly ONE
+    // row, step3ReviewSections.tsx 3800 -> 3889 (`unknown:false` both sides), a pure line
+    // shift from the `DIAGRAM_TILE_SIZES` / `diagramTileWidthAt` block inserted above it.
+    // PROVED rather than asserted: reverting that single row in the merged scan output
+    // reproduces main's previous digest 5cfa8b62... byte-for-byte, which is only possible
+    // if the two sets differ by that row alone. Main's own two rows (EventTimeline 15,
+    // HealthAlertsPanel 280) are present and unmoved.
+    //
+    // Regenerated 2026-08-27 for feat/telemetry-fallback-retry, delta READ before it was
+    // replaced, same as the 2026-08-26 regeneration below it. Membership unchanged at 35
+    // both sides; exactly TWO rows moved, EventTimeline.tsx 14 -> 15 and
+    // HealthAlertsPanel.tsx 279 -> 280, each same file, same form (literal-comparison),
+    // same marked state, each +1 from the single import line that arc added to each file.
+    // Verified by scanning a detached checkout of origin/main through the identical code
+    // path: that scan reproduced the PREVIOUS digest exactly, which is what makes the
+    // two-row diff a measurement rather than an assumption.
+    //
+    // Regenerated 2026-08-26 for feat/nearmiss-surface, and the delta was READ before
+    // it was replaced, which is what "deliberately" means here: membership is unchanged
+    // at 35 both sides, and exactly ONE row moved, step3ReviewSections.tsx 3755 -> 3800,
+    // same file, same form, same marked state. A pure line shift from insertions above it.
+    expect(digest).toBe("18d9a51f47fe9a86e89d33485422f457dad46333cae24302da3af5794fba03f3");
   });
 });
 

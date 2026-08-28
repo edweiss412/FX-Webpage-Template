@@ -34,6 +34,7 @@ import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
 import { NewTabHint } from "@/components/shared/NewTabHint";
 import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";
 import { cn } from "@/lib/ui/cn";
+import { TelemetryRetryButton } from "@/components/admin/telemetry/TelemetryRetryButton";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -283,12 +284,15 @@ export async function HealthAlertsPanel({ searchParams }: { searchParams: Search
         data-testid="health-alerts-panel-degraded"
         data-render-fault="health-alerts-load"
         aria-labelledby="health-alerts-heading"
-        className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
+        className="flex flex-col items-start gap-2 rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
       >
         <h2 id="health-alerts-heading" className="text-base font-semibold">
           System health
         </h2>
-        <p>Couldn’t load system-health alerts right now. Refresh in a moment.</p>
+        {/* "Refresh in a moment." was removed with BL-TELEMETRY-FALLBACK-RETRY: a manual
+            instruction sitting beside the button that performs it is copy this arc made wrong. */}
+        <p>Couldn’t load system-health alerts right now.</p>
+        <TelemetryRetryButton what="system-health alerts" testId="health-alerts-retry" />
       </section>
     );
   }

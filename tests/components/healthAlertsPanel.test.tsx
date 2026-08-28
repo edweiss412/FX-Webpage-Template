@@ -6,7 +6,16 @@
 // control (RESOLVABILITY) is wired in Task 9.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+
+// The degraded branch gained a retry control that calls useRouter
+// (BL-TELEMETRY-FALLBACK-RETRY); without this mock the render throws the Next router
+// invariant instead of testing.
+const refresh = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh, push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(""),
+}));
 import type { HealthAlertRow, LoadHealthAlertsResult } from "@/lib/admin/healthAlerts";
 
 const impl = vi.hoisted(() => ({
@@ -208,6 +217,20 @@ describe("HealthAlertsPanel (Task 8 reachability)", () => {
       weight === "degraded" ? { kind: "infra_error" } : { kind: "ok", rows: [], hasMore: false };
     await renderPanel();
     expect(screen.getByTestId("health-alerts-panel-degraded")).toBeInTheDocument();
+  });
+
+  // Same class as the scheduled-job health fallback. This one is the sharpest of the three:
+  // its copy told the reader to refresh, which is the thing the button does.
+  test("the degraded panel offers a retry, and no longer tells the reader to refresh by hand", async () => {
+    refresh.mockClear();
+    impl.fn = async ({ weight }) =>
+      weight === "degraded" ? { kind: "infra_error" } : { kind: "ok", rows: [], hasMore: false };
+    await renderPanel();
+    const panel = screen.getByTestId("health-alerts-panel-degraded");
+    const retry = within(panel).getByTestId("health-alerts-retry");
+    fireEvent.click(retry);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(panel.textContent).not.toContain("Refresh in a moment");
   });
 
   describe("SSR pagination reachability (plan-R3)", () => {

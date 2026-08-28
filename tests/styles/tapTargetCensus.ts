@@ -302,7 +302,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    line: 3909,
+    // Line moved 3909 -> 3928 on 2026-08-27 by this arc's own Task 4 (impeccable P1b),
+    // which added the placeholder's name span and the anchor's focus ring 19 lines above.
+    // The ELEMENT is untouched: same `<a>`, same full-bleed layout, same reason below.
+    line: 3928,
     tag: "a",
     category: "full-bleed",
     reason:
