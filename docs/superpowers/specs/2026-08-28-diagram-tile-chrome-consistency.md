@@ -33,7 +33,9 @@ gallery is already this arrangement and is not edited. The token is NOT changed 
   sweep in §2 accounts for every JSX image element in scope, with no omitted surface;
   `app/help/_components/Screenshot.tsx` is honestly excluded under the runtime-no-image-state
   criterion; and the anchor is admitted by the scanner as `"element"`, never `"painted-child"`, so §5's
-  4-to-3 arithmetic holds. All three were checked against the live tree with the exported scanner.
+  4-to-3 arithmetic holds. All three were checked against the live tree with the exported scanner, and
+  round 2 re-ran that scanner independently: four painted children at baseline, three after simulating
+  the move in memory, with the anchor still `"element"`.
 
 ## 2. The class, derived rather than listed
 
@@ -199,6 +201,21 @@ the only evidence of what was measured.
   resting edge reads as a container or as a control, which is the question DESIGN.md §1.2a answers for
   controls only. Re-file trigger: a measurement showing the failure-state edge is not discoverable on
   the publish-review surface, which is where it matters most.
+- **L3. A focused element's corner radius is forced to 6px app-wide, and this row does not change
+  that.** `app/globals.css:851-855` sets `border-radius: var(--radius-sm)` on `*:focus-visible`,
+  unlayered. Probed on the live tree: roughly eleven focusable elements already carry `rounded-md`
+  alongside a focus cue and are already squashed to 6px when focused, across
+  `components/admin/ShowsTable.tsx`, `components/admin/dev/SwitcherControls.tsx` (three),
+  `components/admin/dev/MaterializeCard.tsx` (two), `components/admin/FinalizeButton.tsx`,
+  `components/admin/NeedsAttentionInbox.tsx`, `components/admin/NeedsAttentionSummaryCard.tsx`,
+  `components/admin/showpage/ShareHub.tsx` and two help skip-links. `ShowsTable`'s search input carries
+  the identical `rounded-md border border-text-faint` pair this anchor gains, so the tile joins an
+  existing population rather than becoming the first of its kind. The diagram tile keeps `rounded-md`
+  because that preserves its resting appearance exactly and matches the failed branch, which is what
+  the shared-box contract needs. Whether the global rule should stop overriding author radius is a
+  design decision spanning every focusable element in the app, and taking it here would spend a
+  whole-app change on one tile. Re-file trigger: a decision to change the global focus recipe, or a
+  measurement that the squash is a legibility problem on this surface.
 - **L2. `app/help/_components/Screenshot.tsx` keeps its chrome on the image.** §2 states why it is
   outside the class rather than deferred. If it ever gains a runtime no-image state, it enters the class
   and this ruling applies to it unchanged.
@@ -206,7 +223,8 @@ the only evidence of what was measured.
 ## 7. Dimensional invariants
 
 The anchor is a fixed-dimension parent (`aspect-4/3 w-full`) with an absolutely positioned `fill`
-child, so every relationship is listed even though none of them changes.
+child, so every relationship is listed even though none of the DIMENSIONS changes. Corner radius is
+not a dimension in this table and it does change under keyboard focus; that is §8's row and L3.
 
 | Parent | Child | Invariant | Guaranteed by |
 | --- | --- | --- | --- |
@@ -222,19 +240,33 @@ which is that same rectangle. The browser suite records the same fact independen
 anchor-side border renders in the same place` (`tests/e2e/step3-review-modal.layout.spec.ts:629-630`) — and its
 image-equals-padding-box assertion is already written in padding-box terms
 (`tests/e2e/step3-review-modal.layout.spec.ts:637-647`), so it holds before and after without being touched.
-This is a placement refactor with no visual delta, which is what the filing's mutant measured.
+This is a placement refactor with no visual delta AT REST, which is what the filing's mutant
+measured. It is not delta-free under keyboard focus: see §8 and L3. An earlier draft made the
+claim unqualified, and the `AT REST` qualifier is the whole content of the correction.
 
 ## 8. Transition inventory
 
-The tile is single-state in both branches — `failed` selects a different element tree rather than a
-different visual state of one element, and neither carries `transition-*`. No state pair exists, so
-there is nothing to animate and nothing is added. This is the same claim §15 table 3 already makes; the
-change moves which element the claim is about, not the claim.
+An earlier draft of this section called the tile single-state and said no state pair exists. **That is
+wrong, and the move is what makes it wrong.** The anchor is focusable, so it has a rest state and a
+`*:focus-visible` state; while the chrome sat on the image that distinction was invisible, because an
+`<img>` is never `*:focus-visible`. Once the anchor owns the border, background and radius, its focus
+state paints them.
+
+The consequence is a corner-radius change, and it comes from a rule this diff does not touch:
+`app/globals.css:851-855` is an UNLAYERED `*:focus-visible` block that sets
+`border-radius: var(--radius-sm)`. Unlayered declarations beat Tailwind's layered utilities whatever
+their specificity, so a focused element's radius becomes 6px (`app/globals.css:278`) regardless of its
+`rounded-*` class. `rounded-md` is 12px (`app/globals.css:279`). A `focus-visible:rounded-md` utility
+would NOT fix it, because that utility is layered too and loses to the same rule.
+
+`§15 table 3`'s single-state claim is not contradicted: the tile's `<Image>` leaves that population in
+this diff (§5), so §15 makes no claim about the anchor at all.
 
 | State pair | Transition |
 | --- | --- |
 | live to failed, failed to live | instant, no animation needed; the branches are separate element trees and neither declares a transition |
-| anchor rest to focus | `focus-visible:ring-*`, unchanged by this diff |
+| anchor rest to focus | instant. The ring recipe is unchanged by this diff, and the corner radius goes 12px to 6px via the unlayered global rule. The anchor carries no `transition-*`, so the change is not tweened |
+| anchor focus to rest | the same, reversed |
 
 ## 9. Acceptance criteria
 
