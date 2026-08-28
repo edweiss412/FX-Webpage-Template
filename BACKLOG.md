@@ -299,7 +299,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ## BL-ROWACTIONS-SUBMENU-STALE-ON-ROW-MENU-REPLACE — the submenu is anchored inside the row menu, and does not follow when the row menu re-places
 
-**Status:** OPEN · **Filed:** 2026-08-27 (`perf/anchoredportal-measure-convergence`, blast-radius pass) · **Facing:** product · **Severity:** LOW-MEDIUM (a visibly mis-anchored submenu on the shipped admin dashboard; narrow trigger, correct output everywhere else) · **Class:** cross-instance placement subscription · **Effort:** M · **Class-sweep exception:** (c) — the repair is a redesign of the placement subscription model across two `AnchoredPortal` instances, which is the SAME scope already fenced when `MutationObserver` was declined for that arc (`docs/superpowers/specs/admin/2026-08-27-anchoredportal-measure-convergence.md` §2.4), not a fresh or unexplained deferral. · **Reachability:** INFERRED, NOT PROBED.
+**Status:** PARKED 2026-08-28, on a probed zero. Not withdrawn, but REFUTED in the declared domain: the submenu already tracks its anchor with no repair. The measurement, the technique that corrects an earlier false positive, the traced mechanism and the two re-file conditions are in "Probe result" below; read that before scheduling this. · **Filed:** 2026-08-27 (`perf/anchoredportal-measure-convergence`, blast-radius pass) · **Facing:** product · **Severity:** LOW-MEDIUM (a visibly mis-anchored submenu on the shipped admin dashboard; narrow trigger, correct output everywhere else) · **Class:** cross-instance placement subscription · **Effort:** M · **Class-sweep exception:** (c) — the repair is a redesign of the placement subscription model across two `AnchoredPortal` instances, which is the SAME scope already fenced when `MutationObserver` was declined for that arc (`docs/superpowers/specs/admin/2026-08-27-anchoredportal-measure-convergence.md` §2.4), not a fresh or unexplained deferral. · **Reachability:** PROBED 2026-08-28, ZERO in the declared domain — see "Probe result".
 
 `components/admin/ShowRowActions.tsx` renders two `AnchoredPortal` instances: the
 row menu (`components/admin/ShowRowActions.tsx:661`) and the preview submenu
@@ -328,6 +328,22 @@ first scheduled step is therefore the probe, not the repair: open the submenu,
 force a row-menu content-size change while it is open, and compare the submenu's
 applied placement against its anchor's live rect. `tests/e2e/rowactions-geometry.spec.ts`
 already drives both surfaces and is the natural home for it.
+
+### Probe result 2026-08-28 — refuted, and the first probe was measuring the wrong thing
+
+**The defect does not reproduce.** The submenu ends correctly attached to its anchor after the row menu re-places, with no code change. Branch `fix/rowactions-submenu-stale`, reduced to this entry once the repair proved unnecessary.
+
+**An earlier run of this probe reported the defect confirmed, and that report was wrong.** It measured the top edge of the MENU element and found the anchor moving -77.5px while the menu moved 0px. Both numbers were real; the inference was not. The submenu panel is clamped against the viewport ceiling and height-capped — 586px of natural height in a 720px viewport, so it opens `side="top"` pinned 8px from the top with a `maxHeight` — and its top PHYSICALLY CANNOT MOVE. What tracks the anchor is the panel's height, and so its facing edge. A top that does not move is correct behaviour for a clamped panel, and it was read as a bug.
+
+The locator was the second half of the error: `[data-testid^="row-action-preview-"]` also prefix-matches the portal, the menu, every crew row and the empty hint, so `.first()` resolving to the button was DOM-order luck rather than a selection.
+
+**Corrected technique, for whoever runs this next.** Measure the PLACED PANEL (`row-action-preview-portal-<slug>`), never the menu inside it, whose natural height overflows the panel's cap and reports an edge the user never sees. Use exact testids, not prefixes. Assert the invariant the placement core actually maintains: the distance from the panel's facing edge to its anchor, which is `GAP` (`lib/popover/position.ts:16`). Measured that way the gap is **6px before and 6px after**, and 6 is exactly `GAP`.
+
+**Mechanism, traced rather than inferred.** Instrumenting the submenu's `ResizeObserver` callback shows it firing with targets `row-action-preview-<slug>` — its OWN ANCHOR BUTTON — and its portal. The button's SIZE changes when the confirm region reflows the row menu panel under it, so the existing subscription already covers this trigger. That refutes the entry's load-bearing premise, "the anchor only moved": every trigger in the declared domain (`confirmingArchive`, `errorCode`, `staleOutcome`, `heldShrink`, `pendingAction`) is a `ShowRowActions` state change that reflows the panel's contents, so size coverage holds across all of them, not just the one probed.
+
+**Proved by removal, which is the check that settles it.** With a candidate repair wired (a placement notification driving a re-render), removing that one line left the corrected probe GREEN, and `maxHeight` still moved 428.469px to 350.969px — exactly the 77.5px the anchor travelled. The repair discriminated nothing, so it was dropped rather than shipped.
+
+**Re-file trigger, either one:** a mis-anchored submenu observed in live use, OR a demonstrated in-domain anchor move with ZERO size change, which is the one case the existing observer would genuinely miss. Constructing such a trigger outside the domain is not sufficient — that is recognizer-widening, and the fence declines it.
 
 **Predates `perf/anchoredportal-measure-convergence` and is unchanged by it.**
 That arc removes a duplicate measure inside a single commit; it does not touch
