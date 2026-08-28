@@ -48,7 +48,20 @@ A hand-authored registry then joins against that output on the line:
 
 So the line is a join key between a value the tree computes and a value a human typed. Any edit above the site moves the computed value and not the typed one, and the join breaks for every row below the edit at once. That is the wholesale invalidation the ledger row names.
 
-**What breaks is loud, and this matters for the design.** Both join shapes above fail by NOT MATCHING. `find(...) ?? null` yields null; the set join reports the row as stale. Neither rebinds a row to a different site. The cost today is therefore re-key edits and the review rounds spent separating them from genuine gaps, not false passes.
+**What breaks is USUALLY loud, and the exception matters more than the rule.** Both join shapes above normally fail by NOT MATCHING: `find(...) ?? null` yields null, and the set join reports the row as stale. The dominant cost today is therefore re-key edits and the rounds spent separating them from genuine gaps.
+
+But `find((e) => e.file === row.file && e.line === row.line)` does not return "the element that moved". It returns **whatever element now occupies that line number**. If an edit shifts the intended element down and an unrelated interactive element comes to rest on the vacated line, the row binds to the wrong element and the assertion runs against it, silently. A first draft of this spec asserted that today's keys cannot misbind. That is false, and the probe that falsifies it is:
+
+```
+node scripts/line-key-census.mjs --proximity
+```
+
+Six keyed-row pairs across the two densest style registries sit within 20 lines of each other (4 in `controlOutlineScan`, 2 in `tapTargetCensus`), so an ordinary insert of that size can land one row's line on another's. This is a LOWER BOUND on the real exposure, because the collision only needs some SCANNED element on the vacated line, and the scanner's element set is much denser than the keyed subset it is compared against.
+
+Two consequences, and they point the same way:
+
+1. The case for content anchoring is stronger than "it saves re-key edits". Line keys are quietly wrong on a reachable path, not merely expensive.
+2. The bar for the replacement rises. It is not enough for the durable key to be no worse than a line. **It must fail loud on ambiguity rather than pick a winner** (§0, §3.3), because "pick whatever is at this position" is exactly the defect being removed. A cure that silently picks would reproduce the disease with a longer key.
 
 That reframes the job. The disease is loud and expensive. The obvious cure is quiet and wrong: key a site by its ordinal position ("the 3rd button in this component") and an inserted earlier button silently rebinds every row after it to its neighbour, with the suite green. **A cure that trades loud-and-expensive for quiet-and-wrong is worse than the disease.** §3 is built around refusing that trade, and §6.1 is the mutant that proves we refused it.
 

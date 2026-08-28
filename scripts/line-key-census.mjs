@@ -220,3 +220,49 @@ if (process.argv.includes("--collisions")) {
     `resolved-by-content=${resolved}  unresolved=${unresolved}  declining-rows=${declineRows}`,
   );
 }
+
+// --proximity: lower-bound probe for the silent-misbind path described in §2.
+// Counts keyed-row pairs close enough that an ordinary insert can land one
+// row's line on another's. A lower bound: the scanner's element set is denser
+// than the keyed subset, so real exposure is larger.
+if (process.argv.includes("--proximity")) {
+  const WINDOW = 20;
+  console.log(`\nregistry\tkeyed-lines\tadjacent-pairs\tpairs-within-${WINDOW}`);
+  for (const r of rows) {
+    const lines = classifyLines(readFileSync(r.f, "utf8"));
+    const byTarget = new Map();
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].isComment) continue;
+      const lm = lines[i].raw.match(/\blines?:\s*(\d+)/);
+      const sm = [...lines[i].raw.matchAll(PATH_LINE)];
+      if (sm.length) {
+        for (const m of sm) {
+          if (!byTarget.has(m[1])) byTarget.set(m[1], []);
+          byTarget.get(m[1]).push(+m[2]);
+        }
+        continue;
+      }
+      if (!lm) continue;
+      for (let j = i; j >= Math.max(0, i - 8); j--) {
+        const fm = lines[j].raw.match(/\bfile:\s*"([^"]+)"/);
+        if (fm) {
+          if (!byTarget.has(fm[1])) byTarget.set(fm[1], []);
+          byTarget.get(fm[1]).push(+lm[1]);
+          break;
+        }
+      }
+    }
+    let tot = 0,
+      pairs = 0,
+      atRisk = 0;
+    for (const ls of byTarget.values()) {
+      const s = [...new Set(ls)].sort((a, b) => a - b);
+      tot += s.length;
+      for (let i = 0; i + 1 < s.length; i++) {
+        pairs++;
+        if (s[i + 1] - s[i] <= WINDOW) atRisk++;
+      }
+    }
+    if (tot > 1) console.log(`${r.f}\t${tot}\t${pairs}\t${atRisk}`);
+  }
+}
