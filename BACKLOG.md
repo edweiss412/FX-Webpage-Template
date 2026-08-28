@@ -448,7 +448,7 @@ the cross-instance path, in either direction.
 
 ## BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES — the placement path measures twice per gesture frame, and twice more on two smaller sites
 
-**Status:** OPEN · **Filed:** 2026-08-27 (`perf/anchoredportal-measure-convergence`, invariant-8 impeccable audit) · **Facing:** product · **Severity:** LOW-MEDIUM (redundant forced reflows at gesture frame rate on a shipped admin surface; correct output, wasted work) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — the repair is a memoisation of the placement path's measure cadence, a surface the measure-convergence arc does not otherwise touch: that arc's subject is the OPEN COMMIT, and the gesture path needs its own probe and its own review. · **Reachability:** INFERRED, NOT PROBED.
+**Status:** IN PROGRESS · **Branch:** perf/placement-measure-memo · **Filed:** 2026-08-27 (`perf/anchoredportal-measure-convergence`, invariant-8 impeccable audit) · **Facing:** product · **Severity:** LOW-MEDIUM (redundant forced reflows at gesture frame rate on a shipped admin surface; correct output, wasted work) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — the repair is a memoisation of the placement path's measure cadence, a surface the measure-convergence arc does not otherwise touch: that arc's subject is the OPEN COMMIT, and the gesture path needs its own probe and its own review. · **Reachability:** INFERRED, NOT PROBED.
 
 **This is the same shape as the defect `BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN` addresses, differing only in trigger** — open commit there, scroll or pinch frame here.
 
