@@ -44,7 +44,7 @@ Task 5 attaches to the EXISTING `tests/e2e/rowactions-geometry.spec.ts` describe
 
 - **(a) Server boot.** The workflow's own server; the spec never boots one. The route is warmed once in `beforeAll` outside any timed assertion (`tests/e2e/rowactions-geometry.spec.ts:168-173`), with `SETUP_TIMEOUT_MS = 300_000` and `CASE_TIMEOUT_MS = 180_000` (`tests/e2e/rowactions-geometry.spec.ts:145-146`) because `/admin` compiles on first request locally and is a cold prod build on a 2-core runner.
 - **(b) Readiness gate.** `lastSeededTrigger` (`tests/e2e/rowactions-geometry.spec.ts:118`), never `networkidle`: it waits for `shows-find-input` to be visible, filters to the seeded prefix, and asserts the trigger count settles at `SEEDED_SHOWS`. The count settling is the proof that React hydrated, because the Find box is client state.
-- **(c) Detach safety.** Between installing the counter and reading it the case holds NO Playwright handle on the panel at all: its only calls there are `page.setViewportSize` and `page.evaluate`, and the latter reads `window.__passProbe`, a plain object, plus a raw `document.querySelector` inside the page. No `locator.evaluate`, no `expect(locator)`, so nothing can auto-wait on a node that unmounted. That is the same property the contamination argument rests on, which is why it is one rule here rather than two.
+- **(c) Detach safety.** Between installing the counter and reading it the case holds NO Playwright handle on the panel: its only calls there are `page.setViewportSize` and `page.evaluate`, and the latter reads `window.__passProbe`, a plain object, plus a raw `document.querySelector` inside the page. No `locator.evaluate`, no `expect(locator)`, so nothing can auto-wait on a node that unmounted. The `MutationObserver` that counts cap clears lives inside the page and holds no Playwright handle either.
 
 **CI wiring: nothing new is needed, verified rather than assumed.** Both edited production files are already named in the workflow's `pull_request.paths` — `components/admin/AnchoredPortal.tsx` (`.github/workflows/admin-layout-e2e.yml:64`) and `lib/popover/naturalSize.ts` (`.github/workflows/admin-layout-e2e.yml:74`) — as is the spec file itself (`.github/workflows/admin-layout-e2e.yml:58`). A PR touching either production file fires the gate.
 
@@ -95,29 +95,34 @@ early return this task adds between the trigger-rect read
 (`components/admin/AnchoredPortal.tsx:142`)** — it does not exist on the live
 tree, verified by reading those two lines.
 
-**The counted unit is one panel-rect read, and the fixture makes that exact.**
-Each pass reads the panel's rect once (`components/admin/AnchoredPortal.tsx:143`)
-and reads it a SECOND time only when `heightAtWidth` runs
-(`lib/popover/naturalSize.ts:48`), which happens only when the panel is wider
-than the bounds (`lib/popover/position.ts:118-120`). The fixture stubs a panel
-260px wide against jsdom's 1024px `window.innerWidth`, so the bounds are 1008px
-wide after `VIEWPORT_INSET` (`lib/popover/position.ts:17`), `maxWidth` is `null`
-and `heightAtWidth` never runs.
+**The counted unit is one `withNaturalSize` INVOCATION, counted by a hoisted
+`vi.mock` pass-through spy on `@/lib/popover/naturalSize`.**
 
-**And on a skipped call the panel is not read at all** — the early return sits
-before `withNaturalSize`, which owns the only panel read
-(`components/admin/AnchoredPortal.tsx:143`). That is what makes panel reads the
-exact unit here rather than an approximation of it, and it is why this task
-counts panel reads while the merged case counts anchor reads. Both halves are stated with `premiseHolds` from
-`tests/_shared/premise.ts`: that the stub width is under the viewport width, and
-that one pass is one panel read, the latter established by driving exactly one
-pass through a single window resize and asserting the count is 1 — the same
-idiom the merged case uses for anchor reads
-(`tests/components/admin/rowActions/anchoredPortal.test.tsx:441-447`).
+**Not a panel-rect read, and the reason is a consequence of the redesign rather
+than a preference.** The guard reads the panel's rect to BUILD its key, before it
+decides whether to skip. So a full pass is TWO panel reads — the key read plus
+`withNaturalSize`'s own — and a SKIP is one. "One pass is one panel read" was
+true of the retired cause-enumeration design and is false of this one; a case
+still asserting it would count a skip as a pass and report 1 where the truth is
+one pass plus one skip. Counting invocations is exact and cannot drift with how
+many reads a pass happens to make.
+
+The mock is a pass-through: it increments and calls the real helper with the same
+arguments. The generic signature with its `SyncOnly<T>` conditional
+(`lib/popover/naturalSize.ts:31-33`) cannot be reproduced structurally by a
+wrapper, so the wrapper carries a narrow cast and its runtime contract is visible
+in three lines. The helper's own contract stays owned by
+`tests/components/naturalSize.test.ts`.
 
 **Cases.**
 
-- placement-CHANGING ancestor-scroll frame: 1 pass (AC-1).
+- placement-CHANGING ancestor-scroll frame: 1 pass (AC-1). **AC-1 is scoped, and
+  the scope is asserted rather than assumed**: this fixture's commit must not
+  itself change what the panel measures, or the frame legitimately costs two
+  passes (spec §3.1, "When a frame costs two passes"). The premise is the panel
+  stub being constant across the frame, which this fixture makes true by
+  construction — AC-12's witnesses (c) and (d) are the deliberate opposite, and
+  they are where the two-pass case is pinned.
 - placement-CHANGING window-resize frame: 1 pass (AC-1).
 - placement-UNCHANGED frame: 1 pass (AC-2). The control. It is 1 before AND
   after the repair, and it is here because a repair that gated the coalescer
@@ -160,13 +165,15 @@ idiom the merged case uses for anchor reads
   shape the anti-tautology rule exists to catch. A `MutationObserver` on the
   panel's own attributes has no such bailout.
 
-  **Half (ii)'s deciding mutant is the tuple comparison inside `commit`
-  (`components/admin/AnchoredPortal.tsx:115`), not an added `setApplied` call.**
-  An added call carrying the same tuple is dropped by that comparison, and React
-  may batch it with the frame's real update, so it need not move the count at all
-  — a mutant that can leave the number untouched decides nothing. Removing the
-  comparison makes every measurement apply a placement, which moves the count
-  directly. Run before the review dispatch, result recorded in the commit.
+  **Half (ii) is WITHDRAWN — spec round 5 refuted the instrument, not just its
+  mutant.** A `MutationObserver`'s per-callback batch grain cannot separate two
+  commits flushed in one task, which the merged browser probe records about
+  ITSELF (`tests/e2e/rowactions-geometry.spec.ts:425-427`), so an added or
+  removed intermediate placement is absorbed into one batch. The proposed mutant
+  fails with it: removing `commit`'s equality check produces an equal-valued
+  render, and React does not rewrite an unchanged attribute. AC-5 is half (i)
+  alone, and the missing count is a documented limit in the spec's §8 rather than
+  a claim this plan makes.
 
 **GREEN, deliberately minimal.** Add `lastMeasureRef` keyed on the trigger RECT
 alone, the optional `{ skipIfUnchanged }` argument, the early return after the
@@ -237,8 +244,8 @@ fenced in the spec's §1.1.
   refuse. Assert the pass count is unchanged across a translation-only stub change.
 
 **GREEN, and it is two changes rather than one.** Widen the key to
-`{ anchorRect, panelSize, align, preferredSide }` — the panel's size read from the
-same node the measurement uses, the two props compared with `===` — AND introduce
+`{ anchorRect, panelSize, panelExtent, align, preferredSide }` — the panel's size
+AND scroll extent read from the same node the measurement uses, the two props compared with `===` — AND introduce
 the props ref that lets the comparing code see current values at all. Task 1's key
 is the anchor rect, which `measureAndApply` already closes over freshly; `align`
 and `preferredSide` are stale the moment the callback outlives a prop change.
@@ -353,12 +360,27 @@ counts two. **The production line is the same early return Task 1 adds**; this
 case is the browser's independent statement of it, on the real placed branch
 rather than jsdom's degenerate fallback.
 
-**The page-side counter observes the cap clear and restore on the panel's
-`style` attribute, never `getBoundingClientRect`.** Playwright's actionability
-checks call `getBoundingClientRect` themselves
-(`tests/e2e/rowactions-geometry.spec.ts:429-431`), so a rect counter is
-contaminated by the harness; nothing in Playwright writes `max-height` on the
-portal.
+**The page-side counter observes the CAP CLEAR on the panel's `style` attribute,
+never `getBoundingClientRect`, and spec round 5 refuted the rect counter on
+arithmetic rather than on contamination.** A rect counter cannot distinguish the
+two designs at all: today a placement-changing frame runs two passes and so two
+panel reads, and after the repair it runs one pass plus the guard's own key read,
+which is also two. An assertion of one fails the correct design; an assertion of
+two is green before it. (Contamination is a second reason — Playwright's
+actionability checks call `getBoundingClientRect` themselves,
+`tests/e2e/rowactions-geometry.spec.ts:429-431` — but it is not the deciding one,
+and treating it as such is what let the rect counter survive two drafts.)
+
+Nothing in Playwright writes `max-height` on the portal, so a cap-clear
+transition is unambiguous. **Its precondition is asserted, not assumed:** on an
+UNCAPPED panel `withNaturalSize` assigns `""` to a cap already `""`, the
+serialized attribute never changes, and every pass goes uncounted — a silent zero
+that reads green through the exact defect the case exists to catch. The case
+therefore asserts the panel's applied `max-height` is non-empty BEFORE it counts.
+On this fixture it is: 14 crew per show
+(`tests/e2e/rowactions-geometry.spec.ts:47`) against a 720px viewport
+(`tests/e2e/rowactions-geometry.spec.ts:51`). A future fixture that stops capping
+reds the premise loudly instead of the count quietly reading zero.
 
 **Premise, executed before anything it guards:** the resize must actually change
 the placement. The panel's `left` before and after must differ, asserted from

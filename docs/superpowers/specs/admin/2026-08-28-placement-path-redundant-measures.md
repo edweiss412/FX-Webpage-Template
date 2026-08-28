@@ -135,8 +135,8 @@ once per round, forever.** Lengthening it is not the repair; retiring it is.
 **So the key does not enumerate causes at all. It observes the two things the
 placement actually reads, and names the two it cannot observe.**
 
-`computePopoverPlacement` takes exactly five inputs
-(`lib/popover/position.ts:40-49`): `trigger`, `naturalSize`, `wrappedHeightAt`,
+`PopoverPlacementInput` has exactly six fields
+(`lib/popover/position.ts:39-50`): `trigger`, `naturalSize`, `wrappedHeightAt`,
 `bounds`, `preferredSide` and `align`. That signature is a closed set — it cannot
 grow without a change to the placement core itself, which is a different file and
 a different review. Each is either observed directly or covered:
@@ -144,12 +144,12 @@ a different review. Each is either observed directly or covered:
 | Placement input | How the guard covers it |
 | --- | --- |
 | `trigger` | OBSERVED: the anchor's rect, all six fields, read fresh each run |
-| `naturalSize` / `wrappedHeightAt` | OBSERVED: the panel's rendered SIZE, `width` and `height`, read fresh each run |
+| `naturalSize` / `wrappedHeightAt` | OBSERVED: the panel's `width`, `height`, `scrollWidth` and `scrollHeight`, read fresh each run — the extent is what separates "overflows its cap" from "exactly at its cap", which the size alone cannot |
 | `bounds` | subscribed: the `resize` and `visualViewport` listeners (`components/admin/AnchoredPortal.tsx:230-235`) and the capture-phase scroll listener (`components/admin/AnchoredPortal.tsx:229`), all of which route through the coalescer, which never skips |
 | `preferredSide`, `align` | compared by `===`: they are the core's own two non-geometric parameters, passed at `components/admin/AnchoredPortal.tsx:151-152`, and no measurement can reveal a change in them |
 
-**The key is therefore: the anchor rect, the panel's rendered size, `align` and
-`preferredSide`.** Nothing else. `className`, `children`, the applied `side`, the
+**The key is therefore: the anchor rect, the panel's rendered size and scroll
+extent, `align` and `preferredSide`.** Nothing else. `className`, `children`, the applied `side`, the
 serialized `style` and `data-testid` are all GONE from it — not because they
 cannot move the measurement, but because every way they move it is a change to
 the panel's rendered size, which the guard now reads instead of predicting.
@@ -162,46 +162,84 @@ placement through one channel: they change what the panel measures. The guard
 reads that channel. A future reviewer naming a sixth cause is naming another
 input to an observation already being taken.
 
-**Only the panel's SIZE is compared, never its position.** The placement itself
+**Only the panel's SIZE and EXTENT are compared, never its position.** The placement itself
 sets the panel's `left` and `top`, so those differ on every frame that moves it
 and comparing them would mean never skipping. Size is the half the placement
 READS (`components/admin/AnchoredPortal.tsx:149` passes `measured.width` and
 `measured.height` and nothing else), which is also why round 4 was right that a
 pure translation justifies no re-measure: it changes no input.
 
-### The one gap, stated rather than left implicit
+### The capped panel, and the equality boundary that a size-only reading misses
 
 The observed reading is the panel's CAPPED rect. `naturalSize` is its UNCAPPED
-measurement. They differ exactly when a cap is active, so the guard's observation
-is a proxy there, and the proxy's soundness is an argument about the core rather
-than an assumption:
+measurement. Uncapped they are the same rect and the observation is exact. Capped,
+the rendered size is pinned at the cap, and a size-only reading cannot tell `content overflows the cap` from `content is exactly the cap`.
 
-- **Uncapped panel:** the rendered rect IS the natural rect. The observation is
-  exact.
-- **Capped panel:** the rendered size is pinned at the cap, so a natural-size
-  change that stays entirely ABOVE the cap is invisible to the guard. It also
-  cannot move the placement. `effectiveWidth` is `Math.min(naturalSize.width,
-  bounds.width)` (`lib/popover/position.ts:119`), which is `bounds.width` for any
-  natural width above it; `maxHeight` is `space(side)`
-  (`lib/popover/position.ts:132`), a function of the room beside the trigger and
-  not of natural height; and `effectiveHeight` is `Math.min(height0,
-  space(side))` (`lib/popover/position.ts:134`), which is `space(side)` whenever
-  the panel overflows. A natural size that shrinks back UNDER a cap changes the
-  rendered size and IS observed.
+**That distinction is load-bearing, and an earlier draft of this section claimed
+it was not.** The core switches on strict comparisons: `maxWidth` is written only
+when `naturalSize.width > bounds.width` (`lib/popover/position.ts:118`), and a
+side is taken uncapped when `height0 <= space(side)`
+(`lib/popover/position.ts:128`). So a panel whose natural width SHRINKS from above
+`bounds.width` to exactly `bounds.width` renders at an unchanged size while the
+applied `maxWidth` must go from a number to `null`. The same holds for height at
+`space(side)`. The draft's claim that a natural size shrinking back UNDER a cap always changes
+the rendered size omitted the boundary case where it shrinks back
+exactly TO the cap, and there the applied tuple changes with no size change at
+all.
 
-So the proxy is exact where it can be, and where it cannot be, the difference it
-misses is one the placement discards. That is a documented property of
-`computePopoverPlacement`'s arithmetic, checkable against three cited lines, not
-a hope.
+**So the observation reads the panel's SCROLL EXTENT alongside its size.**
+`scrollWidth` and `scrollHeight` report the content's own extent rather than the
+box the cap imposes, so they separate the two states the size cannot: a panel
+overflowing its cap has an extent past its client box, and a panel exactly at its
+cap does not. Both are reads on the node already being read, in the same
+already-flushed layout, and neither adds a write.
+
+The key's geometric half is therefore the panel's `width`, `height`,
+`scrollWidth` and `scrollHeight`. That is not a fifth enumerated cause — it is the
+same single observation, taken faithfully enough to recover the input it stands
+for at the boundary where a coarser reading loses it.
+
+### When a frame costs two passes, and why that is the design working
+
+INV-A is scoped, and the scope is the honest consequence of the observation
+design rather than an escape hatch. **If a style-dependent rule makes the
+placement commit itself change what the panel measures, the follow-up run MUST
+take a second pass** — the panel now measures differently than when it was
+placed, so the placement it is holding was computed from a stale reading. Today's
+code re-measures there too, and preserving that is the consequence bound.
+
+AC-12's witnesses (c) and (d) are exactly this case, constructed: a
+side-dependent rule fired by a flip, and a rule selecting on the `left` the
+commit wrote. On those frames the count is two, and the second pass is required
+work rather than the waste this arc removes.
+
+**The two are distinguishable without judgement**, which is what keeps the scope
+from swallowing the invariant: the follow-up's own reading of the panel is the
+discriminator. Equal reading means the commit changed nothing measurable and the
+pass is skipped; different reading means it did, and the pass is owed. So `runs exactly
+one pass` and `runs two when the commit moved the panel` are the same rule
+evaluated on different inputs, not two rules.
+
+An earlier draft of this spec claimed the unqualified universal and shipped
+witnesses that contradicted it — review found the contradiction, and it is fixed
+by scoping the invariant rather than by weakening the witnesses.
 
 ### What this costs
 
-The follow-up run does TWO rect reads — the anchor and the panel — where it
-previously did a whole `withNaturalSize` pass: two style writes to clear the
-caps, a rect read, possibly a `heightAtWidth` write-read-write triple, and two
-style writes to restore. The forced style-write-then-read cycle is what makes a
-pass expensive, and it is entirely removed. Reads alone do not force a style
-recalculation.
+The follow-up run does reads only — the anchor's rect, and the panel's rect and
+scroll extent — where it previously did a whole `withNaturalSize` pass: two style
+writes to clear the caps, a rect read, possibly a `heightAtWidth`
+write-read-write triple, and two style writes to restore.
+
+**What is removed is the WRITE-then-read cycling inside the pass, not every
+forced layout on the path, and an earlier draft overstated this.** The guarded
+run follows a commit that wrote `style` and `data-portal-side`, so its first
+geometry read flushes that pending work whatever the guard decides — that cost is
+the commit's, not the pass's, and it is paid today as well. What the repair
+removes is the cap clear, the cap restore and any wrap probe, each of which
+writes style and then reads geometry back, forcing a further synchronous layout
+INSIDE the pass. Reads that follow no intervening write are served from the same
+flushed layout.
 
 **Key equality is exact.** The anchor rect compares on all six fields of `Rect`
 (`lib/popover/position.ts`, the `Rect` type); the panel size on `width` and
@@ -296,7 +334,7 @@ helper takes the path this repair makes free.
 
 | Id | Invariant | Deciding case | Mutant that reds it |
 | --- | --- | --- | --- |
-| INV-A | A placement-CHANGING gesture frame runs exactly one `withNaturalSize` pass | jsdom pass counter, ancestor scroll with the anchor moved | delete the `skipIfUnchanged` early return |
+| INV-A | A placement-CHANGING gesture frame whose commit does not itself change what the panel measures runs exactly one `withNaturalSize` pass (see "When a frame costs two passes") | jsdom pass counter, ancestor scroll with the anchor moved | delete the `skipIfUnchanged` early return |
 | INV-B | A placement-UNCHANGED gesture frame runs exactly one pass | the same case, anchor not moved | (control; reds if the coalescer path is wrongly gated) |
 | INV-C | A closed to open transition still places the panel when the trigger is at the key the previous open used | jsdom reopen case | delete the `lastMeasureRef` reset on close |
 | INV-D | A position-only anchor move still re-places the panel | the merged predecessor case at `tests/components/admin/rowActions/anchoredPortal.test.tsx:266` | make the guard compare nothing, or compare only `width`/`height` |
@@ -304,7 +342,7 @@ helper takes the path this repair makes free.
 | INV-F | An unscrolled panel's measurement reads neither scroll offset after the cap restore | `lib/popover/naturalSize.ts` order-trace case | drop either `!== 0` short-circuit |
 | INV-G | A scrolled panel's offsets are still restored | the merged scroll-clamp cases | invert either short-circuit |
 | INV-H | The gesture path runs one pass per placement-changing frame in a REAL browser, driven by a viewport resize | `tests/e2e/rowactions-geometry.spec.ts`, the gesture measure-count case | delete the early return |
-| INV-I | Over a multi-frame gesture, each frame applies exactly the placement the placement core computes for that frame's inputs, and exactly one applied placement per placement-changing frame | jsdom multi-frame case: per-frame tuple against an independent oracle, plus a per-frame `MutationObserver` batch count on the panel | make the guard skip when the key HAS changed (half i); remove the tuple comparison inside `commit` (half ii) |
+| INV-I | Over a multi-frame gesture, each frame applies exactly the placement the placement core computes for that frame's inputs | jsdom multi-frame case: per-frame FULL applied tuple against an independent oracle | make the guard skip when the key HAS changed |
 | INV-J | A measurement that returns `kind: "hidden"` leaves the guard UNARMED, from a `null` ref and from a placed one alike, and the follow-up run terminates without a further render | jsdom degenerate-panel case, run from both starting states | decline to write the ref on the hidden branch instead of clearing it |
 | INV-K | A re-render that changes `preferredSide` with the anchor still re-places the panel | jsdom prop-change case through the existing `Harness`'s `preferredSide` parameter | drop `preferredSide` from the key |
 | INV-L | A re-render that changes `align` with the anchor still re-places the panel | jsdom prop-change case through an `align` parameter added to the harness | drop `align` from the key |
@@ -372,15 +410,30 @@ AC-7 would stay green through the exact defect it exists to catch. The shipped
 fixture supplies no premise that either cap is active, so this is not
 hypothetical for it.
 
-The counter is therefore a patch of `Element.prototype.getBoundingClientRect`
-scoped to the portal, and the contamination is excluded by the case's own shape:
-between installing the counter and reading it the case makes NO Playwright call
-that touches the panel — no locator, no `expect(locator)`, no `locator.evaluate`,
-only `page.setViewportSize` and `page.evaluate` with a raw `querySelector`. A
-zero-count CONTROL WINDOW, two frames with no gesture, asserts that held rather
-than assuming it, and a premise pins the panel narrower than the post-resize
-bounds so that one pass is one read (`heightAtWidth` reads the rect a second time
-and runs only when the panel exceeds the bounds, `lib/popover/position.ts:118-120`).
+**The counted unit is one `withNaturalSize` pass, and in the browser a panel-rect
+counter CANNOT take it.** The arithmetic refutes it outright: today a
+placement-changing frame runs two passes and so two panel reads; after the repair
+it runs one pass plus the guard's own key read, which is also two. An assertion of
+one read fails the correct design and an assertion of two is green before it. The
+signal is blind to the change it exists to detect, and no premise repairs that —
+it is not a fixture problem.
+
+**So the browser case counts `withNaturalSize`'s CAP CLEAR, on a fixture whose cap
+is executably asserted to be active.** The helper clears both caps at the start of
+every pass (`lib/popover/naturalSize.ts:39-40`) and restores them at the end
+(`lib/popover/naturalSize.ts:68-69`). On a CAPPED panel each clear is a real
+transition of the `style` attribute — a non-empty `max-height` going empty — which
+a `MutationObserver` sees, and which nothing else on the page writes.
+
+**The uncapped hole that killed an earlier draft is closed by a premise, not by
+hope.** On an uncapped panel the helper assigns `""` to a cap already `""`, the
+serialized attribute never changes, and every pass goes uncounted — a silent zero
+that reads green through the exact defect the case exists to catch. The case
+therefore asserts, before it counts anything, that the panel's applied
+`max-height` is non-empty. On this fixture it is: the row menu is seeded with 14
+crew per show (`tests/e2e/rowactions-geometry.spec.ts:47`) against a 720px
+viewport (`tests/e2e/rowactions-geometry.spec.ts:51`). If a future fixture stops
+capping, the premise reds loudly instead of the count quietly reading zero.
 
 ### 5.1 Documented limits of the instruments
 
@@ -494,29 +547,41 @@ halves: a per-frame tuple compared against an INDEPENDENT oracle
 golden from a baseline run), and a per-frame count of applied placements, so an
 ADDED or REMOVED intermediate placement is caught as well as a changed one.
 
-**An applied placement is a mutation of the panel's own attributes, NOT a
-re-render of the portal's children.** An earlier draft said the latter and it is
-false: `children` is a prop, so a re-render driven by this component's own
-`setApplied` reuses the same element object, React bails out, and a child-based
-counter reads 1 forever — green while proving nothing. The count is taken with a
-`MutationObserver` on the panel's `style` and `data-portal-side`, sampled per
-CALLBACK BATCH because React assigns each style property separately and a
-per-write count reports one placement as several. That is the grain, and the
-reason for it, that the merged browser probe already uses
-(`tests/e2e/rowactions-geometry.spec.ts:436-440`).
+**Half (ii) is WITHDRAWN, and the reason is that this arc has no instrument for
+it.** Two counters were proposed and both were refuted. A counting child reads 1
+forever: `children` is a prop, so a re-render driven by this component's own
+`setApplied` reuses the same element object and React bails out. A
+`MutationObserver` on the panel's attributes cannot do it either — its
+per-callback batch grain cannot separate two commits flushed in one task, which
+the merged browser probe records about ITSELF in the same terms
+(`tests/e2e/rowactions-geometry.spec.ts:425-427`), so an added or removed
+intermediate placement is absorbed into one batch exactly as a disagreeing third
+measure is there. The proposed deciding mutant fails with it: removing `commit`'s
+equality check produces an equal-valued React render, and React does not rewrite
+an unchanged DOM attribute, so the observer count does not move.
 
-**The deciding mutant for half (ii) is the equality check in `commit`, not an
-added `setApplied` call.** `commit` (`components/admin/AnchoredPortal.tsx:115`) drops a
-placement equal to the one held, and React may batch two same-frame updates, so
-an added `setApplied` call with the same tuple need produce no second applied
-placement at all — a mutant that can leave the count untouched is not a deciding
-one. Removing the tuple comparison inside `commit` makes every measurement apply
-a placement, which moves the per-frame count directly.
+**So AC-5 is the per-frame tuple against an independent oracle, and nothing
+else.** An ADDED or REMOVED intermediate placement within a single frame is a
+DOCUMENTED LIMIT of this arc's instruments, recorded here rather than asserted
+away. It is the same limit the merged probe already carries, on the same surface,
+for the same reason, and inheriting a known limit honestly is the alternative to
+claiming a grain the instrument does not have.
+
+The limit is bounded, which is why it is acceptable rather than merely admitted:
+half (i) compares the FULL applied tuple every frame against
+`placeWithinVisibleViewport` run on that frame's own inputs, so any intermediate
+placement that survives to the end of a frame is caught. What escapes is an
+intermediate created and superseded inside one microtask checkpoint, which by
+construction is never painted.
 
 ## 9. Acceptance criteria
 
-- **AC-1** — a placement-changing gesture frame runs exactly one `withNaturalSize`
-  pass, in jsdom, on the ancestor-scroll trigger and on the window-resize trigger.
+- **AC-1** — a placement-changing gesture frame whose commit does not itself
+  change what the panel measures runs exactly one `withNaturalSize` pass, in
+  jsdom, on the ancestor-scroll trigger and on the window-resize trigger. The
+  qualifier is not a hedge; it names the case §3.1's `When a frame costs two
+  passes` section documents, and AC-12's witnesses (c) and (d) are instances of
+  it.
 - **AC-2** — a placement-unchanged gesture frame runs exactly one pass.
 - **AC-3** — reopening at the identical trigger rect places the panel.
 - **AC-4** — the merged cases in `tests/components/admin/rowActions/anchoredPortal.test.tsx`
@@ -527,13 +592,14 @@ a placement, which moves the per-frame count directly.
 - **AC-5** — over a multi-frame gesture, after EACH frame the panel's applied
   tuple (`left`, `top`, `data-portal-side`, `max-height`, `max-width`) equals the
   tuple derived from `placeWithinVisibleViewport` on that frame's own inputs, and
-  each placement-changing frame produces exactly ONE applied placement while each
-  unchanged frame produces zero, counted as `MutationObserver` callback batches
-  on the panel's own attributes.
+  The per-frame COUNT of applied placements is deliberately NOT a criterion: §8
+  records why no instrument in this arc can take it.
 - **AC-6** — an unscrolled measurement reads neither scroll offset after the cap
   restore, and a scrolled measurement still restores both.
 - **AC-7** — in a real browser, a viewport resize that moves the panel runs one
-  pass on the resulting placement-changing frame.
+  `withNaturalSize` pass on the resulting placement-changing frame, counted as
+  cap-clear transitions on the panel's `style` attribute, on a fixture whose cap
+  is asserted active before the count is taken.
 - **AC-8** — a measurement returning `kind: "hidden"` leaves the guard unarmed
   and the commit sequence it produces terminates, asserted from BOTH starting
   states: a `null` ref, and a ref holding the key of a placed placement at the
