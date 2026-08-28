@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
 import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
+import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 
 // Build a minimal INFO sheet from an array-of-arrays; returns bytes + gid map.
 // Row/col are 0-based; A1 is derived by the code under test.
@@ -482,6 +483,21 @@ describe("spec 2026-08-27 §2: anchors follow the exporter's blocks, every kind,
     });
     premiseHolds("both tabs flagged their row", split.length === 2);
     for (const w of split) expect(w.sourceCell ?? null).toBeNull();
+  });
+
+  it("ria.xlsx: the HOTEL_GUEST_SPLIT_AMBIGUOUS row links to the hotels region (spec §3)", async () => {
+    const buffer = fixtureBuffer("fixtures/shows/exporter-xlsx/ria.xlsx");
+    const wb = XLSX.read(buffer, { type: "array" });
+    const gids = new Map(wb.SheetNames.map((n, i) => [n, i] as const));
+    const parsed = parseSheet(synthesizeMarkdownFromXlsx(buffer).markdown, "ria.md");
+    await attachWarningAnchors(parsed.warnings, buffer, () => Promise.resolve(gids));
+    const hotel = parsed.warnings.find((w) => w.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS");
+    premiseHolds("the hotel ambiguity is emitted", hotel !== undefined);
+    const region = extractSourceAnchors(buffer, gids).hotels;
+    premiseHolds("the workbook has a hotels region", region !== undefined);
+    // Block RANGE, not a cell: the ambiguity describes how ONE cell was read and blockRef
+    // carries a name with no coordinate (spec §9).
+    expect(hotel!.sourceCell).toEqual(region);
   });
 
   it("the synthesized PULL SHEET title row never anchors (absRow null)", () => {
