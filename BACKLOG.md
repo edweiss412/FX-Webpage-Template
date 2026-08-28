@@ -10,7 +10,7 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ## BL-DIAGRAM-TILE-CHROME-CONSISTENCY — the admin diagram tile and the crew gallery put the tile border on different elements
 
-**Status:** OPEN · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`; owner-directed by bl-orch after that arc reverted the change as out of scope, which is the scheduling decision) · **Facing:** product · **Severity:** LOW (cosmetically identical today; it is a consistency and maintenance question, not a rendering defect) · **Class:** design consistency · **Effort:** S · **Reachability:** PROBED — see the mutant below.
+**Status:** IN PROGRESS · **Branch:** fix/diagram-tile-chrome-consistency · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`; owner-directed by bl-orch after that arc reverted the change as out of scope, which is the scheduling decision) · **Facing:** product · **Severity:** LOW (cosmetically identical today; it is a consistency and maintenance question, not a rendering defect) · **Class:** design consistency · **Effort:** S · **Reachability:** PROBED — see the mutant below.
 
 The crew gallery puts the tile's box chrome on the grid CELL and leaves `object-cover` on the image (`components/diagrams/Gallery.tsx:351`). The admin wizard tile puts `rounded-md border border-text-faint bg-surface-sunken` on the `<img>` and leaves the anchor carrying only `relative` and its aspect box (`components/admin/wizard/step3ReviewSections.tsx`). Two arrangements for one visual idiom across the two diagram surfaces.
 
