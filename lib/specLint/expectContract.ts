@@ -147,9 +147,9 @@ export function synthesizeCollectionVerdicts(
         severity: "fail",
         docLine: candidate.line,
         column: 1,
-        message: `\`${file}\` is not collected under \`${candidate.config}\` — this gate observes nothing and exits 0`,
+        message: `\`${file}\` is not collected under \`${candidate.config}\` — this gate cannot observe its subject`,
         detail:
-          "a run that collects nothing reads as green; name the config that collects the file, or fix the path",
+          "zero collection exits non-zero for a COLLECTION reason, which a red-then-green cycle misreads as red observed; name the config that collects the file, or fix the path",
       });
     }
   }

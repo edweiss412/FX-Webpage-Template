@@ -13,9 +13,9 @@
 A plan author writes down what a command should produce and then writes a command that cannot report whether it produced it. Two shapes, both measured in this corpus:
 
 - **`# expect N` beside a command whose exit status does not encode N.** `git status --porcelain | wc -l  # expect 0` exits 0 whether the count is 0 or 50, because `wc` always exits 0. `grep -c` prints its count and exits on match-presence, not on the count. The number is for a human who may or may not read it; nothing fails.
-- **A Playwright command that collects nothing.** `playwright test tests/e2e/popover-clip-fit.spec.ts` collects zero tests, because that spec is reachable only through `tests/e2e/standalone.config.ts`'s explicit `testMatch` allow-list (`tests/e2e/standalone.config.ts:85-86`) and appears in no project of the root config. A run that collects nothing exits 0 and reads as a green gate.
+- **A Playwright command that collects nothing.** `playwright test tests/e2e/popover-clip-fit.spec.ts` collects zero tests, because that spec is reachable only through `tests/e2e/standalone.config.ts`'s explicit `testMatch` allow-list (`tests/e2e/standalone.config.ts:85-86`) and appears in no project of the root config. The declared gate cannot observe its subject — and at authoring time nothing verifies collection, which is how the incident's gate was believed valid without ever being run. When the command IS run, current Playwright exits 1 with `Error: No tests found` (probed at diff round 1, 2026-08-28, both the plain and `--reporter=json` forms; an earlier revision of this spec claimed exit 0, refuted by that probe): a non-zero exit for a COLLECTION reason, which a red-then-green cycle misreads as RED OBSERVED for the wrong reason — the same class `deriveCollectionProbe` names for vitest-shaped reds (`lib/specLint/redContract.ts:648`) — and which a regression gate surfaces as an unexplained failure long after authoring.
 
-Both are the same failure: **the declared expectation and the observed exit status are unrelated, and the document does not say so.**
+Both are the same failure at authoring time: **the document declares an expectation that nothing at authoring time verifies the command can express** — Arm A's exit status is unrelated to the stated N; Arm B's gate cannot observe the file it names.
 
 ## 1.1 Resolved scope — do not relitigate
 

@@ -160,7 +160,10 @@ describe("synthesizeCollectionVerdicts (§5.3)", () => {
     // Whole-message equality: containment lets a suffixed message and a
     // file/config transposition survive (pre-dispatch mutants b/d1).
     expect(fails[0]!.message).toBe(
-      "`tests/e2e/step3-review-modal.layout.spec.ts` is not collected under `(default)` — this gate observes nothing and exits 0",
+      "`tests/e2e/step3-review-modal.layout.spec.ts` is not collected under `(default)` — this gate cannot observe its subject",
+    );
+    expect(fails[0]!.detail).toBe(
+      "zero collection exits non-zero for a COLLECTION reason, which a red-then-green cycle misreads as red observed; name the config that collects the file, or fix the path",
     );
   });
 
