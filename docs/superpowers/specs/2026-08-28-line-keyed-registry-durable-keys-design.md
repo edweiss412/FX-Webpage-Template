@@ -30,6 +30,8 @@ The census walks all 2696 files under `tests/**` for two shapes: a `line:`/`line
 | Comment citations | 125 | no | Prose pointing a reader at a definition. Drift here is a docs defect, not a suite failure. `spec:lint` already owns citation freshness. |
 | Load-bearing registry rows | 289 | YES | A hand-authored row whose line is JOINED against a machine-recomputed line. This is the whole subject. |
 
+**A third shape exists and the census deliberately does not emit it.** The mutation harness keys accepted-survivor rows by `operator:line:col:text` (`tests/mutation/source/registry.ts:65` splits the operator off the front), which matches neither census shape. That population is the largest line-keyed registry in the repo and it is dispositioned in §4.2 on its own measurement, not on a census row. The census is not widened to cover it, because widening a recognizer to reach a surface that is going to decline anyway is motion.
+
 The rows naming a nonexistent file were each opened before being classified, because "registry row bound to nothing" would have been a live P0. All of them are constructed fixtures. There is no such defect on main.
 
 **Two independent methods agree.** The census above reads the working tree. A separate pass read `git log` per registry and counted pure re-keys (a diff hunk where the `-` and `+` lines are identical once every digit run is masked). The two disagree by at most two rows on any registry, from synthetic-row classification at the margin. Where this spec states a row count it is the census; where it states churn it is the git pass.
@@ -45,7 +47,8 @@ Each row is settled. A reviewer verifies the ratification rather than re-derivin
 | Migrate-everything is rejected | Scope is set by measured churn. 289 load-bearing rows exist; 207 migrate. | arc brief, "do NOT migrate everything"; §4.2 |
 | `postgrest-dml-lockdown` declines wholesale | It churns (35 re-keys, blast 11) but its targets are SQL and the grammar has no SQL anchor. Adding one is the forbidden ratchet. | §4.2, §7 item 4 |
 | `_metaServerTimeGuard` and `acAmbiguousRecord` are excluded | Both measured ZERO re-keys. Excluding an unchurning surface is evidence, not oversight. | §4.1, §4.2 |
-| Comment citations are out of scope | 125 of them. `spec:lint` owns citation freshness. | §1, §7 item 5 |
+| The mutation accepted-survivor ledger declines wholesale | 265 rows, incident (1). Not an oversight: measured, and the repair its own header prescribes reaches only 45%. | §4.2, §7 item 5 |
+| Comment citations are out of scope | 125 of them. `spec:lint` owns citation freshness. | §1, §7 item 6 |
 | Resolution never tie-breaks | Ambiguity fails loud. There is deliberately no "first match" or "nearest line" branch. | §0 consequence bound, §3.3, §6.1 step 4 |
 | Today's line keys CAN misbind silently | An earlier draft claimed otherwise; the claim was falsified by probe and the correction is kept in place rather than edited out. | §2 |
 
@@ -173,6 +176,7 @@ One registry the ledger row mentions is deliberately ABSENT from this table: `te
 | `tests/styles/_metaControlOutlineFill.test.ts` | 22 | 3 | 3 | 1 | 17 | 2 | 0 | 3 |
 | `tests/help/_metaServerTimeGuard.test.ts` | 13 | **0** | 0 | 0 | 0 | 0 | 13 | 0 |
 | `tests/specLint/expectContractCorpus.test.ts` | 10 | n/a | n/a | n/a | 0 | 0 | 0 | 10 |
+| `tests/mutation/source/registry.ts` accepted rows | 265 | see §4.2 | — | wholesale | 0 | 0 | 0 | **265** |
 
 `alertProducerScope` is the churn engine on its own: 189 pure re-keys across 44 of its 56 commits, and a single commit (`9d6a93db8`, "re-pin the producer registry on the merged tree") moved 20 anchors with no semantic change at all.
 
@@ -183,6 +187,10 @@ One registry the ledger row mentions is deliberately ABSENT from this table: `te
 **Not migrating, each with its reason rather than silence:**
 
 - **`tests/db/postgrest-dml-lockdown.test.ts` DECLINES WHOLESALE (33 of 33 rows).** An earlier draft of this spec excluded it on the theory that shipped migrations are immutable, so its keys were durable by the property of the tree. **The git history falsifies that: 35 re-keys in 4 commits, blast 11.** Migrations do get edited, and when one is, every anchor below the edit re-keys at once. The honest reason to exclude it is different and narrower: its rows key statements inside `.sql` files, and the closed grammar in §3.2 has no SQL anchor. Adding one is exactly the ratchet §0 forbids, so the registry declines with a surfaced reason and a re-file trigger in §7. This correction is recorded rather than quietly edited out, because the falsified claim is the more instructive half.
+- **The mutation accepted-survivor ledger DECLINES WHOLESALE (265 rows, 30 of 58 enrolled surfaces), and it is the most consequential decline in the arc.** This is incident (1) of the three in the ledger row. Its failure mode is strictly worse than everything else here: `tests/mutation/source/ledger.ts:53` computes `stale` as ledger rows absent from the actual mutant set, and `score()` at `tests/mutation/source/ledger.ts:79-89` excludes ledgered `equivalent` siteIds from the denominator. A mis-keyed row fails the `equivalent.has(s)` test, so its mutant is counted in `countedSurvivors` AND inflates `denominator`. The registry's own header states the consequence: such a row "counts its mutant against the surface twice, once as an unaccepted survivor and once in the denominator". That is SILENT SCORE CORRUPTION, the §2 thesis in its sharpest form, and it is already recorded in-tree as a documented limit.
+
+  **It declines because the repair its own header prescribes does not work.** That header says to "re-key by mutant KIND + TEXT rather than by position". Measured: `(operator, text)` yields 42 distinct keys for 266 rows globally, with `relational-boundary|<><=` occurring 53 times. Scoped per surface, which is the scope that actually applies, **20 of 30 surfaces still collide and only 118 of 265 rows (45%) are expressible**; the worst are `specLintNumerics` (49 rows, 32 surplus), `psqlStartupScan` (31, 28) and `taskContract` (25, 16). Closing the other 55% requires an ordinal within the surface, which is precisely the positional key §2 rules out. Declining a surface this large is uncomfortable, and it is the narrowing rule (§0) returning its intended answer rather than the rule failing.
+
 - **`tests/help/_metaServerTimeGuard.test.ts` is excluded on evidence: zero re-keys in 13 commits.** Its 13 `lib/` keys have never moved. Its 9 numeric edits in history were population-count churn (`toBe(213)` to `toBe(214)`), not key churn. Nothing here needs repair, and all 13 rows would be `emit`-expressible if that ever changes.
 - **`tests/specLint/acAmbiguousRecord.ts`: zero re-keys**, pointing at rarely-edited plan documents. Same disposition.
 - **The remaining specLint members** key on documents or on fixtures the test defines. `spec:lint` owns them.
@@ -247,7 +255,8 @@ impeccable-gate: N/A — no UI surface
 2. **A renamed `data-testid` reads as Unresolved, not as a move.** Correct under §3.2 (a changed anchor is a different site) but it means a testid rename costs a registry edit. That trade is deliberate: the alternative is guessing, and it is bounded because testids change far less often than lines above them.
 3. **The grammar has no anchor for a bare interactive element** (§4.3, 40 rows). Widening it is the ratchet §0 forbids. Re-file trigger: the same declined row is re-keyed in three independent arcs.
 4. **`postgrest-dml-lockdown` declines wholesale for want of a SQL anchor** (§4.2), while measurably churning: 35 re-keys, blast 11. This is the largest knowingly-unrepaired surface in the arc. Re-file trigger: a further wholesale re-key of that file, at which point the question is a SQL statement anchor as its own arc with its own hit/miss table, never an anchor kind bolted onto this grammar.
-5. **Comment citations are out of scope** (§1). `spec:lint` owns them.
+5. **The mutation accepted-survivor ledger keeps its positional siteIds** (§4.2, 265 rows). This is the largest knowingly-unrepaired surface in the arc, ahead of `postgrest-dml-lockdown`, and the only one whose failure mode is silent rather than loud. Two things would change the disposition, and neither is available now: a non-positional disambiguator for same-operator-same-text mutants within one surface, or a harness that keys mutants by something other than their site. Re-file trigger: either becomes available, or a scoring incident is traced to a mis-keyed accepted row. Recorded against the existing in-tree limit rather than as a new claim, and the 45% measurement corrects that limit's prescribed repair.
+6. **Comment citations are out of scope** (§1). `spec:lint` owns them.
 
 ## 8. Done condition, as a number outside the process
 
