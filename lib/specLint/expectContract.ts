@@ -52,3 +52,106 @@ export function checkExpectN(model: DocModel, kind: "spec" | "plan"): Finding[] 
   }
   return findings;
 }
+
+export interface PlaywrightCandidate {
+  /** 1-based doc line the candidate text sits on. */
+  line: number;
+  /** EVERY §5.1 rule-2 token in the text, in order — never just the first. */
+  files: string[];
+  /** `--config`/`-c` value after the `playwright test` match, or `(default)`. */
+  config: string;
+}
+
+/** §5.1 rule 1 — the invocation token pair. */
+const PW_TEST = /\bplaywright\s+test\b/;
+const PW_TEST_G = /\bplaywright\s+test\b/g;
+/** §5.1 rule 2 — GLOBAL: a candidate's file set is every matching token. */
+const SPEC_TOKEN_G = /(?:^|\s)(tests\/e2e\/[A-Za-z0-9._-]+\.spec\.ts)(?=\s|$)/g;
+/** §5.1 rule 3 — a continued command is declined whole, never assembled. */
+const CONTINUATION = /\\\s*$/;
+/**
+ * §5.2 — the CLOSED two-member flag set, own-token anchored. Searched only
+ * FROM the `playwright test` match onward: `sh -c '…'` wrappers precede the
+ * token pair, and reading their `-c` classifies three live corpus `red=`
+ * markers under a garbage config (spec §5.2, measured).
+ */
+const CONFIG_FLAG = /(?:^|\s)(?:--config|-c)[=\s]+(\S+)/;
+
+/**
+ * Arm B extraction (§5.1): candidate texts are inline code spans and fenced
+ * lines. Rule 1 is an AT-LEAST-ONE gate and rule 4 a MORE-THAN-ONE decline —
+ * two separate checks, so each has its own discriminating fixture.
+ */
+export function playwrightCollectionPlan(
+  model: DocModel,
+  kind: "spec" | "plan",
+): PlaywrightCandidate[] {
+  if (kind !== "plan") return [];
+  const texts: { line: number; text: string }[] = [];
+  for (const span of model.spans) texts.push({ line: span.line, text: span.content });
+  for (let i = 0; i < model.lines.length; i++) {
+    if (typeof model.fencedInfo[i] === "string") texts.push({ line: i + 1, text: model.lines[i]! });
+  }
+  const out: PlaywrightCandidate[] = [];
+  for (const { line, text } of texts) {
+    const first = PW_TEST.exec(text);
+    if (first === null) continue; // rule 1: at least one invocation
+    const files = [...text.matchAll(SPEC_TOKEN_G)].map((m) => m[1]!);
+    if (files.length === 0) continue; // rule 2: at least one file token
+    if (CONTINUATION.test(text)) continue; // rule 3
+    if ([...text.matchAll(PW_TEST_G)].length > 1) continue; // rule 4: more than one declines
+    const config = CONFIG_FLAG.exec(text.slice(first.index))?.[1] ?? "(default)";
+    out.push({ line, files, config });
+  }
+  return out;
+}
+
+/** Distinct config values of a plan, in first-seen order (§5.2). */
+export function configsToProbe(plan: readonly PlaywrightCandidate[]): string[] {
+  const seen = new Set<string>();
+  for (const candidate of plan) seen.add(candidate.config);
+  return [...seen];
+}
+
+/**
+ * Arm B verdicts (§5.3), pure over injected collected sets. One fail PER
+ * ABSENT TOKEN; an unavailable config draws the advisory and never the fail;
+ * a config with no map entry draws nothing — absence of an observation is
+ * never an observation of absence (spec §5.2).
+ */
+export function synthesizeCollectionVerdicts(
+  plan: readonly PlaywrightCandidate[],
+  collected: ReadonlyMap<string, ReadonlySet<string> | { unavailable: string }>,
+): Finding[] {
+  const findings: Finding[] = [];
+  for (const candidate of plan) {
+    const entry = collected.get(candidate.config);
+    if (entry === undefined) continue;
+    if ("unavailable" in entry) {
+      findings.push({
+        check: "taskContract",
+        code: "PLAYWRIGHT_COLLECTION_UNVERIFIED",
+        severity: "advisory",
+        docLine: candidate.line,
+        column: 1,
+        message: `collection under \`${candidate.config}\` could not be observed; zero-collection is unverified for this command`,
+        detail: entry.unavailable,
+      });
+      continue;
+    }
+    for (const file of candidate.files) {
+      if (entry.has(file)) continue;
+      findings.push({
+        check: "taskContract",
+        code: "PLAYWRIGHT_COLLECTS_NOTHING",
+        severity: "fail",
+        docLine: candidate.line,
+        column: 1,
+        message: `\`${file}\` is not collected under \`${candidate.config}\` — this gate observes nothing and exits 0`,
+        detail:
+          "a run that collects nothing reads as green; name the config that collects the file, or fix the path",
+      });
+    }
+  }
+  return findings;
+}

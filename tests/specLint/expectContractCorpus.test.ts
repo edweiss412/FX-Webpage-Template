@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parseDoc } from "../../lib/specLint/parse";
-import { checkExpectN } from "../../lib/specLint/expectContract";
+import { checkExpectN, playwrightCollectionPlan } from "../../lib/specLint/expectContract";
+import type { PlaywrightCandidate } from "../../lib/specLint/expectContract";
 import { premise } from "../_shared/premise";
 
 /**
@@ -57,5 +58,69 @@ describe("Arm A over the live plans corpus", () => {
         "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:1058",
       ].sort(),
     );
+  });
+});
+
+describe("Arm B extraction over the live plans corpus", () => {
+  const allCandidates = (): { doc: string; c: PlaywrightCandidate }[] => {
+    const out: { doc: string; c: PlaywrightCandidate }[] = [];
+    for (const doc of planDocs()) {
+      const model = parseDoc(readFileSync(doc, "utf8"));
+      for (const c of playwrightCollectionPlan(model, "plan")) out.push({ doc, c });
+    }
+    return out;
+  };
+
+  it("finds the incident line, the -c alias, the multi-file candidate, exactly two configs, and declines the rule-3/rule-4 instances", () => {
+    const rows = allCandidates();
+    premise("corpus candidates extracted", rows.length, 0);
+
+    // The clipsub incident transcript line: a candidate under the sentinel.
+    const incident = rows.filter(
+      (r) =>
+        r.doc === "docs/superpowers/plans/2026-08-27-fitwithinclip-clip-subscription.md" &&
+        r.c.files.includes("tests/e2e/popover-clip-fit.spec.ts") &&
+        r.c.config === "(default)",
+    );
+    expect(incident.length).toBeGreaterThanOrEqual(1);
+
+    // Exactly two distinct configs corpus-wide (the two-spawn property).
+    const configs = new Set(rows.map((r) => r.c.config));
+    expect([...configs].sort()).toEqual(["(default)", "tests/e2e/standalone.config.ts"]);
+
+    // The one real -c alias use resolves the standalone config.
+    const alias = rows.filter(
+      (r) =>
+        r.doc === "docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md" &&
+        r.c.files.includes("tests/e2e/step3-review-modal.interactions.spec.ts") &&
+        r.c.config === "tests/e2e/standalone.config.ts",
+    );
+    expect(alias.length).toBeGreaterThanOrEqual(1);
+
+    // The multi-file first-present-later-absent candidate carries BOTH tokens.
+    const multi = rows.find(
+      (r) =>
+        r.doc ===
+          "docs/superpowers/plans/2026-07-18-modal-header-reconciliation/01-shell-and-strip.md" &&
+        r.c.line === 171,
+    );
+    expect(multi?.c.files).toEqual([
+      "tests/e2e/published-review-modal.layout.spec.ts",
+      "tests/e2e/step3-review-modal.layout.spec.ts",
+    ]);
+
+    // Rule-3 and rule-4 decline instances are NOT candidates.
+    expect(
+      rows.filter(
+        (r) => r.doc === "docs/superpowers/plans/2026-08-21-app-e2e-batch2.md" && r.c.line === 173,
+      ),
+    ).toHaveLength(0);
+    expect(
+      rows.filter(
+        (r) =>
+          r.doc === "docs/superpowers/plans/2026-08-26-nearmiss-candidate-render.md" &&
+          r.c.line === 138,
+      ),
+    ).toHaveLength(0);
   });
 });
