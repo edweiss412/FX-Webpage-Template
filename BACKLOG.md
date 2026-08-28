@@ -340,6 +340,25 @@ PROBE-ESC {"esc":{"captureSawMenu":false},"menuTimeline":["12:out"]}
 
 **What that supports, stated no wider than the evidence.** In all 8 passing runs the menu's testid was already out of the DOM when Escape was delivered, and the recorder's own bubble-phase listener did not run, so SOMETHING stopped propagation before it. The recorder does not identify which listener did so, and it does not establish its own registration order against the other document listeners, so "the menu's capture handler claimed it" is the likely reading and not a measured one. The one observed red was never instrumented — the recorder was written after it — so nothing here connects these 8 passing signatures to that failure beyond both involving the same keypress. Treat this paragraph as a characterization of the passing path, not as a cause of the red.
 
+**Two corrections to that hunt, from this arc's DB-free probes (2026-08-28, `fix/published-attention-escape-race`, before any e2e run).**
+
+First, the recorder's menu-presence reading is SUSPECT, not merely unexplained, and the paragraph above should be read that way. The spec file's `MENU` constant is compound: it requires the modal to carry its TITLE before it will match the panel at all (`tests/e2e/published-show-attention.spec.ts:28-31`). A recorder written inside that file reads most naturally by reusing that constant, and under it a frame that momentarily lacks its title reports the menu ABSENT while the panel is still mounted. The recorder was removed before commit, so which selector it actually used cannot be recovered, and that is the point: `captureSawMenu:false` is not safe to read as "the panel was out of the DOM". This arc's replacement reads the bare `[data-testid="published-show-review-attention-menu"]` and registers its document capture listener from `page.addInitScript`, which runs before any page script and so before React, which makes its position in document-capture order established rather than assumed.
+
+Second, candidate 1's window does not exist in jsdom, by four independent methods. A temporary probe rendered `AttentionMenuFrame` under a real `createRoot`, unmounted it, and dispatched Escape on `document`, varying only HOW the unmount was committed:
+
+```
+ESCPROBE-JSDOM arm1 elementGone=true  handlerRan=false   # flushSync(root.render(null))
+ESCPROBE-JSDOM arm2 elementGone=true  handlerRan=false   # act(root.render(null)) — baseline
+ESCPROBE-JSDOM arm3 handlerRan=true                      # positive control: frame still MOUNTED
+ESCPROBE-JSDOM arm4 calls=1                              # StrictMode setup/cleanup/setup: one live listener
+ESCPROBE-JSDOM arm5 elementGone=false handlerRan=true    # discrete click, read immediately: not yet committed
+ESCPROBE-JSDOM arm6 ticks=1 elementGone=true handlerRan=false  # discrete click, microtask-stepped to the removal
+```
+
+Arm 6 is the load-bearing one: it steps microtasks one at a time after a real discrete event and fires Escape on the first tick where the element is gone, which is the narrowest window a passive cleanup could survive into. It does not survive. Arm 3 proves the instrument can see a live handler, so the four `handlerRan=false` readings are a measurement and not a dead probe. React runs the passive cleanup for a DELETED subtree with the deletion commit rather than after it, which is exactly what the structural reading could not tell anyone.
+
+**Limit, stated so the next reader does not over-read it.** This is jsdom under React's development build. The deletion path is the same React code, but the scheduler is not the browser's, and the probe dispatches its own `KeyboardEvent` on `document` rather than having one arrive from the platform at a focused element inside React's root container. So it NARROWS candidate 1 to browser-only-if-at-all; it does not close it. The browser trace is what closes it, and it is instrumented for exactly this: `frame:listeners:setup`, `frame:listeners:cleanup` (carrying whether the panel was still in the document), `frame:onKeyDown` (carrying the same), `shell:onKeyDown`, and an init-script capture and bubble pair, all on one timeline.
+
 **The losing interleaving is NOT established, and naming it is this row's first task.** Two candidates, neither settled:
 
 1. **The listener outliving its own element.** The probe evidence points AT this one rather than away from it: in all 8 runs a capture handler stopped Escape while the menu's testid was already out of the DOM. It cannot be settled from the render path. `AttentionMenu` returns null when closed (`AttentionMenu.tsx:119`) and `AttentionMenuFrame`, which owns the listeners, renders only while open (`AttentionMenu.tsx:315`) — but those listeners are installed and removed by a passive `useEffect` (`AttentionMenu.tsx:353-388`), and conditional rendering says nothing about when that cleanup runs relative to the DOM removal and the next key event. Settling this needs a probe on the cleanup's timing, not a reading of the structure. (An earlier draft of this row called the candidate DISPROVED on exactly that structural reading. It was not; adversarial review round 1 caught it.)
