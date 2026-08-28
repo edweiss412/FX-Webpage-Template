@@ -247,7 +247,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK — a leg with no displayable content beyond its date renders as an unlabeled raw line
 
-**Status:** OPEN
+**Status:** PARKED 2026-08-27, on a probed zero. Not withdrawn and not resolved: the defect is real and the raw branch is still reachable, but the row's own promotion prerequisite ran and found nothing to build for. The ruling is in "Why nothing was built" below, the measurement behind it is in the "Reachability" field, and the two conditions that reopen the row are in the "Re-file trigger" field. Read those three before scheduling this.
 **Effort:** M
 
 **Filed:** 2026-08-10, whole-diff review R2 F3 on `feat/crew-field-enrichment`, which refuted the claim that the unlabeled-leg render "no longer exists" while `BL-FLIGHT-LEG-ORIENTATION` was being archived. This row is that entry's successor: the archived one closed because the structured card became the DEFAULT render, and this one carries the residual it did not cover.
