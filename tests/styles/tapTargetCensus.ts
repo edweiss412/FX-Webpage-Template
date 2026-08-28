@@ -302,7 +302,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    line: 3820,
+    // :3820 until 2026-08-27 — the isWarnSeverity import line (spec §2.1).
+    line: 3821,
     tag: "a",
     category: "full-bleed",
     reason:

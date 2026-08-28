@@ -111,10 +111,13 @@ export const CENSUS: readonly CensusRow[] = [
   // itself survived every one of those merges untouched, and what moved is
   // where it sits. The suite RED that caught this drift is the pin working —
   // `resolveCensus` returns `null` rather than dropping the row.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4201 },
+  // :4201 until 2026-08-27. The isWarnSeverity adoption (spec §2.1) added one
+  // import line at the top of the file; the swap itself is untouched.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4202 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4258 },
+  // :4258 until 2026-08-27, same import line as row 18.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4259 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21
@@ -176,8 +179,9 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/dev/SwitcherControls.tsx", line: 92 },
   { file: "components/admin/dev/SwitcherControls.tsx", line: 142 },
   { file: "components/admin/nav/UserMenu.tsx", line: 51 },
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 814 },
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 993 },
+  // :814 / :993 until 2026-08-27 — the isWarnSeverity import line (spec §2.1).
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 815 },
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 994 },
   { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 979 },
   { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 119 },
   { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
@@ -207,7 +211,10 @@ export const CENSUS: readonly CensusRow[] = [
 export const DIVIDERS: readonly CensusRow[] = [
   { file: "components/admin/BellPanel.tsx", line: 1221 },
   { file: "components/admin/RecentAutoAppliedStrip.tsx", line: 447 },
-  { file: "components/admin/showpage/AttentionMenu.tsx", line: 189 },
+  // :189 until 2026-08-27. The needs-you row moved into the exported
+  // AttentionMenuRow (spec §5) so the wizard index renders the same row; the
+  // divider recipe itself is byte-identical, pinned by the committed baseline.
+  { file: "components/admin/showpage/AttentionMenu.tsx", line: 206 },
   // :85 until 2026-08-26. The control-outline-cover sweep gave `FilterTextInput`
   // its own outline recipe and a `cn` import, which moved every element below
   // it. The divider itself is untouched; what moved is where it sits.

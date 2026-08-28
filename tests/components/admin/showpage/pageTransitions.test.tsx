@@ -153,7 +153,18 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // group wrapper, its heading, its hint conditional, and its action-link
   // conditional. What remains: the needs-you heading, the row's second line,
   // and the monitoring group. MEASURED by running the scanner, not predicted.
-  "components/admin/showpage/AttentionMenu.tsx": 3,
+  // 3 → 2 (wizard-review-attention-menu §5, Task 4): the needs-you heading is
+  // still conditional, but it now sits in the `heading={...}` PROP of the
+  // extracted AttentionMenuFrame, and `findConditionalLines` only matches a
+  // conditional in JSX-CHILD position (`^\s*\{.*\?\s*\(\s*$`). So the count
+  // drops by one without any conditional being retired. Recorded rather than
+  // papered over: what this file's row no longer covers is that ONE site, which
+  // stays pinned by the committed byte baseline
+  // (publishedAttentionBaseline.test.tsx, exact markup) and by
+  // attentionMenuFrame.test.tsx (its placement between panel edge and
+  // scroller). A NEW conditional in this file still bumps the count and fails.
+  // MEASURED by running the scanner, not predicted.
+  "components/admin/showpage/AttentionMenu.tsx": 2,
   // modal-header-reconciliation §9: 8 → 7 (Task 2, the `renderTitle` head site —
   // which covered the h1 AND its adjacent title divider — deleted with the prop)
   // → 6 (Task 5, the alert badge relocated to the modal header, §6.6). Task 7
@@ -598,7 +609,16 @@ describe("monitoring group treatment tripwires (monitoring-badge-expand §3.4)",
     const s = src("components/admin/showpage/AttentionMenu.tsx");
     const start = s.indexOf("attention-monitoring-group");
     expect(start, "monitoring block marker present").toBeGreaterThan(-1);
-    const block = s.slice(start);
+    // BOUNDED to the block, not sliced to end-of-file. The end-of-file form
+    // passed only because the monitoring group happened to be the last thing in
+    // the module; once AttentionMenuRow and AttentionMenuFrame were extracted
+    // below it (wizard-review-attention-menu §5), the slice swallowed the
+    // frame's legitimate useEffect/useState/requestAnimationFrame and the
+    // tripwire fired on code it was never about. The children of the frame end
+    // at its closing tag, so that is the block's real right edge.
+    const end = s.indexOf("</AttentionMenuFrame>", start);
+    expect(end, "frame close tag after the monitoring block").toBeGreaterThan(start);
+    const block = s.slice(start, end);
     for (const banned of [
       "AnimatePresence",
       "motion.",

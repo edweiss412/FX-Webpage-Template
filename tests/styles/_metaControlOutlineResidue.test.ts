@@ -1539,9 +1539,9 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       "components/admin/RecentAutoAppliedStrip.tsx:474",
       "components/admin/ShowsTable.tsx:288",
       "components/admin/nav/AdminNav.tsx:154",
-      "components/admin/showpage/AttentionMenu.tsx:189",
+      "components/admin/showpage/AttentionMenu.tsx:206",
       "components/admin/telemetry/EventFilters.tsx:97",
-      "components/admin/wizard/step3ReviewSections.tsx:2432",
+      "components/admin/wizard/step3ReviewSections.tsx:2433",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

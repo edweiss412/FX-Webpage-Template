@@ -70,7 +70,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    line: 1624,
+    // :1624 until 2026-08-27 — the isWarnSeverity import line (spec §2.1).
+    line: 1625,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
