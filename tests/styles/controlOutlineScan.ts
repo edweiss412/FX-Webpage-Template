@@ -202,7 +202,7 @@ export const CENSUS: readonly CensusRow[] = [
   // :815 / :994 until 2026-08-27 — the attentionJump effect gained the
   // details-opening loop (spec §4.4), 11 lines above both.
   { file: "components/admin/review/ShowReviewSurface.tsx", line: 838 },
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1017 },
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1019 },
   // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
   // above the pill button (spec §4.1/§4.4).
   { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1007 },

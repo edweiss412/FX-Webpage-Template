@@ -870,12 +870,14 @@ export function ShowReviewSurface({
 
   return (
     <Step3RunStateContext.Provider value={{ isPublishRunActive }}>
-      {/* Announcer spec 2026-07-22 §2.2: real announce only on the published
-          surface (same gate as the region); the wizard keeps the no-op
-          default so producers mounted there announce nothing. */}
-      <WarningAnnounceContext.Provider
-        value={routedWarningsRenderElsewhere ? announceCtx : NOOP_WARNING_ANNOUNCE}
-      >
+      {/* Announcer spec 2026-07-22 §2.2 gave real announce to the published surface
+          only, because the wizard mounted no control that changed anything. The wizard
+          panel now has Ignore and Un-ignore (wizard-warning-ignore-controls §2.5), so a
+          silent state change there is an a11y defect and §1.1.2 supersedes that clause
+          deliberately. Every surface mount gets the real context; a control mounted
+          OUTSIDE this provider — a standalone harness — still gets the no-op default
+          from the context itself, which is the part §2.5 keeps. */}
+      <WarningAnnounceContext.Provider value={announceCtx}>
         <div
           data-testid={`wizard-step3-card-${dfid}-review-main`}
           className="flex min-h-0 flex-1 flex-col items-stretch lg:flex-row"
@@ -1192,8 +1194,12 @@ export function ShowReviewSurface({
                   whole container), additions announced, removals not.
                   Children are append-only; existing entry text NEVER
                   mutates (spec §2.6). */}
+                  {/* §2.5: mounted on staged surfaces too. Widening the provider alone
+                      would hand producers a real `announce` with no region to write
+                      into — the announcement would go nowhere while every assertion
+                      about the context still passed. */}
                   {/* §11: instant — deliberate (sr-only additions; no visual transition; spec §2.6) */}
-                  {s.id === "warnings" && routedWarningsRenderElsewhere ? (
+                  {s.id === "warnings" ? (
                     <AnnounceLogRegion
                       entries={announceLog}
                       label="Warning updates"

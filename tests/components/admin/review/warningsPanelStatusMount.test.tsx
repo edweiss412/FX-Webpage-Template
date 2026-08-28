@@ -226,10 +226,20 @@ describe("warnings panel announce log (announcer spec §2)", () => {
     expect(children()).toHaveLength(0);
   });
 
-  it("gate OFF (staged shape): container absent", () => {
+  it("gate OFF (staged shape): the container is now PRESENT (§2.5 supersession)", () => {
+    // This assertion used to read `container absent`, pinning announcer spec
+    // 2026-07-22 §2.5's wizard no-op default. That default was reasoned from the
+    // wizard mounting no control that changed anything; wizard-warning-ignore-controls
+    // §1.1.2 gives the wizard panel Ignore and Un-ignore and supersedes the clause, so
+    // the region mounts on staged surfaces too. Rewritten rather than deleted: the
+    // gate-off shape still deserves a pinned expectation, and the next reader should
+    // find the supersession here rather than an absence.
     const staged = buildPublishedSurfaceProps({ listed: 1, gateOff: true });
     render(<ShowReviewSurface {...staged} />);
-    expect(screen.queryByTestId("warnings-panel-status")).toBeNull();
+    const container = screen.getByTestId("warnings-panel-status");
+    expect(container.getAttribute("role")).toBe("log");
+    // Still EMPTY at mount: always-mounted, append-only, written only by announce().
+    expect(Array.from(container.children)).toHaveLength(0);
   });
 
   describe("REAL composed-tree wiring (spec R4 F5): provider covers every producer", () => {
@@ -262,5 +272,57 @@ describe("warnings panel announce log (announcer spec §2)", () => {
       await waitFor(() => expect(children()).toHaveLength(1));
       expect(children()[0]!.textContent).toBe(`${HERE} ignored.`);
     });
+  });
+});
+
+// ── wizard-warning-ignore-controls spec §2.5 — Task 12 ─────────────────────────
+//
+// Announcer spec 2026-07-22 §2.5 ratified the wizard no-op default, on the
+// reasoning that the wizard mounted no controls that changed anything. This arc
+// gives the wizard panel Ignore and Un-ignore, so that reasoning no longer holds:
+// a state change with no announcement is an a11y defect, and §1.1.2 supersedes the
+// clause deliberately.
+//
+// The provider gate and the REGION mount gate both had to widen. Widening the
+// provider alone hands producers a real `announce` with no live region to write
+// into — the announcement would go nowhere, and every assertion about the context
+// would still pass.
+describe("staged surface announces warning outcomes (§2.5)", () => {
+  function stagedProbeProps() {
+    const props = buildPublishedSurfaceProps({ listed: 1, here: 0, elsewhere: 0 });
+    // `routedWarningsRenderElsewhere` is DERIVED inside the surface as
+    // `routedWarnings !== undefined && renderSectionExtras !== undefined`
+    // (components/admin/review/ShowReviewSurface.tsx:273-274), so passing it as a prop
+    // does nothing — an earlier draft of this fixture did exactly that and the tests
+    // passed against the unmodified gate. Dropping `routedWarnings` is what actually
+    // turns the published routing off, which is the staged shape.
+    const staged = { ...props, renderSectionExtras: () => <AnnounceProbe /> } as Record<
+      string,
+      unknown
+    >;
+    delete staged.routedWarnings;
+    return staged as unknown as Parameters<typeof ShowReviewSurface>[0];
+  }
+
+  it("mounts the live region on a staged surface", () => {
+    render(<ShowReviewSurface {...stagedProbeProps()} />);
+    expect(region().getAttribute("role")).toBe("log");
+    expect(region().getAttribute("aria-label")).toBe("Warning updates");
+  });
+
+  it("a producer announce LANDS in the region, rather than hitting the no-op default", () => {
+    render(<ShowReviewSurface {...stagedProbeProps()} />);
+    expect(announceFn).toBeTruthy();
+    act(() => announceFn!("Warning ignored."));
+    // The text in the region is the proof. A widened provider over a missing region
+    // would leave `announceFn` truthy and this empty.
+    expect(region().textContent).toContain("Warning ignored.");
+    expect(children()).toHaveLength(1);
+  });
+
+  it("the published surface is unchanged", () => {
+    render(<ShowReviewSurface {...probeProps({ listed: 0, here: 2 })} />);
+    act(() => announceFn!("Warning restored."));
+    expect(region().textContent).toContain("Warning restored.");
   });
 });
