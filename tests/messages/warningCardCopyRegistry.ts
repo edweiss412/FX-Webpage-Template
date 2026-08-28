@@ -180,6 +180,17 @@ export const EXPECTED_LONG_EXPLANATION: Readonly<Record<string, string>> = {
  * assertion in _metaWarningCardCopy keeps this map total over
  * WARNING_CARD_COPY_CODES.
  */
+/**
+ * Spec 2026-08-27-wizard-warning-row-links-copy §4.2. FROZEN literals: the render tests
+ * read THESE, never the catalog, so a suffix appended to a catalog string fails the
+ * render assertion instead of riding through it.
+ */
+export const EXPECTED_CONTROLS_NOTE: Record<string, string> = {
+  UNKNOWN_FIELD: "Use Report to flag it to us, or Ignore to hide this notice.",
+  PULL_SHEET_PARSE_PARTIAL: "Use Report if you'd like the format supported.",
+  UNKNOWN_SECTION_HEADER: "Use Report if this section should be supported.",
+};
+
 export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
   TYPO_NORMALIZED:
     "A row's label in your sheet matched one of the alternate spellings we keep for a field, so it wasn't listed as a row we didn't recognize. This is a record for us; there is nothing for you to fix.",
@@ -234,7 +245,7 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
   PULL_SHEET_OVERRIDE_CONTENT_CHANGED:
     "A pull sheet you'd included changed since you last saw it, so we left it out rather than publish gear you haven't seen. Recheck the tab, then re-include it from the Gear section.",
   PULL_SHEET_PARSE_PARTIAL:
-    "Some pull-sheet rows have a QTY we couldn't read (a word, or a range like '1-2'), so those rows show their original text. The Report button on this card sends it to us if you'd like the format supported.",
+    "Some pull-sheet rows have a QTY we couldn't read (a word, or a range like '1-2'), so those rows show their original text.",
   PULL_SHEET_UNKNOWN_VARIANT:
     "We could read this pull sheet's rows but not which column is which, so we used the standard column order. Check that quantities, item names, and categories landed right.",
   ROLE_TOKEN_AUTOCORRECTED:
@@ -266,11 +277,11 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
   UNKNOWN_DAY_RESTRICTION:
     "This crew member is marked day-restricted ('***' in the sheet) but the sheet doesn't say which days, so their schedule shows 'days unconfirmed'. Add the days to the name cell, like '(6/24 and 6/26 ONLY)'.",
   UNKNOWN_FIELD:
-    "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. Report flags it to us; Ignore hides this notice.",
+    "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read.",
   UNKNOWN_ROLE_TOKEN:
     "One of this crew member's role labels isn't one we recognize, so we left it off their page instead of guessing. If the label is correct, this card's controls let you add it as a real role.",
   UNKNOWN_SECTION_HEADER:
-    "A header in your sheet isn't a section we know, so the rows under it aren't shown on the crew page. Rename it to a standard section, or use the Report button on this card if it should be supported.",
+    "A header in your sheet isn't a section we know, so the rows under it aren't shown on the crew page. Rename it to a standard section.",
   UNKNOWN_STAGE_RESTRICTION:
     "This role cell mixes a known work-phase with something we couldn't read, so we show this crew member the full schedule rather than hide any of it. Use the standard phases: Load In / Set / Show / Strike / Load Out.",
   VENUE_GEOCODE_UNRESOLVED:

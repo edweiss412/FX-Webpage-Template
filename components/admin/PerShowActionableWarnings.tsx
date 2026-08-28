@@ -66,6 +66,21 @@ export function resolveGuidance(
   return { kind: "catalog", markup: warningCardCopyFields(entry).guidance };
 }
 
+/**
+ * Append the catalog's controls note to CATALOG guidance, and only then. An INSTANCE
+ * (autocorrect) line is left alone - it describes what we read on this row, and the
+ * controls sentence is a property of the card, not of the instance - and a null note
+ * leaves the guidance untouched. Pure and exported so spec §4.3's guard table is
+ * unit-testable without a render.
+ */
+export function withControlsNote(guidance: GuidanceResult, note: string | null): GuidanceResult {
+  if (guidance.kind === "instance" || note === null) return guidance;
+  const markup = [guidance.markup, note]
+    .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+    .join(" ");
+  return { kind: "catalog", markup: markup.length > 0 ? markup : null };
+}
+
 /** Condensed popover slots (spec 2026-07-23-crewwarn-underrow-polish §3): DERIVED
  *  from full mode's two slots so the described set is {movedGuidance} ∪ full mode's
  *  described set in every row — fullBody keeps its described position, followUp
@@ -92,6 +107,7 @@ export function PerShowActionableWarnings({
   tone = "warning",
   followUpCopy,
   condensed,
+  showControlsNote,
 }: {
   items: ParseWarning[];
   driveFileId: string | null;
@@ -117,6 +133,14 @@ export function PerShowActionableWarnings({
    *  stays inline. Switches on `condensed === true`; false ≡ omitted. Group,
    *  fallback, ignored, and staged surfaces omit this — full copy unchanged. */
   condensed?: boolean;
+  /** Spec 2026-08-27-wizard-warning-row-links-copy §4.3: append the catalog's
+   *  `controlsNote` to catalog guidance. Passed by the two ACTIVE per-show mounts only
+   *  (`components/admin/showpage/sectionWarningExtras.tsx`), because they are the mounts
+   *  that render `DataQualityWarningControls` with Report + Ignore. The ignored list does
+   *  NOT pass it: its controls read Report + Un-ignore, and a sentence naming "Ignore"
+   *  beside an Un-ignore button is wrong. StagedReviewCard and the attention gallery pass
+   *  nothing and are unchanged. */
+  showControlsNote?: boolean;
 }) {
   if (items.length === 0) return null;
   // Order-independent keys so an ignore-driven refresh does not remount surviving
@@ -144,7 +168,17 @@ export function PerShowActionableWarnings({
         const { trigger: context } = warningCardCopyFields(entry);
         // Inline guidance: the composed autocorrect instance line (plain text) when
         // available, else catalog helpfulContext markup (spec §4.4).
-        const guidanceResult = resolveGuidance(entry, w);
+        // Gated on the EXPLICIT PROP only. React renders `undefined`, `false` and `""` as
+        // nothing, so a `renderItemControls` that returned a node is not evidence that a
+        // control is on the card; the prop is the mount's promise, and only the two active
+        // per-show mounts make it (spec §4.3, amended at plan review R1).
+        const controlsNote =
+          showControlsNote === true &&
+          typeof entry?.controlsNote === "string" &&
+          entry.controlsNote.trim().length > 0
+            ? entry.controlsNote.trim()
+            : null;
+        const guidanceResult = withControlsNote(resolveGuidance(entry, w), controlsNote);
         // §4.3 four-row guard table. Both inputs collapse to "absent" under one
         // rule, so `undefined`, null, "", and any whitespace run behave alike
         // and the table is total over each input's full domain.
@@ -160,8 +194,14 @@ export function PerShowActionableWarnings({
         // popover whose entire content was advice that does not apply to them.
         // The cell is the referent the sentence already names, so this is the
         // condition the copy was always making — now stated.
+        // Gated on a1, not on the anchor (spec 2026-08-27 §2.4): the sentence says "Edit
+        // the cell", and a TAB-level anchor names no cell. A cell anchor and a region
+        // range both keep it exactly as before.
         const followUp =
-          w.sourceCell && typeof followUpCopy === "string" && followUpCopy.trim().length > 0
+          typeof w.sourceCell?.a1 === "string" &&
+          w.sourceCell.a1.trim().length > 0 &&
+          typeof followUpCopy === "string" &&
+          followUpCopy.trim().length > 0
             ? followUpCopy.trim()
             : null;
         // Spec 2026-07-22-warning-panel-polish §3.1: the follow-up is a second

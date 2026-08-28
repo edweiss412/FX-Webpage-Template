@@ -3252,8 +3252,8 @@ OAUTH_REDIRECT_INVALID: "The Google OAuth callback's `next` parameter pointed so
 # X.1 invariant (plan Task X.1) deep-compares this YAML against the table and fails the build if
 # any code with a non-em-dash `dougFacing` is missing here OR if any code with an em-dash `dougFacing`
 # (admin-log-only) has an entry here.
-UNKNOWN_FIELD: "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read. Report flags it to us; Ignore hides this notice."
-PULL_SHEET_PARSE_PARTIAL: "Some pull-sheet rows have a QTY we couldn't read (a word, or a range like '1-2'), so those rows show their original text. The Report button on this card sends it to us if you'd like the format supported."
+UNKNOWN_FIELD: "Rename this row in your sheet so it matches the row we show. It isn't showing on the crew page because the label doesn't match one we read."
+PULL_SHEET_PARSE_PARTIAL: "Some pull-sheet rows have a QTY we couldn't read (a word, or a range like '1-2'), so those rows show their original text."
 AGENDA_GRID_MALFORMED: "We couldn't find the run-of-show grid in the AGENDA tab, so every day shows the standard schedule. Check the tab still has its header row and its usual name."
 AGENDA_BLOCK_UNRESOLVED: "One run-of-show day couldn't be matched to a calendar date, so that day shows the standard schedule. Check that day's date banner in the AGENDA tab; it's usually missing or showing an error like #REF!."
 AGENDA_DAY_AMBIGUOUS: "This run-of-show day names only a weekday that matches two show dates, so we didn't guess and it shows the standard schedule. Add the actual date to the AGENDA banner."
@@ -3266,7 +3266,7 @@ AGENDA_PDF_UNREADABLE: "We opened the agenda PDF but couldn't find a day-by-day 
 AGENDA_SCHEDULE_LOW_CONFIDENCE: "We read the agenda PDF but weren't sure enough about the session times to publish them, so crew see the document only. Nothing is broken; no action needed unless the agenda layout recently changed."
 AGENDA_SCHEDULE_TIME_ADJUSTED: "We corrected at least one agenda session time that looked like a typo, like a morning session marked PM. Open the agenda to confirm; if our correction is wrong, update the agenda document."
 AGENDA_LINK_NOT_CLICKABLE: "The agenda cell holds text with nothing to open: a file name or a note instead of a working link. Replace it with a real web link or Drive file."
-UNKNOWN_SECTION_HEADER: "A header in your sheet isn't a section we know, so the rows under it aren't shown on the crew page. Rename it to a standard section, or use the Report button on this card if it should be supported."
+UNKNOWN_SECTION_HEADER: "A header in your sheet isn't a section we know, so the rows under it aren't shown on the crew page. Rename it to a standard section."
 SECTION_HEADER_NO_FIELDS: "A section header in your sheet has no readable rows under it, so that section is missing from the crew page. Add the rows back, or delete the leftover header."
 TYPO_NORMALIZED: "A row's label in your sheet matched one of the alternate spellings we keep for a field, so it wasn't listed as a row we didn't recognize. This is a record for us; there is nothing for you to fix."
 FIELD_UNREADABLE: "A crew phone or email in your sheet couldn't work as one (a phone with no digits, or an email without an @), so that link is left off the crew page. Fix the cell in the sheet."

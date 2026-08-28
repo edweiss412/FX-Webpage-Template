@@ -1006,3 +1006,69 @@ describe("Step3SheetCard compact list row (Task 4)", () => {
     await waitFor(() => expect(q.getByRole("dialog")).toBeTruthy());
   });
 });
+
+describe("wizard step-3 warning row: copy and links (spec 2026-08-27)", () => {
+  // Same helper as the breakdown describe above (module-local there, not shared): "More"
+  // opens the review modal and its content pane hosts the warnings list.
+  function expand(q: ReturnType<typeof render>) {
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
+    return q.getByTestId(`wizard-step3-card-${DFID}-review-content`);
+  }
+
+  test("an UNKNOWN_FIELD row names no Report or Ignore control: the wizard mounts neither", () => {
+    const FIX = parseResult({
+      warnings: [
+        {
+          severity: "warn" as const,
+          code: "UNKNOWN_FIELD",
+          message: "m",
+          rawSnippet: "Backdrop | ",
+          blockRef: { kind: "timestamp", name: "Backdrop" },
+        },
+      ],
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const region = within(expand(q));
+    const row = region.getByTestId(`wizard-step3-card-${DFID}-warning-0`);
+    // The guidance IS rendered (so this is not passing on an empty row), and names neither
+    // control. Ignore is structurally impossible before publish - its route is keyed by a
+    // show slug and a staged row has only a driveFileId - and Report on a staged row is a
+    // separate surface with its own identity question.
+    expect(row.textContent).toMatch(/Rename this row/);
+    expect(row.textContent).not.toMatch(/\b(Report|Ignore)\b/);
+  });
+
+  test("a non-family UNKNOWN_FIELD anchor renders the row link to that tab and cell; a tab-level anchor renders the tab alone", () => {
+    // Spec pin P1: GREEN ON ARRIVAL, not a red. The wizard already passes any non-null
+    // sourceCell to buildSheetDeepLink and the builder already omits `range` when a1 is
+    // absent. Added as cover for the two anchor shapes this arc now produces.
+    const FIX = parseResult({
+      warnings: [
+        {
+          severity: "warn" as const,
+          code: "UNKNOWN_FIELD",
+          message: "m",
+          rawSnippet: "Speaker | QSC KLA",
+          blockRef: { kind: "console", name: "Speaker" },
+          sourceCell: { title: "GEAR", gid: 7, a1: "A12" },
+        },
+        {
+          severity: "warn" as const,
+          code: "UNKNOWN_FIELD",
+          message: "m",
+          rawSnippet: "Backdrop | ",
+          blockRef: { kind: "timestamp", name: "Backdrop" },
+          sourceCell: { title: "INFO", gid: 0 },
+        },
+      ],
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const region = within(expand(q));
+    expect(
+      region.getByTestId(`wizard-step3-card-${DFID}-warning-0-open`).getAttribute("href"),
+    ).toMatch(/#gid=7&range=A12$/);
+    expect(
+      region.getByTestId(`wizard-step3-card-${DFID}-warning-1-open`).getAttribute("href"),
+    ).toMatch(/#gid=0$/);
+  });
+});

@@ -26,13 +26,14 @@ import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { parseSheet } from "@/lib/parser";
 import { OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
 import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
-import { premise } from "../_shared/premise";
+import { premise, premiseHolds } from "../_shared/premise";
 import { CARD_SURFACED_LOG_ONLY } from "@/lib/messages/cardSurfacedLogOnly";
 import {
   WARNING_CARD_COPY_CODES,
   EXPECTED_TRIGGER_CONTEXT,
   EXPECTED_TITLE_CHANGES,
   EXPECTED_HELPFUL_CONTEXT,
+  EXPECTED_CONTROLS_NOTE,
   EXPECTED_LONG_EXPLANATION,
   EXPECTED_CORPUS_WARN_CODES,
   EXPECTED_CORPUS_FIXTURES,
@@ -97,7 +98,7 @@ describe("warning-card copy registry (spec 2026-07-20-warning-card-copy-restore 
     for (const code of codes) {
       const e = CATALOG[code];
       if (!e) continue;
-      for (const field of ["title", "helpfulContext", "triggerContext"] as const) {
+      for (const field of ["title", "helpfulContext", "triggerContext", "controlsNote"] as const) {
         const v = e[field];
         if (typeof v !== "string") continue;
         const m = BANNED.exec(v);
@@ -195,5 +196,49 @@ describe("warning-card copy registry (spec 2026-07-20-warning-card-copy-restore 
       ).toBe(true);
     }
     expect(emitted).toEqual(EXPECTED_CORPUS_WARN_CODES);
+  });
+});
+
+describe("spec 2026-08-27-wizard-warning-row-links-copy §4: the control sentence lives in controlsNote", () => {
+  it("frozen copy fixture: controlsNote matches spec §4.2 byte-for-byte, total", () => {
+    const carrying = Object.entries(CATALOG)
+      .filter(([, e]) => typeof e?.controlsNote === "string")
+      .map(([c]) => c)
+      .sort();
+    // TOTAL both ways: a string can neither drift from the frozen literal nor appear
+    // unpinned. x1 (tests/cross-cutting/codes.test.ts) compares dougFacing, crewFacing,
+    // followUp and helpfulContext only, so it cannot see this field at all.
+    expect(Object.keys(EXPECTED_CONTROLS_NOTE).sort()).toEqual(carrying);
+    for (const [code, note] of Object.entries(EXPECTED_CONTROLS_NOTE)) {
+      expect(CATALOG[code]?.controlsNote, `${code}.controlsNote`).toBe(note);
+    }
+  });
+
+  it("no helpfulContext of a card code names a card control; the sentence lives in controlsNote", () => {
+    // Asserted over the WHOLE registry, not the three moved codes, so the class cannot
+    // regrow on this surface. Scoped to the card codes on purpose: TILE_SERVER_RENDER_FAILED
+    // and TILE_PROJECTION_FETCH_FAILED also say "use Report" in helpfulContext, but they
+    // render on the alert surface where a Report control exists, and are outside this arc.
+    const offenders = [...WARNING_CARD_COPY_CODES]
+      .filter((code) => {
+        const hc = CATALOG[code]?.helpfulContext;
+        return typeof hc === "string" && /\b(Report|Ignore)\b/.test(hc);
+      })
+      .sort();
+    expect(offenders).toEqual([]);
+
+    const withNote: Array<[string, string]> = [];
+    for (const [code, e] of Object.entries(CATALOG)) {
+      const note = e?.controlsNote;
+      if (typeof note === "string" && note.trim().length > 0) withNote.push([code, note]);
+    }
+    premiseHolds("at least the three moved rows carry a note", withNote.length >= 3);
+    for (const [code, note] of withNote) {
+      expect(
+        WARNING_CARD_COPY_CODES.has(code),
+        `${code} carries controlsNote but is not a card code`,
+      ).toBe(true);
+      expect(/\b(Report|Ignore)\b/.test(note), `${code}.controlsNote names no control`).toBe(true);
+    }
   });
 });
