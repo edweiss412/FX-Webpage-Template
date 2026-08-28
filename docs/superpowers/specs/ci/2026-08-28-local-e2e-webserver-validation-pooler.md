@@ -1,5 +1,7 @@
 # Local e2e app servers resolve their database from the validation pooler
 
+<!-- spec-lint: not-ui — the only app/ paths cited are read-only context (app/admin/_showReviewModal.tsx names the loopback mechanism this defect contrasts with); the diff is playwright.config.ts, scripts/preflight-env.mjs, tests and docs. Invariant 8 N/A per §9. -->
+
 **Row:** `BL-LOCAL-E2E-APP-SERVER-QUERIES-VALIDATION` (BACKLOG.md).
 **Branch:** `fix/local-e2e-validation-pooler`. **Facing:** process (`**Mint-exception:** product-blocked`).
 **Direction ruled by bl-orch 2026-08-28:** ship candidates 1 and 2 together; candidate 3 declined (§6).
@@ -14,7 +16,7 @@ the only DB key `.env.local` sets). Route handlers resolve
 are absent (`app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts:34-40`). That idiom is repo-wide:
 **40 sites in 40 files** under `app/` and `lib/` (`rg -c 'TEST_DATABASE_URL \?\? process.env.DATABASE_URL' app lib`,
 summed = 40). So every raw-`postgres` route the app server serves locally opens a transaction against
-a shared remote deployment whose notify cron sends real email. (The `:3004` comment at
+a shared remote deployment whose notify cron sends real email. (The port 3004 comment at
 `playwright.config.ts:407` says "~19 inline twins"; it counts the twins of `lib/sync/_databaseUrl.ts`
 specifically, where 40 counts every occurrence of the idiom across `app/` and `lib/`. Neither number
 is wrong and nothing here turns on which is used.)
@@ -34,7 +36,7 @@ another." The helpers are hardened. The app server is not, and that asymmetry is
    run separating the artifact from the defect it was dispatched to attribute.
 2. **The 2026-08-26 mail incident**, recorded in `playwright.config.ts:405-410`: forwarding the
    ambient value pointed a screenshot app server at validation and the notify cron sent **nine real
-   alert emails between 01:10 and 03:10 CDT**. That is what bought the `:3004` entry its pin. The
+   alert emails between 01:10 and 03:10 CDT**. That is what bought the port 3004 entry its pin. The
    other four entries never got one.
 3. **The preflight advice dead end** (§4). A reader who follows the printed remedy gets the same 404
    and no signal that they did anything wrong.
@@ -84,7 +86,7 @@ $ node -e 'delete process.env.TEST_DATABASE_URL;
 unset -> host: aws-1-us-east-2.pooler.supabase.com:5432
 ```
 
-So the working form is **pin the key to a loopback value**, never drop it. The `:3004` entry already
+So the working form is **pin the key to a loopback value**, never drop it. The port 3004 entry already
 says exactly this in prose (`playwright.config.ts:412-414`): "The key is PINNED rather than dropped:
 `next dev` loads `.env.local` itself and an explicit value in this env wins, where an absent one
 would let the remote value straight back in."
@@ -102,8 +104,8 @@ specific local Postgres.
 
 Two defects in one message, and they compound:
 
-- **The remedy cannot work.** `TEST_DATABASE_URL` is the LEFT operand of the `??` at all 40 sites and
-  always wins. Exporting `DATABASE_URL` changes nothing a route handler reads.
+- **The remedy cannot work.** `TEST_DATABASE_URL` is the LEFT operand of the `??` at every site
+  §1 enumerates, and always wins. Exporting `DATABASE_URL` changes nothing a route handler reads.
 - **The reassurance is false.** "No test helper or suite honours it ... so this line is
   informational" is what makes a reader stop reading. The app server under local e2e honours it, via
   those 40 sites; §2 is the proof. The sentence was true of *helpers* and was written as if it were
@@ -124,20 +126,20 @@ and no longer claims nothing but the allowlist honours it.
 | entry | line | posture | `TEST_DATABASE_URL` today |
 | --- | --- | --- | --- |
 | `:${E2E_PORT}` (3000) | 236 | `pnpm dev` (non-CI) / `build && start` (CI) | **unpinned** |
-| `:3001` dev-build | 282 | `pnpm build && next start` | **unpinned** |
-| `:3002` prod-build | 307 | `pnpm build && next start` | **unpinned** |
-| `:3003` prod-runtime-flip | 330 | `pnpm build && next start` | **unpinned** |
-| `:3004` screenshots/help | 354 | `pnpm build && next start` | pinned, `env:` at 358 |
+| port 3001 dev-build | 282 | `pnpm build && next start` | **unpinned** |
+| port 3002 prod-build | 307 | `pnpm build && next start` | **unpinned** |
+| port 3003 prod-runtime-flip | 330 | `pnpm build && next start` | **unpinned** |
+| port 3004 screenshots/help | 354 | `pnpm build && next start` | pinned, `env:` at 358 |
 
 The four unpinned entries are one shape with one prior-art repair, in one file, at near-zero marginal
 cost, so all four are repaired in this PR per the class-sweep default. Deferring any of them would
 need class-sweep exception (a), (b), or (c) and none applies.
 
-`:3001`-`:3003` are *production* builds and so are not saved by the production throw: the throw fires
+ports 3001-3003 are *production* builds and so are not saved by the production throw: the throw fires
 only when both variables are absent, and `.env.local` supplies one. Their exposure is the same as
-`:3000`'s, and the row's framing of this as a `pnpm dev` problem understates it.
+port 3000's, and the row's framing of this as a `pnpm dev` problem understates it.
 
-The pin is the `:3004` form verbatim, both keys, resolving from `DATABASE_URL`:
+The pin is the port 3004 form verbatim, both keys, resolving from `DATABASE_URL`:
 
 ```ts
 DATABASE_URL:
@@ -146,7 +148,7 @@ TEST_DATABASE_URL:
   process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
 ```
 
-Entries `:3000`-`:3003` carry their env as inline `VAR=value` prefixes on the command string and have
+Entries ports 3000-3003 carry their env as inline `VAR=value` prefixes on the command string and have
 no `env:` key; each gains one. The existing inline prefixes stay as they are — moving them is a
 larger diff with no bearing on this defect.
 
@@ -154,7 +156,7 @@ larger diff with no bearing on this defect.
 
 Every workflow that boots a Playwright webServer supplies **`DATABASE_URL`** and deliberately not
 `TEST_DATABASE_URL` (`app-e2e.yml:187`, `published-modal-e2e.yml:177`,
-`lifecycle-layout-e2e.yml:222` and `:257`), each with a comment saying so in as many words:
+`lifecycle-layout-e2e.yml:222` and `lifecycle-layout-e2e.yml:257`), each with a comment saying so in as many words:
 "DATABASE_URL, not TEST_DATABASE_URL: the latter is this repo's name for..." Under the pin those jobs
 resolve `process.env.DATABASE_URL` — the same loopback DSN the resolver reaches today by falling
 through to `DATABASE_URL`. Identical value, so identical behavior.
@@ -165,16 +167,30 @@ The only workflow that sets `TEST_DATABASE_URL` to the validation secret is `x-a
 can be overridden out from under a job that wanted it.
 
 `.env.local` sets no `DATABASE_URL`, so locally the `??` falls to the loopback literal. A developer
-who exports `DATABASE_URL` for a custom local port still wins, exactly as at `:3004`.
+who exports `DATABASE_URL` for a custom local port still wins, exactly as at port 3004.
 
-## 6. Declined: revisiting the `??` idiom (candidate 3)
+## 6. Resolved scope — do not relitigate
 
-Reordering the operands or introducing a shared resolver across the 40 sites is **out of scope**,
+Each item below is ratified. Verify the citation if you doubt it; do not re-argue it.
+
+**Candidate 3, reworking the `??` idiom itself, is out of scope.**
+Reordering the operands or introducing a shared resolver across those sites (§1) is **out of scope**,
 declined by bl-orch's ruling in this arc's brief and by the row's own "wants its own arc". Repair B
 fixes every one of those sites for the local-e2e case at the config boundary, without touching them.
 The residue candidate 3 would address — that a *non-Playwright* local process (a hand-started
 `pnpm dev`, a script) still resolves to validation — is a **documented limit** of this arc, recorded
 in §8, not a finding against it.
+
+**Pinning rather than scrubbing** is settled by the probe in §3 and its negative control. Deleting
+the variable from the parent environment is a no-op: Next re-reads `.env.local` inside the server.
+
+**The inline `VAR=value` command prefixes stay on their command strings.** Migrating them into
+`env:` blocks is a larger diff with no bearing on this defect.
+
+**`playwright.screenshots.config.ts` is out of the class, not deferred from it** — it declares one
+webServer and that one is already pinned (lines 177-180).
+
+**Invariant 8 (impeccable dual gate) is N/A**, per §9.
 
 ## 7. Tests
 
@@ -212,10 +228,31 @@ class-sweep rule rejects.
 app server a remote database. This is the exact defect that sent nine emails on 2026-08-26.
 
 **T2 — the override survives Next's own env load.** Hermetic: a tmpdir fixture with its own
-`.env.local` holding a sentinel *remote* DSN, `loadEnvConfig` run against it twice. Arm 1 (negative
-control, and it runs first): nothing pre-set, the fixture's remote value lands — proving the fixture
-is live and the assertion can fail. Arm 2: a loopback value pre-set, and it survives. No dependency on
-the developer's real `.env.local`, so it passes on a bare CI runner.
+`.env.local` holding a sentinel *remote* DSN. Arm 1 (the negative control, and it runs first):
+nothing pre-set, so the fixture's remote value must land — proving the fixture is live and the
+assertion is capable of failing. Arm 2: a loopback value pre-set, which must survive. No dependency
+on the developer's real `.env.local`, so it passes on a bare runner.
+
+**Each arm runs in its own child process, and that is load-bearing rather than stylistic.**
+`@next/env` snapshots the environment on its first call and a reload restores that snapshot, so two
+arms sharing one process do not measure two independent loads — the second is contaminated by the
+first. Probed on this branch, both shapes:
+
+```
+# WRONG — two loadEnvConfig calls in ONE process. Arm 2's pre-set loopback is CLOBBERED
+# back to the fixture's remote value, and the test would read as "the override does not hold".
+arm1 (unset)   : postgresql://u:p@remote.sentinel.invalid:5432/postgres
+arm2 (preset)  : postgresql://u:p@remote.sentinel.invalid:5432/postgres
+
+# RIGHT — one loadEnvConfig call per fresh child process, which is also what a booting
+# Next server actually is.
+arm1 fresh proc, nothing pre-set : postgresql://u:p@remote.sentinel.invalid:5432/postgres
+arm2 fresh proc, loopback preset : postgresql://postgres:postgres@127.0.0.1:54322/postgres
+```
+
+The child-process shape follows `tests/scripts/preflightClaims.test.ts`, which spawns for the same
+reason. Had the in-process shape shipped, T2 would have failed on correct code and the natural repair
+would have been to weaken or delete the assertion.
 
 *Failure mode caught:* a Next upgrade flipping `.env.local` precedence to override the parent
 environment, which would re-expose validation through a config that still *looks* pinned. Nothing in
@@ -233,7 +270,7 @@ filed against.
 **Anti-tautology.** T1 reads the config's own `webServer` array rather than grepping the file for a
 substring, so a pin written in a comment or in an unrelated entry cannot satisfy it — which is
 precisely the hole in today's `tests/help/playwright-config.test.ts:33-54`, whose
-`expect(config).toMatch(...)` is satisfied by the single `:3004` occurrence and has been passing
+`expect(config).toMatch(...)` is satisfied by the single port 3004 occurrence and has been passing
 green over four unpinned servers since it was written. T2's negative-control arm precedes its positive
 one for the same reason. T3 asserts on the child process's real stdout, not on the source text.
 
