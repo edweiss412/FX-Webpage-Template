@@ -25,9 +25,13 @@ spec's §2.
 - this plan (reduced to two tasks; closeout marker at Task 2)
 - `docs/review-rounds/perf/placement-measure-memo/b608e71b32b5.md` (the six-round
   filing, plus the JSONL rows the wrapper appends per dispatch)
+- `docs/superpowers/specs/admin/README.md` (the index row for the new spec)
 - `docs/agents/writing-plans.md` (the enrolled-plans corpus counts move because
-  this plan is a new enrolled unit: 117 to 118, 55 to 56, and 1224 rows across
-  105 plans to 1226 across 106 — the two new rows are this plan's coverage map)
+  this plan is a new enrolled unit: 117 to 118 enrolled, 55 to 56 no-certain, and
+  1224 rows across 105 plans to 1227 across 106. **The exact number is whatever
+  the walk reports at closeout, not what this line predicts** — it moved twice
+  during this arc, once because the count was written before the corpus stopped
+  changing. `tests/specLint/acUnclaimedCorpus.test.ts` is the measurement.)
 
 **No file under `app/` or `components/` is touched**, which is what makes the
 invariant-8 marker `N/A` true rather than convenient — and Task 2's `red=` asserts

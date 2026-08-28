@@ -78,7 +78,11 @@ entry carries what a future attempt needs.
 
 `lib/popover/naturalSize.ts:70-71` restores the scroll offsets by comparing the
 live value against the held one. Both comparisons read the element after the cap
-writes at `lib/popover/naturalSize.ts:68-69`, so both force layout.
+writes at `lib/popover/naturalSize.ts:68-69`, so the FIRST read flushes the style
+change those writes queued — ONE forced layout, not two. No write separates the
+two reads, so the second is served from the same flushed layout. An earlier draft
+said "both force layout" and diff review R2 was right to reject it: the cost is a
+write-then-read TRANSITION, not a per-read tax.
 
 **When the held offset is 0 the read is provably a no-op, because ZERO IS ALWAYS
 INSIDE THE SCROLL RANGE.** Clearing the caps can only REDUCE overflow, which
@@ -101,8 +105,9 @@ if (heldScrollLeft !== 0 && el.scrollLeft !== heldScrollLeft) el.scrollLeft = he
 ```
 
 `&&` short-circuits, so on the unscrolled path neither `el.scrollTop` nor
-`el.scrollLeft` is read at all and both forced layouts disappear. The scrolled
-path is byte-for-byte the behaviour it has today.
+`el.scrollLeft` is read at all: two reads go, and with them the one forced layout
+the first of them would have triggered. The scrolled path is byte-for-byte the
+behaviour it has today.
 
 ### The one path where behaviour could differ, and why no caller takes it
 

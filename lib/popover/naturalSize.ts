@@ -69,7 +69,10 @@ export function withNaturalSize<T>(
     el.style.maxHeight = heldMaxHeight;
     // The `!== 0` short-circuits are not a micro-optimisation, they remove a
     // FORCED LAYOUT. Both comparisons read the element after the cap-restore
-    // writes above, so each read flushes the style change those writes queued.
+    // writes above, so the FIRST read flushes the style change those writes
+    // queued. ONE forced layout, not two: no write separates the two reads, so
+    // the second is served from the same flushed layout. What the short-circuits
+    // remove on the unscrolled path is two reads AND that one flush.
     //
     // On an unscrolled element both reads are provably no-ops, and the reason is
     // that ZERO IS ALWAYS INSIDE THE SCROLL RANGE rather than that clamping only

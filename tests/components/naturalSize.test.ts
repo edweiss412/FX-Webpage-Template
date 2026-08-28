@@ -135,12 +135,101 @@ describe("withNaturalSize", () => {
   });
 
   /**
+   * The FOURTH offset combination, `(non-zero, 0)` — diff review R2 finding 1.
+   *
+   * The suite covered `(0,0)`, `(0,non-zero)` and `(non-zero,non-zero)`. The
+   * missing corner is what an ASYMMETRIC mutant exploits: adding
+   * `heldScrollLeft !== 0 &&` to the scrollTop condition passes every other case
+   * while silently losing a vertically scrolled offset whenever scrollLeft is
+   * zero. Each offset's guard must depend on ITS OWN held value and nothing
+   * else, and that is only observable here.
+   */
+  it("restores a scrolled scrollTop while skipping a zero scrollLeft", () => {
+    const el = box();
+    const writes: string[] = [];
+    let top = 120;
+    let left = 0;
+    Object.defineProperty(el, "scrollTop", {
+      configurable: true,
+      get: () => top,
+      set: (v: number) => {
+        writes.push("set scrollTop");
+        top = v;
+      },
+    });
+    Object.defineProperty(el, "scrollLeft", {
+      configurable: true,
+      get: () => left,
+      set: (v: number) => {
+        writes.push("set scrollLeft");
+        left = v;
+      },
+    });
+
+    withNaturalSize(el, () => {
+      top = 0;
+      return 1;
+    });
+
+    // PREMISE (own inputs): the measurement must have MOVED the scrolled offset,
+    // or "restored" is a claim about a no-op. Asserted on the write, which the
+    // helper emits only when the live value differs from the held one.
+    premiseHolds(
+      `the measurement clamped scrollTop (trace: ${writes.join(",") || "none"})`,
+      writes.includes("set scrollTop"),
+    );
+    expect(top, "the non-zero scrollTop is restored").toBe(120);
+    expect(writes, "the zero scrollLeft is never written").not.toContain("set scrollLeft");
+  });
+
+  /**
+   * A NEGATIVE held offset — diff review R2 finding 1, second half.
+   *
+   * Every other case uses positive offsets, so `heldScrollLeft > 0` passes them
+   * all while breaking RTL. Under `direction: rtl` the scroll range runs from
+   * negative up to 0, so a scrolled `scrollLeft` is NEGATIVE — and the guard is
+   * `!== 0` precisely because zero is the range boundary in both writing modes,
+   * not because offsets are positive. This case is what makes that distinction
+   * observable rather than merely asserted in a comment.
+   */
+  it("restores a NEGATIVE scrollLeft, as an RTL container reports", () => {
+    const el = box();
+    const writes: string[] = [];
+    let left = -75;
+    Object.defineProperty(el, "scrollLeft", {
+      configurable: true,
+      get: () => left,
+      set: (v: number) => {
+        writes.push(`set scrollLeft=${v}`);
+        left = v;
+      },
+    });
+
+    // PREMISE (own inputs): the held offset must be NEGATIVE, or this case is
+    // the positive one already covered and pins nothing about RTL.
+    premiseHolds("the held offset is negative, as RTL reports", left < 0);
+
+    withNaturalSize(el, () => {
+      // Reducing overflow shrinks the range toward 0, which in RTL is its
+      // MAXIMUM — so the clamp moves the offset UP toward zero.
+      left = 0;
+      return 1;
+    });
+
+    expect(left, "the negative offset is restored").toBe(-75);
+    expect(writes, "and restored to its held value, not to zero").toContain("set scrollLeft=-75");
+  });
+
+  /**
    * INV-F / AC-6 (BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES site 2).
    *
    * The helper restores the scroll offsets by comparing the live value against
    * the held one (lib/popover/naturalSize.ts:70-71). Both comparisons READ the
-   * element after the cap-restore WRITES two lines above, so both force a
-   * synchronous layout — and on an unscrolled panel both are provably no-ops,
+   * element after the cap-restore WRITES two lines above, so the FIRST read
+   * flushes the style change those writes queued — ONE forced layout, not two,
+   * because no write separates the two reads and the second is served from the
+   * same flushed layout (diff review R2 finding 2). On an unscrolled panel both
+   * reads are provably no-ops,
    * because ZERO IS ALWAYS INSIDE THE SCROLL RANGE: clearing a cap only reduces
    * overflow, which shrinks the range, and an element with no overflow reports
    * exactly 0.
