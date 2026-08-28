@@ -1,3 +1,16 @@
+## BL-SPECLINT-EXPECT-N-EXIT-STATUS — a plan command's stated expectation is not enforced by its exit status — CLOSED 2026-08-28
+
+**Filed:** 2026-08-27 (owner-directed, `docs/ledger-lim-mechanization-rows`) · **Facing:** process · **Mint-exception:** product-blocked · **Resolved by:** `feat/speclint-expect-n-exit-status` · **Spec:** `docs/superpowers/specs/ci/2026-08-28-speclint-expect-n-exit-status.md` · **Incident:** `fix/fitwithinclip-stale-clip-subscription` plan round 2 P1 (a declared Playwright gate collected `0 tests in 0 files`; nothing at authoring time verified collection — current Playwright exits 1 on zero collection, a nonzero-for-a-collection-reason a red-then-green cycle misreads as red observed, per the diff-r1 probe).
+
+Shipped two `spec:lint` arms in `lib/specLint/expectContract.ts`, both reporting under `taskContract`:
+
+- **`EXPECT_N_UNENFORCED`** (static, advisory, plan-kind, no flag): a `# expect N` comment beside a command whose exit status does not encode N. End-anchored bare-integer grammar with a closed assertion-opener set; measured on the live plans corpus at 10 fire / 0 false (the §4.4 accept-set, re-derived from disk by tests/specLint/expectContractCorpus.test.ts).
+- **`PLAYWRIGHT_COLLECTS_NOTHING`** (fail) / **`PLAYWRIGHT_COLLECTION_UNVERIFIED`** (advisory), under `--exec-red`: candidate extraction by four closed token rules plus the `{--config, -c}` flag set positioned after the `playwright test` match; one `--list --reporter=json` spawn per distinct config; reporter files normalized through each report's own `config.rootDir`; one fail per absent token. Corpus verdict measurement: 27 absent tokens across 26 candidates, zero false.
+
+**Done condition discharged, observed live:** `spec:lint --exec-red` on the clipsub plan names `popover-clip-fit.spec.ts` not collected under `(default)` at the round-2 transcript line; the repaired `--config` form draws nothing.
+
+Mutation enrolment `specLintExpectContract`: score 38/38 at floor 0.94, zero unaccepted survivors, 3 ledgered equivalents, full operator set. Residual limits (non-integer expectations, trailing prose, whole-line comments, `--project` filtering, continuation/multi-invocation declines) live in the spec's §7 with re-file triggers, per the process mint freeze.
+
 ## BL-TELEMETRY-FALLBACK-RETRY — the scheduled-job health fallback states the cause but offers no retry — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** S for the row's own site, M with the two peers the sweep found · **Shipped by:** `feat/telemetry-fallback-retry` (PR #924) · **Plan:** `docs/superpowers/plans/2026-08-27-telemetry-fallback-retry.md` · **Closeout:** the stem-named sibling beside it
