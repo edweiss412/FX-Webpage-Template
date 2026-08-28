@@ -43,7 +43,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:3850":
+  "components/admin/wizard/step3ReviewSections.tsx:3860":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -295,6 +295,12 @@ describe("the scanner's population is pinned against resolver drift", () => {
           .join("\n"),
       )
       .digest("hex");
+    // Regenerated a third time 2026-08-28, same branch, for the diff-R1 focus and
+    // announcement repair (the tile now hands its anchor to the grid before it
+    // flips, and the grid carries a live region). Membership unchanged at 35 and
+    // the step3 row moved 3850 -> 3860; reverting that ONE row reproduces the
+    // 18b5f2b6 below, so the sets again differ by that row alone.
+    //
     // Regenerated again 2026-08-28, same branch, when `diagramTileWidthAt` and
     // `DIAGRAM_TILE_SIZES` moved out to `diagramTileGeometry.ts` so no Playwright
     // spec has to load the client component. Membership unchanged at 35 and the
@@ -327,7 +333,7 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // it was replaced, which is what "deliberately" means here: membership is unchanged
     // at 35 both sides, and exactly ONE row moved, step3ReviewSections.tsx 3755 -> 3800,
     // same file, same form, same marked state. A pure line shift from insertions above it.
-    expect(digest).toBe("18b5f2b6fb041d8fa134cd552c5b12148c0493272b4fd4bd382edfc5c71ca1db");
+    expect(digest).toBe("6671b92f0cc47c70e7bbd23674f2636e4e05529d0c14f9a263a91b43b97f7802");
   });
 });
 

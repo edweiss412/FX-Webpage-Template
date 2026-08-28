@@ -3808,6 +3808,8 @@ export function DiagramTile({
   alt,
   testId,
   hasPreviewSource,
+  anchorRef,
+  onFailure,
 }: {
   href: string;
   sourceKey: string;
@@ -3816,8 +3818,16 @@ export function DiagramTile({
   alt: string;
   testId: string;
   hasPreviewSource: boolean;
+  /** Registers the live anchor with the grid, which needs a NODE to move focus
+   *  off and to compare against — see `handleTileFailure`. */
+  anchorRef?: (node: HTMLAnchorElement | null) => void;
+  /** Called with the failing anchor BEFORE `failed` flips. The grid relocates
+   *  focus and announces; the tile owns only its own render. */
+  onFailure?: (node: HTMLAnchorElement | null) => void;
 }) {
   const [failed, setFailed] = useState(!hasPreviewSource);
+  /** The live anchor, readable from the `onError` closure. */
+  const anchorNodeRef = useRef<HTMLAnchorElement | null>(null);
   /**
    * Reconcile the failure state when the tile's SOURCE changes under a stable
    * React key.
@@ -3887,6 +3897,10 @@ export function DiagramTile({
        an earlier belt-and-braces audit fix deliberately: the fallback here
        makes the duplicate redundant rather than defensive. */
     <a
+      ref={(node) => {
+        anchorNodeRef.current = node;
+        anchorRef?.(node);
+      }}
       href={href}
       target="_blank"
       rel="noopener noreferrer"
@@ -3919,7 +3933,15 @@ export function DiagramTile({
         alt=""
         fill
         sizes={sizes}
-        onError={() => setFailed(true)}
+        /* ORDER IS LOAD-BEARING, and it is the crew gallery's
+           (components/diagrams/Gallery.tsx:286-293): the grid is handed the
+           anchor BEFORE `failed` flips, because after the flip there is no
+           anchor left to move focus off and no node left to compare the
+           active element against. */
+        onError={() => {
+          onFailure?.(anchorNodeRef.current);
+          setFailed(true);
+        }}
         className="rounded-md border border-text-faint bg-surface-sunken object-cover"
       />
     </a>
@@ -3964,6 +3986,51 @@ export function DiagramsBreakdown({
   // persisted-snapshot gate (non-null snapshotPath + allowed MIME).
   previewSourceFor?: (stub: EmbeddedImageStub) => boolean;
 }) {
+  // ── Failed-tile focus + announcement ──────────────────────────────────────
+  //
+  // The crew gallery's shipped recipe (components/diagrams/Gallery.tsx:276-293),
+  // reused rather than re-invented. A runtime image failure removes an
+  // interactive element; if that element held focus, focus falls to `<body>`
+  // and a keyboard user is dropped to the top of the document mid-review, while
+  // a screen-reader user is told nothing at all.
+  const tileAnchors = useRef(new Map<number, HTMLAnchorElement>());
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [failureAnnouncement, setFailureAnnouncement] = useState("");
+
+  /**
+   * Move focus off the failing tile, then say what happened.
+   *
+   * Called from `onError` BEFORE the tile flips itself to the placeholder, so
+   * `node` is still connected and `document.activeElement` still means what it
+   * meant to the user.
+   */
+  const handleTileFailure = (index: number, name: string, node: HTMLAnchorElement | null): void => {
+    // STALE HANDLER GUARD (gallery:276-279): `onError` can fire after its tile
+    // stopped rendering — the cap collapsed the grid, or the manifest replaced
+    // the entry. Announcing about a tile nobody can see is noise.
+    if (!node?.isConnected) return;
+
+    // Only relocate focus if the failing tile HELD it. A tile failing in the
+    // background must not yank the caret away from wherever the user is.
+    if (document.activeElement === node) {
+      const usable = (at: number): HTMLAnchorElement | null => {
+        const candidate = tileAnchors.current.get(at) ?? null;
+        return candidate && candidate !== node && candidate.isConnected ? candidate : null;
+      };
+      let successor: HTMLElement | null = null;
+      for (let at = index + 1; successor === null && at < DIAGRAM_TILE_CAP; at += 1) {
+        successor = usable(at);
+      }
+      for (let at = index - 1; successor === null && at >= 0; at -= 1) {
+        successor = usable(at);
+      }
+      // Forward first, then backward, then the grid itself — never `<body>`.
+      (successor ?? gridRef.current)?.focus();
+    }
+
+    setFailureAnnouncement(`${name} could not be loaded.`);
+  };
+
   const resolveSrc =
     buildSrc ??
     ((stub: EmbeddedImageStub) =>
@@ -4003,10 +4070,20 @@ export function DiagramsBreakdown({
         <p className="text-xs text-text-subtle">{summaryParts.join(" · ")}</p>
       ) : null}
       {shown.length > 0 ? (
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+        /* `tabIndex={-1}` is the last resort of the successor chain below: with
+           one tile in the grid there is no sibling to receive focus, and the
+           alternative is `<body>`. Not reachable by tab, only programmatically. */
+        <div ref={gridRef} tabIndex={-1} className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {shown.map((stub, i) => (
             <DiagramTile
               key={`${stub.objectId}-${i}`}
+              anchorRef={(node) => {
+                if (node) tileAnchors.current.set(i, node);
+                else tileAnchors.current.delete(i);
+              }}
+              onFailure={(node) =>
+                handleTileFailure(i, stub.alt?.trim() || `Diagram from ${stub.sheetTab}`, node)
+              }
               testId={`wizard-step3-card-${dfid}-diagram-tile-${i}`}
               href={resolveSrc(stub)}
               sourceKey={resolveSourceKey(stub)}
@@ -4025,6 +4102,15 @@ export function DiagramsBreakdown({
           ))}
         </div>
       ) : null}
+      {/* A runtime failure REMOVES a link. Sighted reviewers see the tile go
+          grey; without this nobody else is told, on the surface where Doug
+          confirms diagrams made it in before publishing. Always mounted, so the
+          region exists in the accessibility tree before it has anything to say
+          (an `aria-live` node inserted together with its text is not reliably
+          announced). */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {failureAnnouncement}
+      </span>
       {extra > 0 ? (
         <p className="text-xs text-text-subtle">
           +{extra} more. All images are snapshotted when the show publishes.

@@ -306,7 +306,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // which added the placeholder's name span and the anchor's focus ring 19 lines above,
     // then 3928 -> 3889 when the tile geometry moved out to `diagramTileGeometry.ts`.
     // The ELEMENT is untouched: same `<a>`, same full-bleed layout, same reason below.
-    line: 3889,
+    line: 3899,
     tag: "a",
     category: "full-bleed",
     reason:
