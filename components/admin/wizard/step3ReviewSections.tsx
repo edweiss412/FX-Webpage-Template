@@ -90,6 +90,11 @@ import {
 } from "@/lib/data/diagrams";
 import Image, { type ImageLoader } from "next/image";
 import { diagramAssetUrl, makeDiagramLoader } from "@/lib/images/diagramLoader";
+import {
+  ANNOUNCE_LOG_TTL_MS,
+  AnnounceLogRegion,
+  useAnnounceLog,
+} from "@/components/admin/announceLog";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
@@ -4000,7 +4005,17 @@ export function DiagramsBreakdown({
   // a screen-reader user is told nothing at all.
   const tileAnchors = useRef(new Map<number, HTMLAnchorElement>());
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const [failureAnnouncement, setFailureAnnouncement] = useState("");
+  /* A LOG, not a string. Two tiles may carry the same name -- an author can
+     reuse an alt, and every blank alt falls back to the same
+     `Diagram from <sheet>` string -- and setting a plain state value to the
+     text it already holds is a no-op React bails out of, so the region never
+     mutates and the second failure is announced to nobody. The shipped log
+     keys each entry on a per-mount monotonic ref, so an identical repeat is
+     still a new node. Same helper the crew gallery uses
+     (components/diagrams/Gallery.tsx:459). */
+  const { announce: announceFailure, entries: failureAnnouncements } = useAnnounceLog({
+    ttlMs: ANNOUNCE_LOG_TTL_MS,
+  });
 
   /**
    * Move focus off the failing tile, then say what happened.
@@ -4033,7 +4048,7 @@ export function DiagramsBreakdown({
       (successor ?? gridRef.current)?.focus();
     }
 
-    setFailureAnnouncement(`${name} could not be loaded.`);
+    announceFailure(`${name} could not be loaded.`);
   };
 
   const resolveSrc =
@@ -4113,9 +4128,11 @@ export function DiagramsBreakdown({
           region exists in the accessibility tree before it has anything to say
           (an `aria-live` node inserted together with its text is not reliably
           announced). */}
-      <span role="status" aria-live="polite" className="sr-only">
-        {failureAnnouncement}
-      </span>
+      <AnnounceLogRegion
+        entries={failureAnnouncements}
+        label="Diagram updates"
+        testId={`wizard-step3-card-${dfid}-diagrams-announce-log`}
+      />
       {extra > 0 ? (
         <p className="text-xs text-text-subtle">
           +{extra} more. All images are snapshotted when the show publishes.

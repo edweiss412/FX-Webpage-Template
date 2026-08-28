@@ -124,7 +124,9 @@ function renderPublished(entries: ReturnType<typeof publishedEntry>[]) {
  *  actually announce. Scoped to the container so a region another surface
  *  renders can never satisfy this. */
 function announcements(container: HTMLElement): string[] {
-  return Array.from(container.querySelectorAll('[role="status"], [role="alert"], [aria-live]'))
+  return Array.from(
+    container.querySelectorAll('[role="status"], [role="alert"], [role="log"], [aria-live]'),
+  )
     .map((node) => (node.textContent ?? "").trim())
     .filter(Boolean);
 }
@@ -222,5 +224,91 @@ describe("a failing diagram tile keeps focus in the grid and says so", () => {
     expect(document.activeElement).not.toBe(document.body);
     expect(document.activeElement).toBe(second);
     expect(announcements(container).join(" ")).toContain("Stage plot");
+  });
+  /** Two tiles may legitimately carry the SAME name -- an author can reuse an
+   *  alt, and every blank alt falls back to the same `Diagram from <sheet>`
+   *  string. Announcing by replacing a plain string means the second failure
+   *  writes a value the region already holds, React bails out of the re-render,
+   *  and the live region never mutates: the user is focused on a tile that just
+   *  died and hears nothing.
+   *
+   *  Asserted two ways, because either alone passes for the wrong reason. The
+   *  MUTATION COUNT is the property a screen reader actually consumes. The
+   *  ENTRY COUNT proves the second announcement was ADDED rather than the first
+   *  being rewritten -- a mechanism that cleared and re-set the same node would
+   *  mutate, but leave the reader one announcement short of the two failures. */
+  function repeatNameProbe(
+    container: HTMLElement,
+    fail: () => void,
+  ): { mutations: number; sameTextEntries: number } {
+    const region = container.querySelector(
+      '[role="status"], [role="alert"], [role="log"], [aria-live]',
+    );
+    premiseHolds("an announcing region is mounted before the second failure", region !== null);
+    // `takeRecords`, NOT the callback: MutationObserver delivers its callback on a
+    // microtask, so a synchronous `fireEvent` + `disconnect` pair drops every pending
+    // record and reads 0 whatever the component did. Draining synchronously is the
+    // only form that measures the render this test just forced.
+    const observer = new MutationObserver(() => {});
+    observer.observe(region!, { childList: true, characterData: true, subtree: true });
+    fail();
+    const mutations = observer.takeRecords().length;
+    observer.disconnect();
+    const text = (region!.textContent ?? "").trim();
+    const message = "could not be loaded.";
+    const sameTextEntries = text.split(message).length - 1;
+    return { mutations, sameTextEntries };
+  }
+
+  test("staged: a second failure with the SAME name is announced again", () => {
+    const { container, scoped } = renderStaged([
+      stagedStub({ objectId: "dup-obj-1", alt: "Same diagram" }),
+      stagedStub({ objectId: "dup-obj-2", alt: "Same diagram" }),
+      stagedStub({ objectId: "dup-obj-3", alt: "Other diagram" }),
+    ]);
+    const first = scoped.getByTestId(TILE(0)) as HTMLAnchorElement;
+    first.focus();
+    failTile(scoped, TILE(0));
+    premiseHolds(
+      "the first failure was announced, so the second has something to collide with",
+      announcements(container).join(" ").includes("Same diagram"),
+    );
+
+    const second = scoped.getByTestId(TILE(1)) as HTMLAnchorElement;
+    second.focus();
+    premiseHolds(
+      "the user is focused on the tile that is about to fail",
+      document.activeElement === second,
+    );
+    const probe = repeatNameProbe(container, () => failTile(scoped, TILE(1)));
+
+    expect(probe.mutations).toBeGreaterThanOrEqual(1);
+    expect(probe.sameTextEntries).toBe(2);
+  });
+
+  test("published: a second failure with the SAME name is announced again", () => {
+    const { container, scoped } = renderPublished([
+      publishedEntry("dup-pub-1", "Same diagram"),
+      publishedEntry("dup-pub-2", "Same diagram"),
+      publishedEntry("dup-pub-3", "Other diagram"),
+    ]);
+    const first = scoped.getByTestId(PUB_TILE(0)) as HTMLAnchorElement;
+    first.focus();
+    failTile(scoped, PUB_TILE(0));
+    premiseHolds(
+      "the first failure was announced, so the second has something to collide with",
+      announcements(container).join(" ").includes("Same diagram"),
+    );
+
+    const second = scoped.getByTestId(PUB_TILE(1)) as HTMLAnchorElement;
+    second.focus();
+    premiseHolds(
+      "the user is focused on the tile that is about to fail",
+      document.activeElement === second,
+    );
+    const probe = repeatNameProbe(container, () => failTile(scoped, PUB_TILE(1)));
+
+    expect(probe.mutations).toBeGreaterThanOrEqual(1);
+    expect(probe.sameTextEntries).toBe(2);
   });
 });

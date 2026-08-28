@@ -43,7 +43,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:3865":
+  "components/admin/wizard/step3ReviewSections.tsx:3870":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -368,7 +368,13 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // 6671b92f... byte-for-byte, which is only possible if each pair of sets differs
     // by that row alone. Its residue key moved with it, to 3865, and was located by
     // the scanner rather than bumped.
-    expect(digest).toBe("b4df1bc63c55ccf5c8098c9010e9aa649822f977ae89c9b21c34739d4ab29097");
+    //
+    // Regenerated for the repeated-failure announcement repair (diff R1's one MEDIUM):
+    // the bespoke announcement string gave way to the shipped useAnnounceLog helper, and
+    // its import block moved the row five lines. Membership unchanged at 35, exactly ONE
+    // row moved, step3ReviewSections.tsx 3865 -> 3870, same `unknown:false` form. Reverting
+    // that single row reproduces b4df1bc6... byte-for-byte, so the sets differ by it alone.
+    expect(digest).toBe("b3464cf008593a349a7e78ac93035c0ff1c1bd7c6b1c5a92d0d92e50e4049952");
   });
 });
 

@@ -81,7 +81,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // too, so neither parent's number describes the merged tree. Located by running
     // the scanner on the merged tree, not by adding the two deltas: the live hit is
     // 1628, and line 1628 is that same `<summary>`.
-    line: 1628,
+    // Then 1628 -> 1633 when the announce-log import block landed. Located again on the
+    // live tree: 1633 is that same `<summary>`.
+    line: 1633,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

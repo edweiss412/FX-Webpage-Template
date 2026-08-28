@@ -312,7 +312,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // §3.4 data-attention-anchor lines on the warning <li>), so NEITHER side's number
     // describes the merged tree. Located by RUNNING the scanner on the merged tree:
     // the live unclassified site is 3904, and 3904 is that same `<a>`.
-    line: 3904,
+    // Then 3904 -> 3909 when the announce-log import block landed. Located again: 3909 is
+    // that same `<a>`.
+    line: 3909,
     tag: "a",
     category: "full-bleed",
     reason:

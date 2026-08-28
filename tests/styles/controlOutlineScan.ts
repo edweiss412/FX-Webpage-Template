@@ -118,7 +118,9 @@ export const CENSUS: readonly CensusRow[] = [
   // then -39 again when the tile geometry moved out to `diagramTileGeometry.ts`.
   // The ELEMENT is untouched: same `<button>`, same `border-text-faint bg-surface` recipe,
   // and the scanner reports exactly two elements in the window, one per row.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4438 },
+  // Then 4438/4495 -> 4455/4512 when the announce-log import block landed; the `<button>`
+  // openers were located again rather than bumped.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4455 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -130,7 +132,7 @@ export const CENSUS: readonly CensusRow[] = [
   // parent's number describes the merged tree. LOCATED on the merged tree by the
   // `<button>` openers themselves (4438 and 4495), then confirmed by the scanner —
   // not by adding the two sides' deltas, which is what put them 5 lines short.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4495 },
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4512 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21
