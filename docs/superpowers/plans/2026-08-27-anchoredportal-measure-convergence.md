@@ -168,7 +168,7 @@ Under that plant AC-4 stayed GREEN, so the two are demonstrably not redundant.
 
 ## Task 1 — pin the converged count at 2, and reach it
 
-<!-- task: red=`pnpm vitest run tests/components/admin/rowActions/anchoredPortal.test.tsx` red-state=authored red-target=`components/admin/AnchoredPortal.tsx:199` (the gated effect, whose own call this arc removed) why=`measure A, the gated effect's own measureAndApply() call, is still present, so the new counter case reads 3 commit-driven measures and its assertion of 2 fails` ac=AC-1,AC-2,AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/rowActions/anchoredPortal.test.tsx` red-state=authored red-target=`components/admin/AnchoredPortal.tsx:199` why=`measure A, the gated effect's own measureAndApply() call, is still present, so the new counter case reads 3 commit-driven measures and its assertion of 2 fails` ac=AC-1,AC-2,AC-3,AC-4 -->
 
 **What is red and why.** The new case counts anchor-rect reads across one closed
 to open transition and asserts 2. On the live tree the count is 3: measure A at
@@ -334,11 +334,12 @@ the e2e pin is the ONLY one that exercises the real placed branch**, since jsdom
 stubbed rects push the count case down the degenerate fallback path (spec §4).
 Losing it loses every assertion about actual placement, not a duplicate opinion. If
 `admin-layout-e2e.yml` stops firing on `components/admin/AnchoredPortal.tsx`,
-INV-1 and INV-4 go dark — INV-2 and INV-3 do NOT, because they are jsdom cases in
-the unfiltered unit suite. Only the browser pins depend on this filter, which is
-what makes losing it the loss of all PLACED-branch coverage, the guard passes by not running, and the fragility becomes
-unguarded silently — the same dark-gate shape the guards exist to prevent, one
-level up. Nothing in the repo pinned that: the e2e-coverage walker asserts every
+INV-1 and INV-4 go dark. INV-2 and INV-3 do NOT, because they are jsdom cases in
+the unfiltered unit suite, so only the browser pins depend on this filter — which
+is exactly what makes losing it the loss of all PLACED-branch coverage rather
+than of a second opinion. Those pins then pass by not running, and the fragility
+becomes unguarded silently: the same dark-gate shape the guards exist to prevent,
+one level up. Nothing in the repo pinned that: the e2e-coverage walker asserts every
 SPEC is PR-covered, and says nothing about which SOURCE paths a workflow filters
 on.
 
