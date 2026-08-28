@@ -92,18 +92,20 @@ site is unchanged and always measures.
 
 Concretely:
 
-- a `lastTriggerRef` holding the `Rect` of the most recent COMPLETED measurement,
-  or `null`;
-- `measureAndApply` takes one optional argument, `{ skipIfAnchorUnmoved?: boolean }`;
+- a `lastMeasureRef` holding the KEY of the most recent PLACED measurement, or
+  `null`. The key is `{ rect, align, preferredSide }`, not the rect alone — see
+  "What the key must contain" below;
+- `measureAndApply` takes one optional argument, `{ skipIfUnchanged?: boolean }`;
   the early return sits AFTER the existing null-ref guard
   (`components/admin/AnchoredPortal.tsx:131`) and AFTER the trigger-rect read
   (`components/admin/AnchoredPortal.tsx:141`), and BEFORE `withNaturalSize`
   (`components/admin/AnchoredPortal.tsx:142`);
-- the ref is written on the PLACED branch only
-  (`components/admin/AnchoredPortal.tsx:179`), never on a skip and never on the
-  degenerate `kind === "hidden"` fallback
-  (`components/admin/AnchoredPortal.tsx:157`);
-- the ungated effect calls `measureAndApply({ skipIfAnchorUnmoved: true })`;
+- the ref is WRITTEN on the placed branch
+  (`components/admin/AnchoredPortal.tsx:179`) and CLEARED to `null` on the
+  degenerate `kind === "hidden"` branch (`components/admin/AnchoredPortal.tsx:157`),
+  never touched on a skip. Clearing rather than merely declining to write is
+  load-bearing — see "Why hidden CLEARS" below;
+- the ungated effect calls `measureAndApply({ skipIfUnchanged: true })`;
 - the coalescer is constructed as `createRafCoalescer(() => measureAndApply())`,
   written as an explicit arrow so the no-skip intent is visible at the call site
   rather than resting on `createRafCoalescer`'s `run: () => void` signature
@@ -111,25 +113,55 @@ Concretely:
 - the ref is reset to `null` in the same effect that discards the placement on
   close (`components/admin/AnchoredPortal.tsx:267-270`).
 
-**Rect equality is exact numeric equality on all six fields** of `Rect`
+**What the key must contain.** The placement is a function of exactly five
+inputs, read off `measureAndApply` itself: the trigger rect, the panel's natural
+size, the viewport, `align` and `preferredSide`
+(`components/admin/AnchoredPortal.tsx:141-153`). Three of the five are covered by
+subscriptions that route through the coalescer, which never skips — panel size by
+`ResizeObserver` (`components/admin/AnchoredPortal.tsx:236`), the viewport by the
+`resize` and `visualViewport` listeners
+(`components/admin/AnchoredPortal.tsx:230-235`), and the document scroll offsets
+the placement adds (`components/admin/AnchoredPortal.tsx:180-181`) by the
+capture-phase scroll listener (`components/admin/AnchoredPortal.tsx:229`).
+
+**The remaining two, `align` and `preferredSide`, have NO subscription: they are
+props.** A re-render that changes either while the anchor sits still is a
+placement change the ungated effect catches today and a rect-only key would
+swallow. Both shipped call sites pass literals
+(`components/admin/ShowRowActions.tsx:662-663` and `components/admin/ShowRowActions.tsx:962-963`), so this is not
+reachable in production today — but the component's own harness already
+parameterizes `preferredSide`
+(`tests/components/admin/rowActions/anchoredPortal.test.tsx:91`, its `Harness` signature), the props are
+public API, and a memo that is correct only while no caller uses a documented
+prop is a trap for the next caller. So they are in the key.
+
+**Key equality is exact.** The rect compares on all six fields of `Rect`
 (`lib/popover/position.ts`, the `Rect` type): `left`, `top`, `width`, `height`,
-`right`, `bottom`. No epsilon. A sub-pixel anchor move is a real move and the
-panel should follow it; an epsilon would introduce a drift class that does not
-exist today, which is a strictly worse trade than one extra measure.
+`right`, `bottom`. No epsilon: a sub-pixel anchor move is a real move and the
+panel should follow it, and an epsilon would introduce a drift class that does
+not exist today, which is a strictly worse trade than one extra measure. `align`
+and `preferredSide` compare with `===`.
 
-**Why the hidden branch does not record.** A measurement of a detached or
-not-yet-laid-out panel commits the fallback anchor and is expected to recover
-(`components/admin/AnchoredPortal.tsx:157-163`). Recording its rect would be
-sound on the narrow argument that the follow-up run has byte-identical inputs and
-would reach the same fallback anyway — but it would leave the ref meaning
-`a rect some measurement saw`, which is not a statable invariant. **Recording only on the
-placed branch gives the ref one meaning: the placement currently applied was
-computed from this rect.** That is the property the guard needs, and it is the
-reason to prefer it over the argument that both are safe.
+**Why hidden CLEARS the ref rather than merely declining to write it.** A
+measurement of a detached or not-yet-laid-out panel commits the fallback anchor
+and is expected to recover (`components/admin/AnchoredPortal.tsx:157-163`).
 
-The degenerate case therefore costs what it costs today: the follow-up run
-measures, reaches the same fallback, and `commit` drops it, so no further render
-follows and the sequence terminates. INV-J is that case.
+An earlier draft of this section said "record on the placed branch only," which
+is not the same thing and is wrong on a reachable sequence. **Placed at key K,
+then hidden at the SAME key K:** declining to write leaves K in the ref, the
+fallback commits, and the follow-up run finds the key equal and skips — losing
+exactly the re-measure that the recovery depends on. The panel keeps the fallback
+anchor until some subscription fires. Declining to write is only safe from a
+`null` start, which is the one case a naive test would exercise.
+
+Clearing makes the ref's meaning exact and the invariant statable: **the ref
+holds the key of the currently-applied PLACED placement, or `null`.** After a
+hidden measurement there is no applied placed placement, so `null` is what the
+ref should say. The follow-up run then always measures, which is today's
+behaviour on that path.
+
+The degenerate case therefore costs what it costs today, and INV-J is that case
+in both of its shapes: from `null`, and from a placed key.
 
 **Why the reset on close is load-bearing, not defensive.** After the predecessor
 arc the ungated effect is the SOLE measurer of the open commit. If the ref
@@ -194,16 +226,17 @@ helper takes the path this repair makes free.
 
 | Id | Invariant | Deciding case | Mutant that reds it |
 | --- | --- | --- | --- |
-| INV-A | A placement-CHANGING gesture frame runs exactly one `withNaturalSize` pass | jsdom pass counter, ancestor scroll with the anchor moved | delete the `skipIfAnchorUnmoved` early return |
+| INV-A | A placement-CHANGING gesture frame runs exactly one `withNaturalSize` pass | jsdom pass counter, ancestor scroll with the anchor moved | delete the `skipIfUnchanged` early return |
 | INV-B | A placement-UNCHANGED gesture frame runs exactly one pass | the same case, anchor not moved | (control; reds if the coalescer path is wrongly gated) |
-| INV-C | A closed to open transition still places the panel when the trigger is at the rect the previous open used | jsdom reopen case | delete the `lastTriggerRef` reset on close |
+| INV-C | A closed to open transition still places the panel when the trigger is at the key the previous open used | jsdom reopen case | delete the `lastMeasureRef` reset on close |
 | INV-D | A position-only anchor move still re-places the panel | the merged predecessor case at `tests/components/admin/rowActions/anchoredPortal.test.tsx:266` | make the guard compare nothing, or compare only `width`/`height` |
+| INV-K | A re-render that changes `align` or `preferredSide` with the anchor still re-places the panel | jsdom prop-change case driven through the existing `Harness`'s `preferredSide` parameter | drop `align` and `preferredSide` from the key |
 | INV-E | The predecessor's anchor-read count on an open transition is unchanged at 2 | the merged case at `tests/components/admin/rowActions/anchoredPortal.test.tsx:404` | move the early return BEFORE the trigger-rect read |
 | INV-F | An unscrolled panel's measurement reads neither scroll offset after the cap restore | `lib/popover/naturalSize.ts` order-trace case | drop either `!== 0` short-circuit |
 | INV-G | A scrolled panel's offsets are still restored | the merged scroll-clamp cases | invert either short-circuit |
-| INV-H | The gesture path runs one pass per placement-changing frame in a REAL browser | `tests/e2e/rowactions-geometry.spec.ts`, the gesture measure-count case | delete the early return |
-| INV-I | The sequence of applied placements over a gesture is unchanged by the repair | jsdom placement-sequence case over a multi-frame gesture | make the guard skip when the anchor HAS moved |
-| INV-J | A measurement that returns `kind: "hidden"` does not arm the guard, and the follow-up run terminates without a further render | jsdom degenerate-panel case | record the trigger rect on the hidden branch as well |
+| INV-H | The gesture path runs one pass per placement-changing frame in a REAL browser, driven by a viewport resize | `tests/e2e/rowactions-geometry.spec.ts`, the gesture measure-count case | delete the early return |
+| INV-I | Over a multi-frame gesture, each frame applies exactly the placement the placement core computes for that frame's inputs, and exactly one applied placement per placement-changing frame | jsdom multi-frame case: per-frame tuple against an independent oracle, plus a per-frame commit count | make the guard skip when the key HAS changed; emit a second commit per frame |
+| INV-J | A measurement that returns `kind: "hidden"` leaves the guard UNARMED, from a `null` ref and from a placed one alike, and the follow-up run terminates without a further render | jsdom degenerate-panel case, run from both starting states | decline to write the ref on the hidden branch instead of clearing it |
 
 **INV-E is the one that keeps this arc honest with the merged contract**, and it
 is why the early return is specified to sit AFTER the trigger-rect read rather
@@ -227,11 +260,28 @@ geometry read on the same element forces synchronous layout in every engine that
 implements layout invalidation. INV-F pins the order, which is the property the
 repair changes; it does not pin a timing.
 
-**The real browser is the shipped pin for the gesture path.** `INV-H` extends the
-existing `PROBE:` case (`tests/e2e/rowactions-geometry.spec.ts:441`) to a scroll
-of the panel's ancestor rather than an open transition. jsdom found the defect;
-the browser is what pins that the repair holds on the surface an admin actually
-uses, on the real placed branch rather than jsdom's degenerate fallback.
+**The real browser is the shipped pin for the gesture path, and the gesture is a
+viewport resize.** `INV-H` extends the existing `PROBE:` case
+(`tests/e2e/rowactions-geometry.spec.ts:441`) to `page.setViewportSize` rather
+than an open transition. jsdom found the defect; the browser is what pins that
+the repair holds on the surface an admin actually uses, on the real placed branch
+rather than jsdom's degenerate fallback.
+
+**A scroll-driven pin was the obvious choice and it is not available on this
+surface.** The rows wrapper is `overflow-hidden` and height-unconstrained, so the
+DOCUMENT is what scrolls, not an ancestor of the trigger
+(`tests/e2e/rowactions-geometry.spec.ts:196-200`, the containment case's own
+premise) — and a document scroll DISMISSES this menu rather than re-placing it,
+because both call sites pass `onDismiss` (`components/admin/ShowRowActions.tsx:668`
+and `components/admin/ShowRowActions.tsx:964`) and the component routes on the
+event target (`components/admin/AnchoredPortal.tsx:210-218`). A scroll-driven
+case would assert against a closed panel: a guard whose premise the surface
+cannot satisfy. A resize reaches the same `coalescer.schedule()`
+(`components/admin/AnchoredPortal.tsx:230`) and moves the right-aligned panel
+because the trigger's right edge moves with the viewport, and appendix A.1
+measured the resize trigger at the same cadence as the ancestor-scroll one. The
+ancestor-scroll gesture stays in the jsdom cases, where an ancestor carrying a
+scroll listener can be constructed.
 
 **The browser instrument counts passes, not rect reads.** The existing case's own
 comment records why counting `getBoundingClientRect` in Playwright is
@@ -247,7 +297,7 @@ instead observable from the page as its cap clear and restore on the panel's
 - **The jsdom pass counter counts calls, not cost.** Two passes that each measure
   a detached panel cost far less than two that measure a laid-out one. The
   invariant is a call count and claims nothing about milliseconds.
-- **The browser case pins ONE gesture, the ancestor scroll.** Pinch-zoom drives
+- **The browser case pins ONE gesture, the viewport resize.** Pinch-zoom drives
   the same `coalescer.schedule()` through a different listener
   (`components/admin/AnchoredPortal.tsx:234`) and is not separately pinned:
   Playwright cannot drive a real pinch, and a synthetic `visualViewport` event is
@@ -306,12 +356,12 @@ recognizer-widening.
 still holds in full. The new internal state is one ref, and its states are
 enumerated here because the ref is what the repair adds:
 
-| `lastTriggerRef.current` | When | Ungated effect's behaviour |
+| `lastMeasureRef.current` | When | Ungated effect's behaviour |
 | --- | --- | --- |
-| `null` | before any measurement, and after every close | measures; never skips |
-| a `Rect` equal to the live anchor rect | the redundant re-run after a commit this component's own measure produced | skips `withNaturalSize`; the placement already held is correct |
-| a `Rect` differing in any field | a position-only move, or the first commit after a close | measures |
-| unchanged after a `kind: "hidden"` measurement | a detached or not-yet-laid-out panel | measures, because the hidden branch never writes the ref |
+| `null` | before any measurement, after every close, and after any measurement that returned `kind: "hidden"` | measures; never skips |
+| a key equal to the live one | the redundant re-run after a commit this component's own measure produced | skips `withNaturalSize`; the placement already held is correct |
+| a key whose rect differs in any of the six fields | a position-only move | measures |
+| a key whose `align` or `preferredSide` differs | a re-render that changed a placement prop with the anchor still | measures |
 
 A `Rect` field is never `null`, `undefined` or `NaN` in this path: it is built by
 `toRect` (`components/admin/AnchoredPortal.tsx:74`) from a live `DOMRect`. A
@@ -319,14 +369,29 @@ A `Rect` field is never `null`, `undefined` or `NaN` in this path: it is built b
 and the behaviour would degrade to today's — a fail-open the placement core
 already handles separately (`lib/popover/position.ts:104`).
 
+`align` and `preferredSide` are never absent in the key: both have defaults at
+the destructure (`components/admin/AnchoredPortal.tsx:88-89`), so the key holds
+`"right"` and `"bottom"` for a caller that passes neither.
+
 ## 8. Dimensional invariants, transition inventory
 
 **No dimensional invariants.** This arc adds no element, no class and no layout
 relationship. The panel's box is unchanged.
 
 **No new visual states, so the predecessor's transition inventory §8 stands
-unamended.** The repair removes a computation whose result was discarded; the
-sequence of applied placements is identical, which is what AC-5 asserts.
+unamended.** The repair removes a computation whose result was discarded.
+
+**The claim that the applied sequence is identical is pinned per frame, not at
+the end**, because an end-state oracle cannot see a defect that applies a wrong
+coordinate on one frame and the right one on the next — it would satisfy both the
+end-state check and every pass count in this document. AC-5 therefore carries two
+halves: a per-frame tuple compared against an INDEPENDENT oracle
+(`placeWithinVisibleViewport` run on that frame's own inputs, not a recorded
+golden from a baseline run), and a per-frame count of applied placements, so an
+ADDED or REMOVED intermediate placement is caught as well as a changed one. The
+count is observable because `commit` (`components/admin/AnchoredPortal.tsx:115`)
+drops an unchanged placement, so one applied placement is one re-render of the
+portal's children.
 
 ## 9. Acceptance criteria
 
@@ -339,14 +404,21 @@ sequence of applied placements is identical, which is what AC-5 asserts.
   (`tests/components/admin/rowActions/anchoredPortal.test.tsx:266`) and the
   open-transition count case
   (`tests/components/admin/rowActions/anchoredPortal.test.tsx:404`).
-- **AC-5** — the sequence of applied placements over a gesture is unchanged by the
-  repair: the panel ends at the same placement it reaches today.
+- **AC-5** — over a multi-frame gesture, after EACH frame the panel's applied
+  tuple (`left`, `top`, `data-portal-side`, `max-height`, `max-width`) equals the
+  tuple derived from `placeWithinVisibleViewport` on that frame's own inputs, and
+  each placement-changing frame produces exactly ONE applied placement while each
+  unchanged frame produces zero.
 - **AC-6** — an unscrolled measurement reads neither scroll offset after the cap
   restore, and a scrolled measurement still restores both.
-- **AC-7** — in a real browser, a scroll of the panel's ancestor runs one pass per
-  placement-changing frame.
-- **AC-8** — a measurement returning `kind: "hidden"` leaves the guard unarmed,
-  and the commit sequence it produces terminates.
+- **AC-7** — in a real browser, a viewport resize that moves the panel runs one
+  pass on the resulting placement-changing frame.
+- **AC-8** — a measurement returning `kind: "hidden"` leaves the guard unarmed
+  and the commit sequence it produces terminates, asserted from BOTH starting
+  states: a `null` ref, and a ref holding the key of a placed placement at the
+  same anchor.
+- **AC-9** — a re-render that changes `align` or `preferredSide` with the anchor
+  rect unchanged re-places the panel.
 
 ## 10. Out of scope
 
