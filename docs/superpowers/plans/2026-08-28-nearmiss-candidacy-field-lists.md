@@ -64,7 +64,11 @@ Three `accepted` rows exist across the two surfaces, all line-keyed and therefor
 
 Expected drift: BOTH `rowScanOpener` rows move, because Task 1 edits `scanBlockCells` and the second row's site sits below it. The two `fieldNearMiss` rows must NOT move, which is why Task 2 places the new predicate AFTER `isCandidateLabel` rather than near the top of the file. Re-key by kind plus mutated text, never by line, and verify siteIds AFTER the commit hooks run, since prettier can reflow a line between measurement and commit.
 
-`tests/parser/fieldNearMiss.test.ts` already contains a registry-enrolment describe including a case asserting both accepted rows are structurally valid "so neither gate runs vacuously". Re-keying must keep that green; it is the existing guard against exactly this drift.
+`tests/parser/fieldNearMiss.test.ts` contains a registry-enrolment describe whose case asserts both accepted rows are structurally valid "so neither gate runs vacuously". Re-keying must keep it green.
+
+**But that case does NOT catch a drifted key, and the plan previously claimed it did.** `validateSurface` (`tests/mutation/source/registry.ts:78`) checks accepted rows only for DUPLICATE siteIds and UNKNOWN operator names; it never asks whether a siteId's line still corresponds to a live mutation site. What it verifies against source is the CONTROL anchor, which must occur exactly once — and both controls survive this arc: `rowScanOpener`'s `opener = clean(first[0] ?? "")` is kept verbatim by the two-pass rewrite, and `fieldNearMiss`'s `DISTINCTIVENESS_MAX = 4` is untouched. Had the rewrite altered that opener line, this case genuinely would have red.
+
+So a drifted key surfaces only at Gate A, as an unaccepted survivor. An implementer who greens Task 1 must not read that green as having verified the re-key.
 
 ## CI wiring and index obligations
 
@@ -221,7 +225,7 @@ Run the committed probe and diff against `…-probe.out.txt`. Any difference mea
 
 ### Task 1: block shape in the scanner, with its registry re-key
 
-<!-- task: red=`pnpm vitest run tests/parser` red-state=authored red-target=`lib/parser/blocks/_rowScan.ts:25` why=`the task lands blockMinValueCells as a skeleton returning 0 on both ScannedRow construction sites FIRST, so imports resolve and the observed RED is behavioral: the shape cases assert a two-column list reports 1, a uniform grid reports its true minimum and a mixed block reports the NARROW row, none of which a constant 0 satisfies, and the registry-validity case at :853 reds alongside them once the edit shifts both rowScanOpener siteIds; the SAME command greens when the real minimum lands and both rows are re-keyed` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/parser` red-state=authored red-target=`lib/parser/blocks/_rowScan.ts:25` why=`the task lands blockMinValueCells as a skeleton returning 0 on both ScannedRow construction sites FIRST, so imports resolve and the observed RED is behavioral: the shape cases assert a two-column list reports 1, a uniform grid reports its true minimum and a mixed block reports the NARROW row, none of which a constant 0 satisfies; the SAME command greens when the real minimum lands. The registry re-key rides in this task because this task causes the drift, but it is NOT what reds here` ac=AC-4 -->
 
 `blockMinValueCells` computed once in `scanBlockCells`, over cleaned cells after column 0, taken across the KEPT rows only — alignment rows are dropped above it and every number in the spec was measured post-drop.
 
