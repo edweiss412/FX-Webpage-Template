@@ -198,15 +198,19 @@ function isCandidateLabel(col0: string): boolean {
  * `isVenueBlockOpener` (`lib/parser/blocks/venue.ts`) — THE shared definition, the same
  * one the TYPO_NORMALIZED gate calls, so this mapping and that gate cannot drift apart.
  * It covers BOTH corpus venue shapes, including the v4 `VENUE NAME` opener of the
- * current template. Every other block
- * returns its own normalized opener, which resolves no anchor — the documented-safe
- * outcome ("the correct cell or null"), and correct: those blocks never had anchors.
+ * current template. Every other block returns its own normalized opener.
  *
- * The DETAILS family here is event.ts's FIVE header spellings, deliberately WIDER than
- * the anchor scanner's three exact ones. Narrowing it to match would map the corpus's
- * `DETAILS/Room Diagram` and `GS DETAILS (FOR BOTH)` blocks to their own opener labels,
- * and the Stage/Storage rows AC-N9 requires to stay anchored would resolve null. Wider
- * costs nothing: a kind the scanner never emits simply matches no anchor.
+ * EXPORTED for `lib/drive/unknownFieldAnchors.ts`, which keys its anchors on this very
+ * function, so the detector and the scanner cannot drift about which block a row is in.
+ *
+ * Until 2026-08-27 the scanner recognized three exact DETAILS spellings against this
+ * arm's five, and every other opener resolved no anchor at all — the "documented-safe"
+ * outcome the near-miss spec recorded, and the reason a row in a `Timestamp` or `Console`
+ * block was link-less on a shipped card. That asymmetry is RETIRED by construction: the
+ * scanner calls this function, so there is one family because there is one definition,
+ * and a block of any kind can now carry an anchor
+ * (spec 2026-08-27-wizard-warning-row-links-copy §2). Never-wrong-cell is unchanged and
+ * is enforced where it always was — the exactly-one join in `resolveUnknownFieldCell`.
  *
  * `"section"` is the fallback when the opener normalizes to nothing — a table opening on
  * a blank first cell, or one whose first `|` line is an alignment row (`| :--- | :--- |`
@@ -214,7 +218,7 @@ function isCandidateLabel(col0: string): boolean {
  * alignment-row skip). Chosen to match the substitution every `canonicalSectionKind`
  * caller makes for an unrecognized label. No corpus fixture reaches it.
  */
-function anchorNamespace(opener: string): string {
+export function anchorNamespace(opener: string): string {
   if (isVenueBlockOpener(opener)) return "venue";
   if (matchesSectionHeader(opener, EVENT_SECTION_HEADER_TOKENS)) return "details";
   return normalizeV3(opener) || "section";
