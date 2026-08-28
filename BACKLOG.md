@@ -8,6 +8,24 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
+## BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS - the near-miss detector flags rows in blocks that are not field lists, and the card's advice is wrong there
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`fix/wizard-warning-row-links-copy`, owner-directed from the RIA wizard screenshot) · **Facing:** product · **Severity:** LOW-MEDIUM (a wrong instruction on a shipped admin card; nothing is corrupted) · **Class:** detector candidacy scope · **Effort:** M · **Class-sweep exception:** (a): which block shapes are legitimate near-miss homes is a product decision the link arc could not settle. · **Reachability:** PROBED: the parser run recorded in spec 2026-08-27-wizard-warning-row-links-copy §1, `parseSheet` on `fixtures/shows/raw/2025-06-ria-investment-forum.md` at `66c9857f5`.
+
+`detectFieldNearMisses` (`lib/parser/fieldNearMiss.ts`) treats every pipe-run block as a candidate home for a near-miss row. Two block shapes in the corpus are not field lists at all: a Google-Form response dump whose opener is `Timestamp`, on the RIA workbook's `FORM` tab (`FORM!A1`; the flagged rows are `FORM!A29` `Room Diagram` and `FORM!A30` `Backdrop`), and an inventory matrix whose opener is `Console`, on its `3rd Level` tab (`3rd Level!A2` `Speaker`). The markdown fixture concatenates tabs, which is how an earlier draft placed these on `INFO` and `GEAR`; the workbook has no `GEAR` tab. The detector reports `Room Diagram` in the form dump as a near-miss of the `DETAILS/ROOM DIAGRAM` section header and `Speaker` in the inventory matrix as a near-miss of `Virtual Speaker`:
+
+```
+UNKNOWN_FIELD  blockRef {kind:"timestamp", name:"Room Diagram"}  candidate "DETAILS/ROOM DIAGRAM"
+UNKNOWN_FIELD  blockRef {kind:"timestamp", name:"Backdrop"}      candidate "Backdrop / Scenic"
+UNKNOWN_FIELD  blockRef {kind:"console",   name:"Speaker"}       candidate "Virtual Speaker"
+```
+
+The card then tells Doug to "rename this row in your sheet so it matches the row we show", which is wrong in both blocks: neither row was ever going to show. The link arc gave these rows a working "Open in Sheet" (they were link-less before), which makes the wrong advice easier to follow, not less wrong.
+
+**Two candidate repairs, neither chosen here.** (1) Exclude blocks whose opener is not a known section family or a field-list opener (a `Timestamp` opener is a form dump; a row whose value cells number more than two is a matrix). (2) Require the candidate vocabulary entry's own block family to match the row's block (a `DETAILS` vocabulary entry should not fire in a `timestamp` block). Either moves the 65-row measured baseline (`tests/parser/fieldNearMissBaseline.test.ts`), so the repair is a calibrated detector arc with its own hit/miss table, not a patch on this one.
+
+**Done condition (outside the process):** on the RIA sheet, the wizard's Sheet warnings panel lists no near-miss row for `Room Diagram`, `Backdrop`, or `Speaker`, and the baseline suite's corpus multiset is re-measured and re-ratified.
+
 ## BL-SPECLINT-EXPECT-N-EXIT-STATUS — a plan command's stated expectation is not enforced by its exit status
 
 **Status:** OPEN · **Filed:** 2026-08-27 (`docs/ledger-lim-mechanization-rows`; owner-directed 2026-08-27 from the `docs/lim-slug-convention` session, which is the scheduling decision) · **Facing:** process · **Mint-exception:** product-blocked · **Severity:** MEDIUM (a declared gate that collects nothing reads as green) · **Class:** spec-lint mechanization · **Effort:** S · **Incident:** `fix/fitwithinclip-stale-clip-subscription` (product-facing, `BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION`), plan round 2 P1, 2026-08-27: a declared Playwright regression gate collected `0 tests in 0 files` because the command omitted `--config tests/e2e/standalone.config.ts`, and nothing in the plan's command enforced its expectation; caught by the reviewer at round 2, not at authoring time (filing `docs/review-rounds/fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md`, plan section, second note). · **Reachability:** PROBED — the filing quotes the command and its collection count.
