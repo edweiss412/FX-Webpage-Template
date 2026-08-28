@@ -228,8 +228,7 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
     // fixing published geometry here would force regenerating the very byte
     // baseline this arc built to prove published bytes UNCHANGED. Filed as
     // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW; ruled (B) by bl-orch 2026-08-27.
-    const clipTest = w === 375 ? test.fixme : test;
-    clipTest(`the panel stays inside the modal clip at ${w}x${h}`, async ({ page }) => {
+    test(`the panel stays inside the modal clip at ${w}x${h}`, async ({ page }) => {
       await openModal(page, w, h);
       await page.locator(CHIP).click();
       await page.locator(MENU).waitFor({ state: "visible" });
@@ -245,10 +244,31 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
         { menuSel: MENU, panelSel: PANEL },
       );
       const TOL = 0.5;
-      // LEFT is the discriminating edge: the panel is right-anchored, so an
-      // over-wide panel overflows leftwards and useFitWithinClip caps only
-      // max-height.
-      expect(box.menu.left).toBeGreaterThanOrEqual(box.clip.left - TOL);
+      if (w === 375) {
+        // CHARACTERIZATION, not an endorsement. At 375 the panel overflows the
+        // clip's LEFT edge — BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW, filed with
+        // both measurements (-18.85 here, -36.00 on the PUBLISHED menu against
+        // unmodified code) and ruled out of this arc because the repair is a
+        // shared-frame redesign that would force regenerating this arc's own
+        // byte baseline.
+        //
+        // Recorded as a RUNNING assertion rather than a `test.fixme` for two
+        // reasons: a fixme is listed but never reported, which breaks the
+        // standalone baseline gate (baseline is `--list`, report is executed);
+        // and a number on disk is a better record of a known defect than an
+        // absence. The right and bottom edges below are asserted normally, so
+        // the case still guards everything that is NOT the filed defect.
+        //
+        // WHEN THE ROW IS FIXED THIS FAILS. That is intended: flip it to the
+        // `toBeGreaterThanOrEqual` form the other viewport uses and delete this
+        // branch.
+        expect(box.menu.left).toBeLessThan(box.clip.left);
+      } else {
+        // LEFT is the discriminating edge: the panel is right-anchored, so an
+        // over-wide panel overflows leftwards and useFitWithinClip caps only
+        // max-height.
+        expect(box.menu.left).toBeGreaterThanOrEqual(box.clip.left - TOL);
+      }
       expect(box.menu.right).toBeLessThanOrEqual(box.clip.right + TOL);
       expect(box.menu.bottom).toBeLessThanOrEqual(box.clip.bottom + TOL);
     });
