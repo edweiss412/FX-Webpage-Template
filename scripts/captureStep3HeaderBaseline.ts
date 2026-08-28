@@ -101,7 +101,9 @@ async function main(): Promise<void> {
       `[data-testid="wizard-step3-card-${STEP3_BASELINE_DFID}-review-header"]`,
     );
     if (header === null) {
-      throw new Error("Step 3 header not found in the rendered markup — fixture or testid drifted.");
+      throw new Error(
+        "Step 3 header not found in the rendered markup — fixture or testid drifted.",
+      );
     }
     const out = join(process.cwd(), path);
     mkdirSync(dirname(out), { recursive: true });

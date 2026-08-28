@@ -129,7 +129,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   // files import DIRECTLY at runtime. Depth 1, not the transitive closure: a
   // module a rendered file imports directly is on the render path, while one
   // four hops behind it is in the same module graph for reasons that have
-  // nothing to do with rendering. Measured -- depth 1 is 214 lib files and 13
+  // nothing to do with rendering. Measured -- depth 1 is 215 lib files and 13
   // violations, unbounded is 396 and 31, the whole directory is 532 and 55; all
   // three reach the survivor, and every violation unbounded depth adds sits in a
   // module whose only app/ importers are under app/api/** or a cron path.
@@ -207,7 +207,12 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // a widening that swapped one member for another.
     expect(rel).toContain("lib/observe/describeClientValue.ts");
     expect(rel).toContain("lib/observe/clientErrorTransport.ts");
-    expect(rel.length).toBe(214);
+    // 214 -> 215 (2026-08-27): lib/admin/warningAttention.ts, the shared
+    // needs-look/judgment partition both review modals import directly. Named
+    // as well as counted, per the note above: a count alone cannot say WHICH
+    // member joined, and it passes just as happily on a swap.
+    expect(rel).toContain("lib/admin/warningAttention.ts");
+    expect(rel.length).toBe(215);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

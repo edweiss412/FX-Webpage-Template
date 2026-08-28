@@ -18,7 +18,11 @@
  * application (file hash), window (Playwright reads after layout settles on a
  * static page) and branch (the mutated class is on the element measured).
  */
-import { expect, test } from "@playwright/test";
+// The SHARED fixture, not @playwright/test: it attaches the font-fidelity
+// oracle to the documents this spec renders, and a spec that calls
+// compileEntryCss without it is dark to that oracle
+// (tests/e2e/_metaFontFidelityWiring.test.ts).
+import { expect, test } from "./helpers/fontFidelityFixture";
 import type { Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
