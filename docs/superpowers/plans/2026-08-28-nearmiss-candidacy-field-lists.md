@@ -146,43 +146,22 @@ Round 1 returned BLOCKING on the previous split, and the diagnosis was structura
 
 Two consequences drive the shape below. First, the behaviour change and ALL of its test dispositions are ONE task: one commit, one command pair, red then green. Second, the two steps that are gates rather than red-green cycles — the mutation score and the ledger graduation — sit OUTSIDE the checked region, next to base re-verification, because neither has a failing case it authors and then fixes.
 
-### The affected-test set, DERIVED rather than enumerated
+### The affected-test set: the TEST RUN is the oracle, not a grep
 
-Rounds 1 and 2 each found dispositions the previous draft missed, and the cause was the same both
-times: the set was assembled by thinking about the files the change is *in*, not the files that
-*depend on* what it changes. Enumeration re-opens the moment anyone adds a test, so the set below is
-derived from two mechanical covers, and the covers are the thing to re-run, not the list.
+Three consecutive rounds found this set incomplete. Round 1 missed three cases, round 2 missed two suites, round 3 missed two more — and each repair replaced one heuristic with a slightly better heuristic. The method is what is wrong, not the care taken with it.
 
-**Cover A — anything that reads the scanner's row shape.** Task 1 adds a REQUIRED field to
-`ScannedRow` and `ScannedBlockRow`, so any assertion on a whole row object breaks.
+**Why every grep-based cover failed, and why the next one would too.** The covers searched test SOURCE for the scanner import, for the removed key strings, for fixture parsing. A test can depend on the emission set while containing none of those: `tests/parser/venueSignalParity.test.ts` pins its expectations in a committed BASELINE (`tests/parser/__fixtures__/venueSignalParity.baseline.json`, which holds 15 `Room Diagram`, 15 `Backdrop` and 2 `Speaker` entries). The dependency lives in the FIXTURE, not the source, so no grep over `tests/**/*.ts` can reach it. Round 3 also caught the covers being inert as published — both patterns used `|` without `-E`, so the command in this plan returned nothing at all, which is the "published command cannot produce the published result" defect occurring inside the section written to fix a derivation problem.
+
+**So the affected set is DISCOVERED BY RUNNING, and Task 2's command is the whole parser surface.** The change is small and fast to implement; the test runner enumerates its dependencies exactly, including the ones that live in fixtures, and it cannot be fooled by a search term. Task 2 lands the gate, runs the full suite, and dispositions whatever reds — that list is an OUTPUT of the task, not an input to it.
+
+The greps below are kept as ORIENTATION, not as the authority. They tell an implementer where to look first; they do not tell anyone the set is complete, and nothing in this plan may claim completeness from them:
 
 ```
 grep -rln --include='*.ts' 'blocks/_rowScan' tests/ lib/
+grep -rlnE --include='*.test.ts' 'UNKNOWN_FIELD|detectFieldNearMisses|anchoredUnknownFields' tests/
 ```
 
-Five hits. `lib/parser/fieldNearMiss.ts` and `lib/drive/unknownFieldAnchors.ts` are production
-consumers that destructure and are unaffected. `tests/mutation/source/registry.ts` reads source text,
-not row objects. `tests/drive/synthesizeBlocksEquivalence.test.ts` PROJECTS to `{opener, cells}`
-before comparing (line 97) and is therefore immune by construction. **`tests/parser/rowScanCore.test.ts`
-breaks**: six `toEqual` assertions on full `{cells, opener, index}` objects.
-
-**Cover B — anything that requires an emission from a block the rule now excludes.** A parse-running
-test that names a removed key or an excluded opener:
-
-```
-for f in $(grep -rln --include='*.test.ts' 'UNKNOWN_FIELD|detectFieldNearMisses|anchoredUnknownFields' tests/); do
-  grep -c '"Timestamp"|"Console"|"Room Diagram"|"Backdrop"|"Speaker"' "$f"
-done
-```
-
-Five hits, of which two are safe and three carry work. `tests/parser/event.test.ts:167` asserts
-ABSENCE (`not.toContain("Room Diagram")`) and this change only adds absence.
-`tests/parser/consumptionLedger.test.ts` asserts the LEDGER (`agg.consumed`), which the gate never
-touches — the gate is a `continue` before the draw-down, and `markConsumed` is a block-parser call.
-
-**The discriminator is the BLOCK, not the label**, which is why a grep for the three keys alone
-misleads in both directions: `fieldNearMiss.test.ts:458` and line 502 both name `Room Diagram` and are
-UNAFFECTED, because their block is `DETAILS` (opener `DETAILS`, min 0, admitted).
+**The known members below are therefore a floor, not a ceiling.** They are what three rounds of review established, recorded so the implementer starts from them rather than rediscovering them, and the suite decides the rest.
 
 ### The dispositions, by file
 
@@ -214,6 +193,14 @@ UNAFFECTED, because their block is `DETAILS` (opener `DETAILS`, min 0, admitted)
    asserted differentially against a control measured to fire.
 9. `it("Speaker fires against Virtual Speaker")` INVERT the same way.
 
+**`tests/parser/warnings.test.ts`** — found by round 3, missed by every cover.
+
+12. `it("the full parse emits exactly one UNKNOWN_FIELD for a genuine near-miss row")` uses `Address:` inside a `Timestamp` block precisely because that block was unrecognized. RE-POINT the carrier to an admitted block, exactly as the anchors cases do; the case is about the emission carrying a `candidate`, which is unchanged.
+
+**`tests/parser/venueSignalParity.test.ts` and its baseline** — found by round 3, and unreachable by any source grep.
+
+13. `tests/parser/__fixtures__/venueSignalParity.baseline.json` pins 15 `Room Diagram`, 15 `Backdrop` and 2 `Speaker` entries. Regenerate it in the same commit as the near-miss baseline, and review its diff row by row against the same 32-row removal set. It is in the default parser glob, so a Task 2 that ignored it would report green while `pnpm test` stayed red.
+
 **`tests/drive/unknownFieldAnchors.test.ts`** — Cover B, and the largest group.
 
 10. Five cases build `Timestamp` or `Console` blocks as near-miss CARRIERS in order to test ANCHOR
@@ -224,8 +211,7 @@ UNAFFECTED, because their block is `DETAILS` (opener `DETAILS`, min 0, admitted)
     workbook produces no near-miss rows to anchor, keeping the file's coverage of that workbook
     rather than deleting it.
 
-Task 2's command therefore spans all four suites, because a change that reds four suites is green
-only when all four are.
+Both task commands therefore run the whole `tests/parser` surface rather than a named file list. A named list is a claim about which files depend on the change, and that claim has been wrong three times; a directory is not a claim at all.
 
 ### Task 0 (setup, outside the checked region): fresh base + anchor re-verification
 
@@ -235,7 +221,7 @@ Run the committed probe and diff against `…-probe.out.txt`. Any difference mea
 
 ### Task 1: block shape in the scanner, with its registry re-key
 
-<!-- task: red=`pnpm vitest run tests/parser/fieldNearMiss.test.ts tests/parser/rowScanCore.test.ts` red-state=authored red-target=`lib/parser/blocks/_rowScan.ts:25` why=`the task lands blockMinValueCells as a skeleton returning 0 on both ScannedRow construction sites FIRST, so imports resolve and the observed RED is behavioral: the shape cases assert a two-column list reports 1, a uniform grid reports its true minimum and a mixed block reports the NARROW row, none of which a constant 0 satisfies, and the registry-validity case at :853 reds alongside them once the edit shifts both rowScanOpener siteIds; the SAME command greens when the real minimum lands and both rows are re-keyed` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/parser` red-state=authored red-target=`lib/parser/blocks/_rowScan.ts:25` why=`the task lands blockMinValueCells as a skeleton returning 0 on both ScannedRow construction sites FIRST, so imports resolve and the observed RED is behavioral: the shape cases assert a two-column list reports 1, a uniform grid reports its true minimum and a mixed block reports the NARROW row, none of which a constant 0 satisfies, and the registry-validity case at :853 reds alongside them once the edit shifts both rowScanOpener siteIds; the SAME command greens when the real minimum lands and both rows are re-keyed` ac=AC-4 -->
 
 `blockMinValueCells` computed once in `scanBlockCells`, over cleaned cells after column 0, taken across the KEPT rows only — alignment rows are dropped above it and every number in the spec was measured post-drop.
 
@@ -247,7 +233,7 @@ Cases: a two-column field list reports 1; a uniformly wide grid reports its true
 
 ### Task 2: the candidacy gate, with every disposition it forces
 
-<!-- task: red=`pnpm vitest run tests/parser/fieldNearMiss.test.ts tests/parser/fieldNearMissBaseline.test.ts tests/drive/unknownFieldAnchors.test.ts` red-state=authored red-target=`lib/parser/fieldNearMiss.ts:184` why=`the task lands isCandidateHome as a skeleton returning true FIRST, so the observed RED is behavioral rather than a missing symbol: a predicate admitting everything IS the pre-change detector, so the new candidacy, census, binding and normalized-opener cases all fail while the client positive control already passes; the SAME command greens only when the two 3.1 arms land AND all eight dispositions are in, which is why they are one task rather than several` ac=AC-1,AC-2,AC-3,AC-5,AC-6,AC-7,AC-9,AC-10,AC-11 -->
+<!-- task: red=`pnpm vitest run tests/parser tests/drive/unknownFieldAnchors.test.ts` red-state=authored red-target=`lib/parser/fieldNearMiss.ts:184` why=`the task lands isCandidateHome as a skeleton returning true FIRST, so the observed RED is behavioral rather than a missing symbol: a predicate admitting everything IS the pre-change detector, so the new candidacy, census, binding and normalized-opener cases all fail while the client positive control already passes; the SAME command greens only when the two 3.1 arms land AND all eight dispositions are in, which is why they are one task rather than several` ac=AC-1,AC-2,AC-3,AC-5,AC-6,AC-7,AC-9,AC-10,AC-11 -->
 
 One task because one behaviour change: the gate reds both suites the instant it works, and only the full disposition set returns them to green. Splitting it produces an intermediate red commit and a later task whose red is inherited rather than authored, which is exactly what round 1 rejected.
 
