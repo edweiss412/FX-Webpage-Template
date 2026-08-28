@@ -1,10 +1,13 @@
 # Review rounds — `fix/nearmiss-non-field-blocks` @ `31beee5de40e`
 
-## spec — 4 rounds
+## spec — 5 rounds
 
 **Examined:** `docs/superpowers/specs/parser/2026-08-28-nearmiss-candidacy-field-lists-design.md` and its probe
 `docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-candidacy-probe.ts`, across 4 rounds at one base.
-Findings: 2, 2, 1, 1. All six were accepted; none was disputed or relitigated.
+Findings: 2, 2, 1, 1, 1. All seven were accepted; none was disputed or relitigated. Round 5 was a
+VERIFY-ONLY round authorized past the cap, in advance, for the closed question "do the R1-R4 repairs
+stand at head". It paid for itself: it found a regression in the round-4 repair, which was the one
+repair no round had reviewed.
 
 **Mechanizable:** One class, and it is the whole story of this arc's rounds.
 
@@ -21,6 +24,7 @@ apparatus that was supposed to prove the rule:
 | 2 | AC-9 proved a predicate exists, not that the detector uses it | a guard that pins a component rather than the path |
 | 3 | the injection changed the block's minimum before measuring it | a probe whose construction changes the property under test |
 | 4 | no criterion separated `normalizeV3(opener) === "timestamp"` from `opener === "Timestamp"` | a criterion the corpus cannot distinguish from an impostor, because every instance spells it one way |
+| 5 | the round-4 repair's own table compared two local expressions over hardcoded strings, never touching the block, the predicate or the detector | a table that would print the same number whatever the implementation did |
 
 Round 4's is worth stating separately, because it is the one shape the other five do not cover. The rule
 was RIGHT and the evidence was right; what was missing was an input that could tell the rule apart from a
@@ -31,6 +35,13 @@ cannot express the distinction the rule makes.
 Plus three the arc caught itself, all the same family: an emission check reading a field that does not
 exist (so every block read "not emitted"); an injected label that was itself a corpus label (ambiguous in 9
 blocks); and premise counts stated in the spec that no committed table could produce.
+
+Round 5's is the class's purest instance, and the reason the verify-only round was worth its cost: a
+repair for a tautology was itself a tautology. The fix for "no criterion separates the rule from an
+impostor" was a table that never ran either. Rebuilding it to touch a real block corrected the count
+from 4 to 3 and revealed a second error nobody had raised — whitespace padding is not discriminating,
+because the scanner cleans the opener before either comparison sees it, so only a raw-string
+comparison ever thought it was.
 
 **The mechanizable core: a probe should assert its own preconditions.** Every one of these is a probe
 reporting a result it had not established. The repairs converged on three assertions that generalise beyond
