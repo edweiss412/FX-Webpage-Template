@@ -91,7 +91,7 @@ Warn-severity codes outside `DATA_GAP_CODES` exist, and the repo enumerates most
 
 Every change is in the same direction (severity-less counts as warn) and matches the badge, which is the surface the user compares against. Pinned by a unit test that feeds one severity-less `UNKNOWN_FIELD` through `summarizeDataGaps`, `warningsBySection`, `sectionStatus`, `visibleWarningRows` and `deriveWarningAttention` and asserts each counts it as warn, with `premise` that the fixture object has no `severity` key. `tests/parser/dataGapsClassCompleteness.test.ts` is untouched (read 2026-08-27: its `buckets` array holds five distinct sets and is green on the base; §15).
 
-The sweep domain above is `lib/admin components/admin`. Three filters outside it still test the literal `"warn"`; they are recorded, probed and parked in §10.1 rather than changed here.
+The sweep domain above is `lib/admin components/admin`. Three filters outside it still test the literal `"warn"`. They are recorded and probed in §10.1 rather than changed here: severity-less elements do exist, and what keeps them off every operator surface is the code-membership arm of those filters, not the severity arm.
 
 ## 3. Part A: wizard modal (`Step3ReviewModal.tsx`)
 
@@ -380,9 +380,9 @@ Published pill states gain no new transition pair beyond the segment's mount/unm
 - Focus after a row click lands on `document.body` (menu unmounts). Accepted per the DEFERRED.md entry in §1.1.
 - Identical-content warnings in one section share a `reportSurfaceId` and therefore an anchor; the second row lands on the first card. Both are conservative (a section-top landing, a neighbouring identical card), never silent.
 
-### 10.1 Three filters outside this spec's sweep still test `severity === "warn"`, and a probe parked them
+### 10.1 Three filters outside this spec's sweep still test `severity === "warn"`, and a probe qualified rather than confirmed the risk
 
-`isWarnSeverity` (§2.1) reads a warning with no `severity` key as warn, matching the badge. Three filters outside §2.1's table still test the literal `"warn"`, so each drops a severity-less row the badge counts:
+`isWarnSeverity` (§2.1) reads a warning with no `severity` key as warn, matching the badge. Three filters outside §2.1's table still test the literal `"warn"`, so each would drop a severity-less row the badge counts:
 
 | Site | Filter | Operator surface it feeds |
 | --- | --- | --- |
@@ -392,33 +392,39 @@ Published pill states gain no new transition pair beyond the segment's mount/unm
 
 Line numbers are drafting-time locators and drift. The durable anchors are the three function names.
 
-**Why all three escaped §2.1.** §2.1 ran `rg -n 'severity (===|!==) "warn"' lib/admin components/admin`, and the plan's verification step widened that to `lib/parser` only, where it correctly found and filed two. `lib/sync` was in neither domain, which is the whole reason the third site went unnamed for a day. Sweeping `lib/ components/ app/` returns five hits: these three, plus two that are not instances and should stay as they are. `lib/observe/query/serializeWarning.ts:40` maps any severity that is neither `"info"` nor `"warn"` to `""`, which makes it the detector the probe below depends on rather than a dropper, and `lib/dev/attentionScenarios/validate.ts:364` asserts that a dev fixture author wrote `severity: "warn"`, which is not an operator surface.
+**Why all three escaped §2.1.** §2.1 ran `rg -n 'severity (===|!==) "warn"' lib/admin components/admin`, and the plan's verification step widened that to `lib/parser` only, where it correctly found and filed two. `lib/sync` was in neither domain, which is the whole reason the third site went unnamed for a day. Sweeping `lib/ components/ app/` returns five hits: these three, plus two that are not instances and should stay as they are. `lib/observe/query/serializeWarning.ts:40` maps any severity that is neither `"info"` nor `"warn"` to `""`, which makes it a detector rather than a dropper, and `lib/dev/attentionScenarios/validate.ts:364` asserts that a dev fixture author wrote `severity: "warn"`, which is not an operator surface.
 
-**Probed 2026-08-28 on the validation deployment (`vzakgrxqwcalbmagufjh`). Zero, in all three populations that hold these warnings.** The two read-time sites consume different tables, so both were counted:
-
-```
-$ pnpm observe warnings --env validation --limit 500 --json   # shows_internal.parse_warnings
-2 rows, 18 warning elements, all severity "warn", 0 severity-less
-$ pnpm observe staged --env validation --warnings-only --since all --limit 500 --json   # pending_syncs.parse_result.warnings
-7 rows, 55 warning elements, all severity "warn", 0 severity-less
-```
-
-A third table holds parse results too, and was counted separately: onboarding copies a parse result into `shows_pending_changes.payload` and then DELETES the `pending_syncs` row (`lib/onboarding/shadowPayload.ts:14`, `app/api/admin/onboarding/finalize/route.ts:663` and the `deleteApprovedPending` below it), so a staged row's warnings can outlive the row the staged probe reads. On validation that table is empty:
+**Severity-less warnings DO exist in live data. The demotion does not rest on their absence.** Measured 2026-08-28 on the validation deployment (`vzakgrxqwcalbmagufjh`) with one uncapped read-only query over every table that stores a warning array. An earlier pass of this probe used `pnpm observe` alone and reported a clean zero; that was an artifact of reading only the two tables the read sites consume, and it is corrected here.
 
 ```sql
--- read-only transaction against the validation pooler
-select count(*) from public.shows_pending_changes;   -- 0 rows, so 0 warning elements
+-- read-only transaction; counts ELEMENTS, not rows, and is not paginated
+with pops as (
+  select 'shows_internal'        as pop, parse_warnings                       as w from public.shows_internal
+  union all select 'pending_syncs',      parse_result->'warnings'                  from public.pending_syncs
+  union all select 'shows_pending_changes', payload->'parse_result'->'warnings'    from public.shows_pending_changes
+  union all select 'sync_log',           parse_warnings                            from public.sync_log
+)
+select pop,
+       coalesce(sum(case when jsonb_typeof(w)='array' then jsonb_array_length(w) else 0 end),0) as elements,
+       coalesce(sum(case when jsonb_typeof(w)='array' then (
+         select count(*) from jsonb_array_elements(w) e where not jsonb_exists(e,'severity')) else 0 end),0) as severity_key_absent
+from pops group by pop order by pop;
 ```
 
-Neither observe result reached the 500 cap, so each is the full set rather than a page of one. `--env local` returns 0 rows against validation's 2, which is how the run is known to have reached the remote target; no separate prod target exists, since ambient `SUPABASE_URL` is loopback and `SUPABASE_SECRET_KEY` is unset, so validation is the entire declared domain.
+| Population | Rows | Warning elements | Severity-less |
+| --- | --- | --- | --- |
+| `shows_internal.parse_warnings` | 2 | 18 | 0 |
+| `pending_syncs.parse_result.warnings` | 7 | 55 | 0 |
+| `shows_pending_changes.payload.parse_result.warnings` | 0 | 0 | 0 |
+| `sync_log.parse_warnings` | 116,985 | 400 | **198** |
 
-**Why the count is trustworthy.** `serializeParseWarning` maps an element whose severity is neither `"info"` nor `"warn"` to the empty string, and `serializeWarningArray` maps 1:1 without dropping anything, so a severity-less element cannot pass the CLI unseen. Positive-controlled by feeding one severity-less warning, one `info` and one `warn` through the serializer and confirming the three come back as `""`, `"info"` and `"warn"` with the count preserved. That collapse of absent-and-malformed into one bucket is exactly the divergence set here, because `isWarnSeverity` is `severity !== "info"` while all three sites test `=== "warn"`: the set they disagree on is precisely the set the serializer blanks.
+**What the 198 are, and why no site's output changes because of them.** They carry three codes: `SYNC_INFRA_ERROR` (178), an empty code (19) and `SYNC_FILE_FAILED` (1), first seen 2026-07-03 and still produced on 2026-08-28. They are not parser data-quality warnings; they are sync-outcome records from a different writer, shaped `{code, message, outcome}` with `message` holding the string `"[object Object]"`. Every one of the three codes was checked live against both gating sets: none is in `DATA_GAP_CODES` (39 members) or `OPERATOR_ACTIONABLE_ANCHORED` (24), and `isDataQualityWarning` returns `false` and `operatorActionableWarnings` returns an empty array for each.
 
-**What the zero does and does not bound at the write-time site, stated exactly.** `warningSummary` filters `parseResult.warnings` as the row is written and never persists its own input, so it is reached only through the array persisted beside it. For every row still in either table that array was counted, and it is clean. It does NOT follow that no severity-less warning has EVER reached the filter: a row that was staged, finalized, and had its shadow consumed is gone from `pending_syncs`, from `shows_pending_changes`, and therefore from every read path. No probe can reach one, and none is claimed to.
+So the demotion rests on a CONJUNCTION, not on absence. Both read sites test code membership as well as severity, and the code arm rejects every severity-less element that exists, independently of the severity arm. The one site with no code guard is `warningSummary`, and its input is `parse_result.warnings` on `pending_syncs`, which holds 0 severity-less elements across 55. Neither arm is load-bearing alone, and the record says which one is doing the work at which site.
 
-That gap costs nothing here, because the output drains with the input. `warningSummary`'s result is written to `pending_syncs.warning_summary` and nowhere else: the column exists on no other table, and the shadow payload's key list (`parse_result`, `staged_modified_time`, `staged_id`, `reviewer_choices`, `triggered_review_items`, `base_modified_time`, `pull_sheet_override`, `pull_sheet_override_applied`, `use_raw_decisions`, `source_anchors`) does not carry it. A drained row's summary was deleted with the row. So an unobservable past input has an equally unobservable past output, and no operator surface can be short today because of one.
+**Two claims an earlier draft made that are withdrawn.** It said a consumed shadow leaves the warnings unobservable; in fact `finalize-cas` passes the shadow's `parseResult` into `applyStagedCore`, which writes those warnings to `shows_internal.parse_warnings` before deleting the shadow, and `shows_internal` is probed above. It also printed `select count(*) from public.shows_pending_changes` as a re-file query; a row count cannot detect a severity-less ELEMENT once that table is non-empty, so it is retired in favour of the element-level query above.
 
-**Re-file trigger, either one.** Any severity-less element observed in any of the three populations, by re-running the three queries above. Or a parser change that can emit a warning without a `severity` key, which would make the shape reachable before any row shows it. Until one of those happens the divergence is real in code and unreached in data, and the worst case is conservative: a list is short by a row the badge still counts, never a wrong value and never a silent corruption of one. Graduated from `BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS` (`BACKLOG-archive.md`) on the probe above.
+**Re-file trigger, any one.** A severity-less element whose `code` IS a member of `DATA_GAP_CODES` or `OPERATOR_ACTIONABLE_ANCHORED`, observed in any population by the query above; that is the case both read sites' code arm would stop rejecting. Or an addition to either gating set, or a new writer, that could produce one, since either change breaks the conjunction this limit rests on. Until then the divergence is real in code and cannot alter any operator surface's output, and the worst case remains conservative: a list short by a row the badge still counts, never a wrong value. Graduated from `BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS` (`BACKLOG-archive.md`) on the measurement above.
 
 ## 11. Out of scope
 
