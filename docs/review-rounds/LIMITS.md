@@ -291,3 +291,14 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 **Owning record:** the filing is the documented limit; the repair that held is deriving the column set from `information_schema` and writing the re-derivation into the re-file procedure, at `docs/superpowers/specs/2026-08-27-wizard-review-attention-menu-design.md` §10.1
 
 **Re-file trigger:** named by a 3rd distinct arc
+
+
+## LIM-PROD-POSTURE-INVISIBLE-LOCALLY
+
+**Shape:** A code path whose behavior branches on `NODE_ENV` is exercised by a test that runs green in every local run and red in CI, because the two run under different postures and nothing reports the difference. The instance: 40 sites resolve `TEST_DATABASE_URL ?? process.env.DATABASE_URL` and, when neither is set, THROW under production instead of reaching their `127.0.0.1:54322` fallback (e.g. `app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts:34-40`). A local Playwright run boots `pnpm dev`, where the fallback is live; a CI job boots `pnpm build && pnpm start`, where it is not (`playwright.config.ts:263-267`). So an arc that enables a test reaching such a path for the first time in a workflow that sets no DSN cannot observe the failure locally, at any number of runs. Distinct from an ordinary missing-env defect, which fails everywhere: this one fails only where nobody is looking, and the local greens actively argue against the defect existing.
+
+**Named by:** 1 arc — fix/published-attention-resolve-red/b608e71b32b5.md (diff), where it was round 2's P1. The arc held 6 consecutive green local runs and had written into a ledger row that CI "falls through to the loopback default"; the claim and the shipping defect were one error. `.github/workflows/app-e2e.yml:176-187` already carried the corrective DSN and a comment naming the production throw, and the arc did not find it until the reviewer named the failure.
+
+**Owning record:** none — this index is the record. The mechanizable form would relate a workflow's server-start posture to the env-gated paths its named specs can reach, which needs a reachability model no lint here has.
+
+**Re-file trigger:** a second arc charged a review finding, or a red CI run, for a test that passes locally and fails in CI on an `NODE_ENV`-gated branch

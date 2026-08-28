@@ -3832,6 +3832,26 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+### BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED — the published attention spec's resolve-lifecycle case fails on unmodified code, cause unattributed
+
+**Status:** RESOLVED 2026-08-28 (`fix/published-attention-resolve-red`, PR #931) · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9 Step 5) · **Facing:** product · **Severity:** MEDIUM-UNKNOWN (either an operator cannot resolve an alert from the published modal, or a spec has gone stale — the severity depends entirely on which, and that is the open question) · **Class:** unattributed e2e red · **Effort:** S to attribute, unknown to fix · **Class-sweep exception:** (a) — the repair direction cannot be chosen before attribution, and attribution is itself the first task.
+
+**What is red.** `tests/e2e/published-show-attention.spec.ts` "resolve lifecycle: 2 issues → 1 issue → In sync, without reload (LAST — mutates)". After clicking the overview alert's resolve control, the header pill does not decrement: it stays at its arrival count for the full 5s expect window (`Expected substring: "1 issue" / Received string: "2 issues · 1 sheet warning"`). A later run failed earlier and differently, on a `toBeVisible`, so it is not one deterministic assertion.
+
+**Reachability:** PROBED 2026-08-27. Not inferred from a red on a modified tree: both files this branch touches in that spec's dependency set (`published-show-attention.spec.ts`, `tests/e2e/helpers/seedShowWithCrew.ts`) were reverted to HEAD, the spec was rerun against the local stack, and the case failed identically — 5 passed, 1 failed. So the red predates this branch.
+
+**Why nobody knew.** No workflow runs this spec. `rg -n "^\s+run:.*published-show-attention" .github/workflows/*.yml` matches nothing (a `paths:` mention does not count — the structural position is the `run:` step). An unrun spec is a dark surface, and this is what dark looks like: a case that has been red for an unknown length of time with nothing reporting it.
+
+**What shipped alongside this row.** The spec IS now wired into `published-modal-e2e.yml`, so its other six cases begin gating, and this one case carries `test.fixme` naming this row rather than being deleted or left to red CI. That is the ruled disposition (bl-orch 2026-08-27): wiring is what stops the next case drifting unnoticed; the fixme is what keeps an unrelated PR from being blocked on a foreign defect.
+
+**First task is ATTRIBUTION, not repair.** Determine whether the optimistic decrement is genuinely broken on the published modal (a product defect an operator would hit) or whether the fixture, the seeded alert shape, or the resolve control's testid has drifted under the spec. Only then is the repair direction decidable. Remove the `test.fixme` as that work's own red.
+
+**RESOLVED 2026-08-28 — attribution was (b), stale spec, and the severity collapsed.** The optimistic decrement was never broken. Both resolve POSTs return 200 and the pill was observed stepping `2 issues · 1 sheet warning` → `1 issue · 1 sheet warning` → `1 sheet warning`. What was wrong is the terminal expectation of `In sync`, which is unreachable while the fixture seeds a sheet warning: the pill's interactive branch is `needsYou.length > 0 || k > 0 || selfHeal.length > 0` (`components/admin/showpage/PublishedReviewModal.tsx:359`), `k` counts sheet warnings, and no resolve control clears one. The fixture grew that warning in `wizard-review-attention-menu` §4; the sibling auto-open case was updated to compose the new segment and this one was not. So no operator was ever unable to resolve an alert from the published modal.
+
+**What the repair changed.** The terminal and intermediate pill assertions are now exact and derived from `SEEDED_WARNINGS.length`, so adding a warning to the fixture moves every assertion that reads it rather than leaving one stale — the defect's own shape, closed. The case also reads `admin_alerts` back and asserts `resolved_at` on both rows, because every pill assertion is satisfiable by the optimistic paint alone (`expect.poll` resolves on first match; `onResolved` fires before `router.refresh()`), which review round 2 identified and a fulfil-without-server mutant then demonstrated. `published-modal-e2e.yml` gained a `DATABASE_URL`: that job is production posture, where the resolve route throws before its loopback fallback, so the re-enabled case would have been red there — invisible to all 16 local runs, and filed as `LIM-PROD-POSTURE-INVISIBLE-LOCALLY`.
+
+**Two rows filed from the attribution, neither repaired here:** `BL-LOCAL-E2E-APP-SERVER-QUERIES-VALIDATION` (the local e2e app server resolves its DB from the validation pooler) and `BL-PUBLISHED-ATTENTION-ESCAPE-CLOSES-MODAL-RACE` (the second, non-deterministic failure this row recorded, now separated from the first and carrying its own probe evidence). The `test.fixme` is gone; all seven cases gate.
+
 ### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
 
 **Status:** SHIPPED 2026-08-10 · PR #761 · **Effort (as shipped):** L
