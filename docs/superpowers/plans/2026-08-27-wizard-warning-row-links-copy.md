@@ -254,6 +254,12 @@ What is red and why: the new exports do not exist. `DB-free`.
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import { renderRow, synthesizeBlocksFromXlsx, synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
+import { buildXlsx } from "../helpers/buildXlsx";
+
+// `regionA`: copy the constant of that name from tests/drive/exportSheetArchivedPullSheet.test.ts
+// lines 7-16 VERBATIM (it is module-local there, not exported); it begins
+// ["PULL SHEET", "PULL SHEET"], ["RIA - CHICAGO, IL"], [], ["QTY", "ITEM"], ["2", "Shure SM58"].
+const regionA: string[][] = [/* paste the ten rows here */];
 
 function workbook(tabs: Record<string, string[][]>): ArrayBuffer {
   const wb = XLSX.utils.book_new();
@@ -282,11 +288,20 @@ describe("synthesizeBlocksFromXlsx carries coordinates the markdown loses (spec 
   });
 
   it("a non-included OLD tab yields no block; an included OLD pull-sheet region is opaque", () => {
-    const old = [["OLD TITLE", ""], ["", ""], ["1", "Cable", "x"]];
-    const none = synthesizeBlocksFromXlsx(workbook({ INFO: [["CLIENT", "x"]], "OLD PULL SHEET": old }));
+    // `regionA` is the pull-sheet region fixture `tests/drive/exportSheetArchivedPullSheet.test.ts`
+    // lines 7-16 already prove `collectPullSheetRegionsFromMarkdown` recognizes (a `PULL SHEET`
+    // header row, a title row, a blank, `QTY | ITEM`, item rows); copy it verbatim and build the
+    // workbook with `buildXlsx` from `tests/helpers/buildXlsx`, as that suite does. A bare
+    // `1 | Cable` row is NOT a region (probed: zero regions, so the earlier draft's fixture
+    // could never reach the opaque assertion).
+    const none = synthesizeBlocksFromXlsx(buildXlsx([{ name: "INFO", grid: [["Show", "X"]] }, { name: "OLD PULL SHEET", grid: regionA }]));
+    expect(none.archivedPullSheetTabs).toHaveLength(1);
     expect(none.blocks.every((b) => b.kind === "grid" && b.sheetName === "INFO")).toBe(true);
-    const included = synthesizeBlocksFromXlsx(workbook({ INFO: [["CLIENT", "x"]], "OLD PULL SHEET": old }), { includePullSheetFromTab: "OLD PULL SHEET" });
-    expect(included.blocks.some((b) => b.kind === "opaque")).toBe(true);
+    const included = synthesizeBlocksFromXlsx(
+      buildXlsx([{ name: "INFO", grid: [["Show", "X"]] }, { name: "OLD PULL SHEET", grid: regionA }]),
+      { includePullSheetFromTab: "OLD PULL SHEET" },
+    );
+    expect(included.blocks.some((b) => b.kind === "opaque" && b.markdown.includes("Shure SM58"))).toBe(true);
   });
 
   it("renderRow pads to the width and escapes exactly as tableMarkdown does", () => {
@@ -450,10 +465,36 @@ export function synthesizeBlocksFromXlsx(
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
     if (/\bOLD\b/i.test(sheetName)) {
-      /* the existing OLD-tab branch, verbatim, with the three substitutions above;
-         `tables.push(...regions.map((r) => r.regionMarkdown))` becomes
-         `blocks.push(...regions.map((r) => ({ kind: "opaque" as const, markdown: r.regionMarkdown })))` */
-      continue;
+      // Unchanged in behaviour from today's synthesizeMarkdownFromXlsxUnguarded (the comment
+      // block above it about archived tabs stays); three substitutions for the tracked grid.
+      const rawGrid = sheetGrid(sheet);
+      const tabMarkdown = splitBlocks(normalizePullSheetGrid(sheetName, rawGrid.grid), rawGrid.firstCol)
+        .map(normalizeBlock)
+        .map((b) => tableMarkdown(b.rows.map((r) => r.cells)))
+        .join("\n\n");
+      const regions = collectPullSheetRegionsFromMarkdown(tabMarkdown);
+      if (regions.length > 0) {
+        const cleanTabName = stripZeroWidth(sheetName);
+        const included =
+          opts?.includePullSheetFromTab !== undefined &&
+          stripZeroWidth(opts.includePullSheetFromTab) === cleanTabName;
+        const fingerprint = createHash("sha256")
+          .update(regions.map((r) => stripBlankLines(r.regionMarkdown)).join("\n\x00\n"), "utf8")
+          .digest("hex");
+        const rawPreviews = collectRawPullSheetPreviews(rawGrid.grid.map((r) => r.cells));
+        archivedPullSheetTabs.push({
+          tabName: cleanTabName,
+          headerPreviews: regions.map((_, index) => stripZeroWidth(rawPreviews[index] ?? "(no header text)")),
+          fingerprint,
+          included,
+          contentChangedSinceAccept: false,
+        });
+        if (included) {
+          // Emit EXACTLY the collected region markdown (same bytes hashed); other blocks discarded.
+          blocks.push(...regions.map((r) => ({ kind: "opaque" as const, markdown: r.regionMarkdown })));
+        }
+      }
+      continue; // non-included OLD tabs (and non-pull-sheet OLD tabs) stay dropped
     }
     const { grid, firstCol } = sheetGrid(sheet);
     for (const block of splitBlocks(normalizePullSheetGrid(sheetName, grid), firstCol).map(normalizeBlock)) {
@@ -736,12 +777,12 @@ Flip the two asymmetry pins in `tests/parser/fieldNearMissBaseline.test.ts` (spe
 ```ts
   it("every DETAILS-family spelling anchors the Stage row: one kind function on both sides (spec 2026-08-27 §2.2)", () => {
     for (const header of ["DETAILS", "DETAILS/Room Diagram", "GS DETAILS (FOR BOTH)"]) {
-      const ws = XLSX.utils.aoa_to_sheet([[header, ""], ["Stge", "8' x 24' x 2'"]]); // near-miss of Stage
+      const ws = XLSX.utils.aoa_to_sheet([[header, ""], ["Stage", "8' x 24' x 2'"]]); // the AC-N9 row itself: the detector flags "Stage" under all three headers (probed 2026-08-27, output below)
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "INFO");
       const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
       const md = synthesizeMarkdownFromXlsx(buf).markdown;
-      const w = parseSheet(md, "probe.md").warnings.find((x) => x.code === "UNKNOWN_FIELD" && x.blockRef?.name === "Stge");
+      const w = parseSheet(md, "probe.md").warnings.find((x) => x.code === "UNKNOWN_FIELD" && x.blockRef?.name === "Stage");
       premiseHolds(`${header}: the near-miss row is emitted`, w !== undefined);
       const cell = resolveUnknownFieldCell(extractUnknownFieldAnchors(buf, new Map([["INFO", 0]])), w!.blockRef?.kind, w!.blockRef?.name, valueFromRawSnippet(w!.rawSnippet));
       expect(cell, header).toEqual({ title: "INFO", gid: 0, a1: "A2", scope: "cell" });
@@ -749,7 +790,7 @@ Flip the two asymmetry pins in `tests/parser/fieldNearMissBaseline.test.ts` (spe
   });
 ```
 
-and rewrite the comment on the "Timestamp-block row resolves null" case (line 498) to: "Null here because the anchor set is the east-coast Stage table, which has no Timestamp block; a Timestamp row in its own workbook now anchors (tests/drive/unknownFieldAnchors.test.ts). Not a claim that Timestamp rows are unanchorable." If the near-miss guard does not accept `Stge` as a near-miss of `Stage` (`passesGuards` MIN_LEN / distinctiveness), pick the label the baseline's own Stage row used before it was corrected (read `tests/parser/fieldNearMissBaseline.test.ts` AC-N9 fixture rows) so the premise holds.
+and rewrite the comment on the "Timestamp-block row resolves null" case (line 498) to: "Null here because the anchor set is the east-coast Stage table, which has no Timestamp block; a Timestamp row in its own workbook now anchors (tests/drive/unknownFieldAnchors.test.ts). Not a claim that Timestamp rows are unanchorable." Fixture settled by probe before dispatch (a scratch tsx script over `synthesizeMarkdownFromXlsx` + `parseSheet`, run 2026-08-27): `[["DETAILS",""],["Stage","8' x 24' x 2'"]]` → `details:Stage`; `DETAILS/Room Diagram` → `details:Stage`; `GS DETAILS (FOR BOTH)` → `details:Stage`; `[["DETAILS",""],["Storage","closet"]]` → `details:Storage`. A misspelt `Stge` is NOT flagged (the guards reject it), which is why the fixture uses the baseline's own label.
 
 Append under the §2.2 ratified amendment paragraph in `docs/superpowers/specs/parser/2026-08-15-field-near-miss-detector-design.md`: "**Retired 2026-08-27** by `docs/superpowers/specs/2026-08-27-wizard-warning-row-links-copy-design.md` §2: the scanner now keys on `anchorNamespace` itself, so there is one family; the two baseline pins of the asymmetry were flipped in the same commit."
 
@@ -767,10 +808,13 @@ Retire the case at line 110 ("over-inclusive: does NOT stop at an internal blank
 ```ts
   it("rows after an internal blank row anchor under their OWN block's kind (the exporter splits there, and so does the detector)", async () => {
     const warnings = await anchoredUnknownFields({
-      INFO: [["DETAILS", ""], ["Stage Size", "40x12"], ["", ""], ["Stage Sze", "30x10"]],
+      INFO: [["DETAILS", ""], ["Stage Size", "40x12"], ["", ""], ["Stage", "30x10"]],
     });
-    const w = warnings.find((x) => x.blockRef?.name === "Stage Sze");
+    // Probed 2026-08-27: this shape emits exactly `stage:Stage` (the second block's opener IS
+    // the row, so its kind is the row's own normalized label), and nothing under `details`.
+    const w = warnings.find((x) => x.blockRef?.name === "Stage");
     premiseHolds("the second-block near-miss was flagged", w !== undefined);
+    expect(w?.blockRef?.kind).toBe("stage");
     expect(w?.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A4", scope: "cell" });
   });
 ```
@@ -1193,7 +1237,7 @@ describe("controlsNote renders only beside the controls (spec 2026-08-27 §4.3)"
 
 (`EXPECTED_CONTROLS_NOTE` is a test-side literal, so `NOTE` is defined by construction; add `expect(typeof NOTE).toBe("string")` as the first line of each test anyway.)
 
-`tests/admin/perShowActionableTransitions.test.tsx` (spec §11), edited to what the file actually is (read lines 14-92 first): (1) the `SYNTH` record type (line 24) gains `controlsNote?: string | null`, and `SYN_B`, `SYN_C`, `SYN_D` set `controlsNote: null` so the real `UNKNOWN_FIELD` spread cannot leak the new note into today's variants; `SYN_A` has no `SYNTH` entry by design (unknown code) and needs nothing. (2) Add `SYN_E: { title: "E title", helpfulContext: "E guidance", triggerContext: null, controlsNote: "E note: use Report" }` (G2) and `SYN_F: { title: "F title", helpfulContext: null, triggerContext: null, controlsNote: "F note: use Report" }` (G3). (3) G4 needs an INSTANCE line, which `autocorrectGuidance` (`lib/messages/autocorrectGuidance.ts`, `SENTENCE`) produces only for real autocorrect codes: add `FIELD_LABEL_AUTOCORRECTED` to `SYNTH` with `controlsNote: "G note: use Report"` (so the suppression is exercised on a code that HAS a note) and give the G warning an `autocorrect` payload (`{ subject: null, corrections: [{ detected: "Stge", corrected: "Stage" }] }`; `subject` is REQUIRED by the `Autocorrect` type at `lib/messages/autocorrectGuidance.ts:13`, `string | null`; the `warn` helper at line 44 gains an optional second argument for it). (4) `VARIANTS` (line 50) gains `E: { code: "SYN_E", guidance: true, trigger: false, note: true }`, `F: { code: "SYN_F", guidance: true, trigger: false, note: true }` (F's guidance element renders the note alone, so `guidance: true`), `G: { code: "FIELD_LABEL_AUTOCORRECTED", guidance: true, trigger: false, note: false }`; `expectVariant` (line 57) additionally asserts the guidance element's text ends with the variant's note iff `note`, contains no `Report` iff `!note`, and that `container.querySelector('[data-testid="per-show-actionable-guidance"]')?.closest("[data-motion], [style*=\"transition\"]")` is null. Render every variant with `showControlsNote` (the gate is the prop; the note's presence is the entry's). (5) The `PAIRS` array (line 65) is hardcoded over A-D: replace it with a derivation over every ordered pair of `Object.keys(VARIANTS)` (`KEYS.flatMap((x) => KEYS.filter((y) => y !== x).map((y) => [x, y] as const))`), which covers the ten G pairs both directions and keeps the existing six; the loop body (lines 74-84) is unchanged apart from passing `showControlsNote`. (6) The condensed axis: one more `it.each` over the same derived pairs rendering with `condensed`, asserting through the popover body slot the file already reads for the compound cases (lines 86-92). No `waitFor` anywhere: every assertion is synchronous after `rerender`.
+`tests/admin/perShowActionableTransitions.test.tsx` (spec §11), edited to what the file actually is (read lines 14-92 first): (1) the `SYNTH` record type (line 24) gains `controlsNote?: string | null`, and `SYN_B`, `SYN_C`, `SYN_D` set `controlsNote: null` so the real `UNKNOWN_FIELD` spread cannot leak the new note into today's variants; `SYN_A` has no `SYNTH` entry by design (unknown code) and needs nothing. (2) Add `SYN_E: { title: "E title", helpfulContext: "E guidance", triggerContext: null, controlsNote: "E note: use Report" }` (G2) and `SYN_F: { title: "F title", helpfulContext: null, triggerContext: null, controlsNote: "F note: use Report" }` (G3). (3) G4 needs an INSTANCE line, which `autocorrectGuidance` (`lib/messages/autocorrectGuidance.ts`, `SENTENCE`) produces only for real autocorrect codes: add `FIELD_LABEL_AUTOCORRECTED` to `SYNTH` with `controlsNote: "G note: use Report"` (so the suppression is exercised on a code that HAS a note) and give the G warning an `autocorrect` payload (`{ subject: null, corrections: [{ detected: "Stge", corrected: "Stage" }] }`; `subject` is REQUIRED by the `Autocorrect` type at `lib/messages/autocorrectGuidance.ts:13`, `string | null`; the `warn` helper at line 44 gains an optional second argument for it). (4) `VARIANTS` (line 50) is retyped so EVERY member has the same shape (strict TS: a `note` read on a member that lacks it is TS2339): `const VARIANTS = { A: { code: "SYN_A", guidance: false, trigger: false, note: false }, B: { code: "SYN_B", guidance: true, trigger: false, note: false }, C: { ... note: false }, D: { ... note: false }, E: { code: "SYN_E", guidance: true, trigger: false, note: true }, F: { code: "SYN_F", guidance: true, trigger: false, note: true }, G: { code: "FIELD_LABEL_AUTOCORRECTED", guidance: true, trigger: false, note: false } } as const satisfies Record<string, { code: string; guidance: boolean; trigger: boolean; note: boolean }>;` (F's guidance element renders the note alone, so `guidance: true`); `type VariantKey = keyof typeof VARIANTS;` `expectVariant` (line 57) additionally asserts the guidance element's text ends with the variant's note iff `note`, contains no `Report` iff `!note`, and that `container.querySelector('[data-testid="per-show-actionable-guidance"]')?.closest("[data-motion], [style*=\"transition\"]")` is null. Render every variant with `showControlsNote` (the gate is the prop; the note's presence is the entry's). (5) The `PAIRS` array (line 65) is hardcoded over A-D: replace it with a derivation over every ordered pair of the TYPED keys (`const KEYS = Object.keys(VARIANTS) as VariantKey[]; const PAIRS: ReadonlyArray<readonly [VariantKey, VariantKey]> = KEYS.flatMap((x) => KEYS.filter((y) => y !== x).map((y) => [x, y] as const));`; an untyped `Object.keys` yields `string` and `VARIANTS[x]` is then TS7053), which covers the ten G pairs both directions and keeps the existing six; the loop body (lines 74-84) is unchanged apart from passing `showControlsNote`. (6) The condensed axis: one more `it.each` over the same derived pairs rendering with `condensed`, asserting through the popover body slot the file already reads for the compound cases (lines 86-92). No `waitFor` anywhere: every assertion is synchronous after `rerender`.
 
 `tests/components/step3SheetCard.test.tsx`, next to the link tests at line 664-695:
 
@@ -1319,7 +1363,7 @@ Expected: clean and PASS. `codes.test.ts` is x1 (catalog ↔ §12.4 appendix via
 
 - [ ] **Step 5: Pre-dispatch mutants for the string-presence guards (record results in the commit body)**
 
-(a) empty `controlsNote` on `UNKNOWN_FIELD` → the frozen-fixture case and the active-list render case fail; (b) `controlsNote + " extra"` in the CATALOG only → the frozen-fixture case fails byte-for-byte AND the render case fails `endsWith` (the expectation is the registry literal); (c) note present but inside the Report button label only (render `controls` = `<span data-testid="dq-controls">{NOTE}</span>`, `controlsNote` removed from the catalog) → the strip-first assertion fails, proving the clone-and-remove is load-bearing; (d) `showControlsNote` toggled → the two cases swap outcomes. Each mutant is applied BY LINE (never by string replace: prettier wraps, and a wrapped target makes the replace a silent no-op), its application PROVED before the run (`git diff --stat` non-empty on the target file, and the target line's hash differs from HEAD), the suite run, the failing line noted, the mutant reverted. A RED result is self-proving (an unapplied mutant cannot fail a passing test); only a GREEN result needs proof, and a GREEN has THREE possible causes, only the last of which is a finding: (1) never applied (the hash check catches it); (2) applied but INERT within the observation window, its effect landing after the assertion read (the hash does NOT catch it; here every assertion is synchronous on the render, so make the mutant's effect land in the same render: a mutated string, a flipped condition, never a deferred write; and for any GREEN ask "could this mutant's effect have happened after I looked?" and, if in doubt, observe the effect independently, e.g. log the composed guidance string from the mutated site during the run); (3) applied, in-window, but on a PATH THE TEST NEVER TAKES (neither hash nor window catches it: prove the mutated line executed in the run, e.g. a temporary `throw` at the mutated site must turn the run red before the real mutant is trusted; here the two branches are `guidanceResult.kind === "instance"` versus catalog markup, and a note mutant must be applied on the branch the test actually renders); (4) applied, in-window, on the taken path, and the assertion genuinely fails to discriminate: the only real finding. Never hold the file list in a shell variable across tool calls; re-derive it per call.
+(a) empty `controlsNote` on `UNKNOWN_FIELD` → the frozen-fixture case and the active-list render case fail; (b) `controlsNote + " extra"` in the CATALOG only → the frozen-fixture case fails byte-for-byte AND the render case fails `endsWith` (the expectation is the registry literal); (c) note present but inside the Report button label only (render `controls` = `<span data-testid="dq-controls">{NOTE}</span>`, `controlsNote` removed from the catalog) → the strip-first assertion fails, proving the clone-and-remove is load-bearing; (d) `showControlsNote` toggled → the two cases swap outcomes. Each mutant is applied BY LINE (never by string replace: prettier wraps, and a wrapped target makes the replace a silent no-op), its application PROVED before the run (`git diff --stat` non-empty on the target file, and the target line's hash differs from HEAD), the suite run, the failing line noted, the mutant reverted. A RED result is self-proving (an unapplied mutant cannot fail a passing test); only a GREEN result needs proof, and a GREEN has THREE possible causes, only the last of which is a finding: (1) never applied (the hash check catches it); (2) applied but INERT within the observation window, its effect landing after the assertion read (the hash does NOT catch it; here every assertion is synchronous on the render, so make the mutant's effect land in the same render: a mutated string, a flipped condition, never a deferred write; and for any GREEN ask "could this mutant's effect have happened after I looked?" and, if in doubt, observe the effect independently, e.g. log the composed guidance string from the mutated site during the run); (3) applied, in-window, but on a PATH THE TEST NEVER TAKES (neither hash nor window catches it: prove the mutated line executed in the run, e.g. a temporary `throw` at the mutated site must turn the run red before the real mutant is trusted; here the two branches are `guidanceResult.kind === "instance"` versus catalog markup, and a note mutant must be applied on the branch the test actually renders); (4) applied, in-window, on the taken path, and the assertion genuinely fails to discriminate: the only real finding. And a RED can lie too: (5) a strawman mutant, one that does not take the shape the real defect takes, goes RED and proves nothing, and it is worse than a false green because it ends the investigation. Where a reviewer or an incident has supplied the defect's actual shape (spec R2's `FORM`-tab anchor, R4's same-label-different-value row, plan R2's `undefined`/`false`/`""` render-prop return), the mutant takes THAT shape, never a reconstruction of it. Never hold the file list in a shell variable across tool calls; re-derive it per call.
 
 - [ ] **Step 6: Commit**
 
@@ -1431,15 +1475,15 @@ Poll CI via GraphQL from a `nohup` loop writing to a file under the worktree's `
 
 | AC | owner |
 | --- | --- |
-| AC-1 | Task 3 (constructed workbook), Task 7 step 4 (live sheet) |
+| AC-1 | Task 3 (ria.xlsx corpus case and constructed workbooks), Task 7 step 5 (live sheet) |
 | AC-2 | Task 1, Task 2 (structure), Task 3 (equivalence suite) |
 | AC-3 | Task 3 step 4 |
 | AC-4 | Task 3 |
-| AC-5 | Task 4 |
+| AC-5 | Task 4 (including the RIA hotel case) |
 | AC-6 | Task 5 |
 | AC-7 | Task 6 |
-| AC-8 | Task 7 step 2 |
-| AC-9 | Task 7 steps 5 and 7 |
+| AC-8 | Task 7 steps 2 and 3 |
+| AC-9 | Task 7 steps 6 and 8 |
 
 ## 6. Registry reconciliation, run at plan time
 
