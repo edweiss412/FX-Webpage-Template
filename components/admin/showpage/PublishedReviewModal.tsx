@@ -78,6 +78,7 @@ import {
 } from "@/components/admin/review/sectionFreshness";
 import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import { deriveWarningAttention } from "@/lib/admin/warningAttention";
+import { HEADER_ACTION_CAP } from "@/components/admin/review/headerActionCap";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { buildPublishedSnapshot } from "@/components/admin/dev/snapshots";
 import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
@@ -986,7 +987,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               sweep in §3.0 ran eight cap values against three loads, 96 changed
               the 0-load baseline and 192 still failed at load 30, and the
               2-item cluster measures 147.73 naturally, below this cap. */}
-          <div className="flex shrink-0 items-center gap-2 max-sm:max-w-40">
+          <div className={`flex shrink-0 items-center gap-2 ${HEADER_ACTION_CAP}`}>
             {/* Attention pill (published-show-alerts §5.1) — four states from
                 the ONE derived list. `before:-inset-y-3` hit-band arithmetic is
                 COPIED from the prior pill: text-xs (~16px line box) + py-1

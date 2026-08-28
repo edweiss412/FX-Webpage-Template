@@ -49,6 +49,10 @@ export type WizardAttentionMenuProps = {
   onClose: () => void;
   onNavigate: (entry: WizardAttentionEntry) => void;
   pillRef: RefObject<HTMLButtonElement | null>;
+  /** True when this open was the once-per-mount AUTO-open rather than a press
+   *  of the pill. Such a panel stays Escape-transparent until the operator
+   *  engages with it (ratified amendment 2026-08-28). */
+  autoOpened?: boolean;
 };
 
 export function WizardAttentionMenu({
@@ -58,6 +62,7 @@ export function WizardAttentionMenu({
   onClose,
   onNavigate,
   pillRef,
+  autoOpened = false,
 }: WizardAttentionMenuProps) {
   if (!open) return null;
 
@@ -68,7 +73,14 @@ export function WizardAttentionMenu({
     <AttentionMenuRow
       key={`${entry.id}:${entry.index}`}
       testId={`wizard-step3-card-${dfid}-attention-row-${entry.index}`}
-      dotClassName={entry.tone === "judgment" ? "bg-text-faint" : "bg-status-review"}
+      /* Same hollow-vs-solid channel as the published menu, so one vocabulary
+         reads the same on both surfaces. Here the group headings already carry
+         the distinction in text; the shape keeps it true of a row read alone. */
+      dotClassName={
+        entry.tone === "judgment"
+          ? "border-[1.5px] border-text-faint bg-transparent"
+          : "bg-status-review"
+      }
       srText={entry.tone === "judgment" ? "judgment call: " : "needs review: "}
       title={reviewWarningTitle(entry.warning)}
       secondLine={entry.sectionLabel}
@@ -87,6 +99,7 @@ export function WizardAttentionMenu({
       scrollerLabel="Warnings to review"
       pillRef={pillRef}
       onClose={onClose}
+      escTransparentUntilEngaged={autoOpened}
       heading={
         /* Outside the scroller, the published "Needs you" placement: it keeps
            labelling the panel while a long list scrolls under it. */

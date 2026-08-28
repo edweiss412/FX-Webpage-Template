@@ -566,7 +566,10 @@ describe("sheet warnings group (spec §4.3)", () => {
     expect(judgIdx).toBeGreaterThanOrEqual(0);
     const rowFor = (i: number) => screen.getByTestId(`attention-menu-row-${entries[i]!.id}-${i}`);
     expect(rowFor(needsIdx).querySelector(".bg-status-review")).toBeTruthy();
-    expect(rowFor(judgIdx).querySelector(".bg-text-faint")).toBeTruthy();
+    // Hollow ring, not a fainter fill: on this surface both tones share one
+    // group, so shape carries the distinction rather than hue alone.
+    expect(rowFor(judgIdx).querySelector(".border-text-faint")).toBeTruthy();
+    expect(rowFor(judgIdx).querySelector(".bg-transparent")).toBeTruthy();
   });
 
   it("two identical warnings share an id but get distinct row testids", () => {

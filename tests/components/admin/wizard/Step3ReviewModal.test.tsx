@@ -548,8 +548,10 @@ describe("Step3ReviewModal — attention pill (spec §3.2)", () => {
     const menu = await q.findByTestId(menuTid);
     expect(menu).toBeInTheDocument();
     expect(q.getByTestId(tid("chip")).getAttribute("aria-expanded")).toBe("true");
-    // Closing consumes nothing further: the one-shot has fired for this mount.
-    escapeOnPill(q);
+    // Closed by PRESSING the pill, not by Escape: since the §3.5 scoping
+    // amendment an auto-opened panel is Escape-transparent, so Escape here
+    // would close the modal and this case is about the one-shot, not dismissal.
+    fireEvent.click(q.getByTestId(tid("chip")));
     expect(q.queryByTestId(menuTid)).toBeNull();
     await new Promise((r) => setTimeout(r, 0));
     expect(q.queryByTestId(menuTid)).toBeNull();
@@ -602,11 +604,45 @@ describe("Step3ReviewModal — attention pill (spec §3.2)", () => {
     expect(li1.hasAttribute("data-step3-warning-flash")).toBe(true);
   });
 
-  test("(12) Escape closes the menu first and the modal second", async () => {
+  // The §3.5 SCOPING amendment (ratified 2026-08-28), all three cases pinned.
+  // The rule is not "first Esc closes the menu" flatly — it is that a menu the
+  // user ENGAGED with claims Escape, and one that opened itself does not, so an
+  // auto-opened panel can never spend the Escape the operator meant for the
+  // modal. That is what broke the pre-existing exit-window contract.
+
+  test("(12a) auto-opened + first Escape closes the MODAL, not the menu", async () => {
+    const onClose = vi.fn();
+    const d = sectionData({ warnings: [warning("crew")] });
+    const { q } = renderModal({ d, onClose });
+    await q.findByTestId(menuTid); // opened itself; the operator did nothing
+    escapeOnPill(q);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  test("(12b) auto-opened + ENGAGED + Escape closes the MENU, and the modal stays", async () => {
+    const onClose = vi.fn();
+    const d = sectionData({ warnings: [warning("crew")] });
+    const { q } = renderModal({ d, onClose });
+    const menu = await q.findByTestId(menuTid);
+    // Engagement is exactly what flips it: a pointer entering the panel.
+    fireEvent.pointerEnter(menu);
+    escapeOnPill(q);
+    expect(q.queryByTestId(menuTid)).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("(12) user-opened + Escape closes the menu first and the modal second", async () => {
     const onClose = vi.fn();
     const d = sectionData({ warnings: [warning("crew")] });
     const { q } = renderModal({ d, onClose });
     await q.findByTestId(menuTid);
+    // Close the auto-open by PRESSING the pill (Escape would close the modal
+    // now), then press again to open it as a USER: a pressed menu is engaged by
+    // construction and claims Escape under §3.5 as written.
+    fireEvent.click(q.getByTestId(tid("chip")));
+    expect(q.queryByTestId(menuTid)).toBeNull();
+    fireEvent.click(q.getByTestId(tid("chip")));
+    expect(q.getByTestId(menuTid)).toBeTruthy();
     escapeOnPill(q);
     expect(q.queryByTestId(menuTid)).toBeNull();
     expect(onClose).not.toHaveBeenCalled();

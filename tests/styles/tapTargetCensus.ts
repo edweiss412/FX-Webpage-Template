@@ -205,7 +205,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     file: "components/admin/wizard/Step3ReviewModal.tsx",
     // :783 until 2026-08-27 — the attention pill's state block and its effects
     // (spec §3.2/§3.5) sit above the resolution radios.
-    line: 961,
+    line: 972,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",

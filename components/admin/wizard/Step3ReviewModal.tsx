@@ -48,6 +48,7 @@ import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { warningsBySection } from "@/lib/admin/step3SectionStatus";
 import { deriveWarningAttention } from "@/lib/admin/warningAttention";
+import { HEADER_ACTION_CAP } from "@/components/admin/review/headerActionCap";
 import {
   WizardAttentionMenu,
   type WizardAttentionEntry,
@@ -332,6 +333,10 @@ export function Step3ReviewModal({
   const menuId = useId();
   const pillRef = useRef<HTMLButtonElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  // WHY it is open, not just that it is: an auto-opened panel is
+  // Escape-transparent until engaged (ratified amendment 2026-08-28, scoping
+  // spec §3.5), so the operator's first Esc still closes the MODAL.
+  const [menuAutoOpened, setMenuAutoOpened] = useState(false);
   const pillInteractive = !isDirtyRescan && n + m > 0;
   // Reconciliation, following the published modal's probe-ratified mechanism
   // (PublishedReviewModal.tsx, "Compound reconciliation"): the menu's open state
@@ -363,6 +368,7 @@ export function Step3ReviewModal({
     if (n === 0) return;
     const raf = requestAnimationFrame(() => {
       autoOpenFiredRef.current = true;
+      setMenuAutoOpened(true);
       setMenuOpen(true);
     });
     return () => cancelAnimationFrame(raf);
@@ -554,8 +560,12 @@ export function Step3ReviewModal({
                   data-testid={`wizard-step3-card-${dfid}-review-chip`}
                   aria-expanded={menuOpen}
                   aria-controls={menuId}
-                  onClick={() => setMenuOpen((v) => !v)}
-                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums max-sm:max-w-40 max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                  onClick={() => {
+                    // A press is an engaged open, whichever way it toggles.
+                    setMenuAutoOpened(false);
+                    setMenuOpen((v) => !v);
+                  }}
+                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums ${HEADER_ACTION_CAP} max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                     n > 0
                       ? "border border-warning-text bg-warning-bg text-warning-text hover:bg-warning-bg/80"
                       : /* judgment-only: quiet, because a judgment call is not a
@@ -627,6 +637,7 @@ export function Step3ReviewModal({
                     onClose={() => setMenuOpen(false)}
                     onNavigate={navigateTo}
                     pillRef={pillRef}
+                    autoOpened={menuAutoOpened}
                   />
                 </div>
               </div>

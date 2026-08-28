@@ -81,6 +81,17 @@ export type AttentionMenuFrameProps = {
   /** Rendered ABOVE the scroller, so it labels the panel while a long list
    *  scrolls under it. Omit for a panel whose leading group heading scrolls. */
   heading?: ReactNode;
+  /** ESCAPE-TRANSPARENT until the user engages with the panel.
+   *
+   *  Ratified amendment 2026-08-28 (bl-orch), SCOPING spec §3.5 rather than
+   *  negating it. "First Esc closes the menu" presumes a menu the user OPENED;
+   *  an auto-opened panel nobody asked for must not spend the user's first
+   *  Escape, which is what broke the pre-existing exit-window contract
+   *  (`step3-review-modal.interactions.spec.ts`: the modal never closed).
+   *  Once the user hovers, focuses, or clicks inside, §3.5 applies as written.
+   *  Absent or false → the panel claims Escape immediately, which is correct
+   *  for a menu the user opened by pressing the pill. */
+  escTransparentUntilEngaged?: boolean;
   children: ReactNode;
 };
 
@@ -192,7 +203,17 @@ export function AttentionMenu({
             <AttentionMenuRow
               key={`${entry.id}:${i}`}
               testId={`attention-menu-row-${entry.id}-${i}`}
-              dotClassName={entry.tone === "judgment" ? "bg-text-faint" : "bg-status-review"}
+              /* Judgment is HOLLOW, not merely a fainter fill. DESIGN.md's
+                 colour-blind floor says a state signal never rides on hue
+                 alone, and `sr-only` text is AT-only — on this surface the two
+                 tones share a group (spec §4.3 ratifies no split here), so
+                 shape has to carry it. The hollow ring is this menu's own
+                 existing idiom, already used by the monitoring dot below. */
+              dotClassName={
+                entry.tone === "judgment"
+                  ? "border-[1.5px] border-text-faint bg-transparent"
+                  : "bg-status-review"
+              }
               srText={entry.tone === "judgment" ? "judgment call: " : "needs review: "}
               title={reviewWarningTitle(entry.warning)}
               secondLine={entry.sectionLabel}
@@ -303,9 +324,13 @@ export function AttentionMenuFrame({
   pillRef,
   onClose,
   heading,
+  escTransparentUntilEngaged = false,
   children,
 }: AttentionMenuFrameProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  // Engagement is a REF, not state: it must not re-render the panel, and the
+  // listener below reads it at event time rather than closing over a snapshot.
+  const engagedRef = useRef(!escTransparentUntilEngaged);
   const [entered, setEntered] = useState(false);
   // Re-apply key is the entrance flag: the scale-95 entrance distorts the
   // measured rect, and the mount measurement runs before the entrance rAF, so
@@ -328,6 +353,9 @@ export function AttentionMenuFrame({
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      // Not yet engaged: let the key travel to the shell, which closes the
+      // modal. The panel goes with it, so nothing is orphaned.
+      if (!engagedRef.current) return;
       e.preventDefault();
       e.stopPropagation();
       onClose();
@@ -365,6 +393,15 @@ export function AttentionMenuFrame({
       data-testid={testId}
       role="group"
       aria-label={ariaLabel}
+      onPointerEnter={() => {
+        engagedRef.current = true;
+      }}
+      onPointerDownCapture={() => {
+        engagedRef.current = true;
+      }}
+      onFocusCapture={() => {
+        engagedRef.current = true;
+      }}
       className={`absolute top-[calc(100%+8px)] right-0 z-dropdown w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-popover transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
         entered ? "scale-100 opacity-100" : "scale-95 opacity-0"
       }`}

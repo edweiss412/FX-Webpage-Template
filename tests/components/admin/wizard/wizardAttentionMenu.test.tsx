@@ -136,7 +136,8 @@ describe("WizardAttentionMenu (spec §3.3)", () => {
     const judgRow = screen.getByTestId(rowTid(judg.index));
     expect(needsRow.querySelector(".bg-status-review")).toBeTruthy();
     expect(needsRow.querySelector(".sr-only")?.textContent).toBe("needs review: ");
-    expect(judgRow.querySelector(".bg-text-faint")).toBeTruthy();
+    expect(judgRow.querySelector(".border-text-faint")).toBeTruthy();
+    expect(judgRow.querySelector(".bg-transparent")).toBeTruthy();
     expect(judgRow.querySelector(".sr-only")?.textContent).toBe("judgment call: ");
     // Titles come from the shared helper (invariant 5: never a bare code).
     expect(needsRow.textContent).toContain(reviewWarningTitle(needs.warning));

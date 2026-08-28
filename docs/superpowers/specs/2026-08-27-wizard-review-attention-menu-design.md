@@ -183,6 +183,25 @@ Dirty-rescan and finalize-demoted footers untouched.
 - Reconciliation (the published "Compound reconciliation" precedent, `PublishedReviewModal.tsx`): an effect with deps `[pillInteractive, menuOpen]` calls `setMenuOpen(false)` whenever `menuOpen && !pillInteractive`. So warning→dirty and count→0 both close the menu and clear the state, and dirty→warning always starts closed; a menu can never reappear already open.
 - Auto-open once per mount: the published effect minus its `alertId` arm — `useRef(false)` guard; if `!pillInteractive`, return WITHOUT consuming (a dirty rescan on arrival defers the one-shot until the sheet is re-approved and the pill is interactive again, which is the moment the operator needs the index); if `menuOpen`, consume; if `n === 0`, return; else `requestAnimationFrame(() => { fired = true; setMenuOpen(true) })`, frame cancelled on cleanup, guard consumed only inside the callback. Deps `[n, menuOpen, pillInteractive]`.
 - Close paths: Escape (frame, capture phase, focus to pill), pointerdown outside panel + pill, focus moving outside, row activation, the reconciliation effect (dirty rescan, count 0), modal unmount.
+
+**RATIFIED AMENDMENT 2026-08-28 (bl-orch): Escape is scoped to an ENGAGED menu.**
+"First Esc closes the menu, second closes the modal" presumes a menu the operator
+OPENED. An auto-opened panel that claims the first Escape spends it on something
+nobody asked for, and that broke a pre-existing contract: the exit-window case in
+`tests/e2e/step3-review-modal.interactions.spec.ts` measured `closeCount` 0,
+because the modal never closed. This SCOPES the rule rather than negating it:
+
+- Auto-opened and not yet engaged → the frame does NOT claim Escape; the key
+  reaches the shell and closes the MODAL (the panel goes with it).
+- Engaged (pointer enters, focus enters, or a pointerdown inside) → the rule
+  above applies exactly as written.
+- Opened by pressing the pill → engaged by construction, so the rule applies
+  from the first Escape.
+
+Carried by `AttentionMenuFrame`'s `escTransparentUntilEngaged` prop, which the
+wizard passes as `autoOpened`. The published menu does not pass it, so its
+behaviour is unchanged. All three cases are pinned in
+`tests/components/admin/wizard/Step3ReviewModal.test.tsx` (12a / 12b / 12).
 - Focus rescue, copied from `PublishedReviewModal.tsx` `menuWasEffectivelyOpenRef` (monitoring-badge-expand §3.3) with `interactive` → `pillInteractive`: a dep-less effect runs after every commit. While `menuEffectivelyOpen`, if `document.activeElement` is `body` or outside the `[role="dialog"]` (a focused row unmounted because its warning left the list), focus the pill. When the menu was open on the previous commit and is now closed because `pillInteractive` went false (dirty rescan, count 0; NOT a user close, which keeps `pillInteractive` true and manages its own focus), focus the dialog root (`tabindex="-1"` set if absent). Focus never leaves the dialog through a data change.
 
 ## 4. Part B: published modal (`PublishedReviewModal.tsx`)

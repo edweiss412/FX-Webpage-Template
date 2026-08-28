@@ -94,7 +94,7 @@ impression.
 | Performance | 4/4 | One `useMemo` for the derivation, keyed on `data`. The auto-open frame is cancelled on cleanup (proved: a mutant counting scheduled vs cancelled frames shows every frame cancelled on unmount, with no `console.error`). The reconciliation is a render-phase narrowing, so no cascading effect render. No layout property is animated. |
 | Theming | 4/4 | Zero raw hex, zero arbitrary color values, zero Tailwind palette colors in the diff. Every color is a DESIGN.md token: `status-review`, `text-faint`, `surface-sunken`, `warning-bg`, `warning-text`, `border`, `text-subtle`. No NEW token was introduced, so DESIGN.md needs no entry and no new contrast pin. Contrast comes from §1.2's existing measurements: `warning-text` on `warning-bg` is 9.5:1 light / 9.2:1 dark (AAA). The `/80` alpha on the judgment segment applies ONLY on the amber branch (~5.35:1, AA at text-xs); the judgment-only pill inherits `text-text` on `bg-surface-sunken` with no alpha. |
 | Responsive | 4/4 | No fixed widths added. The pill's hit band is a real-browser assertion, not a class check: the VISIBLE pill measures under 44px and the resolved band measures over it, so a passing band cannot be the box's own height. Every menu row clears 44px at both 1280x800 and 375x667. The one responsive defect found is the 375 clip overflow, filed and pre-existing (§3). |
-| Anti-patterns | 4/4 | Bundled detector: exit 0, zero findings across all eight changed component files. None of the absolute bans is present: no side-stripe accent, no gradient text, no decorative glassmorphism, no hero-metric block, no card grid, no per-section eyebrow, no numbered markers. |
+| Anti-patterns | 4/4 | Bundled detector over all eight changed files (Assessment B): exit 2, 2 findings, both `broken-image` at `step3ReviewSections.tsx:3789` and `:3820` — PRE-EXISTING `DiagramTile` sites this diff does not touch (it touches `:134` and `:3057-3072`), and both are the documented raw-`<img>` revert with an `onError` fallback. CORRECTION: this row first read "exit 0, zero findings across all eight" on the strength of a run over THREE files; that was an overstated generalisation from a narrower run, and the eight-file run is the one quoted now. None of the absolute bans is present: no side-stripe accent, no gradient text, no decorative glassmorphism, no hero-metric block, no card grid, no per-section eyebrow, no numbered markers. |
 
 **One considered deviation.** The two new `transition-colors duration-fast`
 declarations carry no `motion-reduce:` variant, while the chevron's
@@ -112,17 +112,17 @@ dash added by this diff is in a comment; none is in rendered copy.
 
 ### 5.2 `/impeccable critique` — design
 
-⚠️ DEGRADED: single-context (sub-agent reports were not delivered)
+**Correction, 2026-08-28.** This section first carried a
+`⚠️ DEGRADED: single-context` banner, on the grounds that neither sub-agent's
+report reached the session. That was true when written and is not true now: both
+reports arrived LATE, after this doc was committed. The run was two isolated
+sub-agents as the command requires, so the marker is `critique=RAN`. The banner
+is recorded here rather than deleted, because the reason it was written — never
+report a two-agent run that did not happen — is the same reason it has to come
+off once the run demonstrably did.
 
-Declared rather than hidden, because a silent degraded critique is a failed
-critique. Assessment A and Assessment B were dispatched as two isolated
-sub-agents as the command requires; both ran to completion and went idle, and
-neither one's report ever reached this session — two explicit re-requests
-included. Rather than block the pipeline on a delivery fault or, worse, report a
-clean two-agent run that did not happen, both assessments were then completed
-single-context. Assessment B's work is fully reproducible from the evidence in
-§5.1 (deterministic detector plus the repo's own mechanical gates); Assessment A
-is the design judgment below.
+Both reports are folded in below. They found two P1s the single-context pass
+missed, which is the argument for the two-agent structure making itself.
 
 **AI slop verdict: not slop.** None of the absolute bans appears. The pill is not
 a hero-metric block, the menu is not a card grid, there is no eyebrow scaffolding
@@ -193,8 +193,69 @@ clear the 44px floor in a real browser. Nothing is hover-only. The jump opens a
 collapsed disclosure before scrolling, so a row can never point at something he
 cannot see. The P1 above was the one place this failed, and it is fixed.
 
-**Disposition:** P0 = 0. P1 = 1, FIXED in this branch, not deferred. No
-`DEFERRED.md` entry is required. The two 3/4 heuristics are ratified-scope
-decisions, recorded here rather than raised as findings.
+### 5.3 Findings from the two sub-agent assessments (arrived late)
 
-impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=0 p1=1 dispositions=recorded
+**P1, FIXED — colour-blind floor in the published Sheet warnings group.**
+Assessment A: both tones share one group there (spec §4.3 ratifies no split on
+published), and judgment vs needs-look was carried by dot HUE alone —
+`bg-text-faint` against `bg-status-review` — with the `sr-only` text reaching
+assistive tech only. PRODUCT.md's floor says a state signal never rides on hue
+alone. Fixed with the hollow ring rather than a group split, so the ratified
+no-split decision stands: hollow-vs-solid is this menu's OWN existing idiom, the
+monitoring dot already uses it, and the same treatment is applied on both
+surfaces so one vocabulary reads the same in each.
+
+**P1, FIXED under a ratified amendment — the auto-opened menu spent the user's
+first Escape.**
+Assessment A found it as a user-control defect; CI found the same root cause as a
+failure of the pre-existing exit-window contract
+(`step3-review-modal.interactions.spec.ts:1168`, `closeCount` 0). Three ratified
+things collide: §1.1 row 6 ratifies auto-open, §3.5 ratifies first-Esc-closes-the
+-menu, and the exit-window contract predates both and assumed no menu could claim
+the key. Escalated rather than decided inside the arc, and bl-orch RATIFIED the
+recommendation: Escape is scoped to an ENGAGED menu. An auto-opened panel is
+Escape-transparent until the operator engages with it (pointer or focus entering,
+or a pointerdown inside); after that §3.5 applies as written; a pill press is
+engaged by construction. This scopes §3.5 and negates nothing — the exit-window
+contract holds always, §3.5 holds for engaged menus. Carried by
+`AttentionMenuFrame`'s `escTransparentUntilEngaged`, which only the wizard passes,
+so published behaviour is untouched. Recorded as a ratified amendment in spec
+§3.5 and pinned by three cases (12a auto + first Esc closes the MODAL; 12b auto +
+engaged + Esc closes the MENU; 12 user-opened + Esc closes the MENU). The CI
+failure that surfaced it now passes, along with its scrim and X siblings.
+
+**The shared header cap (AC-18), amended rather than duplicated.** The 375px
+title fix needed the same `max-sm:max-w-40` the published cluster carries, and
+AC-18 pinned that literal to exactly ONE occurrence — a rule that could only
+forbid a second surface or be satisfied by a second copy, which is the drift it
+exists to stop. Shrink-based alternatives were measured and do not work (the
+cluster is `shrink-0` by design; the pill stayed at 236px). Ruled by bl-orch:
+extract to one shared definition, `components/admin/review/headerActionCap.ts`,
+with both surfaces consuming it, and amend AC-18 to "one shared definition plus
+registered consumers asserted by name". Two consumers of one constant cannot
+diverge at all, which serves the original intent more strongly than counting
+strings.
+
+**P2s, recorded not actioned.** Footer "parsed with judgment" beside the pill's
+"judgment call" is spec §6 copy, verbatim and ratified. The published pill not
+splitting by judgment while the wizard does is spec §1.1, ratified. Rows have
+hover and focus-visible but no `active:` state — a real gap, and a shared-row
+change affecting the published surface, so it is not taken here.
+
+**P3s.** Two straight apostrophes in rendered copy, against a repo convention
+that is straight-dominant (`COPY_STRAIGHT_APOSTROPHE` is advisory and scoped to
+spec docs, not components). The judgment dot's `bg-text-faint` on
+`bg-surface-sunken` measures 3.02:1 — now moot as a sole carrier, since shape
+carries the distinction after the fix above.
+
+**Both assessments flagged the diff base.** They reviewed at merge-base
+`5d5d26e8c`, correctly noting the branch was behind `origin/main` and that a raw
+`git diff origin/main` misattributed unrelated reverts. `origin/main` has since
+been absorbed, which resolves that caveat.
+
+**Disposition:** P0 = 0. P1 = 3 — two FIXED in this branch (the 375px title
+squeeze, the colour-blind floor), one FIXED under a ratified amendment (the Escape
+claim). No `DEFERRED.md` entry is required: none was deferred. The two 3/4 heuristics are ratified-scope decisions, recorded rather than
+raised.
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=3 dispositions=recorded

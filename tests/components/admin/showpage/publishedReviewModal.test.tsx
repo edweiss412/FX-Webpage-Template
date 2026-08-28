@@ -1629,13 +1629,33 @@ describe("AC-18 — the header cap has exactly one definition", () => {
         idx = src.indexOf(CAP, idx + 1);
       }
     }
+    // AMENDED 2026-08-28 (bl-orch ruling, wizard-review-attention-menu): the pin
+    // is now ONE SHARED DEFINITION plus its registered consumers, asserted by
+    // name — not one literal occurrence. A second surface legitimately needs
+    // this cap, and the literal-count form could only forbid that or be
+    // satisfied by a second copy, which is the very drift AC-18 exists to stop.
+    // Two consumers of one exported constant cannot diverge at all, so this
+    // serves the original intent more strongly than counting strings did.
     expect(hits, `"${CAP}" must have exactly one definition`).toHaveLength(1);
-    expect(hits[0]).toContain("components/admin/showpage/PublishedReviewModal.tsx");
+    expect(hits[0]).toContain("components/admin/review/headerActionCap.ts");
 
-    // And it is on the ACTION CLUSTER, not merely somewhere in that file. The
-    // count alone would pass if the cap moved to the title column, which is the
-    // element it is supposed to leave room FOR.
-    const src = readFileSync("components/admin/showpage/PublishedReviewModal.tsx", "utf8");
-    expect(src).toContain(`className="flex shrink-0 items-center gap-2 ${CAP}"`);
+    // Every consumer is registered here BY NAME and asserted to read the shared
+    // constant. A new consumer that inlines the literal instead fails the count
+    // above; one that forgets to apply it fails here.
+    const CONSUMERS = [
+      [
+        "components/admin/showpage/PublishedReviewModal.tsx",
+        "className={`flex shrink-0 items-center gap-2 ${HEADER_ACTION_CAP}`}",
+      ],
+      ["components/admin/wizard/Step3ReviewModal.tsx", "${HEADER_ACTION_CAP}"],
+    ] as const;
+    for (const [file, marker] of CONSUMERS) {
+      const src = readFileSync(file, "utf8");
+      expect(src, `${file} must import the shared cap`).toContain(
+        'from "@/components/admin/review/headerActionCap"',
+      );
+      // And it is applied where it leaves room FOR the title, not on the title.
+      expect(src, `${file} must apply the shared cap`).toContain(marker);
+    }
   });
 });
