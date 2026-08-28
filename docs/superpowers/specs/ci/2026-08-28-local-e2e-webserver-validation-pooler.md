@@ -86,6 +86,9 @@ $ node -e 'delete process.env.TEST_DATABASE_URL;
 unset -> host: aws-1-us-east-2.pooler.supabase.com:5432
 ```
 
+Both probes above run in development mode; §7's T2 generalises them to production, which is the mode
+`pnpm build && pnpm start` uses, and pins both.
+
 So the working form is **pin the key to a loopback value**, never drop it. The port 3004 entry already
 says exactly this in prose (`playwright.config.ts:412-414`): "The key is PINNED rather than dropped:
 `next dev` loads `.env.local` itself and an explicit value in this env wins, where an absent one
@@ -258,11 +261,44 @@ is added, which is the enumeration shape this project's class-sweep rule rejects
 *Failure mode caught:* a new webServer entry, or a future edit dropping a pin, silently handing the
 app server a remote database. This is the exact defect that sent nine emails on 2026-08-26.
 
-**T2 — the override survives Next's own env load.** Hermetic: a tmpdir fixture with its own
-`.env.local` holding a sentinel *remote* DSN. Arm 1 (the negative control, and it runs first):
-nothing pre-set, so the fixture's remote value must land — proving the fixture is live and the
-assertion is capable of failing. Arm 2: a loopback value pre-set, which must survive. No dependency
-on the developer's real `.env.local`, so it passes on a bare runner.
+**T2 — the override survives Next's own env load, in BOTH modes the servers run in.** Hermetic: a
+tmpdir fixture with its own `.env.local` holding a sentinel *remote* DSN. Four arms — two load modes,
+each with a negative control and a positive assertion.
+
+**Why two modes rather than one.** `@next/env` chooses its file list from `NODE_ENV`, and the entries
+this spec pins run in both: `pnpm dev` on port 3000 is development; `pnpm build && pnpm start` on the
+CI port 3000 and on 3001-3004, plus the screenshots config's server, are production. A
+development-only T2 stays green through a production-only precedence regression, which is failure
+mode (b) — a guard passing while an app server takes a remote DSN. Raised as BLOCKING in spec review
+round 2 and accepted in full.
+
+**`NODE_ENV` is set explicitly per arm and never inherited, and this is the trap.** Vitest runs with
+`NODE_ENV=test`, and in test mode `@next/env` does not read `.env.local` **at all**. A child
+inheriting it loads nothing, so the negative control has no remote value to beat and the arm measures
+nothing. Probed on this branch, all three modes, both arms each:
+
+```
+development  unset   : postgresql://u:p@remote.sentinel.invalid:5432/postgres | files=.env.local
+development  preset  : postgresql://postgres:postgres@127.0.0.1:54322/postgres | files=.env.local
+production   unset   : postgresql://u:p@remote.sentinel.invalid:5432/postgres | files=.env.local
+production   preset  : postgresql://postgres:postgres@127.0.0.1:54322/postgres | files=.env.local
+test         unset   : (unset)                                                | files=(none)
+test         preset  : postgresql://postgres:postgres@127.0.0.1:54322/postgres | files=(none)
+```
+
+The `test` row is why the premise below is not optional: without it, that row is
+indistinguishable from a pass.
+
+**Premise, executable.** Each child reports `loadEnvConfig`'s own `loadedEnvFiles`, and T2 asserts
+`.env.local` is among them before trusting any arm. If a future change lets the child inherit
+`NODE_ENV=test` — or the fixture stops being read for any other reason — `loadedEnvFiles` is empty
+and the premise fails loud instead of the arms passing vacuously.
+
+The mode set is closed, not open: it is the two modes the two Playwright configs actually boot, read
+off their own commands. `test` is asserted against rather than covered, because no webServer runs in
+it.
+
+No dependency on the developer's real `.env.local`, so all four arms pass on a bare runner.
 
 **Each arm runs in its own child process, and that is load-bearing rather than stylistic.**
 `@next/env` snapshots the environment on its first call and a reload restores that snapshot, so two
@@ -286,8 +322,9 @@ reason. Had the in-process shape shipped, T2 would have failed on correct code a
 would have been to weaken or delete the assertion.
 
 *Failure mode caught:* a Next upgrade flipping `.env.local` precedence to override the parent
-environment, which would re-expose validation through a config that still *looks* pinned. Nothing in
-the repo would otherwise notice.
+environment — in EITHER load mode — which would re-expose validation through a config that still
+*looks* pinned. Nothing in the repo would otherwise notice, and a single-mode guard would notice only
+half of it.
 
 **T3 — the preflight remedy is executable advice.** Extend `tests/scripts/`'s existing spawn-based
 preflight coverage: run the script with a non-loopback `TEST_DATABASE_URL` and assert the emitted
