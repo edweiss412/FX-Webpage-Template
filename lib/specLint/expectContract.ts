@@ -47,7 +47,7 @@ export function checkExpectN(model: DocModel, kind: "spec" | "plan"): Finding[] 
       docLine: i + 1,
       column: line.indexOf("#", cmd.length) + 1,
       message: `expectation \`${m[2]!}\` is stated in a comment; the command's exit status does not encode it`,
-      detail: `${cmd.trim()} — a reader must compare the printed value by eye; nothing fails when it differs`,
+      detail: `${cmd.trim()}: a reader must compare the printed value by eye; nothing fails when it differs`,
     });
   }
   return findings;
@@ -147,7 +147,7 @@ export function synthesizeCollectionVerdicts(
         severity: "fail",
         docLine: candidate.line,
         column: 1,
-        message: `\`${file}\` is not collected under \`${candidate.config}\` — this gate cannot observe its subject`,
+        message: `\`${file}\` is not collected under \`${candidate.config}\`; this gate cannot observe its subject`,
         detail:
           "zero collection exits non-zero for a COLLECTION reason, which a red-then-green cycle misreads as red observed; name the config that collects the file, or fix the path",
       });

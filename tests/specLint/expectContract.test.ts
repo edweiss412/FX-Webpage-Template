@@ -114,7 +114,7 @@ describe("§4.5 — finding payload", () => {
     // both. The command is derived from the fixture line itself.
     expect(f.detail).toBeDefined();
     expect(f.detail).toBe(
-      `${cmd.trim()} — a reader must compare the printed value by eye; nothing fails when it differs`,
+      `${cmd.trim()}: a reader must compare the printed value by eye; nothing fails when it differs`,
     );
   });
 });
