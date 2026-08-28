@@ -73,9 +73,9 @@ Reproduce the populations with `python3 scripts/probe/red-truth-census.py`.
 
 **Named by:** 3 arcs — feat/speclint-ac-unclaimed-arm/44b0d74b1107.md (diff), feat/private-image-pipeline/d2a31e4aa021.md (diff, the `alertProducerScope.registry.ts` instance: one hoisted emit invalidated 19 rows across three files), feat/wizard-review-attention-menu/66c9857f56a5.md (spec: eight line-keyed rows across `tests/styles/*` and `pageTransitions`/`step3JudgmentChrome` counts moved by a header button; the re-file trigger below has now fired)
 
-**Owning record:** the documented-limit note at the head of `tests/mutation/source/registry.ts` (placed by the ac-unclaimed arc), plus this index
+**Owning record:** `docs/superpowers/specs/2026-08-28-line-keyed-registry-durable-keys-design.md` §7 (the refutation record; supersedes this index as the primary), plus the documented-limit note at the head of `tests/mutation/source/registry.ts` (placed by the ac-unclaimed arc)
 
-**Re-file trigger:** a third arc hitting it or a product arc blocked by it (stated in the ac-unclaimed filing)
+**Re-file trigger:** SUPERSEDED 2026-08-28. The original trigger (a third arc, or a product arc blocked) fired, `BL-LINE-KEYED-REGISTRY-ROWS` was raised, and `feat/line-keyed-registry-durable-keys` measured the class repair and refuted it: 41.5% of attributed re-keys land on rows whose anchor is site-derivable, against a 42.6% registry share, so churn is proportional and there is no pocket of value. **A further arc merely HITTING this limit is therefore no longer sufficient to re-file** — that question is settled and re-asking it costs an arc. The two arms that would change the answer are in the spec's §8: an anchor design that derives the 27 hand-authored rows, or churn concentration rising above half, re-measured. Correction carried from that arc: the class repair named above (`operator + from-text + to-text`) leaves only 28% of ledger rows uniquely resolvable, not the 45% first measured — 121 is the count of distinct scoped keys, and only 76 of 268 rows sit in a cardinality-one group.
 
 **Fired 2026-08-27:** filed as `BL-LINE-KEYED-REGISTRY-ROWS` (BACKLOG.md, `Mint-exception: recurrence`) on the third naming, `feat/wizard-review-attention-menu`.
 

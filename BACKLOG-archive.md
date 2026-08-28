@@ -1,3 +1,36 @@
+## BL-LINE-KEYED-REGISTRY-ROWS — registries keyed by `file:line` are invalidated wholesale by any edit above the row — CLOSED 2026-08-28, DEMOTED ON A MEASURED REFUTATION
+
+**Status:** CLOSED 2026-08-28 (`feat/line-keyed-registry-durable-keys`), demoted to a documented limit rather than built · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`; owner-directed by bl-orch under the recurrence exception) · **Facing:** process · **Mint-exception:** recurrence (`LIM-LINE-KEYED-SITEID`) · **Severity:** MEDIUM as filed · **Class:** structural-registry keying · **Effort:** M as filed
+
+The row asked for a durable content-anchored key to replace `file:line` in the highest-churn registries. **The arc designed one, built its resolver, measured what it would actually buy, and it does not pay.** No registry migrates and no resolver ships. The full record is `docs/superpowers/specs/2026-08-28-line-keyed-registry-durable-keys-design.md`; the limits it leaves behind are that spec's §7.
+
+### The measurement that decided it
+
+The threshold was set by the orchestrator BEFORE the measurement, so it could not be chosen to fit: migrate only if MORE THAN HALF the measured re-keys land on rows whose anchor a scanner can genuinely derive from the site. Two independent methods agree:
+
+|                                                              | count  | share     |
+| ------------------------------------------------------------ | ------ | --------- |
+| pure re-keys on `alertProducerScope.registry.ts`, 56 commits | 192    | —         |
+| attributed                                                   | 188    | 97.9%     |
+| **on site-derivable rows**                                   | **78** | **41.5%** |
+| on non-derivable rows                                        | 110    | 58.5%     |
+
+**41.5% is under half.** The reason matters more than the number: **churn is proportional, not concentrated.** Site-derivable rows are 20 of 47 (42.6%) of the registry and take 41.5% of its churn, so there is no pocket of value to extract. The top-churning row is non-derivable (`lib/drive/watch.ts` · `WATCH_CHANNEL_ORPHANED`, 20 re-keys) and the two classes alternate down the whole top five.
+
+### Why the candidate registry looked good and was not
+
+27 of its 47 rows carry hand-authored anchor fields: 20 `dynamic: true`, 12 `computedContext: true`, 5 both. Discovery represents a dynamic code as `code == null` (`tests/adminAlerts/_metaAlertProducerScope.test.ts:174`), computed context keys are hand-authored by contract, and `scope` comes from the registry row for every row. The "content anchor" would have compared registry fields against registry fields — self-validating, the exact tautology the row exists to remove. Genuine site-derivable anchorability is **20 of 47 (43%)**, against the 39% JSX side that had already been descoped for being too low.
+
+The arc's own prototype passed 14 of 14 and did not catch this, because it compared registry-parsed anchors against registry-parsed anchors and never extracted from a live site. Cross-model review did catch it. Any future attempt starts with live site extraction, not with a resolver.
+
+### What shipped instead
+
+`scripts/line-key-census.mjs`, walker-derived, four modes (`--anchors`, `--collisions`, `--proximity`, `--ambiguity`), producing every number above and in the spec. It is what will settle this question in minutes next time rather than in an arc.
+
+One finding is worth carrying on its own: **today's `file:line` keys can already misbind SILENTLY**, which the row did not claim. `controlOutlineScan.ts:261` resolves whatever element now occupies the keyed line, and 16 keyed-row pairs across six registries sit within 20 lines of each other (`--proximity`). That is a defect, not merely a maintenance cost, and it is recorded in the spec's §2 rather than repaired here.
+
+**Re-file trigger, two arms, both measured rather than felt:** (1) an anchor design that can derive the 27 hand-authored rows — a discovery pass resolving a dynamic `code` to its emitted literal, or a `scope` the site itself carries; (2) churn concentration shifting, the site-derivable share of attributed re-keys rising above half, re-measured by the same two methods. Today it is 41.5% against a 42.6% registry share, and that near-equality is the finding.
+
 ## BL-SPECLINT-RED-TRUTH-PROBE — a declared `red=` that cannot be red for its stated reason, and nothing executes it to find out — CLOSED 2026-08-28, DEMOTED ON A MEASURED REFUTATION
 
 **Status:** CLOSED 2026-08-28 (`feat/speclint-red-truth-probe`), demoted to a documented limit rather than built · **Filed:** 2026-08-27 (owner-directed, `docs/ledger-lim-mechanization-rows`) · **Facing:** process · **Mint-exception:** product-blocked · **Severity:** MEDIUM as filed · **Class:** spec-lint mechanization · **Effort:** M as filed

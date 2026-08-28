@@ -342,12 +342,47 @@ impeccable-gate: N/A — no UI surface
 
 ## 7. Documented limits
 
-1. **Nine content-identical emit sites cannot be keyed** (§5). They decline. Re-file trigger: a row among them is re-keyed twice more by unrelated edits, or an author gives two of them distinguishing context keys.
-2. **A renamed `data-testid` reads as Unresolved, not as a move.** Correct under §3.2 (a changed anchor is a different site) but it means a testid rename costs a registry edit. That trade is deliberate: the alternative is guessing, and it is bounded because testids change far less often than lines above them.
-3. **The grammar has no anchor for a bare interactive element** (§4.3, 40 rows). Widening it is the ratchet §0 forbids. Re-file trigger: the same declined row is re-keyed in three independent arcs.
-4. **`postgrest-dml-lockdown` declines wholesale for want of a SQL anchor** (§4.2), while measurably churning: 35 re-keys, blast 11. This is the largest knowingly-unrepaired surface in the arc. Re-file trigger: a further wholesale re-key of that file, at which point the question is a SQL statement anchor as its own arc with its own hit/miss table, never an anchor kind bolted onto this grammar.
-5. **The mutation accepted-survivor ledger keeps its positional siteIds** (§4.2, 268 rows). This is the largest knowingly-unrepaired surface in the arc, ahead of `postgrest-dml-lockdown`, and the only one whose failure mode is silent rather than loud. Two things would change the disposition, and neither is available now: a non-positional disambiguator for same-operator-same-text mutants within one surface, or a harness that keys mutants by something other than their site. Re-file trigger: either becomes available, or a scoring incident is traced to a mis-keyed accepted row. Recorded against the existing in-tree limit rather than as a new claim, and the 28% measurement (76 of 268 rows resolve to cardinality one) corrects that limit's prescribed repair.
-6. **Comment citations are out of scope** (§1). `spec:lint` owns them.
+This section is the arc's deliverable. Each limit names what would change the answer, in terms
+someone could measure rather than feel.
+
+1. **Every registry keeps its `file:line` keys, and every re-key they cost is still coming.**
+   287 load-bearing rows across the corpus. The record is §4.1's churn table (kept in full, not
+   trimmed to the once-candidate registry) and §4.5's attribution. Re-file trigger: §8's two arms.
+
+2. **The emit anchor cannot express 27 of 47 rows on the registry it was designed for** (§4.3).
+   20 rows carry `dynamic: true`, 12 `computedContext: true`, 5 both. Discovery yields
+   `code == null` for a dynamic site, computed context keys are hand-authored by contract, and
+   `scope` is registry-authored for every row. Re-file trigger: a discovery pass that resolves a
+   dynamic code to its emitted literal, or a scope the site itself carries.
+
+3. **A template-literal `data-testid` identifies a runtime instance, not a site** (§4.3).
+   `app/me/meShowSections.tsx` renders one at three sites; seven registry rows key to them and
+   all three would match every key. 15 of 74 target files carry some duplicated testid. This is
+   the case an anchor grammar for JSX would have to solve first, and it is harder than the
+   presence of a testid suggests. Re-file trigger: the duplicates are disambiguated by their
+   authors, or a grammar appears that can name one branch of a conditional render.
+
+4. **`postgrest-dml-lockdown` has no SQL anchor** (§4.2), while measurably churning: 35 re-keys,
+   blast 11, and 12 of its 12 adjacent row pairs sit within 20 lines. Re-file trigger: a further
+   wholesale re-key, at which point a SQL statement anchor is its own arc with its own hit/miss
+   table, never a kind bolted onto this grammar.
+
+5. **The mutation accepted-survivor ledger keeps its positional siteIds** (§4.2, 268 rows across
+   31 of 57 surfaces). The only SILENT failure in the whole subject: `score()`
+   (`tests/mutation/source/ledger.ts:79-89`) excludes ledgered equivalents from the denominator,
+   so a mis-keyed row counts its mutant twice. The repair its own in-tree header prescribes
+   leaves 28% of rows resolvable. Re-file trigger: a non-positional disambiguator for
+   same-operator-same-text mutants, the harness keying mutants by something other than site, one
+   re-key commit per calendar month on accepted rows, or a scoring incident traced to a mis-key.
+
+6. **An anchor that EXISTS is not an anchor that DISCRIMINATES**, and the shape appeared five
+   times in this document's own numbers before review caught the last of them (§4.4). Swept
+   across every anchor kind rather than patched per instance: `emit` declines 8 of 47 on
+   ambiguity and cannot derive 27 more; `testid` is duplicated in 15 of 74 files; `label`
+   measured unique, 0 ambiguous. The derived cover is the census's `--ambiguity` mode, not this
+   list, so a newly-duplicated anchor is caught without re-running the analysis.
+
+7. **Comment citations are out of scope** (§1). 125 of them. `spec:lint` owns citation freshness.
 
 ## 8. Done condition
 
