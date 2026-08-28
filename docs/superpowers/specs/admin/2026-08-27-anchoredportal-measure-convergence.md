@@ -223,7 +223,10 @@ when only one had — twice, in two consecutive rounds. Remembering the rule did
 not work, so the table below is emitted by a script reading the sweep's result
 files, which makes the claim unwriteable ahead of the run that produces it.
 
-**Generated against `793e2ffe4`.** A generated table is a SNAPSHOT OF A CODE STATE,
+**Generated against `tests/e2e/rowactions-geometry.spec.ts` as of `852771a8e`.** The
+stamp tracks the FILE, so a comment-only commit bumps it too — conservative by
+choice, since over-invalidating is the safe direction. Re-derive it with
+`git log -1 --format=%h -- tests/e2e/rowactions-geometry.spec.ts` and compare. A generated table is a SNAPSHOT OF A CODE STATE,
 not a self-maintaining record: once the code moves it lies with the authority of
 having been generated. This one already did — an earlier version recorded the
 `with.args` and `echo` inputs as RED against a role-aware implementation that was
