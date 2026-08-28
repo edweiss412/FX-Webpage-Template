@@ -54,6 +54,9 @@ export function renderCrewUnderRowCards(args: {
             items={[it.warning]}
             driveFileId={driveFileId}
             condensed
+            // ACTIVE mount: this card renders DataQualityWarningControls with Report +
+            // Ignore, so the catalog's controlsNote is true here (spec 2026-08-27 §4.3).
+            showControlsNote
             renderItemControls={(w) => (
               <SectionWarningItemControls
                 warning={w}
@@ -217,6 +220,8 @@ export function buildSectionWarningExtras(args: {
             <PerShowActionableWarnings
               items={g.items.map((it) => it.warning)}
               driveFileId={driveFileId}
+              // ACTIVE mount, same reason as the crew under-row cards above.
+              showControlsNote
               // warning-surface-trim §4.2: the SAME sentence the panel used to show
               // once, now per card and on demand. Sourced from the single exported
               // helper, never re-authored, so the two cannot drift.

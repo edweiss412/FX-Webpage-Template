@@ -205,6 +205,7 @@ describe("Rendered-prose copy has no em dash or double hyphen (DESIGN.md §9, EM
     longExplanation: "rendered-prose",
     dougSummary: "rendered-prose",
     triggerContext: "rendered-prose",
+    controlsNote: "rendered-prose",
   };
   const AUDITED_FIELDS = (Object.keys(FIELD_POLICY) as (keyof MessageCatalogEntry)[]).filter(
     (f) => FIELD_POLICY[f] === "rendered-prose",

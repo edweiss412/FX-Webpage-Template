@@ -34,6 +34,13 @@ describe("OPERATOR_ACTIONABLE_ANCHORED + selector", () => {
     ]);
   });
 
+  it("holds no HOTEL_* code: the hotel link is REGION grain through CELL_ANCHORED_CODES, never actionable membership (spec 2026-08-27 §1.1)", () => {
+    // The 2026-07-25 hotel-ambiguity refusal (row cc) and the 2026-07-27 inline-later-group
+    // refusal (row w) both stand: ambiguity codes are spot-check, not anchored-actionable.
+    // The 2026-08-27 arc widened only the LINK, at block-range grain.
+    expect([...OPERATOR_ACTIONABLE_ANCHORED].filter((c) => c.startsWith("HOTEL_"))).toEqual([]);
+  });
+
   it("filters to the actionable set and drops non-members + info-severity", () => {
     const ws: ParseWarning[] = [
       { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "a", sourceCell: anchor },

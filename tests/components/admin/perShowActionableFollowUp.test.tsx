@@ -95,3 +95,41 @@ describe("per-card follow-up placement (spec §3.1)", () => {
     expect(document.body.textContent ?? "").not.toContain("Fixed it in the sheet?");
   });
 });
+
+describe("the follow-up sentence follows the CELL, not the anchor (spec 2026-08-27 §2.4)", () => {
+  // NonNullable + no `undefined`: the project runs exactOptionalPropertyTypes, so a
+  // `SourceAnchor | null | undefined` spread is not assignable to ParseWarning.
+  const withAnchor = (sourceCell: NonNullable<ParseWarning["sourceCell"]>): ParseWarning => ({
+    ...warnWithCell,
+    sourceCell,
+  });
+
+  it("tab-level anchor (no a1): no follow-up paragraph, because there is no cell to edit", () => {
+    render(
+      <PerShowActionableWarnings
+        items={[withAnchor({ title: "INFO", gid: 0, scope: "tab" })]}
+        driveFileId="d1"
+        followUpCopy={FOLLOW_UP}
+      />,
+    );
+    const { body } = bodyFor(0);
+    expect(body.querySelector("p.mt-2")).toBeNull();
+  });
+
+  it("cell anchor and region RANGE both keep it", () => {
+    for (const cell of [
+      { title: "INFO", gid: 0, a1: "A2", scope: "cell" as const },
+      { title: "INFO", gid: 0, a1: "A2:D5" },
+    ]) {
+      const { unmount } = render(
+        <PerShowActionableWarnings
+          items={[withAnchor(cell)]}
+          driveFileId="d1"
+          followUpCopy={FOLLOW_UP}
+        />,
+      );
+      expect(bodyFor(0).body.querySelector("p.mt-2")?.textContent).toBe(FOLLOW_UP);
+      unmount();
+    }
+  });
+});

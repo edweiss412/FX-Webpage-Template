@@ -1064,6 +1064,10 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         // three href assertions against the crew-page projection seam.
         "tests/data/sourceAnchorFreshness.db.test.ts": 3,
         "tests/dev/fullSplitComposite.test.ts": 1,
+        // Two asserted hrefs: the RIA corpus case and the FORM-tab case both
+        // compare buildSheetDeepLink's output against the literal it must produce
+        // (spec 2026-08-27-wizard-warning-row-links-copy §2.5, AC-1/AC-4).
+        "tests/drive/unknownFieldAnchors.test.ts": 2,
         "tests/e2e/_pillFocusLiveEntry.tsx": 1,
         "tests/e2e/_publishedReviewModalHarness.tsx": 1,
         "tests/e2e/_skeletonParityHarness.tsx": 1,

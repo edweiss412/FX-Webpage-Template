@@ -398,7 +398,7 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // `log` from the `@/lib/log` barrel. Every one of the thirteen now carries a
   // premise stating the corpus condition its assertion depends on, because a
   // filter over an unread corpus passes over nothing.
-  "tests/parser/fieldNearMissBaseline.test.ts": 13,
+  "tests/parser/fieldNearMissBaseline.test.ts": 14,
   "tests/styles/interactiveScanCore.test.ts": 0,
   "tests/styles/_metaSubtleOnInteractive.test.ts": 0,
   "tests/styles/_metaTapTargetFloor.test.ts": 0,

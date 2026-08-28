@@ -20,6 +20,7 @@ import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import type { ParseWarning } from "@/lib/parser/types";
 import { ShowReviewSurface } from "@/components/admin/review/ShowReviewSurface";
 import { buildPublishedSurfaceProps } from "@/tests/helpers/publishedSurfaceProps";
+import { EXPECTED_CONTROLS_NOTE } from "@/tests/messages/warningCardCopyRegistry";
 import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 
 describe("sheetWarningsPanelCount (spec §2.3)", () => {
@@ -101,6 +102,27 @@ describe("notePopoverParts (spec §2.4 truth table)", () => {
     ["copy only", warnWith({ code: HAS_LONG, sourceCell: null }), expectedCopyFor(HAS_LONG), null],
     ["cell only", warnWith({ code: NOT_A_CODE, sourceCell: CELL }), null, RESYNC],
     ["neither", warnWith({ code: NOT_A_CODE, sourceCell: null }), null, null],
+    // Spec 2026-08-27 §2.4: the sentence follows the CELL, not the anchor. "Edit the cell"
+    // is wrong advice at tab grain, so a tab-level anchor keeps the link and drops the
+    // sentence; a cell anchor and a region RANGE both keep it exactly as before.
+    [
+      "tab-level anchor (no a1): link but no 'Edit the cell'",
+      warnWith({ code: HAS_LONG, sourceCell: { title: "INFO", gid: 0, scope: "tab" } }),
+      expectedCopyFor(HAS_LONG),
+      null,
+    ],
+    [
+      "cell anchor with scope",
+      warnWith({ code: HAS_LONG, sourceCell: { title: "INFO", gid: 0, a1: "A2", scope: "cell" } }),
+      expectedCopyFor(HAS_LONG),
+      RESYNC,
+    ],
+    [
+      "region RANGE (unscoped) keeps the sentence",
+      warnWith({ code: HAS_LONG, sourceCell: { title: "INFO", gid: 0, a1: "A2:D5" } }),
+      expectedCopyFor(HAS_LONG),
+      RESYNC,
+    ],
   ];
   it.each(CASES)("%s", (_l, w, copy, sentence) => {
     expect(notePopoverParts(w)).toEqual({ copy, sentence });
@@ -464,5 +486,38 @@ describe("Task 5 Step 7 — class sweep", () => {
         /suppressPanelCard|suppressWarningsPanelCard|seamless/,
       );
     }
+  });
+});
+
+describe("only the ACTIVE per-show mounts carry the controls note (spec 2026-08-27 §4.3, T6(e))", () => {
+  const NOTE = EXPECTED_CONTROLS_NOTE.UNKNOWN_FIELD!;
+
+  /** Text of one card with its controls node removed, so a Report button label cannot
+   *  satisfy an assertion about the card's guidance copy. */
+  function textWithoutControls(el: Element): string {
+    const clone = el.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('[data-testid="dq-controls"]').forEach((n) => n.remove());
+    return clone.textContent ?? "";
+  }
+
+  it("the grouped ACTIVE card names the controls; the IGNORED card names neither, so Ignore never sits beside Un-ignore", () => {
+    expect(typeof NOTE).toBe("string");
+    // `unroutedWarn` in the helper is already an UNKNOWN_FIELD, which is the code whose
+    // sentence moved; `ignoredHere` rows are a disjoint index range, so the two partitions
+    // cannot collide.
+    const { container } = render(
+      <ShowReviewSurface {...buildPublishedSurfaceProps({ listed: 0, here: 1, ignoredHere: 1 })} />,
+    );
+    const ignoredList = container.querySelector('[data-testid^="section-ignored-list-"]');
+    expect(ignoredList, "the ignored disclosure rendered").toBeTruthy();
+    expect(textWithoutControls(ignoredList!)).not.toContain(NOTE);
+    expect(/\b(Report|Ignore)\b/.test(textWithoutControls(ignoredList!))).toBe(false);
+
+    // The active card is every actionable card that is NOT inside the ignored list.
+    const active = [
+      ...container.querySelectorAll('[data-testid="per-show-actionable-item"]'),
+    ].filter((el) => !ignoredList!.contains(el));
+    expect(active.length, "an active card rendered").toBeGreaterThan(0);
+    expect(active.some((el) => textWithoutControls(el).includes(NOTE))).toBe(true);
   });
 });
