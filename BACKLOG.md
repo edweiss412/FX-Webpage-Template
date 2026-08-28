@@ -296,6 +296,25 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation, in a case that turns out not to arise. **Promotion prerequisite (RUN 2026-08-27, returned zero):** a corpus probe over live `flight_info` values counting how often a segment parses but carries no displayable field beyond its date — see `**Reachability:**` above. Should it ever return non-zero, the direction is a renderer question, because the segments ARE structured: give the date-only segment a labeled treatment of its own, rather than the parser widening an earlier draft implied.
 
+### BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW — the attention menu overflows its clipping panel on the LEFT at phone widths, on both review modals
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9's new clip pin) · **Facing:** product · **Severity:** MEDIUM (part of an operator-facing dropdown is cut off at the most common phone width; the published surface is the worse of the two) · **Class:** anchored-overlay sizing · **Effort:** M · **Class-sweep exception:** (c) — the repair is a sizing redesign of a SHARED frame with its own hook spec (`admin/2026-08-27-fitwithinclip-clip-subscription`) and its own e2e suite (`popover-clip-fit.spec.ts`), on a shipped surface the filing branch does not otherwise change. Ruled (B) by bl-orch 2026-08-27, on the further ground that fixing published geometry in-arc would force regenerating the very byte baseline that arc built to prove published bytes UNCHANGED.
+
+**What is wrong.** The attention menu panel is `w-[min(400px,calc(100vw-32px))]` with `right-0`, i.e. sized against the VIEWPORT while anchored to a wrapper that is inset from the viewport's right edge. At phone widths the width it takes exceeds the room available to the LEFT of that anchor, so the panel's left edge lands outside the clipping `ReviewModalShell` panel and the leading edge of every row is cut off. `useFitWithinClip` does not catch it: that hook caps `max-height` only, by design and by its own documented contract.
+
+**Reachability:** PROBED 2026-08-27 at 375x667, in real Chromium, both surfaces:
+
+```
+wizard    menu.left = -18.85   clip.left = 0   (this branch)
+published menu.left = -36.00   clip.left = 0   menu.width 343, wrapper right edge 307
+```
+
+The published number was taken against UNMODIFIED code — a temporary probe added to `popover-clip-fit.spec.ts` and removed after reading — so the defect is pre-existing on main and is WORSE on the shipped surface than on the new one. Nothing had looked before: `popover-clip-fit.spec.ts` asserts `menu.bottom <= panel.bottom` and has never asserted a horizontal edge.
+
+**Where it is pinned today.** `tests/e2e/wizard-attention-menu.spec.ts` keeps the clip assertion at 1280x800 and registers the 375x667 case as `test.fixme` naming this row, so the gap is visible in the report rather than absent from it. Re-enable that case as the fix's own red.
+
+**Direction, not yet decided.** The panel cannot express "no wider than the distance from the clip's left edge to my anchor's right edge" in CSS, because that distance is a runtime measurement. So the candidates are: extend `useFitWithinClip` (or a sibling) to cap width the way it caps height; or re-anchor the panel to the modal panel rather than the pill wrapper. The first keeps the anchoring idiom and is where the existing measurement machinery already lives; the second is a bigger change. Whichever wins, it lands on the SHARED frame and both modals get it at once.
+
 ### BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS — two `lib/parser/dataGaps.ts` filters still drop a severity-less warning from operator-visible lists
 
 **Status:** OPEN · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 2 class sweep) · **Facing:** product · **Severity:** LOW-MEDIUM (an operator-visible warnings list silently omits a row, if the shape occurs) · **Class:** severity-predicate divergence · **Effort:** S · **Class-sweep exception:** (b) + (c) — spec §2.1's sweep is ratified over `lib/admin components/admin` only, and repairing these two changes what the staged-show digest and the per-show actionable list COUNT, each with its own pinned suite, on surfaces this arc does not otherwise touch.
