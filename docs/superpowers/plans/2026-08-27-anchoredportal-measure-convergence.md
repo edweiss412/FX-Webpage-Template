@@ -153,7 +153,7 @@ no explanation cannot tell an expected red from a regression.
 | Criterion | Task | How it is proved | Plant that reds it | Plant status |
 | --- | --- | --- | --- | --- |
 | AC-1 | 1 | jsdom measure counter reads 2 | M1: restore the deleted `measureAndApply()` call | to run in task 1 |
-| AC-2 | 1 | `PROBE:` frame ordering, `tests/e2e/rowactions-geometry.spec.ts` | M2: make the sole measurer a `useEffect` | **RUN**, red observed, transcript in spec appendix A.4 |
+| AC-2 | 1 | `PROBE:` frame ordering, `tests/e2e/rowactions-geometry.spec.ts` | M2: make the sole measurer a `useEffect` | **RUN**, red observed, transcript in spec appendix A.3 |
 | AC-3 | 2 | `tests/components/admin/rowActions/anchoredPortal.test.tsx:266` | M3: delete the ungated effect | to run in task 2 |
 | AC-4 | 1 | `PROBE:` placement sequence at per-batch grain, PLUS the geometric oracle (right-edge alignment and adjacency on the reported side) | a one-line `left + 1`, which the count alone does not catch | oracle RUN green; the mutant is task 1's |
 | AC-5 | 2 | the closeout gate command, every conjunct red today | n/a — the gate IS the mutant: each conjunct is independently false now and true only at closeout | RUN, exit 1 observed on the live tree |
@@ -168,11 +168,11 @@ Under that plant AC-4 stayed GREEN, so the two are demonstrably not redundant.
 
 ## Task 1 — pin the converged count at 2, and reach it
 
-<!-- task: red=`pnpm vitest run tests/components/admin/rowActions/anchoredPortal.test.tsx` red-state=authored red-target=`components/admin/AnchoredPortal.tsx:193` why=`measure A, the gated effect's own measureAndApply() call, is still present, so the new counter case reads 3 commit-driven measures and its assertion of 2 fails` ac=AC-1,AC-2,AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/rowActions/anchoredPortal.test.tsx` red-state=authored red-target=`components/admin/AnchoredPortal.tsx:199` (the gated effect, whose own call this arc removed) why=`measure A, the gated effect's own measureAndApply() call, is still present, so the new counter case reads 3 commit-driven measures and its assertion of 2 fails` ac=AC-1,AC-2,AC-3,AC-4 -->
 
 **What is red and why.** The new case counts anchor-rect reads across one closed
 to open transition and asserts 2. On the live tree the count is 3: measure A at
-`components/admin/AnchoredPortal.tsx:193` in the open commit, measure B from the
+`components/admin/AnchoredPortal.tsx:199` (the gated effect, whose own call this arc removed) in the open commit, measure B from the
 ungated effect in that same commit, and measure C from the ungated effect after
 the placement settles (spec §1 names them). The red comes from that production
 line, not from anything the test controls.
@@ -201,7 +201,7 @@ executed unconditionally before what they guard:
   inside `measureAndApply`, which would silently double every count this case
   makes.
 
-GREEN: delete `measureAndApply();` at `components/admin/AnchoredPortal.tsx:193`,
+GREEN: delete `measureAndApply();` at `components/admin/AnchoredPortal.tsx:199` (the gated effect, whose own call this arc removed),
 leaving the gated effect's subscription wiring and teardown untouched. Rewrite
 its lead comment so it no longer claims to place.
 
@@ -222,7 +222,7 @@ PLANT M3: delete the ungated effect at
 brief's required proof and the only evidence that the position-only case has ever
 discriminated. Revert, and verify the file is byte-identical to `HEAD`. M2 (the
 sole measurer made passive) is ALREADY RUN and its red recorded in the spec's
-appendix A.4.
+appendix A.3.
 
 THEN, in the same task:
 
@@ -334,7 +334,9 @@ the e2e pin is the ONLY one that exercises the real placed branch**, since jsdom
 stubbed rects push the count case down the degenerate fallback path (spec §4).
 Losing it loses every assertion about actual placement, not a duplicate opinion. If
 `admin-layout-e2e.yml` stops firing on `components/admin/AnchoredPortal.tsx`,
-INV-1 goes dark, the guard passes by not running, and the fragility becomes
+INV-1 and INV-4 go dark — INV-2 and INV-3 do NOT, because they are jsdom cases in
+the unfiltered unit suite. Only the browser pins depend on this filter, which is
+what makes losing it the loss of all PLACED-branch coverage, the guard passes by not running, and the fragility becomes
 unguarded silently — the same dark-gate shape the guards exist to prevent, one
 level up. Nothing in the repo pinned that: the e2e-coverage walker asserts every
 SPEC is PR-covered, and says nothing about which SOURCE paths a workflow filters
@@ -346,7 +348,7 @@ workflow file, AND that this spec is named in a `run:` line beside
 `playwright test`. After two whole-diff rounds the CLAIM was narrowed to that:
 these check PRESENCE, not that GitHub will run the spec. A list-item line under a
 non-paths key, and an `echo`-replaced invocation, both pass BY DESIGN — they are
-documented limits under the threat fence (spec §9.2), not gaps. Each has an executed discriminating mutant (spec §4, `M-paths` and
+documented limits under the threat fence (spec §9.1), not gaps. Each has an executed discriminating mutant (spec §4, `M-paths` and
 `M-run2`).
 
 Stated at the size the evidence supports: this diff **removed a duplicate that

@@ -14,7 +14,7 @@ not. This spec states which, what the count becomes, and what pins it.
 
 | Name | Effect | Commit |
 | --- | --- | --- |
-| **A** | the gated effect's own call (`components/admin/AnchoredPortal.tsx:193`) | open commit |
+| **A** | the gated effect's own call (`components/admin/AnchoredPortal.tsx:199`, the gated effect, whose own call this arc removed) | open commit |
 | **B** | the ungated every-commit effect | open commit |
 | **C** | the ungated every-commit effect | the settle commit after the placement |
 
@@ -33,13 +33,14 @@ and an earlier draft of this section said otherwise while §3 said it correctly.
 **The count is scoped, and both qualifiers belong in the claim rather than in a
 footnote: it counts the measures REACT COMMITS DRIVE, as observed in the jsdom
 harness.** A real browser adds at least one more. `new ResizeObserver(schedule)`
-observes the anchor and the panel on open (`components/admin/AnchoredPortal.tsx:229`),
+observes the anchor and the panel on open
+(`components/admin/AnchoredPortal.tsx:236`, the ResizeObserver subscription),
 and an observer delivers an initial callback on `observe`, which schedules a
 further measure through the rAF coalescer. jsdom's `ResizeObserver` is a no-op
 stub (`tests/setup.ts:70-81`), which is precisely why the harness can count the
-commit-driven measures in isolation — and precisely why this figure must never be
-read as a browser total. It is a property of the component's commit behaviour,
-not of a menu opening in Chrome.
+commit-driven measures in isolation — and precisely why this figure must never
+be read as a browser total. It is a property of the component's commit
+behaviour, not of a menu opening in Chrome.
 
 **2 is also the converged count UNDER THE CURRENT NOTIFICATION MECHANISM, and is
 not claimed to be a floor over all mechanisms.** An earlier draft of this spec
@@ -51,7 +52,7 @@ rather than softened, because a guard pinning 2 while the spec claims a floor of
 
 | Decision | Ratification |
 | --- | --- |
-| The ungated every-commit effect is a named invariant of the design, not a redundancy. It is the only shipped subscription that catches a position-only anchor move. | `components/admin/AnchoredPortal.tsx:245-253`; INV-2 |
+| The ungated every-commit effect is a named invariant of the design, not a redundancy. It is the only shipped subscription that catches a position-only anchor move. | `components/admin/AnchoredPortal.tsx:252-260` (the rationale comment above the ungated effect); INV-2 |
 | Of the two open-commit measures A and B, exactly one is redundant, and that is analytic rather than measured. A is the one deleted. | §2.2, §1 |
 | `IntersectionObserver` does not replace measuring per commit, in either its plain or self-rearming form. ONE reason survives review; two were struck. | §2.3 |
 | `MutationObserver` could plausibly reach a count of 1. It is NOT REFUTED. It is not taken, for scope. | §2.4 |
@@ -76,22 +77,39 @@ So the honest statement is narrower. `ResizeObserver` reports SIZE — its
 `contentRect` origin is relative to the element's own padding box, so a pure
 translation of the anchor changes nothing it observes — and among the
 subscriptions this component actually has, the ungated effect
-(`components/admin/AnchoredPortal.tsx:254`) is the only one that catches a
-position-only move. It catches one by running on every commit and measuring, and
-the commit after the open placement is an ordinary commit that it cannot
-classify without measuring. Under THAT mechanism the count cannot go below 2.
+(`components/admin/AnchoredPortal.tsx:261`, the ungated every-commit effect) is
+the only one that catches a position-only move. It catches one by running on
+every commit and measuring, and the commit after the open placement is an
+ordinary commit that it cannot classify without measuring.
+
+**The floor is 2 because it has two independent halves, and neither can be
+dropped without losing a guarantee this component already makes.**
+
+1. **At least one measure must land IN the open commit**, forced by the pre-paint
+   guarantee. The panel's first painted frame has to be at its final placement;
+   any mechanism that measures after that frame reintroduces the visible jump
+   this component exists to avoid, which is the same objection that kills
+   `IntersectionObserver` in §2.3.
+2. **At least one measure must land AFTER the settle commit**, forced by the
+   position-only case argued above. `ResizeObserver` cannot see a translation, so
+   the every-commit subscription is the only one that catches it, and it cannot
+   tell the settle commit apart from a real anchor move without measuring.
+
+The two are in different commits, so they are different measures, and 1 + 1 = 2.
+Under THAT mechanism the count cannot go below it.
 
 ### 2.2 One of A and B is redundant, by construction
 
 A and B both land in the open commit: the gated effect
-(`components/admin/AnchoredPortal.tsx:191`) and the ungated one.
+(`components/admin/AnchoredPortal.tsx:199`, the gated effect) and the ungated one.
 
 Nothing mutates the DOM between them. No re-render intervenes, nothing paints,
 and the only style writes either makes are `withNaturalSize`'s cap clear
 (`lib/popover/naturalSize.ts:39-40`) and its restore
-(`lib/popover/naturalSize.ts:68-69`), which cancel inside each call. B's inputs are therefore identical to A's BY CONSTRUCTION, the two compute the
-same placement, and `commit` (`components/admin/AnchoredPortal.tsx:115`) drops
-the second of them.
+(`lib/popover/naturalSize.ts:68-69`), which cancel inside each call. B's inputs
+are therefore identical to A's BY CONSTRUCTION, the two compute the same
+placement, and `commit` (`components/admin/AnchoredPortal.tsx:115`) drops the
+second of them.
 
 This is analytic rather than measured, and this arc's own probe is consistent
 with it: `measureRunsOnOpenCommit=3` (appendix A.1) is what two same-commit
@@ -125,8 +143,8 @@ the count test failing is how that arc learns it has changed the mechanism.
 
 Two forms were considered. Of the three reasons an earlier draft gave against
 the stronger form, **two were struck and one survives.** The survivor is
-sufficient, and the struck pair is recorded rather than deleted so neither is
-re-derived.
+sufficient, and the struck pair is recorded in this arc's review-round filing
+rather than deleted, so neither is re-derived.
 
 **Plain `IntersectionObserver` on the anchor, rooted at the viewport, with any
 threshold list.** IO fires on threshold CROSSINGS, not on geometry change. A row
@@ -142,26 +160,14 @@ This defeats the ratio-stays-1.0 objection by construction, and it still fails,
 for one reason:
 
 - **It cannot deliver a pre-paint guarantee.** IO queues its callback to run
-  after paint, by construction. The ungated layout effect re-places in the same
-  commit, before paint. An after-paint mechanism reintroduces exactly the defect
-  `components/admin/AnchoredPortal.tsx:245-253` describes, for one frame: the
-  panel visibly belonging to a different row. This is a correctness argument,
-  not a performance one.
+after paint, by construction. The ungated layout effect re-places in the same
+commit, before paint. An after-paint mechanism reintroduces exactly the defect
+`components/admin/AnchoredPortal.tsx:252-260` (the rationale comment above the
+ungated effect) describes, for one frame: the panel visibly belonging to a
+different row. This is a correctness argument, not a performance one.
 
-**Struck reason A**, that re-arming requires another anchor measurement so the
-per-commit read is relocated rather than removed. False.
-`IntersectionObserverEntry` already supplies `boundingClientRect`, so re-arming
-needs no fresh synchronous read, and the observer fires on intersection changes
-rather than on every React commit.
-
-**Struck reason B**, that `rootMargin` quantizes to integer pixels and so leaves
-a sub-pixel dead zone against an anchor measured at `top: 1251.47px`. Overstated
-and never verified. Blink computes intersections in `LayoutUnit` at 1/64px, so a
-fractional margin is representable and the dead zone as described does not
-follow.
-
-Both were struck because a soft reason is a liability rather than a margin of
-safety: a reviewer who breaks one of three starts probing the other two.
+Two further reasons were drafted and withdrawn; the review-round filing records
+them and why. A soft reason is a liability rather than a margin of safety.
 
 ### 2.4 MutationObserver: not refuted, not taken
 
@@ -183,11 +189,12 @@ document-wide observer's cost measured on the shows dashboard first.
 ## 3. The repair
 
 Delete the gated effect's own `measureAndApply()` call
-(`components/admin/AnchoredPortal.tsx:193`). The ungated effect becomes the sole
-measurer OF THE OPEN COMMIT — not the only caller of `measureAndApply` in general,
-since the coalescer the gated effect creates invokes it on every scroll, resize and
-`ResizeObserver` frame. The gated effect keeps its subscription wiring and teardown
-unchanged.
+(`components/admin/AnchoredPortal.tsx:199`, the gated effect, whose own call
+this arc removed). The ungated effect becomes the sole measurer OF THE OPEN
+COMMIT — not the only caller of `measureAndApply` in general, since the
+coalescer the gated effect creates invokes it on every scroll, resize and
+`ResizeObserver` frame. The gated effect keeps its subscription wiring and
+teardown unchanged.
 
 **Rejected alternative: a ref flag** set by the gated effect and cleared by the
 ungated one. It reaches the same count of 2, but only while the gated effect is
@@ -223,16 +230,16 @@ when only one had — twice, in two consecutive rounds. Remembering the rule did
 not work, so the table below is emitted by a script reading the sweep's result
 files, which makes the claim unwriteable ahead of the run that produces it.
 
-**Generated against `tests/e2e/rowactions-geometry.spec.ts` as of `852771a8e`.** The
-stamp tracks the FILE, so a comment-only commit bumps it too — conservative by
-choice, since over-invalidating is the safe direction. Re-derive it with
-`git log -1 --format=%h -- tests/e2e/rowactions-geometry.spec.ts` and compare. A generated table is a SNAPSHOT OF A CODE STATE,
-not a self-maintaining record: once the code moves it lies with the authority of
-having been generated. This one already did — an earlier version recorded the
-`with.args` and `echo` inputs as RED against a role-aware implementation that was
-then deliberately narrowed away, which asserted the OPPOSITE of shipped
-behaviour. The sha makes staleness visible instead of silent: compare it to the
-head before trusting a row.
+**Generated against `tests/e2e/rowactions-geometry.spec.ts` as of `852771a8e`.**
+The stamp tracks the FILE, so a comment-only commit bumps it too — conservative
+by choice, since over-invalidating is the safe direction. Re-derive it with `git
+log -1 --format=%h -- tests/e2e/rowactions-geometry.spec.ts` and compare. A
+generated table is a SNAPSHOT OF A CODE STATE, not a self-maintaining record:
+once the code moves it lies with the authority of having been generated. This
+one already did — an earlier version recorded the `with.args` and `echo` inputs
+as RED against a role-aware implementation that was then deliberately narrowed
+away, which asserted the OPPOSITE of shipped behaviour. The sha makes staleness
+visible instead of silent: compare it to the head before trusting a row.
 
 Rows are marked by what the shipped code SHOULD do. A documented limit that
 passes looks identical to a guard that failed, so the two are distinguished here
@@ -240,7 +247,7 @@ rather than left to the reader.
 
 | Assertion | Mutant | Expected | Observed |
 | --- | --- | --- | --- |
-| the paths entry is present | delete the line | RED | **RED** |
+| a list-item line bearing the component path is present | delete the line | RED | **RED** |
 | the invocation token is present | delete the spec from the run line | RED | **RED** |
 | workflow guard, list item under a NON-paths key | the path as a list item under `sparse-checkout` | PASS by design | **GREEN** |
 | workflow guard, invocation replaced by `echo` | `run: echo playwright test …` | PASS by design | **GREEN** |
@@ -253,7 +260,7 @@ rather than left to the reader.
 | **B4 exactly one settled placement** | **none found** | — | see below |
 
 The two PASS-by-design rows are the narrowing working, not a gap: they are the
-documented limits of §9.2, and a guard that reded them would be the recognizer
+documented limits of §9.1, and a guard that reded them would be the recognizer
 this arc declined to grow.
 
 **B4 has no discriminating mutant, and the reason is worth more than a clean
@@ -277,8 +284,9 @@ So the guard set has two coverage regions and each has an owner:
    placement sequence does not move. Proven, not predicted: the mutant above
    reds with `expected 3 to be 2`.
 
-3. **The failed attempts are themselves a positive result, and this is the
-   statement to keep.** They did not merely fail to be built: TWO of them
+**The failed attempts are themselves a positive result, and this is the statement
+to keep.** They are not a third coverage region — they are the reason the first
+one is hard to attack. They did not merely fail to be built: TWO of them
    committed a genuinely wrong placement and the ungated effect MEASURED on the
    resulting commit and corrected it, inside the same task. So the reason B4 is
    hard to defeat is that the code prevents the defect B4 guards — the
@@ -309,28 +317,6 @@ two earlier attempts at the INV-3 mutant came back green.
 There is no mutant for "IntersectionObserver instead of a layout effect" or "a
 ref flag instead of a deletion"; those rest on cited engine and framework
 behaviour, which a reviewer checks by reading the citation.
-
-### The instrument's own fix, verified by its own plant
-
-`attributeFilter` carries `style` AND `data-portal-side`, and the observer
-originally treated every record's `oldValue` as a style string. A `side` change
-therefore reconstructed the origin as `"||||top"` — garbage — and the defect was
-invisible on clean source because `side` never changes there.
-
-It surfaced only because `M-side` red on the ORIGIN PREMISE rather than the
-adjacency assertion it was aimed at. A mutant redding the WRONG assertion is
-information; one redding the right assertion tells you less.
-
-The fix — ignore records whose `attributeName` is not `style` — is verified by
-that same mutant across the two sweeps, which is the plant the fix needs:
-
-| Tree | Mutant | Red on |
-| --- | --- | --- |
-| before the fix | `M-side` | the origin premise, reporting `"||||top"` |
-| after the fix | `M-side2` | `side=top: the panel's bottom must sit GAP above the trigger's top` |
-
-Same mutation, same assertion set; only the instrument changed, and the failure
-moved from a corrupted premise to the assertion that should catch it.
 
 ## 5. Why INV-1 cannot live in jsdom
 
@@ -399,7 +385,8 @@ than assuming it.
 The repair adds no prop and changes no signature. The guards it touches:
 
 - `open === false` or `mounted === false`: the ungated effect returns before
-  measuring (`components/admin/AnchoredPortal.tsx:255`). Unchanged.
+measuring (`components/admin/AnchoredPortal.tsx:262`, the ungated effect's
+open/mounted guard). Unchanged.
 - `anchorRef.current === null` or `panelRef.current === null`:
   `measureAndApply` returns early (`components/admin/AnchoredPortal.tsx:131`).
   Unchanged, and now reached from one caller instead of two.
@@ -420,7 +407,7 @@ open-placed. The repair changes none, adds none, and applies no animation.
 | --- | --- |
 | closed → open-unplaced | instant; the panel mounts at the origin for one commit and is placed before paint (INV-1) |
 | open-unplaced → open-placed | instant; a style write, no transition |
-| open-placed → closed | instant; the panel unmounts and `setApplied(null)` clears the placement (`components/admin/AnchoredPortal.tsx:260-263`) |
+| open-placed → closed | instant; the panel unmounts and `setApplied(null)` clears the placement (`components/admin/AnchoredPortal.tsx:267-270`, the close-reset effect) |
 
 Compound: a position-only move arriving while the panel is open-placed re-places
 it instantly (INV-2). No transition has a duration, so there is no mid-transition
@@ -449,7 +436,7 @@ state to interrupt.
   does not rest on more than that: the A-and-B redundancy is analytic (§2.2), and
   C — the measure that would catch a disagreement — is the one that stays.
 
-## 9.2 Two more limits of the live pins
+## 9.1 Limits of the live pins
 
 **What is lost if that coverage stops is larger than a second opinion.** The
 jsdom count case runs the DEGENERATE fallback branch, because jsdom's stubbed
@@ -460,11 +447,13 @@ on this component, the loss is every assertion about actual placement, not a
 duplicate of something jsdom already covers.
 
 **The pins' CI coverage rests on one unguarded line.** `admin-layout-e2e.yml:64`
-lists `components/admin/AnchoredPortal.tsx` in the workflow's `pull_request.paths`,
-which is what makes INV-1 and INV-4 run on a PR touching this component. That
+lists `components/admin/AnchoredPortal.tsx` under the workflow's
+`pull_request.paths`, which is what makes INV-1 and INV-4 run on a PR touching
+this component. (What this arc's check verifies is narrower than that fact — see
+below.) That
 fact is true and was verified directly. **Nothing in the repo pinned it. This arc
 pins it NARROWLY** — presence of the entry and of the invocation token, with the
-limits below — see the closing paragraph of this section.
+limits below — see the presence-not-invocation paragraph later in this section.
 `tests/ci/_metaE2eWorkflowCoverage.test.ts:260` asserts that every e2e SPEC is
 PR-covered or allowlisted; it makes no claim about which SOURCE paths a
 workflow's filter names, and the `AnchoredPortal` text at
@@ -474,8 +463,7 @@ file it guards — the class that workflow's own header was written about.
 
 Recorded rather than pinned: the guard would be a one-line walker over one file
 whose done condition is a property of the walker, which is the shape the
-2026-08-25 process mint freeze declines, and the same reason this arc declined a
-walker for the dependency-array property. **Re-file trigger:** the line is
+2026-08-25 process mint freeze declines. **Re-file trigger:** the line is
 actually deleted, or a second arc finds its own gate dark the same way.
 
 **The workflow check proves PRESENCE, not that GitHub will run the spec.** Two
@@ -486,46 +474,31 @@ entry, and `tests/e2e/rowactions-geometry.spec.ts` still appears in a `run:` lin
 next to `playwright test`. That catches the realistic failure — somebody deletes
 one of them — which is the failure this arc's threat fence declares.
 
-**The four defeats, named so nobody re-derives them:**
+Inputs that defeat it exist, and they are DOCUMENTED LIMITS rather than gaps to
+close: each is an adversarial construction rather than an ordinary authoring
+mistake, which places it outside the declared threat fence, and deciding any of
+them correctly would need a YAML parser, GitHub's path-matching semantics and a
+shell parser. That is a recognizer over an open grammar, which the
+repair-direction rule declines by design. The specific constructions are named in
+the review-round filing rather than here, deliberately: a list of four ways past
+a guard is an attack menu, and the spec's job is to state what the check decides,
+which the paragraph above does.
 
-1. An ordered NEGATIVE pattern — the same component path prefixed with `!` — placed
-   after the positive entry. GitHub honours later negatives; the check does not
-   read them, so it reports the entry present while the path is excluded.
-2. `paths-ignore` excluding the component, which the check does not consult.
-3. Any list-item line elsewhere in the file bearing the same path — under
-   `sparse-checkout`, a matrix, or any other key. The check matches the line
-   SHAPE, not its parent key. Verified: the path moved under `sparse-checkout`
-   passes.
-4. Shell-level non-invocation: `run: echo pnpm exec playwright test …` exits 0
-   without launching anything, and a `run` key nested under `env` is not a step.
+**Cap VALUE is now asserted, and this paragraph records what changed.**
+Membership in the placement key only ever caught a cap that CHANGED
+mid-sequence; a wrong-but-constant cap preserved the geometry and passed.
+Whole-diff review named that, and the `PROBE:` case now asserts that a panel
+which FITS carries no cap at all, with the fit stated as an executable premise.
+The reasoning below is why the oracle is a contract property rather than a
+re-derivation of the placement algebra. Checking the value would need the
+placement algebra as its oracle, and re-deriving that in the test would pass
+whenever the test and the code share a mistake — the tautology this arc has been
+removing rather than adding. The fixture also applies no cap at all (`maxH=none`
+in every recorded run), so asserting emptiness is exactly the right expectation
+here, and it discriminates: the non-binding wrong cap mutant reds it (B9 above).
+Cap behaviour is exercised by the containment and flip cases in the same spec.
 
-These are DOCUMENTED LIMITS rather than gaps to close. Each is an adversarial
-construction rather than an ordinary authoring mistake, which places them outside
-the declared threat fence, and deciding them correctly would require a YAML
-parser, GitHub's path-matching semantics and a shell parser — a recognizer over
-an open grammar, which the repair-direction rule declines by design.
-
-**Decision record, so a third narrowing is not attempted.** This surface has now
-drawn findings in two consecutive whole-diff rounds. If it draws a third on a
-fifth grammar feature, the disposition is neither to narrow again nor to widen:
-the guard is split out of the shipping PR entirely. Two narrowings is prudence;
-three is the ratchet wearing a different hat.
-
-**Cap VALUE is now asserted, and this paragraph records what changed.** Membership
-in the placement key only ever caught a cap that CHANGED mid-sequence; a
-wrong-but-constant cap preserved the geometry and passed. Whole-diff review named
-that, and the `PROBE:` case now asserts that a panel which FITS carries no cap at
-all, with the fit stated as an executable premise. The reasoning below is why the
-oracle is a contract property rather than a re-derivation of the placement
-algebra. Checking the value would
-need the placement algebra as its oracle, and re-deriving that in the test would
-pass whenever the test and the code share a mistake — the tautology this arc has
-been removing rather than adding. The fixture also applies no cap at all
-(`maxH=none` in every recorded run), so asserting emptiness is exactly the right expectation here, and it discriminates:
-the non-binding wrong cap mutant reds it (B9 above). Cap behaviour is exercised by the containment
-and flip cases in the same spec.
-
-## 9.1 Documented coverage boundary: one of the two render sites
+## 9.2 Documented coverage boundary: one of the two render sites
 
 `AnchoredPortal` is rendered from exactly one file, at two sites, both in
 `components/admin/ShowRowActions.tsx`: the row menu
@@ -545,8 +518,12 @@ pass `align="right"` and `preferredSide="bottom"` — identical, not merely
 similar — so `measureAndApply`'s dependency list
 (`components/admin/AnchoredPortal.tsx:186`) differs only in the ref. Both
 placement effects branch on nothing but `open` and `mounted`, and
-`measureAndApply`'s only branch is on `placement.kind`
-(`components/admin/AnchoredPortal.tsx:157`), a computed value rather than a prop.
+`measureAndApply`'s branches are on a missing anchor or panel ref
+(`components/admin/AnchoredPortal.tsx:131`) and on `placement.kind`
+(`components/admin/AnchoredPortal.tsx:157`), with `align` selecting the fallback's
+horizontal edge inside the second. None of the three is a per-SITE branch: both
+sites pass the same `align`, and the ref and placement branches are computed at
+run time from geometry rather than from which site rendered.
 There is no site-dependent branch anywhere in the timing path, so the pre-paint
 property is a property of the component and one site establishes it. INV-2 and
 INV-3 are asserted against the component in jsdom, which is the level the repair
@@ -601,38 +578,7 @@ reported as one settled state. What the probe establishes is narrower and is
 what INV-4 actually needs: exactly one settled placement appears, the panel keeps
 it, and it is geometrically correct against its anchor.
 
-### A.3 Three corrections to the instrument, all found before it was trusted
-
-**It reported a zero it had not measured.** The first cut read
-`styleWrites=0 placements=1` and its own premise passed. The observer was
-attached per-node from a `childList` callback, a microtask late, so React's
-writes had already landed and it recorded nothing. A zero from an instrument
-that never fired is indistinguishable from a real zero. The shipped case
-registers a SUBTREE observer on `document.body` before the click and asserts a
-non-empty log as its own premise.
-
-**It got the right number for a reason that does not generalise.** The second cut
-reconstructed history from every record's `now`, each read during the eventual
-callback and so reporting the FINAL value: a synchronous `A -> B -> C` reads back
-`A, C, C`. Round-1 review raised the mechanism, and the full `oldValue` chain
-showed what that had eaten:
-
-```
-PROBE-LIVE styleWrites=2 placements=3 sequence=["0px|0px||","695px|0px||","695px|1251.47px||"]
-```
-
-React assigns `left` and `top` as separate property writes, so `695px|0px` is a
-half-applied write. Neither reading is right, and the shipped grain is per
-callback batch (§5.1). The headline figure never moved, which is the point: a
-number that is right for a reason that does not generalise is not evidence, and
-it survived only because the reviewer attacked the mechanism rather than the
-figure.
-
-**The pre-paint pin was inert in jsdom.** With the repair applied AND the sole
-measurer changed to `useEffect`, the jsdom assertion still passed (`top=250px`,
-expected `250px`). §5 states the consequence.
-
-### A.4 The browser instrument, proved before it was trusted
+### A.3 The browser instrument, proved before it was trusted
 
 Clean tree: mount frame 2, placement frame 2, green. Planted with the passive
 measurer: `mount was at frame 2 and the placement at 3, so a rendering update ran

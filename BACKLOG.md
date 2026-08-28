@@ -331,13 +331,13 @@ PROBE closedReads=0 measureRunsOnOpenCommit=3
 ```
 
 Two layout effects both cover the open commit: the gated one
-(`components/admin/AnchoredPortal.tsx:191`) and the deliberately ungated every-commit one
-(`components/admin/AnchoredPortal.tsx:254`). The `setApplied` they produce re-renders, which fires
+(`components/admin/AnchoredPortal.tsx:199`, the gated effect) and the deliberately ungated every-commit one
+(`components/admin/AnchoredPortal.tsx:261`, the ungated every-commit effect). The `setApplied` they produce re-renders, which fires
 the ungated effect a third time; `commit` then drops the unchanged placement and the loop settles.
 So the third run is a convergence step of the design, not a stray call, and the second is the only
 plainly redundant one.
 
-**Why it is not a one-line deletion.** `components/admin/AnchoredPortal.tsx:245-253` documents at
+**Why it is not a one-line deletion.** `components/admin/AnchoredPortal.tsx:252-260` (the rationale comment above the ungated effect) documents at
 length why the every-commit effect is unconditional: it is the only subscription that catches a
 POSITION-ONLY anchor move, which `ResizeObserver` explicitly does not report — a background
 `router.refresh()` that reorders rows without changing any dimension moves the anchor under a panel
@@ -373,7 +373,7 @@ it, without changing size. The row menu's `applied` placement is state internal
 to its own `AnchoredPortal` instance, so React re-renders that instance and its
 children — `ShowRowActions` does not re-render, so the SUBMENU's instance does
 not re-render either, and its ungated every-commit effect
-(`components/admin/AnchoredPortal.tsx:254`) never runs. The submenu's own
+(`components/admin/AnchoredPortal.tsx:261`, the ungated every-commit effect) never runs. The submenu's own
 `ResizeObserver` watches its anchor and its panel for SIZE, and the anchor only
 moved. Nothing re-places it.
 

@@ -420,8 +420,11 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
    * TASK 1 PROBE (BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN). The jsdom probe
    * establishes the COUNT (`measureRunsOnOpenCommit=3`); it cannot establish
    * whether those runs AGREE, because jsdom computes no layout and every rect
-   * is a stub. This case answers the row's first scheduled step on the live
-   * surface: is the third run's placement ever DIFFERENT from the second's?
+   * is a stub. This case asserts that ONE settled placement is applied and that
+   * it is geometrically correct. It does NOT establish whether the third measure
+   * agreed with the second: the per-callback batch grain cannot separate two
+   * commits flushed in one task (spec §5.1), so a disagreeing third measure would
+   * be absorbed into the same batch. INV-3 owns the cost of that invisible case.
    *
    * It reads the panel's applied placement history rather than counting rect
    * reads. Counting reads here would be contaminated — Playwright's own
@@ -435,7 +438,7 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
    * whole tuple because a wrong side, a changed cap or a transient extra
    * placement must not survive this case.
    */
-  test("PROBE: a closed → open transition applies its placement once, and the convergence run agrees", async ({
+  test("PROBE: a closed → open transition applies exactly one settled placement", async ({
     page,
   }) => {
     test.setTimeout(CASE_TIMEOUT_MS);
@@ -787,8 +790,8 @@ test("admin-layout-e2e names this component and this spec", () => {
 
   expect(
     lines.some((l) => /^\s*-\s*"?components\/admin\/AnchoredPortal\.tsx"?\s*$/.test(l)),
-    "admin-layout-e2e.yml must still list components/admin/AnchoredPortal.tsx as a paths " +
-      "entry — if it is deleted, a PR changing that component never runs the pins in this " +
+    "admin-layout-e2e.yml must still contain a list-item line bearing " +
+      "components/admin/AnchoredPortal.tsx — if it is deleted, a PR changing that component never runs the pins in this " +
       "file and they pass by not running",
   ).toBe(true);
 
