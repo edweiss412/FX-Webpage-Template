@@ -1,13 +1,15 @@
 # Review rounds — `fix/nearmiss-non-field-blocks` @ `31beee5de40e`
 
-## spec — 5 rounds
+## spec — 6 rounds
 
 **Examined:** `docs/superpowers/specs/parser/2026-08-28-nearmiss-candidacy-field-lists-design.md` and its probe
 `docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-candidacy-probe.ts`, across 4 rounds at one base.
-Findings: 2, 2, 1, 1, 1. All seven were accepted; none was disputed or relitigated. Round 5 was a
-VERIFY-ONLY round authorized past the cap, in advance, for the closed question "do the R1-R4 repairs
-stand at head". It paid for itself: it found a regression in the round-4 repair, which was the one
-repair no round had reviewed.
+Findings: 2, 2, 1, 1, 1, 2. All nine were accepted; none was disputed or relitigated. Rounds 5 and 6
+were VERIFY-ONLY rounds authorized past the cap, each in advance and each for a closed question.
+Round 5 asked whether the R1-R4 repairs stood at head and found a regression in the round-4 repair,
+the one repair no round had reviewed. Round 6 was scoped to that repair alone and carried a binding
+termination clause: any further defect would demote the artifact rather than repair it again. It
+found two, and the demotion fired.
 
 **Mechanizable:** One class, and it is the whole story of this arc's rounds.
 
@@ -25,6 +27,8 @@ apparatus that was supposed to prove the rule:
 | 3 | the injection changed the block's minimum before measuring it | a probe whose construction changes the property under test |
 | 4 | no criterion separated `normalizeV3(opener) === "timestamp"` from `opener === "Timestamp"` | a criterion the corpus cannot distinguish from an impostor, because every instance spells it one way |
 | 5 | the round-4 repair's own table compared two local expressions over hardcoded strings, never touching the block, the predicate or the detector | a table that would print the same number whatever the implementation did |
+| 6 | the round-5 repair's shape check compared the reparsed opener against the spelling just requested, not the SOURCE opener, so two unchanged openers reported "shape held" | a premise that cannot fail, asserted about the wrong pair of values |
+| 6 | the prose contradicted the table's own output in three places | a description that drifted from the thing it describes |
 
 Round 4's is worth stating separately, because it is the one shape the other five do not cover. The rule
 was RIGHT and the evidence was right; what was missing was an input that could tell the rule apart from a
@@ -42,6 +46,19 @@ impostor" was a table that never ran either. Rebuilding it to touch a real block
 from 4 to 3 and revealed a second error nobody had raised — whitespace padding is not discriminating,
 because the scanner cleans the opener before either comparison sees it, so only a raw-string
 comparison ever thought it was.
+
+**The terminating move, and why it is structural rather than a truce.** After round 6 the table was
+DEMOTED rather than repaired a fourth time: it is now an illustration carrying no evidentiary
+weight, and AC-11's proof moved into `tests/parser/fieldNearMiss.test.ts`, inside the
+`fieldNearMiss` source-mutation surface. That ends the ladder by changing the artifact class rather
+than by anyone resolving to be more careful. A probe table is READ, so a defect in it is found by a
+reviewer or not at all, and every repair produces another unreviewed table — which is exactly what
+rounds 4, 5 and 6 each found. A suite case is EXECUTED by the runner and attacked by the harness: a
+case that cannot fail is a case that fails to kill its mutant, and the gate reports it with a site
+id. The next check on this claim is a mutation score, not a review round.
+
+The general lesson, which is the one worth carrying: an acceptance criterion should not rest on an
+artifact that nothing executes. Three rounds is what it cost to learn that here.
 
 **The mechanizable core: a probe should assert its own preconditions.** Every one of these is a probe
 reporting a result it had not established. The repairs converged on three assertions that generalise beyond
