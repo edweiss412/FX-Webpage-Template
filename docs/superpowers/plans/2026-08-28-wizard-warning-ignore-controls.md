@@ -317,10 +317,44 @@ export type WizardDqTarget =
 ## 12. Closeout (Opus pane, after all tasks)
 
 - [ ] Full verification battery, in order: `pnpm typecheck` (vitest AND playwright configs), `pnpm exec eslint .`, `pnpm format:check`, then `pnpm heavy pnpm test` (DB slot from bl-orch FIRST).
-- [ ] Invariant 8 dual-gate on the diff: run the impeccable v3 skill's critique half, then its audit half (canonical setup: context.mjs load of PRODUCT.md + DESIGN.md → register reference read). P0/P1 fixed or `DEFERRED.md`-deferred BEFORE the whole-diff review. Findings + dispositions recorded below, and IN THIS SAME COMMIT: rewrite this section to name both halves explicitly and append the machine-valid marker line per the parser grammar in `tests/docs/_invariant8Closeout.ts` (`critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>`; cross-check rule: p0+p1>0 requires `recorded`, zero requires `none`).
+- [x] Invariant 8 dual-gate on the diff: ran the impeccable v3 skill's critique half, then its audit half (canonical setup: context.mjs load of PRODUCT.md + DESIGN.md → register reference read). P0/P1 fixed or `DEFERRED.md`-deferred BEFORE the whole-diff review. Findings + dispositions recorded below, and IN THIS SAME COMMIT: rewrite this section to name both halves explicitly and append the machine-valid marker line per the parser grammar in `tests/docs/_invariant8Closeout.ts` (`critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>`; cross-check rule: p0+p1>0 requires `recorded`, zero requires `none`).
 - [ ] Whole-diff cross-model review via codex-guard (`--stage diff --round 1`; round-1 diff brief needs the GUARD SURFACE line ONLY if a surface enrolled in the SOURCE-MUTATION SCORE registry (`tests/mutation/source/registry.ts`) is touched — none is (the `AUDITABLE_MUTATIONS` extension in Task 5 is a different registry and does not trigger that line); state that in the brief). 4-round cap; filing + bl-orch past it.
 - [ ] Push; CI green at the shipping 40-char head (all twelve required contexts, seen>=12 — ABSENT is not green); then report READY to bl-orch pane `w15:p2`. THE ARC NEVER MERGES.
 - [ ] Ledger: no `BL-`/`DEF-` rows are closed by this arc; nothing to mark or clear.
 - [ ] §7 documented-limit dispositions (R1 F10 — each is a LIMIT, deliberately untested as behavior, with one absence probe where cheap): no bulk ignore in the wizard mount (Task 9 asserts NO `BulkIgnoreControls` render in the panel — one absence assertion); no prune on wizard re-scan (disposition: documented limit, spec §1.1.6 — no test; the rescan path is untouched by this diff, verified by the diff itself); one unbatched read per LINKED row (disposition: documented limit, spec §7 — no test); abandoned-session cleanup disposing staged ignores (disposition: rides the existing `pending_syncs` row-deletion behavior, already covered by the session-lifecycle suites — no new test).
 
-(The `impeccable-gate:` marker line is written here by the closeout commit — no placeholder until then, per the grammar's malformed-line rule.)
+### Invariant-8 dual gate — findings and dispositions
+
+Both halves ran on the diff, in order, before the whole-diff review. Canonical v3
+setup for each: `context.mjs` context load (PRODUCT.md + DESIGN.md) → register
+reference read (`product.md` — this is admin tool UI, design SERVES the product).
+Each half ran as its own isolated sub-agent; neither saw the other's output.
+
+**Critique half.** 1 P0, 2 P1, several P2/P3. All three gate-blocking findings were
+verified against the code before repair, and all three were real.
+
+| # | Finding | Disposition |
+|---|---|---|
+| P0 | A successful Ignore unmounts the button holding focus, dropping focus to `<body>`. That is OUTSIDE the review modal's Tab trap — `useDialogFocus` binds keydown to the panel container, so a Tab on `<body>` never reaches it and walks the background behind the dialog (WCAG 2.4.3 / 2.1.2). | FIXED `5e7aff3b2`. The controls hand focus to an sr-only `tabIndex={-1}` anchor the panel owns, before the refresh. Revert-probed: the assertion reds. |
+| P1 | The Ignored drawer rendered `reviewWarningTitle` alone, which names the CLASS, never the row — three ignored `UNKNOWN_FIELD` rows were three identical lines above three identical Un-ignore buttons. | FIXED `5e7aff3b2`. The drawer carries the Sheet row label, gated to `UNKNOWN_FIELD` exactly as the active row gates it. |
+| P1 | `PLATE` keyed the focus-ring offset and outline token on `mode`, a proxy for the GROUND that held only while every mount was a published card. The wizard panel is `bg-surface`, so the active arm painted an amber offset and the tinted outline on an untinted ground. | FIXED `5e7aff3b2`. The record names the ground; the call site supplies it; published mounts keep the mode-derived default and render byte-identically. Revert-probed. |
+| P2 | `holdFocusInPanel` sends focus to the panel-top anchor for every success, including an un-ignore from a `<details>` that survives. | ACCEPTED. The anchor is the one target that is valid on every path; a summary-focus target can itself unmount when the last ignored row leaves. The blunt landing is inside the trap, which is the property that matters. |
+| P2 | O(n·m) ignored-index filter in `gapWarnings`, unmemoized per card. | ACCEPTED. n is one sheet's warnings and m its ignored subset; both are single digits in the live corpus. Filed nowhere: it is a documented shape, not a defect. |
+| P3 | `useMemo(..., [data])` in `ShowReviewSurface` buys nothing, since `data` is rebuilt inline each render. | ACCEPTED, no regression — the sibling memo above it is already keyed the same way, and narrowing one without the other would be misleading. |
+| P3 | The disclosure `<summary>` is an uppercase tracked eyebrow and is not a heading. | ACCEPTED. It is a verbatim copy of the published `sectionWarningExtras` disclosure; changing one without the other is the inconsistency the product register actually warns about. Precedent-bound — change both or neither. |
+| P3 | The "Ignore" → "Ignoring…" label swap reflows the row mid-click. | ACCEPTED, cosmetic. |
+
+**Audit half.** Accessibility 3/4, Performance 3/4, Theming 4/4, Responsive 4/4,
+Anti-patterns 4/4. 1 P1, repaired with four P3s in `339d80e3c`.
+
+| # | Finding | Disposition |
+|---|---|---|
+| P1 | `run()` never left `running` on success — it relied on being unmounted. A LINKED row whose loader read faults resolves fail-OPEN, so the row returns ACTIVE, the instance survives on its content key, and the button sits disabled at "Ignoring…" after a SUCCESS. | FIXED `339d80e3c`. |
+| P3 | The ignored rows lacked the active rows' warn-severity gate, so a legacy info-severity ignore got an Un-ignore whose success moved it where it could never be re-ignored. | FIXED `339d80e3c`. |
+| P3 | The ignored title sat at `text-subtle` with no wrap guard, though it is the line an operator reads to choose what to restore. | FIXED `339d80e3c` — `text-text` + `wrap-break-word`. |
+| P3 | The focus anchor had no accessible name. | FIXED `339d80e3c`. |
+| P3 | `pick` indexed the gate-filtered list with full-array model indices — safe only by a coupling, and a mismatch would have picked the WRONG warnings rather than tripping the range filter. | FIXED `339d80e3c` — it indexes the raw array. |
+
+No finding was deferred to `DEFERRED.md`: every P0 and P1 is repaired in-branch.
+
+impeccable-gate: critique=RAN audit=RAN p0=1 p1=3 dispositions=recorded
