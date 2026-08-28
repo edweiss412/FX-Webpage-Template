@@ -8,6 +8,14 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
+## BL-LINE-KEYED-REGISTRY-ROWS — registries keyed by `file:line` are invalidated wholesale by any edit above the row
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`; owner-directed 2026-08-27 by bl-orch under the recurrence exception that PR #922 added the same day) · **Facing:** process · **Mint-exception:** recurrence (`LIM-LINE-KEYED-SITEID`, three independent arcs) · **Severity:** MEDIUM (every hoist, import, or new control above a keyed row costs a re-key per row, and a mis-keyed row is a false pass) · **Class:** structural-registry keying · **Effort:** M · **Incident:** three independent arcs, each with its corpus row: (1) `feat/speclint-ac-unclaimed-arm`, diff stage, `docs/review-rounds/feat/speclint-ac-unclaimed-arm/44b0d74b1107.md`: 37 accepted-survivor siteIds (`operator:line:col:text`) re-keyed across three mutation score runs, two runs failing before the re-key cause was separated from genuine gaps; (2) `feat/private-image-pipeline`, diff stage, `docs/review-rounds/feat/private-image-pipeline/d2a31e4aa021.md`: one hoisted emit in `alertProducerScope.registry.ts` invalidated 19 line-pinned rows across three files; (3) `feat/wizard-review-attention-menu`, spec stage, `docs/review-rounds/feat/wizard-review-attention-menu/66c9857f56a5.md` (rounds 1 and 3): one new header button moves eight line-keyed rows (`tests/styles/controlOutlineScan.ts` `CENSUS` ×3 and `DIVIDERS` ×1, `tests/styles/_metaControlOutlineFill.test.ts` `HOVER_SUBTLE`, `tests/styles/tapTargetCensus.ts`, `tests/styles/controlOutlineResidue.ts`, `tests/styles/_metaControlOutlineResidue.test.ts`) plus two count pins, and the spec needed two review rounds to enumerate them because no reader lists which registries key on a given file. · **Reachability:** PROBED — each filing quotes the re-keyed rows; `rg -n "AttentionMenu.tsx|Step3ReviewModal.tsx|PublishedReviewModal.tsx" tests/styles/*.ts tests/styles/*.test.ts` reproduces occurrence (3) on `origin/main`.
+
+Index entry: `LIM-LINE-KEYED-SITEID` in `docs/review-rounds/LIMITS.md`. Its own re-file trigger was "a third arc hitting it or a product arc blocked by it"; both are met by occurrence (3), a product-facing arc.
+
+**Done condition, as a number outside the process:** re-keys per arc. Content-keyed ids (`file` + a stable element token: the `data-testid`, or `operator + from-text + to-text` for mutation survivors) replace line keys in the registries named above, so a line move above a row changes nothing; measured by the next two arcs that touch any of those files reporting zero re-key edits in their registry commits, and by `pnpm review:economy` showing no "did not name a registry" finding on those files. Not a guard-on-guard: the registries keep pinning what they pin today; only the key changes.
+
 ## BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS - the near-miss detector flags rows in blocks that are not field lists, and the card's advice is wrong there
 
 **Status:** OPEN · **Filed:** 2026-08-27 (`fix/wizard-warning-row-links-copy`, owner-directed from the RIA wizard screenshot) · **Facing:** product · **Severity:** LOW-MEDIUM (a wrong instruction on a shipped admin card; nothing is corrupted) · **Class:** detector candidacy scope · **Effort:** M · **Class-sweep exception:** (a): which block shapes are legitimate near-miss homes is a product decision the link arc could not settle. · **Reachability:** PROBED: the parser run recorded in spec 2026-08-27-wizard-warning-row-links-copy §1, `parseSheet` on `fixtures/shows/raw/2025-06-ria-investment-forum.md` at `66c9857f5`.
@@ -285,6 +293,61 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 **Why nothing was built:** the prerequisite returned zero, which is the answer that says do not build. A labeled treatment would be a renderer for a case the corpus does not contain; ruled RECORD AND PARK 2026-08-27. The entry keeps its place in the queue with the number attached, so the next reader inherits the measurement instead of re-deriving it.
 
 **Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation, in a case that turns out not to arise. **Promotion prerequisite (RUN 2026-08-27, returned zero):** a corpus probe over live `flight_info` values counting how often a segment parses but carries no displayable field beyond its date — see `**Reachability:**` above. Should it ever return non-zero, the direction is a renderer question, because the segments ARE structured: give the date-only segment a labeled treatment of its own, rather than the parser widening an earlier draft implied.
+
+### BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED — the published attention spec's resolve-lifecycle case fails on unmodified code, cause unattributed
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9 Step 5) · **Facing:** product · **Severity:** MEDIUM-UNKNOWN (either an operator cannot resolve an alert from the published modal, or a spec has gone stale — the severity depends entirely on which, and that is the open question) · **Class:** unattributed e2e red · **Effort:** S to attribute, unknown to fix · **Class-sweep exception:** (a) — the repair direction cannot be chosen before attribution, and attribution is itself the first task.
+
+**What is red.** `tests/e2e/published-show-attention.spec.ts` "resolve lifecycle: 2 issues → 1 issue → In sync, without reload (LAST — mutates)". After clicking the overview alert's resolve control, the header pill does not decrement: it stays at its arrival count for the full 5s expect window (`Expected substring: "1 issue" / Received string: "2 issues · 1 sheet warning"`). A later run failed earlier and differently, on a `toBeVisible`, so it is not one deterministic assertion.
+
+**Reachability:** PROBED 2026-08-27. Not inferred from a red on a modified tree: both files this branch touches in that spec's dependency set (`published-show-attention.spec.ts`, `tests/e2e/helpers/seedShowWithCrew.ts`) were reverted to HEAD, the spec was rerun against the local stack, and the case failed identically — 5 passed, 1 failed. So the red predates this branch.
+
+**Why nobody knew.** No workflow runs this spec. `rg -n "^\s+run:.*published-show-attention" .github/workflows/*.yml` matches nothing (a `paths:` mention does not count — the structural position is the `run:` step). An unrun spec is a dark surface, and this is what dark looks like: a case that has been red for an unknown length of time with nothing reporting it.
+
+**What shipped alongside this row.** The spec IS now wired into `published-modal-e2e.yml`, so its other six cases begin gating, and this one case carries `test.fixme` naming this row rather than being deleted or left to red CI. That is the ruled disposition (bl-orch 2026-08-27): wiring is what stops the next case drifting unnoticed; the fixme is what keeps an unrelated PR from being blocked on a foreign defect.
+
+**First task is ATTRIBUTION, not repair.** Determine whether the optimistic decrement is genuinely broken on the published modal (a product defect an operator would hit) or whether the fixture, the seeded alert shape, or the resolve control's testid has drifted under the spec. Only then is the repair direction decidable. Remove the `test.fixme` as that work's own red.
+
+### BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW — the attention menu overflows its clipping panel on the LEFT at phone widths, on both review modals
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9's new clip pin) · **Facing:** product · **Severity:** MEDIUM (part of an operator-facing dropdown is cut off at the most common phone width; the published surface is the worse of the two) · **Class:** anchored-overlay sizing · **Effort:** M · **Class-sweep exception:** (c) — the repair is a sizing redesign of a SHARED frame with its own hook spec (`admin/2026-08-27-fitwithinclip-clip-subscription`) and its own e2e suite (`popover-clip-fit.spec.ts`), on a shipped surface the filing branch does not otherwise change. Ruled (B) by bl-orch 2026-08-27, on the further ground that fixing published geometry in-arc would force regenerating the very byte baseline that arc built to prove published bytes UNCHANGED.
+
+**What is wrong.** The attention menu panel is `w-[min(400px,calc(100vw-32px))]` with `right-0`, i.e. sized against the VIEWPORT while anchored to a wrapper that is inset from the viewport's right edge. At phone widths the width it takes exceeds the room available to the LEFT of that anchor, so the panel's left edge lands outside the clipping `ReviewModalShell` panel and the leading edge of every row is cut off. `useFitWithinClip` does not catch it: that hook caps `max-height` only, by design and by its own documented contract.
+
+**Reachability:** PROBED 2026-08-27 at 375x667, in real Chromium, both surfaces:
+
+```
+wizard    menu.left = -18.85   clip.left = 0   (this branch)
+published menu.left = -36.00   clip.left = 0   menu.width 343, wrapper right edge 307
+```
+
+The published number was taken against UNMODIFIED code — a temporary probe added to `popover-clip-fit.spec.ts` and removed after reading — so the defect is pre-existing on main and is WORSE on the shipped surface than on the new one. Nothing had looked before: `popover-clip-fit.spec.ts` asserts `menu.bottom <= panel.bottom` and has never asserted a horizontal edge.
+
+**Where it is pinned today.** `tests/e2e/wizard-attention-menu.spec.ts` keeps the clip assertion at 1280x800 and registers the 375x667 case as `test.fixme` naming this row, so the gap is visible in the report rather than absent from it. Re-enable that case as the fix's own red.
+
+**Direction, not yet decided.** The panel cannot express "no wider than the distance from the clip's left edge to my anchor's right edge" in CSS, because that distance is a runtime measurement. So the candidates are: extend `useFitWithinClip` (or a sibling) to cap width the way it caps height; or re-anchor the panel to the modal panel rather than the pill wrapper. The first keeps the anchoring idiom and is where the existing measurement machinery already lives; the second is a bigger change. Whichever wins, it lands on the SHARED frame and both modals get it at once.
+
+### BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS — two `lib/parser/dataGaps.ts` filters still drop a severity-less warning from operator-visible lists
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 2 class sweep) · **Facing:** product · **Severity:** LOW-MEDIUM (an operator-visible warnings list silently omits a row, if the shape occurs) · **Class:** severity-predicate divergence · **Effort:** S · **Class-sweep exception:** (b) + (c) — spec §2.1's sweep is ratified over `lib/admin components/admin` only, and repairing these two changes what the staged-show digest and the per-show actionable list COUNT, each with its own pinned suite, on surfaces this arc does not otherwise touch.
+
+**The defect shape, and where it now does not exist.** A persisted `ParseWarning` can lack the `severity` key entirely. `summarizeDataGaps` (the badge) has always counted such a row — the "#289 contract: skip only info (missing severity counts)" comment — while every review-surface filter tested `severity === "warn"` and dropped it, so badge and surface could disagree. This branch closes that for the seven ratified sites by routing them all through the new `isWarnSeverity` predicate (`lib/parser/dataGaps.ts`).
+
+**The two peers it does not close, with the sweep that found them.** After the seven landed:
+
+```
+$ rg -n 'severity (===|!==) "warn"' lib/admin components/admin
+(no hits)
+$ rg -n 'severity (===|!==) "warn"' lib/parser
+lib/parser/dataGaps.ts:129:  return !!w && w.severity === "warn" && DATA_GAP_CODES.has(w.code);
+lib/parser/dataGaps.ts:465:    if (w.severity !== "warn") continue;
+```
+
+`:129` is `isDataQualityWarning`, which gates the staged-show warnings digest (`app/admin/show/staged/[stagedId]/page.tsx:169`). `:465` is `operatorActionableWarnings`, the data-boundary filter behind `components/admin/PerShowActionableWarnings.tsx` and `components/admin/StagedReviewCard.tsx`. Both are operator-visible; both would drop a severity-less row that the badge counts, which is the same divergence §2.1 exists to end.
+
+**Reachability:** INFERRED, NOT PROBED. Spec §2.1 ratifies that persisted rows can lack the field, and `tests/parser/dataGaps.test.ts` ("counts a gap code whose warning is MISSING severity") pins the badge's handling of that shape — but nothing here measures whether such a row EXISTS in live data. The probe that settles it, and the first scheduled step of this entry: count elements of `shows_internal.parse_warnings` with no `severity` key across the validation deployment, per code. A zero makes this a documented limit rather than a defect; a non-zero names exactly which operator lists are short.
+
+**Why not fixed in the filing branch:** the repair is two one-line predicate swaps, but it moves counts on two surfaces with their own pinned suites (`tests/parser/operatorActionableWarnings.test.ts`, `tests/onboarding/firstSeenStagedWarnings.test.ts`, `tests/dataQuality/roleTokenIdentity.test.ts`) that this arc's review scope does not cover, and the probe above should direct it. Cheap once the count is known.
 
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 

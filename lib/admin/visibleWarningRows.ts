@@ -13,6 +13,7 @@
 // controls. Info-severity rows are never routed to a section
 // (`lib/admin/step3SectionStatus.ts:90` drops them), so this panel is their
 // only home and they always survive.
+import { isWarnSeverity } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 
 export function visibleWarningRows(
@@ -20,5 +21,5 @@ export function visibleWarningRows(
   routedWarningsRenderElsewhere: boolean,
 ): readonly ParseWarning[] {
   if (!routedWarningsRenderElsewhere) return warnings;
-  return warnings.filter((w) => w.severity !== "warn");
+  return warnings.filter((w) => !isWarnSeverity(w));
 }

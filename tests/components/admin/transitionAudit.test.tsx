@@ -51,6 +51,11 @@ const SERVER_RENDERED = [
   "components/admin/PerShowActionableWarnings.tsx",
   "components/admin/telemetry/HealthAlertsPanel.tsx",
   "components/admin/showpage/AttentionMenu.tsx",
+  // wizard-review-attention-menu §3.3: the Step 3 warning index. It renders no
+  // overlay of its own — the chrome is AttentionMenu's exported frame — but it
+  // is a surface in its own right, so it is enrolled rather than left silently
+  // exempt by a registry that only covers what someone remembered to list.
+  "components/admin/wizard/WizardAttentionMenu.tsx",
   // admin-show-modal Task 7: the published review modal surface. All three are
   // client components but deliberately motion-free in SOURCE — the modal's
   // entrance/exit animation lives in app/globals.css keyframes hooked via

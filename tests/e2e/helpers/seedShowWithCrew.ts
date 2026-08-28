@@ -114,9 +114,12 @@ export type SeedShowWithCrewOptions = {
    * shows_internal seed, written INSIDE the same locked transaction as the show
    * insert. `runOfShow` lands in shows_internal.run_of_show — the per-day agenda
    * store resolveKeyTimes reads for the RightNow hero's per-day Show anchors.
+   * `parseWarnings` lands in shows_internal.parse_warnings, the array the review
+   * modal routes into section warnings and, since
+   * 2026-08-27-wizard-review-attention-menu, counts on the header pill.
    * Omit → no shows_internal row (getShowForViewer projects runOfShow: null).
    */
-  internal?: { runOfShow?: unknown };
+  internal?: { runOfShow?: unknown; parseWarnings?: unknown };
 };
 
 export type SeededShow = {
@@ -280,8 +283,14 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
   }
   if (options.internal !== undefined) {
     statements.push(
-      `insert into public.shows_internal (show_id, run_of_show)
-       values (${sqlString(showId)}::uuid, ${sqlJsonbOrNull(options.internal.runOfShow ?? null)});`,
+      // The parse_warnings column is emitted ONLY when a caller supplies it:
+      // the column defaults to '[]'::jsonb, and naming it unconditionally would
+      // write NULL over that default for every existing caller.
+      options.internal.parseWarnings === undefined
+        ? `insert into public.shows_internal (show_id, run_of_show)
+       values (${sqlString(showId)}::uuid, ${sqlJsonbOrNull(options.internal.runOfShow ?? null)});`
+        : `insert into public.shows_internal (show_id, run_of_show, parse_warnings)
+       values (${sqlString(showId)}::uuid, ${sqlJsonbOrNull(options.internal.runOfShow ?? null)}, ${sqlJsonbOrNull(options.internal.parseWarnings)});`,
     );
   }
   runLockedSeedTx(driveFileId, statements, `seed (${driveFileId})`);

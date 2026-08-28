@@ -61,7 +61,11 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/showpage/sectionWarningExtras.tsx",
-    line: 277,
+    // :272 → 277 on this arc (its two anchorIds props, spec §4.4) → 282 on the
+    // merge, because main's own edit lands above it too and the two stack. Both
+    // sides happened to reach 277 independently, which is exactly why the
+    // merged value had to be re-MEASURED rather than inherited from either.
+    line: 282,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -70,7 +74,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    line: 1624,
+    // :1624 until 2026-08-27 — the isWarnSeverity import line (spec §2.1).
+    line: 1625,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

@@ -18,12 +18,18 @@ on:
     paths:
       - "tests/e2e/step3-review-modal.interactions.spec.ts"
       - "tests/e2e/step3-review-modal.agenda.spec.ts"
+      - "tests/e2e/wizard-attention-menu.spec.ts"
       - "tests/e2e/_step3ReviewModalAgendaEntry.tsx"
       - "tests/e2e/_agendaFixture.ts"
       - "tests/e2e/_step3ReviewModalBundle.mjs"
       - "tests/e2e/_step3ReviewModalLiveEntry.tsx"
       - "tests/e2e/_step3ReviewModalHarness.tsx"
       - "components/admin/wizard/Step3ReviewModal.tsx"
+      # Geometry owners of the attention spec: a later edit to the menu, the
+      # shared frame or the clip helper must re-run this gate.
+      - "components/admin/wizard/WizardAttentionMenu.tsx"
+      - "components/admin/showpage/AttentionMenu.tsx"
+      - "components/admin/useFitWithinClip.ts"
       - "components/admin/wizard/step3ReviewSections.tsx"
       - "components/admin/review/**"
       - "components/crew/AgendaScheduleBlock.tsx"
@@ -72,7 +78,7 @@ jobs:
       - run: pnpm exec playwright install-deps chromium
       - run: pnpm exec playwright install chromium
       - name: Run step3 live-bundle e2e (desktop-chromium, no webServer)
-        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/step3-review-modal.interactions.spec.ts tests/e2e/step3-review-modal.agenda.spec.ts
+        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/step3-review-modal.interactions.spec.ts tests/e2e/step3-review-modal.agenda.spec.ts tests/e2e/wizard-attention-menu.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

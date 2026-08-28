@@ -111,10 +111,18 @@ export const POPOVER_OVERLAY_REGISTRY: readonly OverlayRow[] = [
   },
   {
     file: "components/admin/showpage/AttentionMenu.tsx",
-    overlay: "published-show-review-attention-menu",
+    // Keyed by the PROP NAME, not a testid literal, since 2026-08-27: the panel
+    // markup moved into the exported AttentionMenuFrame
+    // (wizard-review-attention-menu §5), which stamps `data-testid={testId}` so
+    // two surfaces can share one overlay implementation. Extraction reports the
+    // identifier it finds, so `testId` IS the live key. The two consumers and
+    // their testids are named in the reason below, so nothing is lost but the
+    // key's readability; there is still exactly ONE overlay row for this file,
+    // and the wizard menu adds none because it renders no overlay of its own.
+    overlay: "testId",
     disposition: "fit-within-clip",
     reason:
-      "Surfaced BY this registry 2026-07-24 as unverified-gap, then MEASURED and closed 2026-08-02 (BL-ATTENTION-MENU-PANEL-CLIP): spec 2026-08-01-admin-popover-overlay-cluster §2.2 probed 390x560 and found a 54px stranded tail. Positioning on the panel wrapper, scroll on the inner list — the anchored-descendant-scroller shape; its scroller takes useFitWithinClip.",
+      "Surfaced BY this registry 2026-07-24 as unverified-gap, then MEASURED and closed 2026-08-02 (BL-ATTENTION-MENU-PANEL-CLIP): spec 2026-08-01-admin-popover-overlay-cluster §2.2 probed 390x560 and found a 54px stranded tail. Positioning on the panel wrapper, scroll on the inner list — the anchored-descendant-scroller shape; its scroller takes useFitWithinClip. Two consumers share this one overlay: AttentionMenu (testid published-show-review-attention-menu) and the wizard's WizardAttentionMenu (testid wizard-step3-card-<dfid>-review-attention-menu); the clip disposition is the frame's, so it covers both.",
   },
 ];
 

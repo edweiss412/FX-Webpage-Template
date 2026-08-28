@@ -258,6 +258,15 @@ export function formatAutoFixBreakdown(summary: AutoFixSummary, cap = 4): string
   return remainder > 0 ? `${base}, +${remainder} more` : base;
 }
 
+/** The #289 contract in one place: a warning is warn-severity unless it says "info".
+ *  Persisted legacy rows can lack the field entirely; they count as warn (spec
+ *  2026-08-27-wizard-review-attention-menu §2.1). Every review-surface site that
+ *  partitions warnings by severity calls this, so the badge and the surfaces can
+ *  never disagree about a severity-less row. */
+export function isWarnSeverity(w: Pick<ParseWarning, "severity">): boolean {
+  return w.severity !== "info";
+}
+
 /**
  * Count the data-quality warning classes (GAP_CLASSES) in `warnings`, excluding any
  * `severity:"info"` warning (only operator-actionable `warn`-severity drops
@@ -271,7 +280,7 @@ export function summarizeDataGaps(
 
   let total = 0;
   for (const w of warnings) {
-    if (w.severity === "info") continue; // #289 contract: skip only info (missing severity counts)
+    if (!isWarnSeverity(w)) continue; // #289 contract: skip only info (missing severity counts)
     if (DATA_GAP_CODES.has(w.code)) {
       classes[w.code as GapCode] += 1;
       total += 1;

@@ -24,6 +24,7 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   buildSectionData,
+  attentionHarnessWarnings,
   harnessResolution,
   modalElement,
   nearMissHarnessWarnings,
@@ -84,6 +85,9 @@ const WITH_RESOLUTION = params.get("resolution") === "1";
 // Third flag in the same idiom. A navigation WITHOUT it passes `{}` to buildSectionData,
 // which is byte-identical to the no-argument call every existing case makes.
 const NEAR_MISS = params.get("nearMiss") === "1";
+// Fourth flag in the same idiom (wizard-review-attention-menu §9): a navigation
+// WITHOUT it is byte-identical to the no-argument call, as the others are.
+const ATTENTION = params.get("attention") === "1";
 
 window.__resolveAction = (name: string, ok = true) => {
   pendingActions.get(name)?.(ok);
@@ -93,7 +97,12 @@ window.__resolveAction = (name: string, ok = true) => {
 function LiveHarness() {
   const [open, setOpen] = useState(true);
   if (!open) return null;
-  return modalElement(buildSectionData(NEAR_MISS ? { warnings: nearMissHarnessWarnings() } : {}), {
+  const warningsOverride = NEAR_MISS
+    ? { warnings: nearMissHarnessWarnings() }
+    : ATTENTION
+      ? { warnings: attentionHarnessWarnings() }
+      : {};
+  return modalElement(buildSectionData(warningsOverride), {
     onRequestSetChecked: DEFER_ACTIONS ? () => deferred("publish") : async () => true,
     ...(WITH_RESOLUTION
       ? {

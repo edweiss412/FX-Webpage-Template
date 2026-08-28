@@ -2,6 +2,7 @@ import type { ParseWarning } from "@/lib/parser/types";
 import type { RegionId } from "@/lib/sheet-links/buildSheetDeepLink";
 import { guessSectionFromHeader } from "@/lib/admin/sectionSynonymGuess";
 import { isAmbiguityCode } from "@/lib/parser/ambiguityCodes";
+import { isWarnSeverity } from "@/lib/parser/dataGaps";
 
 export type SectionId =
   | "venue"
@@ -80,7 +81,7 @@ export function sectionForWarning(w: ParseWarning): SectionId | null {
   // parser's Damerau autocorrect can't catch — spec 2026-07-07 §B). Local
   // severity+code gate, so a direct call with a non-warn or non-header input
   // cannot reach the synonym map.
-  if (w.severity === "warn" && w.code === "UNKNOWN_SECTION_HEADER") {
+  if (isWarnSeverity(w) && w.code === "UNKNOWN_SECTION_HEADER") {
     return guessSectionFromHeader(w.rawSnippet);
   }
   return null;
@@ -92,7 +93,7 @@ export function warningsBySection(
 ): ReadonlyMap<SectionId, readonly { warning: ParseWarning; index: number }[]> {
   const map = new Map<SectionId, { warning: ParseWarning; index: number }[]>();
   warnings.forEach((warning, index) => {
-    if (warning.severity !== "warn") return;
+    if (!isWarnSeverity(warning)) return;
     const mapped = sectionForWarning(warning);
     const target: SectionId = mapped !== null && renderedSections.has(mapped) ? mapped : "warnings";
     const list = map.get(target);
@@ -113,7 +114,7 @@ export function warningsBySection(
 export type SectionStatus = "flagged" | "judgment" | "clean";
 
 export function sectionStatus(warnings: readonly ParseWarning[]): SectionStatus {
-  const warns = warnings.filter((w) => w.severity === "warn");
+  const warns = warnings.filter(isWarnSeverity);
   if (warns.length === 0) return "clean";
   return warns.every((w) => isAmbiguityCode(w.code)) ? "judgment" : "flagged";
 }
