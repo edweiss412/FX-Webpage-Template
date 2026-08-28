@@ -492,40 +492,74 @@ the cross-instance path, in either direction.
 
 ---
 
-## BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES — the placement path measures twice per gesture frame, and twice more on two smaller sites
+## BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES — site 2 shipped; the gesture-frame measure cadence is parked
 
-**Status:** OPEN · **Filed:** 2026-08-27 (`perf/anchoredportal-measure-convergence`, invariant-8 impeccable audit) · **Facing:** product · **Severity:** LOW-MEDIUM (redundant forced reflows at gesture frame rate on a shipped admin surface; correct output, wasted work) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — the repair is a memoisation of the placement path's measure cadence, a surface the measure-convergence arc does not otherwise touch: that arc's subject is the OPEN COMMIT, and the gesture path needs its own probe and its own review. · **Reachability:** INFERRED, NOT PROBED.
+**Status:** PARKED 2026-08-28 after six spec rounds. Site 2 SHIPPED (`perf/placement-measure-memo`); site 3 REFUTED; site 1 parked with the round corpus as its record. Not withdrawn and not refuted — the defect is real and reproduced. What is unresolved is whether a guard can decide to skip the second measurement SAFELY, and six rounds say the answer is harder than the saving. · **Filed:** 2026-08-27 · **Facing:** product · **Severity:** LOW-MEDIUM · **Class:** measure-path redundancy · **Effort:** M · **Reachability:** PROBED 2026-08-28 — see "Probe result".
 
-**This is the same shape as the defect `BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN` addresses, differing only in trigger** — open commit there, scroll or pinch frame here.
+### Probe result — the defect is real, measured, and unchanged by this arc
 
-Three sites, filed as one row because they are one class rather than three defects:
+Site 1 reproduces exactly as filed. A placement-CHANGING gesture frame runs TWO
+`withNaturalSize` passes and a placement-UNCHANGED frame runs one, on both the
+ancestor-scroll and the window-resize trigger. The mutant-at-the-probe (gating the
+ungated every-commit effect) took the changing-frame count from 2 to 1 and red the
+case on the count rather than on a premise, so the instrument discriminates. Full
+transcript in the spec's appendix A.1 at `3195d0d98`.
 
-1. **Every placement-CHANGING frame during a scroll or pinch costs TWO measures.**
-   The coalescer's rAF calls `measureAndApply`
-   (`components/admin/AnchoredPortal.tsx:199`); the placement it commits produces
-   a React commit; the ungated every-commit effect
-   (`components/admin/AnchoredPortal.tsx:261`) then measures again. At gesture
-   frame rate that is the open-time waste this arc removed, repeating. Candidate
-   repair: memoise the last trigger rect and skip `withNaturalSize` when it is
-   unchanged — safe, because a capped panel's `maxHeight` is a function of the
-   space on its side rather than of natural height, and `ResizeObserver` covers
-   uncapped size changes.
-2. **`lib/popover/naturalSize.ts:70-71` reads `el.scrollTop` AFTER the
-   cap-restore writes**, forcing a reflow on every measurement including the
-   common unscrolled case. A `heldScrollTop !== 0` short-circuit removes the read
-   entirely on that path.
-3. **`lib/popover/place.ts:120-122` can run `computePopoverPlacement` twice** on
-   the zoom-hidden fallback path, each call potentially invoking
-   `wrappedHeightAt`, so up to two extra write-read reflow pairs on that path.
+### Why it is parked rather than repaired
 
-**Reachability is INFERRED from reading the code, not measured.** An audit
-reading source is not a measurement. **The first scheduled step is therefore the
-probe, not the memoisation** — and the instrument already exists: the
-measure-counting probe this arc built for the open commit
-(`tests/e2e/rowactions-geometry.spec.ts`, the `PROBE:` case) pointed at a scroll
-or pinch interaction instead of an open transition counts measures per
-placement-changing frame directly. It either shows two or it does not.
+**The saving is one `withNaturalSize` pass per placement-changing frame. The cost
+of taking it safely is a guard that must decide, without measuring, that
+re-measuring is unnecessary — and six adversarial rounds each found an input for
+which that decision was wrong.**
 
-**Predates `perf/anchoredportal-measure-convergence` and is unchanged by it.**
-That arc removed a duplicate measure inside the open commit; it does not touch
-the gesture path, `naturalSize.ts` or `place.ts` in either direction.
+Two designs were carried to review and both were defeated on their own premise:
+
+1. **Enumerate the causes** (rounds 1-4). The key grew one member per round —
+   `align`/`preferredSide`, then `className`/`children`, then the applied `side`,
+   then `style`/`data-testid`. An enumeration of causes fails OPEN on the cause
+   nobody has thought of, and CSS supplies new ones indefinitely. Recorded at
+   `docs/review-rounds/perf/placement-measure-memo/b608e71b32b5.md`.
+2. **Observe the effect** (rounds 5-6). Strictly better and nearly right: read the
+   panel's own geometry instead of predicting what moves it. It died on the
+   boundary rather than on the idea — the placement core switches on strict
+   comparisons (`lib/popover/position.ts:118`, `:128`), so a natural size that
+   shrinks to EXACTLY its cap changes the applied tuple while the rendered box
+   does not move. Sharpening the observation to the scroll extent answered that
+   instance; the round that followed is what this park record is being written
+   from.
+
+**The honest summary is that the guard is a predicate over "did anything change
+that the placement reads", evaluated without doing the read that would answer
+it.** Every version of that predicate is refutable by construction, and the thing
+it protects is one measurement per gesture frame on one admin surface.
+
+### Re-file trigger — BOTH, not either
+
+1. **A probe-domain measurement of the standing cost.** Gesture-frame jank
+   observed on the dashboard row menu, with profiling attributing it to this path.
+   That turns the saving from "one pass per frame" into a number, which is what
+   would justify a guard's complexity.
+2. **A design that closes the arithmetic class**, not another sharpening of the
+   same predicate. The class: the placement core switches on strict comparisons
+   over fractional geometry (`lib/popover/position.ts:118` and
+   `lib/popover/position.ts:128`), so the applied tuple can change while every
+   cheap observation of the panel stays equal. Round 6 killed the extent
+   refinement on exactly this — `scrollWidth`/`scrollHeight` are integers per
+   CSSOM View while `getBoundingClientRect` and `bounds` are fractional, so a
+   natural width moving from just above `bounds.width` to exactly `bounds.width`
+   is invisible to size AND extent while `maxWidth` flips from a number to
+   `null`.
+
+**Both, because either alone is what produced six rounds.** A measurement without
+a class-closing design funds another predicate; a design without a measurement
+spends real complexity on an unquantified saving. Constructing another key is
+explicitly NOT a trigger: that is the axis these rounds closed, and this record
+exists so a seventh attempt does not start over.
+
+### What shipped instead
+
+Site 2 (`lib/popover/naturalSize.ts:70-71`): the scroll-offset restore no longer
+reads `scrollTop`/`scrollLeft` on the unscrolled path, where both reads follow the
+cap-restore writes and both are provably no-ops. Every measurement of every
+uncapped popover on every surface composing the helper takes that path. **No
+review round in six ever faulted it.**
