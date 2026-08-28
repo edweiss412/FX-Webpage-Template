@@ -156,6 +156,7 @@ describe("synthesizeCollectionVerdicts (§5.3)", () => {
     expect(fails).toHaveLength(1);
     expect(fails[0]!.severity).toBe("fail");
     expect(fails[0]!.docLine).toBe(171);
+    expect(fails[0]!.column).toBe(1);
     // Whole-message equality: containment lets a suffixed message and a
     // file/config transposition survive (pre-dispatch mutants b/d1).
     expect(fails[0]!.message).toBe(
@@ -185,6 +186,8 @@ describe("synthesizeCollectionVerdicts (§5.3)", () => {
     const advisories = only(out, "PLAYWRIGHT_COLLECTION_UNVERIFIED");
     expect(advisories).toHaveLength(1);
     expect(advisories[0]!.severity).toBe("advisory");
+    expect(advisories[0]!.docLine).toBe(9);
+    expect(advisories[0]!.column).toBe(1);
     expect(advisories[0]!.detail).toContain("spawn timed out after 120s; stderr: boom");
   });
 

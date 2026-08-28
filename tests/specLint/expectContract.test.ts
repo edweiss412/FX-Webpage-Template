@@ -40,6 +40,15 @@ describe("rule 1 — the end-anchored pattern", () => {
     expect(out[0]!.column).toBe(line.indexOf("#") + 1);
   });
 
+  it("fires on a command sitting on the DOCUMENT'S FIRST LINE — the scan starts at line 1", () => {
+    // Kills the loop-start mutant (integer-literal 0>1): a doc whose first
+    // line is the firing command has no heading above it, and a scan that
+    // skips index 0 misses it entirely.
+    const out = findings("git status --porcelain | wc -l   # expect 0\n");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.docLine).toBe(1);
+  });
+
   it("fires on the parenthetical form", () => {
     const out = findings("# P\n\ngrep -c thing file | head -1  # expect 2 (Step 1 adds 2)\n");
     expect(out).toHaveLength(1);
