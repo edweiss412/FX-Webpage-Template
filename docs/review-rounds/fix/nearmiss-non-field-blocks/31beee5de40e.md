@@ -134,11 +134,11 @@ paraphrase rather than in the canonical "never silently wrong" form the gate mat
 overridden. Worth knowing that the gate matches on literal phrasing, so a correct bound in the wrong words
 reads as an absent bound.
 
-## plan — 3 rounds
+## plan — 4 rounds
 
-**Examined:** `docs/superpowers/plans/2026-08-28-nearmiss-candidacy-field-lists.md` across 3 rounds at
-one base. Findings: 5, 3, 1 — verdicts BLOCKING, BLOCKING, BLOCKING. All nine accepted; none disputed.
-Cross-base total for this branch directory: 6 spec rounds plus 3 plan rounds.
+**Examined:** `docs/superpowers/plans/2026-08-28-nearmiss-candidacy-field-lists.md` across 4 rounds at
+one base. Findings: 5, 3, 1, 1 — every verdict BLOCKING. All ten accepted; none disputed. Cross-base
+total for this branch directory: 6 spec rounds plus 4 plan rounds.
 
 **Mechanizable:** One class, and it is a different one from the spec stage's.
 
@@ -151,6 +151,7 @@ one:
 | 1 | 3 cases, incl. two asserting exactly the emissions removed | files I was thinking about |
 | 2 | 2 whole suites, one in no task's command at all | grep for the scanner import and the key strings |
 | 3 | a case using the removed block as a deliberate carrier, and a parity BASELINE holding 32 pinned entries | the same greps, corrected |
+| 4 | a pinned COUNT in `tests/mutation/_metaPremiseContract.test.ts` | `tests/parser` plus one named file |
 
 Round 3 also caught the covers being **inert as published**: both patterns used `|` without `-E`, so
 the command printed in the plan returned nothing. That is the published-command-cannot-produce-the-
@@ -163,11 +164,22 @@ a committed BASELINE JSON holding 15 `Room Diagram`, 15 `Backdrop` and 2 `Speake
 dependency lives in a FIXTURE. No grep over `tests/**/*.ts` can reach it, so no refinement of the
 covers could ever have found it.
 
-**The repair is the same shape as the spec stage's demotion: stop reading, start executing.** Both
-task commands now take the whole `tests/parser` surface rather than a named file list, and the
-affected set is an OUTPUT of running Task 2, not an input to it. A named list is a claim about which
-files depend on the change; that claim was wrong three times. A directory is not a claim at all. The
-greps survive as orientation and are explicitly barred from supporting any completeness claim.
+**Round 4 corrected the repair, and the correction is the actual lesson.** Round 3's fix moved from a
+file list to `tests/parser`, claiming a directory "is not a claim at all". Round 4 disproved that in
+one line: `tests/mutation/_metaPremiseContract.test.ts:404` pins the count of environment-touching
+cases in the baseline suite, Task 2 retires one, and the meta-test reds from a directory Task 2 never
+ran. A directory IS a completeness claim — the claim that dependencies live inside it — and swapping
+a file list for a directory only made the list shorter to write.
+
+**So the terminating scope is the FULL SUITE**, and both task markers declare `pnpm heavy pnpm test`.
+There is no larger scope left to be wrong about, which is what makes it terminate rather than merely
+grow. Iteration stays scoped and fast; what the marker PINS is the whole suite, and a scoped green is
+a progress signal rather than a completion criterion.
+
+**Text search is retired entirely as an enumeration method**, measured three ways on this arc: a
+dependency can live in test SOURCE, in a committed FIXTURE, or in a COMPACT SIGNATURE inside that
+fixture. `venueSignalParity` stores entries in a form that defeats a source grep and a fixture grep
+alike; only flattening the JSON found it.
 
 declined: no `BL-`/`DEF-` row is minted. This is process-facing and the 2026-08-25 freeze admits
 neither `invariant` nor `product-blocked`: no product arc was slowed, and the repair shipped in
