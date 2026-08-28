@@ -61,7 +61,7 @@ import { createServer, type Server } from "node:http";
 import sharp from "sharp";
 import { imageConfigDefault } from "next/dist/shared/lib/image-config";
 import { DIAGRAM_VARIANT_WIDTHS } from "@/lib/sync/diagramVariants";
-import { diagramTileWidthAt } from "@/components/admin/wizard/step3ReviewSections";
+import { diagramTileWidthAt } from "@/components/admin/wizard/diagramTileGeometry";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
 import {
   scanForPhantomGaps,

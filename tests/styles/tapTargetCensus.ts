@@ -303,9 +303,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
     // Line moved 3909 -> 3928 on 2026-08-27 by this arc's own Task 4 (impeccable P1b),
-    // which added the placeholder's name span and the anchor's focus ring 19 lines above.
+    // which added the placeholder's name span and the anchor's focus ring 19 lines above,
+    // then 3928 -> 3889 when the tile geometry moved out to `diagramTileGeometry.ts`.
     // The ELEMENT is untouched: same `<a>`, same full-bleed layout, same reason below.
-    line: 3928,
+    line: 3889,
     tag: "a",
     category: "full-bleed",
     reason:

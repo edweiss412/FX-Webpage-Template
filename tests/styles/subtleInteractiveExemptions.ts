@@ -70,7 +70,10 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    line: 1626,
+    // 1626 -> 1627: the geometry extraction added one import line near the top of
+    // the file. Verified by identity, not by offset — 1627 is the `<summary>` whose
+    // className carries `text-text-subtle`, exactly the row below.
+    line: 1627,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

@@ -43,7 +43,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:3889":
+  "components/admin/wizard/step3ReviewSections.tsx:3850":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -295,6 +295,12 @@ describe("the scanner's population is pinned against resolver drift", () => {
           .join("\n"),
       )
       .digest("hex");
+    // Regenerated again 2026-08-28, same branch, when `diagramTileWidthAt` and
+    // `DIAGRAM_TILE_SIZES` moved out to `diagramTileGeometry.ts` so no Playwright
+    // spec has to load the client component. Membership unchanged at 35 and the
+    // step3 row moved 3889 -> 3850; reverting that ONE row reproduces the digest
+    // below it (18d9a51f) byte-for-byte, so again the sets differ by that row alone.
+    //
     // Regenerated 2026-08-27 for the merge of `perf/admin-diagram-next-image` into
     // `feat/telemetry-fallback-retry`'s base. BOTH sides had regenerated this digest, so
     // neither side's value describes the merged tree and the conflict could not be taken
@@ -321,7 +327,7 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // it was replaced, which is what "deliberately" means here: membership is unchanged
     // at 35 both sides, and exactly ONE row moved, step3ReviewSections.tsx 3755 -> 3800,
     // same file, same form, same marked state. A pure line shift from insertions above it.
-    expect(digest).toBe("18d9a51f47fe9a86e89d33485422f457dad46333cae24302da3af5794fba03f3");
+    expect(digest).toBe("18b5f2b6fb041d8fa134cd552c5b12148c0493272b4fd4bd382edfc5c71ca1db");
   });
 });
 

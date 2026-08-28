@@ -23,11 +23,10 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 
-import {
-  DIAGRAM_TILE_SIZES,
-  DiagramTile,
-  DiagramsBreakdown,
-} from "@/components/admin/wizard/step3ReviewSections";
+import { DiagramTile, DiagramsBreakdown } from "@/components/admin/wizard/step3ReviewSections";
+// From the geometry module, which is where the component reads it too: this
+// asserts the SHIPPED string, not a copy of it.
+import { DIAGRAM_TILE_SIZES } from "@/components/admin/wizard/diagramTileGeometry";
 import type { EmbeddedImageStub, ParseResult } from "@/lib/parser/types";
 import { premise, premiseHolds } from "../../../_shared/premise";
 
