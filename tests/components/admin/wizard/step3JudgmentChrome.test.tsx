@@ -132,7 +132,15 @@ const PREEXISTING_TRANSITION_COUNTS: Record<string, number> = {
   // element remains the sliding rail indicator).
   // Was 11; the header sheet link's `transition-colors` moved into the shared
   // SheetIconLink (same note as step3ReviewSections.tsx above).
-  "Step3ReviewModal.tsx": 10, // incl. +1 dev-capture icon transition-colors (dev-modal-capture, instant states)
+  // Was 10; +1 for the attention pill button's `transition-colors`
+  // (2026-08-27-wizard-review-attention-menu §3.2), copied from the published
+  // pill. A HOVER affordance on an interactive control, not a state-swap
+  // animation: every pair in the §8 table stays instant, which the "attention
+  // pill: §8 inventory" describe in step3ReviewModal.transitions.test.tsx
+  // exercises pair by pair. The chevron's `transition-transform` is a rotation
+  // on the SAME element and is not matched by this scan's
+  // transition-(all|colors|opacity) pattern.
+  "Step3ReviewModal.tsx": 11, // incl. +1 dev-capture icon transition-colors (dev-modal-capture, instant states)
 };
 
 describe("§7.4 transition audit — 2a static guard (all pairs instant)", () => {

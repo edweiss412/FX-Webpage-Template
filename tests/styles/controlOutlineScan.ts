@@ -101,9 +101,9 @@ export const CENSUS: readonly CensusRow[] = [
   // spec §4.2 row 15 — Link
   { file: "components/admin/telemetry/HealthAlertsPanel.tsx", line: 256 },
   // spec §4.2 row 16
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 604 },
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 779 },
   // spec §4.2 row 17
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 688 },
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 865 },
   // spec §4.2 row 18 — spec cites 4121; the live line is 4151 after the
   // 2026-08-16 sibling merges, the last of them #817 (`feat/mutation-section-order`,
   // 11c4fb6ca), which added one net line above both rows. Line numbers are
@@ -113,11 +113,11 @@ export const CENSUS: readonly CensusRow[] = [
   // `resolveCensus` returns `null` rather than dropping the row.
   // :4201 until 2026-08-27. The isWarnSeverity adoption (spec §2.1) added one
   // import line at the top of the file; the swap itself is untouched.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4202 },
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4206 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // :4258 until 2026-08-27, same import line as row 18.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4259 },
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4263 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21

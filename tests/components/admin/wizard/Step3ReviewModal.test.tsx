@@ -23,7 +23,7 @@
  *   - (new, §15) focus TRAP wrap cycle            → strict wrap test below
  *   - (new, §15) restore-to-trigger               → trigger-refocus test below
  *
- * Anti-tautology: the chip/note counts are COMPUTED via deriveSectionStatuses
+ * Anti-tautology: the chip/note counts are COMPUTED via deriveWarningAttention
  * from the fixture's own warnings (never restated literals); the sheet-link
  * href is derived from the REAL buildSheetDeepLink; the null-link case drives
  * the real function to null (falsy driveFileId) rather than mocking it.
@@ -69,7 +69,13 @@ import {
   buildStagedSectionData,
   type StagedSectionData,
 } from "@/components/admin/review/sectionData";
-import { deriveSectionStatuses, type SectionId } from "@/lib/admin/step3SectionStatus";
+import {
+  deriveSectionStatuses,
+  warningsBySection,
+  type SectionId,
+} from "@/lib/admin/step3SectionStatus";
+import { deriveWarningAttention } from "@/lib/admin/warningAttention";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { withReducedMotion } from "../../../helpers/reducedMotion";
@@ -200,12 +206,30 @@ function OptimisticHarness(props: {
 }
 
 /** flaggedCount the modal must display, computed the same way the spec derives
- *  it (deriveSectionStatuses over the data's warnings + rendered sections) —
+ *  it (deriveWarningAttention over the data's routed warnings) —
  *  never a restated literal. */
-function expectedFlagged(d: StagedSectionData): number {
-  const rendered = new Set<SectionId>(step3Sections(d).map((s) => s.id));
-  return deriveSectionStatuses(d.warnings, rendered).flaggedCount;
+/**
+ * The counts the header and footer now read: WARNINGS, partitioned needs-look /
+ * judgment — not SECTIONS. That is the reported defect: two warnings in one
+ * section counted as "1 needs a look", so the chip disagreed with the list the
+ * modal itself rendered below it. Derived through the production derivation on
+ * the fixture, never restated (spec §3.1).
+ */
+function expectedCounts(d: StagedSectionData): { n: number; m: number } {
+  const defs = step3Sections(d);
+  const by = warningsBySection(d.warnings, new Set<SectionId>(defs.map((s) => s.id)));
+  const entries = [...by]
+    .flatMap(([sectionId, l]) =>
+      l.map((e) => ({ id: `warning:${e.index}`, sectionId, warning: e.warning, index: e.index })),
+    )
+    .sort((a, b) => a.index - b.index);
+  const a = deriveWarningAttention(entries, defs);
+  return { n: a.needsLook.length, m: a.judgment.length };
 }
+
+/** Copy builders, the §6 noun forms in one place. */
+const look = (n: number) => (n === 1 ? "1 needs a look" : `${n} need a look`);
+const judg = (m: number) => (m === 1 ? "1 judgment call" : `${m} judgment calls`);
 
 // ── Modal a11y contract (retired: "labelled modal dialog") ──────────────────
 
@@ -372,28 +396,29 @@ describe("Step3ReviewModal — rooms rail sub-nav", () => {
 // ── Overall status chip (spec §7 header chip) ────────────────────────────────
 
 describe("Step3ReviewModal — overall status chip (spec §7)", () => {
-  test("N>1 flagged sections → '{N} need a look' with warning treatment + review dot", () => {
+  test("N>1 warnings → '{N} need a look' with warning treatment + review dot", () => {
     const d = sectionData({ warnings: [warning("crew"), warning("rooms")] });
-    const n = expectedFlagged(d);
+    const { n, m } = expectedCounts(d);
     expect(n).toBeGreaterThan(1); // fixture sanity — plural branch exercised
+    expect(m).toBe(0);
     const { q } = renderModal({ d });
     const chip = q.getByTestId(tid("chip"));
-    expect(chip.textContent).toBe(`${n} need a look`);
+    expect(chip.textContent).toBe(look(n));
     expect(chip.className).toMatch(/\bbg-warning-bg\b/);
     expect(chip.className).toMatch(/\btext-warning-text\b/);
     expect(chip.querySelector(".bg-status-review")).not.toBeNull();
   });
 
-  test("N=1 flagged section → singular '1 needs a look'", () => {
+  test("N=1 warning → singular '1 needs a look'", () => {
     const d = sectionData({ warnings: [warning("crew")] });
-    expect(expectedFlagged(d)).toBe(1); // fixture sanity — singular branch
+    expect(expectedCounts(d).n).toBe(1); // fixture sanity — singular branch
     const { q } = renderModal({ d });
     expect(q.getByTestId(tid("chip")).textContent).toBe("1 needs a look");
   });
 
   test("zero warnings → 'All clean' with sunken/positive treatment", () => {
     const d = sectionData();
-    expect(expectedFlagged(d)).toBe(0);
+    expect(expectedCounts(d).n + expectedCounts(d).m).toBe(0);
     const { q } = renderModal({ d });
     const chip = q.getByTestId(tid("chip"));
     expect(chip.textContent).toBe("All clean");
@@ -405,7 +430,7 @@ describe("Step3ReviewModal — overall status chip (spec §7)", () => {
     // Zero-warning fixture: without the dirty branch this would render "All
     // clean", contradicting the footer's review-required note.
     const d = sectionData();
-    expect(expectedFlagged(d)).toBe(0);
+    expect(expectedCounts(d).n + expectedCounts(d).m).toBe(0);
     const { q } = renderModal({ d, isDirtyRescan: true });
     const chip = q.getByTestId(tid("chip"));
     expect(chip.textContent).toBe("Sheet changed");
@@ -417,10 +442,240 @@ describe("Step3ReviewModal — overall status chip (spec §7)", () => {
 
   test("dirty rescan wins over flagged counts: chip never reads '{N} need a look' when the sheet changed", () => {
     const d = sectionData({ warnings: [warning("crew"), warning("rooms")] });
-    expect(expectedFlagged(d)).toBeGreaterThan(0);
+    expect(expectedCounts(d).n).toBeGreaterThan(0);
     const { q } = renderModal({ d, isDirtyRescan: true });
     expect(q.getByTestId(tid("chip")).textContent).toBe("Sheet changed");
     expect(q.queryByText(/need(s)? a look/)).toBeNull();
+  });
+});
+
+// ── Attention pill + warning index (wizard-review-attention-menu §3) ─────────
+// The reported defect and its fix. Every count is derived from the fixture via
+// expectedCounts; the copy builders `look`/`judg` hold the §6 noun forms once.
+
+describe("Step3ReviewModal — attention pill (spec §3.2)", () => {
+  const menuTid = tid("attention-menu");
+  const rowTid = (i: number) => `wizard-step3-card-${DFID}-attention-row-${i}`;
+
+  /** Escape is dispatched on the PILL, never on `document`. When document is
+   *  itself the target, capture and bubble listeners registered on it both run
+   *  (stopPropagation does not stop listeners on the same node), so the frame's
+   *  capture claim and the shell's bubble close would both fire — an artefact
+   *  of the dispatch target, not of the code. A real Escape targets the focused
+   *  element and propagates UP through document, which is what this reproduces. */
+  const escapeOnPill = (q: ReturnType<typeof renderModal>["q"]) =>
+    fireEvent.keyDown(q.getByTestId(tid("chip")), { key: "Escape" });
+
+  /** jsdom implements no Element#scrollTo, and the surface's attentionJump
+   *  effect degrades to section-nav (no flash) without it — so a missing stub
+   *  would look exactly like a broken jump. */
+  function stubScrollTo() {
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      value: vi.fn(),
+      configurable: true,
+      writable: true,
+    });
+    return () => {
+      if (original) Object.defineProperty(HTMLElement.prototype, "scrollTo", original);
+      else delete (HTMLElement.prototype as unknown as { scrollTo?: unknown }).scrollTo;
+    };
+  }
+
+  test("(6) THE BUG: two warnings in ONE section read '2 need a look', not '1'", () => {
+    const d = sectionData({ warnings: [warning("crew"), warning("crew")] });
+    const { n, m } = expectedCounts(d);
+    premise("two warnings route to one section", n, 1);
+    premiseHolds("no judgment warnings", m === 0);
+    const { q } = renderModal({ d });
+    const chip = q.getByTestId(tid("chip"));
+    expect(chip.textContent).toBe(look(n));
+    expect(chip.tagName).toBe("BUTTON");
+  });
+
+  test("(7) judgment-only renders the quiet pill, never 'All clean'", () => {
+    const d = sectionData({ warnings: [judgmentWarning("rooms")] });
+    const { n, m } = expectedCounts(d);
+    premiseHolds("judgment-only", n === 0 && m >= 1);
+    const { q } = renderModal({ d });
+    const chip = q.getByTestId(tid("chip"));
+    expect(chip.textContent).toBe(judg(m));
+    expect(chip.tagName).toBe("BUTTON");
+    expect(chip.className).toMatch(/\bbg-surface-sunken\b/);
+    expect(chip.className).toMatch(/\bborder-text-faint\b/);
+    expect(chip.querySelector(".bg-text-faint")).not.toBeNull();
+    expect(q.queryByText("All clean")).toBeNull();
+    expect(q.getByTestId(tid("note")).textContent).toBe(
+      `${m} parsed with judgment · publishing isn't blocked`,
+    );
+  });
+
+  test("(8) composite: both segments, judgment segment at the /80 alpha", () => {
+    const d = sectionData({
+      warnings: [warning("crew"), warning("crew"), judgmentWarning("rooms")],
+    });
+    const { n, m } = expectedCounts(d);
+    premiseHolds("both segments present", n >= 1 && m >= 1);
+    const { q } = renderModal({ d });
+    const chip = q.getByTestId(tid("chip"));
+    expect(chip.textContent).toBe(`${look(n)} · ${judg(m)}`);
+    const seg = q.getByTestId("wizard-attention-pill-judgment-segment");
+    expect(seg.className).toContain("text-warning-text/80");
+  });
+
+  test("(9) button states carry aria-expanded/aria-controls; span states carry neither", () => {
+    const d = sectionData({ warnings: [warning("crew")] });
+    const { q } = renderModal({ d });
+    const chip = q.getByTestId(tid("chip"));
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    const controls = chip.getAttribute("aria-controls");
+    expect(controls).toBeTruthy();
+    expect(document.getElementById(controls!)).not.toBeNull();
+
+    cleanup();
+    const clean = renderModal({ d: sectionData() }).q.getByTestId(tid("chip"));
+    expect(clean.tagName).toBe("SPAN");
+    expect(clean.getAttribute("aria-expanded")).toBeNull();
+    expect(clean.getAttribute("aria-controls")).toBeNull();
+    // The relative wrapper renders ONLY in button states, so the clean
+    // baseline's header markup is unchanged (T-STEP3-INVARIANT).
+    expect(clean.parentElement?.className).not.toContain("relative");
+  });
+
+  test("(10) auto-open fires once per mount while the pill is interactive", async () => {
+    const d = sectionData({ warnings: [warning("crew")] });
+    const { q } = renderModal({ d });
+    const menu = await q.findByTestId(menuTid);
+    expect(menu).toBeInTheDocument();
+    expect(q.getByTestId(tid("chip")).getAttribute("aria-expanded")).toBe("true");
+    // Closing consumes nothing further: the one-shot has fired for this mount.
+    escapeOnPill(q);
+    expect(q.queryByTestId(menuTid)).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(q.queryByTestId(menuTid)).toBeNull();
+  });
+
+  test("(10a) a dirty rescan on arrival DEFERS the one-shot rather than consuming it", async () => {
+    const d = sectionData({ warnings: [warning("crew")] });
+    const { q } = renderModal({ d, isDirtyRescan: true });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(q.queryByTestId(menuTid)).toBeNull();
+    // Re-approved: the pill becomes interactive and the deferred one-shot fires,
+    // which is the moment the operator actually needs the index.
+    q.rerender(
+      <Step3ReviewModal
+        data={d}
+        checked={false}
+        isDirtyRescan={false}
+        onRequestSetChecked={async () => true}
+        onClose={() => {}}
+      />,
+    );
+    expect(await q.findByTestId(menuTid)).toBeInTheDocument();
+  });
+
+  test("(11) a row click flashes that warning's <li> and closes the menu", async () => {
+    const d = sectionData({ warnings: [warning("crew"), warning("crew")] });
+    const restore = stubScrollTo();
+    const { q } = renderModal({ d });
+    await q.findByTestId(menuTid);
+    fireEvent.click(q.getByTestId(rowTid(0)));
+    restore();
+    expect(q.queryByTestId(menuTid)).toBeNull();
+    const li = document.querySelector('[data-attention-anchor="warning:0"]');
+    expect(li, "the wizard warning li carries the anchor").not.toBeNull();
+    expect(li!.hasAttribute("data-step3-warning-flash")).toBe(true);
+  });
+
+  test("(11b) only one warning flashes at a time", async () => {
+    const d = sectionData({ warnings: [warning("crew"), warning("crew")] });
+    const restore = stubScrollTo();
+    const { q } = renderModal({ d });
+    await q.findByTestId(menuTid);
+    fireEvent.click(q.getByTestId(rowTid(0)));
+    fireEvent.click(q.getByTestId(tid("chip")));
+    fireEvent.click(q.getByTestId(rowTid(1)));
+    restore();
+    const li0 = document.querySelector('[data-attention-anchor="warning:0"]')!;
+    const li1 = document.querySelector('[data-attention-anchor="warning:1"]')!;
+    expect(li0.hasAttribute("data-step3-warning-flash")).toBe(false);
+    expect(li1.hasAttribute("data-step3-warning-flash")).toBe(true);
+  });
+
+  test("(12) Escape closes the menu first and the modal second", async () => {
+    const onClose = vi.fn();
+    const d = sectionData({ warnings: [warning("crew")] });
+    const { q } = renderModal({ d, onClose });
+    await q.findByTestId(menuTid);
+    escapeOnPill(q);
+    expect(q.queryByTestId(menuTid)).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    // Second Escape: the menu is gone, so nothing claims the key and it reaches
+    // the shell. It now targets the chip's SPAN-or-BUTTON, still inside the dialog.
+    fireEvent.keyDown(q.getByTestId(tid("chip")), { key: "Escape" });
+    // requestClose runs the panel's exit animation and calls onClose on
+    // transitionend or its fallback timer, so this waits rather than pinning
+    // the exit's duration.
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  test("(13) pointerdown outside the panel and the pill closes the menu", async () => {
+    const d = sectionData({ warnings: [warning("crew")] });
+    const { q } = renderModal({ d });
+    await q.findByTestId(menuTid);
+    fireEvent.pointerDown(document.body);
+    expect(q.queryByTestId(menuTid)).toBeNull();
+  });
+
+  test.each([99, 100])("(14) cap boundary at %i needs-look warnings", (count) => {
+    const d = sectionData({ warnings: Array.from({ length: count }, () => warning("crew")) });
+    const { n } = expectedCounts(d);
+    premiseHolds("fixture routes every warning", n === count);
+    const { q } = renderModal({ d });
+    const chip = q.getByTestId(tid("chip"));
+    const visible = chip.cloneNode(true) as HTMLElement;
+    visible.querySelectorAll(".sr-only").forEach((el) => el.remove());
+    // Collapse-and-trim, the published visibleText rule: the space before the
+    // sr-only tail is a REAL text node by design (#537), so removing only the
+    // sr-only span leaves it behind.
+    expect(visible.textContent!.replace(/\s+/g, " ").trim()).toBe(
+      n > 99 ? "99+ need a look" : look(n),
+    );
+    if (n > 99) expect(chip.querySelector(".sr-only")?.textContent).toBe(`(${n} need a look)`);
+    else expect(chip.querySelector(".sr-only")).toBeNull();
+  });
+
+  test("(5a-vii) a severity-less warning renders as warn on the rail dot and the row chip", () => {
+    const legacy = {
+      code: "SOME_CODE",
+      message: "",
+      blockRef: { kind: "nope" },
+    } as unknown as ParseWarning;
+    premiseHolds("fixture has no severity key", !("severity" in legacy));
+    const d = sectionData({ warnings: [legacy] });
+    const { q } = renderModal({ d });
+    const dot = q.getByTestId(tid("rail-dot-warnings"));
+    expect(dot.className).toMatch(/\bbg-status-review\b/);
+    const li = document.querySelector('[data-attention-anchor="warning:0"]')!;
+    expect((li.firstElementChild as HTMLElement).className).toMatch(/\bbg-warning-bg\b/);
+  });
+
+  test("(15) the count-0 reconciliation closes the menu and keeps focus in the dialog", async () => {
+    const d = sectionData({ warnings: [warning("crew")] });
+    const { q } = renderModal({ d });
+    await q.findByTestId(menuTid);
+    q.rerender(
+      <Step3ReviewModal
+        data={sectionData()}
+        checked={false}
+        isDirtyRescan={false}
+        onRequestSetChecked={async () => true}
+        onClose={() => {}}
+      />,
+    );
+    expect(q.queryByTestId(menuTid)).toBeNull();
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.contains(document.activeElement)).toBe(true);
   });
 });
 
@@ -612,7 +867,7 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
 
   test("flagged fixture → note '{N} to review · publishing isn't blocked' (N computed, not restated)", () => {
     const d = sectionData({ warnings: [warning("crew"), warning("rooms")] });
-    const n = expectedFlagged(d);
+    const { n } = expectedCounts(d);
     const { q } = renderModal({ d });
     expect(q.getByTestId(tid("note")).textContent).toBe(
       `${n} to review · publishing isn't blocked`,

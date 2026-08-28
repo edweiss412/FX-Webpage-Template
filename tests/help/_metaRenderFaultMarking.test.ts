@@ -43,7 +43,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:3801":
+  "components/admin/wizard/step3ReviewSections.tsx:3805":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -307,7 +307,13 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // 3800 -> 3801: the isWarnSeverity import line (spec §2.1) sits above it. Same
     // file, same form, same marked state. Only ONE of the 35 rows lives in any file
     // this branch touched at all.
-    expect(digest).toBe("3e6d0e4031f21eccde93d587c0cc9696776f68fd0c680799da535ceb38fbc4dc");
+    //
+    // And once more the same day, for Task 8 of the same branch, delta read the
+    // same way (this file's own set, diffed row by row before replacement):
+    // membership unchanged at 35, exactly ONE row moved, step3ReviewSections.tsx
+    // 3801 -> 3805, the §3.4 data-attention-anchor lines added to the warning
+    // <li> above it. Same file, same form, same marked state.
+    expect(digest).toBe("7fb87321a5909f5b215ef9ec25b7f6fa34c427c88487fb7c7baa6c2325aa72e4");
   });
 });
 
