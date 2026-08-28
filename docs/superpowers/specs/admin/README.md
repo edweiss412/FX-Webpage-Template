@@ -32,3 +32,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-02-step3-live-render-cluster-design.md`](./2026-08-02-step3-live-render-cluster-design.md) | 2026-08-02 |
 | [`2026-08-09-admin-dashboard-row-actions-design.md`](./2026-08-09-admin-dashboard-row-actions-design.md) | 2026-08-09 |
 | [`2026-08-27-fitwithinclip-clip-subscription.md`](./2026-08-27-fitwithinclip-clip-subscription.md) | 2026-08-27 |
+| [`2026-08-27-anchoredportal-measure-convergence.md`](./2026-08-27-anchoredportal-measure-convergence.md) | 2026-08-27 |
