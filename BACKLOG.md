@@ -335,41 +335,78 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ---
 
-## BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN — the portal measures three times on every open, and its placement loop is why
+## BL-ROWACTIONS-SUBMENU-STALE-ON-ROW-MENU-REPLACE — the submenu is anchored inside the row menu, and does not follow when the row menu re-places
 
-**Status:** OPEN · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, class sweep §4.2) · **Facing:** product · **Severity:** LOW-MEDIUM (three forced synchronous reflows per menu open on a shipped admin surface; correct output, redundant cost) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — unpicking the convergence loop is a redesign of a placement surface the fitWithinClip arc does not otherwise touch, with its own e2e geometry suite and viewport-source registry. · **Reachability:** PROBED — the run below, against `origin/main` at `449f29fab`.
+**Status:** OPEN · **Filed:** 2026-08-27 (`perf/anchoredportal-measure-convergence`, blast-radius pass) · **Facing:** product · **Severity:** LOW-MEDIUM (a visibly mis-anchored submenu on the shipped admin dashboard; narrow trigger, correct output everywhere else) · **Class:** cross-instance placement subscription · **Effort:** M · **Class-sweep exception:** (c) — the repair is a redesign of the placement subscription model across two `AnchoredPortal` instances, which is the SAME scope already fenced when `MutationObserver` was declined for that arc (`docs/superpowers/specs/admin/2026-08-27-anchoredportal-measure-convergence.md` §2.4), not a fresh or unexplained deferral. · **Reachability:** INFERRED, NOT PROBED.
 
-`components/admin/AnchoredPortal.tsx` runs `measureAndApply` three times for one closed → open
-transition. Counting anchor-rect reads, one per `measureAndApply`
-(`components/admin/AnchoredPortal.tsx:141`), in a jsdom harness that renders the portal closed and
-then re-renders it open:
+`components/admin/ShowRowActions.tsx` renders two `AnchoredPortal` instances: the
+row menu (`components/admin/ShowRowActions.tsx:661`) and the preview submenu
+(`components/admin/ShowRowActions.tsx:961`). The submenu's anchor is
+`previewItemRef`, a button that lives INSIDE the row menu's portal panel. So the
+submenu is a portal whose anchor sits inside another portal.
 
-```
-PROBE closedReads=0 measureRunsOnOpenCommit=3
-```
+When the row menu re-places, its panel moves and the submenu's anchor moves with
+it, without changing size. The row menu's `applied` placement is state internal
+to its own `AnchoredPortal` instance, so React re-renders that instance and its
+children — `ShowRowActions` does not re-render, so the SUBMENU's instance does
+not re-render either, and its ungated every-commit effect
+(`components/admin/AnchoredPortal.tsx:261`, the ungated every-commit effect) never runs. The submenu's own
+`ResizeObserver` watches its anchor and its panel for SIZE, and the anchor only
+moved. Nothing re-places it.
 
-Two layout effects both cover the open commit: the gated one
-(`components/admin/AnchoredPortal.tsx:191`) and the deliberately ungated every-commit one
-(`components/admin/AnchoredPortal.tsx:254`). The `setApplied` they produce re-renders, which fires
-the ungated effect a third time; `commit` then drops the unchanged placement and the loop settles.
-So the third run is a convergence step of the design, not a stray call, and the second is the only
-plainly redundant one.
+**Most triggers are already covered, which is what makes this narrow rather than
+broad.** A window resize and an ancestor scroll both reach the gated effect's own
+listeners on BOTH instances (`components/admin/AnchoredPortal.tsx:222-223`), so
+each re-places independently. The uncovered trigger is specifically the row menu
+panel's own `ResizeObserver` firing on a content-size change — a busy state, an
+error region appearing — which re-places the row menu alone.
 
-**Why it is not a one-line deletion.** `components/admin/AnchoredPortal.tsx:245-253` documents at
-length why the every-commit effect is unconditional: it is the only subscription that catches a
-POSITION-ONLY anchor move, which `ResizeObserver` explicitly does not report — a background
-`router.refresh()` that reorders rows without changing any dimension moves the anchor under a panel
-that is a body child with absolute coordinates. Deleting the gated effect's own `measureAndApply`
-instead would leave the pre-paint guarantee resting on the ungated effect being declared after it,
-which is a silent coupling rather than a repair. Either direction is a design decision on the
-placement loop, so it wants its own arc and its own review.
+**Reachability is INFERRED from React's re-render scope, not observed.** The
+first scheduled step is therefore the probe, not the repair: open the submenu,
+force a row-menu content-size change while it is open, and compare the submenu's
+applied placement against its anchor's live rect. `tests/e2e/rowactions-geometry.spec.ts`
+already drives both surfaces and is the natural home for it.
 
-This row does not assert what the converged number should be. Deciding that is the work.
+**Predates `perf/anchoredportal-measure-convergence` and is unchanged by it.**
+That arc removes a duplicate measure inside a single commit; it does not touch
+the cross-instance path, in either direction.
 
-**Trigger:** an arc that already restructures `AnchoredPortal`'s placement effects, or profiling
-that shows open-time reflow cost is material on the shows dashboard.
+---
 
-**First scheduled step:** re-run the probe against the live surface (not only jsdom) via
-`tests/e2e/rowactions-geometry.spec.ts`, to establish whether the third run's placement is ever
-DIFFERENT from the second's — if it never is, the convergence step is dead weight and the repair
-narrows to the gated effect.
+## BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES — the placement path measures twice per gesture frame, and twice more on two smaller sites
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`perf/anchoredportal-measure-convergence`, invariant-8 impeccable audit) · **Facing:** product · **Severity:** LOW-MEDIUM (redundant forced reflows at gesture frame rate on a shipped admin surface; correct output, wasted work) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — the repair is a memoisation of the placement path's measure cadence, a surface the measure-convergence arc does not otherwise touch: that arc's subject is the OPEN COMMIT, and the gesture path needs its own probe and its own review. · **Reachability:** INFERRED, NOT PROBED.
+
+**This is the same shape as the defect `BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN` addresses, differing only in trigger** — open commit there, scroll or pinch frame here.
+
+Three sites, filed as one row because they are one class rather than three defects:
+
+1. **Every placement-CHANGING frame during a scroll or pinch costs TWO measures.**
+   The coalescer's rAF calls `measureAndApply`
+   (`components/admin/AnchoredPortal.tsx:199`); the placement it commits produces
+   a React commit; the ungated every-commit effect
+   (`components/admin/AnchoredPortal.tsx:261`) then measures again. At gesture
+   frame rate that is the open-time waste this arc removed, repeating. Candidate
+   repair: memoise the last trigger rect and skip `withNaturalSize` when it is
+   unchanged — safe, because a capped panel's `maxHeight` is a function of the
+   space on its side rather than of natural height, and `ResizeObserver` covers
+   uncapped size changes.
+2. **`lib/popover/naturalSize.ts:70-71` reads `el.scrollTop` AFTER the
+   cap-restore writes**, forcing a reflow on every measurement including the
+   common unscrolled case. A `heldScrollTop !== 0` short-circuit removes the read
+   entirely on that path.
+3. **`lib/popover/place.ts:120-122` can run `computePopoverPlacement` twice** on
+   the zoom-hidden fallback path, each call potentially invoking
+   `wrappedHeightAt`, so up to two extra write-read reflow pairs on that path.
+
+**Reachability is INFERRED from reading the code, not measured.** An audit
+reading source is not a measurement. **The first scheduled step is therefore the
+probe, not the memoisation** — and the instrument already exists: the
+measure-counting probe this arc built for the open commit
+(`tests/e2e/rowactions-geometry.spec.ts`, the `PROBE:` case) pointed at a scroll
+or pinch interaction instead of an open transition counts measures per
+placement-changing frame directly. It either shows two or it does not.
+
+**Predates `perf/anchoredportal-measure-convergence` and is unchanged by it.**
+That arc removed a duplicate measure inside the open commit; it does not touch
+the gesture path, `naturalSize.ts` or `place.ts` in either direction.
