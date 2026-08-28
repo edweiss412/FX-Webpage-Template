@@ -55,6 +55,7 @@ import {
   Step3RunStateContext,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { warningOffersFix } from "@/lib/admin/warningFixAffordance";
+import { isWarnSeverity } from "@/lib/parser/dataGaps";
 import type { SectionAttention } from "@/lib/admin/sectionAttention";
 import { isStaged, type SectionData } from "@/components/admin/review/sectionData";
 // WARNING_HIGHLIGHT_MS stays DEFINED in Step3ReviewModal.tsx (the §11
@@ -339,7 +340,7 @@ export function ShowReviewSurface({
       // and those warnings already light their own sections' dots via `flagged`.
       return routedWarnings.here > 0;
     }
-    return data.warnings.some((w) => w.severity === "warn");
+    return data.warnings.some(isWarnSeverity);
   }, [data.warnings, routedWarnings, routedWarningsRenderElsewhere]);
 
   // Combined rail order (spec §5): Overview (extraSectionsBefore), the registry

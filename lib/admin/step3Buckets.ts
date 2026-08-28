@@ -21,6 +21,7 @@ import {
   stripLegacyUnknownFieldAnchors,
 } from "@/lib/parser/dataGaps";
 import { isAmbiguityCode } from "@/lib/parser/ambiguityCodes";
+import { isWarnSeverity } from "@/lib/parser/dataGaps";
 
 /**
  * Minimal structural view of a Step-3 row. The real `Step3Row`
@@ -92,7 +93,7 @@ export function rowNeedsLookPure(row: Step3RowLike): boolean {
  */
 export function rowIsJudgment(row: Step3RowLike): boolean {
   if (rowNeedsLookPure(row)) return false;
-  return gapWarnings(row).some((w) => w.severity === "warn" && isAmbiguityCode(w.code));
+  return gapWarnings(row).some((w) => isWarnSeverity(w) && isAmbiguityCode(w.code));
 }
 
 export type Step3Buckets = {

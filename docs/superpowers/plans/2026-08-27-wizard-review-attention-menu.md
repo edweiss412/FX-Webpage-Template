@@ -338,7 +338,7 @@ Then the other six sites (seven including `summarizeDataGaps` above), each a one
 
 Run: `pnpm exec vitest run tests/lib/admin/isWarnSeverity.test.ts tests/parser/dataGaps.test.ts tests/lib/admin tests/components/admin/wizard/Step3ReviewModal.test.tsx`
 Expected: PASS.
-Run: `rg -n 'severity (===|!==) "warn"' lib/admin components/admin lib/parser` → Expected: no hits (paste the empty output in the commit body).
+Run: `rg -n 'severity (===|!==) "warn"' lib/admin components/admin` → Expected: no hits (paste the empty output in the commit body). This is the SPEC's ratified sweep domain (§2.1 ran exactly this command); the drafted version of this step also passed `lib/parser`, where two hits legitimately survive — `isDataQualityWarning` and `operatorActionableWarnings` are outside §2.1's table and are filed as `BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS` under class-sweep exceptions (b)+(c). Run the wider sweep too and confirm those TWO lines and no others.
 
 - [ ] **Step 5: Commit**
 

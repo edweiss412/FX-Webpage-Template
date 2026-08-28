@@ -134,6 +134,7 @@ import {
   type SchedulePhase,
 } from "@/lib/crew/agendaDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { isWarnSeverity } from "@/lib/parser/dataGaps";
 import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { Avatar } from "@/components/atoms/Avatar";
@@ -3056,7 +3057,7 @@ export function WarningsBreakdown({
                 const context = isMessageCode(w.code)
                   ? (messageFor(w.code as MessageCode).helpfulContext ?? null)
                   : null;
-                const isWarn = w.severity === "warn";
+                const isWarn = isWarnSeverity(w);
                 return (
                   <li
                     key={keys[i]}
