@@ -304,13 +304,21 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    // :3820 until 2026-08-27 — the isWarnSeverity import line (spec §2.1),
-    // then the §3.4 data-attention-anchor lines on the warning <li> above it.
-    line: 3825,
+    // Line moved 3909 -> 3928 on 2026-08-27 by this arc's own Task 4 (impeccable P1b),
+    // which added the placeholder's name span and the anchor's focus ring 19 lines above,
+    // then 3928 -> 3889 when the tile geometry moved out to `diagramTileGeometry.ts`.
+    // The ELEMENT is untouched: same `<a>`, same full-bleed layout, same reason below.
+    // Main moved the same row independently (the isWarnSeverity import, then the
+    // §3.4 data-attention-anchor lines on the warning <li>), so NEITHER side's number
+    // describes the merged tree. Located by RUNNING the scanner on the merged tree:
+    // the live unclassified site is 3904, and 3904 is that same `<a>`.
+    // Then 3904 -> 3909 when the announce-log import block landed. Located again: 3909 is
+    // that same `<a>`.
+    line: 3909,
     tag: "a",
     category: "full-bleed",
     reason:
-      "`block` link wrapping the staged-diagram preview image, so its box is the image's — far taller than 44px.",
+      "`relative block aspect-4/3 w-full` link wrapping the diagram preview image, which is a `fill` child of it — the anchor IS the tile box, measured 97px tall at the 390px sheet and 170px on desktop, so far past 44px. Note for anyone reading this after a diff that moves the tile's border: the tile's CHROME (`rounded-md border border-text-faint bg-surface-sunken`) lives on the IMAGE, and it moving does not affect this row. What makes the anchor full-bleed is the LAYOUT — `relative` plus the aspect box plus a `fill` child — and 2026-08-27 saw exactly that confusion, where the chrome moved to the anchor and back while this row stayed correct throughout.",
   },
   {
     file: "components/diagrams/Gallery.tsx",

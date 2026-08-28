@@ -1,3 +1,32 @@
+## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
+
+**Status:** RESOLVED 2026-08-27 (`perf/admin-diagram-next-image`) · **Severity:** low · **Class:** PERF / consistency · **Effort:** M
+
+`components/admin/wizard/step3ReviewSections.tsx` has two same-shape `<img>` sites — the staged-diagram
+preview and the published breakdown that builds `/api/asset/diagram/` srcs. They are the same defect
+shape the crew gallery just fixed, and the loader plus the ingest variant ladder are reusable there
+as-is: `makeDiagramLoader` (`lib/images/diagramLoader.ts`) already takes manifest `variants` and
+returns asset-route URLs, and the manifest fields land for every show at its next snapshot.
+
+Deferred under the class-sweep disposition rule's exception **(c)**, ratified in the design session
+(`docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §1.1): the repair lands
+inside a ~4000-line admin wizard file the shipping PR does not otherwise touch, which blows its review
+scope; and the value driver — crew bandwidth on venue 4G — does not apply to a desktop admin surface.
+This is NOT "same defect, different file" with nothing more to say: the exception is named, and the
+reason it applies is that the cost of the repair is dominated by the file it lives in rather than by
+the change itself.
+
+**Un-defer trigger:** any work that already opens `step3ReviewSections.tsx` for another reason should
+carry these two sites with it, since the marginal cost then collapses to the edit itself.
+
+**Resolution:** Both sites now render through `makeDiagramLoader`. The STAGED site supplies a width-independent loader — a staged stub can never carry a ladder, since `variants` lives on the persisted entry types only — and the PUBLISHED site builds width-matched variant URLs from the manifest. The file held ONE raw `<img>` element inside the shared `DiagramTile`; the two sites the row named are the two src BUILDERS that feed it, the staged default and the published `/api/asset/diagram/` builder.
+
+**Measured, which is the point of a PERF row.** Over the real ingest ladder on a real 1280×1776 PNG (99,456 bytes): tiers at 2,282 / 7,422 / 21,124 bytes. For the 12-tile grid at the desktop tile width, DPR 2 selects the 512 tier — **1,193,472 bytes before, 89,064 after, 92.5% fewer**; 97.7% at DPR 1 and on the 390px sheet. Stated as what it is: the ingest ladder measured on a real image, not a live show's asset route, because no local show carries diagram snapshots.
+
+**Three things the arc found that the row did not anticipate.** The tile's failure state was a one-way trapdoor under a stable React key — an unavailable diagram that became available stayed a placeholder forever, and a failed tile never recovered when a snapshot landed a ladder; that is repaired. A revision-less published row was building a doubled-slash URL and depending on the asset route to 410 it, so the tile now declines to ask. And the tile anchor had no focus-visible ring while all nine sibling links in the file did.
+
+**Filed forward:** `DIAGRAMTILE-FAILURE-STATE-COPY-1` (DEFERRED.md — one string for two failure states, plus the placeholder's 1.22:1 border, deferred as a product-copy decision), `BL-DIAGRAM-TILE-CHROME-CONSISTENCY` (the crew gallery puts the tile border on the cell, this one on the image — measured cosmetic, ruled out of scope for a perf arc), and `BL-BARE-TYPEOF-STRING-ID-GUARDS` (12 of 27 id-like guards in `lib/` accept an empty string as a usable id; this arc closed the diagrams door only).
+
 ## BL-TELEMETRY-FALLBACK-RETRY — the scheduled-job health fallback states the cause but offers no retry — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** S for the row's own site, M with the two peers the sweep found · **Shipped by:** `feat/telemetry-fallback-retry` (PR #924) · **Plan:** `docs/superpowers/plans/2026-08-27-telemetry-fallback-retry.md` · **Closeout:** the stem-named sibling beside it

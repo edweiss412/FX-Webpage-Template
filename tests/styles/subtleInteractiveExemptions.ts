@@ -74,8 +74,16 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    // :1624 until 2026-08-27 — the isWarnSeverity import line (spec §2.1).
-    line: 1625,
+    // 1626 -> 1627: the geometry extraction added one import line near the top of
+    // the file. Verified by identity, not by offset — the `<summary>` whose
+    // className carries `text-text-subtle`, exactly the row below.
+    // Then 1627 -> 1628 on the merge of origin/main (6441d5e4c). Main moved this row
+    // too, so neither parent's number describes the merged tree. Located by running
+    // the scanner on the merged tree, not by adding the two deltas: the live hit is
+    // 1628, and line 1628 is that same `<summary>`.
+    // Then 1628 -> 1633 when the announce-log import block landed. Located again on the
+    // live tree: 1633 is that same `<summary>`.
+    line: 1633,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

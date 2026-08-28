@@ -8,6 +8,41 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
+## BL-DIAGRAM-TILE-CHROME-CONSISTENCY — the admin diagram tile and the crew gallery put the tile border on different elements
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`; owner-directed by bl-orch after that arc reverted the change as out of scope, which is the scheduling decision) · **Facing:** product · **Severity:** LOW (cosmetically identical today; it is a consistency and maintenance question, not a rendering defect) · **Class:** design consistency · **Effort:** S · **Reachability:** PROBED — see the mutant below.
+
+The crew gallery puts the tile's box chrome on the grid CELL and leaves `object-cover` on the image (`components/diagrams/Gallery.tsx:351`). The admin wizard tile puts `rounded-md border border-text-faint bg-surface-sunken` on the `<img>` and leaves the anchor carrying only `relative` and its aspect box (`components/admin/wizard/step3ReviewSections.tsx`). Two arrangements for one visual idiom across the two diagram surfaces.
+
+**It is cosmetic, and that is measured rather than assumed.** `perf/admin-diagram-next-image` tried the move and ran it as a mutant: with the border on the anchor instead of the image, the whole real-browser layout suite passed, 44 of 44, including the geometry row. With no border on the anchor its padding box IS its border box, so a `fill` image insets to the same rectangle either way. An earlier justification claiming the move was required by that insetting is disproved and must not be revived.
+
+**Why it is a row and not a rider.** That arc is a `next/image` adoption, and the image change demonstrably does not require the move. Taking it would also move the tile's `<img>` out of the painted-child family counted by `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` §15 table 3 — spending a ratified design claim on a preference a perf arc picked up in passing. The honest home is the UI polish class sweep, where the same question can be asked of every surface that has a bordered thumbnail rather than of one.
+
+**Done condition:** one arrangement across both diagram surfaces, with §15 table 3's family membership re-derived and the count updated in the same change rather than left to drift.
+
+## BL-BARE-TYPEOF-STRING-ID-GUARDS — an empty string passes as a usable id at 12 of 27 id-like guards
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`, class sweep; owner-directed by bl-orch, which is the scheduling decision) · **Facing:** product · **Severity:** MEDIUM (auth and visibility surfaces are among the sites; an empty share token or viewer id is a security-posture question, not tooling hygiene) · **Class:** input validation · **Effort:** M · **Class-sweep exception:** (c) — a repair spanning auth, visibility and notify is a different blast radius from the diagram tile this arc opened, and an admin-diagram arc must not rewrite share-token validation under review pressure. · **Reachability:** INFERRED, NOT PROBED — see the probe below, which is this row's first scheduled step.
+
+`typeof x === "string"` is used as a stand-in for "is a usable id". An empty string satisfies it, so a corrupt or partially-written row can carry an id-shaped field that is present, correctly typed, and useless. The diagrams instance was found by execution, not by reading: `isPersistedDiagrams` (`lib/data/diagrams.ts:45-52`) accepts `snapshot_revision_id: ""`, and the published wizard tile then built `/api/asset/diagram/<show>//<key>` — a doubled slash the surface's own contract calls malformed. That door is closed (`perf/admin-diagram-next-image`: the published servability gate now requires a non-empty `rev`). The rest are open.
+
+**Derived cover, not an enumeration.** Over `lib/**/*.ts`: 191 `typeof … === "string"` guards in total; 27 of them sit on id-like fields (`revision`, `_id`/`Id`, `token`, `slug`, `key`); of those 27, **14 already guard non-emptiness** with a truthiness check, a `.length`, or a shape regex (`lib/data/showCacheTag.ts:84` is the correct form, `typeof showId === "string" && showId`; `lib/drive/isPlausibleFolderId.ts:20` is the regex form), and **12 are bare**. The derivation is the command plus that 191 / 27 / 14 / 12 split, so a new site changes the count rather than stranding a list.
+
+**The 12 bare sites, ranked by blast radius rather than by file order.** Auth and visibility first, because those are the ones where an empty id is a posture question:
+
+1. `lib/auth/picker/intentToken.ts:28` and `:30` — `slug`, `shareToken`.
+2. `lib/auth/picker/rotateShareToken.ts:24` — `new_share_token`.
+3. `lib/auth/picker/clearIdentity.ts:76` — the `s` passthrough.
+4. `lib/visibility/scopeTiles.ts:213` — `viewerId`.
+5. `lib/notify/detect/emailDeliveryFailed.ts:248` and `:249` — `live_token`, `mint_id`.
+6. `lib/realtime/subscribeToShow.ts:184` — `token`.
+7. `lib/sync/roleMappingOverlay.ts:74` and `:120`, `lib/parser/dataGaps.ts:471` — `roleToken` (three sites, one shape).
+8. `lib/drive/sheetGids.ts:31` — `props.title`.
+
+**The probe, and it is the first scheduled step.** For each site, decide whether an empty string can actually ARRIVE there, which the count above does not establish: read the producer of the field (RPC return shape, cookie/JWT claim, persisted column, Drive API response), and where the producer cannot be pinned by type, write a case feeding `""` through the guard and assert what the caller does with it. Rank as listed — `intentToken`, `rotateShareToken`, `clearIdentity` and `scopeTiles` before the rest. A site whose producer guarantees non-empty is dispositioned in place with the citation; a site where `""` reaches a URL, a query, or an authorization decision is the actual finding this row exists to surface.
+
+**Not proposed: a lint arm.** "Every id-like typeof-string guard must also check non-emptiness" is a recognizer over an open grammar of what counts as id-like, and the 27/14 split shows the codebase already disagrees with any single naming heuristic. The probe answers the question the row asks; a detector would answer a different and unbounded one.
+
 ## BL-LINE-KEYED-REGISTRY-ROWS — registries keyed by `file:line` are invalidated wholesale by any edit above the row
 
 **Status:** OPEN · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`; owner-directed 2026-08-27 by bl-orch under the recurrence exception that PR #922 added the same day) · **Facing:** process · **Mint-exception:** recurrence (`LIM-LINE-KEYED-SITEID`, three independent arcs) · **Severity:** MEDIUM (every hoist, import, or new control above a keyed row costs a re-key per row, and a mis-keyed row is a false pass) · **Class:** structural-registry keying · **Effort:** M · **Incident:** three independent arcs, each with its corpus row: (1) `feat/speclint-ac-unclaimed-arm`, diff stage, `docs/review-rounds/feat/speclint-ac-unclaimed-arm/44b0d74b1107.md`: 37 accepted-survivor siteIds (`operator:line:col:text`) re-keyed across three mutation score runs, two runs failing before the re-key cause was separated from genuine gaps; (2) `feat/private-image-pipeline`, diff stage, `docs/review-rounds/feat/private-image-pipeline/d2a31e4aa021.md`: one hoisted emit in `alertProducerScope.registry.ts` invalidated 19 line-pinned rows across three files; (3) `feat/wizard-review-attention-menu`, spec stage, `docs/review-rounds/feat/wizard-review-attention-menu/66c9857f56a5.md` (rounds 1 and 3): one new header button moves eight line-keyed rows (`tests/styles/controlOutlineScan.ts` `CENSUS` ×3 and `DIVIDERS` ×1, `tests/styles/_metaControlOutlineFill.test.ts` `HOVER_SUBTLE`, `tests/styles/tapTargetCensus.ts`, `tests/styles/controlOutlineResidue.ts`, `tests/styles/_metaControlOutlineResidue.test.ts`) plus two count pins, and the spec needed two review rounds to enumerate them because no reader lists which registries key on a given file. · **Reachability:** PROBED — each filing quotes the re-keyed rows; `rg -n "AttentionMenu.tsx|Step3ReviewModal.tsx|PublishedReviewModal.tsx" tests/styles/*.ts tests/styles/*.test.ts` reproduces occurrence (3) on `origin/main`.
@@ -57,27 +92,6 @@ Index entry: `LIM-AUTHORED-RED` in `docs/review-rounds/LIMITS.md`, named by six 
 **Trigger:** owner-directed; schedule after `BL-SPECLINT-EXPECT-N-EXIT-STATUS`.
 
 ---
-
-## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
-
-**Status:** OPEN — filed at private-image-pipeline close-out · **Severity:** low · **Class:** PERF / consistency · **Effort:** M
-
-`components/admin/wizard/step3ReviewSections.tsx` has two same-shape `<img>` sites — the staged-diagram
-preview and the published breakdown that builds `/api/asset/diagram/` srcs. They are the same defect
-shape the crew gallery just fixed, and the loader plus the ingest variant ladder are reusable there
-as-is: `makeDiagramLoader` (`lib/images/diagramLoader.ts`) already takes manifest `variants` and
-returns asset-route URLs, and the manifest fields land for every show at its next snapshot.
-
-Deferred under the class-sweep disposition rule's exception **(c)**, ratified in the design session
-(`docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §1.1): the repair lands
-inside a ~4000-line admin wizard file the shipping PR does not otherwise touch, which blows its review
-scope; and the value driver — crew bandwidth on venue 4G — does not apply to a desktop admin surface.
-This is NOT "same defect, different file" with nothing more to say: the exception is named, and the
-reason it applies is that the cost of the repair is dominated by the file it lives in rather than by
-the change itself.
-
-**Un-defer trigger:** any work that already opens `step3ReviewSections.tsx` for another reason should
-carry these two sites with it, since the marginal cost then collapses to the edit itself.
 
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
