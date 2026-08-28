@@ -67,7 +67,23 @@ export function withNaturalSize<T>(
     live = false;
     el.style.maxWidth = heldMaxWidth;
     el.style.maxHeight = heldMaxHeight;
-    if (el.scrollTop !== heldScrollTop) el.scrollTop = heldScrollTop;
-    if (el.scrollLeft !== heldScrollLeft) el.scrollLeft = heldScrollLeft;
+    // The `!== 0` short-circuits are not a micro-optimisation, they remove a
+    // FORCED LAYOUT. Both comparisons read the element after the cap-restore
+    // writes above, so each read flushes the style change those writes queued.
+    //
+    // On an unscrolled element both reads are provably no-ops, and the reason is
+    // that ZERO IS ALWAYS INSIDE THE SCROLL RANGE rather than that clamping only
+    // moves downward. Clearing a cap can only REDUCE overflow, which shrinks the
+    // scrollable range; an element with no overflow reports exactly 0. So a held
+    // 0 is still 0 when the restore runs, whatever direction the range extends
+    // in. That distinction matters for `scrollLeft` under `direction: rtl`,
+    // where the range runs from negative to 0 and "clamps downward" would be the
+    // wrong claim — 0 is the range's MAXIMUM there, and it survives the shrink
+    // for the same reason.
+    //
+    // `&&` short-circuits, so on that path neither offset is read at all, which
+    // is the path every measurement of every uncapped popover takes.
+    if (heldScrollTop !== 0 && el.scrollTop !== heldScrollTop) el.scrollTop = heldScrollTop;
+    if (heldScrollLeft !== 0 && el.scrollLeft !== heldScrollLeft) el.scrollLeft = heldScrollLeft;
   }
 }

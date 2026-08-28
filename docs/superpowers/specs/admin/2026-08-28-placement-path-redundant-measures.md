@@ -80,12 +80,18 @@ entry carries what a future attempt needs.
 live value against the held one. Both comparisons read the element after the cap
 writes at `lib/popover/naturalSize.ts:68-69`, so both force layout.
 
-**When the held offset is 0 the read is provably a no-op.** Clearing the caps can
-only remove a scroll range, never create one, so the offset can only be clamped
-DOWNWARD during the pass. From 0 there is nowhere down to go. Restoring the cap
-does not move the offset back up. So `el.scrollTop` is 0 at line 70 whenever
-`heldScrollTop` was 0, and the write is skipped in every case the read could
-report.
+**When the held offset is 0 the read is provably a no-op, because ZERO IS ALWAYS
+INSIDE THE SCROLL RANGE.** Clearing the caps can only REDUCE overflow, which
+shrinks the scrollable range; an element with no overflow reports exactly 0. So a
+held 0 is still 0 when the restore runs, and the write is skipped in every case
+the read could report.
+
+**That is deliberately not the argument "clamping only moves downward",** which
+is what an earlier draft said and which is false for `scrollLeft` under
+`direction: rtl`. There the range runs from negative up to 0, so 0 is its
+MAXIMUM and a clamp moves UPWARD toward it. The range-shrink argument covers both
+writing modes without a case split, which is why `scrollLeft` is repaired
+alongside `scrollTop` rather than left alone as the riskier of the two.
 
 The repair short-circuits on the held value:
 
@@ -97,6 +103,38 @@ if (heldScrollLeft !== 0 && el.scrollLeft !== heldScrollLeft) el.scrollLeft = he
 `&&` short-circuits, so on the unscrolled path neither `el.scrollTop` nor
 `el.scrollLeft` is read at all and both forced layouts disappear. The scrolled
 path is byte-for-byte the behaviour it has today.
+
+### The one path where behaviour could differ, and why no caller takes it
+
+The change removes a READ, and the write it guarded was already conditional on
+that read differing from the held value. So old and new behave identically
+except in one case: **held is 0 AND the live offset is non-zero when the restore
+runs.** There the old code wrote 0 back and the new code skips.
+
+Clearing a cap cannot produce that state — it only reduces overflow, and the
+range-shrink argument above covers it. **What could is the measure CALLBACK
+scrolling the element itself**, since the callback is caller-supplied and runs
+between the clear and the restore.
+
+**No shipped caller does.** All five composers were read
+(`components/admin/AnchoredPortal.tsx`, `components/admin/HoverHelp.tsx`,
+`components/admin/PublishedToggle.tsx`, `components/admin/ReSyncButton.tsx`,
+`components/admin/showpage/ShareHub.tsx`): every `scroll*` reference inside a
+measure callback is a read of `window.scrollX`/`scrollY` or of the HOST element's
+`scrollLeft`/`scrollTop` for coordinate conversion — never a write, and never to
+the element being measured. `HoverHelp`'s only focus call passes
+`preventScroll: true` and sits outside the callback.
+
+**This is a claim about today's callers, so it is a DOCUMENTED LIMIT rather than
+a proof.** A future caller that scrolls the measured element inside its own
+measure callback would be relying on `withNaturalSize` to undo it, which the
+helper's contract never offered — the contract is that measuring does not
+DISTURB scroll state, not that it reverts what the callback deliberately does.
+`tests/components/_metaScrollNeutralMeasurement.test.ts` walks the call sites for
+the related cap-clearing rule; this narrower property is recorded here and not
+guarded, because a guard over "no call site scrolls its own target" would be a
+walker whose done condition is a property of the walker, which the process-mint
+freeze declines.
 
 **`scrollLeft` is repaired alongside `scrollTop` although the row names only
 `scrollTop`.** It is the same defect one line down, in the same function, in the
@@ -114,7 +152,7 @@ helper takes the path this repair makes free.
 | Id  | Invariant                                                                     | Deciding case                                       | Mutant that reds it                |
 | --- | ----------------------------------------------------------------------------- | --------------------------------------------------- | ---------------------------------- |
 | INV-F | An unscrolled panel's measurement reads neither scroll offset after the cap restore | `tests/components/naturalSize.test.ts` order-trace case | drop either `!== 0` short-circuit |
-| INV-G | A scrolled panel's offsets are still restored                                 | the merged cases at `tests/components/naturalSize.test.ts:45` and `tests/components/naturalSize.test.ts:59` | invert either short-circuit |
+| INV-G | A scrolled panel's offsets are still restored                                 | the merged cases at `tests/components/naturalSize.test.ts:46` and `tests/components/naturalSize.test.ts:60` | invert either short-circuit |
 
 **Two invariants, and that is the whole shipped contract.** INV-A through INV-E
 and INV-H through INV-M belonged to site 1's guard and left with it (§2). They are

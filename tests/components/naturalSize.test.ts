@@ -8,6 +8,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { withNaturalSize } from "@/lib/popover/naturalSize";
+import { premiseHolds } from "../_shared/premise";
 
 function box(): HTMLElement {
   const el = document.createElement("div");
@@ -131,5 +132,129 @@ describe("withNaturalSize", () => {
     // @ts-expect-error promise-returning callbacks are rejected (SyncOnly)
     const call = () => withNaturalSize(el, async () => 1);
     void call;
+  });
+
+  /**
+   * INV-F / AC-6 (BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES site 2).
+   *
+   * The helper restores the scroll offsets by comparing the live value against
+   * the held one (lib/popover/naturalSize.ts:70-71). Both comparisons READ the
+   * element after the cap-restore WRITES two lines above, so both force a
+   * synchronous layout — and on an unscrolled panel both are provably no-ops,
+   * because clearing a cap can only clamp an offset DOWNWARD and there is
+   * nowhere below zero to go.
+   *
+   * That is the whole claim, and it is an ORDER rather than a timing: jsdom
+   * computes no layout, so "this read forces a reflow" is not observable here.
+   * What is observable exactly is which reads happen and when, which is the
+   * property the repair changes.
+   */
+  it("does not read the scroll offsets after the cap restore when both are zero", () => {
+    const el = box();
+    const trace: string[] = [];
+    Object.defineProperty(el, "scrollTop", {
+      configurable: true,
+      get: () => {
+        trace.push("get scrollTop");
+        return 0;
+      },
+      set: () => trace.push("set scrollTop"),
+    });
+    Object.defineProperty(el, "scrollLeft", {
+      configurable: true,
+      get: () => {
+        trace.push("get scrollLeft");
+        return 0;
+      },
+      set: () => trace.push("set scrollLeft"),
+    });
+    // The cap writes are what make a following scroll read a forced layout, so
+    // they are traced too — the assertion is about ORDER, and an order needs
+    // both kinds of event in one sequence.
+    const realStyle = el.style;
+    const styleProxy = new Proxy(realStyle, {
+      set(t, prop, value) {
+        if (prop === "maxWidth" || prop === "maxHeight") trace.push(`write style.${String(prop)}`);
+        return Reflect.set(t, prop, value);
+      },
+      get(t, prop) {
+        const v = Reflect.get(t, prop);
+        return typeof v === "function" ? (v as (...a: never[]) => unknown).bind(t) : v;
+      },
+    });
+    Object.defineProperty(el, "style", { configurable: true, get: () => styleProxy });
+
+    withNaturalSize(el, () => 1);
+
+    const lastCapWrite = trace.lastIndexOf("write style.maxHeight");
+    // PREMISE (own inputs): the helper must have RESTORED a cap at all, or
+    // "nothing follows the last cap write" holds because there was no cap write.
+    premiseHolds("the helper wrote a cap restore", lastCapWrite >= 0);
+    // PREMISE (own inputs): it must have read the held offsets up front, or the
+    // instrumentation is not attached to the property the helper actually uses
+    // and this case would pass against an element it never touched.
+    premiseHolds("the helper read the held offsets first", trace.indexOf("get scrollTop") === 0);
+
+    const after = trace.slice(lastCapWrite + 1).filter((t) => t.startsWith("get scroll"));
+    expect(after, "no scroll offset is read after the cap restore").toEqual([]);
+  });
+
+  /**
+   * The MIXED case: one offset held at zero, the other not. The two guards are
+   * independent `if`s, so this is the case that would break if they were ever
+   * merged into one condition — a single `heldScrollTop !== 0 && heldScrollLeft
+   * !== 0` gate would skip the restore of a genuinely scrolled `scrollLeft`
+   * whenever `scrollTop` happened to be zero, which is silent data loss on a
+   * horizontally scrolled panel.
+   *
+   * Neither existing case covers it: the merged restore case
+   * (tests/components/naturalSize.test.ts:45) scrolls BOTH, and the new INV-F
+   * case holds both at zero.
+   */
+  it("restores a scrolled offset while skipping the zero one", () => {
+    const el = box();
+    const reads: string[] = [];
+    let top = 0;
+    let left = 90;
+    Object.defineProperty(el, "scrollTop", {
+      configurable: true,
+      get: () => {
+        reads.push("scrollTop");
+        return top;
+      },
+      set: (v: number) => {
+        top = v;
+      },
+    });
+    Object.defineProperty(el, "scrollLeft", {
+      configurable: true,
+      get: () => {
+        reads.push("scrollLeft");
+        return left;
+      },
+      set: (v: number) => {
+        left = v;
+      },
+    });
+
+    withNaturalSize(el, () => {
+      // The clamp the cap-clear would cause in a real engine, modelled: only the
+      // scrolled offset has anywhere to be clamped to.
+      left = 0;
+      return 1;
+    });
+
+    // PREMISE (own inputs): the measurement must actually have moved the
+    // scrolled offset, or "it was restored" is a claim about a no-op.
+    premiseHolds("the measurement clamped the scrolled offset", reads.length > 0);
+
+    expect(left, "the non-zero offset is restored").toBe(90);
+    expect(top, "the zero offset is untouched").toBe(0);
+    // And the zero one is never READ after the restore writes, which is the
+    // property that would regress if the two guards were merged.
+    const restoreReads = reads.slice(2);
+    expect(restoreReads, "only the non-zero offset is read during the restore").toEqual([
+      "scrollLeft",
+    ]);
   });
 });

@@ -14,8 +14,8 @@ spec's §2.
 
 - `lib/popover/naturalSize.ts` (edited — two `&&` operands in one `finally` block)
 - `tests/components/naturalSize.test.ts` (extended — INV-F; INV-G is the two
-  merged cases at `tests/components/naturalSize.test.ts:45` and
-  `tests/components/naturalSize.test.ts:59`, asserted to stay green rather than
+  merged cases at `tests/components/naturalSize.test.ts:46` and
+  `tests/components/naturalSize.test.ts:60`, asserted to stay green rather than
   rewritten)
 - `BACKLOG.md` (the row's body becomes the park record; its `IN PROGRESS` marker
   comes off in the PR's last commit)
@@ -97,8 +97,8 @@ short-circuits.
 **Gate commands, run and recorded in the commit:**
 
 - `pnpm exec vitest run tests/components/naturalSize.test.ts` — the merged
-  scrolled-restore case (`tests/components/naturalSize.test.ts:45`) and the
-  merged no-spurious-write case (`tests/components/naturalSize.test.ts:59`) stay
+  scrolled-restore case (`tests/components/naturalSize.test.ts:46`) and the
+  merged no-spurious-write case (`tests/components/naturalSize.test.ts:60`) stay
   green. Both hold non-zero offsets, so both take the unchanged branch (INV-G).
 - `pnpm exec vitest run tests/components/_metaScrollNeutralMeasurement.test.ts`.
 
