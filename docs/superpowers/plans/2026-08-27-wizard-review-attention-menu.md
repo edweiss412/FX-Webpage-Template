@@ -116,8 +116,8 @@ Output (registry → pinned file:line → the task whose edit moves it → re-ke
 | `tests/styles/_metaControlOutlineFill.test.ts:469` HOVER_SUBTLE | `PublishedReviewModal.tsx:979` | T6 | re-key (closed list: no additions) |
 | `tests/styles/_metaControlOutlineResidue.test.ts:1542` blind oracle | `AttentionMenu.tsx:189` | T4 | re-key |
 | `tests/styles/_metaControlOutlineResidue.test.ts:1544` blind oracle | `step3ReviewSections.tsx:2432` | T2 | re-key |
-| `tests/styles/controlOutlineResidue.ts:933` | `AttentionMenu.tsx` row | T4 | re-key its `line` |
-| `tests/styles/controlOutlineResidue.ts:1038` | `step3ReviewSections.tsx` row | T2 | re-key its `line` |
+| `tests/styles/controlOutlineResidue.ts:933` | `AttentionMenu.tsx` row: keyed by file + tag + paint, NO `line` field | T4 | no re-key expected; run the suite to confirm the residue set is unchanged |
+| `tests/styles/controlOutlineResidue.ts:1038` | `step3ReviewSections.tsx` row: same file+tag+paint key | T2 | no re-key expected; confirm by running |
 | `tests/styles/tapTargetCensus.ts:205` | `Step3ReviewModal.tsx` row | T8 | re-key |
 | `tests/styles/tapTargetCensus.ts:304` | `step3ReviewSections.tsx` 3820 | T2 | re-key |
 | `tests/styles/subtleInteractiveExemptions.ts:73` | `step3ReviewSections.tsx` 1624 | T2 | re-key |
@@ -141,7 +141,7 @@ Scanner set, run at the end of T2, T4, T6, T7, T8: `pnpm exec vitest run tests/s
 **Interfaces:**
 - Produces: fixtures at tests/components/admin/review/__fixtures__/step3-header-dirty-baseline.html, tests/components/admin/showpage/__fixtures__/published-attention-pill-baseline.html and published-attention-menu-baseline.html; `PUBLISHED_ATTENTION_PILL_FIXTURE_PATH`, `PUBLISHED_ATTENTION_MENU_FIXTURE_PATH`; `item()`, `needsLookItem()`, `selfHealItem()` from the shared fixture module.
 
-This task runs FIRST and touches no component. It has NO red→green cycle of its own and carries no task marker: a baseline capture cannot be red for a production reason (the fixtures it writes are the test's own inputs), which is exactly the test-local RED `docs/agents/writing-plans.md` forbids. Its discriminating power is proven differently: after capture, mutate one byte of the rendered header (temporarily change the "All clean" text in `Step3ReviewModal.tsx`, run, confirm the invariant fails, revert; same for the published pill's "In sync" text and the menu's needs-you heading) and quote the three failures in the commit body. The published modal cannot be rendered by a standalone script the way the Step 3 header can: `publishedReviewModal.test.tsx` `baseProps` builds `vi.fn()` actions, and the component needs the `ShareTokenProvider` wrapper (`app/admin/show/[slug]/ShareTokenContext.tsx` `useShareToken`) plus the `next/navigation` `vi.mock` for `useRouter`/`useSearchParams` (`components/admin/useShowModalNav.ts`). So the published baselines are captured IN VITEST by the invariant test itself in capture mode (`PUBLISHED_ATTENTION_CAPTURE=1` writes the fixtures instead of comparing), run once on this pre-change tree; the same module graph that renders the component captures it. What is red and why: the three fixture files do not exist, so each invariant test's `readFileSync` throws.
+This task runs FIRST and touches no component. It has NO red→green cycle of its own and carries no task marker: a baseline capture cannot be red for a production reason (the fixtures it writes are the test's own inputs), which is exactly the test-local RED `docs/agents/writing-plans.md` forbids. Its discriminating power is proven differently: after capture, mutate one byte of the rendered header (temporarily change the "All clean" text in `Step3ReviewModal.tsx`, run, confirm the invariant fails, revert; same for the published pill's "issue" noun (the two-group fixture renders "1 issue · 1 monitoring", never "In sync") and the menu's needs-you heading) and quote the three failures in the commit body. The published modal cannot be rendered by a standalone script the way the Step 3 header can: `publishedReviewModal.test.tsx` `baseProps` builds `vi.fn()` actions, and the component needs the `ShareTokenProvider` wrapper (`app/admin/show/[slug]/ShareTokenContext.tsx` `useShareToken`) plus the `next/navigation` `vi.mock` for `useRouter`/`useSearchParams` (`components/admin/useShowModalNav.ts`). So the published baselines are captured IN VITEST by the invariant test itself in capture mode (`PUBLISHED_ATTENTION_CAPTURE=1` writes the fixtures instead of comparing), run once on this pre-change tree; the same module graph that renders the component captures it. What is red and why: the three fixture files do not exist, so each invariant test's `readFileSync` throws.
 
 - [ ] **Step 1: Add the dirty path constant**
 
@@ -205,7 +205,7 @@ function check(path: string, html: string) {
 }
 ```
 
-Case A (menu): render `<AttentionMenu items={[needsLookItem("a1"), selfHealItem("s1", "Sync stalled")]} open onClose={vi.fn()} onNavigate={vi.fn()} pillRef={pillRef} />` with the pill-ref scaffold from `attentionMenu.test.tsx` `renderMenu`; `check(PUBLISHED_ATTENTION_MENU_FIXTURE_PATH, normalizeIds(screen.getByTestId("published-show-review-attention-menu").outerHTML))`. Case B (pill cluster): render the modal via the duplicated `renderModal({ attentionItems: [needsLookItem("a1"), selfHealItem("s1", "Sync stalled")] })` with no warnings; `check(PUBLISHED_ATTENTION_PILL_FIXTURE_PATH, normalizeIds(pill().parentElement!.outerHTML))` (the `relative min-w-0` wrapper: pill + menu mount point). `normalizeIds` from `@/tests/helpers/step3HeaderBaseline`.
+Case A (menu): render `<AttentionMenu items={[needsLookItem("a1"), selfHealItem("s1", "Sync stalled")]} open onClose={vi.fn()} onNavigate={vi.fn()} pillRef={pillRef} />` with the pill-ref scaffold from `attentionMenu.test.tsx` `renderMenu`; `check(PUBLISHED_ATTENTION_MENU_FIXTURE_PATH, normalizeIds(screen.getByTestId("published-show-review-attention-menu").outerHTML))`. Case B (pill cluster): render the modal via the duplicated `renderModal({ attentionItems: [needsLookItem("a1"), selfHealItem("s1", "Sync stalled")] })` with no warnings; `check(PUBLISHED_ATTENTION_PILL_FIXTURE_PATH, normalizeIds(screen.getByTestId("published-show-review-header").innerHTML))` (the whole header, which contains the trailing cluster: pill, menu mount point and `ModalCloseButton`; the same grain as the Step 3 header baseline). `normalizeIds` from `@/tests/helpers/step3HeaderBaseline`.
 
 - [ ] **Step 4: Run once before capture (expected ENOENT, a scaffolding check, not a RED)**
 
@@ -223,7 +223,7 @@ Then: `git diff --stat tests/components/admin/review/__fixtures__/step3-header-b
 Run: `pnpm exec vitest run tests/components/admin/review/reviewModalShell.test.tsx tests/components/admin/showpage/publishedAttentionBaseline.test.tsx tests/components/admin/showpage/attentionMenuGroups.test.tsx` (capture env UNSET)
 Expected: PASS.
 
-- [ ] **Step 7: Mutant proof of the three baselines** — for each of: `Step3ReviewModal.tsx` "All clean" text, the published pill's "In sync" text (`PublishedReviewModal.tsx`), the needs-you heading text (`AttentionMenu.tsx`): edit the string by one character, run the two invariant files, confirm the matching invariant FAILS, `git checkout -- <file>`; a mutant whose diff is empty or whose invariant stays green is a broken baseline, not a pass. Quote the three failure lines in the commit body.
+- [ ] **Step 7: Mutant proof of the three baselines** — for each of: `Step3ReviewModal.tsx` "All clean" text, the published pill's "issue"/"issues" noun (`PublishedReviewModal.tsx`; the fixture renders "1 issue · 1 monitoring"), the needs-you heading text (`AttentionMenu.tsx`): edit the string by one character, run the two invariant files, confirm the matching invariant FAILS, `git checkout -- <file>`; a mutant whose diff is empty or whose invariant stays green is a broken baseline, not a pass. Quote the three failure lines in the commit body.
 
 - [ ] **Step 8: Commit**
 
@@ -245,7 +245,7 @@ git commit --no-verify -m "test(admin): capture dirty step3 and published attent
 
 What is red and why: a severity-less fixture (`{ code: "UNKNOWN_FIELD", message: "" }` cast through `unknown`) is counted by `summarizeDataGaps` today but dropped by `warningsBySection` (`step3SectionStatus.ts:95` returns on `!== "warn"`), so the new routing assertion fails.
 
-<!-- task: red=`pnpm exec vitest run tests/lib/admin/isWarnSeverity.test.ts` red-state=authored red-target=`lib/admin/step3SectionStatus.ts:95` why=`warningsBySection returns early unless severity is exactly "warn", so a severity-less UNKNOWN_FIELD routes nowhere while summarizeDataGaps counts it, and the new routing case asserts the bucket holds it` ac=AC-9 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/admin/isWarnSeverity.test.ts` red-state=authored red-target=`lib/parser/dataGaps.ts:274` why=`the severity test is inlined here as w.severity === "info" and no isWarnSeverity export exists, so case (i)'s typeof assertion is red (the namespace import keeps module load green); and warningsBySection at lib/admin/step3SectionStatus.ts:95 returns early unless severity is exactly "warn", so cases (ii) through (vi) are red on their own sites` ac=AC-9 -->
 
 - [ ] **Step 1: Write the failing per-site tests**
 
@@ -254,7 +254,9 @@ tests/lib/admin/isWarnSeverity.test.ts (one `it` per site, §12.5a i–vi; vii i
 ```ts
 import { describe, expect, it } from "vitest";
 import { premiseHolds } from "@/tests/_shared/premise";
-import { isWarnSeverity, summarizeDataGaps } from "@/lib/parser/dataGaps";
+import * as gaps from "@/lib/parser/dataGaps"; // namespace import: the export does not exist yet, and a missing NAMED import would fail at module load instead of at the assertion
+const { summarizeDataGaps } = gaps;
+const isWarnSeverity = (w: Pick<ParseWarning, "severity">) => gaps.isWarnSeverity(w);
 import { sectionForWarning, sectionStatus, warningsBySection } from "@/lib/admin/step3SectionStatus";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
 import { rowIsJudgment } from "@/lib/admin/step3Buckets";
@@ -270,7 +272,8 @@ function legacy(code: string, extra: Partial<ParseWarning> = {}): ParseWarning {
 }
 
 describe("isWarnSeverity: one predicate, seven sites (spec §2.1)", () => {
-  it("(i) summarizeDataGaps counts a severity-less gap code", () => {
+  it("(i) the predicate is exported and summarizeDataGaps counts a severity-less gap code", () => {
+    expect(typeof gaps.isWarnSeverity).toBe("function"); // red today: the predicate is inlined in summarizeDataGaps
     expect(summarizeDataGaps([legacy("UNKNOWN_FIELD")]).total).toBe(1);
     expect(isWarnSeverity(legacy("UNKNOWN_FIELD"))).toBe(true);
     expect(isWarnSeverity({ severity: "info" })).toBe(false);
@@ -305,7 +308,7 @@ describe("isWarnSeverity: one predicate, seven sites (spec §2.1)", () => {
 - [ ] **Step 2: Run to verify RED**
 
 Run: `pnpm exec vitest run tests/lib/admin/isWarnSeverity.test.ts`
-Expected: (ii), (iii), (iv), (v), (vi) FAIL; (i) passes (the badge already counts it).
+Expected: (i) FAILS on the `typeof` assertion (no export), (ii) through (vi) FAIL on their sites; the file loads (namespace import).
 
 - [ ] **Step 3: Implement**
 
@@ -351,7 +354,9 @@ git commit --no-verify -m "fix(admin): one isWarnSeverity predicate across the s
 **Interfaces:**
 - Produces (spec §2, verbatim types): `WarningTone`, `WarningAttentionInput`, `WarningAttentionEntry<T>`, `WarningAttention<T>`, `deriveWarningAttention<T extends WarningAttentionInput>(entries, sections)`.
 
-<!-- task: red=`pnpm exec vitest run tests/lib/admin/warningAttention.test.ts` red-state=authored red-target=`lib/admin/step3SectionStatus.ts:105` why=`no module derives a per-warning attention partition today; the section-level sectionStatus at this line is the only partition and it returns one status per section, so a test asserting two entries for two warnings in one section has nothing to import` ac=AC-1,AC-9 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/admin/warningAttention.test.ts` red-state=authored red-target=`lib/admin/warningAttention.ts` why=`the module does not exist (an untracked path is the legal red-target for a module the task creates, lib/specLint/redContract.ts targetProblem), so the import fails; nothing in lib/admin derives a per-warning partition today, only the per-section sectionStatus` ac=AC-1,AC-9 -->
+
+Path-only citation discipline: this red-target is legal only while the path is untracked. Step 5's commit re-cites it as `lib/admin/warningAttention.ts:<line of export function deriveWarningAttention>` in the SAME commit (the lint reads the whole plan at any later time; precedent `docs/superpowers/plans/2026-08-25-planlint-ac-command-observability.md`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -389,7 +394,10 @@ describe("deriveWarningAttention", () => {
     expect(r.all[1]!.sectionLabel).toBe(labelOf(r.all[1]!.sectionId)); // label READ from the registry
     // the function reads the SUPPLIED registry, not a hardcoded string: a synthetic registry proves it
     const synthetic = SECTIONS.map((x) => ({ ...x, label: `Zz ${x.id}` }));
-    expect(deriveWarningAttention(route([warn("UNKNOWN_FIELD")]), synthetic).all[0]!.sectionLabel).toBe("Zz warnings");
+    // an UNMAPPED kind routes to the warnings bucket (KIND_TO_SECTION has no "nope"), so the label proves both the registry read AND the spec's unmapped case
+    premiseHolds("kind is unmapped", !("nope" in KIND_TO_SECTION));
+    expect(deriveWarningAttention(route([warn("UNKNOWN_FIELD", "nope")]), synthetic).all[0]!.sectionLabel).toBe("Zz warnings");
+    expect(deriveWarningAttention(route([warn("UNKNOWN_FIELD", "nope")]), SECTIONS).all[0]!.sectionLabel).toBe(labelOf("warnings" as SectionId));
   });
   it("I-1: never counts fewer than the badge, across every known code, typed and severity-less", () => {
     const codes = [
@@ -539,7 +547,7 @@ In `AttentionMenu.tsx`: rename `AttentionMenuPanel` to `AttentionMenuFrame` with
 Run: `pnpm exec vitest run tests/components/admin/showpage/attentionMenuFrame.test.tsx tests/components/admin/showpage/attentionMenu.test.tsx tests/components/admin/showpage/attentionMenuGroups.test.tsx tests/components/admin/showpage/publishedAttentionBaseline.test.tsx tests/components/admin/showpage/publishedReviewModal.test.tsx tests/components/admin/useFitWithinClip.test.tsx`
 Expected: PASS (the baseline test proves byte identity).
 Run: `pnpm exec vitest run tests/styles tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts tests/components/admin/showpage/pageTransitions.test.tsx`
-Expected: FAIL on the moved divider line (`AttentionMenu.tsx:189` in `controlOutlineScan.ts` `DIVIDERS`, `controlOutlineResidue.ts`, `_metaControlOutlineResidue.test.ts:1542`) and possibly the `AttentionMenu.tsx` conditional count. Re-key each to the line the scanner reports (`grep -n 'border-b border-border px-4 py-3' components/admin/showpage/AttentionMenu.tsx` is the divider), re-run, paste the scanner's before/after in the commit body. `_metaPopoverPlacementContract` must pass with NO registry edit.
+Expected: FAIL on the moved divider line (`AttentionMenu.tsx:189` in `controlOutlineScan.ts` `DIVIDERS` and the `_metaControlOutlineResidue.test.ts:1542` blind-oracle string; `controlOutlineResidue.ts` is keyed by file + tag + paint and should stay green) and possibly the `AttentionMenu.tsx` conditional count. Re-key each to the line the scanner reports (`grep -n 'border-b border-border px-4 py-3' components/admin/showpage/AttentionMenu.tsx` is the divider), re-run, paste the scanner's before/after in the commit body. `_metaPopoverPlacementContract` must pass with NO registry edit.
 
 - [ ] **Step 5: Commit** — `git commit --no-verify -m "refactor(admin): export AttentionMenuFrame and AttentionMenuRow from AttentionMenu, byte-identical"`
 
@@ -620,6 +628,20 @@ it("menu row click jumps to the card anchor on both render paths", async () => {
   // click attention-menu-row-warning:<id>-0 → the <li data-attention-anchor="warning:<id>"> gains data-step3-warning-flash
 });
 it("ignoring the last warning drops the pill to In sync and closes the menu", async () => { /* ignore via the card's Ignore control mock, then assert */ });
+it("issues + warnings, no monitoring: two segments, one separator (spec §12.17)", () => {
+  const items = [actionable("a1")]; const ws = [warnRow("UNKNOWN_FIELD", "crew"), warnRow("UNKNOWN_FIELD", "rooms")];
+  const k = expectedK(ws); premise("plural warnings", k, 1);
+  renderModal({ attentionItems: items }, ws);
+  expect(visibleText(pill())).toBe(`1 issue · ${k} sheet warnings`);
+  expect(screen.queryByTestId("attention-pill-monitoring-segment")).toBeNull();
+});
+it("a crew warning past the under-row cap has no card: the jump lands on the crew section top with no flash", async () => {
+  // Fixture: more crew-scoped warnings for ONE rendered crew key than the row host's visible cap
+  // (read CREW_CAP / the cap constant from sectionWarningExtras.tsx / the crew row host; premise that the fixture exceeds it).
+  // Click the menu row for the over-cap warning (its reportSurfaceId derived via buildReportSurfaceId) →
+  // no element in the scroller carries data-attention-anchor for it, the crew section is active, and
+  // querySelector("[data-step3-warning-flash]") is null.
+});
 ```
 
 Derive `<id>` from `buildReportSurfaceId(SLUG, warning)` (`@/lib/dataQuality/warningFingerprint`), not from the DOM. In `attentionMenuGroups.test.tsx` add: with `warningIndex={{ entries, onNavigate }}` the Sheet warnings heading (`attention-sheetwarnings-heading`) sits between the needs-you rows and `attention-monitoring-group`; rows are `BUTTON`s with zero `<a>`; click order `["close", "navigate"]`; a judgment-code entry's dot has `bg-text-faint`, a gap-code entry's `bg-status-review`; without the prop the tree matches the Task 1 baseline (already pinned).
@@ -668,7 +690,9 @@ Run: `pnpm exec vitest run tests/styles tests/components/admin/showpage/pageTran
 - Consumes: `AttentionMenuFrame`, `AttentionMenuRow`, `WarningAttention`, `reviewWarningTitle`.
 - Produces: `WizardAttentionMenu` with spec §3.3 props; `export type WizardAttentionEntry = WarningAttentionEntry<{ id: string; sectionId: SectionId; warning: ParseWarning; index: number }>`.
 
-<!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/wizardAttentionMenu.test.tsx` red-state=authored red-target=`components/admin/wizard/Step3ReviewModal.tsx:451` why=`the wizard has no menu component; the header chip at this line is a span and nothing under components/admin/wizard exports WizardAttentionMenu, so the import fails` ac=AC-3 -->
+<!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/wizardAttentionMenu.test.tsx` red-state=authored red-target=`components/admin/wizard/WizardAttentionMenu.tsx` why=`the module does not exist (untracked path, the legal form for a module the task creates), so the import fails; no file under components/admin/wizard renders a warning index` ac=AC-3 -->
+
+Path-only citation discipline: Step 5's commit re-cites this target as `components/admin/wizard/WizardAttentionMenu.tsx:<line of export function WizardAttentionMenu>` in the same commit, as Task 3 does.
 
 - [ ] **Step 1: Failing tests** — file starts with `// @vitest-environment jsdom`. Build `attention` with `deriveWarningAttention` over a constructed entry list (two needs-look + one judgment) so every expected count below is read from `attention.needsLook.length` / `attention.judgment.length` / `attention.all.length`, never restated; render with `open: true`: panel testid `wizard-step3-card-<dfid>-review-attention-menu`, `aria-label="Needs a look"`, heading `wizard-attention-needslook-heading` outside the scroller (`aria-label="Warnings to review"`), rows `wizard-step3-card-<dfid>-attention-row-<index>` titled by `reviewWarningTitle`, second line = section label, judgment heading `wizard-attention-judgment-heading` with `border-t`, judgment row dot `bg-text-faint`; judgment-only → `aria-label="Judgment calls"`, heading `rounded-t-md`, no needs-look heading; click → `onClose` then `onNavigate(entry)`; `open: false` → nothing rendered; a large list: build `N = 100` entries, `premise("list exceeds the visible cap", attention.all.length, 99)`, and assert the rendered row count equals `attention.all.length` (no cap on rows).
 - [ ] **Step 2: RED** — module missing.
@@ -683,7 +707,7 @@ Run: `pnpm exec vitest run tests/styles tests/components/admin/showpage/pageTran
 - Registries: `step3ReviewModal.transitions.test.tsx` (site count), `step3JudgmentChrome.test.tsx` (10 → 11), `controlOutlineScan.ts` lines 104, 106, `tapTargetCensus.ts:205` (Step3ReviewModal line re-keys).
 - Tests: `Step3ReviewModal.test.tsx` (§12 items 6–15, 5a-vii, 10a; `expectedFlagged` rewritten), `reviewModalShell.test.tsx` (both baselines stay green).
 
-<!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/Step3ReviewModal.test.tsx` red-state=authored red-target=`components/admin/wizard/Step3ReviewModal.tsx:296` why=`flaggedCount counts sections with a flagged sectionStatus, so two crew warnings in one section render "1 needs a look" and the new case asserting "2 need a look" fails` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-9,AC-11 -->
+<!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/Step3ReviewModal.test.tsx tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` red-state=authored red-target=`components/admin/wizard/Step3ReviewModal.tsx:296` why=`flaggedCount counts sections with a flagged sectionStatus, so two crew warnings in one section render "1 needs a look" and the new case asserting "2 need a look" fails` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-9,AC-11 -->
 
 The transition cases live in `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` (new describe "attention pill: §8 inventory") and are part of this task's RED (they fail for the marker's reason: no menu exists) and GREEN.
 
@@ -746,7 +770,7 @@ expect(chip.textContent).toBe(`${look(n8)} · ${judg(m8)}`);
 
 Then: (7) also asserts classes `bg-surface-sunken`, `border-text-faint` and `queryByText("All clean")` null; (8) also asserts the judgment segment element has `text-warning-text/80`; (9) `aria-expanded`/`aria-controls` on the button and the controlled element exists; All clean / Sheet changed spans have neither and `chip.parentElement` is the cluster div (no `relative` wrapper); (10)+(10a) auto-open + dirty + focus rescue (use `vi.useFakeTimers()` with `requestAnimationFrame` stubbed to run on `vi.runAllTimers()`, the pattern the published test uses); (11) row click → the `<li data-attention-anchor="warning:0">` has `data-step3-warning-flash`, menu unmounted; (12) Escape ×2; (13) outside pointerdown/focusin; (14) 99/100 for needs-look and judgment; (15) both baseline tests; (5a-vii) a severity-less unmapped warning → rail dot `wizard-step3-card-<dfid>-review-rail-dot-warnings` has `bg-status-review` and the `<li>`'s first child chip has `bg-warning-bg`. Every count in an assertion is derived from `expectedCounts`, never restated.
 
-- [ ] **Step 2: RED** — run the file; Expected: the new cases FAIL, existing pass except the two whose expectation was the section count (6 replaces them).
+- [ ] **Step 2: RED** — run the marker command (both files); Expected: the new cases in BOTH files FAIL (the transition cases have no menu to open), existing cases pass except the two whose expectation was the section count (6 replaces them).
 
 - [ ] **Step 3: Implement** spec §3.1–§3.5 in `Step3ReviewModal.tsx`: the `attention` memo; `n`, `m`, `pillInteractive`, `menuEffectivelyOpen`; the five-state header (button classes and segments verbatim from §3.2; the wrapper `<div className="relative min-w-0">` only around the button states, with `<div id={menuId}><WizardAttentionMenu … /></div>`); the reconciliation effect, the auto-open effect, the focus-rescue effect (§3.5, copied from the published `menuWasEffectivelyOpenRef` block with `interactive` → `pillInteractive`); `navigateTo` + `attentionJump={jump}` on `ShowReviewSurface`; footer per §3.5. Each new JSX conditional gets `{/* §11 …: instant — deliberate (…) */}` on the line above. `step3ReviewSections.tsx`: add `data-attention-anchor={\`warning:${i}\`}` beside `data-warning-index={i}`. Import `ChevronDown` from `lucide-react`.
 
@@ -775,11 +799,11 @@ Why no RED marker: a geometry pin has no production-defect RED once Task 8 has l
 
 Tailwind source coverage: the agenda spec's `beforeAll` passes raw source files to `compileEntryCss` because the static fixture cannot emit classes it never renders. Add `components/admin/wizard/Step3ReviewModal.tsx`, components/admin/wizard/WizardAttentionMenu.tsx, and `components/admin/showpage/AttentionMenu.tsx` to that source list in the new spec, and assert once in the spec that the compiled CSS contains the `min-h-tap-min` rule and the escaped `before:-inset-y-3` rule (match on the utility names as substrings of the CSS text) (a missing rule makes every geometry assertion measure unstyled markup).
 
-- [ ] **Step 1: Wire first** — config alternation, workflow paths + run list, live-entry `attention=1` param, the Tailwind source list.
-- [ ] **Step 2: Write the spec** — at 1280×800 and after `page.setViewportSize({ width: 375, height: 667 })`: (a) pill hit band: `document.elementFromPoint(cx, cy ± 20)` resolves to the chip button, and the computed before-pseudo-element `top`/`bottom` insets plus the box height sum to ≥ 44; (b) open the menu; every `[data-testid^="wizard-step3-card-"][data-testid*="-attention-row-"]` has `getBoundingClientRect().height >= 44`; (c) the panel's `right <= clip.right` and `bottom <= clip.bottom` where `clip = document.querySelector('[data-step3-review-panel]').getBoundingClientRect()`; (d) click the first row → the `<li data-attention-anchor="warning:0">` is inside the scroller viewport (`top >= scroller.top && bottom <= scroller.bottom`) and carries `data-step3-warning-flash`.
+- [ ] **Step 1: Wire first** — config alternation; `.github/workflows/step3-live-bundle.yml` paths gain the new spec AND its geometry owners `components/admin/wizard/WizardAttentionMenu.tsx`, `components/admin/showpage/AttentionMenu.tsx`, `components/admin/useFitWithinClip.ts` (a later edit to the frame, rows or clip helper must re-run this gate), and the run list at line 75 gains the spec; live-entry `attention=1` param; the Tailwind source list.
+- [ ] **Step 2: Write the spec** — at 1280×800 and after `page.setViewportSize({ width: 375, height: 667 })`: (a) pill hit band: `document.elementFromPoint(cx, cy ± 20)` resolves to the chip button, and the computed before-pseudo-element `top`/`bottom` insets plus the box height sum to ≥ 44; (b) open the menu; every `[data-testid^="wizard-step3-card-"][data-testid*="-attention-row-"]` has `getBoundingClientRect().height >= 44`; (c) the panel's `left >= clip.left`, `right <= clip.right` and `bottom <= clip.bottom` where `clip = document.querySelector('[data-step3-review-panel]').getBoundingClientRect()` (a right-anchored panel overflows LEFT when too wide, so the left edge is the discriminating one at 375); (d) click the first row → the `<li data-attention-anchor="warning:0">` is inside the scroller viewport (`top >= scroller.top && bottom <= scroller.bottom`) and carries `data-step3-warning-flash`.
 - [ ] **Step 3: Run** — `STEP3_LIVE_BUNDLE_ONLY=1 pnpm heavy pnpm exec playwright test --project=desktop-chromium tests/e2e/wizard-attention-menu.spec.ts tests/e2e/step3-review-modal.interactions.spec.ts`. Expected: PASS.
-- [ ] **Step 4: Mutant proofs (each must FAIL the named assertion; revert after each)** — (i) `min-h-tap-min` → `min-h-0` on `AttentionMenuRow` → assertion (b) fails; (ii) `before:-inset-y-3` → `before:inset-y-0` on the wizard pill → assertion (a) fails; (iii) `w-[min(400px,calc(100vw-32px))]` → `w-[600px]` on the frame → assertion (c) fails at 375; (iv) `data-attention-anchor` removed from the wizard `<li>` → assertion (d) fails (fallback lands on the section top, no flash). Record hash-changed + failure line for each in the commit body.
-- [ ] **Step 5: Published e2e, gated on the DB slot** — `published-show-attention.spec.ts` seeds a show through the local Postgres (its `beforeAll` DB setup) and NO workflow runs it today: `rg -n "^\\s+run:.*published-show-attention" .github/workflows/*.yml` matches no `run:` step (a `paths:` mention would not count; anchor to the structural position, never a substring). Ask bl-orch for the slot in one chunked part: "feat/wizard-review-attention-menu: Task 9 needs the local Postgres slot for tests/e2e/published-show-attention.spec.ts (seeded show); may I take it?". If GRANTED: extend the spec with a seeded warn row (a `parse_warnings` entry on the seeded show's internal row) → assert the "sheet warnings" segment text derives from the seeded count and that its menu row's click flashes the card's `<li data-attention-anchor>`; run it RED (before the fixture edit) then GREEN; add the spec to `published-modal-e2e.yml` paths AND the run list at line 152 so CI runs it; release the slot in a chunked part. If DECLINED: commit NO published e2e case; record in the closeout doc under "Documented limits" that the published card-jump is proven by the jsdom case (Task 6, test 19) and the shared surface effect (wizard e2e), not by a real-browser published run, with the re-file trigger "slot available".
+- [ ] **Step 4: Mutant proofs (each must FAIL the named assertion; revert after each)** — (i) `min-h-tap-min` → `min-h-0` AND `py-3` → `py-0` together on `AttentionMenuRow` (the wizard rows always carry a two-line body, so padding alone keeps a one-mutant row above 44px and does not discriminate; the joint mutant leaves ~36px of text) → assertion (b) fails; (ii) `before:-inset-y-3` → `before:inset-y-0` on the wizard pill → assertion (a) fails; (iii) `w-[min(400px,calc(100vw-32px))]` → `w-[600px]` on the frame → assertion (c) fails at 375 on the `left >= clip.left` clause (the panel is right-anchored and `useFitWithinClip` caps only `max-height`); (iv) `data-attention-anchor` removed from the wizard `<li>` → assertion (d) fails (fallback lands on the section top, no flash). Record hash-changed + failure line for each in the commit body.
+- [ ] **Step 5: Published e2e, gated on the DB slot** — `published-show-attention.spec.ts` seeds a show through the local Postgres (its `beforeAll` DB setup) and NO workflow runs it today: `rg -n "^\\s+run:.*published-show-attention" .github/workflows/*.yml` matches no `run:` step (a `paths:` mention would not count; anchor to the structural position, never a substring). Ask bl-orch for the slot in one chunked part: "feat/wizard-review-attention-menu: Task 9 needs the local Postgres slot for tests/e2e/published-show-attention.spec.ts (seeded show); may I take it?". If GRANTED: extend the spec with a seeded warn row (a `parse_warnings` entry on the seeded show's internal row) → assert the "sheet warnings" segment text derives from the seeded count and that its menu row's click flashes the card's `<li data-attention-anchor>`; it is a real-browser pin like the rest of Task 9 (a seed-controlled RED would be a test-local fixture RED): run it GREEN, then prove it by mutant: remove `anchorIds` at the crew under-row mount in `sectionWarningExtras.tsx` → the row click lands on the section top and the flash assertion fails; revert; add the spec to `published-modal-e2e.yml` paths AND the run list at line 152 so CI runs it; release the slot in a chunked part. If DECLINED: commit NO published e2e case; record in the closeout doc under "Documented limits" that the published card-jump is proven by the jsdom case (Task 6, test 19) and the shared surface effect (wizard e2e), not by a real-browser published run, with the re-file trigger "slot available".
 - [ ] **Step 6: Commit** — `git commit --no-verify -m "test(e2e): wizard attention menu tap band, row floor, clip fit and card jump"` (the published case, when run, in its own commit).
 
 ### Task 10: Whole-tree verification
