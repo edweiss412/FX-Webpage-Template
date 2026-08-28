@@ -107,6 +107,11 @@ import type { SectionData, StagedSectionData } from "@/components/admin/review/s
 import { includesAgenda, includesReport } from "@/components/admin/review/sectionInclusion";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
+import {
+  DataQualityWarningControls,
+  type WizardDqTarget,
+} from "@/components/admin/DataQualityWarningControls";
+import type { WizardWarningModel } from "@/lib/admin/wizardWarningModel";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
@@ -2888,6 +2893,7 @@ export function WarningsBreakdown({
   mode,
   useRawDecisions,
   wizardSessionId,
+  dq,
 }: {
   // dfid stays nullable (this branch's SectionCore refactor: published/missing-show
   // sources carry a null driveFileId). Per-warning controls below additionally gate
@@ -2904,6 +2910,10 @@ export function WarningsBreakdown({
    *  ABSENT in standalone mounts (exactOptionalPropertyTypes) → no controls. */
   useRawDecisions?: UseRawDecision[];
   wizardSessionId?: string;
+  /** wizard-warning-ignore-controls §2.3: the row's active/ignored partition plus the
+   *  backend that owns its ignore state. ABSENT on every published mount and every
+   *  standalone fixture, where this panel renders exactly as it always has. */
+  dq?: { target: WizardDqTarget; model: WizardWarningModel };
 }) {
   // attention-alert-routing §3.2: the two parse notices render as banner LINES
   // above the list. Domain items composed HERE because the copy variant depends
@@ -2915,11 +2925,30 @@ export function WarningsBreakdown({
   // already render as actionable section extras, so listing them again here
   // would duplicate them, and the duplicate is the copy with no controls.
   const routedWarningsRenderElsewhere = chrome?.routedWarningsRenderElsewhere === true;
-  const rows = visibleWarningRows(warnings, routedWarningsRenderElsewhere);
+  const allRows = visibleWarningRows(warnings, routedWarningsRenderElsewhere);
+  // §2.3: with a model, the visible list is the ACTIVE partition and each surviving row
+  // keeps its ORIGINAL index. That index is the jump identity — the attention menu mints
+  // entry ids as `warning:${index}` over the FULL array and resolves them with
+  // `[data-attention-anchor]` — so a row renumbered to its rendered position would send
+  // every menu jump to the wrong warning. `items` pairs each warning with the index it
+  // must keep. Out-of-range items are skipped: server-side both sides derive from one
+  // array in one pass, which is precisely why the client must not assume it.
+  const pick = (
+    partition: readonly { index: number; reportSurfaceId: string }[],
+  ): Array<{ w: ParseWarning; index: number; reportSurfaceId: string }> =>
+    partition
+      .filter((item) => item.index >= 0 && item.index < allRows.length)
+      .map((item) => ({ w: allRows[item.index] as ParseWarning, ...item }));
+  const activeItems = dq
+    ? pick(dq.model.active)
+    : allRows.map((w, index) => ({ w, index, reportSurfaceId: "" }));
+  const ignoredItems = dq ? pick(dq.model.ignored) : [];
+  const rows = activeItems.map((item) => item.w);
   // spec §4.3.1: reorder-stable, duplicate-safe keys — index keys would migrate
   // control state across warnings after a rescan/refresh reorders the array.
   // Keyed on the RENDERED rows so a trimmed list cannot shift control state.
   const keys = stableWarningKeys(rows);
+  const ignoredKeys = stableWarningKeys(ignoredItems.map((item) => item.w));
   // §3.4: ACTIVE warn rows split into those rendering directly BELOW this panel
   // and those in other sections. Present exactly when the gate is on.
   const here = chrome?.routedWarnings?.here ?? 0;
@@ -2991,6 +3020,17 @@ export function WarningsBreakdown({
               Nothing needs a look on this sheet.
             </p>
           )
+        ) : allRows.length > 0 ? (
+          // §3: everything on this sheet is ignored. That is the CLEAN state, not the
+          // empty one — the sentence below stays reserved for a genuinely empty warnings
+          // array, and using it here would tell the operator the sheet produced no
+          // warnings when in fact they dismissed every one.
+          <p
+            data-testid={`wizard-step3-card-${dfid}-warnings-clean`}
+            className="text-sm text-text-subtle"
+          >
+            Nothing needs a look on this sheet.
+          </p>
         ) : (
           <p
             data-testid={`wizard-step3-card-${dfid}-warnings-empty`}
@@ -3060,7 +3100,7 @@ export function WarningsBreakdown({
             </div>
           ) : (
             <ul className="flex flex-col gap-3">
-              {rows.map((w, i) => {
+              {activeItems.map(({ w, index: i, reportSurfaceId }, pos) => {
                 const title = reviewWarningTitle(w);
                 const context = isMessageCode(w.code)
                   ? (messageFor(w.code as MessageCode).helpfulContext ?? null)
@@ -3068,7 +3108,7 @@ export function WarningsBreakdown({
                 const isWarn = isWarnSeverity(w);
                 return (
                   <li
-                    key={keys[i]}
+                    key={keys[pos]}
                     data-testid={`wizard-step3-card-${dfid}-warning-${i}`}
                     // §E4 jump-target key: index into the RENDERED (trimmed) rows
                     // — same index as the testid. Only consumer is the staged
@@ -3213,6 +3253,20 @@ export function WarningsBreakdown({
                           site="list"
                         />
                       ) : null}
+                      {/* §2.3: Report + Ignore, on ACTIVE warn rows only. Info rows stay
+                          control-free (§1.1.4), and the whole cluster follows this
+                          panel's existing non-null-dfid gate. */}
+                      {dq && dfid && isWarn ? (
+                        /* no-newtab-announcement: `target` is the discriminated ignore
+                           BACKEND (spec §2.3), not a browser window target. No anchor. */
+                        <DataQualityWarningControls
+                          target={dq.target}
+                          warning={w}
+                          driveFileId={dfid}
+                          mode="active"
+                          reportSurfaceId={reportSurfaceId}
+                        />
+                      ) : null}
                     </div>
                   </li>
                 );
@@ -3221,6 +3275,45 @@ export function WarningsBreakdown({
           )}
         </>
       )}
+      {/* §2.3 Ignored (N): the published pattern copied verbatim — native <details>,
+            chevron transform only, body instant. Disclosure rows carry NEITHER jump
+            attribute: they are filtered out of attention, so a stale anchor here would
+            shadow the active target the menu is trying to reach. Rendered OUTSIDE the
+          active-list ternary so it survives the all-ignored case, which is exactly
+          when it is the only way back to those rows. */}
+      {dq && dfid && ignoredItems.length > 0 ? (
+        <details data-testid={`wizard-step3-card-${dfid}-ignored-warnings`} className="group mt-3">
+          <summary
+            data-testid={`wizard-step3-card-${dfid}-ignored-summary`}
+            className="min-h-tap-min inline-flex cursor-pointer list-none items-center text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
+          >
+            Ignored ({ignoredItems.length}){" "}
+            <ChevronRight
+              aria-hidden="true"
+              className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
+            />
+          </summary>
+          <ul
+            data-testid={`wizard-step3-card-${dfid}-ignored-list`}
+            className="mt-3 flex flex-col gap-3"
+          >
+            {ignoredItems.map(({ w, reportSurfaceId }, pos) => (
+              <li key={ignoredKeys[pos]} className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-sm text-text-subtle">{reviewWarningTitle(w)}</span>
+                {/* no-newtab-announcement: `target` is the discriminated ignore BACKEND
+                    (spec §2.3), not a browser window target. No anchor. */}
+                <DataQualityWarningControls
+                  target={dq.target}
+                  warning={w}
+                  driveFileId={dfid}
+                  mode="ignored"
+                  reportSurfaceId={reportSurfaceId}
+                />
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
     </BreakdownSection>
   );
 }
@@ -4781,6 +4874,9 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
           mode={isStaged(s) ? "rescan" : "resync"}
           useRawDecisions={s.useRawDecisions}
           {...(isStaged(s) ? { wizardSessionId: s.wizardSessionId } : {})}
+          // §2.2 dq: staged-gated with the same isStaged spread the session uses. A
+          // published source has no `dq` and renders exactly as it always has.
+          {...(isStaged(s) && s.dq ? { dq: s.dq } : {})}
         />
       ),
     },

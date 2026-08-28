@@ -65,7 +65,10 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // merge, because main's own edit lands above it too and the two stack. Both
     // sides happened to reach 277 independently, which is exactly why the
     // merged value had to be re-MEASURED rather than inherited from either.
-    line: 282,
+    // Then 282 -> 285 when the wizard-ignore arc gave the mount its discriminated
+    // `target` prop plus its new-tab-scanner exemption comment. Re-measured on the live
+    // tree by identity, not by adding a delta: 285 is that same `<summary>`.
+    line: 285,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -83,12 +86,23 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 1628, and line 1628 is that same `<summary>`.
     // Then 1628 -> 1633 when the announce-log import block landed. Located again on the
     // live tree: 1633 is that same `<summary>`.
-    line: 1633,
+    // Then 1633 -> 1638 when the wizard-ignore arc added its imports and the panel's
+    // partition block. Located on the live tree again: 1638 is that same `<summary>`.
+    line: 1638,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
     reason:
       "Step-3 review section disclosure header; subtle keeps the section body the loudest thing in the card (DESIGN §1.1a Family S)",
+  },
+  {
+    file: "components/admin/wizard/step3ReviewSections.tsx",
+    line: 3286,
+    tag: "summary",
+    token: "text-text-subtle",
+    family: "summary-disclosure",
+    reason:
+      "Wizard Ignored (N) disclosure header; a caption-weight fold label over warnings the operator has already dismissed, so the active list above it stays the loudest thing in the panel. Copies the published sectionWarningExtras disclosure verbatim, including this token (DESIGN §1.1a Family S)",
   },
   {
     file: "components/crew/AgendaScheduleBlock.tsx",

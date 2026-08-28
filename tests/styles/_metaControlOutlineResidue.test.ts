@@ -1545,7 +1545,9 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // bumped: 2436 is the `PackCountPill` <span> carrying `border-border`.
       // Then 2436 -> 2441 with the announce-log import block; located again, 2441 is the
       // same `PackCountPill` <span>.
-      "components/admin/wizard/step3ReviewSections.tsx:2441",
+      // Then 2441 -> 2446 when the wizard-ignore arc added its imports above this span.
+      // Located on the live tree: 2446 is that same border-border pill.
+      "components/admin/wizard/step3ReviewSections.tsx:2446",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

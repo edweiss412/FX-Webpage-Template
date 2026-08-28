@@ -65,7 +65,7 @@ export async function carryStagedIgnoredWarnings(
   if (!port) {
     throw new Error(
       "staged ignore carry: locked pipeline tx exposes no holdPort, so the operator's " +
-        "ignore decisions cannot be made durable — refusing to publish them away silently",
+        "ignore decisions cannot be made durable. Refusing to publish them away silently.",
     );
   }
   for (const entry of carryable) {

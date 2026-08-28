@@ -314,7 +314,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // the live unclassified site is 3904, and 3904 is that same `<a>`.
     // Then 3904 -> 3909 when the announce-log import block landed. Located again: 3909 is
     // that same `<a>`.
-    line: 3909,
+    // Then 3909 -> 3998 when the wizard-ignore arc added the panel's active/ignored
+    // partition and its Ignored (N) disclosure above this component. Located on the live
+    // tree by running the scanner, not by adding a delta: 4002 is that same `<a>`.
+    line: 4002,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -456,10 +459,13 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/DataQualityWarningControls.tsx",
-    line: 110,
+    // 110 -> 149 when the wizard-ignore arc added the discriminated `target` type and
+    // split the run path into its two backend arms above this button. Same `<button>`,
+    // same computed-member className, same reason.
+    line: 149,
     tag: "button",
     category: "unresolvable-dynamic",
-    reason: "`${NEUTRAL_BTN} ${RING_OFFSET[mode]}` — computed member access in the template.",
+    reason: "`${NEUTRAL_BTN} ${PLATE[mode]}` — computed member access in the template.",
   },
   {
     file: "components/admin/HoverHelp.tsx",

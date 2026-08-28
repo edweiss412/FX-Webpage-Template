@@ -60,7 +60,12 @@ import {
   buildStagedSectionData,
   type StagedSectionData,
 } from "@/components/admin/review/sectionData";
-import { buildParseResult, stagedRow, show } from "./_step3ReviewFixture";
+import {
+  buildParseResult,
+  stagedRow,
+  show,
+  STEP3_FIXTURE_WSID,
+} from "./_step3ReviewFixture";
 
 // AgendaBreakdown (rendered by the agenda registry entry) calls fetch in an
 // effect; no test here renders it (the hideDot modal tests use an empty
@@ -1299,5 +1304,328 @@ describe("ReportIssueSection — §D disclosure (collapsed by default; state sur
     expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
     fireEvent.click(q.getByTestId(TOGGLE)); // re-expand
     expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY);
+  });
+});
+
+// ── wizard-warning-ignore-controls spec §2.2 / §2.3 — Task 9 ───────────────────
+//
+// The panel learns the active/ignored partition. Two things make this delicate.
+//
+// First, the JUMP ANCHORS. Today `data-warning-index` and `data-attention-anchor`
+// carry the RENDERED position `i`, which is valid only because staged rendering has
+// always shown every row. Rendering the active subset breaks that equality, and the
+// attention menu resolves rows by `[data-attention-anchor="warning:${index}"]` over
+// the FULL array — so a rendered row keeping its position index sends every menu jump
+// to the wrong warning, silently.
+//
+// Second, the no-`dq` render must stay byte-identical, because that is every
+// published mount and every standalone fixture. The 62 cases above are the pin for
+// that; they run untouched.
+
+describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
+  const WARN_A: ParseWarning = {
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized field.",
+    rawSnippet: "Hotel notes | double occupancy",
+  };
+  const WARN_B: ParseWarning = {
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized field.",
+    rawSnippet: "Parking | validated onsite",
+  };
+  const INFO_C: ParseWarning = {
+    severity: "info",
+    code: "SCHEDULE_NOTE",
+    message: "Informational.",
+    rawSnippet: "call time moved",
+  };
+
+  /** A model over `warnings`, ignoring the ORIGINAL indices in `ignoredIndices`. */
+  function modelFor(warnings: ParseWarning[], ignoredIndices: number[]) {
+    const active: Array<{ index: number; reportSurfaceId: string }> = [];
+    const ignored: Array<{ index: number; reportSurfaceId: string }> = [];
+    warnings.forEach((_, index) => {
+      const item = { index, reportSurfaceId: `sid-${index}` };
+      if (ignoredIndices.includes(index)) ignored.push(item);
+      else active.push(item);
+    });
+    return { active, ignored };
+  }
+
+  const STAGED_TARGET = {
+    kind: "staged" as const,
+    wizardSessionId: STEP3_FIXTURE_WSID,
+    driveFileId: DFID,
+  };
+
+  function dqFor(warnings: ParseWarning[], ignoredIndices: number[]) {
+    return { target: STAGED_TARGET, model: modelFor(warnings, ignoredIndices) };
+  }
+
+  describe("dq construction from the production builder (§2.2)", () => {
+    test("a FIRST-SEEN row builds the staged target from the row's own identity", () => {
+      const pr = buildParseResult({ warnings: [WARN_A, WARN_B] });
+      const row = stagedRow(pr, { warningModel: modelFor([WARN_A, WARN_B], [0]) });
+      const d = sectionData({ warnings: [WARN_A, WARN_B] }, { row });
+      expect(d.dq?.target).toEqual({
+        kind: "staged",
+        wizardSessionId: STEP3_FIXTURE_WSID,
+        driveFileId: DFID,
+      });
+      expect(d.dq?.model).toEqual(row.warningModel);
+    });
+
+    test("a LINKED row builds the show target from linkedShowRef", () => {
+      const pr = buildParseResult({ warnings: [WARN_A] });
+      const row = stagedRow(pr, {
+        warningModel: modelFor([WARN_A], []),
+        linkedShowRef: { id: "show-77", slug: "east-coast-2026" },
+      });
+      const d = sectionData({ warnings: [WARN_A] }, { row });
+      expect(d.dq?.target).toEqual({
+        kind: "show",
+        slug: "east-coast-2026",
+        showId: "show-77",
+      });
+    });
+
+    test("a row with NO warningModel gets no dq key at all", () => {
+      const pr = buildParseResult({ warnings: [WARN_A] });
+      const d = sectionData({ warnings: [WARN_A] }, { row: stagedRow(pr) });
+      // Key ABSENT, not present-and-undefined: exactOptionalPropertyTypes, and the
+      // registry gates the prop on presence.
+      expect("dq" in d).toBe(false);
+    });
+  });
+
+  describe("panel render with dq (§2.3)", () => {
+    test("renders ONLY the active rows, each carrying its ORIGINAL index in every jump attribute", () => {
+      // Index 0 ignored, index 1 active. A row that kept its RENDERED position would
+      // carry 0 here and send the attention menu's `warning:1` entry nowhere.
+      const warnings = [WARN_A, WARN_B];
+      const q = renderBody(
+        sectionData({ warnings }, { dq: dqFor(warnings, [0]) }),
+        "warnings",
+      );
+      const items = q.container.querySelectorAll("li[data-warning-index]");
+      expect(items.length).toBe(1);
+      const only = items[0]!;
+      expect(only.getAttribute("data-warning-index")).toBe("1");
+      expect(only.getAttribute("data-attention-anchor")).toBe("warning:1");
+      expect(only.getAttribute("data-testid")).toBe(`wizard-step3-card-${DFID}-warning-1`);
+    });
+
+    test("warn rows get dq-controls; info rows get none", () => {
+      const warnings = [WARN_A, INFO_C];
+      const q = renderBody(
+        sectionData({ warnings }, { dq: dqFor(warnings, []) }),
+        "warnings",
+      );
+      const rows = Array.from(q.container.querySelectorAll("li[data-warning-index]"));
+      const byIndex = new Map(rows.map((r) => [r.getAttribute("data-warning-index"), r]));
+      expect(within(byIndex.get("0") as HTMLElement).queryByTestId("dq-controls")).toBeTruthy();
+      expect(within(byIndex.get("1") as HTMLElement).queryByTestId("dq-controls")).toBeNull();
+    });
+
+    test("a snippet-less warn row renders Report but not Ignore", () => {
+      const noSnippet: ParseWarning = {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "Unrecognized field.",
+      };
+      const warnings = [noSnippet];
+      const q = renderBody(
+        sectionData({ warnings }, { dq: dqFor(warnings, []) }),
+        "warnings",
+      );
+      const controls = q.getByTestId("dq-controls");
+      expect(within(controls).getByRole("button", { name: /report/i })).toBeTruthy();
+      expect(within(controls).queryByRole("button", { name: /^ignore$/i })).toBeNull();
+    });
+
+    test("dfid null renders NO controls in either arm (the panel's existing gate)", () => {
+      const warnings = [WARN_A];
+      for (const target of [
+        STAGED_TARGET,
+        { kind: "show" as const, slug: "s", showId: "id-1" },
+      ]) {
+        const q = renderBody(
+          sectionData(
+            { warnings },
+            {
+              // The panel receives `dfid={s.driveFileId}` from the registry — the
+              // SectionCore locator, NOT StagedSectionData.dfid. Overriding the wrong
+              // one leaves the real id flowing through and the assertion vacuous.
+              driveFileId: null,
+              dq: { target, model: modelFor(warnings, []) },
+            },
+          ),
+          "warnings",
+        );
+        expect(q.queryByTestId("dq-controls")).toBeNull();
+        q.unmount();
+      }
+    });
+
+    test("an out-of-range model index is SKIPPED rather than crashing the panel", () => {
+      // A model built against a longer array than the one rendered. Server-side this
+      // cannot happen (both derive from one array in one pass), which is exactly why
+      // the client must not assume it.
+      const warnings = [WARN_A];
+      const q = renderBody(
+        sectionData(
+          { warnings },
+          {
+            dq: {
+              target: STAGED_TARGET,
+              model: {
+                active: [
+                  { index: 0, reportSurfaceId: "sid-0" },
+                  { index: 7, reportSurfaceId: "sid-7" },
+                ],
+                ignored: [],
+              },
+            },
+          },
+        ),
+        "warnings",
+      );
+      expect(q.container.querySelectorAll("li[data-warning-index]").length).toBe(1);
+    });
+  });
+
+  describe("Ignored (N) disclosure (§2.3)", () => {
+    test("renders a details disclosure with ignored rows in ignored mode and NO jump attributes", () => {
+      const warnings = [WARN_A, WARN_B];
+      const q = renderBody(
+        sectionData({ warnings }, { dq: dqFor(warnings, [0]) }),
+        "warnings",
+      );
+      const details = q.getByTestId(`wizard-step3-card-${DFID}-ignored-warnings`);
+      expect(details.tagName.toLowerCase()).toBe("details");
+      expect(details.textContent).toContain("Ignored (1)");
+
+      // A disclosure row must carry NEITHER jump attribute — it is filtered out of
+      // attention, so a stale anchor there would shadow the active target.
+      const list = q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`);
+      expect(list.querySelectorAll("[data-attention-anchor]").length).toBe(0);
+      expect(list.querySelectorAll("[data-warning-index]").length).toBe(0);
+      // And it renders the un-ignore affordance, not the ignore one.
+      expect(within(list).getByRole("button", { name: /un-ignore/i })).toBeTruthy();
+    });
+
+    test("no ignored rows → no disclosure element at all, not an empty one", () => {
+      const warnings = [WARN_A];
+      const q = renderBody(
+        sectionData({ warnings }, { dq: dqFor(warnings, []) }),
+        "warnings",
+      );
+      expect(q.queryByTestId(`wizard-step3-card-${DFID}-ignored-warnings`)).toBeNull();
+    });
+
+    test("closed → open reveals the body INSTANTLY, with only the chevron animating", () => {
+      const warnings = [WARN_A, WARN_B];
+      const q = renderBody(
+        sectionData({ warnings }, { dq: dqFor(warnings, [0]) }),
+        "warnings",
+      );
+      const details = q.getByTestId(
+        `wizard-step3-card-${DFID}-ignored-warnings`,
+      ) as HTMLDetailsElement;
+      expect(details.open).toBe(false);
+      fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-ignored-summary`));
+
+      const list = q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`);
+      // No height/opacity wrapper around the body: the published pattern this copies
+      // is "chevron transform only, body instant".
+      expect(list.className).not.toMatch(/transition|animate|duration/);
+      // The chevron itself DOES rotate, and the group-open class is what drives it.
+      const summary = q.getByTestId(`wizard-step3-card-${DFID}-ignored-summary`);
+      expect(summary.innerHTML).toContain("group-open:rotate-90");
+    });
+
+    test("all rows ignored → the clean sentence PLUS the disclosure, never the empty-warnings one", () => {
+      const warnings = [WARN_A];
+      const q = renderBody(
+        sectionData({ warnings }, { dq: dqFor(warnings, [0]) }),
+        "warnings",
+      );
+      expect(q.getByTestId(`wizard-step3-card-${DFID}-warnings-clean`).textContent).toContain(
+        "Nothing needs a look on this sheet.",
+      );
+      expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings-empty`)).toBeNull();
+      expect(q.getByTestId(`wizard-step3-card-${DFID}-ignored-warnings`)).toBeTruthy();
+    });
+
+    test("zero warnings → the existing empty sentence and no disclosure", () => {
+      const q = renderBody(
+        sectionData({ warnings: [] }, { dq: dqFor([], []) }),
+        "warnings",
+      );
+      expect(q.getByTestId(`wizard-step3-card-${DFID}-warnings-empty`)).toBeTruthy();
+      expect(q.queryByTestId(`wizard-step3-card-${DFID}-ignored-warnings`)).toBeNull();
+    });
+  });
+
+  describe("registry forwarding (§2.2)", () => {
+    test("the warnings section def passes dq through to the panel", () => {
+      // Rendered through the REGISTRY, not by calling WarningsBreakdown directly: the
+      // pass-through is the wiring under test, and a panel that accepts the prop while
+      // the registry never sends it renders no controls in production.
+      const warnings = [WARN_A];
+      const q = renderBody(
+        sectionData({ warnings }, { dq: dqFor(warnings, []) }),
+        "warnings",
+      );
+      expect(q.getByTestId("dq-controls")).toBeTruthy();
+    });
+
+    test("no BulkIgnoreControls in the wizard panel (§1.1.3 deferred, absence probe)", () => {
+      const warnings = [WARN_A, WARN_B];
+      const q = renderBody(
+        sectionData({ warnings }, { dq: dqFor(warnings, []) }),
+        "warnings",
+      );
+      expect(q.queryByTestId("bulk-ignore-controls")).toBeNull();
+    });
+  });
+
+  describe("row identity survives an upstream insert (§2.3 React keys)", () => {
+    // React keys are not DOM-visible, and deriving expectations from stableWarningKeys
+    // would test the helper against itself. So: open a row-local control state, then
+    // re-render with a DIFFERENT warning inserted ABOVE it. Content-derived keys keep
+    // the state on the row it belongs to; index-derived keys migrate it to the
+    // neighbour, which is the rescan bug the content keys exist to prevent.
+    async function openErrorPlateOn(
+      q: ReturnType<typeof render>,
+      surfaceId: string,
+    ): Promise<void> {
+      const btn = q.getByTestId(`dq-ignore-${surfaceId}`);
+      fireEvent.click(btn);
+      await waitFor(() => expect(q.getByTestId(`dq-error-${surfaceId}`)).toBeTruthy());
+    }
+
+    test("active list: the error plate follows the row's CONTENT, not its position", async () => {
+      const fetchMock = vi.fn(async () => {
+        throw new Error("network down");
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const warnings = [WARN_B];
+      const first = sectionData({ warnings }, { dq: dqFor(warnings, []) });
+      const q = renderBody(first, "warnings");
+      await openErrorPlateOn(q, "sid-0");
+
+      // Insert WARN_A above WARN_B. WARN_B is now index 1, surface id sid-1.
+      const grown = [WARN_A, WARN_B];
+      const def = defById(step3Sections(sectionData({ warnings: grown }, { dq: dqFor(grown, []) })), "warnings");
+      q.rerender(<>{def.render(sectionData({ warnings: grown }, { dq: dqFor(grown, []) }))}</>);
+
+      // The plate is on WARN_B's NEW surface id — it travelled with the content.
+      await waitFor(() => expect(q.queryByTestId("dq-error-sid-1")).toBeTruthy());
+      expect(q.queryByTestId("dq-error-sid-0")).toBeNull();
+      vi.unstubAllGlobals();
+    });
   });
 });

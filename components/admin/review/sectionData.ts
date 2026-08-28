@@ -12,6 +12,8 @@ import type {
   ShowRow,
   TransportationRow,
 } from "@/lib/parser/types";
+import type { WizardDqTarget } from "@/components/admin/DataQualityWarningControls";
+import type { WizardWarningModel } from "@/lib/admin/wizardWarningModel";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import type { OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
@@ -65,6 +67,11 @@ export type StagedSectionData = SectionCore & {
   row: Step3Row;
   dfid: string;
   wizardSessionId: string;
+  /** wizard-warning-ignore-controls §2.2: the row's active/ignored warning partition
+   *  plus the backend that owns its ignore state. Present exactly for FIRST-SEEN and
+   *  LINKED rows — a NO-PREVIEW row has no `warningModel`, so the key is OMITTED
+   *  (exactOptionalPropertyTypes) and every consumer keys off presence. */
+  dq?: { target: WizardDqTarget; model: WizardWarningModel };
 };
 
 /** Null-tolerant wire projection of `shows.pull_sheet_override` (spec 2026-07-23 §4). Mirrors
@@ -140,12 +147,22 @@ export function buildStagedSectionData(input: {
     agendaBaseline,
     useRawDecisions,
   } = input;
+  // §2.2: the backend follows the §2.0 taxonomy. A LINKED row (a usable linkedShowRef)
+  // writes the durable show-keyed table through the existing routes; a FIRST-SEEN row
+  // has no show record yet and writes the staged column, which needs only the
+  // (wizardSessionId, driveFileId) pair both always carry.
+  const dqTarget: WizardDqTarget = row.linkedShowRef
+    ? { kind: "show", slug: row.linkedShowRef.slug, showId: row.linkedShowRef.id }
+    : { kind: "staged", wizardSessionId, driveFileId: dfid };
   return {
     mode: "staged",
     pr,
     row,
     dfid,
     wizardSessionId,
+    // Key omitted, never undefined: a row without a model is NO-PREVIEW and gets no
+    // controls at all (§2.0).
+    ...(row.warningModel ? { dq: { target: dqTarget, model: row.warningModel } } : {}),
     // ── SectionCore (spec §3.2), derived once from the staged pr/row/dfid. ──
     title: pr.show.title || row.driveFileName || dfid,
     clientLabel: pr.show.client_label || null,
