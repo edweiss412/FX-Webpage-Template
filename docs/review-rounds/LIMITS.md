@@ -20,7 +20,7 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Shape:** A numeric table or blast-radius transcript stated in a spec with no command producing it, so nothing can compare the table to the tree: `spec:lint` parses numerics and parses fenced commands without relating them, and a hand-maintained transcript of a command's output drifts in every direction. The sibling form is a plan that quotes a command's output without that command being re-run (a claimed 106 enrolled plans where the quoted command returns 108).
 
-**Named by:** 3 arcs — fix/mutation-shard-budget-six/9a621a5792ea.md (spec), feat/review-modal-strip-dock/ae8e9544b55a.md (spec, its second candidate; that arc's repair deleted the transcript outright), feat/speclint-ac-unclaimed-arm/44b0d74b1107.md (plan, its third shape)
+**Named by:** 4 arcs — fix/mutation-shard-budget-six/9a621a5792ea.md (spec), feat/review-modal-strip-dock/ae8e9544b55a.md (spec, its second candidate; that arc's repair deleted the transcript outright), feat/speclint-ac-unclaimed-arm/44b0d74b1107.md (plan, its third shape), fix/severityless-warning-filters/b608e71b32b5.md (diff; the published SQL could not produce the published table, and a bare `group by` dropped an empty population). **Trigger FIRED at the fourth naming; filed as `BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE` under the process freeze's `recurrence` exception.**
 
 **Owning record:** none — this index is the record
 
@@ -266,7 +266,7 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Shape:** A declared gate command whose predicate tests the SHAPE of its evidence rather than its presence, so an empty or placeholder section passes. Three sub-forms, all decidable from the gate command alone: a `grep` for a heading, which the heading satisfies while the section under it reads "Pending"; a `grep` for a table pipe, which the table HEADER satisfies with no data row; and a check for the ABSENCE of a placeholder word, which an empty section satisfies vacuously. Distinct from LIM-SWEEP-POSITIVE-CONTROL, which is about a sweep's count being unverified: here the gate reports on evidence that is simply not there. The mutant-red rule for declared gate commands already prescribes the repair — probe each against a constructed failing input — so what is parked is the obligation's placement, not the technique.
 
-**Named by:** 1 arc — perf/admin-diagram-next-image/66c9857f56a5.md (plan), where two consecutive rounds landed on one close-out gate: the first version passed with both evidence sections reading "Pending" under real headings, and the repaired version passed on the findings table's header row
+**Named by:** 2 arcs — perf/admin-diagram-next-image/66c9857f56a5.md (plan), where two consecutive rounds landed on one close-out gate: the first version passed with both evidence sections reading "Pending" under real headings, and the repaired version passed on the findings table's header row; and fix/severityless-warning-filters/b608e71b32b5.md (diff), where a documented limit's re-file trigger named a condition its published query could not decide, twice in succession, the first repair still answering a different question than the trigger asked. That second naming extends the shape beyond a plan's gate command to any declared check whose command does not decide the condition its prose states.
 
 **Owning record:** none — this index is the record (the plan closed its own instance by hand: the gate now requires a P-tier data row or an explicit no-findings sentence, and names the four checklist items the pre-code section must carry)
 
@@ -281,6 +281,16 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 **Owning record:** none — this index is the record (the arc's own repair is procedural: re-read every foreign line-form citation after the final absorb, matching each cited line to the symbol its sentence names)
 
 **Re-file trigger:** a second arc charged a review finding for a drifted foreign citation that produced no lint signal
+
+## LIM-HAND-LISTED-POPULATION-SET
+
+**Shape:** A measurement whose conclusion quantifies over "every X" while the X-set is hand-listed rather than derived from an authority the tree can be asked for (`information_schema`, a registry, a filesystem walk), so each review round adds one more member and the conclusion is re-falsified rather than converging. Distinct from `LIM-SWEEP-POSITIVE-CONTROL`, which is about an instrument's sensitivity to a known member; this is about the completeness of the set the instrument is pointed at. The arc that named it had a probe over "every table holding a warning array" miss `sync_log` in one round and `pending_ingestions` in the next, and each miss looked like a fresh finding rather than one class.
+
+**Named by:** 1 arc — fix/severityless-warning-filters/b608e71b32b5.md (diff)
+
+**Owning record:** the filing is the documented limit; the repair that held is deriving the column set from `information_schema` and writing the re-derivation into the re-file procedure, at `docs/superpowers/specs/2026-08-27-wizard-review-attention-menu-design.md` §10.1
+
+**Re-file trigger:** named by a 3rd distinct arc
 
 
 ## LIM-PROD-POSTURE-INVISIBLE-LOCALLY
