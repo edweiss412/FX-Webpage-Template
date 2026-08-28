@@ -295,11 +295,11 @@ Reproduce the populations with `python3 scripts/probe/red-truth-census.py`.
 
 **Shape:** A measurement whose conclusion quantifies over "every X" while the X-set is hand-listed rather than derived from an authority the tree can be asked for (`information_schema`, a registry, a filesystem walk), so each review round adds one more member and the conclusion is re-falsified rather than converging. Distinct from `LIM-SWEEP-POSITIVE-CONTROL`, which is about an instrument's sensitivity to a known member; this is about the completeness of the set the instrument is pointed at. The arc that named it had a probe over "every table holding a warning array" miss `sync_log` in one round and `pending_ingestions` in the next, and each miss looked like a fresh finding rather than one class.
 
-**Named by:** 1 arc — fix/severityless-warning-filters/b608e71b32b5.md (diff)
+**Named by:** 2 arcs — fix/severityless-warning-filters/b608e71b32b5.md (diff), fix/local-e2e-validation-pooler/60dece4d5722.md (spec, twice in one stage on two different axes: a guard's config-FILE set and its `@next/env` load-MODE set, each hand-listed at one member where a directory listing and the configs' own `command` strings were the available authorities)
 
-**Owning record:** the filing is the documented limit; the repair that held is deriving the column set from `information_schema` and writing the re-derivation into the re-file procedure, at `docs/superpowers/specs/2026-08-27-wizard-review-attention-menu-design.md` §10.1
+**Owning record:** the filing is the documented limit; the repair that held is deriving the column set from `information_schema` and writing the re-derivation into the re-file procedure, at `docs/superpowers/specs/2026-08-27-wizard-review-attention-menu-design.md` §10.1. The second naming's repair is the same move in a different medium: discover config files from disk and read the mode set off the artifact, rather than listing either.
 
-**Re-file trigger:** named by a 3rd distinct arc
+**Re-file trigger:** named by a 3rd distinct arc. Note the second naming produced TWO instances inside one review stage, which is evidence about the class's rate rather than about its reach; the trigger stays at distinct arcs deliberately, since two axes in one arc is one author's blind spot, not a general hazard.
 
 
 ## LIM-PROD-POSTURE-INVISIBLE-LOCALLY
