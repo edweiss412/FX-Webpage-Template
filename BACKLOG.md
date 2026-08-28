@@ -448,7 +448,7 @@ the cross-instance path, in either direction.
 
 ## BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES — site 2 shipped; the gesture-frame measure cadence is parked
 
-**Status:** IN PROGRESS · **Branch:** perf/placement-measure-memo · **Becomes on merge:** PARKED 2026-08-28 after six spec rounds. Site 2 SHIPPED (`perf/placement-measure-memo`); site 3 REFUTED; site 1 parked with the round corpus as its record. Not withdrawn and not refuted — the defect is real and reproduced. What is unresolved is whether a guard can decide to skip the second measurement SAFELY, and six rounds say the answer is harder than the saving. · **Filed:** 2026-08-27 · **Facing:** product · **Severity:** LOW-MEDIUM · **Class:** measure-path redundancy · **Effort:** M · **Reachability:** PROBED 2026-08-28 — see "Probe result".
+**Status:** PARKED 2026-08-28 after six spec rounds. Site 2 SHIPPED (`perf/placement-measure-memo`); site 3 REFUTED; site 1 parked with the round corpus as its record. Not withdrawn and not refuted — the defect is real and reproduced. What is unresolved is whether a guard can decide to skip the second measurement SAFELY, and six rounds say the answer is harder than the saving. · **Filed:** 2026-08-27 · **Facing:** product · **Severity:** LOW-MEDIUM · **Class:** measure-path redundancy · **Effort:** M · **Reachability:** PROBED 2026-08-28 — see "Probe result".
 
 ### Probe result — the defect is real, measured, and unchanged by this arc
 

@@ -4,6 +4,8 @@
 **Row:** `BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES` (partial disposition)
 **Branch:** `perf/placement-measure-memo`
 
+impeccable-gate: N/A — no UI surface
+
 **This plan is what remains after ship-and-fence.** Site 1's guard ran six
 adversarial rounds across two designs and neither converged; it is PARKED with the
 round corpus as its record. Site 2 ships. Site 3 was refuted by its own probe. The
@@ -215,4 +217,17 @@ separate gates rather than one: each has caught something the others do not see.
 
 ## 12. Invariant-8 findings and dispositions
 
-Filled by Task 2.
+**None to disposition, because the gate does not apply.** Invariant 8 defines a
+UI surface by LOCATION — `app/` except `app/api/**`, `components/`,
+`app/globals.css`, `DESIGN.md`, `tailwind.config.*` — and this diff touches
+`lib/popover/naturalSize.ts`, its test, and documentation. Nothing else.
+
+The `N/A` is asserted rather than assumed: Task 2's `red=` fails if
+`git diff --name-only origin/main...HEAD` matches `^(app|components)/`, so scope
+creeping back into a UI surface reds the closeout instead of silently making this
+section false.
+
+**This was not always true of the arc.** While site 1 was in scope the diff
+edited `components/admin/AnchoredPortal.tsx` and the dual gate genuinely applied;
+the earlier draft of this task said so and planned to run both halves. Site 1
+parked, the component left the diff, and the marker changed with it.
