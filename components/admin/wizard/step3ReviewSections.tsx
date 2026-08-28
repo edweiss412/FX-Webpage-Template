@@ -2888,6 +2888,26 @@ export { reviewWarningTitle };
  * AFFIRMATIVE empty state (spec §3.10) — the all-clean state is a sentence,
  * not an absent panel. No publish-gate logic changes here.
  */
+/** The catalog's control guidance for a warning, when it has one (spec §2.3). */
+function controlsNoteFor(w: ParseWarning): string | null {
+  if (!isMessageCode(w.code)) return null;
+  const note = messageFor(w.code as MessageCode).controlsNote;
+  return typeof note === "string" && note.trim() ? note.trim() : null;
+}
+
+/** The per-row discriminator for an ignored warning outside the UNKNOWN_FIELD shape:
+ *  the normalized snippet the ignore fingerprint is computed from, capped so one long
+ *  raw cell cannot dominate the disclosure. */
+const IGNORED_SNIPPET_CAP = 80;
+function ignoredRowSnippet(rawSnippet: string | undefined): string | null {
+  if (typeof rawSnippet !== "string") return null;
+  const normalized = rawSnippet.trim().replace(/\s+/g, " ");
+  if (normalized === "") return null;
+  return normalized.length > IGNORED_SNIPPET_CAP
+    ? `${normalized.slice(0, IGNORED_SNIPPET_CAP)}…`
+    : normalized;
+}
+
 export function WarningsBreakdown({
   dfid,
   warnings,
@@ -3286,6 +3306,19 @@ export function WarningsBreakdown({
                           site="list"
                         />
                       ) : null}
+                      {/* Spec §2.3: the catalog's `controlsNote` renders on rows that
+                          actually mount controls (the 2026-08-27 §4.3 gate). That copy is
+                          what promised this affordance in the first place — "Use Report to
+                          flag it to us, or Ignore to hide this notice" — and the wizard was
+                          the one surface where the promise was false. */}
+                      {dq && dfid && isWarn && controlsNoteFor(w) ? (
+                        <p
+                          data-testid={`wizard-step3-card-${dfid}-warning-${i}-controls-note`}
+                          className="text-xs/relaxed text-text-subtle"
+                        >
+                          {controlsNoteFor(w)}
+                        </p>
+                      ) : null}
                       {/* §2.3: Report + Ignore, on ACTIVE warn rows only. Info rows stay
                           control-free (§1.1.4), and the whole cluster follows this
                           panel's existing non-null-dfid gate. */}
@@ -3342,8 +3375,19 @@ export function WarningsBreakdown({
               // buttons, so the operator could not tell which one they were restoring.
               // The row label is the discriminator, gated to UNKNOWN_FIELD for exactly
               // the reason the active row gates it.
+              // Whole-diff R1 P1: EVERY ignored row needs a discriminator, not just the
+              // one family. `labelFromRawSnippet` stays gated to UNKNOWN_FIELD — only that
+              // code writes the `<label> | <value>` shape, and three other families put a
+              // pipe in the field and would render a fragment as a field label. For
+              // everything else the normalized snippet IS the identity: it is the exact
+              // content the ignore fingerprint is computed from, so two rows that render
+              // differently here are two different dismissals. Without it the parser's two
+              // committed HOTEL_GUEST_SPLIT_AMBIGUOUS emits render as one repeated title
+              // above two identical Un-ignore buttons.
               const rowLabel =
-                w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
+                w.code === "UNKNOWN_FIELD"
+                  ? labelFromRawSnippet(w.rawSnippet)
+                  : ignoredRowSnippet(w.rawSnippet);
               return (
                 <li key={ignoredKeys[pos]} className="flex min-w-0 flex-col gap-0.5">
                   <span className="wrap-break-word text-sm text-text">{reviewWarningTitle(w)}</span>

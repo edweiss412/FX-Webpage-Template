@@ -756,7 +756,7 @@ export function scanCandidates(): Candidate[] {
       // arm above falls back to a vocabulary probe and reports an unclassifiable
       // guard as `unknown` residue. This arm drops it, deliberately.
       //
-      // Probed: 739 such ternaries under the derived roots, 77 on a
+      // Probed: 740 such ternaries under the derived roots, 77 on a
       // fault-vocabulary guard and unclassifiable. 68 of those 77 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

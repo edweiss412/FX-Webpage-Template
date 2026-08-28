@@ -1868,3 +1868,82 @@ describe("impeccable critique repairs", () => {
     expect(panel.contains(document.activeElement)).toBe(true);
   });
 });
+
+// ── Whole-diff review R1 repairs ──────────────────────────────────────────────
+describe("whole-diff R1 repairs", () => {
+  const UNKNOWN = (snippet: string): ParseWarning => ({
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized field.",
+    rawSnippet: snippet,
+  });
+  // The parser's two committed HOTEL_GUEST_SPLIT_AMBIGUOUS emit sites both write
+  // `rawSnippet: params.rawCell`, so two of them differ ONLY by that cell.
+  const HOTEL = (cell: string): ParseWarning => ({
+    severity: "warn",
+    code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    message: "Ambiguous guest split.",
+    rawSnippet: cell,
+  });
+  const dqFor = (activeIdx: number[], ignoredIdx: number[]) => ({
+    target: {
+      kind: "staged" as const,
+      wizardSessionId: STEP3_FIXTURE_WSID,
+      driveFileId: DFID,
+    },
+    model: {
+      active: activeIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+      ignored: ignoredIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+    },
+  });
+
+  test("P1: a control-bearing row renders the catalog's controlsNote", () => {
+    // The catalog copy is what promised this affordance; the wizard was the surface
+    // where it was false. Expectation read from the CATALOG, never hardcoded — a test
+    // carrying its own copy of the sentence would pass against a catalog edit.
+    const expected = MESSAGE_CATALOG.UNKNOWN_FIELD.controlsNote as string;
+    expect(typeof expected).toBe("string");
+    const warnings = [UNKNOWN("Hotel notes | double occupancy")];
+    const q = renderBody(sectionData({ warnings }, { dq: dqFor([0], []) }), "warnings");
+    const note = q.getByTestId(`wizard-step3-card-${DFID}-warning-0-controls-note`);
+    expect(note.textContent).toBe(expected);
+  });
+
+  test("P1: a row with NO controls renders no controlsNote", () => {
+    // The 2026-08-27 §4.3 gate: the note describes controls, so it may not appear
+    // where none mounted. An info row is the case that would otherwise leak it.
+    const warnings: ParseWarning[] = [
+      { severity: "info", code: "UNKNOWN_FIELD", message: "Informational." },
+    ];
+    const q = renderBody(sectionData({ warnings }, { dq: dqFor([0], []) }), "warnings");
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-warning-0-controls-note`)).toBeNull();
+  });
+
+  test("P1: two ignored rows of a NON-UNKNOWN_FIELD family are still distinguishable", () => {
+    // The earlier repair gated the discriminator to UNKNOWN_FIELD, so this family
+    // rendered one repeated catalog title above two identical Un-ignore buttons.
+    const warnings = [HOTEL("Room 214 | 2 guests"), HOTEL("Room 318 | 3 guests")];
+    const q = renderBody(sectionData({ warnings }, { dq: dqFor([], [0, 1]) }), "warnings");
+    const rows = Array.from(
+      q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`).querySelectorAll("li"),
+    );
+    expect(rows).toHaveLength(2);
+    // Derived from the fixture cells, not hardcoded prose.
+    expect(rows[0]?.textContent).toContain("Room 214");
+    expect(rows[1]?.textContent).toContain("Room 318");
+    // The premise that makes this discriminating: the TITLES really are identical.
+    const titles = rows.map((r) => r.querySelector("span.text-sm")?.textContent ?? "");
+    expect(titles[0]).toBe(titles[1]);
+  });
+
+  test("P1: a long snippet is capped rather than dominating the disclosure", () => {
+    const long = "x".repeat(400);
+    const q = renderBody(
+      sectionData({ warnings: [HOTEL(long)] }, { dq: dqFor([], [0]) }),
+      "warnings",
+    );
+    const text = q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`).textContent ?? "";
+    expect(text).toContain("…");
+    expect(text.length).toBeLessThan(long.length);
+  });
+});

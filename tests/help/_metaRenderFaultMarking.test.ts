@@ -43,7 +43,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:4026":
+  "components/admin/wizard/step3ReviewSections.tsx:4070":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -381,7 +381,11 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // unchanged at 35 (the sibling case asserts that independently), exactly ONE row
     // moved, step3ReviewSections.tsx 3870 -> 4026, same form. Its residue key moved with
     // it and was located by the scanner rather than bumped.
-    expect(digest).toBe("ea811345e285de8676f153ceba59aaa2cc2a5bec1e56e24af5b3b041e956c1ff");
+    //
+    // Regenerated once more for that arc's whole-diff R1 repairs, which added the
+    // catalog controlsNote line and widened the ignored-row discriminator: same single
+    // `unknown:false` row, 4026 -> 4070, membership still 35. Located by the scanner.
+    expect(digest).toBe("e7f34b85cb1365f0dbcfcaee3fe0a70b864804269ee202bb86006a42f6d36459");
   });
 });
 

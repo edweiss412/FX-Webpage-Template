@@ -167,9 +167,29 @@ describe("normalizeStagedIgnoredWarnings", () => {
     expect(out).toEqual([{ fingerprint: "fp-keep", code: "C", ignored_by: "a@b.co" }]);
   });
 
-  it("coerces a missing or non-string code / ignored_by to the empty string", () => {
-    expect(normalizeStagedIgnoredWarnings([{ fingerprint: "fp-1" }])).toEqual([
-      { fingerprint: "fp-1", code: "", ignored_by: "" },
-    ]);
+  it("coerces a missing or non-string code to the empty string", () => {
+    expect(
+      normalizeStagedIgnoredWarnings([{ fingerprint: "fp-1", ignored_by: "doug@example.com" }]),
+    ).toEqual([{ fingerprint: "fp-1", code: "", ignored_by: "doug@example.com" }]);
+  });
+
+  it("DROPS an entry whose ignored_by cannot be canonicalized (whole-diff R1 P0)", () => {
+    // The read side and the finalize carry have to agree on what a usable entry is.
+    // While this coerced a missing identity to "", the read side HID the warning and
+    // the carry — which cannot satisfy the durable table's canonical CHECK — dropped
+    // it, so a dismissal the operator had seen confirmed came back after publishing
+    // with nothing said. An entry that cannot become a durable row must not hide a
+    // warning either.
+    for (const raw of [{ fingerprint: "fp-1" }, { fingerprint: "fp-1", ignored_by: "   " }]) {
+      expect(normalizeStagedIgnoredWarnings([raw])).toEqual([]);
+    }
+  });
+
+  it("canonicalizes ignored_by on the way in", () => {
+    expect(
+      normalizeStagedIgnoredWarnings([
+        { fingerprint: "fp-1", ignored_by: "  Doug.W@Example.COM " },
+      ]),
+    ).toEqual([{ fingerprint: "fp-1", code: "", ignored_by: "doug.w@example.com" }]);
   });
 });

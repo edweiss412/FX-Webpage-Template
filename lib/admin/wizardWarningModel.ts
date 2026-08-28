@@ -7,6 +7,7 @@
 // Spec: docs/superpowers/specs/2026-08-28-wizard-warning-ignore-controls.md §2.1.
 import type { ParseWarning } from "@/lib/parser/types";
 import { warningFingerprint, buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
+import { canonicalize } from "@/lib/email/canonicalize";
 
 export type WizardWarningItem = {
   /** Index into the row's FULL ParseResult.warnings array — the JUMP-TARGET identity
@@ -43,10 +44,19 @@ export function normalizeStagedIgnoredWarnings(raw: unknown): StagedIgnoreEntry[
     // An empty fingerprint can never match a real one (sha256 base64url is never
     // empty), so it is dropped with the missing and non-string cases.
     if (typeof e.fingerprint !== "string" || e.fingerprint.length === 0) continue;
+    // Whole-diff R1 P0: `ignored_by` must be usable HERE, because the finalize carry
+    // requires it (`public.ignored_warnings` has a canonical-email CHECK) and drops
+    // what it cannot canonicalize. Coercing a missing identity to "" made the two
+    // boundaries DISAGREE: the read side hid the warning, the carry dropped the entry,
+    // and the operator watched a dismissal they had confirmed come back after
+    // publishing with nothing said. One rule, both ends — an entry that cannot become
+    // a durable row does not get to hide a warning either.
+    const ignoredBy = typeof e.ignored_by === "string" ? canonicalize(e.ignored_by) : null;
+    if (ignoredBy === null) continue;
     out.push({
       fingerprint: e.fingerprint,
       code: typeof e.code === "string" ? e.code : "",
-      ignored_by: typeof e.ignored_by === "string" ? e.ignored_by : "",
+      ignored_by: ignoredBy,
     });
   }
   return out;
