@@ -1539,9 +1539,11 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       "components/admin/RecentAutoAppliedStrip.tsx:474",
       "components/admin/ShowsTable.tsx:288",
       "components/admin/nav/AdminNav.tsx:154",
-      "components/admin/showpage/AttentionMenu.tsx:189",
+      "components/admin/showpage/AttentionMenu.tsx:290",
       "components/admin/telemetry/EventFilters.tsx:97",
-      "components/admin/wizard/step3ReviewSections.tsx:2435",
+      // Moved on the merge of origin/main (6441d5e4c). Located on the merged tree, not
+      // bumped: 2436 is the `PackCountPill` <span> carrying `border-border`.
+      "components/admin/wizard/step3ReviewSections.tsx:2436",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

@@ -57,6 +57,11 @@ export function buildStep3BaselineData(): StagedSectionData {
 export const STEP3_BASELINE_FIXTURE_PATH =
   "tests/components/admin/review/__fixtures__/step3-header-baseline.html";
 
+/** Sibling of the clean baseline: the same fixture rendered with isDirtyRescan: true,
+ *  so the "Sheet changed" span has the same byte-level proof (spec §12.15). */
+export const STEP3_DIRTY_BASELINE_FIXTURE_PATH =
+  "tests/components/admin/review/__fixtures__/step3-header-dirty-baseline.html";
+
 /** React `useId()` output. The delimiters are a React-internal detail that has
  *  changed across versions AND differs by renderer, so all known shapes are
  *  matched: `_R_<n>_` / `_r_<n>_` (react-dom 19.2, the shape this repo emits),

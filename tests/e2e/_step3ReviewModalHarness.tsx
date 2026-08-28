@@ -129,6 +129,37 @@ function harnessWarnings(): ParseWarning[] {
  * Reached ONLY through the live entry's `?nearMiss=1` flag, so every existing case navigates
  * without it, passes `{}` to buildSectionData, and renders byte-identically to before.
  */
+/** The attention-menu fixture (wizard-review-attention-menu §9): two crew
+ *  warnings that tone as needs-look and one rooms warning that tones as a
+ *  judgment call, so the pill renders its COMPOSITE state and the menu renders
+ *  both groups — the shape the geometry pins need. Two needs-look warnings in
+ *  ONE section is also the reported defect's own shape. */
+export function attentionHarnessWarnings(): ParseWarning[] {
+  return [
+    {
+      severity: "warn" as const,
+      code: "UNKNOWN_FIELD",
+      message: "Unrecognized crew row label: 'Grup'",
+      blockRef: { kind: "crew", name: "Grup" },
+      rawSnippet: "Grup | one",
+    },
+    {
+      severity: "warn" as const,
+      code: "UNKNOWN_FIELD",
+      message: "Unrecognized crew row label: 'Zzz'",
+      blockRef: { kind: "crew", name: "Zzz" },
+      rawSnippet: "Zzz | two",
+    },
+    {
+      severity: "warn" as const,
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      message: "Room header could be read two ways",
+      blockRef: { kind: "rooms" },
+      rawSnippet: "Ballroom A / B",
+    },
+  ];
+}
+
 export function nearMissHarnessWarnings(): ParseWarning[] {
   return [
     {

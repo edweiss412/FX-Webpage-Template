@@ -31,6 +31,19 @@ const PILL = `${MODAL} [data-testid="${BASE}-alert-pill"]`;
 const MENU = `${MODAL} [data-testid="${BASE}-attention-menu"]`;
 
 const SEED_TITLE = "Attention Surface E2E Show";
+/** Seeded parse warnings (wizard-review-attention-menu §4). Crew-scoped and
+ *  named for the seeded roster member, so it routes under that member's row and
+ *  the jump has a card to land on. */
+const SEEDED_WARNINGS = [
+  {
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized crew row label: 'Grup'",
+    blockRef: { kind: "crew", name: "Alice Cooper" },
+    rawSnippet: "Grup | one",
+    sourceCell: { title: "Crew", gid: 0, a1: "A7" },
+  },
+];
 const CREW_NAME = "Alice Cooper";
 // Crew-routed and actionable.
 //
@@ -89,6 +102,10 @@ test.describe("published show attention surface (spec §5/§6)", () => {
         { name: CREW_NAME, role: "A1", email: "alice@fxav.test" },
         { name: "Bob Fields", role: "V2", email: "bob@fxav.test" },
       ],
+      // wizard-review-attention-menu §4: ONE crew-scoped parse warning, so the
+      // pill carries a sheet-warnings segment beside its two issues and the
+      // menu carries a Sheet warnings group whose row jumps to the card.
+      internal: { parseWarnings: SEEDED_WARNINGS },
     });
     // Identity-map shape for AMBIGUOUS_EMAIL_BINDING (show name, email, crew
     // count — lib/adminAlerts/alertIdentityMap.ts:60). It carries no "Crew"
@@ -121,13 +138,26 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     await openModal(page);
     await expect(page.locator(MENU)).toBeVisible();
     await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
-    await expect(page.locator(`${MENU} [data-testid^="attention-menu-row-"]`)).toHaveCount(2);
+    // Scoped to the ALERT rows. Since wizard-review-attention-menu §4.3 the menu
+    // also indexes sheet warnings, whose rows are `attention-menu-row-warning:…`
+    // and share this prefix — and the fixture now seeds one. The intent here is
+    // unchanged ("both actionable rows are in the menu"); only the selector had
+    // become ambiguous.
+    await expect(page.locator(`${MENU} [data-testid^="attention-menu-row-alert:"]`)).toHaveCount(2);
     const visible = await page.locator(PILL).evaluate((el) => {
       const clone = el.cloneNode(true) as HTMLElement;
       clone.querySelectorAll('.sr-only, [aria-hidden="true"]').forEach((n) => n.remove());
       return clone.textContent!.replace(/\s+/g, " ").trim();
     });
-    expect(visible).toBe("2 issues");
+    // The issues segment is unchanged; the fixture now also seeds a parse
+    // warning, so the pill composes a second segment (§4.2). Derived from the
+    // seed rather than restated, so adding a warning to the fixture cannot make
+    // this assertion silently wrong.
+    const warnSegment =
+      SEEDED_WARNINGS.length === 1
+        ? `${SEEDED_WARNINGS.length} sheet warning`
+        : `${SEEDED_WARNINGS.length} sheet warnings`;
+    expect(visible).toBe(`2 issues · ${warnSegment}`);
   });
 
   // Un-skipped by warning-trim-undefer §6.3/§6.4: id-matched fan-out. Seeds the
@@ -235,7 +265,45 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     await expect(page.locator(MENU)).toBeVisible();
   });
 
-  test("resolve lifecycle: 2 issues → 1 issue → In sync, without reload (LAST — mutates)", async ({
+  test("the pill counts the seeded sheet warning and its menu row jumps to the card (spec §4)", async ({
+    page,
+  }) => {
+    await openModal(page);
+    // The two seeded alerts make the pill auto-open on arrival; if it did not,
+    // click it.
+    if ((await page.locator(MENU).count()) === 0) await page.locator(PILL).click();
+    await expect(page.locator(MENU)).toBeVisible();
+    // Count DERIVED from the seed, never restated: one warning in, one row out.
+    const rows = page.locator(`${MENU} [data-testid^="attention-menu-row-warning:"]`);
+    await expect(rows).toHaveCount(SEEDED_WARNINGS.length);
+    const pillText = await page.locator(PILL).innerText();
+    expect(pillText).toContain(
+      SEEDED_WARNINGS.length === 1
+        ? `${SEEDED_WARNINGS.length} sheet warning`
+        : `${SEEDED_WARNINGS.length} sheet warnings`,
+    );
+    await expect(page.locator(`${MODAL} :text("In sync")`)).toHaveCount(0);
+
+    await rows.first().click();
+    await expect(page.locator(MENU)).toHaveCount(0);
+    // The card the row named, found by ATTRIBUTE rather than by text, and its
+    // one-shot flash.
+    const card = page.locator(`${MODAL} [data-attention-anchor^="warning:"]`).first();
+    await expect(card).toHaveAttribute("data-step3-warning-flash", "");
+  });
+
+  // FIXME, not deleted and not diagnosed: this case fails on UNMODIFIED code.
+  // Probed 2026-08-27 by reverting both files feat/wizard-review-attention-menu
+  // touches here and rerunning — the optimistic decrement never fires, the pill
+  // stays at its arrival count, and a later run failed differently
+  // (toBeVisible), so it is not a single deterministic assertion. No workflow
+  // has ever run this spec, which is how it drifted red unnoticed; the spec is
+  // wired into published-modal-e2e.yml by the same change that adds this
+  // marker, so the other six cases start gating now and this one stays visible
+  // in the report. Cause UNATTRIBUTED — product defect or stale spec — and
+  // attribution is the first task for whoever picks up
+  // BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED.
+  test.fixme("resolve lifecycle: 2 issues → 1 issue → In sync, without reload (LAST — mutates)", async ({
     page,
   }) => {
     await openModal(page);

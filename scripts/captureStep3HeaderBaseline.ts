@@ -70,29 +70,46 @@ async function main(): Promise<void> {
   const { JSDOM } = req("jsdom") as { JSDOM: JsdomCtor };
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { Step3ReviewModal } = await import("@/components/admin/wizard/Step3ReviewModal");
-  const { buildStep3BaselineData, normalizeIds, STEP3_BASELINE_DFID, STEP3_BASELINE_FIXTURE_PATH } =
-    await import("@/tests/helpers/step3HeaderBaseline");
+  const {
+    buildStep3BaselineData,
+    normalizeIds,
+    STEP3_BASELINE_DFID,
+    STEP3_BASELINE_FIXTURE_PATH,
+    STEP3_DIRTY_BASELINE_FIXTURE_PATH,
+  } = await import("@/tests/helpers/step3HeaderBaseline");
 
-  const markup = renderToStaticMarkup(
-    createElement(Step3ReviewModal, {
-      data: buildStep3BaselineData(),
-      checked: false,
-      isDirtyRescan: false,
-      onRequestSetChecked: async () => true,
-      onClose: () => {},
-    }),
-  );
-  const dom = new JSDOM(`<!doctype html><html><body>${markup}</body></html>`);
-  const header = dom.window.document.querySelector(
-    `[data-testid="wizard-step3-card-${STEP3_BASELINE_DFID}-review-header"]`,
-  );
-  if (header === null) {
-    throw new Error("Step 3 header not found in the rendered markup — fixture or testid drifted.");
+  // Two variants, one loop: the clean header and the dirty-rescan header. The
+  // dirty state renders the "Sheet changed" span in place of the attention
+  // chip, so it is a SECOND byte contract, not a repaint of the first.
+  const variants = [
+    { dirty: false, path: STEP3_BASELINE_FIXTURE_PATH },
+    { dirty: true, path: STEP3_DIRTY_BASELINE_FIXTURE_PATH },
+  ] as const;
+
+  for (const { dirty, path } of variants) {
+    const markup = renderToStaticMarkup(
+      createElement(Step3ReviewModal, {
+        data: buildStep3BaselineData(),
+        checked: false,
+        isDirtyRescan: dirty,
+        onRequestSetChecked: async () => true,
+        onClose: () => {},
+      }),
+    );
+    const dom = new JSDOM(`<!doctype html><html><body>${markup}</body></html>`);
+    const header = dom.window.document.querySelector(
+      `[data-testid="wizard-step3-card-${STEP3_BASELINE_DFID}-review-header"]`,
+    );
+    if (header === null) {
+      throw new Error(
+        "Step 3 header not found in the rendered markup — fixture or testid drifted.",
+      );
+    }
+    const out = join(process.cwd(), path);
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, `${normalizeIds(header.innerHTML)}\n`, "utf8");
+    process.stdout.write(`wrote ${path}\n`);
   }
-  const out = join(process.cwd(), STEP3_BASELINE_FIXTURE_PATH);
-  mkdirSync(dirname(out), { recursive: true });
-  writeFileSync(out, `${normalizeIds(header.innerHTML)}\n`, "utf8");
-  process.stdout.write(`wrote ${STEP3_BASELINE_FIXTURE_PATH}\n`);
 }
 
 void main();

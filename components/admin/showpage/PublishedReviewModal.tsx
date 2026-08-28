@@ -77,6 +77,8 @@ import {
   type SectionSignatures,
 } from "@/components/admin/review/sectionFreshness";
 import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
+import { deriveWarningAttention } from "@/lib/admin/warningAttention";
+import { HEADER_ACTION_CAP } from "@/components/admin/review/headerActionCap";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { buildPublishedSnapshot } from "@/components/admin/dev/snapshots";
 import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
@@ -310,6 +312,24 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // ── Attention surface state (published-show-alerts §5/§6) ──────────────────
   const [menuOpen, setMenuOpen] = useState(false);
   const [doneIds, setDoneIds] = useState<ReadonlySet<string>>(new Set());
+  // The sheet's own parse warnings, indexed (spec §4.1). Registry order, then
+  // per-section active order — `bySection` is the model the rail and the cards
+  // already read, so the pill cannot disagree with either. ACTIVE only, so
+  // ignoring a warning decrements the pill exactly as it empties the rail dot.
+  const sheetWarnings = useMemo(() => {
+    const defs = step3Sections(data);
+    const entries = defs.flatMap((sec) =>
+      (bySection[sec.id]?.active ?? []).map((it) => ({
+        id: `warning:${it.reportSurfaceId}`,
+        sectionId: sec.id,
+        warning: it.warning,
+        reportSurfaceId: it.reportSurfaceId,
+      })),
+    );
+    return deriveWarningAttention(entries, defs);
+  }, [bySection, data]);
+  const k = sheetWarnings.all.length;
+
   const [jump, setJump] = useState<AttentionJump | null>(null);
   const jumpNonceRef = useRef(0);
   const pillRef = useRef<HTMLButtonElement | null>(null);
@@ -336,8 +356,8 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // `actionable` alone (spec §6/§6a: the menu can open at a needs-look-only state).
   // monitoring-badge-expand §3.1: self-heal items make the pill interactive too
   // (quiet palette); monitoring-only selects the quiet visual + copy contract.
-  const interactive = needsYou.length > 0 || selfHeal.length > 0;
-  const monitoringOnly = needsYou.length === 0 && selfHeal.length > 0;
+  const interactive = needsYou.length > 0 || k > 0 || selfHeal.length > 0;
+  const monitoringOnly = needsYou.length === 0 && k === 0 && selfHeal.length > 0;
 
   // Compound reconciliation (spec §6 outcome contract, §8 case 2): if live data
   // updates while the menu is open such that the pill is no longer interactive,
@@ -618,6 +638,14 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       timers.clear();
     };
   }, []);
+
+  const navigateWarning = (entry: { id: string; sectionId: SectionId }) => {
+    jumpNonceRef.current += 1;
+    // The anchor is on the CARD (spec §4.4), so the jump lands on the warning
+    // the row named wherever that card renders — including inside a collapsed
+    // crew disclosure, which the surface's effect opens before it measures.
+    setJump({ itemId: entry.id, sectionId: entry.sectionId, nonce: jumpNonceRef.current });
+  };
 
   const navigateTo = (item: AttentionItem) => {
     jumpNonceRef.current += 1;
@@ -959,7 +987,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               sweep in §3.0 ran eight cap values against three loads, 96 changed
               the 0-load baseline and 192 still failed at load 30, and the
               2-item cluster measures 147.73 naturally, below this cap. */}
-          <div className="flex shrink-0 items-center gap-2 max-sm:max-w-40">
+          <div className={`flex shrink-0 items-center gap-2 ${HEADER_ACTION_CAP}`}>
             {/* Attention pill (published-show-alerts §5.1) — four states from
                 the ONE derived list. `before:-inset-y-3` hit-band arithmetic is
                 COPIED from the prior pill: text-xs (~16px line box) + py-1
@@ -1043,6 +1071,31 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                       ) : null}
                     </>
                   ) : null}
+                  {/* Sheet-warnings segment (spec §4.2). ONE wrap unit exactly
+                      like the monitoring segment below, for the same reason: as
+                      a standalone flex item the separator could land last on
+                      line 1 under `max-sm:flex-wrap` and read as a typo. Same
+                      ink as the issues segment and no alpha — a warning is
+                      work, not monitoring. */}
+                  {k > 0 ? (
+                    <>
+                      <span className="inline-flex items-center gap-1.5">
+                        {needsYou.length > 0 ? <span className="opacity-50">{" · "}</span> : null}
+                        <span
+                          data-testid="attention-pill-warnings-segment"
+                          className="inline-flex items-center gap-1"
+                        >
+                          {k > 99 ? "99+" : k} {k === 1 ? "sheet warning" : "sheet warnings"}
+                        </span>
+                      </span>
+                      {k > 99 ? (
+                        <>
+                          {" "}
+                          <span className="sr-only">({k} sheet warnings)</span>
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
                   {/* Middot separators are REAL " · " text nodes (visible AND in
                       the announced string — aria-hidden middots glue segments
                       into "issues2 monitoring" for AT; #537 space-node rule). */}
@@ -1067,7 +1120,9 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                           below `sm` was the other option and would have taken
                           the glyph out of the announced string. */}
                       <span className="inline-flex items-center gap-1.5">
-                        {needsYou.length > 0 ? <span className="opacity-50">{" · "}</span> : null}
+                        {needsYou.length > 0 || k > 0 ? (
+                          <span className="opacity-50">{" · "}</span>
+                        ) : null}
                         {/* /80 floor: /70 computes 4.01:1 over --color-warning-bg in
                           light theme (below AA 4.5:1 at text-xs); /80 is ~5.35:1
                           light, higher dark. Impeccable critique P1, 2026-07-22. */}
@@ -1118,6 +1173,11 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                     onClose={() => setMenuOpen(false)}
                     onNavigate={navigateTo}
                     pillRef={pillRef}
+                    {...(k > 0
+                      ? {
+                          warningIndex: { entries: sheetWarnings.all, onNavigate: navigateWarning },
+                        }
+                      : {})}
                   />
                 </div>
               </div>

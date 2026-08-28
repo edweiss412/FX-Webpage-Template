@@ -136,6 +136,7 @@ import {
   type SchedulePhase,
 } from "@/lib/crew/agendaDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { isWarnSeverity } from "@/lib/parser/dataGaps";
 import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { Avatar } from "@/components/atoms/Avatar";
@@ -3059,7 +3060,7 @@ export function WarningsBreakdown({
                 const context = isMessageCode(w.code)
                   ? (messageFor(w.code as MessageCode).helpfulContext ?? null)
                   : null;
-                const isWarn = w.severity === "warn";
+                const isWarn = isWarnSeverity(w);
                 return (
                   <li
                     key={keys[i]}
@@ -3070,6 +3071,10 @@ export function WarningsBreakdown({
                     // index there (published anchors jump by section, not row).
                     // Container-scoped query hook (no `id`s, §9.4).
                     data-warning-index={i}
+                    // §3.4 jump target for the header index. Same index as the
+                    // testid and data-warning-index, so a menu row can never
+                    // point at a different row than the one it names.
+                    data-attention-anchor={`warning:${i}`}
                     className="flex gap-3"
                   >
                     {/* §8 severity icon chip: warn = warm chip, info = neutral. */}

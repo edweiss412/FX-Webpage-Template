@@ -103,9 +103,9 @@ export const CENSUS: readonly CensusRow[] = [
   // import to this file. The ELEMENT is untouched: same `<Link>`, same `border-text-faint`.
   { file: "components/admin/telemetry/HealthAlertsPanel.tsx", line: 257 },
   // spec §4.2 row 16
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 604 },
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 790 },
   // spec §4.2 row 17
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 688 },
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 876 },
   // spec §4.2 row 18 — spec cites 4121; the live line is 4151 after the
   // 2026-08-16 sibling merges, the last of them #817 (`feat/mutation-section-order`,
   // 11c4fb6ca), which added one net line above both rows. Line numbers are
@@ -118,7 +118,7 @@ export const CENSUS: readonly CensusRow[] = [
   // then -39 again when the tile geometry moved out to `diagramTileGeometry.ts`.
   // The ELEMENT is untouched: same `<button>`, same `border-text-faint bg-surface` recipe,
   // and the scanner reports exactly two elements in the window, one per row.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4433 },
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4438 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -126,7 +126,11 @@ export const CENSUS: readonly CensusRow[] = [
   // then -39 again when the tile geometry moved out to `diagramTileGeometry.ts`.
   // The ELEMENT is untouched: same `<button>`, same `border-text-faint bg-surface` recipe,
   // and the scanner reports exactly two elements in the window, one per row.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4490 },
+  // Then the merge of origin/main (6441d5e4c): main moved both rows too, so neither
+  // parent's number describes the merged tree. LOCATED on the merged tree by the
+  // `<button>` openers themselves (4438 and 4495), then confirmed by the scanner —
+  // not by adding the two sides' deltas, which is what put them 5 lines short.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4495 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21
@@ -188,9 +192,14 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/dev/SwitcherControls.tsx", line: 92 },
   { file: "components/admin/dev/SwitcherControls.tsx", line: 142 },
   { file: "components/admin/nav/UserMenu.tsx", line: 51 },
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 814 },
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 993 },
-  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 979 },
+  // :814 / :993 until 2026-08-27 — the isWarnSeverity import line (spec §2.1).
+  // :815 / :994 until 2026-08-27 — the attentionJump effect gained the
+  // details-opening loop (spec §4.4), 11 lines above both.
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 826 },
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1005 },
+  // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
+  // above the pill button (spec §4.1/§4.4).
+  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1007 },
   { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 119 },
   { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
   { file: "components/agenda/AgendaEmbed.tsx", line: 83 },
@@ -219,7 +228,10 @@ export const CENSUS: readonly CensusRow[] = [
 export const DIVIDERS: readonly CensusRow[] = [
   { file: "components/admin/BellPanel.tsx", line: 1221 },
   { file: "components/admin/RecentAutoAppliedStrip.tsx", line: 447 },
-  { file: "components/admin/showpage/AttentionMenu.tsx", line: 189 },
+  // :189 until 2026-08-27. The needs-you row moved into the exported
+  // AttentionMenuRow (spec §5) so the wizard index renders the same row; the
+  // divider recipe itself is byte-identical, pinned by the committed baseline.
+  { file: "components/admin/showpage/AttentionMenu.tsx", line: 290 },
   // :85 until 2026-08-26. The control-outline-cover sweep gave `FilterTextInput`
   // its own outline recipe and a `cn` import, which moved every element below
   // it. The divider itself is untouched; what moved is where it sits.

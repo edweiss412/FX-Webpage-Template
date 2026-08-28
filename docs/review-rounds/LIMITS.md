@@ -62,11 +62,13 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Shape:** A registry keyed by `file:line` (accepted-survivor siteIds as `operator:line:col:text`, producer sites pinned by line) that any formatter or hoist invalidates wholesale: 37 re-keys across three score runs on one arc, two runs failing before the cause was separated from genuine gaps, and one mis-keyed row costs twice because ledgered equivalents leave the denominator. The class repair is content-keyed ids (`operator + from-text + to-text`), a redesign of a shared surface no single arc otherwise touches.
 
-**Named by:** 2 arcs — feat/speclint-ac-unclaimed-arm/44b0d74b1107.md (diff), feat/private-image-pipeline/d2a31e4aa021.md (diff, the `alertProducerScope.registry.ts` instance: one hoisted emit invalidated 19 rows across three files)
+**Named by:** 3 arcs — feat/speclint-ac-unclaimed-arm/44b0d74b1107.md (diff), feat/private-image-pipeline/d2a31e4aa021.md (diff, the `alertProducerScope.registry.ts` instance: one hoisted emit invalidated 19 rows across three files), feat/wizard-review-attention-menu/66c9857f56a5.md (spec: eight line-keyed rows across `tests/styles/*` and `pageTransitions`/`step3JudgmentChrome` counts moved by a header button; the re-file trigger below has now fired)
 
 **Owning record:** the documented-limit note at the head of `tests/mutation/source/registry.ts` (placed by the ac-unclaimed arc), plus this index
 
 **Re-file trigger:** a third arc hitting it or a product arc blocked by it (stated in the ac-unclaimed filing)
+
+**Fired 2026-08-27:** filed as `BL-LINE-KEYED-REGISTRY-ROWS` (BACKLOG.md, `Mint-exception: recurrence`) on the third naming, `feat/wizard-review-attention-menu`.
 
 ## LIM-PLANT-ANCHOR-UNIQUENESS
 

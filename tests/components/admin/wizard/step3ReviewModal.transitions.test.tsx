@@ -98,6 +98,7 @@ import {
   WARNING_HIGHLIGHT_MS,
 } from "@/components/admin/wizard/Step3ReviewModal";
 import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
+import { warningsBySection } from "@/lib/admin/step3SectionStatus";
 import {
   buildStagedSectionData,
   type StagedSectionData,
@@ -131,6 +132,17 @@ afterEach(() => {
 
 function warning(kind: string): ParseWarning {
   return { severity: "warn", code: "SOME_CODE", message: "", blockRef: { kind } };
+}
+
+/** An ambiguity-class warning, which the attention derivation tones as a
+ *  judgment call rather than something needing a look (spec §2). */
+function judgmentWarning(kind: string): ParseWarning {
+  return {
+    severity: "warn",
+    code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    message: "",
+    blockRef: { kind },
+  };
 }
 
 function sectionData(
@@ -986,6 +998,20 @@ describe("§H compound (b): unmount during an active highlight + active suppress
       // Drain the environment's one-shot mount-time 0ms timer (React/jsdom
       // scheduling under fake timers — not component-owned; it never
       // reschedules) so the counts below measure ONLY the component's timers.
+      //
+      // TWO drains since 2026-08-27, and the second one is the point. The
+      // attention pill's auto-open schedules a frame at mount (spec §3.5, a 0ms
+      // timer under this file's rAF stub); firing it opens the menu, whose
+      // frame then schedules its OWN entrance frame — from a React effect that
+      // commits when act() exits, AFTER the clock advance. So a single drain,
+      // at any duration, always leaves exactly one frame pending, and it lands
+      // in `ambient`: the teardown assertion below then reads a correct cleanup
+      // as a leak. Two acts let React commit in between; neither frame
+      // reschedules, so the premise this snapshot is written to hold is
+      // restored rather than loosened.
+      act(() => {
+        vi.advanceTimersByTime(0);
+      });
       act(() => {
         vi.advanceTimersByTime(0);
       });
@@ -1148,8 +1174,17 @@ describe("§11 source-marker audit — every conditional-render site in Step3Rev
     // PLUS 1 (2026-08-15-step3-crew-preview §2.8): the "Open crew preview"
     // footer link, rendered only when the ordinary row carries a `stagedId`.
     // Deliberate-instant — a static anchor with no state and no animation.
+    //
+    // PLUS 5 (2026-08-27-wizard-review-attention-menu §3.2): the attention
+    // pill's segments — the needs-look segment, its sr-only 99+ expansion, the
+    // judgment segment, that segment's leading separator, and its own sr-only
+    // 99+ expansion. All five follow derived counts, all five are
+    // deliberate-instant, and the §8 pair table is exercised by the "attention
+    // pill: §8 inventory" describe below. The five-state chip ternary itself
+    // REPLACES the previous three-state one rather than adding a site.
+    // MEASURED by running the scanner, not predicted.
     const hits = findConditionalLines(MARKER_AUDIT_SRC);
-    expect(hits.length).toBe(18);
+    expect(hits.length).toBe(23);
   });
 
   test("every conditional-render site carries either the §11 instant marker or an animation/transition class on the line above it", () => {
@@ -1226,5 +1261,217 @@ describe("§D2 source-marker audit — every conditional-render site in the Repo
       if (!instant) bad.push(`line ${idx + 1}: ${(lines[idx] ?? "").trim()}`);
     }
     expect(bad).toEqual([]);
+  });
+});
+
+// ── §8 inventory: the attention pill's five states ──────────────────────────
+//
+// Five states — SheetChanged (S), AllClean (A), NeedsLook (N), Composite (C),
+// JudgmentOnly (J) — so ten ordered pairs, every one of them INSTANT by spec
+// §8. The value of the table is not that each pair "works": it is that no pair
+// animates and that the menu's open state survives exactly the pairs it should
+// (N/C/J, all interactive) and dies on exactly the pairs it should (anything
+// reaching S or A). Compound rows follow, which is where the real defects live.
+
+describe("attention pill: §8 inventory", () => {
+  const menuTid = tid("attention-menu");
+  const chipOf = (q: ReturnType<typeof renderModal>["q"]) => q.getByTestId(tid("chip"));
+
+  /** The five states as fixtures. `dirty` rides alongside because S is a PROP
+   *  state, not a data state. */
+  const STATES = {
+    S: { d: () => sectionData(), dirty: true },
+    A: { d: () => sectionData(), dirty: false },
+    N: { d: () => sectionData({ warnings: [warning("crew"), warning("crew")] }), dirty: false },
+    C: {
+      d: () => sectionData({ warnings: [warning("crew"), judgmentWarning("rooms")] }),
+      dirty: false,
+    },
+    J: { d: () => sectionData({ warnings: [judgmentWarning("rooms")] }), dirty: false },
+  } as const;
+  type StateKey = keyof typeof STATES;
+
+  const INTERACTIVE: StateKey[] = ["N", "C", "J"];
+  const SPAN: StateKey[] = ["S", "A"];
+
+  function renderState(k: StateKey) {
+    const st = STATES[k];
+    return renderModal({ d: st.d(), isDirtyRescan: st.dirty });
+  }
+
+  function rerenderState(q: ReturnType<typeof renderModal>["q"], k: StateKey) {
+    const st = STATES[k];
+    q.rerender(
+      <Step3ReviewModal
+        data={st.d()}
+        checked={false}
+        isDirtyRescan={st.dirty}
+        onRequestSetChecked={async () => true}
+        onClose={() => {}}
+      />,
+    );
+  }
+
+  const PAIRS: Array<[StateKey, StateKey]> = [
+    ["S", "A"],
+    ["S", "N"],
+    ["S", "C"],
+    ["S", "J"],
+    ["A", "N"],
+    ["A", "C"],
+    ["A", "J"],
+    ["N", "C"],
+    ["N", "J"],
+    ["C", "J"],
+  ];
+
+  test.each(PAIRS)("%s <-> %s is instant, in both directions", (from, to) => {
+    for (const [a, b] of [
+      [from, to],
+      [to, from],
+    ] as Array<[StateKey, StateKey]>) {
+      const { q } = renderState(a);
+      const before = chipOf(q);
+      expect(before.tagName).toBe(SPAN.includes(a) ? "SPAN" : "BUTTON");
+      // No animation on the chip or on whatever wraps it, in EITHER state: the
+      // wrapper is what a state-swap animation would most plausibly be hung on.
+      for (const el of [before, before.parentElement!]) {
+        expect(el.className).not.toMatch(/\banimate-/);
+        expect(el.className).not.toMatch(/\btransition-\[/);
+      }
+      rerenderState(q, b);
+      const after = chipOf(q);
+      expect(after.tagName).toBe(SPAN.includes(b) ? "SPAN" : "BUTTON");
+      for (const el of [after, after.parentElement!]) {
+        expect(el.className).not.toMatch(/\banimate-/);
+        expect(el.className).not.toMatch(/\btransition-\[/);
+      }
+      // A span state never has a panel beside it.
+      if (SPAN.includes(b)) expect(q.queryByTestId(menuTid)).toBeNull();
+      cleanup();
+    }
+  });
+
+  test.each([
+    ["N", "C"],
+    ["N", "J"],
+    ["C", "J"],
+  ] as Array<[StateKey, StateKey]>)(
+    "%s -> %s keeps an OPEN menu open and re-renders its rows",
+    async (from, to) => {
+      const { q } = renderState(from);
+      fireEvent.click(chipOf(q));
+      expect(q.getByTestId(menuTid).isConnected).toBe(true);
+      rerenderState(q, to);
+      expect(q.getByTestId(menuTid).isConnected).toBe(true);
+      expect(chipOf(q).getAttribute("aria-expanded")).toBe("true");
+      // Rows follow the NEW fixture, derived rather than restated.
+      const target = STATES[to].d();
+      const defs = step3Sections(target);
+      const by = warningsBySection(target.warnings, new Set(defs.map((s) => s.id)));
+      const expected = [...by]
+        .flatMap(([, l]) => l.map((e) => e.index))
+        .sort((a, b) => a - b)
+        .map((i) => `wizard-step3-card-${DFID}-attention-row-${i}`);
+      const rows = [
+        ...document.querySelectorAll(`[data-testid^="wizard-step3-card-${DFID}-attention-row-"]`),
+      ].map((r) => r.getAttribute("data-testid"));
+      expect([...rows].sort()).toEqual([...expected].sort());
+      cleanup();
+    },
+  );
+
+  // ── Compound rows ─────────────────────────────────────────────────────────
+
+  test("(a) open on N, data drops to A: the menu unmounts and focus stays in the dialog", () => {
+    const { q } = renderState("N");
+    fireEvent.click(chipOf(q));
+    expect(q.getByTestId(menuTid).isConnected).toBe(true);
+    rerenderState(q, "A");
+    expect(q.queryByTestId(menuTid)).toBeNull();
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  test("(b) open on N, a dirty rescan arrives: the menu unmounts and the span renders", () => {
+    const { q } = renderState("N");
+    fireEvent.click(chipOf(q));
+    rerenderState(q, "S");
+    expect(q.queryByTestId(menuTid)).toBeNull();
+    expect(chipOf(q).tagName).toBe("SPAN");
+    expect(chipOf(q).textContent).toBe("Sheet changed");
+  });
+
+  test("(c) a row clicked before the entrance frame flushes still navigates and closes", () => {
+    const { q } = renderState("N");
+    fireEvent.click(chipOf(q));
+    // No rAF flush between open and click: the entrance is mid-flight.
+    const row = document.querySelector(
+      `[data-testid^="wizard-step3-card-${DFID}-attention-row-"]`,
+    ) as HTMLElement;
+    expect(row).not.toBeNull();
+    fireEvent.click(row);
+    expect(q.queryByTestId(menuTid)).toBeNull();
+  });
+
+  test("(d) unmounting with the auto-open frame pending opens nothing and warns nothing", () => {
+    const scheduled: FrameRequestCallback[] = [];
+    const realRaf = window.requestAnimationFrame;
+    const realCaf = window.cancelAnimationFrame;
+    const cancelled = new Set<number>();
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      scheduled.push(cb);
+      return scheduled.length;
+    }) as typeof requestAnimationFrame;
+    window.cancelAnimationFrame = ((id: number) =>
+      cancelled.add(id)) as typeof cancelAnimationFrame;
+    const errors: unknown[] = [];
+    const realError = console.error;
+    console.error = (...args: unknown[]) => errors.push(args);
+    try {
+      const { q } = renderState("N");
+      expect(scheduled.length).toBeGreaterThan(0); // the auto-open frame is pending
+      q.unmount();
+      // Every scheduled frame was cancelled on teardown, so nothing can fire
+      // into an unmounted tree.
+      expect(cancelled.size).toBe(scheduled.length);
+      expect(errors).toEqual([]);
+    } finally {
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCaf;
+      console.error = realError;
+    }
+  });
+
+  test("(e) Escape during the entrance closes the menu, refocuses the pill, and leaves the modal open", () => {
+    const onClose = vi.fn();
+    const { q } = renderModal({ d: STATES.N.d(), onClose });
+    fireEvent.click(chipOf(q));
+    fireEvent.keyDown(chipOf(q), { key: "Escape" });
+    expect(q.queryByTestId(menuTid)).toBeNull();
+    expect(document.activeElement).toBe(chipOf(q));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("(f) a second row click moves the flash rather than adding one", () => {
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      value: vi.fn(),
+      configurable: true,
+      writable: true,
+    });
+    try {
+      const { q } = renderState("N");
+      fireEvent.click(chipOf(q));
+      fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-attention-row-0`));
+      fireEvent.click(chipOf(q));
+      fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-attention-row-1`));
+      const flashed = [...document.querySelectorAll("[data-step3-warning-flash]")];
+      expect(flashed.length).toBe(1);
+      expect(flashed[0]!.getAttribute("data-attention-anchor")).toBe("warning:1");
+    } finally {
+      if (original) Object.defineProperty(HTMLElement.prototype, "scrollTo", original);
+      else delete (HTMLElement.prototype as unknown as { scrollTo?: unknown }).scrollTo;
+    }
   });
 });

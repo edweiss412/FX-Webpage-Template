@@ -153,3 +153,43 @@ export function stagedRow(pr: ParseResult | null, overrides: Partial<Step3Row> =
     ...overrides,
   };
 }
+
+/** Fixture dfid/wizard-session id, shared with Step3ReviewModal.test.tsx. */
+export const STEP3_FIXTURE_DFID = "drive-abc-123";
+export const STEP3_FIXTURE_WSID = "00000000-1111-4222-8333-444444444444";
+
+/**
+ * The argument object `Step3ReviewModal.test.tsx`'s `sectionData()` hands to
+ * `buildStagedSectionData`. Exported so a second consumer can build the SAME
+ * staged fixture — the attention-index tests read section labels off the real
+ * registry (`step3Sections`), which needs a real `StagedSectionData`, and a
+ * second hand-assembled one would diverge silently.
+ *
+ * `dataOverrides` participates because row/dfid-dependent SectionCore fields
+ * (title, sourceAnchors, driveFileId) must derive from the FINAL row and dfid,
+ * not the defaults.
+ */
+export function sectionDataArgs(
+  prOverrides: Partial<ParseResult> = {},
+  dataOverrides: { row?: Step3Row; dfid?: string } = {},
+) {
+  const pr = buildParseResult(prOverrides);
+  const row = dataOverrides.row ?? stagedRow(pr);
+  const dfid = dataOverrides.dfid ?? STEP3_FIXTURE_DFID;
+  return {
+    pr,
+    row,
+    dfid,
+    wizardSessionId: STEP3_FIXTURE_WSID,
+    crewMembers: pr.crewMembers,
+    rooms: pr.rooms,
+    hotels: pr.hotelReservations,
+    pullSheet: pr.pullSheet ?? [],
+    archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
+    pullSheetOverride: null,
+    ros: pr.runOfShow ?? {},
+    warnings: pr.warnings,
+    agendaBaseline: [],
+    useRawDecisions: [],
+  };
+}

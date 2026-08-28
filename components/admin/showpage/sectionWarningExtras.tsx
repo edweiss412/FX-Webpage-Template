@@ -52,6 +52,9 @@ export function renderCrewUnderRowCards(args: {
         <div key={`crew-warn-${key}-${i}`} className="pl-6">
           <PerShowActionableWarnings
             items={[it.warning]}
+            // §4.4: built from the SAME `it` as `items`, so alignment holds by
+            // construction rather than by the component trusting the caller.
+            anchorIds={[`warning:${it.reportSurfaceId}`]}
             driveFileId={driveFileId}
             condensed
             // ACTIVE mount: this card renders DataQualityWarningControls with Report +
@@ -219,6 +222,8 @@ export function buildSectionWarningExtras(args: {
           ) : (
             <PerShowActionableWarnings
               items={g.items.map((it) => it.warning)}
+              // §4.4: one `.map` over the same `g.items` as `items` above.
+              anchorIds={g.items.map((it) => `warning:${it.reportSurfaceId}`)}
               driveFileId={driveFileId}
               // ACTIVE mount, same reason as the crew under-row cards above.
               showControlsNote

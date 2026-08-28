@@ -37,8 +37,8 @@
  * are interaction thresholds, not painted px (documented in DESIGN.md §5
  * "Interaction constants" per spec §6.3a's token-contract disposition).
  */
-import { useId, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Camera, Check, Loader2 } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Camera, Check, ChevronDown, Loader2 } from "lucide-react";
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
 import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { useViewerIsDeveloper } from "@/components/admin/dev/DeveloperFlagContext";
@@ -46,7 +46,14 @@ import { useDevCapture } from "@/components/admin/dev/DevCaptureControl";
 import { buildStagedSnapshot } from "@/components/admin/dev/snapshots";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
-import { sectionStatus, warningsBySection } from "@/lib/admin/step3SectionStatus";
+import { warningsBySection } from "@/lib/admin/step3SectionStatus";
+import { deriveWarningAttention } from "@/lib/admin/warningAttention";
+import { HEADER_ACTION_CAP } from "@/components/admin/review/headerActionCap";
+import {
+  WizardAttentionMenu,
+  type WizardAttentionEntry,
+} from "@/components/admin/wizard/WizardAttentionMenu";
+import type { AttentionJump } from "@/components/admin/review/ShowReviewSurface";
 import {
   dateSummarySegments,
   NotPublishableNote,
@@ -292,20 +299,112 @@ export function Step3ReviewModal({
   // with the review body into ShowReviewSurface. §7.1 rule (spec 2026-07-07): a
   // section is flagged when it has ≥1 NON-ambiguity warn; judgment-only sections
   // (all warns ambiguity-class) are excluded from the count.
-  const flaggedCount = useMemo(() => {
-    const defs = step3Sections(data);
-    const bySection = warningsBySection(data.warnings, new Set(defs.map((s) => s.id)));
-    let count = 0;
-    for (const [, entries] of bySection) {
-      if (sectionStatus(entries.map((e) => e.warning)) === "flagged") count += 1;
-    }
-    return count;
-  }, [data]);
-
   // The scroll container the modal (shell) owns and hands to ShowReviewSurface
   // as its scroll-spy root (spec §6.3a): the surface renders it as the content
   // pane and attaches the deterministic scroll listener to it.
   const scrollerRef = useRef<HTMLElement | null>(null);
+
+  // spec 2026-08-27 §3.1: the counts are WARNINGS, partitioned needs-look /
+  // judgment — not SECTIONS. Counting sections is the reported defect: two
+  // warnings in one section read "1 needs a look" while the list below the chip
+  // showed two. `index` is the position in the FULL data.warnings array, which
+  // is what `[data-warning-index]` carries, so a row's jump target is the row
+  // the operator is looking at.
+  const attention = useMemo(() => {
+    const defs = step3Sections(data);
+    const bySection = warningsBySection(data.warnings, new Set(defs.map((s) => s.id)));
+    const entries = [...bySection]
+      .flatMap(([sectionId, list]) =>
+        list.map((e) => ({
+          id: `warning:${e.index}`,
+          sectionId,
+          warning: e.warning,
+          index: e.index,
+        })),
+      )
+      .sort((a, b) => a.index - b.index);
+    return deriveWarningAttention(entries, defs);
+  }, [data]);
+  const n = attention.needsLook.length;
+  const m = attention.judgment.length;
+
+  // §3.5. `pillInteractive` gates BOTH the button states and the menu mount, so
+  // a dirty-rescan span and an open panel can never coexist.
+  const menuId = useId();
+  const pillRef = useRef<HTMLButtonElement | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // WHY it is open, not just that it is: an auto-opened panel is
+  // Escape-transparent until engaged (ratified amendment 2026-08-28, scoping
+  // spec §3.5), so the operator's first Esc still closes the MODAL.
+  const [menuAutoOpened, setMenuAutoOpened] = useState(false);
+  const pillInteractive = !isDirtyRescan && n + m > 0;
+  // Reconciliation, following the published modal's probe-ratified mechanism
+  // (PublishedReviewModal.tsx, "Compound reconciliation"): the menu's open state
+  // is DERIVED, so the panel unmounts in the SAME render that turns the trigger
+  // back into a span — no orphan frame — and the stale flag is then narrowed
+  // during render rather than in an effect. Spec §3.5 words this as an effect;
+  // the precedent it names records that the deferred variant FAILED 3 of 9
+  // probe cells, because a flag left up for one frame lets a 1-frame
+  // interactivity rebound resurrect the menu. Same contract, ratified mechanism.
+  const menuEffectivelyOpen = menuOpen && pillInteractive;
+  if (menuOpen && !pillInteractive) {
+    // Sanctioned setState-during-render: strictly narrowing (it re-renders
+    // immediately with menuOpen=false, making the condition false), not an
+    // effect, so the set-state-in-effect contract does not apply.
+    setMenuOpen(false);
+  }
+
+  // Auto-open, once per mount. `!pillInteractive` returns WITHOUT consuming the
+  // one-shot: a dirty rescan on arrival defers it until the sheet is
+  // re-approved, which is the moment the operator actually needs the index.
+  const autoOpenFiredRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenFiredRef.current) return;
+    if (!pillInteractive) return;
+    if (menuOpen) {
+      autoOpenFiredRef.current = true;
+      return;
+    }
+    if (n === 0) return;
+    const raf = requestAnimationFrame(() => {
+      autoOpenFiredRef.current = true;
+      setMenuAutoOpened(true);
+      setMenuOpen(true);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [n, menuOpen, pillInteractive]);
+
+  // Focus rescue, copied from PublishedReviewModal's menuWasEffectivelyOpenRef
+  // block: focus must never leave the dialog because DATA changed under it.
+  const menuWasEffectivelyOpenRef = useRef(false);
+  useEffect(() => {
+    const was = menuWasEffectivelyOpenRef.current;
+    menuWasEffectivelyOpenRef.current = menuEffectivelyOpen;
+    const dialog = scrollerRef.current?.closest('[role="dialog"]') as HTMLElement | null;
+    if (menuEffectivelyOpen) {
+      const active = document.activeElement;
+      if (dialog && (active === document.body || (active && !dialog.contains(active)))) {
+        pillRef.current?.focus();
+      }
+      return;
+    }
+    // Closed because the pill stopped being interactive — NOT a user close,
+    // which keeps pillInteractive true and manages its own focus.
+    if (!was || pillInteractive) return;
+    if (!dialog) return;
+    if (dialog.contains(document.activeElement) && document.activeElement !== document.body) return;
+    if (!dialog.hasAttribute("tabindex")) dialog.setAttribute("tabindex", "-1");
+    dialog.focus();
+  });
+
+  // §3.4. The modal's first attention prop; the other attention props stay
+  // absent. `hashSync` is false here, so the surface writes no history entry.
+  const [jump, setJump] = useState<AttentionJump | null>(null);
+  const jumpNonceRef = useRef(0);
+  const navigateTo = (entry: WizardAttentionEntry) => {
+    jumpNonceRef.current += 1;
+    setJump({ itemId: entry.id, sectionId: "warnings", nonce: jumpNonceRef.current });
+  };
 
   // ── Header derivations (spec §9.1) ─────────────────────────────────────────
   // title/clientLabel are composed in the staged builder (Task 4); the modal reads
@@ -447,14 +546,101 @@ export function Step3ReviewModal({
                 <span aria-hidden="true" className="size-2 rounded-pill bg-status-review" />
                 Sheet changed
               </span>
-            ) : flaggedCount > 0 ? (
-              <span
-                data-testid={`wizard-step3-card-${dfid}-review-chip`}
-                className="inline-flex items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-warning-text"
-              >
-                <span aria-hidden="true" className="size-2 rounded-pill bg-status-review" />
-                {flaggedCount === 1 ? "1 needs a look" : `${flaggedCount} need a look`}
-              </span>
+            ) : pillInteractive ? (
+              /* §3.2 button states. `min-w-0` on the wrapper for the same reason
+                 the published pill has it: a flex item defaults to
+                 `min-width: auto`, so its min-content width can force it wider
+                 than the capped parent. The wrapper renders ONLY here, so the
+                 All clean and Sheet changed spans stay bare in the cluster and
+                 the T-STEP3-INVARIANT baseline is untouched. */
+              <div className="relative min-w-0">
+                <button
+                  ref={pillRef}
+                  type="button"
+                  data-testid={`wizard-step3-card-${dfid}-review-chip`}
+                  aria-expanded={menuOpen}
+                  aria-controls={menuId}
+                  onClick={() => {
+                    // A press is an engaged open, whichever way it toggles.
+                    setMenuAutoOpened(false);
+                    setMenuOpen((v) => !v);
+                  }}
+                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums ${HEADER_ACTION_CAP} max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                    n > 0
+                      ? "border border-warning-text bg-warning-bg text-warning-text hover:bg-warning-bg/80"
+                      : /* judgment-only: quiet, because a judgment call is not a
+                           problem — the same quiet contract the published
+                           monitoring-only pill carries. */
+                        "border border-text-faint bg-surface-sunken text-text hover:border-text-subtle"
+                  }`}
+                >
+                  {/* Decorative — the count text carries the meaning
+                      (DESIGN.md §1.3 colour-blind floor). */}
+                  <span
+                    aria-hidden="true"
+                    className={`size-2 shrink-0 rounded-pill ${
+                      n > 0 ? "bg-status-review" : "bg-text-faint"
+                    }`}
+                  />
+                  {/* §11: instant — deliberate (segment presence follows the derived count) */}
+                  {n > 0 ? (
+                    <>
+                      {/* Capped at 99+ for the same reason the published pill is:
+                          an unbounded count in a shrink-0 cluster squeezes the
+                          title at 375px. The exact count survives for AT. */}
+                      {n > 99 ? "99+" : n} {n === 1 ? "needs a look" : "need a look"}
+                      {/* §11: instant — deliberate (sr-only cap expansion follows the count) */}
+                      {n > 99 ? (
+                        <>
+                          {" "}
+                          <span className="sr-only">({n} need a look)</span>
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {/* §11: instant — deliberate (judgment segment presence follows the derived count) */}
+                  {m > 0 ? (
+                    <span
+                      data-testid="wizard-attention-pill-judgment-segment"
+                      className={`inline-flex items-center gap-1.5 ${
+                        n > 0 ? "text-warning-text/80" : ""
+                      }`}
+                    >
+                      {/* Separator only BETWEEN segments, never a leading glyph,
+                          and a REAL " · " text node so it is announced too. */}
+                      {/* §11: instant — deliberate (separator follows segment presence) */}
+                      {n > 0 ? <span className="opacity-50">{" · "}</span> : null}
+                      <span>
+                        {m > 99 ? "99+" : m} {m === 1 ? "judgment call" : "judgment calls"}
+                      </span>
+                      {/* §11: instant — deliberate (sr-only cap expansion follows the count) */}
+                      {m > 99 ? (
+                        <>
+                          {" "}
+                          <span className="sr-only">({m} judgment calls)</span>
+                        </>
+                      ) : null}
+                    </span>
+                  ) : null}
+                  <ChevronDown
+                    aria-hidden="true"
+                    className={`size-3 shrink-0 transition-transform duration-fast ease-out-quart motion-reduce:transition-none ${
+                      n > 0 ? "text-warning-text" : "text-text-subtle"
+                    } ${menuOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                <div id={menuId}>
+                  <WizardAttentionMenu
+                    dfid={dfid}
+                    attention={attention}
+                    open={menuEffectivelyOpen}
+                    onClose={() => setMenuOpen(false)}
+                    onNavigate={navigateTo}
+                    pillRef={pillRef}
+                    autoOpened={menuAutoOpened}
+                  />
+                </div>
+              </div>
             ) : (
               <span
                 data-testid={`wizard-step3-card-${dfid}-review-chip`}
@@ -673,9 +859,11 @@ export function Step3ReviewModal({
                 data-testid={`wizard-step3-card-${dfid}-review-note`}
                 className="hidden min-w-0 items-center text-sm text-text-subtle sm:flex sm:flex-1"
               >
-                {flaggedCount > 0
-                  ? `${flaggedCount} to review · publishing isn't blocked`
-                  : "All clear to publish"}
+                {n > 0
+                  ? `${n} to review · publishing isn't blocked`
+                  : m > 0
+                    ? `${m} parsed with judgment · publishing isn't blocked`
+                    : "All clear to publish"}
               </span>
               <RescanSheetButton
                 driveFileId={dfid}
@@ -725,6 +913,7 @@ export function Step3ReviewModal({
         data={data}
         isPublishRunActive={isPublishRunActive}
         scrollerRef={scrollerRef}
+        attentionJump={jump}
         layout="modal"
       >
         {/* Re-apply resolution body (spec §4.4): rendered ABOVE the section

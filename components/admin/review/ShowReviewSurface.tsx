@@ -55,6 +55,7 @@ import {
   Step3RunStateContext,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { warningOffersFix } from "@/lib/admin/warningFixAffordance";
+import { isWarnSeverity } from "@/lib/parser/dataGaps";
 import type { SectionAttention } from "@/lib/admin/sectionAttention";
 import { isStaged, type SectionData } from "@/components/admin/review/sectionData";
 // WARNING_HIGHLIGHT_MS stays DEFINED in Step3ReviewModal.tsx (the §11
@@ -339,7 +340,7 @@ export function ShowReviewSurface({
       // and those warnings already light their own sections' dots via `flagged`.
       return routedWarnings.here > 0;
     }
-    return data.warnings.some((w) => w.severity === "warn");
+    return data.warnings.some(isWarnSeverity);
   }, [data.warnings, routedWarnings, routedWarningsRenderElsewhere]);
 
   // Combined rail order (spec §5): Overview (extraSectionsBefore), the registry
@@ -568,6 +569,17 @@ export function ShowReviewSurface({
     if (!scroller || !target || typeof scroller.scrollTo !== "function") {
       handleNavClick(jump.sectionId); // anchor missing → section-top, no flash
       return;
+    }
+    // §4.4 (amended plan R4): a crew warning past the under-row cap renders
+    // INSIDE a closed `<details>` (CrewUnderRowStack, CAP = 2), whose contents
+    // have no layout — so the scroll would land on a collapsed box and the flash
+    // would fire on something the operator cannot see. Open every closed
+    // disclosure ancestor BEFORE measuring. Inert for alert/hold anchors, none
+    // of which sits inside a `<details>` today.
+    for (let el: HTMLElement | null = target; el && el !== scroller; el = el.parentElement) {
+      if (el.tagName === "DETAILS" && !(el as HTMLDetailsElement).open) {
+        (el as HTMLDetailsElement).open = true;
+      }
     }
     setActive(jump.sectionId);
     if (hashSync && typeof window !== "undefined") {

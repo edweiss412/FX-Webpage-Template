@@ -43,7 +43,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:3860":
+  "components/admin/wizard/step3ReviewSections.tsx:3865":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -333,7 +333,42 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // it was replaced, which is what "deliberately" means here: membership is unchanged
     // at 35 both sides, and exactly ONE row moved, step3ReviewSections.tsx 3755 -> 3800,
     // same file, same form, same marked state. A pure line shift from insertions above it.
-    expect(digest).toBe("6671b92f0cc47c70e7bbd23674f2636e4e05529d0c14f9a263a91b43b97f7802");
+    //
+    // Regenerated again 2026-08-27 for feat/wizard-review-attention-menu, delta read
+    // the same way — by mapping every candidate row through the branch's own diff
+    // hunks against the merge base, not by eyeballing the failure. Membership
+    // unchanged at 35, and again exactly ONE row moved, step3ReviewSections.tsx
+    // 3800 -> 3801: the isWarnSeverity import line (spec §2.1) sits above it. Same
+    // file, same form, same marked state. Only ONE of the 35 rows lives in any file
+    // this branch touched at all.
+    //
+    // And once more the same day, for Task 8 of the same branch, delta read the
+    // same way (this file's own set, diffed row by row before replacement):
+    // membership unchanged at 35, exactly ONE row moved, step3ReviewSections.tsx
+    // 3801 -> 3805, the §3.4 data-attention-anchor lines added to the warning
+    // <li> above it. Same file, same form, same marked state.
+    //
+    // Regenerated a third time on the MERGE of origin/main (98a800ebe) into this
+    // branch. Neither parent's literal is right for the merged tree, so it was
+    // recomputed rather than picked: membership unchanged at 35, and the two rows
+    // that moved are both in files MAIN touched, not this branch's —
+    // EventTimeline.tsx 14 -> 15 and HealthAlertsPanel.tsx 279 -> 280, same file,
+    // same form, same marked state each. This branch's own row
+    // (step3ReviewSections.tsx:3805) is unchanged by the merge.
+    //
+    // Regenerated on the MERGE of origin/main (6441d5e4c, PR #927
+    // feat/wizard-review-attention-menu) into perf/admin-diagram-next-image. BOTH
+    // parents had regenerated this literal, so neither describes the merged tree and
+    // the conflict could not be settled by picking a side. Recomputed against the
+    // merged tree and PROVED two-sided, not asserted: membership is unchanged at 35,
+    // and exactly ONE row moves against EACH parent — step3ReviewSections.tsx, the
+    // same `unknown:false` row, at 3865 on the merged tree against 3805 on main and
+    // 3860 on this branch. Reverting that single row to 3805 reproduces main's
+    // ed2c13fa... byte-for-byte, and reverting it to 3860 reproduces this branch's
+    // 6671b92f... byte-for-byte, which is only possible if each pair of sets differs
+    // by that row alone. Its residue key moved with it, to 3865, and was located by
+    // the scanner rather than bumped.
+    expect(digest).toBe("b4df1bc63c55ccf5c8098c9010e9aa649822f977ae89c9b21c34739d4ab29097");
   });
 });
 

@@ -203,7 +203,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/Step3ReviewModal.tsx",
-    line: 783,
+    // :783 until 2026-08-27 — the attention pill's state block and its effects
+    // (spec §3.2/§3.5) sit above the resolution radios.
+    line: 972,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",
@@ -306,7 +308,11 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // which added the placeholder's name span and the anchor's focus ring 19 lines above,
     // then 3928 -> 3889 when the tile geometry moved out to `diagramTileGeometry.ts`.
     // The ELEMENT is untouched: same `<a>`, same full-bleed layout, same reason below.
-    line: 3899,
+    // Main moved the same row independently (the isWarnSeverity import, then the
+    // §3.4 data-attention-anchor lines on the warning <li>), so NEITHER side's number
+    // describes the merged tree. Located by RUNNING the scanner on the merged tree:
+    // the live unclassified site is 3904, and 3904 is that same `<a>`.
+    line: 3904,
     tag: "a",
     category: "full-bleed",
     reason:

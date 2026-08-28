@@ -28,12 +28,26 @@
  * mount-frame idiom — pre-frame opacity-0 scale-95, flipped on the next rAF;
  * reduced-motion renders instant. Close is instant (unmount).
  */
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
+import { reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
+import type { WarningAttentionEntry } from "@/lib/admin/warningAttention";
+import type { SectionId } from "@/lib/admin/step3SectionStatus";
+import type { ParseWarning } from "@/lib/parser/types";
 import { autoResolveNote, NEEDS_LOOK_CODES, type NeedsLookCode } from "@/lib/adminAlerts/audience";
 import { NEEDS_LOOK_HINTS } from "@/lib/admin/needsLookHints";
 import { cn } from "@/lib/ui/cn";
+
+/** One indexed sheet warning. `reportSurfaceId` is content-derived, so two
+ *  identical warnings in a section share an `id` (spec §10) — which is why the
+ *  row testid and React key carry the entry's POSITION as well. */
+export type SheetWarningEntry = WarningAttentionEntry<{
+  id: string;
+  sectionId: SectionId;
+  warning: ParseWarning;
+  reportSurfaceId: string;
+}>;
 
 export type AttentionMenuProps = {
   items: AttentionItem[];
@@ -41,6 +55,13 @@ export type AttentionMenuProps = {
   onClose: () => void;
   onNavigate: (item: AttentionItem) => void;
   pillRef: RefObject<HTMLButtonElement | null>;
+  /** ABSENT → the panel is byte-identical to the alerts-only menu (spec §4.3).
+   *  Entries and their handler travel together so the type cannot express a
+   *  list of rows with nothing to do when one is clicked. */
+  warningIndex?: {
+    entries: readonly SheetWarningEntry[];
+    onNavigate: (entry: SheetWarningEntry) => void;
+  };
 };
 
 const TONE_DOT: Record<AttentionItem["tone"], { dot: string; srText: string }> = {
@@ -48,23 +69,268 @@ const TONE_DOT: Record<AttentionItem["tone"], { dot: string; srText: string }> =
   notice: { dot: cn("bg-status-review"), srText: "needs review: " },
 };
 
-export function AttentionMenu({ items, open, onClose, onNavigate, pillRef }: AttentionMenuProps) {
+export type AttentionMenuFrameProps = {
+  /** Panel testid. The published menu and the wizard menu are distinct surfaces. */
+  testId: string;
+  /** Accessible name of the panel — the leading group actually present. */
+  ariaLabel: string;
+  /** Accessible name of the nested scrollable region. */
+  scrollerLabel: string;
+  pillRef: RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+  /** Rendered ABOVE the scroller, so it labels the panel while a long list
+   *  scrolls under it. Omit for a panel whose leading group heading scrolls. */
+  heading?: ReactNode;
+  /** ESCAPE-TRANSPARENT until the user engages with the panel.
+   *
+   *  Ratified amendment 2026-08-28 (bl-orch), SCOPING spec §3.5 rather than
+   *  negating it. "First Esc closes the menu" presumes a menu the user OPENED;
+   *  an auto-opened panel nobody asked for must not spend the user's first
+   *  Escape, which is what broke the pre-existing exit-window contract
+   *  (`step3-review-modal.interactions.spec.ts`: the modal never closed).
+   *  Once the user hovers, focuses, or clicks inside, §3.5 applies as written.
+   *  Absent or false → the panel claims Escape immediately, which is correct
+   *  for a menu the user opened by pressing the pill. */
+  escTransparentUntilEngaged?: boolean;
+  children: ReactNode;
+};
+
+export type AttentionMenuRowProps = {
+  testId: string;
+  /** Tailwind background class for the tone dot. */
+  dotClassName: string;
+  /** Second channel for the tone, read before the title (WCAG 1.4.1). */
+  srText: string;
+  title: string;
+  secondLine: string | null;
+  /** False when the second line is a fix hint, which must wrap in full. */
+  truncateSecondLine: boolean;
+  onSelect: () => void;
+};
+
+export function AttentionMenu({
+  items,
+  open,
+  onClose,
+  onNavigate,
+  pillRef,
+  warningIndex,
+}: AttentionMenuProps) {
   if (!open) return null;
+
+  // attention-index §2.1: TWO groups. `monitoring` is the former self-heal
+  // filter verbatim; `needsYou` is its complement, which preserves the
+  // FAIL-VISIBLE default (spec 2026-07-21 §3.4) for free — a non-actionable
+  // item with no clearingKind lands in needsYou, never silently dark.
+  // The `!i.actionable` guard lives inside the monitoring predicate (spec §3.3),
+  // so a mistagged actionable item is counted once, in needsYou only.
+  const monitoring = items.filter((i) => !i.actionable && i.clearingKind === "self_heal");
+  const needsYou = items.filter((i) => !(!i.actionable && i.clearingKind === "self_heal"));
+  // Ordering needs no sort: deriveAttentionItems already returns
+  // [...holds, ...actionable, ...needsLook, ...selfHeal], so the merged group
+  // is button-clearable-first for free (§2.1 "Ordering is unchanged").
+  // A monitoring-only open must not render an empty "Needs you" section; the
+  // panel takes its accessible name from the first group actually present.
+  const hasNeedsYou = needsYou.length > 0;
+  const sheetWarningRows = warningIndex?.entries ?? [];
+
   return (
-    <AttentionMenuPanel items={items} onClose={onClose} onNavigate={onNavigate} pillRef={pillRef} />
+    <AttentionMenuFrame
+      testId="published-show-review-attention-menu"
+      ariaLabel={
+        hasNeedsYou ? "Needs you" : sheetWarningRows.length > 0 ? "Sheet warnings" : "Monitoring"
+      }
+      scrollerLabel="Attention items"
+      pillRef={pillRef}
+      onClose={onClose}
+      heading={
+        /* Heading placement is PRESERVED, not normalised (attention-index §2.1):
+           this one stays OUTSIDE the scroller, so it labels the panel while a
+           long needs-you list scrolls under it. The testid is on the CONTAINER
+           — that is the element whose whole block unmounts on the O1<->O2
+           collapse, and the transition audit targets it. */
+        hasNeedsYou ? (
+          <div
+            data-testid="attention-needsyou-heading"
+            className="border-b border-border px-4 pt-3 pb-2"
+          >
+            <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+              Needs you
+            </span>
+          </div>
+        ) : undefined
+      }
+    >
+      {needsYou.map((item) => {
+        const tone = TONE_DOT[item.tone];
+        const code = item.kind === "alert" ? item.alert.code : null;
+        // Fix hint when the code has one; otherwise the item's identity text.
+        // NEVER both (§2.2 second-line rule) — the hint is the more actionable
+        // of the two, so it wins wherever it exists.
+        const hint =
+          code && NEEDS_LOOK_CODES.has(code) ? NEEDS_LOOK_HINTS[code as NeedsLookCode] : null;
+        const secondLine = hint ?? item.menuSubtitle;
+        return (
+          <AttentionMenuRow
+            key={item.id}
+            testId={`attention-menu-row-${item.id}`}
+            dotClassName={tone.dot}
+            srText={tone.srText}
+            title={item.menuTitle}
+            secondLine={secondLine}
+            truncateSecondLine={hint === null}
+            onSelect={() => {
+              onClose();
+              onNavigate(item);
+            }}
+          />
+        );
+      })}
+      {sheetWarningRows.length > 0 ? (
+        /* Sheet warnings (spec §4.3): an index of the sheet's own parse
+           warnings, between the alert rows and the monitoring rows. Same row
+           component as Needs you, so the two can never drift apart visually. */
+        <div data-testid="attention-sheetwarnings-group">
+          <div
+            data-testid="attention-sheetwarnings-heading"
+            className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasNeedsYou ? "border-t border-border" : "rounded-t-md"}`}
+          >
+            <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+              Sheet warnings
+            </span>
+          </div>
+          {sheetWarningRows.map((entry, i) => (
+            <AttentionMenuRow
+              key={`${entry.id}:${i}`}
+              testId={`attention-menu-row-${entry.id}-${i}`}
+              /* Judgment is HOLLOW, not merely a fainter fill. DESIGN.md's
+                 colour-blind floor says a state signal never rides on hue
+                 alone, and `sr-only` text is AT-only — on this surface the two
+                 tones share a group (spec §4.3 ratifies no split here), so
+                 shape has to carry it. The hollow ring is this menu's own
+                 existing idiom, already used by the monitoring dot below. */
+              dotClassName={
+                entry.tone === "judgment"
+                  ? "border-[1.5px] border-text-faint bg-transparent"
+                  : "bg-status-review"
+              }
+              srText={entry.tone === "judgment" ? "judgment call: " : "needs review: "}
+              title={reviewWarningTitle(entry.warning)}
+              secondLine={entry.sectionLabel}
+              truncateSecondLine
+              onSelect={() => {
+                onClose();
+                warningIndex!.onNavigate(entry);
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
+      {monitoring.length > 0 ? (
+        /* Monitoring group (monitoring-badge-expand §3.2): one read-only row
+           per item - title + auto-resolve note. No interactive descendants,
+           no transitions (§3.4: instant; computed-style pinned in e2e). */
+        <div
+          data-testid="attention-monitoring-group"
+          className={
+            hasNeedsYou || sheetWarningRows.length > 0 ? "border-t border-border" : undefined
+          }
+        >
+          {/* rounded-t when this group leads the panel: the sunken header must
+              not bleed past the rounded border. Testid on the CONTAINER, per
+              the needs-you heading above. */}
+          <div
+            data-testid="attention-monitoring-heading"
+            className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasNeedsYou || sheetWarningRows.length > 0 ? "" : "rounded-t-md"}`}
+          >
+            <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+              Monitoring
+            </span>
+          </div>
+          {monitoring.map((item) => (
+            <div
+              key={item.id}
+              data-testid={`attention-monitoring-row-${item.id}`}
+              className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0"
+            >
+              <span
+                aria-hidden="true"
+                className="mt-1.5 size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
+              />
+              <span className="sr-only">monitoring, </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-text-strong">
+                  {item.menuTitle}
+                </span>
+                <span className="block text-xs/relaxed text-text-subtle">
+                  {autoResolveNote(item.kind === "alert" ? item.alert.code : "__none__")}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </AttentionMenuFrame>
+  );
+}
+
+/** One pressable index row: tone dot, title, optional second line, jump chevron.
+ *  Exported so the wizard's warning index renders the SAME row rather than a
+ *  visual copy that drifts (spec §5). */
+export function AttentionMenuRow({
+  testId,
+  dotClassName,
+  srText,
+  title,
+  secondLine,
+  truncateSecondLine,
+  onSelect,
+}: AttentionMenuRowProps) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onSelect}
+      className="flex min-h-tap-min w-full items-center gap-3 border-b border-border px-4 py-3 text-left transition-colors duration-fast last:border-b-0 hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-inset"
+    >
+      <span aria-hidden="true" className={`size-2 shrink-0 rounded-pill ${dotClassName}`} />
+      <span className="sr-only">{srText}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-text-strong">{title}</span>
+        {secondLine ? (
+          <span
+            className={`block text-xs/relaxed text-text-subtle ${truncateSecondLine ? "truncate" : ""}`}
+          >
+            {secondLine}
+          </span>
+        ) : null}
+      </span>
+      <span aria-hidden="true" className="shrink-0 text-sm text-text-subtle">
+        →
+      </span>
+    </button>
   );
 }
 
 /** Mounted only while open — the entrance state and document listeners live on
- *  the panel's own mount lifecycle (no sync setState in effects; re-subscribing
- *  the two document listeners per render is the ReviewModalShell precedent). */
-function AttentionMenuPanel({
-  items,
-  onClose,
-  onNavigate,
+ *  the frame's own mount lifecycle (no sync setState in effects; re-subscribing
+ *  the two document listeners per render is the ReviewModalShell precedent).
+ *  Exported so the wizard's warning index reuses the overlay chrome, dismissal
+ *  contract and clip fit rather than re-implementing them (spec §5). */
+export function AttentionMenuFrame({
+  testId,
+  ariaLabel,
+  scrollerLabel,
   pillRef,
-}: Omit<AttentionMenuProps, "open">) {
+  onClose,
+  heading,
+  escTransparentUntilEngaged = false,
+  children,
+}: AttentionMenuFrameProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  // Engagement is a REF, not state: it must not re-render the panel, and the
+  // listener below reads it at event time rather than closing over a snapshot.
+  const engagedRef = useRef(!escTransparentUntilEngaged);
   const [entered, setEntered] = useState(false);
   // Re-apply key is the entrance flag: the scale-95 entrance distorts the
   // measured rect, and the mount measurement runs before the entrance rAF, so
@@ -87,6 +353,9 @@ function AttentionMenuPanel({
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      // Not yet engaged: let the key travel to the shell, which closes the
+      // modal. The panel goes with it, so nothing is orphaned.
+      if (!engagedRef.current) return;
       e.preventDefault();
       e.stopPropagation();
       onClose();
@@ -118,46 +387,26 @@ function AttentionMenuPanel({
     };
   }, [onClose, pillRef]);
 
-  // attention-index §2.1: TWO groups. `monitoring` is the former self-heal
-  // filter verbatim; `needsYou` is its complement, which preserves the
-  // FAIL-VISIBLE default (spec 2026-07-21 §3.4) for free — a non-actionable
-  // item with no clearingKind lands in needsYou, never silently dark.
-  // The `!i.actionable` guard lives inside the monitoring predicate (spec §3.3),
-  // so a mistagged actionable item is counted once, in needsYou only.
-  const monitoring = items.filter((i) => !i.actionable && i.clearingKind === "self_heal");
-  const needsYou = items.filter((i) => !(!i.actionable && i.clearingKind === "self_heal"));
-  // Ordering needs no sort: deriveAttentionItems already returns
-  // [...holds, ...actionable, ...needsLook, ...selfHeal], so the merged group
-  // is button-clearable-first for free (§2.1 "Ordering is unchanged").
-  // A monitoring-only open must not render an empty "Needs you" section; the
-  // panel takes its accessible name from the first group actually present.
-  const hasNeedsYou = needsYou.length > 0;
-
   return (
     <div
       ref={panelRef}
-      data-testid="published-show-review-attention-menu"
+      data-testid={testId}
       role="group"
-      aria-label={hasNeedsYou ? "Needs you" : "Monitoring"}
+      aria-label={ariaLabel}
+      onPointerEnter={() => {
+        engagedRef.current = true;
+      }}
+      onPointerDownCapture={() => {
+        engagedRef.current = true;
+      }}
+      onFocusCapture={() => {
+        engagedRef.current = true;
+      }}
       className={`absolute top-[calc(100%+8px)] right-0 z-dropdown w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-popover transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
         entered ? "scale-100 opacity-100" : "scale-95 opacity-0"
       }`}
     >
-      {/* Heading placement is PRESERVED, not normalised (attention-index §2.1):
-          this one stays OUTSIDE the scroller below, so it labels the panel while
-          a long needs-you list scrolls under it. The testid is on the CONTAINER
-          — that is the element whose whole block unmounts on the O1<->O2
-          collapse, and the transition audit targets it. */}
-      {hasNeedsYou ? (
-        <div
-          data-testid="attention-needsyou-heading"
-          className="border-b border-border px-4 pt-3 pb-2"
-        >
-          <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-            Needs you
-          </span>
-        </div>
-      ) : null}
+      {heading ?? null}
       {/* The scroller, not the panel, is the SCROLLABLE REGION: it owns the
           scroll range, and it can overflow with zero focusable descendants (a
           monitoring-only list is entirely read-only rows), so engines cannot be
@@ -172,92 +421,11 @@ function AttentionMenuPanel({
       <div
         ref={fitRef}
         role="group"
-        aria-label="Attention items"
+        aria-label={scrollerLabel}
         tabIndex={0}
         className="max-h-96 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-inset"
       >
-        {needsYou.map((item) => {
-          const tone = TONE_DOT[item.tone];
-          const code = item.kind === "alert" ? item.alert.code : null;
-          // Fix hint when the code has one; otherwise the item's identity text.
-          // NEVER both (§2.2 second-line rule) — the hint is the more actionable
-          // of the two, so it wins wherever it exists.
-          const hint =
-            code && NEEDS_LOOK_CODES.has(code) ? NEEDS_LOOK_HINTS[code as NeedsLookCode] : null;
-          const secondLine = hint ?? item.menuSubtitle;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              data-testid={`attention-menu-row-${item.id}`}
-              onClick={() => {
-                onClose();
-                onNavigate(item);
-              }}
-              className="flex min-h-tap-min w-full items-center gap-3 border-b border-border px-4 py-3 text-left transition-colors duration-fast last:border-b-0 hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-inset"
-            >
-              <span aria-hidden="true" className={`size-2 shrink-0 rounded-pill ${tone.dot}`} />
-              <span className="sr-only">{tone.srText}</span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-text-strong">
-                  {item.menuTitle}
-                </span>
-                {secondLine ? (
-                  <span
-                    className={`block text-xs/relaxed text-text-subtle ${hint ? "" : "truncate"}`}
-                  >
-                    {secondLine}
-                  </span>
-                ) : null}
-              </span>
-              <span aria-hidden="true" className="shrink-0 text-sm text-text-subtle">
-                →
-              </span>
-            </button>
-          );
-        })}
-        {monitoring.length > 0 ? (
-          /* Monitoring group (monitoring-badge-expand §3.2): one read-only row
-             per item - title + auto-resolve note. No interactive descendants,
-             no transitions (§3.4: instant; computed-style pinned in e2e). */
-          <div
-            data-testid="attention-monitoring-group"
-            className={hasNeedsYou ? "border-t border-border" : undefined}
-          >
-            {/* rounded-t when this group leads the panel: the sunken header must
-                not bleed past the rounded border. Testid on the CONTAINER, per
-                the needs-you heading above. */}
-            <div
-              data-testid="attention-monitoring-heading"
-              className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasNeedsYou ? "" : "rounded-t-md"}`}
-            >
-              <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-                Monitoring
-              </span>
-            </div>
-            {monitoring.map((item) => (
-              <div
-                key={item.id}
-                data-testid={`attention-monitoring-row-${item.id}`}
-                className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0"
-              >
-                <span
-                  aria-hidden="true"
-                  className="mt-1.5 size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
-                />
-                <span className="sr-only">monitoring, </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-text-strong">
-                    {item.menuTitle}
-                  </span>
-                  <span className="block text-xs/relaxed text-text-subtle">
-                    {autoResolveNote(item.kind === "alert" ? item.alert.code : "__none__")}
-                  </span>
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : null}
+        {children}
       </div>
     </div>
   );

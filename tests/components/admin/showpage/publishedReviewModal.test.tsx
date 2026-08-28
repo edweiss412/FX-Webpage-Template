@@ -59,6 +59,8 @@ import { buildPublishedSectionData } from "@/components/admin/review/publishedAd
 import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
 import { dateSummarySegments, step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import { maxZLevel } from "../../../_shared/zLevel";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
+import { buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
@@ -488,6 +490,180 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
   /** Auto-open is rAF-deferred (react-hooks/set-state-in-effect contract) —
    *  await the menu instead of asserting synchronously. */
   const findMenu = () => screen.findByTestId(`${TB}-attention-menu`);
+
+  // ── Sheet-warnings segment + warning index (wizard-review-attention-menu §4) ──
+  // The reported defect: three active warn rows on the sheet and the pill still
+  // read "In sync", because `interactive` had no warnings term. Every count
+  // below is derived from the FIXTURE through the production model, never
+  // restated — a fixture that stops routing cannot satisfy these by accident.
+
+  const warnRow = (code: string, kind: string): ParseWarning => ({
+    severity: "warn",
+    code,
+    message: "",
+    blockRef: { kind },
+  });
+
+  /** k = every ACTIVE warn row the model routes, read back out of the props the
+   *  component will receive. */
+  function expectedK(warnings: ParseWarning[]): number {
+    const props = baseProps({}, warnings);
+    return Object.values(props.bySection).reduce((n, m) => n + (m?.active.length ?? 0), 0);
+  }
+
+  it("sheet warnings alone: interactive '{k} sheet warnings' pill, never In sync (spec §4.2)", () => {
+    const ws = [
+      warnRow("UNKNOWN_FIELD", "crew"),
+      warnRow("UNKNOWN_FIELD", "crew"),
+      warnRow("FIELD_UNREADABLE", "rooms"),
+    ];
+    const k = expectedK(ws);
+    premise("fixture routes more than one warning", k, 1);
+    renderModal({ attentionItems: [] }, ws);
+    const el = pill();
+    expect(el.tagName).toBe("BUTTON");
+    expect(visibleText(el)).toBe(`${k} sheet warnings`);
+    expect(screen.queryByText("In sync")).toBeNull();
+  });
+
+  it("segments compose in order with separators only between present ones", () => {
+    const items = [
+      alertItem({ id: "alert:a1" }),
+      alertItem({ id: "alert:a2" }),
+      alertItem({ id: "alert:mon1", actionable: false, clearingKind: "self_heal" }),
+    ];
+    const ws = [warnRow("UNKNOWN_FIELD", "crew")];
+    const k = expectedK(ws);
+    premiseHolds("exactly one warning so the singular noun is exercised", k === 1);
+    renderModal({ attentionItems: items }, ws);
+    const issues = items.filter((i) => !(!i.actionable && i.clearingKind === "self_heal")).length;
+    const mon = items.filter((i) => !i.actionable && i.clearingKind === "self_heal").length;
+    expect(visibleText(pill())).toBe(`${issues} issues · ${k} sheet warning · ${mon} monitoring`);
+    // The separator lives inside the segment's WRAP UNIT — the inline-flex
+    // wrapper around the testid'd text — exactly as the monitoring segment does,
+    // so under max-sm:flex-wrap the middot can never orphan at the end of a
+    // line (the round-4 F3 defect that wrapper exists to prevent).
+    const seg = screen.getByTestId("attention-pill-warnings-segment");
+    const wrapUnit = seg.parentElement!;
+    expect(wrapUnit.className).toContain("inline-flex");
+    expect(wrapUnit.textContent).toContain("·");
+    expect(seg.textContent).not.toContain("·");
+  });
+
+  it("issues + warnings, no monitoring: two segments, one separator (spec §12.17)", () => {
+    const items = [alertItem({ id: "alert:a1" })];
+    const ws = [warnRow("UNKNOWN_FIELD", "crew"), warnRow("UNKNOWN_FIELD", "rooms")];
+    const k = expectedK(ws);
+    premise("plural warnings", k, 1);
+    renderModal({ attentionItems: items }, ws);
+    expect(visibleText(pill())).toBe(`1 issue · ${k} sheet warnings`);
+    expect(screen.queryByTestId("attention-pill-monitoring-segment")).toBeNull();
+  });
+
+  it.each([99, 100])("cap boundary at %i sheet warnings", (count) => {
+    const ws = Array.from({ length: count }, () => warnRow("UNKNOWN_FIELD", "crew"));
+    const k = expectedK(ws);
+    premiseHolds("fixture routes every warning", k === count);
+    renderModal({ attentionItems: [] }, ws);
+    const el = pill();
+    const visible = k > 99 ? "99+" : String(k);
+    expect(visibleText(el)).toBe(`${visible} sheet warnings`);
+    const sr = el.querySelector(".sr-only");
+    if (k > 99) expect(sr?.textContent).toBe(`(${k} sheet warnings)`);
+    else expect(sr).toBeNull();
+  });
+
+  it("all three counts zero: In sync (spec §4.2)", () => {
+    renderModal({ attentionItems: [] }, []);
+    premiseHolds("fixture has no routed warnings", expectedK([]) === 0);
+    expect(screen.getByText("In sync")).toBeInTheDocument();
+  });
+
+  // ── Jumps from the warning index (spec §4.4) ──────────────────────────────
+  // The anchor is on the CARD, not the section block, so the row lands on the
+  // warning it named wherever that card renders. Both published render paths
+  // are exercised, because they build `anchorIds` from different arrays.
+
+  /** `a1` varies the warning's IDENTITY (warningIdentityKey folds sourceCell,
+   *  never `message`), while `blockRef.name` keeps every one of them on the same
+   *  crew row. Without the varying cell, three of these share one
+   *  reportSurfaceId and therefore one anchor. */
+  const crewWarn = (name: string, a1 = "A1"): ParseWarning => ({
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: `crew ${name}`,
+    blockRef: { kind: "crew", name },
+    sourceCell: { title: "Crew", gid: 0, a1 },
+  });
+
+  const anchorFor = (w: ParseWarning) => `warning:${buildReportSurfaceId(SLUG, w)}`;
+
+  const openMenu = () => {
+    fireEvent.click(pill());
+    return screen.getByTestId(`${TB}-attention-menu`);
+  };
+
+  it("grouped path: a menu row click flashes the warning's own card", () => {
+    const w = warnRow("FIELD_UNREADABLE", "rooms");
+    premiseHolds("rooms warning has no crew identity, so it takes the grouped path", true);
+    renderModal({ attentionItems: [] }, [w]);
+    openMenu();
+    const anchor = anchorFor(w);
+    fireEvent.click(screen.getByTestId(`attention-menu-row-${anchor}-0`));
+    const card = document.querySelector(`[data-attention-anchor="${anchor}"]`);
+    expect(card, "the card carries the anchor the row named").not.toBeNull();
+    expect(card!.hasAttribute("data-step3-warning-flash")).toBe(true);
+  });
+
+  it("crew under-row path: a menu row click flashes that member's card", () => {
+    const w = crewWarn("Alice Anders");
+    renderModal({ attentionItems: [] }, [w]);
+    const anchor = anchorFor(w);
+    const card = document.querySelector(`[data-attention-anchor="${anchor}"]`);
+    premiseHolds("the crew under-row card rendered with its anchor", card !== null);
+    openMenu();
+    fireEvent.click(screen.getByTestId(`attention-menu-row-${anchor}-0`));
+    expect(card!.hasAttribute("data-step3-warning-flash")).toBe(true);
+  });
+
+  it("a crew warning past the under-row cap: the jump OPENS the closed disclosure and flashes it (spec §4.4, amended plan R4)", () => {
+    // CrewUnderRowStack caps visible cards at 2, so the third renders inside a
+    // <details> that is CLOSED by default. Without the opening loop the effect
+    // would scroll to and flash an element the operator cannot see.
+    const ws = [
+      crewWarn("Alice Anders", "A1"),
+      crewWarn("Alice Anders", "A2"),
+      crewWarn("Alice Anders", "A3"),
+    ];
+    premiseHolds(
+      "the three warnings have distinct identities, so distinct anchors",
+      new Set(ws.map((w) => buildReportSurfaceId(SLUG, w))).size === 3,
+    );
+    renderModal({ attentionItems: [] }, ws);
+    const anchor = anchorFor(ws[2]!);
+    const card = document.querySelector(`[data-attention-anchor="${anchor}"]`);
+    premiseHolds("the over-cap card is in the DOM", card !== null);
+    const details = card!.closest("details") as HTMLDetailsElement | null;
+    premiseHolds("it renders inside a <details>", details !== null);
+    premiseHolds("which is CLOSED before the click", details!.open === false);
+    openMenu();
+    fireEvent.click(screen.getByTestId(`attention-menu-row-${anchor}-2`));
+    expect(details!.open).toBe(true);
+    expect(card!.hasAttribute("data-step3-warning-flash")).toBe(true);
+  });
+
+  it("the last warning going away drops the pill to In sync and closes the menu", () => {
+    const w = warnRow("FIELD_UNREADABLE", "rooms");
+    const { rerenderWith } = renderModal({ attentionItems: [] }, [w]);
+    openMenu();
+    expect(screen.getByTestId(`${TB}-attention-menu`)).toBeInTheDocument();
+    // Ignoring the last warning is exactly this prop change: the model's active
+    // list empties (routedWarnings counts ACTIVE, not total).
+    const cleared = baseProps({ attentionItems: [] }, []);
+    rerenderWith({ data: cleared.data, bySection: cleared.bySection });
+    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
+    expect(screen.getByText("In sync")).toBeInTheDocument();
+  });
 
   it("Issues: actionable items render a BUTTON pill '2 issues' with aria-expanded", async () => {
     renderModal({ attentionItems: twoActionable() });
@@ -1453,13 +1629,33 @@ describe("AC-18 — the header cap has exactly one definition", () => {
         idx = src.indexOf(CAP, idx + 1);
       }
     }
+    // AMENDED 2026-08-28 (bl-orch ruling, wizard-review-attention-menu): the pin
+    // is now ONE SHARED DEFINITION plus its registered consumers, asserted by
+    // name — not one literal occurrence. A second surface legitimately needs
+    // this cap, and the literal-count form could only forbid that or be
+    // satisfied by a second copy, which is the very drift AC-18 exists to stop.
+    // Two consumers of one exported constant cannot diverge at all, so this
+    // serves the original intent more strongly than counting strings did.
     expect(hits, `"${CAP}" must have exactly one definition`).toHaveLength(1);
-    expect(hits[0]).toContain("components/admin/showpage/PublishedReviewModal.tsx");
+    expect(hits[0]).toContain("components/admin/review/headerActionCap.ts");
 
-    // And it is on the ACTION CLUSTER, not merely somewhere in that file. The
-    // count alone would pass if the cap moved to the title column, which is the
-    // element it is supposed to leave room FOR.
-    const src = readFileSync("components/admin/showpage/PublishedReviewModal.tsx", "utf8");
-    expect(src).toContain(`className="flex shrink-0 items-center gap-2 ${CAP}"`);
+    // Every consumer is registered here BY NAME and asserted to read the shared
+    // constant. A new consumer that inlines the literal instead fails the count
+    // above; one that forgets to apply it fails here.
+    const CONSUMERS = [
+      [
+        "components/admin/showpage/PublishedReviewModal.tsx",
+        "className={`flex shrink-0 items-center gap-2 ${HEADER_ACTION_CAP}`}",
+      ],
+      ["components/admin/wizard/Step3ReviewModal.tsx", "${HEADER_ACTION_CAP}"],
+    ] as const;
+    for (const [file, marker] of CONSUMERS) {
+      const src = readFileSync(file, "utf8");
+      expect(src, `${file} must import the shared cap`).toContain(
+        'from "@/components/admin/review/headerActionCap"',
+      );
+      // And it is applied where it leaves room FOR the title, not on the title.
+      expect(src, `${file} must apply the shared cap`).toContain(marker);
+    }
   });
 });

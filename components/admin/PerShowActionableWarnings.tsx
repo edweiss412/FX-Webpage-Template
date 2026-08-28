@@ -108,6 +108,7 @@ export function PerShowActionableWarnings({
   items,
   driveFileId,
   renderItemControls,
+  anchorIds,
   tone = "warning",
   followUpCopy,
   condensed,
@@ -117,6 +118,12 @@ export function PerShowActionableWarnings({
   driveFileId: string | null;
   /** Optional per-item controls slot (per-show admin panel only; absent on StagedReviewCard). */
   renderItemControls?: (w: ParseWarning, i: number) => ReactNode;
+  /** POSITIONAL jump anchors: entry i names the anchor for item i (spec §4.4).
+   *  Supplied by the published extras factory so the attention menu's warning
+   *  rows can jump to a card. A missing or empty entry stamps NO attribute:
+   *  an empty one would still match `[data-attention-anchor]` and swallow a jump
+   *  aimed at nothing, which is worse than the section-top fallback. */
+  anchorIds?: readonly string[];
   /** `warning` (default): the active amber card skin. `muted`: de-emphasized skin for
    *  the collapsed "Ignored (N)" list — reads as resolved, not active. AA contrast kept
    *  (text-strong title + text-subtle body on surface-sunken); no opacity dimming. */
@@ -404,6 +411,7 @@ export function PerShowActionableWarnings({
         ) : null;
 
         const controls = renderItemControls ? renderItemControls(w, i) : null;
+        const anchor = anchorIds?.[i];
 
         // Single controls band: the "Open in Sheet" link sits inline at the left,
         // the item controls pushed to the right (ml-auto) — never its own footer row.
@@ -420,7 +428,11 @@ export function PerShowActionableWarnings({
           ) : null;
 
         return (
-          <li key={keys[i]} data-testid="per-show-actionable-item">
+          <li
+            key={keys[i]}
+            data-testid="per-show-actionable-item"
+            {...(anchor ? { "data-attention-anchor": anchor } : {})}
+          >
             <CompactAlertCard
               tone={tone}
               stripe="none"
