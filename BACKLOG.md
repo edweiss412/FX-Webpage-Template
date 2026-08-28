@@ -341,28 +341,6 @@ The published number was taken against UNMODIFIED code — a temporary probe add
 
 **Direction, not yet decided.** The panel cannot express "no wider than the distance from the clip's left edge to my anchor's right edge" in CSS, because that distance is a runtime measurement. So the candidates are: extend `useFitWithinClip` (or a sibling) to cap width the way it caps height; or re-anchor the panel to the modal panel rather than the pill wrapper. The first keeps the anchoring idiom and is where the existing measurement machinery already lives; the second is a bigger change. Whichever wins, it lands on the SHARED frame and both modals get it at once.
 
-### BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS — two `lib/parser/dataGaps.ts` filters still drop a severity-less warning from operator-visible lists
-
-**Status:** IN PROGRESS · **Branch:** fix/severityless-warning-filters · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 2 class sweep) · **Facing:** product · **Severity:** LOW-MEDIUM (an operator-visible warnings list silently omits a row, if the shape occurs) · **Class:** severity-predicate divergence · **Effort:** S · **Class-sweep exception:** (b) + (c) — spec §2.1's sweep is ratified over `lib/admin components/admin` only, and repairing these two changes what the staged-show digest and the per-show actionable list COUNT, each with its own pinned suite, on surfaces this arc does not otherwise touch.
-
-**The defect shape, and where it now does not exist.** A persisted `ParseWarning` can lack the `severity` key entirely. `summarizeDataGaps` (the badge) has always counted such a row — the "#289 contract: skip only info (missing severity counts)" comment — while every review-surface filter tested `severity === "warn"` and dropped it, so badge and surface could disagree. This branch closes that for the seven ratified sites by routing them all through the new `isWarnSeverity` predicate (`lib/parser/dataGaps.ts`).
-
-**The two peers it does not close, with the sweep that found them.** After the seven landed:
-
-```
-$ rg -n 'severity (===|!==) "warn"' lib/admin components/admin
-(no hits)
-$ rg -n 'severity (===|!==) "warn"' lib/parser
-lib/parser/dataGaps.ts:129:  return !!w && w.severity === "warn" && DATA_GAP_CODES.has(w.code);
-lib/parser/dataGaps.ts:465:    if (w.severity !== "warn") continue;
-```
-
-`:129` is `isDataQualityWarning`, which gates the staged-show warnings digest (`app/admin/show/staged/[stagedId]/page.tsx:169`). `:465` is `operatorActionableWarnings`, the data-boundary filter behind `components/admin/PerShowActionableWarnings.tsx` and `components/admin/StagedReviewCard.tsx`. Both are operator-visible; both would drop a severity-less row that the badge counts, which is the same divergence §2.1 exists to end.
-
-**Reachability:** INFERRED, NOT PROBED. Spec §2.1 ratifies that persisted rows can lack the field, and `tests/parser/dataGaps.test.ts` ("counts a gap code whose warning is MISSING severity") pins the badge's handling of that shape — but nothing here measures whether such a row EXISTS in live data. The probe that settles it, and the first scheduled step of this entry: count elements of `shows_internal.parse_warnings` with no `severity` key across the validation deployment, per code. A zero makes this a documented limit rather than a defect; a non-zero names exactly which operator lists are short.
-
-**Why not fixed in the filing branch:** the repair is two one-line predicate swaps, but it moves counts on two surfaces with their own pinned suites (`tests/parser/operatorActionableWarnings.test.ts`, `tests/onboarding/firstSeenStagedWarnings.test.ts`, `tests/dataQuality/roleTokenIdentity.test.ts`) that this arc's review scope does not cover, and the probe above should direct it. Cheap once the count is known.
-
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
 **Effort:** L (scope floor — design-gated)
