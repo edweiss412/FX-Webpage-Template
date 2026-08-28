@@ -1,0 +1,24 @@
+{
+  "config": {
+    "rootDir": "/repo/tests/e2e"
+  },
+  "suites": [
+    {
+      "title": "agendaScheduleLayout.spec.ts",
+      "file": "agendaScheduleLayout.spec.ts",
+      "specs": [
+        {
+          "title": "agenda area: no child overflows the column @ 320px (§6)",
+          "file": "agendaScheduleLayout.spec.ts"
+        }
+      ],
+      "suites": []
+    },
+    {
+      "title": "appHealthIndicator.layout.spec.ts",
+      "file": "appHealthIndicator.layout.spec.ts",
+      "specs": [],
+      "suites": []
+    }
+  ]
+}

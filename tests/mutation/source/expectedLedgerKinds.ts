@@ -376,6 +376,7 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // match can occupy, two one-past-the-end loop bounds, a redundant lastIndex reset,
   // and an initial value read only after it is overwritten. Each family's paired
   // mutant in the OBSERVABLE direction is killed, not accepted.
+  specLintExpectContract: { equivalent: 3 },
   specLintUniversals: { equivalent: 6 },
   specLintNumerics: { equivalent: 50 },
   // chore/heavy-orphan-reaper (2026-08-16): the heavy-orphan reaper's decision function,
