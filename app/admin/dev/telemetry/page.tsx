@@ -13,6 +13,7 @@ import { HealthAlertsPanel } from "@/components/admin/telemetry/HealthAlertsPane
 import { EventFilters } from "@/components/admin/telemetry/EventFilters";
 import { EventTimeline } from "@/components/admin/telemetry/EventTimeline";
 import { AutoRefreshControl } from "@/components/admin/telemetry/AutoRefreshControl";
+import { TelemetryRetryButton } from "@/components/admin/telemetry/TelemetryRetryButton";
 
 export const dynamic = "force-dynamic";
 
@@ -79,9 +80,14 @@ export default async function TelemetryPage({
           ) : (
             <div
               data-testid="cron-health-degraded"
-              className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm"
+              className="flex flex-col items-start gap-2 rounded-md border border-border bg-warning-bg p-tile-pad text-sm"
             >
-              Couldn’t load scheduled-job health right now. The jobs are probably still running.
+              {/* Stacked, not side by side: this sits in the 340px sidebar, where a 44px
+                  control beside two sentences leaves the text a column too narrow to read. */}
+              <p>
+                Couldn’t load scheduled-job health right now. The jobs are probably still running.
+              </p>
+              <TelemetryRetryButton what="scheduled-job health" testId="cron-health-retry" />
             </div>
           )}
         </aside>
