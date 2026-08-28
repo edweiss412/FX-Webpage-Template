@@ -398,10 +398,17 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // is env-gated but the gate is read by the SCRIPT, not the suite.
   "tests/parser/fieldNearMiss.test.ts": 0,
   // 0 -> 13 for the same edge: this suite reaches `lib/parser`, which imports
-  // `log` from the `@/lib/log` barrel. Every one of the thirteen now carries a
-  // premise stating the corpus condition its assertion depends on, because a
-  // filter over an unread corpus passes over nothing.
-  "tests/parser/fieldNearMissBaseline.test.ts": 14,
+  // `log` from the `@/lib/log` barrel. Every one of them now carries a premise
+  // stating the corpus condition its assertion depends on, because a filter over
+  // an unread corpus passes over nothing.
+  //
+  // 14 -> 13 on 2026-08-28 (BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS). The block-
+  // candidacy narrowing empties the `timestamp` namespace, so the case whose whole
+  // premise was "the baseline carries a Timestamp-block row" was retired rather than
+  // weakened into one that passes on nothing. The pin moves deliberately: it exists so
+  // a suite cannot quietly gain or lose provenance-touching cases, and this arc loses
+  // exactly one.
+  "tests/parser/fieldNearMissBaseline.test.ts": 13,
   // Enrolled 2026-08-28 (BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS) as `rowScanOpener`'s
   // deciding suite for `blockMinValueCells`. 0: every case is a literal cell array handed
   // straight to the scanner, so nothing reads the filesystem, `process.env`, or a fixture.

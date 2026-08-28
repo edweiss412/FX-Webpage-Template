@@ -40,8 +40,17 @@ type BaselineRow = { fixture: string; key: string; block: string; kind: string; 
 
 const BASELINE = "tests/parser/__fixtures__/fieldNearMiss.baseline.json";
 
-/** Spec §3.2: the measured corpus outcome after the r4 resolution-site recalibration. */
-const EXPECTED_TOTAL = 65;
+/**
+ * Spec §3.2: the measured corpus outcome.
+ *
+ * 65 -> 33 with the block-candidacy narrowing (spec
+ * `docs/superpowers/specs/parser/2026-08-28-nearmiss-candidacy-field-lists-design.md`
+ * §3.2/§3.3). The 32 removed rows are every `timestamp`-namespace row (30) and every
+ * `console`-namespace row (2): both block families are now non-candidate homes, so a
+ * near-miss card can no longer fire inside a form dump or an inventory matrix. No true
+ * positive was lost.
+ */
+const EXPECTED_TOTAL = 33;
 
 /**
  * Committed INTO the baseline file (JSON carries no comments) so the two facts a reader
@@ -51,6 +60,12 @@ const EXPECTED_TOTAL = 65;
 const BASELINE_NOTE: readonly string[] = [
   "Generated: UPDATE_NEAR_MISS_BASELINE=1 pnpm exec vitest run tests/parser/fieldNearMissBaseline.test.ts",
   "Spec: docs/superpowers/specs/parser/2026-08-15-field-near-miss-detector-design.md (AC-N1, 3.2).",
+  "Narrowed 65 -> 33 by the block-candidacy rule:",
+  "  docs/superpowers/specs/parser/2026-08-28-nearmiss-candidacy-field-lists-design.md (3.1, 3.2, 3.3).",
+  "  A near-miss card advises renaming a row, so it fires only in blocks shaped like FIELD",
+  "  LISTS. Form dumps (opener normalizing to `timestamp`) and inventory matrices (every row",
+  "  at 6 or more value cells) are not candidate homes, and the 32 rows that lived in them",
+  "  are gone. No true positive was lost; see that spec's 3.3 for the removed set.",
   "",
   "TIE-BREAK, and what actually pins it. Spec 3.1 makes vocabulary insertion order normative:",
   "it decides which raw spelling a near-miss reports, and the `candidate` column below is where",
@@ -160,7 +175,7 @@ describe("field near-miss corpus baseline (AC-N1)", () => {
     expect(readBaseline().note).toEqual([...BASELINE_NOTE]);
   });
 
-  it("emits exactly 65 rows (spec §3.2, followup probe Part D)", () => {
+  it("emits exactly 33 rows (spec §3.2, followup probe Part D)", () => {
     // no-premise: the assertion IS a nonzero count, so it dominates any premise
     // that rows were produced at all — an empty corpus reds on `toBe(65)`
     // itself (whole-diff R1 #8).
@@ -185,9 +200,13 @@ describe("field near-miss corpus baseline (AC-N1)", () => {
       n("E-mail:") +
       n("Client:/Contact:");
     expect(auditedAndSameShape).toBe(7 + 25);
-    expect(n("Backdrop")).toBe(15);
-    expect(n("Room Diagram")).toBe(15);
-    expect(n("Speaker")).toBe(2);
+    // Zero, asserted EXPLICITLY rather than deleted. Each of these three keys fired only
+    // inside a form dump or an inventory matrix, so the block-candidacy narrowing removed
+    // every one of them; keeping the keys in the partition means a regression that
+    // re-admits a non-candidate home reds here instead of passing unnoticed.
+    expect(n("Backdrop")).toBe(0);
+    expect(n("Room Diagram")).toBe(0);
+    expect(n("Speaker")).toBe(0);
     expect(n("Diagrams?")).toBe(1);
 
     // The groups PARTITION the baseline: a new key anywhere in the corpus lands outside
@@ -202,17 +221,19 @@ describe("field near-miss corpus baseline (AC-N1)", () => {
     }
   });
 
-  it("every Room Diagram row sits in a Timestamp block, per §3.2", () => {
-    // §3.2's load-bearing claim: every DETAILS-family `Room Diagram` is consumption-excluded,
-    // so the 15 that survive are the Google-Forms echo rows only. A ledger regression would
-    // re-admit a DETAILS one and this fails while the raw count could still read 15.
+  it("no Room Diagram row survives, because its only home was the Timestamp block", () => {
+    // INVERTED by the block-candidacy narrowing, and the inversion is the point rather
+    // than bookkeeping. The old claim was "every surviving Room Diagram row sits in a
+    // Timestamp block", which rested on every DETAILS-family one being consumption-
+    // excluded. Timestamp blocks are no longer candidate homes, so the subject of that
+    // claim is empty and the case would pass vacuously if left as written.
     //
-    // no-premise: `toEqual(["timestamp"])` is unsatisfiable by an empty set, so
-    // it already reds when there are no Room Diagram rows to make a claim
-    // about. A premise counting those rows is dominated by it (whole-diff
-    // R1 #8).
-    const kinds = new Set(actual.filter((r) => r.key === "Room Diagram").map((r) => r.kind));
-    expect([...kinds]).toEqual(["timestamp"]);
+    // Stated as a set rather than a count, and PAIRED with a control, so "no Room Diagram
+    // rows" can never mean "no rows at all": the corpus still emits 33.
+    premise("the baseline is non-empty, so this is not a vacuous silence", actual.length, 0);
+    expect(actual.filter((r) => r.key === "Room Diagram")).toEqual([]);
+    // And nothing at all survives in either retired namespace, whatever its label.
+    expect(actual.filter((r) => r.kind === "timestamp" || r.kind === "console")).toEqual([]);
   });
 
   it("carries block === kind on every row (§2.2 uses one namespace for both)", () => {
@@ -495,28 +516,18 @@ describe("Stage/Storage rows stay anchored (AC-N9)", () => {
     ).toBeNull();
   });
 
-  it("a Timestamp-block row resolves null against an anchor set that has no Timestamp block", () => {
-    // NOT a claim that Timestamp rows are unanchorable. Null here because `anchors` is
-    // the east-coast Stage table, which contains no Timestamp block at all; a Timestamp
-    // row in its OWN workbook now anchors to its own cell (spec 2026-08-27 §2, pinned in
-    // tests/drive/unknownFieldAnchors.test.ts). The "documented-safe" framing this case
-    // used to carry was retired with the scanner's two-family limit.
-    const row = actual.find((r) => r.kind === "timestamp");
-    premiseHolds("the baseline carries a Timestamp-block row", row !== undefined);
-    const parsed = parseSheet(readFileSync(row!.fixture, "utf8"), row!.fixture);
-    const w = parsed.warnings.find(
-      (x) => x.code === "UNKNOWN_FIELD" && x.blockRef?.kind === "timestamp",
-    );
-    premiseHolds("and the parse re-emits it", w !== undefined);
-    expect(
-      resolveUnknownFieldCell(
-        anchors,
-        w!.blockRef?.kind,
-        w!.blockRef?.name,
-        valueFromRawSnippet(w!.rawSnippet),
-      ),
-    ).toBeNull();
-  });
+  // RETIRED by the block-candidacy narrowing (spec
+  // docs/superpowers/specs/parser/2026-08-28-nearmiss-candidacy-field-lists-design.md).
+  //
+  // The case was `it("a Timestamp-block row resolves null against an anchor set that has
+  // no Timestamp block")`. Its whole premise was that the baseline still carries a
+  // `timestamp`-namespace row to resolve; no such row exists now, so the case could only
+  // be kept by weakening the premise into something that passes on nothing.
+  //
+  // Timestamp-row ANCHORING is unchanged and is not covered by this deletion:
+  // `tests/drive/unknownFieldAnchors.test.ts` remains its live home and exercises it
+  // directly against a workbook, which is where it always belonged. Recorded here rather
+  // than silently dropped so a later reader does not read the absence as lost coverage.
 
   it("every DETAILS-family spelling anchors the Stage row: one kind function on both sides (spec 2026-08-27 §2.2)", () => {
     // The retired asymmetry, stated in its new direction. The scanner used to recognize

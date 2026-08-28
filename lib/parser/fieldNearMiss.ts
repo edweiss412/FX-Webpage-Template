@@ -21,7 +21,7 @@
  */
 import { FIELD_ALIASES, resolveAlias } from "./aliases";
 import { clean, decodeEntities } from "./blocks/_helpers";
-import { scanRowsWithOpener } from "./blocks/_rowScan";
+import { scanRowsWithOpener, type ScannedRow } from "./blocks/_rowScan";
 import { matchesSectionHeader } from "./blocks/_sectionHeaderMatch";
 import { isVenueBlockOpener } from "./blocks/venue";
 import { isKnownSectionHeader } from "./knownSections";
@@ -190,6 +190,49 @@ function isCandidateLabel(col0: string): boolean {
 }
 
 /**
+ * §3.1 inventory-matrix threshold: a block every one of whose rows carries at least this
+ * many value cells is a grid, not a field list.
+ *
+ * Selected by a stated criterion rather than fitted: the LARGEST threshold that still
+ * excludes every inventory matrix in the corpus. All four `console` blocks have a minimum
+ * of 6, so 6 is that largest value; at 7 the arm catches only two of the four. Taking the
+ * largest is what makes the exclusion the narrowest one satisfying the ratification.
+ */
+export const MATRIX_MIN_VALUE_CELLS = 6;
+
+/**
+ * Is this row's BLOCK a plausible home for a near-miss advisory? (§3.1)
+ *
+ * A near-miss card tells an operator to rename a row in their sheet, which is only ever
+ * good advice where the row is a FIELD. Two block shapes are categorically not field
+ * lists, and a card fired inside either is wrong however good the label match was.
+ *
+ * Exported for the same reason `matchVocabulary` is: it is how a test states its premise.
+ * Block-level candidacy has no other observable surface — label-level suppression can be
+ * read through `matchVocabulary` plus the guards, all already exported, whereas this
+ * predicate is reachable only through an emission count, and an emission count cannot
+ * separate "excluded by the block" from "never matched in the first place". So a later
+ * reader should not narrow it back on the reasonable-looking ground that nothing inside
+ * `lib/` calls it from outside.
+ */
+export function isCandidateHome(row: ScannedRow): boolean {
+  // Form dump. A Google Form response export opens on the `Timestamp` column and its rows
+  // are QUESTIONS, not fields, so "rename this row in your sheet" is wrong advice however
+  // well the label matched. Compared on the NORMALIZED opener, and that is load-bearing
+  // rather than incidental: every corpus instance happens to spell it `Timestamp`, so an
+  // exact-string comparison is indistinguishable from this rule on the corpus as it stands
+  // and diverges the moment a sheet is edited to `TIMESTAMP` or `Timestamp:`.
+  if (normalizeV3(row.opener) === "timestamp") return false;
+  // Inventory matrix. A minimum over the BLOCK, never a test on the firing row: an
+  // inventory matrix is uniformly wide because every row is a grid line, whereas a field
+  // list always contains at least one narrow label-and-value row even when other rows in
+  // it are wide. Measured, `console` has minimum 6 and `client` has minimum 1 despite
+  // holding rows at 8 value cells.
+  if (row.blockMinValueCells >= MATRIX_MIN_VALUE_CELLS) return false;
+  return true;
+}
+
+/**
  * §2.2's anchor-namespace mapping, used for BOTH `blockRef.kind` and `opts.block`.
  *
  * `kind` is a ROUTING key with three real consumers (anchor resolution, the swap
@@ -246,6 +289,13 @@ export function detectFieldNearMisses(markdown: string, agg: ParseAggregator): v
   // saying something different depending on whether the detector had run.
   const remaining = new Map(agg.consumed);
   for (const row of scanRowsWithOpener(markdown)) {
+    // FIRST, before the consumption draw-down below. An excluded block must not spend a
+    // mark: the draw-down MUTATES `remaining`, so a gate placed after it would let a
+    // non-candidate block silence an admitted row elsewhere in the document. That is safe
+    // only because `consumptionKey` leads with the block opener, so no admitted row can
+    // ever produce an excluded block's key. Anyone who later flattens that key breaks this
+    // placement, and nothing in the suite would say so.
+    if (!isCandidateHome(row)) continue;
     const col0 = clean(row.cells[0] ?? "");
     if (!isCandidateLabel(col0)) continue;
     const match = matchVocabulary(col0, vocab);
