@@ -91,6 +91,8 @@ Warn-severity codes outside `DATA_GAP_CODES` exist, and the repo enumerates most
 
 Every change is in the same direction (severity-less counts as warn) and matches the badge, which is the surface the user compares against. Pinned by a unit test that feeds one severity-less `UNKNOWN_FIELD` through `summarizeDataGaps`, `warningsBySection`, `sectionStatus`, `visibleWarningRows` and `deriveWarningAttention` and asserts each counts it as warn, with `premise` that the fixture object has no `severity` key. `tests/parser/dataGapsClassCompleteness.test.ts` is untouched (read 2026-08-27: its `buckets` array holds five distinct sets and is green on the base; §15).
 
+The sweep domain above is `lib/admin components/admin`. Three filters outside it still test the literal `"warn"`; they are recorded, probed and parked in §10.1 rather than changed here.
+
 ## 3. Part A: wizard modal (`Step3ReviewModal.tsx`)
 
 ### 3.1 Counts
@@ -377,6 +379,37 @@ Published pill states gain no new transition pair beyond the segment's mount/unm
 - The published fix hints (`lib/admin/needsLookHints.ts`) are keyed on alert codes; warning rows show the section label instead. A per-warning hint is a follow-up if wanted (`messageFor(code).helpfulContext` already renders on the card the jump lands on).
 - Focus after a row click lands on `document.body` (menu unmounts). Accepted per the DEFERRED.md entry in §1.1.
 - Identical-content warnings in one section share a `reportSurfaceId` and therefore an anchor; the second row lands on the first card. Both are conservative (a section-top landing, a neighbouring identical card), never silent.
+
+### 10.1 Three filters outside this spec's sweep still test `severity === "warn"`, and a probe parked them
+
+`isWarnSeverity` (§2.1) reads a warning with no `severity` key as warn, matching the badge. Three filters outside §2.1's table still test the literal `"warn"`, so each drops a severity-less row the badge counts:
+
+| Site | Filter | Operator surface it feeds |
+| --- | --- | --- |
+| `lib/parser/dataGaps.ts:129` | `isDataQualityWarning`, `w.severity === "warn" && DATA_GAP_CODES.has(w.code)` | the staged-show warnings digest (`app/admin/show/staged/[stagedId]/page.tsx:169`), over `parse_result.warnings` |
+| `lib/parser/dataGaps.ts:466` | `operatorActionableWarnings`, `if (w.severity !== "warn") continue` | `PerShowActionableWarnings.tsx` and `StagedReviewCard.tsx` |
+| `lib/sync/phase1.ts:203` | `warningSummary`, `filter((warning) => warning.severity === "warn")` | the persisted `pending_syncs.warning_summary` column |
+
+Line numbers are drafting-time locators and drift. The durable anchors are the three function names.
+
+**Why all three escaped §2.1.** §2.1 ran `rg -n 'severity (===|!==) "warn"' lib/admin components/admin`, and the plan's verification step widened that to `lib/parser` only, where it correctly found and filed two. `lib/sync` was in neither domain, which is the whole reason the third site went unnamed for a day. Sweeping `lib/ components/ app/` returns five hits: these three, plus two that are not instances and should stay as they are. `lib/observe/query/serializeWarning.ts:40` maps any severity that is neither `"info"` nor `"warn"` to `""`, which makes it the detector the probe below depends on rather than a dropper, and `lib/dev/attentionScenarios/validate.ts:364` asserts that a dev fixture author wrote `severity: "warn"`, which is not an operator surface.
+
+**Probed 2026-08-28 on the validation deployment (`vzakgrxqwcalbmagufjh`). Zero, in both populations.** The two read-time sites consume different tables, so both were counted:
+
+```
+$ pnpm observe warnings --env validation --limit 500 --json   # shows_internal.parse_warnings
+2 rows, 18 warning elements, all severity "warn", 0 severity-less
+$ pnpm observe staged --env validation --warnings-only --since all --limit 500 --json   # pending_syncs.parse_result.warnings
+7 rows, 55 warning elements, all severity "warn", 0 severity-less
+```
+
+Neither result reached the 500 cap, so each is the full set rather than a page of one. `--env local` returns 0 rows against validation's 2, which is how the run is known to have reached the remote target; no separate prod target exists, since ambient `SUPABASE_URL` is loopback and `SUPABASE_SECRET_KEY` is unset, so validation is the entire declared domain.
+
+**Why the count is trustworthy.** `serializeParseWarning` maps an element whose severity is neither `"info"` nor `"warn"` to the empty string, and `serializeWarningArray` maps 1:1 without dropping anything, so a severity-less element cannot pass the CLI unseen. Positive-controlled by feeding one severity-less warning, one `info` and one `warn` through the serializer and confirming the three come back as `""`, `"info"` and `"warn"` with the count preserved. That collapse of absent-and-malformed into one bucket is exactly the divergence set here, because `isWarnSeverity` is `severity !== "info"` while all three sites test `=== "warn"`: the set they disagree on is precisely the set the serializer blanks.
+
+**The zero bounds the write-time site too.** `warningSummary` filters `parseResult.warnings` as the row is written, so it never persists its own input. It does not need to: the array it filters is the same array persisted alongside it as `parse_result.warnings`, which the staged probe read raw and unfiltered. Zero severity-less elements in the persisted raw form means zero reached the filter, so one measurement bounds all three sites rather than only the two that read.
+
+**Re-file trigger, either one.** Any severity-less element observed in either population, by re-running the two commands above. Or a parser change that can emit a warning without a `severity` key, which would make the shape reachable before any row shows it. Until one of those happens the divergence is real in code and unreached in data, and the worst case is conservative: a list is short by a row the badge still counts, never a wrong value and never a silent corruption of one. Graduated from `BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS` (`BACKLOG-archive.md`) on the probe above.
 
 ## 11. Out of scope
 
