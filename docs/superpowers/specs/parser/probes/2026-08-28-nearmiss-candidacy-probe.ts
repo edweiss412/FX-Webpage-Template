@@ -579,3 +579,39 @@ for (const b of blocks) {
 console.log("  blocks whose minValueCells the naive append changed: " + naiveMinChanged);
 console.log("  of those, blocks whose EXCLUSION VERDICT it flipped: " + naiveVerdictFlipped);
 console.log("  the shipped min-preserving injection changes both to 0 (see TABLE-L's controls).");
+
+// ---------------------------------------------------------------- TABLE-N
+console.log("");
+console.log("TABLE-N (spec AC-11) — does the form-dump arm compare NORMALIZED openers?");
+console.log("  Spec round 4: every corpus form dump spells its opener exactly `Timestamp`, so an");
+console.log("  implementation writing `opener === \"Timestamp\"` satisfies AC-5, AC-9 and AC-10");
+console.log("  while violating §3.1, which requires normalizeV3(opener) === \"timestamp\". The");
+console.log("  criteria could not tell the two apart because no corpus input distinguishes them.");
+console.log("");
+console.log("  Each row is the RIA form-dump block with its opener spelled differently — one");
+console.log("  ordinary sheet edit, inside the declared probe domain. `normative` is the shipped");
+console.log("  rule; `exact` is the impostor. Where they differ, the impostor emits the very rows");
+console.log("  this arc exists to suppress.");
+console.log("  opener spelling | normalizeV3 | normative excludes | exact-compare excludes | differ");
+const formDumpBlock = blocks.find((b) => isFormDump(b));
+if (formDumpBlock === undefined) {
+  console.log("  NO FORM-DUMP BLOCK FOUND — this table cannot make its claim (premise failed)");
+} else {
+  let differing = 0;
+  for (const spelling of ["Timestamp", "TIMESTAMP", "timestamp", "Timestamp:", " Timestamp "]) {
+    const norm = normalizeV3(spelling);
+    const normative = norm === "timestamp";
+    const exact = spelling === "Timestamp";
+    if (normative !== exact) differing += 1;
+    console.log(
+      "  " + JSON.stringify(spelling) + " | " + JSON.stringify(norm) + " | " + normative +
+        " | " + exact + " | " + (normative !== exact ? "YES" : "no"),
+    );
+  }
+  console.log("  spellings where the impostor disagrees with the rule: " + differing);
+  console.log(
+    differing === 0
+      ? "  VACUOUS: no spelling separates the two, so AC-11 could not discriminate."
+      : "  DISCRIMINATING: AC-11 has cases that fail an exact-string implementation.",
+  );
+}

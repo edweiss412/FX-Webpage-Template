@@ -257,3 +257,22 @@ TABLE-M (spec 3.5) — regression witness: what the NAIVE injection would have d
   blocks whose minValueCells the naive append changed: 151
   of those, blocks whose EXCLUSION VERDICT it flipped: 18
   the shipped min-preserving injection changes both to 0 (see TABLE-L's controls).
+
+TABLE-N (spec AC-11) — does the form-dump arm compare NORMALIZED openers?
+  Spec round 4: every corpus form dump spells its opener exactly `Timestamp`, so an
+  implementation writing `opener === "Timestamp"` satisfies AC-5, AC-9 and AC-10
+  while violating §3.1, which requires normalizeV3(opener) === "timestamp". The
+  criteria could not tell the two apart because no corpus input distinguishes them.
+
+  Each row is the RIA form-dump block with its opener spelled differently — one
+  ordinary sheet edit, inside the declared probe domain. `normative` is the shipped
+  rule; `exact` is the impostor. Where they differ, the impostor emits the very rows
+  this arc exists to suppress.
+  opener spelling | normalizeV3 | normative excludes | exact-compare excludes | differ
+  "Timestamp" | "timestamp" | true | true | no
+  "TIMESTAMP" | "timestamp" | true | false | YES
+  "timestamp" | "timestamp" | true | false | YES
+  "Timestamp:" | "timestamp" | true | false | YES
+  " Timestamp " | "timestamp" | true | false | YES
+  spellings where the impostor disagrees with the rule: 4
+  DISCRIMINATING: AC-11 has cases that fail an exact-string implementation.
