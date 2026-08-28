@@ -402,6 +402,10 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // premise stating the corpus condition its assertion depends on, because a
   // filter over an unread corpus passes over nothing.
   "tests/parser/fieldNearMissBaseline.test.ts": 14,
+  // Enrolled 2026-08-28 (BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS) as `rowScanOpener`'s
+  // deciding suite for `blockMinValueCells`. 0: every case is a literal cell array handed
+  // straight to the scanner, so nothing reads the filesystem, `process.env`, or a fixture.
+  "tests/parser/rowScanCore.test.ts": 0,
   "tests/styles/interactiveScanCore.test.ts": 0,
   "tests/styles/_metaSubtleOnInteractive.test.ts": 0,
   "tests/styles/_metaTapTargetFloor.test.ts": 0,
