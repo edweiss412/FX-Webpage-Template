@@ -141,8 +141,13 @@ async function openModal(page: Page, width: number, height: number) {
   await chip.waitFor();
   await expect(chip).toHaveAttribute("aria-expanded", "true");
   await page.locator(MENU).waitFor({ state: "visible" });
-  await page.keyboard.press("Escape");
+  // Dismissed by PRESSING the pill, not by Escape. Since the §3.5 scoping
+  // amendment an auto-opened panel is Escape-transparent until engaged, so
+  // Escape here would close the whole modal and every case below would then run
+  // against nothing.
+  await chip.click();
   await expect(chip).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(MENU)).toHaveCount(0);
 }
 
 test.describe("wizard attention pill + menu geometry (spec §9)", () => {

@@ -676,6 +676,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-7530ebac4c5a7a9d8f43\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the pill's hit band clears the 44px floor at 1280x800\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-a76f1f18cf606bfe4778\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the panel stays inside the modal clip at 375x667\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-af1663ca80ff7adf8444\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"every menu row clears the 44px floor at 375x667\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-b4a6e96988d949d43531\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the composite pill leaves the show title legible at 375 (spec §9, PRODUCT.md persona)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-bdc9e358e50392e7c50b\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"every menu row clears the 44px floor at 1280x800\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-d473292bda15643dd44e\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the compiled CSS actually carries the rules these assertions depend on\"]]"
     ],
@@ -685,5 +686,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 600
+  "totalTests": 601
 }
