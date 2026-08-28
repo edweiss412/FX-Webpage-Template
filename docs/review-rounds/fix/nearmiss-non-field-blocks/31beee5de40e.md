@@ -133,3 +133,59 @@ The convergence gate also blocked round 1's first dispatch: the brief stated a c
 paraphrase rather than in the canonical "never silently wrong" form the gate matches. Restated, not
 overridden. Worth knowing that the gate matches on literal phrasing, so a correct bound in the wrong words
 reads as an absent bound.
+
+## plan — 3 rounds
+
+**Examined:** `docs/superpowers/plans/2026-08-28-nearmiss-candidacy-field-lists.md` across 3 rounds at
+one base. Findings: 5, 3, 1 — verdicts BLOCKING, BLOCKING, BLOCKING. All nine accepted; none disputed.
+Cross-base total for this branch directory: 6 spec rounds plus 3 plan rounds.
+
+**Mechanizable:** One class, and it is a different one from the spec stage's.
+
+**A change's affected-test set cannot be derived by searching test source.** Every plan round found
+the disposition set incomplete, and each repair replaced one search heuristic with a slightly better
+one:
+
+| round | what was missed | the heuristic in play |
+| --- | --- | --- |
+| 1 | 3 cases, incl. two asserting exactly the emissions removed | files I was thinking about |
+| 2 | 2 whole suites, one in no task's command at all | grep for the scanner import and the key strings |
+| 3 | a case using the removed block as a deliberate carrier, and a parity BASELINE holding 32 pinned entries | the same greps, corrected |
+
+Round 3 also caught the covers being **inert as published**: both patterns used `|` without `-E`, so
+the command printed in the plan returned nothing. That is the published-command-cannot-produce-the-
+published-result defect (`LIM-NUMERIC-TABLE-PROVENANCE`) occurring INSIDE the section written to fix
+a derivation problem, which is the sharpest available evidence that the approach was wrong rather
+than the execution sloppy.
+
+The terminating fact is structural: `tests/parser/venueSignalParity.test.ts` pins its expectations in
+a committed BASELINE JSON holding 15 `Room Diagram`, 15 `Backdrop` and 2 `Speaker` entries. The
+dependency lives in a FIXTURE. No grep over `tests/**/*.ts` can reach it, so no refinement of the
+covers could ever have found it.
+
+**The repair is the same shape as the spec stage's demotion: stop reading, start executing.** Both
+task commands now take the whole `tests/parser` surface rather than a named file list, and the
+affected set is an OUTPUT of running Task 2, not an input to it. A named list is a claim about which
+files depend on the change; that claim was wrong three times. A directory is not a claim at all. The
+greps survive as orientation and are explicitly barred from supporting any completeness claim.
+
+declined: no `BL-`/`DEF-` row is minted. This is process-facing and the 2026-08-25 freeze admits
+neither `invariant` nor `product-blocked`: no product arc was slowed, and the repair shipped in
+branch. The done condition would also be a property of the tooling rather than a number outside it.
+Parked under the existing `LIM-NONDISCRIMINATING-FIXTURE`, which this arc now names twice, and under
+`LIM-NUMERIC-TABLE-PROVENANCE` for the inert-command instance. The general lesson is recorded in the
+plan itself, where the next implementer of this arc will read it.
+
+**Judgment:** The disposition for the affected tests was a real call and not mechanizable. Five
+`unknownFieldAnchors` cases and one `warnings.test.ts` case use a `Timestamp` or `Console` block as a
+near-miss CARRIER to test a mechanism this arc does not change. Retiring them would have passed every
+gate while silently shrinking anchor coverage; re-pointing the carrier to an admitted block preserves
+exactly what they test. Owner-directed 2026-08-28. The same reasoning then applied to the `ria.xlsx`
+case, which I had been about to degrade to an absence assertion before noticing it was the identical
+mistake one level down: it re-points to a workbook that still has survivors, keeping the
+real-workbook exercise instead of trading it for an empty set.
+
+**Infra:** Vitest could not run in the reviewer's sandbox in any plan round (`read-only sandbox denied
+its temporary directory`), so every dynamic claim was verified by reading. That is worth knowing when
+weighing a plan-stage verdict: the reviewer could check what a command WOULD do, never what it did.
+
