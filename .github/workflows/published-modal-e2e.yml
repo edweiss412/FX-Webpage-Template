@@ -59,8 +59,11 @@ on:
       - "tests/e2e/published-review-modal.closeFreshness.spec.ts"
       # Wired 2026-08-27 (wizard-review-attention-menu Task 9 Step 5). This spec
       # existed with NO `run:` step behind it, which is how one of its cases
-      # drifted red unnoticed (BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED,
-      # carried as test.fixme); the other six gate from here on.
+      # drifted red unnoticed (BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED),
+      # and it was carried as test.fixme while its cause was unattributed. That
+      # attribution landed 2026-08-28 and the case is enabled, so all SEVEN
+      # cases gate from here on — which is also why this job now needs the
+      # DATABASE_URL set on the run step below.
       - "tests/e2e/published-show-attention.spec.ts"
       - "tests/e2e/helpers/seedShowWithCrew.ts"
       - "components/realtime/ShowRealtimeBridge.tsx"
