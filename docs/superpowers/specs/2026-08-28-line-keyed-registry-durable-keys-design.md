@@ -22,17 +22,32 @@ Enumerated from disk, not hand-listed. One command produces every number in this
 node scripts/line-key-census.mjs --anchors
 ```
 
-The census walks all 2696 files under `tests/**` for two shapes: a `line:`/`lines:` field whose owning row carries a `file:`, and a string literal `"path/to/file.ext:123"`. It splits code from comment so a prose citation is never counted as a key, and it splits targets that exist on disk from targets that do not. That separates three populations a bare `rg` count conflates:
+The census walks all 2696 files under `tests/**` for two shapes: a `line:`/`lines:` field whose owning row carries a `file:`, and a string literal pairing a source path with a line number after a colon. It splits code from comment so a prose citation is never counted as a key, and it splits targets that exist on disk from targets that do not. That separates three populations a bare `rg` count conflates:
 
 | population | tokens | churns? | why |
 | --- | --- | --- | --- |
-| Synthetic in-test fixtures | 136 | no | The path names a string the test itself defines. `tests/specLint/citations.test.ts:41` runs against an inline virtual filesystem `{ "lib/a.ts": "one\ntwo\n" }`; six `_metaChildlessGrowable` rows name `components/violation.tsx`, a file that has never existed. Nothing above them can move. |
+| Synthetic in-test fixtures | 136 | no | The path names a string the test itself defines. `tests/specLint/citations.test.ts:41` runs against an inline virtual filesystem `{ "lib/a.ts": "one\ntwo\n" }`; six `_metaChildlessGrowable` rows name a `violation` component under `components/` that has never existed. Nothing above them can move. |
 | Comment citations | 125 | no | Prose pointing a reader at a definition. Drift here is a docs defect, not a suite failure. `spec:lint` already owns citation freshness. |
 | Load-bearing registry rows | 289 | YES | A hand-authored row whose line is JOINED against a machine-recomputed line. This is the whole subject. |
 
 The rows naming a nonexistent file were each opened before being classified, because "registry row bound to nothing" would have been a live P0. All of them are constructed fixtures. There is no such defect on main.
 
 **Two independent methods agree.** The census above reads the working tree. A separate pass read `git log` per registry and counted pure re-keys (a diff hunk where the `-` and `+` lines are identical once every digit run is masked). The two disagree by at most two rows on any registry, from synthetic-row classification at the margin. Where this spec states a row count it is the census; where it states churn it is the git pass.
+
+## 1.1 Resolved scope — do not relitigate
+
+Each row is settled. A reviewer verifies the ratification rather than re-deriving the decision.
+
+| decision | posture | ratified at |
+| --- | --- | --- |
+| The anchor grammar is CLOSED at three kinds | Narrowing is a constraint of the arc, not an omission. A site the grammar cannot name declines. | the arc brief (untracked, `FX-worktrees/_briefs/`), section "Subject", clause NARROWING; restated at §0, §3.2 |
+| Declining rows keep their line keys | 40 rows (§4.3) stay as they are. This is the narrowing rule working, not partial migration. | §3.4, §4.3 |
+| Migrate-everything is rejected | Scope is set by measured churn. 289 load-bearing rows exist; 207 migrate. | arc brief, "do NOT migrate everything"; §4.2 |
+| `postgrest-dml-lockdown` declines wholesale | It churns (35 re-keys, blast 11) but its targets are SQL and the grammar has no SQL anchor. Adding one is the forbidden ratchet. | §4.2, §7 item 4 |
+| `_metaServerTimeGuard` and `acAmbiguousRecord` are excluded | Both measured ZERO re-keys. Excluding an unchurning surface is evidence, not oversight. | §4.1, §4.2 |
+| Comment citations are out of scope | 125 of them. `spec:lint` owns citation freshness. | §1, §7 item 5 |
+| Resolution never tie-breaks | Ambiguity fails loud. There is deliberately no "first match" or "nearest line" branch. | §0 consequence bound, §3.3, §6.1 step 4 |
+| Today's line keys CAN misbind silently | An earlier draft claimed otherwise; the claim was falsified by probe and the correction is kept in place rather than edited out. | §2 |
 
 ## 2. The mechanism, and what today's failure actually is
 
@@ -44,7 +59,8 @@ A scanner walks the TypeScript AST and computes a line for each site it finds:
 A hand-authored registry then joins against that output on the line:
 
 - `tests/styles/controlOutlineScan.ts:261` — `scanned.find((e) => e.file === row.file && e.line === row.line) ?? null`
-- `tests/adminAlerts/_metaAlertProducerScope.test.ts:149,156` — set membership both directions: a discovered site missing from the registry is an unregistered site, a registry row missing from discovery is `stale`.
+- `tests/adminAlerts/_metaAlertProducerScope.test.ts:149` — the discovered-site direction, `new Set(PRODUCER_SCOPE.map((r) => r.site))`.
+- `tests/adminAlerts/_metaAlertProducerScope.test.ts:155` — the reverse direction, computing `stale` as the registry rows discovery did not find.
 
 So the line is a join key between a value the tree computes and a value a human typed. Any edit above the site moves the computed value and not the typed one, and the join breaks for every row below the edit at once. That is the wholesale invalidation the ledger row names.
 
@@ -56,7 +72,7 @@ But `find((e) => e.file === row.file && e.line === row.line)` does not return "t
 node scripts/line-key-census.mjs --proximity
 ```
 
-Six keyed-row pairs across the two densest style registries sit within 20 lines of each other (4 in `controlOutlineScan`, 2 in `tapTargetCensus`), so an ordinary insert of that size can land one row's line on another's. This is a LOWER BOUND on the real exposure, because the collision only needs some SCANNED element on the vacated line, and the scanner's element set is much denser than the keyed subset it is compared against.
+Across the six migrating registries, **16 keyed-row pairs sit within 20 lines of each other** (7 in `alertProducerScope`, 4 in `controlOutlineScan`, 2 each in `tapTargetCensus` and `_metaControlOutlineFill`, 1 in `subtleInteractiveExemptions`), so an ordinary insert of that size can land one row's line on another's. This is a LOWER BOUND on the real exposure, because the collision only needs some SCANNED element on the vacated line, and the scanner's element set is much denser than the keyed subset it is compared against.
 
 Two consequences, and they point the same way:
 
@@ -83,7 +99,7 @@ Exactly three anchor kinds. This list is closed: a site expressible by none of t
 | --- | --- | --- | --- |
 | `testid` | `{ kind: "testid", value: string }` | JSX elements | the element's own `data-testid` attribute |
 | `label` | `{ kind: "label", value: string }` | JSX elements with no testid | the element's own `id` or `aria-label`, in that order |
-| `emit` | `{ kind: "emit", code: string, context: string }` | `lib/**` and `app/api/**` call sites | the emitted code plus the sorted context-key signature the row already carries |
+| `emit` | `{ kind: "emit", code: string, context: string, scope: string }` | `lib/**` and `app/api/**` call sites | the emitted code, the sorted context-key signature, and the `scope` the row already carries. `scope` is part of the anchor because §5 measures the disambiguation WITH it: dropping it would make §5's "resolves 1 of 5" unreproducible by the shipped grammar. |
 
 Each anchor value is read out of the SITE, never authored freehand. That is what makes it content-anchored: an edit above the site cannot change it, and an edit to the site itself changes it, which is correct, because that is a different site.
 
@@ -97,6 +113,22 @@ resolve(key, scannedSites) -> Bound(site) | Unresolved(key) | Ambiguous(key, sit
 - zero: `Unresolved`. The suite fails naming the row and its anchor.
 - two or more: `Ambiguous`. The suite fails naming the row and every site that matched.
 
+Every input case is named, so no case falls through to an implicit branch:
+
+| input condition | outcome | message names |
+| --- | --- | --- |
+| exactly one scanned site carries the anchor | `Bound` | — |
+| no scanned site carries it, target file EXISTS | `Unresolved` | the row, its anchor, the file |
+| the target file does not exist or cannot be read | `Unresolved` | the row and the unreadable path, distinct copy from the case above |
+| the target file exists but the scanner produced NO sites for it | `Unresolved` | the row, plus that the scanner saw the file and found nothing, so a scanner-scope bug is distinguishable from a moved element |
+| two or more scanned sites carry it, same file | `Ambiguous` | the row and EVERY matching site |
+| two or more carry it across DIFFERENT files | `Ambiguous` | as above. The anchor is scoped by `file` (§3.1), so this can only arise from a malformed row, and it is loud rather than filtered |
+| anchor value is empty or whitespace-only | `Unresolved`, and the registry guard rejects the row at load | the row. An empty anchor is an authoring error, never a wildcard |
+| `emit` anchor with no `code` | rejected at load | the row and the missing field |
+| row carries BOTH an `anchor` and a `declined` reason | rejected at load | the row. The two are mutually exclusive by construction |
+
+Anchor comparison is exact: byte equality after no normalisation at all. Not trimmed, not case-folded. A `data-testid` that differs by whitespace is a different anchor, and saying so loudly beats guessing which one was meant.
+
 **There is no fourth branch and no tie-break.** No "first match", no "nearest to the old line", no ordinal. The absence of a tie-break IS the consequence bound from §0, and §6.1 pins its absence executably rather than by reading the code.
 
 ### 3.4 Declining
@@ -108,13 +140,27 @@ A site with no `data-testid`, no `id`, no `aria-label`, and no distinguishing em
   declined: "no-intrinsic-anchor: bare <input type=radio>" }
 ```
 
+The reason is not free text. It is one of a CLOSED prefix set, asserted by the guard, so `declined: "x"` cannot satisfy it:
+
+| prefix | means |
+| --- | --- |
+| `no-intrinsic-anchor:` | the element carries no testid, id, or aria-label (§4.3) |
+| `ambiguous-emit:` | the emit signature collides with a sibling row (§5) |
+| `unsupported-target:` | the target language has no anchor kind in the grammar, e.g. SQL (§4.2) |
+
+The prefix is followed by a free-text note for the reader. The guard asserts the prefix; the note is documentation.
+
 A declined row keeps exactly the behaviour it has today. It is not a regression and not a TODO. It is the grammar refusing to guess, which is the whole point, and a guard asserts that every non-migrated row in a migrated registry carries a `declined` reason, so declining stays a deliberate act rather than an omission.
 
 ## 4. Scope: which registries migrate
 
 ### 4.1 The churn table
 
-`rows` and the anchor columns are the census. `re-keys` is the count of pure line-only edits in git history, `commits` how many distinct commits carried at least one, and `blast` the most that landed in a single commit, which is the wholesale-invalidation signature.
+`rows` and the anchor columns are the census, verbatim. `re-keys` is the count of pure line-only edits in git history, `commits` how many distinct commits carried at least one, and `blast` the most that landed in a single commit, which is the wholesale-invalidation signature.
+
+**The table is every census registry with 10 or more rows, and nothing else.** That is the stated filter; the census emits a long tail of 1-to-5-row files that no incident names and that no scope decision turns on. `n/a` in a churn column means the git pass did not cover that registry, not that it measured zero.
+
+One registry the ledger row mentions is deliberately ABSENT from this table: `tests/specLint/acAmbiguousRecord.ts` keys its 14 rows on a `plan:` field rather than a `file:` field, so the census does not emit it at all and no number here is derived for it. It is dispositioned in §4.2 on a hand count, flagged as such.
 
 | registry | rows | re-keys | commits | blast | testid | label | emit | decline |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -126,7 +172,7 @@ A declined row keeps exactly the behaviour it has today. It is not a regression 
 | `tests/styles/_metaControlOutlineResidue.test.ts` | 12 | 9 | 8 | 2 | 8 | 0 | 0 | 4 |
 | `tests/styles/_metaControlOutlineFill.test.ts` | 22 | 3 | 3 | 1 | 17 | 2 | 0 | 3 |
 | `tests/help/_metaServerTimeGuard.test.ts` | 13 | **0** | 0 | 0 | 0 | 0 | 13 | 0 |
-| `tests/specLint/acAmbiguousRecord.ts` | 14 | **0** | 0 | 0 | 0 | 0 | 0 | 14 |
+| `tests/specLint/expectContractCorpus.test.ts` | 10 | n/a | n/a | n/a | 0 | 0 | 0 | 10 |
 
 `alertProducerScope` is the churn engine on its own: 189 pure re-keys across 44 of its 56 commits, and a single commit (`9d6a93db8`, "re-pin the producer registry on the merged tree") moved 20 anchors with no semantic change at all.
 
@@ -153,12 +199,15 @@ A declined row keeps exactly today's behaviour. The suite gets no weaker: it is 
 
 The `emit` anchor was almost `(file, code)`. Measured against the live registry, `(file, code)` is NOT unique: **6 surplus rows in 5 colliding groups across 47 rows, 41 distinct pairs**, reproduced by `node scripts/line-key-census.mjs --collisions`. Shipping that key would have merged distinct rows into one, which is precisely the silent misbind §2 says is worse than the disease.
 
-Adding the content-derived discriminators the row already carries (`contextKeys`, `scope`) resolves **1 of 5** collision groups. The other four are byte-identical in every field the registry holds:
+Adding the content-derived discriminators the row already carries (`contextKeys` and `scope`) resolves **1 of 5** collision groups. In each of the other four, at least two rows remain identical in every field the registry holds. Note the third `assetRecovery` row is NOT identical to its two siblings; it is listed because its group still contains an identical pair, and the anchor must decline for the whole group:
 
 ```
 lib/sync/runScheduledCronSync.ts::PARSE_ERROR_LAST_GOOD   lines 2768, 3635   ctx=[drive_file_id,sheet_name] scope=per-show
 lib/sync/applyStaged.ts::EMBEDDED_RECOVERY_REQUIRES_RESTAGE  lines 2097, 2107  ctx=[drive_file_id] scope=per-show
-lib/sync/assetRecovery.ts::ASSET_RECOVERY_REVISION_DRIFT  lines 546, 633, 656
+lib/sync/assetRecovery.ts::ASSET_RECOVERY_REVISION_DRIFT
+  :546  ctx=[currentSnapshotRevisionId,snapshotRevisionId] scope=per-show
+  :633  ctx=[currentSnapshotRevisionId,snapshotRevisionId] scope=per-show   <- identical to :546
+  :656  ctx=[snapshotRevisionId] scope=per-show                            <- distinguishable
 app/api/drive/webhook/route.ts::WEBHOOK_TOKEN_INVALID     lines 332, 348     ctx=[channel_id,reason] scope=global
 ```
 
@@ -172,7 +221,7 @@ The test that matters is not "the key works". It is "the key cannot quietly be w
 
 1. Build a fixture component with three `data-testid` buttons and a registry row keyed to the third.
 2. Insert a fourth button ABOVE all three, the ordinary refactor from §0's fence.
-3. Assert the row still binds to the SAME element (same testid), and that no line in the registry changed.
+3. Assert the row still binds to the SAME element (same testid). A durable row holds no line to change (§3.1), so what is asserted is that the registry FILE is byte-identical before and after the insert. That is the churn claim stated executably.
 4. Mutate the fixture so two elements carry the SAME testid. Assert `Ambiguous`, and assert the failure message names the row and both sites.
 5. Delete the anchored element. Assert `Unresolved`, and assert the message names the row.
 
@@ -181,6 +230,16 @@ Step 3 is the churn repair. Steps 4 and 5 are the consequence bound. A resolver 
 ### 6.2 Enrolment precedes review
 
 The resolver ships as an importable module with a referring Vitest suite, never a terminal script, so the source-mutation runner can overlay it. It is enrolled in `tests/mutation/source/registry.ts` and scored with `pnpm mutation:guards` BEFORE the first diff dispatch. The round-1 brief states the score, the unaccepted-survivor set, and the `OPERATORS:` tail. Class lock for `heavy:mutation` is requested from bl-orch before that run.
+
+## 6.2 Dimensional Invariants
+
+N/A — no UI surface. This spec ships no component, no layout, and no fixed-dimension parent. Its only artifacts are a resolver module under `lib/`, a census script under `scripts/`, and edits to registry files under `tests/`. The `.tsx` paths named throughout are the TARGETS the registries key on, never files this arc renders or modifies.
+
+## 6.3 Transition Inventory
+
+N/A — no UI surface, for the same reason. The resolver has three outcomes (§3.3), but they are return values, not visual states, so there is nothing to animate between.
+
+impeccable-gate: N/A — no UI surface
 
 ## 7. Documented limits
 
