@@ -10,10 +10,11 @@
   that keeps it fresh, the hidden-branch clear and the close reset)
 - `lib/popover/naturalSize.ts` (edited — the scroll-restore short-circuit)
 - `tests/components/admin/rowActions/anchoredPortal.test.tsx` (extended — INV-A,
-  INV-B, INV-C, INV-D on the placed branch, INV-I, INV-J, and INV-K through
-  INV-O; its `Harness` gains `align`, `className` and `children` parameters
-  alongside the `preferredSide` one it already has, so every key member can be
-  varied independently from a test)
+  INV-B, INV-C, INV-D on the placed branch, INV-I, INV-J, INV-K, INV-L and
+  INV-M; its `Harness` gains `align`, `className` and `children` parameters
+  alongside the `preferredSide` one it already has — the last two not because
+  they are key members, which they are not, but because INV-M's witnesses drive
+  the panel's rendered size through them)
 - `tests/components/naturalSize.test.ts` (extended — INV-F; INV-G is the two
   merged cases in that file, at `tests/components/naturalSize.test.ts:45` and
   `tests/components/naturalSize.test.ts:59`, asserted to stay green rather than
@@ -184,110 +185,77 @@ Each of those tasks reds against exactly what this task leaves out.
 - `pnpm exec vitest run tests/components/admin/rowActions/anchoredPortal.test.tsx` — the merged position-only case (`tests/components/admin/rowActions/anchoredPortal.test.tsx:266`) and the merged open-transition anchor-read count (`tests/components/admin/rowActions/anchoredPortal.test.tsx:404`) stay green (AC-4, INV-D, INV-E).
 - `pnpm exec vitest run tests/components/admin/_metaPopoverViewportSource.test.ts` — the one walked-population guard over this subtree.
 
-## Task 2 — every prop that can change what is measured joins the key
+## Task 2 — the key observes the panel, and gains the core's two non-geometric parameters
 
 <!-- task: red=`pnpm exec vitest run tests/components/admin/rowActions/anchoredPortal.test.tsx` ac=AC-9,AC-11,AC-12,AC-13,AC-14,AC-4 -->
 
-**FIVE cases, one per key member beyond the rect, separate on purpose.** Spec
-round 2 found that a single criterion reading "`align` or `preferredSide`" is
-discharged by a case exercising either, so an implementation keying only one
-would pass; spec round 3 found the same hole under `children`, which was in the
-key with no case at all. Each member gets its own deciding case and its own
-criterion: `preferredSide` (INV-K, AC-9), `align` (INV-L, AC-11), `className`
-(INV-M, AC-12), `children` (INV-N, AC-13) and `side` (INV-O, AC-14).
+**What is red and why.** After Task 1 the key is the anchor rect alone. **The
+production lines whose absence makes these red are the panel-size comparison and
+the `align`/`preferredSide` comparison this task adds to the key**, both verified
+absent after Task 1.
 
-**What is red and why.** After Task 1 the key is the rect alone, no case moves the
-rect, and the ungated effect skips every re-place. **The production line whose
-absence makes all three red is the prop comparison this task adds to the key**,
-verified absent after Task 1.
+**Two members, six cases, and the split matters.** `align` and `preferredSide`
+are compared because no measurement can reveal a change in them; the panel's size
+is OBSERVED because every other way the measurement can move runs through it.
+Rounds 1-4 enumerated those other ways and were defeated four times; the record is
+`docs/review-rounds/perf/placement-measure-memo/b608e71b32b5.md` and the axis is
+fenced in the spec's §1.1.
 
-- **`preferredSide`.** Render open with `"bottom"`, rerender with `"top"`, assert
-  `data-portal-side` flips. The existing `Harness` already takes the prop
-  (`tests/components/admin/rowActions/anchoredPortal.test.tsx:91`), so this drives
-  a real prop change rather than a constructed one.
-- **`align`.** The harness gains an `align` parameter alongside it. Render with
-  `"left"`, rerender with `"right"`, assert `left` moves to the right-aligned
-  coordinate derived from the fixture (`anchor.right - panel.width`).
-- **`className`.** Render with no extra class, rerender with one applying a
-  `scale()`, assert the applied tuple is the one the oracle computes from the
-  scaled rect. This is the case spec round 2 was about: the class changes what
-  `getBoundingClientRect` returns without changing the content box
-  `ResizeObserver` reports, so no subscription fires and the ungated effect is
-  the only thing that can catch it.
+- **`preferredSide` (INV-K, AC-9).** Render open with `"bottom"`, rerender with
+  `"top"`, assert `data-portal-side` flips. The existing `Harness` already takes
+  the prop (`tests/components/admin/rowActions/anchoredPortal.test.tsx:91`).
+  Premises derive space above and below from `window.innerHeight` and the fixture,
+  the idiom the merged cases use
+  (`tests/components/admin/rowActions/anchoredPortal.test.tsx:162` and
+  `tests/components/admin/rowActions/anchoredPortal.test.tsx:194`), so the flip is
+  driven by the prop rather than by a lack of room.
+- **`align` (INV-L, AC-11).** The harness gains an `align` parameter. `"left"` to
+  `"right"`, assert `left` moves to `anchor.right - panel.width`. Premise: the two
+  alignments must differ for this fixture, which they do not when the panel is
+  exactly the trigger's width.
+- **Panel size, four witnesses (INV-M, AC-12).** Each leaves the anchor rect,
+  `align` and `preferredSide` untouched, and each reaches the guard through the
+  same channel: **(a)** a `className` carrying `scale()`; **(b)** a `children`
+  swap that measures differently; **(c)** a side-dependent rule fired by a flip
+  under a STABLE `className`; **(d)** a rule selecting on the serialized `style`
+  attribute, fired by the `left` the commit itself wrote. jsdom computes no
+  layout, so each witness supplies its effect through the rect stub — (c) and (d)
+  read the panel's live `data-portal-side` and `style` at stub time, which is what
+  a CSS rule keyed on them does.
 
-  **A SCALE, not a translation, and the first draft got that wrong.** Placement
-  reads the panel's width and height (`components/admin/AnchoredPortal.tsx:149`)
-  and never its current left or top, so a pure translation changes nothing the
-  placement depends on — the applied tuple is identical whether the component
-  re-measured or skipped, and the case would discriminate nothing while looking
-  like it tested something. The premise is executable: the oracle's tuple for the
-  scaled rect must differ from its tuple for the unscaled one.
-
-  **What jsdom cannot establish here, stated in the case rather than implied.**
-  Its `ResizeObserver` is a no-op stub (`tests/setup.ts:70-81`), so no observer
-  fires in this environment for any reason. The case pins the MEMO's behaviour on
-  a `className` change; that a real browser's observer would not report a
-  transform is a fact about the Resize Observer specification, cited in the
-  spec's §3.1 key table, not something this environment proves.
-
-- **`children`.** Rerender with children that make the panel measure differently,
-  and assert the re-place SYNCHRONOUSLY, with no flush between the `rerender` and
-  the assertion. **The criterion is the timing, not the eventual outcome** — a
-  real `ResizeObserver` would deliver the content-box change on a LATER frame, so
-  a key without `children` leaves one painted frame at the old placement, which
-  an assertion after a flush would not see. jsdom's stubbed observer cannot
-  rescue it either way, which is what makes the case discriminate cleanly here.
-
-- **`side`.** The case spec round 3 forced, and **the first draft of it was a
-  tautology** — it rendered once and asserted the flipped placement matched the
-  oracle, which tests the placement core and passes with or without `side` in the
-  key. The memo is only exercised when the flip invalidates a measurement already
-  taken. So the panel's rect stub reads the panel's LIVE `data-portal-side` at
-  call time, which is exactly what a side-dependent rule does; the class string
-  never changes, which is why the `className` case cannot reach this. Armed, the
-  follow-up finds rect and props equal, skips, and the panel keeps a placement
-  computed under the other side's geometry. Two premises, both from the oracle
-  rather than the rendered attribute so premise and assertion are not one
-  observation: the fixture must flip, and the two geometries must place
-  differently.
-
-The fixture gives the panel room on BOTH sides, so the flip is driven by the
-prop rather than by a lack of space — a fixture that only fits above would flip
-for the wrong reason and pass even with the prop ignored entirely. Two `premise`
-calls state it, and both DERIVE their numbers from the fixture and
-`window.innerHeight` rather than hardcoding a viewport, the idiom the merged
-cases already use (`tests/components/admin/rowActions/anchoredPortal.test.tsx:162`
-and `tests/components/admin/rowActions/anchoredPortal.test.tsx:194` compute
-`spaceBelow` the same way): space below
-(`window.innerHeight - (anchor.top + anchor.height) - GAP`) and space above
-(`anchor.top - GAP`) must each exceed the panel stub's height.
+  **The witnesses are not four key members.** They are four causes proving ONE
+  observation discriminates, which is the whole point of the redesign: dropping
+  the panel-size comparison reds all four at once, and no witness has a mutant of
+  its own.
+- **Timing (AC-13).** Witness (b) asserts SYNCHRONOUSLY after `rerender`, no
+  flush. A real `ResizeObserver` delivers a content-box change a frame later, so a
+  guard waiting for it leaves one painted frame stale; jsdom's stub
+  (`tests/setup.ts:70-81`) cannot rescue it either way.
+- **The negative case (AC-14).** A pure TRANSLATION of the panel must NOT force a
+  re-measure. Without it, a guard that re-placed on every commit would pass all
+  four witnesses while removing no work — the tautology this criterion exists to
+  refuse. Assert the pass count is unchanged across a translation-only stub change.
 
 **GREEN, and it is two changes rather than one.** Widen the key to
-`{ rect, align, preferredSide, className, children, side }` — the four props
-compared with `===`, and `side` read from the panel's live `data-portal-side`
-attribute so it reflects what the panel is CURRENTLY rendering under — AND
-introduce the props ref that lets the comparing code see current values at all. Task 1's key is the rect, which `measureAndApply` already closes
-over freshly; `className` and `children` are not in that closure and `align` and
-`preferredSide` are stale the moment the callback outlives a prop change.
+`{ anchorRect, panelSize, align, preferredSide }` — the panel's size read from the
+same node the measurement uses, the two props compared with `===` — AND introduce
+the props ref that lets the comparing code see current values at all. Task 1's key
+is the anchor rect, which `measureAndApply` already closes over freshly; `align`
+and `preferredSide` are stale the moment the callback outlives a prop change.
 
 `propsRef` is synced in a `useLayoutEffect` declared BEFORE the subscriptions
-effect, so every later layout effect on the commit sees the current props and the
+effect, so every later layout effect on the commit sees current props and the
 coalescer's animation-frame callback sees them too. `measureAndApply` reads it for
 the key AND for the placement inputs, so there is one source and the two cannot
-diverge. The alternatives and why each fails are in the spec's §3.1; the one worth
-repeating at the task is that adding the props to `measureAndApply`'s dep array
-re-creates the callback on every parent re-render, which re-subscribes the
-`ResizeObserver` and delivers an initial callback — adding a measure per parent
-re-render while removing one per gesture frame.
+diverge. Adding the props to `measureAndApply`'s dep array instead re-creates the
+callback on every parent re-render, which re-subscribes the `ResizeObserver` and
+delivers an initial callback — adding a measure per parent re-render while
+removing one per gesture frame.
 
 **Ordering is load-bearing**: the props-sync effect declared after the ungated one
 would compare against the PREVIOUS commit's props and re-place a prop change one
-commit late. All three cases above assert immediately after `rerender` with no
-intervening flush, which is what pins it. `children` has no case of its own here and
-that is stated rather than silent: every prop change a parent makes replaces the
-`children` element object too, so `children` is the member that makes the key
-CLOSED under prop changes rather than a list of the ones anybody thought of, and
-the three cases above are what pin the members a caller can vary independently.
+commit late. Every case above asserts immediately after `rerender` with no
+intervening flush, which is what pins it.
 
 ## Task 3 — reopening at the identical trigger rect still places the panel
 
