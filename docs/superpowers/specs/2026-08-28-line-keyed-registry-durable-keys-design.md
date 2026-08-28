@@ -1,4 +1,10 @@
-# Durable keys for line-keyed test registries
+# Line-keyed registries: a content-anchored key was designed, measured, and does not pay
+
+**OUTCOME: no registry migrates.** This document is a refutation record. The design in §3 is
+sound and its resolver was built and passed; §4 is the measurement that says shipping it would
+cost a full arc to remove under half the churn on one registry. What ships is the measurement
+instrument, the corrected numbers, and the documented limits (§6).
+
 
 **Branch:** `feat/line-keyed-registry-durable-keys` · **Row:** `BL-LINE-KEYED-REGISTRY-ROWS` · **Facing:** process · **Mint-exception:** recurrence (`LIM-LINE-KEYED-SITEID`) · **Date:** 2026-08-28
 
@@ -28,7 +34,8 @@ The census walks all 2696 files under `tests/**` for two shapes: a `line:`/`line
 | --- | --- | --- | --- |
 | Synthetic in-test fixtures | 136 | no | The path names a string the test itself defines. `tests/specLint/citations.test.ts:41` runs against an inline virtual filesystem `{ "lib/a.ts": "one\ntwo\n" }`; six `_metaChildlessGrowable` rows name a `violation` component under `components/` that has never existed. Nothing above them can move. |
 | Comment citations | 125 | no | Prose pointing a reader at a definition. Drift here is a docs defect, not a suite failure. `spec:lint` already owns citation freshness. |
-| Load-bearing registry rows | 289 | YES | A hand-authored row whose line is JOINED against a machine-recomputed line. This is the whole subject. |
+| Constructed test-local inputs | 2 | no | An object the test builds as INPUT, naming a real file but never joined to a recomputed line, so nothing above it can invalidate it. Two `ScanElement` literals in `_metaControlOutlineResidue`. Existing on disk is not sufficient to be load-bearing, which the census asserted until review probed it. |
+| Load-bearing registry rows | 287 | YES | A hand-authored row whose line is JOINED against a machine-recomputed line. This is the whole subject. |
 
 **A third shape exists and the census deliberately does not emit it.** The mutation harness keys accepted-survivor rows by `operator:line:col:text` (`tests/mutation/source/registry.ts:65` splits the operator off the front), which matches neither census shape. That population is the largest line-keyed registry in the repo and it is dispositioned in §4.2 on its own measurement, not on a census row. The census is not widened to cover it, because widening a recognizer to reach a surface that is going to decline anyway is motion.
 
@@ -44,10 +51,12 @@ Each row is settled. A reviewer verifies the ratification rather than re-derivin
 | --- | --- | --- |
 | The anchor grammar is CLOSED at three kinds | Narrowing is a constraint of the arc, not an omission. A site the grammar cannot name declines. | the arc brief (untracked, `FX-worktrees/_briefs/`), section "Subject", clause NARROWING; restated at §0, §3.2 |
 | Declining rows keep their line keys | 40 rows (§4.3) stay as they are. This is the narrowing rule working, not partial migration. | §3.4, §4.3 |
-| Migrate-everything is rejected | Scope is set by measured churn. 289 load-bearing rows exist; 207 migrate. | arc brief, "do NOT migrate everything"; §4.2 |
+| Migrate-everything is rejected | Scope is set by measured churn. 287 load-bearing rows exist; §4.5 migrates none. | arc brief, "do NOT migrate everything"; §4.2 |
 | `postgrest-dml-lockdown` declines wholesale | It churns (35 re-keys, blast 11) but its targets are SQL and the grammar has no SQL anchor. Adding one is the forbidden ratchet. | §4.2, §7 item 4 |
 | `_metaServerTimeGuard` and `acAmbiguousRecord` are excluded | Both measured ZERO re-keys. Excluding an unchurning surface is evidence, not oversight. | §4.1, §4.2 |
-| The mutation accepted-survivor ledger declines wholesale | 265 rows, incident (1). Not an oversight: measured, and the repair its own header prescribes reaches only 45%. | §4.2, §7 item 5 |
+| No registry migrates | Ruled by the orchestrator's decision function 2026-08-28: migrate only if MORE THAN HALF the measured re-keys land on rows whose anchor the scanner can actually derive. Measured 41.5%. | §4.5 |
+| The design is not withdrawn as WRONG, only as NOT WORTH SHIPPING | §3's resolver passes every guard case (§6.2). The refutation is economic, and stating it as a design failure would mislead the next arc. | §3, §4.5 |
+| The mutation accepted-survivor ledger declines wholesale | 268 rows, incident (1). Not an oversight: measured, and the repair its own header prescribes leaves 28% of rows uniquely resolvable. | §4.2, §7 item 5 |
 | Comment citations are out of scope | 125 of them. `spec:lint` owns citation freshness. | §1, §7 item 6 |
 | Resolution never tie-breaks | Ambiguity fails loud. There is deliberately no "first match" or "nearest line" branch. | §0 consequence bound, §3.3, §6.1 step 4 |
 | Today's line keys CAN misbind silently | An earlier draft claimed otherwise; the claim was falsified by probe and the correction is kept in place rather than edited out. | §2 |
@@ -176,32 +185,93 @@ One registry the ledger row mentions is deliberately ABSENT from this table: `te
 | `tests/styles/_metaControlOutlineFill.test.ts` | 22 | 3 | 3 | 1 | 17 | 2 | 0 | 3 |
 | `tests/help/_metaServerTimeGuard.test.ts` | 13 | **0** | 0 | 0 | 0 | 0 | 13 | 0 |
 | `tests/specLint/expectContractCorpus.test.ts` | 10 | n/a | n/a | n/a | 0 | 0 | 0 | 10 |
-| `tests/mutation/source/registry.ts` accepted rows | 265 | see §4.2 | — | wholesale | 0 | 0 | 0 | **265** |
+| `tests/mutation/source/registry.ts` accepted rows | 268 | see §4.2 | — | wholesale | 0 | 0 | 0 | **268** |
 
 `alertProducerScope` is the churn engine on its own: 189 pure re-keys across 44 of its 56 commits, and a single commit (`9d6a93db8`, "re-pin the producer registry on the merged tree") moved 20 anchors with no semantic change at all.
 
-### 4.2 What migrates
+### 4.2 What was going to migrate
 
-**Migrating: six registries, 207 rows, carrying 288 of the 323 measured re-keys (89%).** `alertProducerScope.registry`, `tapTargetCensus`, `controlOutlineScan`, `subtleInteractiveExemptions`, `_metaControlOutlineResidue`, `_metaControlOutlineFill`. The first five are ranked by measured churn. `_metaControlOutlineFill` has only 3 measured re-keys, but it is incident (3) in the ledger row, it keys the same tree through the same scanner as its four style siblings, and migrating it with them is the class-sweep default rather than a sixth arc later.
+The candidate was `tests/adminAlerts/alertProducerScope.registry.ts`: 47 rows, 189 of the 323
+measured re-keys, and the worst blast in the corpus (`9d6a93db8` moved 20 anchors with no
+semantic change). The five style registries were descoped first, on anchorability; the emit
+registry was then descoped on §4.5. §4.3 and §4.4 are why the first number could not be
+trusted, and they are kept because the error is the reusable part.
 
-**Not migrating, each with its reason rather than silence:**
+### 4.3 Anchorability, measured three times, wrong twice
 
-- **`tests/db/postgrest-dml-lockdown.test.ts` DECLINES WHOLESALE (33 of 33 rows).** An earlier draft of this spec excluded it on the theory that shipped migrations are immutable, so its keys were durable by the property of the tree. **The git history falsifies that: 35 re-keys in 4 commits, blast 11.** Migrations do get edited, and when one is, every anchor below the edit re-keys at once. The honest reason to exclude it is different and narrower: its rows key statements inside `.sql` files, and the closed grammar in §3.2 has no SQL anchor. Adding one is exactly the ratchet §0 forbids, so the registry declines with a surfaced reason and a re-file trigger in §7. This correction is recorded rather than quietly edited out, because the falsified claim is the more instructive half.
-- **The mutation accepted-survivor ledger DECLINES WHOLESALE (265 rows, 30 of 58 enrolled surfaces), and it is the most consequential decline in the arc.** This is incident (1) of the three in the ledger row. Its failure mode is strictly worse than everything else here: `tests/mutation/source/ledger.ts:53` computes `stale` as ledger rows absent from the actual mutant set, and `score()` at `tests/mutation/source/ledger.ts:79-89` excludes ledgered `equivalent` siteIds from the denominator. A mis-keyed row fails the `equivalent.has(s)` test, so its mutant is counted in `countedSurvivors` AND inflates `denominator`. The registry's own header states the consequence: such a row "counts its mutant against the surface twice, once as an unaccepted survivor and once in the denominator". That is SILENT SCORE CORRUPTION, the §2 thesis in its sharpest form, and it is already recorded in-tree as a documented limit.
+**JSX side: 39%, not the 79% first stated.** The opening-tag window truncated at the first
+`>`, and an inline `onClick={() => ...}` contains one. Corrected over 160 rows: 59 unique
+testid, 4 duplicated testid, 3 unique label, 94 no anchor.
 
-  **It declines because the repair its own header prescribes does not work.** That header says to "re-key by mutant KIND + TEXT rather than by position". Measured: `(operator, text)` yields 42 distinct keys for 266 rows globally, with `relational-boundary|<><=` occurring 53 times. Scoped per surface, which is the scope that actually applies, **20 of 30 surfaces still collide and only 118 of 265 rows (45%) are expressible**; the worst are `specLintNumerics` (49 rows, 32 surplus), `psqlStartupScan` (31, 28) and `taskContract` (25, 16). Closing the other 55% requires an ordinal within the surface, which is precisely the positional key §2 rules out. Declining a surface this large is uncomfortable, and it is the narrowing rule (§0) returning its intended answer rather than the rule failing.
+**A duplicate anchor is not rare, and one case carries seven rows.** `app/me/meShowSections.tsx`
+renders `` data-testid={`me-show-card-${show.slug}`} `` at three separate sites in that one file (lines 175, 214 and 259).
+A template literal produces the SAME anchor at all three, so seven registry rows keyed to them
+(three in `controlOutlineScan`, one in `tapTargetCensus`, three in `_metaControlOutlineFill`)
+all return `Ambiguous`. They had been counted as migrating testid rows. This is a live corpus
+case, not a constructed one, and it is the clearest evidence that a template-literal testid is
+an identifier for a RUNTIME instance and not for a SITE.
 
-- **`tests/help/_metaServerTimeGuard.test.ts` is excluded on evidence: zero re-keys in 13 commits.** Its 13 `lib/` keys have never moved. Its 9 numeric edits in history were population-count churn (`toBe(213)` to `toBe(214)`), not key churn. Nothing here needs repair, and all 13 rows would be `emit`-expressible if that ever changes.
-- **`tests/specLint/acAmbiguousRecord.ts`: zero re-keys**, pointing at rarely-edited plan documents. Same disposition.
-- **The remaining specLint members** key on documents or on fixtures the test defines. `spec:lint` owns them.
+**Emit side: 43%, not the 83% stated when the scope call was made.** This is the one that
+mattered, and it is the sharpest error in the arc. The grammar requires `code`, `context` and
+`scope`, and §3.2 says anchor content is read out of the SITE. For most rows it cannot be:
 
-**Migrate-everything is rejected explicitly.** 289 load-bearing tokens exist; 207 migrate. The rest either measured zero churn, or cannot be named by a closed grammar.
+```
+rows=47  dynamic=20  computedContext=12  both=5  seed=3
+site-derivable (neither dynamic nor computed): 20 of 47 = 43%
+  of those 20, resolving uniquely without the registry-authored scope: 20, ZERO ambiguous
+```
 
-### 4.3 The decline set is 40 of 207, and that is the design working
+Discovery represents a dynamic code as `code == null`
+(`tests/adminAlerts/_metaAlertProducerScope.test.ts:174`), computed context keys are
+hand-authored by contract, and `scope` comes from the registry row for every row without
+exception. So for 27 of 47 rows the "content anchor" would compare registry fields against
+registry fields: **self-validating, which is the tautology this arc exists to remove.** An
+ordinary dynamic-code or scope drift would stay green.
 
-Within the migrating six: 120 rows carry a `data-testid`, 7 an `id` or `aria-label`, 40 an emit signature, and 40 carry nothing the grammar can name (120 + 7 + 40 + 40 = 207). Sample declines, all bare interactive elements with no intrinsic identity: `app/help/errors/page.tsx:82` (`<a href={\`#${family.id}\`}>`), `components/admin/dev/MaterializeCard.tsx:198` (bare `<input type="checkbox">`), `components/admin/wizard/Step3ReviewModal.tsx:972` (`<input type="radio">`).
+The 43% is not meaningfully better than the 39% the JSX side was descoped FOR.
 
-A declined row keeps exactly today's behaviour. The suite gets no weaker: it is the grammar refusing to guess.
+### 4.4 Method note: five numeric claims, four wrong until executed
+
+1. JSX anchorability 79% → **39%** (window truncated at `>`).
+2. The census `emit` column 40 → a PATH test (`lib/`, `app/api/`), not an anchorability test.
+3. Decline count 9 → **8** (§5 groups by `(file, code)`; the shipped anchor discriminates one more).
+4. Emit anchorability 83% → **43%** (counted rows whose anchor fields are hand-authored).
+5. Ledger expressibility 45% → **28%** (counted distinct KEYS, not resolvable ROWS; §4.2).
+
+Two further census defects, both found by review rather than by me:
+
+- **`existsSync(target)` is not enough to call a row load-bearing.** Two rows in
+  `_metaControlOutlineResidue` are constructed `ScanElement` objects that happen to name real
+  files (`ShareHub.tsx`, `PublishedToggle.tsx`); they are test-local inputs, never joined to a
+  recomputed line, and cannot churn. The census counted them.
+- **The `decline` column measures "no syntactic anchor present", not the final declined
+  population.** Adding §5's emit declines to it gives 49 of 207, not 40. Three sections
+  asserted the smaller number.
+
+Every one of these shares a shape: **an anchor, or a row, that EXISTS counted as one that
+DISCRIMINATES.** On an arc whose subject is keys drifting from their referents, a
+hand-maintained number is the same defect in prose, so the rule this document ends with is
+that §4 states no figure the committed census does not print.
+
+### 4.5 The refutation
+
+The orchestrator set the test before the measurement, so it could not be chosen to fit:
+migrate only if MORE THAN HALF the measured re-keys land on rows whose anchor is genuinely
+site-derivable. Measured by two independent methods that agree:
+
+```
+56 commits, 192 pure re-keys, 188 attributed (97.9%), 4 unattributed
+  on site-derivable rows      :  78  = 41.5%
+  on non-derivable rows       : 110  = 58.5%
+```
+
+**41.5% is under half, so nothing migrates.** The reason it fails is worth more than the
+number: churn is PROPORTIONAL, not concentrated. Derivable rows are 20 of 47 (42.6%) of the
+registry and take 41.5% of the churn, so there is no pocket of value to extract. The top
+churning row is non-derivable (`lib/drive/watch.ts` · `WATCH_CHANNEL_ORPHANED`, 20 re-keys),
+and derivable and non-derivable rows alternate down the whole top five. Migrating the 20 would
+erase 78 of 192 re-keys, and those same 20 are the only rows that would additionally need a
+live site-extraction proof.
 
 ## 5. The collision measurement, which is the load-bearing evidence
 
@@ -221,31 +291,52 @@ app/api/drive/webhook/route.ts::WEBHOOK_TOKEN_INVALID     lines 332, 348     ctx
 
 Nine rows are genuinely indistinguishable by content. Under §3.4 they DECLINE and stay line-keyed. The alternative, an ordinal to separate them, is the rejected trade from §2, and this measurement is why the grammar is closed rather than one anchor kind longer.
 
-## 6. Proving it
+## 6. What ships
 
-### 6.1 The P0 mutant: an edit above a row must keep the binding correct or red loudly
+No registry migrates and no resolver ships. Three things do.
 
-The test that matters is not "the key works". It is "the key cannot quietly be wrong". Executable, on a fixture tree:
+### 6.1 The measurement instrument
 
-1. Build a fixture component with three `data-testid` buttons and a registry row keyed to the third.
-2. Insert a fourth button ABOVE all three, the ordinary refactor from §0's fence.
-3. Assert the row still binds to the SAME element (same testid). A durable row holds no line to change (§3.1), so what is asserted is that the registry FILE is byte-identical before and after the insert. That is the churn claim stated executably.
-4. Mutate the fixture so two elements carry the SAME testid. Assert `Ambiguous`, and assert the failure message names the row and both sites.
-5. Delete the anchored element. Assert `Unresolved`, and assert the message names the row.
+`scripts/line-key-census.mjs` — walker-derived, four modes (`--anchors`, `--collisions`,
+`--proximity`, `--ambiguity`), producing every number in this document. It carries the two
+repairs review found: a row is load-bearing only when it is actually joined against a
+recomputed line, so a constructed `ScanElement` naming a real file no longer counts (§4.4);
+and the `decline` column is named for what it measures, "no syntactic anchor present", with
+the final declined population computed separately.
 
-Step 3 is the churn repair. Steps 4 and 5 are the consequence bound. A resolver that passed 1 to 3 and picked a winner in step 4 would be the quiet-and-wrong cure, so step 4 fails the build if `resolve` ever returns `Bound` from a two-match set.
+The instrument is the durable part. Every number here was cheap to re-derive and expensive to
+maintain by hand, which is the same lesson the subject matter teaches.
 
-### 6.2 Enrolment precedes review
+### 6.2 The design, recorded as sound but unshipped
 
-The resolver ships as an importable module with a referring Vitest suite, never a terminal script, so the source-mutation runner can overlay it. It is enrolled in `tests/mutation/source/registry.ts` and scored with `pnpm mutation:guards` BEFORE the first diff dispatch. The round-1 brief states the score, the unaccepted-survivor set, and the `OPERATORS:` tail. Class lock for `heavy:mutation` is requested from bl-orch before that run.
+`§3`'s resolver was built and exercised against all nine guard-condition rows: unique anchor
+binds; an edit ABOVE the site keeps the binding to the same site; a duplicate anchor returns
+`Ambiguous` naming every match and NEVER `Bound`; the four zero-match causes stay
+distinguishable; exact comparison is not relaxed by trimming. It passes.
 
-## 6.2 Dimensional Invariants
+**It is recorded here, not shipped, and that distinction is the point.** The refutation in §4.5
+is economic, not technical. A future arc that reads this as "content anchoring does not work"
+would have learned the wrong thing.
 
-N/A — no UI surface. This spec ships no component, no layout, and no fixed-dimension parent. Its only artifacts are a resolver module under `lib/`, a census script under `scripts/`, and edits to registry files under `tests/`. The `.tsx` paths named throughout are the TARGETS the registries key on, never files this arc renders or modifies.
+One caveat travels with it, because it is the trap this arc nearly shipped: **that prototype
+compared registry-parsed anchors against registry-parsed anchors.** It never extracted an
+anchor from a live site, which is exactly why it could pass while 27 of 47 rows had no
+site-derivable anchor at all (§4.3). A green that never touches the real input is a green
+about nothing, and any future attempt starts with live site extraction, not with a resolver.
 
-## 6.3 Transition Inventory
+### 6.3 The documented limits
 
-N/A — no UI surface, for the same reason. The resolver has three outcomes (§3.3), but they are return values, not visual states, so there is nothing to animate between.
+§7, which is now the deliverable rather than an appendix.
+
+### 6.4 Dimensional Invariants
+
+N/A — no UI surface. Nothing renders. The arc ships one Node script and documentation; the
+`.tsx` paths named throughout are TARGETS the registries key on, never files this arc modifies.
+
+### 6.5 Transition Inventory
+
+N/A — no UI surface, same reason. The resolver's three outcomes are return values, not visual
+states, and it does not ship in any case.
 
 impeccable-gate: N/A — no UI surface
 
@@ -255,9 +346,27 @@ impeccable-gate: N/A — no UI surface
 2. **A renamed `data-testid` reads as Unresolved, not as a move.** Correct under §3.2 (a changed anchor is a different site) but it means a testid rename costs a registry edit. That trade is deliberate: the alternative is guessing, and it is bounded because testids change far less often than lines above them.
 3. **The grammar has no anchor for a bare interactive element** (§4.3, 40 rows). Widening it is the ratchet §0 forbids. Re-file trigger: the same declined row is re-keyed in three independent arcs.
 4. **`postgrest-dml-lockdown` declines wholesale for want of a SQL anchor** (§4.2), while measurably churning: 35 re-keys, blast 11. This is the largest knowingly-unrepaired surface in the arc. Re-file trigger: a further wholesale re-key of that file, at which point the question is a SQL statement anchor as its own arc with its own hit/miss table, never an anchor kind bolted onto this grammar.
-5. **The mutation accepted-survivor ledger keeps its positional siteIds** (§4.2, 265 rows). This is the largest knowingly-unrepaired surface in the arc, ahead of `postgrest-dml-lockdown`, and the only one whose failure mode is silent rather than loud. Two things would change the disposition, and neither is available now: a non-positional disambiguator for same-operator-same-text mutants within one surface, or a harness that keys mutants by something other than their site. Re-file trigger: either becomes available, or a scoring incident is traced to a mis-keyed accepted row. Recorded against the existing in-tree limit rather than as a new claim, and the 45% measurement corrects that limit's prescribed repair.
+5. **The mutation accepted-survivor ledger keeps its positional siteIds** (§4.2, 268 rows). This is the largest knowingly-unrepaired surface in the arc, ahead of `postgrest-dml-lockdown`, and the only one whose failure mode is silent rather than loud. Two things would change the disposition, and neither is available now: a non-positional disambiguator for same-operator-same-text mutants within one surface, or a harness that keys mutants by something other than their site. Re-file trigger: either becomes available, or a scoring incident is traced to a mis-keyed accepted row. Recorded against the existing in-tree limit rather than as a new claim, and the 28% measurement (76 of 268 rows resolve to cardinality one) corrects that limit's prescribed repair.
 6. **Comment citations are out of scope** (§1). `spec:lint` owns them.
 
-## 8. Done condition, as a number outside the process
+## 8. Done condition
 
-Re-keys per arc, as the ledger row states. The next two arcs touching any migrated registry report zero pure re-key edits in their registry commits. Not "the guard pins what it claims", which would be unclosable.
+The ledger row's done condition was re-keys per arc falling to zero on migrated registries.
+**That condition is not met and is not reachable by this design**, so the row is re-dispositioned
+rather than left open implying someone should retry the same thing: `BL-LINE-KEYED-REGISTRY-ROWS`
+becomes a documented limit carrying the churn table (§4.1), both attribution methods (§4.5), and
+the anchorability measurements (§4.3).
+
+**Re-file trigger, two arms, both measured rather than felt:**
+
+1. An anchor design appears that can derive the 27 hand-authored rows — a discovery pass that
+   resolves a dynamic `code` to its emitted literal, or a `scope` the site itself carries. That
+   is what would move 43% toward the threshold.
+2. Churn CONCENTRATION shifts: the site-derivable share of attributed re-keys rises above half,
+   re-measured by the same two methods. Today it is 41.5% against a 42.6% registry share, and
+   the near-equality is the whole finding.
+
+What this arc is worth, stated plainly: it spent its budget establishing that a plausible repair
+does not pay, and left behind the instrument that will settle the same question in minutes next
+time. That is the honest return, and it is the reason the numbers above are reproducible rather
+than asserted.

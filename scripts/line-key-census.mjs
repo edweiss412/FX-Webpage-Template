@@ -41,10 +41,29 @@ function classifyLines(src) {
 /** A target is synthetic when the path does not exist on disk. */
 const isSynthetic = (target) => !existsSync(target);
 
+/**
+ * A row is CONSTRUCTED when it is a test-local input object rather than a registry row
+ * joined against a recomputed line. Existing on disk is NOT sufficient: two rows in
+ * _metaControlOutlineResidue build `ScanElement` literals naming real files, and they
+ * cannot churn because nothing recomputes their line.
+ *
+ * The rule is deliberately narrow: an explicit `ScanElement` type annotation within the
+ * three lines above the row. It does not try to recognise constructed inputs in general.
+ * A shape it cannot classify stays COUNTED, so it is wrong loudly in the totals rather
+ * than silently excluded.
+ */
+function isConstructed(lines, i) {
+  for (let j = i; j >= Math.max(0, i - 3); j--) {
+    if (/:\s*ScanElement\b/.test(lines[j].raw)) return true;
+  }
+  return false;
+}
+
 const files = walk(TEST_ROOT);
 let synthetic = 0,
   comment = 0,
-  bearing = 0;
+  bearing = 0,
+  constructed = 0;
 const perFile = new Map();
 
 for (const f of files) {
@@ -66,10 +85,19 @@ for (const f of files) {
       }
     }
     if (target === null) continue;
-    const r = perFile.get(f) ?? { shapeA: 0, shapeB: 0, synthetic: 0, targets: new Map() };
+    const r = perFile.get(f) ?? {
+      shapeA: 0,
+      shapeB: 0,
+      synthetic: 0,
+      constructed: 0,
+      targets: new Map(),
+    };
     if (isSynthetic(target)) {
       synthetic++;
       r.synthetic++;
+    } else if (isConstructed(lines, i)) {
+      constructed++;
+      r.constructed = (r.constructed ?? 0) + 1;
     } else {
       bearing++;
       r.shapeA++;
@@ -119,7 +147,7 @@ const treeOf = (targets) => {
 
 console.log(`files scanned: ${files.length}`);
 console.log(
-  `POPULATIONS  synthetic=${synthetic}  comment-citation=${comment}  load-bearing=${bearing}`,
+  `POPULATIONS  synthetic=${synthetic}  comment-citation=${comment}  constructed-input=${constructed}  load-bearing=${bearing}`,
 );
 console.log("");
 console.log("registry\trows\ttarget-tree");
@@ -129,7 +157,7 @@ for (const r of rows) console.log(`${r.f}\t${r.total}\t${treeOf(r.targets)}`);
 // closed anchor grammar (§3.2) can name it. Produces the §4.3 decline numbers.
 if (process.argv.includes("--anchors")) {
   const OPEN_TAG = (win) => win.split(">")[0] + ">";
-  console.log("\nregistry\trows\ttestid\tlabel\temit\tdecline");
+  console.log("\nregistry\trows\ttestid\tlabel\temit\tno-syntactic-anchor");
   let T = [0, 0, 0, 0, 0];
   for (const r of rows) {
     let testid = 0,
