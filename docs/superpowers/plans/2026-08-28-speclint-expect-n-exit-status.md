@@ -43,7 +43,7 @@
 
 ### Task 1: lib/specLint/expectContract.ts (new module) — Arm A `EXPECT_N_UNENFORCED`
 
-<!-- task: red=`pnpm vitest run tests/specLint/expectContract.test.ts tests/specLint/expectContractCorpus.test.ts` red-state=authored red-target=`lib/specLint/expectContract.ts` why=`the task lands the typed export skeleton (checkExpectN returning []) BEFORE the suites, so imports resolve and the observed RED is behavioral: every fixture case asserts findings the skeleton does not emit, and the corpus fire-set is empty while its premise proves the walked corpus non-empty - green arrives only with the §4.1 grammar (pattern, non-empty command, assertion-opener rejection, end anchoring)` ac=AC-1,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/specLint/expectContract.test.ts tests/specLint/expectContractCorpus.test.ts` red-state=authored red-target=`lib/specLint/expectContract.ts:19` why=`the task lands the typed export skeleton (checkExpectN returning []) BEFORE the suites, so imports resolve and the observed RED is behavioral: every fixture case asserts findings the skeleton does not emit, and the corpus fire-set is empty while its premise proves the walked corpus non-empty - green arrives only with the §4.1 grammar (pattern, non-empty command, assertion-opener rejection, end anchoring)` ac=AC-1,AC-6 -->
 
 **Files:**
 
@@ -69,7 +69,7 @@
 
 ### Task 2: Arm B pure core — extraction, config resolution, normalization, verdicts
 
-<!-- task: red=`pnpm vitest run tests/specLint/expectPlaywright.test.ts tests/specLint/expectContractCorpus.test.ts` red-state=authored red-target=`lib/specLint/expectContract.ts` why=`the task lands typed skeletons for playwrightCollectionPlan, configsToProbe and synthesizeCollectionVerdicts (each returning []) BEFORE the suites, so the observed RED is behavioral: extraction fixtures and the corpus suite's new Arm B assertions (incident line as candidate, 2 distinct configs, -c resolving standalone, rule-3/rule-4 declines) fail against an extraction that emits nothing - green arrives with the §5.1-§5.3 bodies` ac=AC-2,AC-3,AC-4,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/specLint/expectPlaywright.test.ts tests/specLint/expectContractCorpus.test.ts` red-state=authored red-target=`lib/specLint/expectContract.ts:85` why=`the task lands typed skeletons for playwrightCollectionPlan, configsToProbe and synthesizeCollectionVerdicts (each returning []) BEFORE the suites, so the observed RED is behavioral: extraction fixtures and the corpus suite's new Arm B assertions (incident line as candidate, 2 distinct configs, -c resolving standalone, rule-3/rule-4 declines) fail against an extraction that emits nothing - green arrives with the §5.1-§5.3 bodies` ac=AC-2,AC-3,AC-4,AC-6 -->
 
 **Files:**
 
