@@ -123,32 +123,38 @@ One file, one className pair.
 
 `components/diagrams/Gallery.tsx` is NOT edited: it is already the chosen arrangement, and §3.3 is why.
 
-### 4.1 The two live consumers that assert or state the old placement
+### 4.1 Every live consumer this change invalidates
 
-Both land in the same commit as the className move. This list is the output of a sweep for every
-consumer that reads or describes where the tile's chrome lives, not only the one the change happened to
-break.
+All of these land in the same commit as the className move. **The count is the number of rows in the
+table and is deliberately not restated in prose.** An earlier draft's heading said "two" while the body
+named three, and then a derivation turned up a fourth, so the number is read off the table rather than
+asserted beside it.
 
-**`tests/e2e/step3-review-modal.layout.spec.ts:626-637` asserts `imgBorderLeft > 0` in a real browser.** It reds
-after the move, and it should: it is a placement pin. Its own comment already says the pin is not there
-to discriminate placement — `measured, an anchor-side border renders in the same place` — and that the
-image is where it lives only because `a next/image adoption is not the arc that moves it`. This IS that
-arc. The assertion inverts: the ANCHOR must carry a border and the image must carry none, which pins the
-new arrangement in a real browser rather than merely ceasing to pin the old one. The comment is replaced
-by this ruling.
+The sweep criterion is also wider than that draft's, and the widening IS the fourth row. It used to be
+`states where the chrome lives`, which cannot see a consumer that states a DERIVED NUMBER this change
+moves.
 
-What does NOT change: the image-equals-anchor-padding-box assertion immediately below it
-(`tests/e2e/step3-review-modal.layout.spec.ts:637-647`) is already expressed as `anchorW - borderLeft - borderRight`,
-so it passes with the border on either element. It was written to survive this move.
+| Consumer | What stops being true | Repair |
+| --- | --- | --- |
+| `tests/e2e/step3-review-modal.layout.spec.ts:626-636` | asserts `imgBorderLeft > 0` in a real browser | invert it: the ANCHOR carries a border, the image carries none |
+| `tests/styles/tapTargetCensus.ts:321` | its `reason` prose says the tile's chrome lives on the image | update that sentence; the row's `line`, `tag` and `category` are unaffected, which the prose itself explains, because the row is about layout and not chrome |
+| `components/admin/wizard/step3ReviewSections.tsx:3926-3931` | the component's own comment says the chrome deliberately STAYS on the image, citing the perf arc's scope decision | replaced by this ruling, cross-referencing this spec |
+| `tests/styles/tintedPlateOutline.test.ts:221-223` | says the raw `border-text-faint` count is 11 with two in comments, and breaks the pin down as the report textarea plus "the four painted children" | update to 13 and four, and name the tile's move; the pin VALUE of 9 does not change |
 
-**`tests/styles/tapTargetCensus.ts:321` states the old placement in a `reason` field.** The row's
-classification is unaffected — the prose itself says so, because that census row is about LAYOUT
-(`relative` plus the aspect box plus a `fill` child) and not about chrome. Only the parenthetical naming
-where the chrome lives goes stale, and it is updated in place.
+The first row reds after the move, and it should: it is a placement pin. Its own comment already says
+the pin is not there to discriminate placement, and that the image is only where it lives because a
+`next/image` adoption was not the arc to move it. This IS that arc, so the assertion inverts rather than
+being deleted. A pin that stops discriminating is worse than one that discriminates, because nothing
+would then hold the new arrangement.
 
-The tile's own code comment at `components/admin/wizard/step3ReviewSections.tsx:3926-3931` currently
-says the chrome "deliberately STAYS on the image" and cites the perf arc's scope decision. That comment
-is now false and is replaced by the ruling here, cross-referencing this spec.
+The fourth row's numbers are DERIVED with the registry's own `stripCommentsForFile`, not reasoned about:
+before the change raw=11 code=9 inComments=2, and after, raw=13 code=9 inComments=4. The code count is
+unmoved because the class string is relocated within one file, which is exactly what AC-6 asserts. Both
+added comment mentions are in the component's new anchor comment; this file's own comment adds none.
+
+What does NOT change: the image-equals-anchor-padding-box assertion at `tests/e2e/step3-review-modal.layout.spec.ts:638-647` is already
+expressed as `anchorW - borderLeft - borderRight`, so it passes with the border on either element. It
+was written to survive this move, and editing it would be the reviewer's "merely relocating the pin".
 
 ## 5. §15 table 3: the count moves 4 to 3, deliberately
 
@@ -202,15 +208,23 @@ the only evidence of what was measured.
   controls only. Re-file trigger: a measurement showing the failure-state edge is not discoverable on
   the publish-review surface, which is where it matters most.
 - **L3. A focused element's corner radius is forced to 6px app-wide, and this row does not change
-  that.** `app/globals.css:851-855` sets `border-radius: var(--radius-sm)` on `*:focus-visible`,
-  unlayered. Probed on the live tree: roughly eleven focusable elements already carry `rounded-md`
-  alongside a focus cue and are already squashed to 6px when focused, across
-  `components/admin/ShowsTable.tsx`, `components/admin/dev/SwitcherControls.tsx` (three),
-  `components/admin/dev/MaterializeCard.tsx` (two), `components/admin/FinalizeButton.tsx`,
-  `components/admin/NeedsAttentionInbox.tsx`, `components/admin/NeedsAttentionSummaryCard.tsx`,
-  `components/admin/showpage/ShareHub.tsx` and two help skip-links. `ShowsTable`'s search input carries
-  the identical `rounded-md border border-text-faint` pair this anchor gains, so the tile joins an
-  existing population rather than becoming the first of its kind. The diagram tile keeps `rounded-md`
+  that.** `app/globals.css:851-855` sets `border-radius: var(--radius-sm)` on the bare
+  focus-visible pseudo-class, unlayered (the block is quoted in §8), so it applies to every focusable element in the app whose radius is not already 6px.
+
+  **The decisive exemplar, verified individually:** the admin shows-table search input at
+  `components/admin/ShowsTable.tsx` carries `rounded-md border border-text-faint` with a
+  `focus-visible:` cue — the same radius and the same outline token this anchor gains — and is therefore
+  already squashed to 6px when focused today. Others exist in
+  `components/admin/dev/SwitcherControls.tsx`, `components/admin/dev/MaterializeCard.tsx`,
+  `components/admin/FinalizeButton.tsx`, `components/admin/NeedsAttentionInbox.tsx`,
+  `components/admin/NeedsAttentionSummaryCard.tsx`, `components/admin/showpage/ShareHub.tsx` and the
+  help skip-links.
+
+  **No count is stated, deliberately.** An earlier draft said "roughly eleven focusable elements",
+  derived by counting className LINES per file with `rg -c` rather than elements; review re-derived it
+  as eighteen. The claim this limit rests on is that the tile joins an existing population rather than
+  becoming the first of its kind, and that needs one verified example, not a population size. Stating a
+  number here would be asserting a measurement the limit does not use. The diagram tile keeps `rounded-md`
   because that preserves its resting appearance exactly and matches the failed branch, which is what
   the shared-box contract needs. Whether the global rule should stop overriding author radius is a
   design decision spanning every focusable element in the app, and taking it here would spend a
@@ -239,7 +253,7 @@ insets its content by 1px. After the move the borderless image fills the bordere
 which is that same rectangle. The browser suite records the same fact independently — `measured, an
 anchor-side border renders in the same place` (`tests/e2e/step3-review-modal.layout.spec.ts:629-630`) — and its
 image-equals-padding-box assertion is already written in padding-box terms
-(`tests/e2e/step3-review-modal.layout.spec.ts:637-647`), so it holds before and after without being touched.
+(`tests/e2e/step3-review-modal.layout.spec.ts:638-647`), so it holds before and after without being touched.
 This is a placement refactor with no visual delta AT REST, which is what the filing's mutant
 measured. It is not delta-free under keyboard focus: see §8 and L3. An earlier draft made the
 claim unqualified, and the `AT REST` qualifier is the whole content of the correction.
@@ -248,13 +262,29 @@ claim unqualified, and the `AT REST` qualifier is the whole content of the corre
 
 An earlier draft of this section called the tile single-state and said no state pair exists. **That is
 wrong, and the move is what makes it wrong.** The anchor is focusable, so it has a rest state and a
-`*:focus-visible` state; while the chrome sat on the image that distinction was invisible, because an
-`<img>` is never `*:focus-visible`. Once the anchor owns the border, background and radius, its focus
-state paints them.
+focus-visible state. The anchor has ALWAYS had a visible focus state — it carries the house
+`focus-visible:ring-*` recipe at `components/admin/wizard/step3ReviewSections.tsx:3938`, plus the global
+outline — and an earlier draft of this section wrongly said the rest/focus distinction was previously
+invisible. What was previously unaffected by focus is narrower and is the actual point: the tile's
+CHROME, because it sat on an `<img>`, and an image is never focus-visible. Once the anchor owns the
+border, background and radius, its focus state paints them.
 
-The consequence is a corner-radius change, and it comes from a rule this diff does not touch:
-`app/globals.css:851-855` is an UNLAYERED `*:focus-visible` block that sets
-`border-radius: var(--radius-sm)`. Unlayered declarations beat Tailwind's layered utilities whatever
+The consequence is a corner-radius change, and it comes from a rule this diff does not touch. At
+`app/globals.css:851-855`, unlayered:
+
+```css
+:focus-visible {
+  outline: 3px solid var(--color-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+```
+
+An earlier draft wrote that selector as `*:focus-visible` in prose. The two are equivalent in effect,
+but the source spells it bare, and the reason for the star was to dodge a `spec:lint` citation false
+positive rather than to say anything true. Quoting the block is both accurate and lint-safe.
+
+Unlayered declarations beat Tailwind's layered utilities whatever
 their specificity, so a focused element's radius becomes 6px (`app/globals.css:278`) regardless of its
 `rounded-*` class. `rounded-md` is 12px (`app/globals.css:279`). A `focus-visible:rounded-md` utility
 would NOT fix it, because that utility is layered too and loses to the same rule.
@@ -268,6 +298,23 @@ this diff (§5), so §15 makes no claim about the anchor at all.
 | anchor rest to focus | instant. The ring recipe is unchanged by this diff, and the corner radius goes 12px to 6px via the unlayered global rule. The anchor carries no `transition-*`, so the change is not tweened |
 | anchor focus to rest | the same, reversed |
 
+**Compound case: a FOCUSED live tile fails.** This is reachable, not hypothetical, and a committed test
+already drives it: `tests/components/admin/wizard/step3DiagramTile.failureFocus.test.tsx` focuses a tile
+and then fires the image error. The component handles it at `components/admin/wizard/step3ReviewSections.tsx:4021`, which relocates focus only when
+the failing tile held it (`document.activeElement === node`).
+
+Before this change the two axes were independent, because the chrome was on the image and focus never
+touched it. After it, one event moves both: the box goes from the anchor's focused presentation
+(`border-text-faint`, radius forced to 6px) to the placeholder's (`border-border`, `rounded-md` at
+12px), while focus leaves for a sibling tile. Both endpoints are instant — neither element declares a
+`transition-*` — so there is no interrupted tween, which is what makes this a compound case worth
+naming rather than a bug: the two changes cannot race because neither is animated.
+
+| Compound case | Endpoints | Transition |
+| --- | --- | --- |
+| focused live tile fails, focus relocating to a sibling | anchor with `border-text-faint` at 6px, focused, becomes placeholder `<span>` with `border-border` at 12px, unfocused | instant on both axes; no `transition-*` on either element, so no tween is interrupted |
+| focused live tile fails while it is the ONLY tile | same, except `components/admin/wizard/step3ReviewSections.tsx:4021` finds no sibling to receive focus | instant; focus destination is the handler's concern and is unchanged by this diff |
+
 ## 9. Acceptance criteria
 
 - **AC-1.** `components/admin/wizard/step3ReviewSections.tsx:3955`'s image class string is exactly
@@ -280,7 +327,7 @@ this diff (§5), so §15 makes no claim about the anchor at all.
   its live-tile-equals-placeholder-tile box assertion among the passes. The count of tests it runs is
   reported from the run, not carried over from the filing. AC-8 is a precondition: the suite cannot be
   green until the placement pin is inverted.
-- **AC-8.** `tests/e2e/step3-review-modal.layout.spec.ts:626-637` asserts that the ANCHOR carries a border and
+- **AC-8.** `tests/e2e/step3-review-modal.layout.spec.ts:626-636` asserts that the ANCHOR carries a border and
   the image carries none — the new arrangement pinned in a real browser, not merely the old pin
   deleted. The image-equals-padding-box assertion below it is NOT edited and still passes.
 - **AC-9.** `tests/styles/tapTargetCensus.ts:321`'s `reason` prose no longer states that the chrome
