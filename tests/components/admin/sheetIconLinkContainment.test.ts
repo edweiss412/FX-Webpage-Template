@@ -1057,6 +1057,10 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "tests/components/admin/sheetIconLinkContainment.test.ts": 1,
         "tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx": 1,
         "tests/components/admin/showpage/attentionMenuGroups.test.tsx": 1,
+        // The published byte baselines duplicate publishedReviewModal's props
+        // scaffold (they cannot lift it — it closes over vi.fn() and that
+        // module's graph), so its one SHEET_HREF constant comes along.
+        "tests/components/admin/showpage/publishedAttentionBaseline.test.tsx": 1,
         "tests/components/admin/showpage/publishedReviewModal.test.tsx": 2,
         "tests/components/admin/wizard/Step2Verify.test.tsx": 1,
         "tests/components/step3SheetCard.test.tsx": 1,
