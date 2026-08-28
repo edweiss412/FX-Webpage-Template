@@ -11,15 +11,15 @@ The row asked for `spec:lint --exec-red` to run each declared `red=` against the
 | `red-state`               | markers |
 | ------------------------- | ------- |
 | `authored`                | 309     |
-| `live`                    | 21      |
-| field absent (v1 markers) | 372     |
-| **total**                 | **702** |
+| `live`                    | 20      |
+| field absent (v1 markers) | 367     |
+| **total**                 | **696** |
 
-So execution reaches 21 of the 330 markers that declare a state, 6.4%. (An earlier figure of 12% in this arc's own reporting came from a raw `grep -o red-state=` that also counts occurrences inside fenced examples and spec prose; the marker-parsed census above is the correct one.)
+So execution reaches 20 of the 329 markers that declare a state, 6.1%. (Two earlier figures in this arc's own reporting were wrong and are corrected here: a raw `grep -o red-state=` gave 12% by counting occurrences inside fenced examples and spec prose, and the first census script gave 6.4% because its regex was not line-anchored and counted six marker-shaped strings quoted inside test fixtures. Diff review R1 refuted the second independently, at the same six lines.)
 
 ### The named catch is a coincidence at those markers, not a detection
 
-All three of the holdstale plan's authored reds exit 0 at that arc's own merge base `fb46427406222a1a481ab670a02eb752688e7aef`, measured in a detached worktree: Task 2 (2 files, 9 tests passed), Task 3 (1 file, 4 passed), and **Task 1, which was not a round-1 finding** (1 file, 4 passed). A GREEN-AT-BASE rule flags the healthy marker alongside the two defective ones. It does not discriminate.
+All three of the holdstale plan's authored reds exit 0 at that arc's own merge base `fb46427406222a1a481ab670a02eb752688e7aef`, measured in a detached worktree: Task 2 (2 files, 9 tests passed), Task 3 (1 file, 4 passed), and **Task 1, which drew neither of the two findings and whose red the round-1 repair left untouched** (1 file, 4 passed). A GREEN-AT-BASE rule flags the healthy marker alongside the two defective ones. It does not discriminate.
 
 It cannot, because the defects are not at the base. That arc's own filing (`docs/review-rounds/fix/mi11-removal-fallback-live-row/4cb585b3508a.md`, plan section) records what the two findings were: "a mismatch between where the test writes state and where the code reads it", and "neither is visible by reading the plan for plausibility; both took a reviewer tracing a data path". Both defects live inside a test the task has not written yet, so no execution at the merge base can observe either. The reason-classifying direction that could is separately retired by ratified scope decision (`BL-SPECLINT-RED-REASON-VERIFICATION`, this file).
 
@@ -30,11 +30,11 @@ It cannot, because the defects are not at the base. That arc's own filing (`docs
 | existence at base     | no `-t` | with `-t` |
 | --------------------- | ------- | --------- |
 | all named files exist | **139** | 9         |
-| some exist            | 11      | —         |
+| some exist            | 11      | 0         |
 | none exist            | 124     | 14        |
-| no test-file token    | 12      | —         |
+| no test-file token    | 12      | 0         |
 
-Total 309. The file-level rule's firing set is the 139: commands selecting only pre-existing files, which pass at base by construction because CI keeps main green. Firing on 139 of 309 correctly-authored markers is noise that cannot move rounds per plan stage.
+Total 309. The file-level rule's firing set is the 139: commands selecting only pre-existing files. Four of those commands were run at their own bases (the three holdstale reds and the one at `e47657bf0`) and all four exit 0; the other 135 were not run, though a command selecting only files already on a green main is expected to pass. Firing on that population is noise that cannot move rounds per plan stage.
 
 **Case-level.** Scoping the claim to the declared killing case (does the `-t` title exist and pass at base?) covers the 23 authored markers carrying `-t`, in 5 plans. Fourteen name a file absent at their base and cannot match. The 9 whose file exists were each run at that plan's own base in a detached worktree, and **every one matched no case at all**: `premiseScan.test.ts` 139 skipped on each of 5 titles at `72eae6c63`, `psqlStartupFileSuppression.test.ts` 819 skipped on each of 3 at `28ddec6c8`, `guardSurfaceGate.test.ts` 31 skipped at `e1b908060`. **Zero true positives corpus-wide**, which is the condition the arc's ruling set for demotion.
 
@@ -46,7 +46,7 @@ python3 scripts/probe/red-truth-census.py
 
 ### Why exit status can never carry this signal
 
-Four runs at `fb464274`, exit codes exact:
+Three runs at `fb464274`, plus the `-t` row from the case-level runs at `72eae6c63`, `28ddec6c8` and `e1b908060`; exit codes exact:
 
 | shape                             | exit  | observed                                                      |
 | --------------------------------- | ----- | ------------------------------------------------------------- |
@@ -55,7 +55,7 @@ Four runs at `fb464274`, exit codes exact:
 | present files only                | 0     | `Test Files 2 passed (2)`, 9 tests                            |
 | `-t` filter matching no case      | 0     | every case skipped, none run                                  |
 
-Rows 2 and 4 are the finding, and they are the reason no variant of this rule works. A red command naming a to-be-created file **alongside** an existing one loses the one signal the collection arm relies on, and a `-t` matching nothing is indistinguishable by exit status from one whose case passed. In both the path form and the case form, honest authoring produces exit 0, the same value the defect produces. Executed-case count is the only observable that separates them, and it is unavailable for the same reason recorded under `BL-SPECLINT-RED-REASON-VERIFICATION`: a module-scope `premise()` failure reports zero cases while an assertion genuinely failed, and a `beforeEach` throw reports failed entries whose bodies never ran.
+Rows 2 and 4 are the finding, and they are the reason no variant of this rule works. The universal is structural rather than a generalization from four samples: an exit status reports whether anything FAILED, and "nothing failed because nothing ran" is not distinguishable from "nothing failed because everything passed". A red command naming a to-be-created file **alongside** an existing one loses the one signal the collection arm relies on, and a `-t` matching nothing is indistinguishable by exit status from one whose case passed. In both the path form and the case form, honest authoring produces exit 0, the same value the defect produces. Executed-case count is the only observable that separates them, and it is unavailable for the same reason recorded under `BL-SPECLINT-RED-REASON-VERIFICATION`: a module-scope `premise()` failure reports zero cases while an assertion genuinely failed, and a `beforeEach` throw reports failed entries whose bodies never ran.
 
 ### Disposition
 

@@ -10,19 +10,32 @@ demoted on measurement, and these are the numbers behind the demotion:
      names already exist at that plan's base -- which is what decides whether
      running the command there observes anything at all.
 
-Read from git, never from the working tree, so the answer does not depend on
-which branch is checked out. "That plan's base" is the parent of the commit
-that first added the plan file, which is the tree an author's red would have
-been written against.
+Reads committed content at the current `HEAD` rather than the working tree, so
+uncommitted edits do not move the numbers. It is NOT branch-independent: the
+plan set comes from this checkout's index and the bodies from this checkout's
+`HEAD`, so an older commit has an older corpus and reports smaller totals. Run
+it from the branch whose entry quotes the tables. (An earlier version of this
+docstring claimed branch-independence; that was false, and diff review R1
+refuted it by running the script at `fb464274` and getting 662 rather than 696.)
+
+"That plan's base" is the parent of the commit that first added the plan file,
+which is the tree an author's red would have been written against.
 """
 import collections
 import re
 import subprocess
 import sys
 
-# One line, backticked value: the shipped parser's marker shape
-# (lib/specLint/taskContract.ts). A marker split across lines is not one.
-MARKER = re.compile(r"<!--\s*task:\s*red=`([^`]*)`(.*?)-->")
+# The shipped parser's marker shape, character for character
+# (`MARKER` / `MARKER_AC_ABSENT`, lib/specLint/taskContract.ts:154): anchored to
+# the line, at most three leading spaces, single spaces around the fields, and
+# nothing after ` -->` but whitespace. Written loosely at first, which counted
+# six quoted example markers inside test fixtures as real ones and inflated the
+# total from 696 to 702 -- the very defect the entry this script serves is about.
+MARKER = re.compile(r"^ {0,3}<!-- task: red=`([^`]*)`(.*?) -->[ \t]*$")
+# Fenced spans are inert to the shipped arms, and plans about the linter quote
+# marker-shaped strings inside them as fixtures.
+FENCE = re.compile(r"^ {0,3}(?:```|~~~)")
 STATE = re.compile(r"red-state=([a-z]*)")
 # Test-file tokens a vitest/playwright invocation would select on.
 TEST_TOKEN = re.compile(r"(?<![\w/.-])((?:tests|e2e)/[\w./@-]+\.(?:test|spec|probe)[\w.]*\.[jt]sx?)")
@@ -40,9 +53,19 @@ def plan_files() -> list[str]:
 
 
 def markers(path: str):
-    """Every well-formed one-line task marker in one plan, as (command, tail)."""
-    blob = git("show", f"HEAD:{path}").stdout
-    return list(MARKER.finditer(blob))
+    """Every well-formed task marker in one plan, fenced spans excluded."""
+    found = []
+    fenced = False
+    for line in git("show", f"HEAD:{path}").stdout.split("\n"):
+        if FENCE.match(line):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        hit = MARKER.match(line)
+        if hit:
+            found.append(hit)
+    return found
 
 
 def base_of(path: str) -> str:
