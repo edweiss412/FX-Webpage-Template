@@ -3,13 +3,26 @@ import { useContext, useState } from "react";
 import { useRouter } from "next/navigation";
 import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounceContext";
 import { ReportButton } from "@/components/shared/ReportButton";
+import { setStagedWarningIgnore } from "@/app/admin/onboarding/_actions/stagedWarningIgnore";
 import { hasIgnorableSnippet } from "@/lib/dataQuality/ignorableSnippet";
 import type { ParseWarning } from "@/lib/parser/types";
 import { cn } from "@/lib/ui/cn";
 
+/**
+ * Which backend owns this warning's ignore state (spec §2.3 / §1.1.9).
+ *
+ * A published or LINKED row writes the durable show-keyed table through the existing
+ * slug routes. A FIRST-SEEN wizard row has no `shows` record at all — finalize creates
+ * it — so there is no slug to route to, and its decision goes to the staged column
+ * through the §2.6 server action. One component, two backends, discriminated so neither
+ * arm can be reached with the other's identity.
+ */
+export type WizardDqTarget =
+  | { kind: "show"; slug: string; showId: string }
+  | { kind: "staged"; wizardSessionId: string; driveFileId: string };
+
 type Props = {
-  slug: string;
-  showId: string;
+  target: WizardDqTarget;
   warning: ParseWarning;
   driveFileId: string | null;
   mode: "active" | "ignored";
@@ -41,9 +54,9 @@ const PLATE: Record<"active" | "ignored", string> = {
 };
 
 export function DataQualityWarningControls({
-  slug,
-  showId,
+  target,
   warning,
+  driveFileId,
   mode,
   reportSurfaceId,
 }: Props) {
@@ -57,22 +70,42 @@ export function DataQualityWarningControls({
       ? "Couldn't ignore that warning. Refresh and try again."
       : "Couldn't un-ignore that warning. Refresh and try again.";
 
+  /** The published route arm — byte-identical to what this component has always sent. */
+  async function runShowArm(slug: string): Promise<"ignored" | "unignored" | null> {
+    const res = await fetch(`/api/admin/show/${encodeURIComponent(slug)}/data-quality/${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: warning.code, rawSnippet: warning.rawSnippet ?? "" }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { status?: string };
+    if (res.ok && (json.status === "ignored" || json.status === "unignored")) return json.status;
+    return null;
+  }
+
+  /** The staged arm — the §2.6 server action. Every `ok:false` code maps to the SAME
+   *  operator copy as a failed fetch: the codes are internal (invariant 5). */
+  async function runStagedArm(
+    t: Extract<WizardDqTarget, { kind: "staged" }>,
+  ): Promise<"ignored" | "unignored" | null> {
+    const result = await setStagedWarningIgnore({
+      wizardSessionId: t.wizardSessionId,
+      driveFileId: t.driveFileId,
+      action,
+      code: warning.code,
+      rawSnippet: warning.rawSnippet ?? "",
+    });
+    return result.ok ? result.state : null;
+  }
+
   async function run() {
     setState({ kind: "running" });
     try {
-      const res = await fetch(
-        `/api/admin/show/${encodeURIComponent(slug)}/data-quality/${action}`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ code: warning.code, rawSnippet: warning.rawSnippet ?? "" }),
-        },
-      );
-      const json = (await res.json().catch(() => ({}))) as { status?: string };
-      if (res.ok && (json.status === "ignored" || json.status === "unignored")) {
+      const status =
+        target.kind === "show" ? await runShowArm(target.slug) : await runStagedArm(target);
+      if (status !== null) {
         // Announcer spec 2026-07-22 §2.3: completion clause BEFORE the refresh
         // (ordering pinned by the producer tests); failures never announce.
-        announce(json.status === "ignored" ? "Warning ignored." : "Warning restored.");
+        announce(status === "ignored" ? "Warning ignored." : "Warning restored.");
         router.refresh();
         return;
       }
@@ -90,7 +123,7 @@ export function DataQualityWarningControls({
           surface="admin"
           variant="text"
           label="Report"
-          showId={showId}
+          showId={target.kind === "show" ? target.showId : null}
           surfaceId={reportSurfaceId}
           ringOffset={mode === "active" ? "warning-bg" : "surface-sunken"}
           messageOptional
@@ -101,6 +134,12 @@ export function DataQualityWarningControls({
               code: warning.code,
               sourceCell: warning.sourceCell ?? null,
               blockRef: warning.blockRef ?? null,
+              // §2.3: the submit path resolves a show-less report's sheet identity from
+              // exactly this field (`driveFileIdFromFieldRef`, lib/reports/submit.ts:299).
+              // Without it a FIRST-SEEN report reads only "staged wizard sheet (no show
+              // record)". Additive on the published arm, which simply carries one more
+              // identity field.
+              driveFileId,
             },
             ...(warning.rawSnippet ? { rawSnippet: warning.rawSnippet } : {}),
             viewerVisibleSection: "data-quality",

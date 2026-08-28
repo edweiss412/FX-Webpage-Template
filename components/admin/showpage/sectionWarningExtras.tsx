@@ -118,8 +118,9 @@ function SectionWarningItemControls(props: {
   return (
     <>
       <DataQualityWarningControls
-        slug={slug}
-        showId={showId}
+        // Published mounts are always the show arm (§2.3): a published surface has a slug
+        // and a show record by definition.
+        target={{ kind: "show", slug, showId }}
         warning={warning}
         driveFileId={driveFileId}
         mode={mode}
