@@ -317,7 +317,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // Then 3909 -> 3998 when the wizard-ignore arc added the panel's active/ignored
     // partition and its Ignored (N) disclosure above this component. Located on the live
     // tree by running the scanner, not by adding a delta: 4002 is that same `<a>`.
-    line: 4052,
+    line: 4065,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -462,7 +462,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 110 -> 149 when the wizard-ignore arc added the discriminated `target` type and
     // split the run path into its two backend arms above this button. Same `<button>`,
     // same computed-member className, same reason.
-    line: 182,
+    line: 189,
     tag: "button",
     category: "unresolvable-dynamic",
     reason: "`${NEUTRAL_BTN} ${PLATE[mode]}` — computed member access in the template.",

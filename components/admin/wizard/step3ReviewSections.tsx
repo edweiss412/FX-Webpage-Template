@@ -3352,13 +3352,13 @@ export function WarningsBreakdown({
                       Sheet row <span className="text-text">{rowLabel}</span>
                     </span>
                   ) : null}
-                  {/* no-newtab-announcement: `target` is the discriminated ignore BACKEND
-                      (spec §2.3), not a browser window target. No anchor. */}
                   {/* Impeccable audit P3 (2026-08-28): the SAME warn-severity gate the
                       active rows carry (§1.1.4). Without it a legacy info-severity
                       ignore renders an Un-ignore whose success moves the row to a list
                       that will never offer Ignore back. */}
                   {isWarnSeverity(w) ? (
+                    /* no-newtab-announcement: `target` is the discriminated ignore
+                       BACKEND (spec §2.3), not a browser window target. No anchor. */
                     <DataQualityWarningControls
                       target={dq.target}
                       warning={w}
