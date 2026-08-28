@@ -230,6 +230,18 @@ the only evidence of what was measured.
   design decision spanning every focusable element in the app, and taking it here would spend a
   whole-app change on one tile. Re-file trigger: a decision to change the global focus recipe, or a
   measurement that the squash is a legibility problem on this surface.
+- **L4. The reconciliation route to the failed branch relocates no focus, and this diff does not change
+  that.** `components/admin/wizard/step3ReviewSections.tsx:3859-3867` sets `failed` during render when
+  `hasPreviewSource` goes true to false, without calling `onFailure`, so a focused anchor is unmounted
+  and focus falls to `<body>`. The image-error route at `components/admin/wizard/step3ReviewSections.tsx:4021`
+  does relocate. Both are shipped behaviour with committed tests
+  (`tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:87` and
+  `tests/components/admin/wizard/step3DiagramTile.failureFocus.test.tsx`), and moving the tile's chrome changes neither: the box
+  survives both routes identically, which is what §8 asserts. Repairing the asymmetry would be a
+  focus-management change to a path this arc does not otherwise touch, on a surface where the
+  reconciliation route exists precisely so a tile that stops being servable yields immediately rather
+  than waiting for a failed fetch. Re-file trigger: a measurement that the `<body>` fallback loses a
+  keyboard operator's place on the publish-review surface.
 - **L2. `app/help/_components/Screenshot.tsx` keeps its chrome on the image.** §2 states why it is
   outside the class rather than deferred. If it ever gains a runtime no-image state, it enters the class
   and this ruling applies to it unchanged.
@@ -298,23 +310,38 @@ this diff (§5), so §15 makes no claim about the anchor at all.
 | anchor rest to focus | instant. The ring recipe is unchanged by this diff, and the corner radius goes 12px to 6px via the unlayered global rule. The anchor carries no `transition-*`, so the change is not tweened |
 | anchor focus to rest | the same, reversed |
 
-**Compound case: a FOCUSED live tile fails.** This is reachable, not hypothetical, and a committed test
-already drives it: `tests/components/admin/wizard/step3DiagramTile.failureFocus.test.tsx` focuses a tile
-and then fires the image error. The component handles it at `components/admin/wizard/step3ReviewSections.tsx:4021`, which relocates focus only when
-the failing tile held it (`document.activeElement === node`).
+**Compound case: a FOCUSED live tile becomes the failed branch.** This is reachable, not hypothetical,
+and there are TWO routes to it, both driven by committed tests. An earlier draft named only the first
+and said the transition "runs through" the failure handler, which is true of that route and false of the
+other.
 
-Before this change the two axes were independent, because the chrome was on the image and focus never
-touched it. After it, one event moves both: the box goes from the anchor's focused presentation
-(`border-text-faint`, radius forced to 6px) to the placeholder's (`border-border`, `rounded-md` at
-12px), while focus leaves for a sibling tile. Both endpoints are instant — neither element declares a
-`transition-*` — so there is no interrupted tween, which is what makes this a compound case worth
-naming rather than a bug: the two changes cannot race because neither is animated.
+**Route A, a runtime image error.** `tests/components/admin/wizard/step3DiagramTile.failureFocus.test.tsx`
+focuses a tile and fires the image error. `components/admin/wizard/step3ReviewSections.tsx:4021` handles it and relocates focus, but only when the
+failing tile held it (`document.activeElement === node`).
+
+**Route B, reconciliation.** When the `hasPreviewSource` prop goes true to false under a stable React
+key, the render-phase reconciliation at
+`components/admin/wizard/step3ReviewSections.tsx:3859-3867` calls `setFailed(!hasPreviewSource)` directly. `onFailure` is NEVER invoked on this
+route, so the component relocates no focus.
+`tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:87` drives exactly this.
+
+The chrome consequence is the same on both routes and is what this diff is responsible for: the box goes
+from the anchor's focused presentation (`border-text-faint`, radius forced to 6px) to the placeholder's
+(`border-border`, `rounded-md` at 12px). Before this change the two axes were independent, because the
+chrome was on the image and focus never touched it. Both endpoints are instant on both routes — neither
+element declares a `transition-*` — so no tween is interrupted, which is what makes this a compound case
+worth enumerating rather than a bug.
+
+Where the routes DIFFER is focus destination, and that difference is pre-existing and untouched here:
+route A moves focus to a sibling tile, route B unmounts a focused anchor without moving focus, so the
+document falls back to `<body>`. That is a property of the reconciliation path as shipped, it is not
+introduced by moving the chrome, and it is recorded as L4 rather than repaired in a chrome arc.
 
 | Compound case | Endpoints | Transition |
 | --- | --- | --- |
-| focused live tile fails, focus relocating to a sibling | anchor with `border-text-faint` at 6px, focused, becomes placeholder `<span>` with `border-border` at 12px, unfocused | instant on both axes; no `transition-*` on either element, so no tween is interrupted |
-| focused live tile fails while it is the ONLY tile | same, except `components/admin/wizard/step3ReviewSections.tsx:4021` finds no sibling to receive focus | instant; focus destination is the handler's concern and is unchanged by this diff |
-
+| route A: focused live tile fails on an image error | anchor with `border-text-faint` at 6px, focused, becomes placeholder `<span>` with `border-border` at 12px; focus moves to a sibling tile | instant on both axes; no `transition-*` on either element |
+| route A with no sibling to receive focus | same box endpoints; `components/admin/wizard/step3ReviewSections.tsx:4021` finds no sibling | instant; the focus destination is the handler's concern and is unchanged by this diff |
+| route B: focused live tile reconciles to unavailable | same box endpoints; focus is NOT relocated, so it falls to `<body>` | instant; see L4 |
 ## 9. Acceptance criteria
 
 - **AC-1.** `components/admin/wizard/step3ReviewSections.tsx:3955`'s image class string is exactly
