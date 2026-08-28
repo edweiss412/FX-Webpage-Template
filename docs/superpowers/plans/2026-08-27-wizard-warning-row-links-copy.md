@@ -4,7 +4,7 @@
 
 **Goal:** Every `UNKNOWN_FIELD` wizard row links to its own sheet cell (or its tab), the five `HOTEL_*` ambiguity rows link to the HOTEL block, and no card names a Report or Ignore button on a surface that has none.
 
-**Architecture:** The exporter's block pipeline (`lib/drive/exportSheetToMarkdown.ts`) becomes a structured value with coordinates, rendered to markdown by one function and read by the anchor scanner through the parser's own opener/alignment core, so the detector and the scanner share one notion of "block". The hotel link is one code-gated arm in `attachSourceCellAnchors` over the region anchors both ingestion paths already carry. The copy split adds a catalog-internal `controlsNote` rendered by `PerShowActionableWarnings` only when the item's controls slot is non-null.
+**Architecture:** The exporter's block pipeline (`lib/drive/exportSheetToMarkdown.ts`) becomes a structured value with coordinates, rendered to markdown by one function and read by the anchor scanner through the parser's own opener/alignment core, so the detector and the scanner share one notion of "block". The hotel link is one code-gated arm in `attachSourceCellAnchors` over the region anchors both ingestion paths already carry. The copy split adds a catalog-internal `controlsNote` rendered by `PerShowActionableWarnings` only when its explicit `showControlsNote` prop is set, which only the two active per-show mounts do.
 
 **Tech Stack:** TypeScript, Next.js 16, `xlsx` (SheetJS), Vitest + Testing Library, `pnpm spec:lint`, `codex-guard`.
 
@@ -87,7 +87,7 @@ Every symbol below was grepped on the live tree; line numbers are drafting-time 
 | `lib/drive/unknownFieldAnchors.ts` | `extractUnknownFieldAnchors` over `synthesizeBlocksFromXlsx`; `resolveUnknownFieldCell` with tab fallback; old header/terminator machinery deleted |
 | `lib/drive/showDayTimeAnchors.ts` | `HOTEL_REGION_ANCHORED`, widened `CELL_ANCHORED_CODES`, hotel arm |
 | `lib/messages/catalog.ts` | `controlsNote` field, three strings moved |
-| `components/admin/PerShowActionableWarnings.tsx` | `showControlsNote` prop, `withControlsNote` composition, gated on the prop AND `controls` |
+| `components/admin/PerShowActionableWarnings.tsx` | `showControlsNote` prop, `withControlsNote` composition, gated on the prop alone; the `followUp` sentence gate on `a1` |
 | `components/admin/showpage/sectionWarningExtras.tsx` | passes `showControlsNote` on the active list only |
 | tests | two new suites, eight extended |
 
@@ -928,9 +928,22 @@ describe("attachSourceCellAnchors: HOTEL ambiguity codes region-anchor to the ho
     rawSnippet: "Park Hyatt Chicago | ...",
   });
 
-  it("every code in HOTEL_REGION_ANCHORED gets the hotels region, and nothing else", () => {
-    const warnings = [...HOTEL_REGION_ANCHORED].map(hotel);
-    expect(warnings.length).toBe(5);
+  // The five codes as LITERALS (spec §3), never derived from the set under test: a set
+  // that dropped HOTEL_CARDINALITY_EXCEEDED for a bogus name must fail here.
+  const HOTEL_CODES = [
+    "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+    "HOTEL_CARDINALITY_EXCEEDED",
+    "HOTEL_INLINE_GROUP_OWN_HOTEL",
+    "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+  ] as const;
+
+  it("HOTEL_REGION_ANCHORED is exactly the five ambiguity codes", () => {
+    expect([...HOTEL_REGION_ANCHORED].sort()).toEqual([...HOTEL_CODES].sort());
+  });
+
+  it("every one of the five codes gets the hotels region, and nothing else", () => {
+    const warnings = HOTEL_CODES.map(hotel);
     attachSourceCellAnchors(warnings, { showDay: [], crewRole: [], region: { hotels, crew: { title: "INFO", gid: 0, a1: "A2:D5" } } });
     for (const w of warnings) expect(w.sourceCell).toEqual(hotels);
   });
@@ -943,7 +956,7 @@ describe("attachSourceCellAnchors: HOTEL ambiguity codes region-anchor to the ho
 
   it("the gid fetch gate sees a hotel warning; the actionable set does not", () => {
     expect(hasCellAnchoredWarning([hotel("HOTEL_ADDRESS_SPLIT_AMBIGUOUS")])).toBe(true);
-    for (const code of HOTEL_REGION_ANCHORED) expect(CELL_ANCHORED_CODES.has(code)).toBe(true);
+    for (const code of HOTEL_CODES) expect(CELL_ANCHORED_CODES.has(code)).toBe(true);
   });
 });
 ```
@@ -971,7 +984,15 @@ In `tests/parser/parseWarningDeepLinkRender.test.tsx`, replace the identity case
   it("population gate = render gate + the hotel region set, exactly (spec 2026-08-27 §3)", () => {
     for (const code of OPERATOR_ACTIONABLE_ANCHORED) expect(CELL_ANCHORED_CODES.has(code), code).toBe(true);
     const extra = [...CELL_ANCHORED_CODES].filter((c) => !OPERATOR_ACTIONABLE_ANCHORED.has(c)).sort();
-    expect(extra).toEqual([...HOTEL_REGION_ANCHORED].sort());
+    // Literal, not derived from HOTEL_REGION_ANCHORED (the showDayTimeAnchors suite pins that
+    // set to these same five; two literal sites, one truth).
+    expect(extra).toEqual([
+      "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+      "HOTEL_CARDINALITY_EXCEEDED",
+      "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+      "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+      "HOTEL_INLINE_GROUP_OWN_HOTEL",
+    ]);
   });
 ```
 
@@ -1039,7 +1060,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/drive/showDayTimeAnchors.ts lib/parser/dataGaps.ts tests/drive/showDayTimeAnchors.test.ts tests/parser/operatorActionableWarnings.test.ts tests/parser/parseWarningDeepLinkRender.test.tsx docs/superpowers/specs/parser/2026-07-25-hotel-ambiguity-coverage-design.md docs/superpowers/specs/parser/2026-07-27-inline-later-group-own-hotel-design.md
+git add lib/drive/showDayTimeAnchors.ts lib/parser/dataGaps.ts tests/drive/showDayTimeAnchors.test.ts tests/drive/unknownFieldAnchors.test.ts tests/parser/operatorActionableWarnings.test.ts tests/parser/parseWarningDeepLinkRender.test.tsx docs/superpowers/specs/parser/2026-07-25-hotel-ambiguity-coverage-design.md docs/superpowers/specs/parser/2026-07-27-inline-later-group-own-hotel-design.md
 git commit -m "feat(sync): region-link the HOTEL ambiguity codes to the hotels block
 
 <paste the red line from Step 2>"
@@ -1172,7 +1193,7 @@ describe("controlsNote renders only beside the controls (spec 2026-08-27 §4.3)"
 
 (`EXPECTED_CONTROLS_NOTE` is a test-side literal, so `NOTE` is defined by construction; add `expect(typeof NOTE).toBe("string")` as the first line of each test anyway.)
 
-`tests/admin/perShowActionableTransitions.test.tsx` (spec §11), edited to what the file actually is (read lines 14-92 first): (1) the `SYNTH` record type (line 24) gains `controlsNote?: string | null`, and `SYN_B`, `SYN_C`, `SYN_D` set `controlsNote: null` so the real `UNKNOWN_FIELD` spread cannot leak the new note into today's variants; `SYN_A` has no `SYNTH` entry by design (unknown code) and needs nothing. (2) Add `SYN_E: { title: "E title", helpfulContext: "E guidance", triggerContext: null, controlsNote: "E note: use Report" }` (G2) and `SYN_F: { title: "F title", helpfulContext: null, triggerContext: null, controlsNote: "F note: use Report" }` (G3). (3) G4 needs an INSTANCE line, which `autocorrectGuidance` (`lib/messages/autocorrectGuidance.ts`, `SENTENCE`) produces only for real autocorrect codes: add `FIELD_LABEL_AUTOCORRECTED` to `SYNTH` with `controlsNote: "G note: use Report"` (so the suppression is exercised on a code that HAS a note) and give the G warning an `autocorrect` payload (`{ corrections: [{ detected: "Stge", corrected: "Stage" }] }`, shape per `Autocorrect` in `lib/parser/types.ts`; the `warn` helper at line 44 gains an optional second argument for it). (4) `VARIANTS` (line 50) gains `E: { code: "SYN_E", guidance: true, trigger: false, note: true }`, `F: { code: "SYN_F", guidance: true, trigger: false, note: true }` (F's guidance element renders the note alone, so `guidance: true`), `G: { code: "FIELD_LABEL_AUTOCORRECTED", guidance: true, trigger: false, note: false }`; `expectVariant` (line 57) additionally asserts the guidance element's text ends with the variant's note iff `note`, contains no `Report` iff `!note`, and that `container.querySelector('[data-testid="per-show-actionable-guidance"]')?.closest("[data-motion], [style*=\"transition\"]")` is null. Render every variant with `showControlsNote` (the gate is the prop; the note's presence is the entry's). (5) The `PAIRS` array (line 65) is hardcoded over A-D: replace it with a derivation over every ordered pair of `Object.keys(VARIANTS)` (`KEYS.flatMap((x) => KEYS.filter((y) => y !== x).map((y) => [x, y] as const))`), which covers the ten G pairs both directions and keeps the existing six; the loop body (lines 74-84) is unchanged apart from passing `showControlsNote`. (6) The condensed axis: one more `it.each` over the same derived pairs rendering with `condensed`, asserting through the popover body slot the file already reads for the compound cases (lines 86-92). No `waitFor` anywhere: every assertion is synchronous after `rerender`.
+`tests/admin/perShowActionableTransitions.test.tsx` (spec §11), edited to what the file actually is (read lines 14-92 first): (1) the `SYNTH` record type (line 24) gains `controlsNote?: string | null`, and `SYN_B`, `SYN_C`, `SYN_D` set `controlsNote: null` so the real `UNKNOWN_FIELD` spread cannot leak the new note into today's variants; `SYN_A` has no `SYNTH` entry by design (unknown code) and needs nothing. (2) Add `SYN_E: { title: "E title", helpfulContext: "E guidance", triggerContext: null, controlsNote: "E note: use Report" }` (G2) and `SYN_F: { title: "F title", helpfulContext: null, triggerContext: null, controlsNote: "F note: use Report" }` (G3). (3) G4 needs an INSTANCE line, which `autocorrectGuidance` (`lib/messages/autocorrectGuidance.ts`, `SENTENCE`) produces only for real autocorrect codes: add `FIELD_LABEL_AUTOCORRECTED` to `SYNTH` with `controlsNote: "G note: use Report"` (so the suppression is exercised on a code that HAS a note) and give the G warning an `autocorrect` payload (`{ subject: null, corrections: [{ detected: "Stge", corrected: "Stage" }] }`; `subject` is REQUIRED by the `Autocorrect` type at `lib/messages/autocorrectGuidance.ts:13`, `string | null`; the `warn` helper at line 44 gains an optional second argument for it). (4) `VARIANTS` (line 50) gains `E: { code: "SYN_E", guidance: true, trigger: false, note: true }`, `F: { code: "SYN_F", guidance: true, trigger: false, note: true }` (F's guidance element renders the note alone, so `guidance: true`), `G: { code: "FIELD_LABEL_AUTOCORRECTED", guidance: true, trigger: false, note: false }`; `expectVariant` (line 57) additionally asserts the guidance element's text ends with the variant's note iff `note`, contains no `Report` iff `!note`, and that `container.querySelector('[data-testid="per-show-actionable-guidance"]')?.closest("[data-motion], [style*=\"transition\"]")` is null. Render every variant with `showControlsNote` (the gate is the prop; the note's presence is the entry's). (5) The `PAIRS` array (line 65) is hardcoded over A-D: replace it with a derivation over every ordered pair of `Object.keys(VARIANTS)` (`KEYS.flatMap((x) => KEYS.filter((y) => y !== x).map((y) => [x, y] as const))`), which covers the ten G pairs both directions and keeps the existing six; the loop body (lines 74-84) is unchanged apart from passing `showControlsNote`. (6) The condensed axis: one more `it.each` over the same derived pairs rendering with `condensed`, asserting through the popover body slot the file already reads for the compound cases (lines 86-92). No `waitFor` anywhere: every assertion is synchronous after `rerender`.
 
 `tests/components/step3SheetCard.test.tsx`, next to the link tests at line 664-695:
 
@@ -1321,16 +1342,16 @@ What is red and why: `rg -q "^## BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS" BACKLOG
 
 - [ ] **Step 1: Observe red**
 
-Run: `rg -q "^## BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS" BACKLOG.md; echo "exit=$?"` Expected: `exit=1`.
+Run exactly the marker command, alone: `rg -q "^## BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS" BACKLOG.md`. Then, as a SEPARATE command, `echo $?`. Expected: `1`. (Never append `; echo` to the command itself: the appended echo makes the shell line exit 0 and the red is no longer observed on the marker command.)
 
 - [ ] **Step 2: Insert the row directly under the `---` that follows the "Last reconciled" paragraph**
 
 ```markdown
 ## BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS - the near-miss detector flags rows in blocks that are not field lists, and the card's advice is wrong there
 
-**Status:** OPEN · **Filed:** 2026-08-27 (`fix/wizard-warning-row-links-copy`, owner-directed from the RIA wizard screenshot) · **Facing:** product · **Severity:** LOW-MEDIUM (a wrong instruction on a shipped admin card; nothing is corrupted, the row is simply not one we show) · **Class:** detector candidacy scope · **Effort:** M · **Class-sweep exception:** (a): which block shapes are legitimate near-miss homes is a product decision the link arc could not settle. · **Reachability:** PROBED: the run below, `parseSheet` on `fixtures/shows/raw/2025-06-ria-investment-forum.md` at `66c9857f5`.
+**Status:** OPEN · **Filed:** 2026-08-27 (`fix/wizard-warning-row-links-copy`, owner-directed from the RIA wizard screenshot) · **Facing:** product · **Severity:** LOW-MEDIUM (a wrong instruction on a shipped admin card; nothing is corrupted) · **Class:** detector candidacy scope · **Effort:** M · **Class-sweep exception:** (a): which block shapes are legitimate near-miss homes is a product decision the link arc could not settle. · **Reachability:** PROBED: the parser run recorded in spec 2026-08-27-wizard-warning-row-links-copy §1, `parseSheet` on `fixtures/shows/raw/2025-06-ria-investment-forum.md` at `66c9857f5`.
 
-`detectFieldNearMisses` (`lib/parser/fieldNearMiss.ts`) treats every pipe-run block as a candidate home for a near-miss row. Two block shapes in the corpus are not field lists at all: a Google-Form response dump on `INFO` whose opener is `Timestamp` (fixture line 314), and the `GEAR` inventory matrix whose opener is `Console` (line 921). The detector reports `Room Diagram` in the form dump as a near-miss of the `DETAILS/ROOM DIAGRAM` section header and `Speaker` in the inventory matrix as a near-miss of `Virtual Speaker`:
+`detectFieldNearMisses` (`lib/parser/fieldNearMiss.ts`) treats every pipe-run block as a candidate home for a near-miss row. Two block shapes in the corpus are not field lists at all: a Google-Form response dump whose opener is `Timestamp`, on the RIA workbook's `FORM` tab (`FORM!A1`; the flagged rows are `FORM!A29` `Room Diagram` and `FORM!A30` `Backdrop`), and an inventory matrix whose opener is `Console`, on its `3rd Level` tab (`3rd Level!A2` `Speaker`). The markdown fixture concatenates tabs, which is how an earlier draft placed these on `INFO` and `GEAR`; the workbook has no `GEAR` tab. The detector reports `Room Diagram` in the form dump as a near-miss of the `DETAILS/ROOM DIAGRAM` section header and `Speaker` in the inventory matrix as a near-miss of `Virtual Speaker`:
 
 ```
 UNKNOWN_FIELD  blockRef {kind:"timestamp", name:"Room Diagram"}  candidate "DETAILS/ROOM DIAGRAM"
@@ -1347,7 +1368,7 @@ The card then tells Doug to "rename this row in your sheet so it matches the row
 
 - [ ] **Step 3: Same command green, then the walkers**
 
-Run: `rg -q "^## BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS" BACKLOG.md; echo "exit=$?"` Expected: `exit=0`.
+Run the marker command alone again: `rg -q "^## BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS" BACKLOG.md`; then `echo $?` separately. Expected: `0`.
 Run: `pnpm vitest run tests/docs/_metaLedgerSizing.test.ts tests/docs/_metaLedgerMintBar.test.ts tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaDeferralLedgerGraduation.test.ts` (`DB-free`).
 Expected: PASS.
 
@@ -1358,41 +1379,51 @@ git add BACKLOG.md
 git commit -m "docs(backlog): file BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS (product, probed)"
 ```
 
-### Task 7: closeout — impeccable pair, full suites, diff review, PR, readiness line
+### Task 7: closeout: impeccable pair, full suites, diff review, PR, readiness line
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` red-state=live red-target=`docs/superpowers/plans/2026-08-27-wizard-warning-row-links-copy.md:13` why=`this plan names both impeccable gate halves and its stem-named closeout sibling does not exist yet, so the guard reds on this plan until Task 7 writes the sibling with the marker line` ac=AC-8,AC-9 -->
+<!-- task: red=`pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` red-state=live red-target=`docs/superpowers/plans/2026-08-27-wizard-warning-row-links-copy.md:13` why=`this plan names both impeccable gate halves and its stem-named closeout sibling does not exist yet, so the guard reds on this plan until this task writes the sibling with the marker line` ac=AC-8,AC-9 -->
 
 **Files:**
 - Create: new file 2026-08-27-wizard-warning-row-links-copy-closeout.md under `docs/superpowers/plans/`
-- Create: the base-sha-named .jsonl under `docs/review-rounds/fix/wizard-warning-row-links-copy/` (written by the wrapper) and `.md` only if any stage reaches four rounds
+- Modify: `DEFERRED.md` only if an impeccable P0/P1 is deferred rather than fixed
+- The review wrapper appends rows to the base-sha-named .jsonl under `docs/review-rounds/fix/wizard-warning-row-links-copy/`; each round's row is committed with that round's repair (or alone, when there is no repair)
 
 - [ ] **Step 1: Observe red**
 
 Run: `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` (`DB-free`). Expected: FAIL naming this plan (no marker line).
 
-- [ ] **Step 2: Run the impeccable pair on the diff**
+- [ ] **Step 2: Run the impeccable pair on the diff, write the sibling**
 
-`/impeccable critique` then `/impeccable audit` on `components/admin/PerShowActionableWarnings.tsx` (and the wizard row render, whose copy changed): canonical v3 setup (the context.mjs load of PRODUCT.md + DESIGN.md, then register read). P0/P1: fix in-round or `DEFERRED.md` entry. Write the closeout sibling with `## 12. Invariant 8 — the impeccable dual gate`, the marker line `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=recorded`, and the findings table with dispositions (copy the shape of `docs/superpowers/plans/2026-08-27-mi11-removal-fallback-live-row-closeout.md`).
+`/impeccable critique` then `/impeccable audit` on `components/admin/PerShowActionableWarnings.tsx`, `components/admin/NoteWarningCard.tsx`, and the wizard row render (copy changed): canonical v3 setup (the context.mjs load of PRODUCT.md + DESIGN.md, then the register read). P0/P1: fix in-round (a fix commit per the normal cycle, with its own tests) or a `DEFERRED.md` entry. Write the closeout sibling with `## 12. Invariant 8 — the impeccable dual gate`, the marker line `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=recorded`, and the findings table with dispositions (shape: `docs/superpowers/plans/2026-08-27-mi11-removal-fallback-live-row-closeout.md`).
 
-- [ ] **Step 3: Ask bl-orch for the DB slot, then the full suites**
+- [ ] **Step 3: Same command green, commit**
 
-Send bl-orch (`w15:p2`) one line: "fix/wizard-warning-row-links-copy requests the Postgres slot for a full `pnpm heavy pnpm test` + `pnpm heavy pnpm test:e2e` run; DB-free suites are already green." Do NOT run either until named holder. Export the loopback `TEST_DATABASE_URL` before any DB run (the validation project emails Eric on Test Show rows). When named: `pnpm heavy pnpm test` and `pnpm heavy pnpm test:e2e`; also `pnpm heavy:mutation pnpm mutation:guards` and read the `fieldNearMiss` row: score at or above its `scoreFloor` (0.95) with an unchanged unaccepted-survivor set (the only edit there is `export`). Release the slot with one line when done.
+Run: `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts`. Expected: PASS.
 
-- [ ] **Step 4: Live check (AC-1, second half)**
+```bash
+git add docs/superpowers/plans/2026-08-27-wizard-warning-row-links-copy-closeout.md DEFERRED.md
+git commit -m "docs(plan): closeout sibling with the invariant-8 marker and impeccable dispositions"
+```
 
-With the slot held, run the onboarding scan for the live `II - RIA Investment Forum - Central 2025` sheet against the local stack (the wizard's re-scan path), and confirm through `pnpm observe` or the wizard UI in a Playwright session that the three `UNKNOWN_FIELD` rows and the hotel row carry `Open in Sheet` links whose `href` names the expected tab and cell. Record the four hrefs in the closeout.
+- [ ] **Step 4: Ask bl-orch for the DB slot, then the full suites**
 
-- [ ] **Step 5: Pre-push set, push, PR**
+Send bl-orch (`w15:p2`), chunked under 600 characters with `arc-wizwarnlinks` in each part: the request for the Postgres slot for `pnpm heavy pnpm test` + `pnpm heavy pnpm test:e2e`; DB-free suites already green. Do NOT run either until named holder. Export the loopback `TEST_DATABASE_URL` before any DB run. When named: `pnpm heavy pnpm test`, `pnpm heavy pnpm test:e2e`, and `pnpm heavy:mutation pnpm mutation:guards` (read the `fieldNearMiss` row: score at or above its `scoreFloor` 0.95 with an unchanged unaccepted-survivor set; the only edit there is `export`). Any red: fix in a commit of its own (test first), rerun. Release the slot with one line when done.
+
+- [ ] **Step 5: Live check (AC-1, second half)**
+
+With the slot held, run the onboarding scan for the live `II - RIA Investment Forum - Central 2025` sheet against the local stack (the wizard's re-scan path) and confirm, through `pnpm observe` or the wizard UI in a Playwright session, that the three `UNKNOWN_FIELD` rows and the hotel row carry `Open in Sheet` links whose `href` names `FORM` (two), `3rd Level` (one) and the hotels region. Record the four hrefs in the closeout sibling and commit that edit (`docs(plan): record the live RIA hrefs in the closeout`).
+
+- [ ] **Step 6: Pre-push set, push, PR**
 
 Read `.github/workflows/quality.yml`; run every command its `quality` job runs. Push. `gh pr create` with the PR body ending in the required footer; body states: docs-only branch: no; `pnpm preflight` ran after `pnpm worktree:link-env`; no ledger row closed, one filed. **Do not enable auto-merge.**
 
-- [ ] **Step 6: Whole-diff Codex review, cap four rounds**
+- [ ] **Step 7: Whole-diff Codex review, cap four rounds, every round committed**
 
-`node scripts/codex-guard.mjs review --brief <file> --cwd <worktree> --out <fresh dir> --stage diff --round <n>` (backgrounded). The round-1 brief carries: REVIEWER ONLY; fresh eyes; `EXPLICITLY DO NOT RELITIGATE` = spec §1.1 + plan §1.1; `GUARD SURFACE: none in this diff, CANNOT-EXPRESS: resolvers, decided by tests/drive/synthesizeBlocksEquivalence.test.ts (T1) and tests/drive/unknownFieldAnchors.test.ts (T3, T4)`; CONSEQUENCE BOUND / PROBE DOMAIN / THREAT MODEL FENCE as in the spec brief; the `FINDINGS:` and `VERDICT:` line contract. Repair findings by class sweep; `--round` restarts at 1 if the merge base moves. At round four without APPROVE: write the round-economy filing and report to bl-orch; no round five without its word.
+`node scripts/codex-guard.mjs review --brief <file> --cwd <worktree> --out <fresh dir> --stage diff --round <n>` (backgrounded). The round-1 brief carries: REVIEWER ONLY; fresh eyes; `EXPLICITLY DO NOT RELITIGATE` = spec §1.1 + plan §1.1; `GUARD SURFACE: none in this diff, CANNOT-EXPRESS: resolvers, decided by tests/drive/synthesizeBlocksEquivalence.test.ts (T1) and tests/drive/unknownFieldAnchors.test.ts (T3, T4)`; CONSEQUENCE BOUND / PROBE DOMAIN / THREAT MODEL FENCE as in the spec brief; the `FINDINGS:` and `VERDICT:` line contract. After EVERY round: repair findings by class sweep (test first, one commit), then `git add docs/review-rounds/fix/wizard-warning-row-links-copy/ && git commit -m "docs(review-rounds): diff round <n>"` and push, so the corpus row lands with the repair it describes and the reviewed diff is the diff that merges. `--round` restarts at 1 if the merge base moves. At round four without APPROVE: write the round-economy filing section (`## diff — 4 rounds`) in the existing base-sha .md, commit, and report to bl-orch; no round five without its word.
 
-- [ ] **Step 7: CI, detached poller, readiness line**
+- [ ] **Step 8: CI, detached poller, readiness line**
 
-Poll CI via GraphQL from a `nohup` loop writing to a file under the worktree's `.claude/`, never a harness task child. On green: verify `git merge-base origin/main HEAD` equals `origin/main` (otherwise merge `origin/main`, rerun the pre-push set, push, and the review round counter restarts). Then send bl-orch the readiness line: "READY: fix/wizard-warning-row-links-copy PR #<n> at <sha>, CI green, diff review APPROVE at round <k>, merge-base == origin/main. Not merging." Update the marker `stage` to `ready`. **Stop there. Do not merge.**
+Poll CI via GraphQL from a `nohup` loop writing to a file under the worktree's `.claude/`, never a harness task child. On green: verify `git merge-base origin/main HEAD` equals `origin/main` (otherwise merge `origin/main`, rerun the pre-push set, push; the review round counter restarts and Step 7 runs again on the new base). Then send bl-orch the readiness line, chunked: "arc-wizwarnlinks READY: PR #<n> at <sha>, CI green, diff review APPROVE at round <k>, merge-base == origin/main. Not merging." Update the marker `stage` to `ready`. **Stop there. Do not merge.**
 
 <!-- tasks: end -->
 
@@ -1420,8 +1451,8 @@ Run 2026-08-27 on `origin/main` at `66c9857f5`; outputs pasted, every hit dispos
 
 - `rg -n "firstNonBlank|nextNonBlankAfter|DETAILS_NON_TERMINATOR_FIELDS" lib tests --glob '*.ts'` → `lib/drive/unknownFieldAnchors.ts` lines 105, 114, 122, 161, 170, 182, 185 (all deleted by Task 3); `lib/drive/exportSheetToMarkdown.ts` lines 210, 216, 223, 225 (`firstNonBlankCol`, a different identifier matched by prefix; untouched); `lib/drive/crewRoleAnchors.ts` lines 49, 79, 105 (`firstNonBlankText`, prefix match; untouched). No other importer of the deleted helpers.
 - `rg -n "extractUnknownFieldAnchors" lib tests --glob '*.ts'` → `lib/drive/unknownFieldAnchors.ts:140` (the definition, rewritten); `lib/sync/attachWarningAnchors.ts` lines 7, 50 (caller, signature kept); `tests/parser/fieldNearMissBaseline.test.ts` lines 27, 436, 445 (AC-N9 helper, unchanged and green) and 528 (the `withHeader` pin Task 3 flips); `tests/drive/unknownFieldAnchors.live.test.ts` lines 4, 55, 69 (Task 3 step 4b); `tests/drive/unknownFieldAnchors.test.ts` lines 4, 24, 36, 48, 60, 72, 82, 94, 104, 107, 117, 128, 177, 207, 232 (the suite Task 3 edits; the four reconciled assertions are listed in Task 3 step 1).
-- `helpfulContext` values mentioning a control, by a script that reads each catalog entry's `helpfulContext` string and tests `/(Report|Ignore)/` on it (a bare `rg` over the file also hits `followUp`, `dougFacing`, comments and other fields, 16 extra lines, none of them `helpfulContext`) → exactly five codes: `UNKNOWN_FIELD` (entry at line 1321), `PULL_SHEET_PARSE_PARTIAL` (1726), `UNKNOWN_SECTION_HEADER` (2097), `TILE_SERVER_RENDER_FAILED` (2825), `TILE_PROJECTION_FETCH_FAILED` (2844). The first three are Task 5's rows; the last two are alert-surface codes outside `WARNING_CARD_COPY_CODES`, rendered where a Report control exists, and are not this arc's copy, which is why Task 5's assertion is scoped to the registry.
-- `rg -n "synthesizeMarkdownFromXlsx\(" lib app scripts tests --glob '*.ts' --glob '*.tsx' --glob '*.mjs'` → production callers `lib/drive/fetch.ts` 491, 494, 622, 625; `lib/sync/runOnboardingScan.ts` 1354; `lib/sync/runScheduledCronSync.ts` 3360, 3386; `app/api/admin/onboarding/pull-sheet-override/route.ts` 60; `app/api/admin/show/pull-sheet-override/route.ts` 49; plus 12 test files. Every caller keeps the same signature and return shape; none needs an edit.
+- `helpfulContext` values naming a control. Command (a bare `rg` over the file also hits `followUp`, `dougFacing`, comments and other fields, 16 extra lines, none of them `helpfulContext`): a four-line tsx script, `import { MESSAGE_CATALOG } from "@/lib/messages/catalog"; for (const [c, e] of Object.entries(MESSAGE_CATALOG)) if (typeof e.helpfulContext === "string" && /\b(Report|Ignore)\b/.test(e.helpfulContext)) console.log(c);` run as `pnpm exec tsx --tsconfig tsconfig.json <file>`; output, five lines, in this order: `UNKNOWN_FIELD`, `PULL_SHEET_PARSE_PARTIAL`, `UNKNOWN_SECTION_HEADER`, `TILE_SERVER_RENDER_FAILED`, `TILE_PROJECTION_FETCH_FAILED`. Exactly five codes: `UNKNOWN_FIELD` (entry at line 1321), `PULL_SHEET_PARSE_PARTIAL` (1726), `UNKNOWN_SECTION_HEADER` (2097), `TILE_SERVER_RENDER_FAILED` (2825), `TILE_PROJECTION_FETCH_FAILED` (2844). The first three are Task 5's rows; the last two are alert-surface codes outside `WARNING_CARD_COPY_CODES`, rendered where a Report control exists, and are not this arc's copy, which is why Task 5's assertion is scoped to the registry.
+- `rg -n "synthesizeMarkdownFromXlsx\(" lib app scripts tests --glob '*.ts' --glob '*.tsx' --glob '*.mjs'` → production callers `lib/drive/fetch.ts` 491, 494, 622, 625; `lib/sync/runOnboardingScan.ts` 1354; `lib/sync/runScheduledCronSync.ts` 3360, 3386; `app/api/admin/onboarding/pull-sheet-override/route.ts` 60; `app/api/admin/show/pull-sheet-override/route.ts` 49; plus 10 test files (44 call sites in all). Every caller keeps the same signature and return shape; none needs an edit.
 - Exact-object anchor assertions an UNKNOWN_FIELD anchor can reach: listed with dispositions in Task 3 step 1.
 - `docs/agents/writing-plans.md` enrolled-plan counts (`tests/specLint/acUnclaimedCorpus.test.ts` AC-11): this plan is enrolled and keeps its criteria in the spec, so the prose moves from "53 of the 113" to "54 of the 114", and the walk re-measured with this plan on disk (a scratch test over `enrolledPlans()` + `acAnalysis`, deleted after) gives `enrolled=114 noCertain=54 declined=1204 plans=103` (this plan contributes 15 declined lines: the `AC-N9` mentions and the §5 coverage table rows); both prose literals set to the measured values, walker untouched, `acUnclaimedCorpus` 7/7 green.
 
