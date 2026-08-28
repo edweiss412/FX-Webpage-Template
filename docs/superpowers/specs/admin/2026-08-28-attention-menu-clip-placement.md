@@ -240,11 +240,16 @@ migration", and the bug closes as a consequence.
 Recorded here so neither side is relitigated, per the disagreement-loop rule.
 
 - **(A) Extend `useFitWithinClip` (or a sibling) to cap width.** DECLINED on
-  arithmetic, not on style: §2.1 shows a width cap leaves the left edge at -20.
-  To work it would have to compute the anchor-to-clip-edge distance and clamp —
-  which is `lib/popover/position.ts:138-139`, re-implemented in a second place, against the
-  explicit trajectory of `lib/popover/place.ts:54`. A reviewer proposing this should be shown
-  the -20 arithmetic first.
+  arithmetic, not on style: §2.1 shows the cap is INERT — `maxWidth` evaluates to
+  `null` over the whole probe domain, so a width cap of the shared core's kind
+  writes nothing and the left edge stays at -36. To work at all it would have to
+  cap by a different quantity, the anchor-to-clip-edge distance, and then clamp —
+  which is `lib/popover/position.ts:138-139` re-implemented in a second place,
+  against the explicit trajectory of `lib/popover/place.ts:54`. A reviewer
+  proposing this should be shown §2.1's substitution and its proof of inertness.
+  (An earlier draft of this bullet argued the cap leaves the edge at -20; that
+  number is refuted and §2.1 records why. It is named here only so the refutation
+  is findable from the place the wrong number used to live.)
 - **(B) Re-anchor the panel to the modal panel rather than the pill wrapper.**
   DECLINED. This is the migration described in vaguer terms: "anchor to the modal
   panel" is what `hostRect` already means. Adopting it bespoke would produce a
@@ -409,9 +414,14 @@ about the deletion only; the migration in §3.1-3.3 stands either way.
 
 ### 4.1 Source and executable contracts
 
-Every one of these fails before its edit, so the set is discovered rather than
-remembered. `grep -rln 'useFitWithinClip\|fit-within-clip' components app lib tests`
-is the derivation.
+The derivation is exactly
+`grep -rln 'useFitWithinClip\|fit-within-clip' components app lib tests`, and the
+table below is exactly its 15 hits — every one dispositioned, none added from
+memory. An earlier draft claimed this derivation while omitting two hits and
+listing one file the command does not produce, which is the failure the phrase
+"derived, not remembered" exists to prevent.
+
+Rows are grouped by what the edit is, but the SET is the command's output.
 
 | File | Change |
 | --- | --- |
@@ -425,7 +435,14 @@ is the derivation.
 | `tests/components/admin/showpage/attentionMenu.test.tsx` | The case at `tests/components/admin/showpage/attentionMenu.test.tsx:336` asserts the scroller receives the fitted INLINE cap. That behavior is what §3.3 changes: the cap lands on the panel and the scroller shrinks by flex. The case is rewritten to the new invariant, not deleted. |
 | `tests/e2e/wizard-attention-menu.spec.ts` | Measures at rest, drops the `w === 375` branch, and gains two viewports (§6.1, §6.3). |
 | `tests/e2e/popover-clip-fit.spec.ts` | Gains both horizontal edges and the 1280x800 cell (§6.2, §6.3). |
-| `tests/components/admin/transitionAudit.test.tsx` | The `transitionend` re-place (§7) is new transition-adjacent behavior; the audit covers it. |
+| `tests/docs/_metaDeferralLedgerGraduation.test.ts` | Its provenance comment at `tests/docs/_metaDeferralLedgerGraduation.test.ts:414` says the scroller *"now takes the shared useFitWithinClip"*. That is live prose in a live test describing a module this PR deletes, so it is edited to past tense naming the retirement — not left to rot and not deleted, since it records why `BL-ATTENTION-MENU-PANEL-CLIP` was closed. |
+| `tests/fixtures/ledger-mass/2026-08-04.ledgers.json` | **NO CHANGE, explicitly.** A frozen dated fixture of the ledger corpus as it stood on 2026-08-04. Dated historical records are never corrected (spec-self-review's numeric-sweep rule says so in as many words), so its mention of the hook stays. Listed because the derivation produces it and an undispositioned hit is indistinguishable from an overlooked one. |
+
+**Not produced by the derivation, added deliberately:**
+
+| File | Change | Why it is here anyway |
+| --- | --- | --- |
+| `tests/components/admin/transitionAudit.test.tsx` | Covers the new `entered` + `transitionend` re-place pair (§7). | `rg 'useFitWithinClip\|fit-within-clip'` over it exits 1 — it never named the hook. It is in scope because §7 ADDS transition-adjacent behavior, which is that audit's subject, not because it referenced the hook. |
 
 ### 4.2 Baselines — three move, not one
 
@@ -648,8 +665,34 @@ re-place to the migrated component, filtered to `propertyName === "transform"`
 and scoped to the panel, porting `components/admin/useFitWithinClip.ts:300-304`
 rather than inheriting something that does not exist.
 
-`entered` is not a substitute and must not be presented as one: it flips at the
-START of the transition, which is the moment whose measurement is wrong.
+**BOTH signals are required, and an earlier draft of this section wrongly kept
+only one.** It dismissed `entered` as insufficient because it flips at the START
+of the transition. That is true under animation and false under reduced motion,
+where it is the only signal there is:
+
+- The panel carries `motion-reduce:transition-none`
+  (`components/admin/showpage/AttentionMenu.tsx:405`). With no transition, **no
+  `transitionend` event is ever dispatched.** A design subscribing only to
+  `transitionend` freezes the mount-time measurement permanently for every
+  operator who has reduced motion on — an ordinary accessibility setting, not an
+  excluded host.
+- The error is the same 5% and is silent: at 1280x800 a frozen placement writes
+  `1084 - 380 = 704` where the correct value is `684`. The placement is still
+  `kind: "placed"` with a cap above the floor, so neither inherited diagnostic
+  fires.
+
+So the migrated component subscribes to both, which is exactly the pair the hook
+already had — `useFitWithinClip(entered)` takes `entered` as its re-apply key
+(`components/admin/showpage/AttentionMenu.tsx:338`) AND wires `transitionend`
+(`components/admin/useFitWithinClip.ts:253`):
+
+| Signal | Covers | Without it |
+| --- | --- | --- |
+| `entered` re-place | The reduced-motion path, where the transform reaches its final value in the same commit and no event follows | Reduced-motion operators get a permanently frozen, 5%-wrong placement |
+| `transitionend`, `propertyName === "transform"` | The animated path, where the transform settles one duration after `entered` flips | Motion-enabled operators get the same frozen placement |
+
+Neither is redundant: they cover disjoint branches of one conditional, and the
+branch is chosen by an OS setting rather than by anything the code controls.
 
 Verified by a test that opens the menu and asserts containment **after** the
 transition settles, mirroring the existing animated-path case at
@@ -690,11 +733,29 @@ here does not default `.flex` to `align-items: stretch`, so nothing is assumed.
 | panel → scroller | Absorbs the remaining height and no more | `flex-1` **and** `min-h-0` on the scroller. `min-h-0` is load-bearing: a flex item's default `min-height: auto` refuses to shrink below content, so without it the scroller keeps its content height, the panel's `max-height` is exceeded, and the fitted cap silently does nothing |
 | scroller → itself | Scrolls rather than grows | `overflow-y-auto` unchanged, plus its declared `max-h-96` |
 
-**Verified in a real browser, not jsdom**, per the layout-dimensions rule: a
-Playwright assertion reads `getBoundingClientRect()` on panel, heading and
-scroller, asserting `heading.height + scroller.height === panel.height` and
-`panel.height <= fitted cap`, each within 0.5px. jsdom computes no layout and
-would pass on every failure mode above.
+**Verified in a real browser, not jsdom**, per the layout-dimensions rule. The
+oracle must be written against the right box, and an earlier draft of this
+section got that wrong in a way that could never pass:
+
+**The panel has a border and no padding.** Its classes are
+`rounded-md border border-border bg-surface-raised shadow-popover`
+(`components/admin/showpage/AttentionMenu.tsx:405`) — `border` is 1px per side,
+and there is no `p-*`. So `panel.getBoundingClientRect().height` is a BORDER-BOX
+that exceeds the children's content-box sum by exactly 2px, and
+`heading.height + scroller.height === panel.getBoundingClientRect().height` is a
+guaranteed false failure at every viewport, not a proof of anything.
+
+The assertions, each within 0.5px:
+
+| Assertion | Boxes |
+| --- | --- |
+| `heading.height + scroller.height === panel.clientHeight` | `clientHeight` excludes the border and includes padding; the panel has no padding, so this is exactly the content box the children fill |
+| `panel.getBoundingClientRect().height <= fittedCap` | Border-box against the written cap, which `max-height` also applies to the border box under `box-sizing: border-box` |
+| `scroller.getBoundingClientRect().bottom <= panel.getBoundingClientRect().bottom` | Catches the `min-h-0` failure directly: without it the scroller keeps its content height and paints past the panel |
+
+The third is the one that fails if `min-h-0` is dropped, so it is the assertion
+that makes the invariant table executable rather than decorative. jsdom computes
+no layout and would pass on every failure mode above.
 
 **Geometric invariants**, asserted in §6.2 and §9: `menu.left >= clip.left`,
 `menu.right <= clip.right`, `menu.bottom <= clip.bottom`, within 0.5px, at rest.
@@ -774,6 +835,13 @@ overhang by 5%. AC-6 is the one that additionally checks the transient.
   value in §1.3. Asserting `menu.left === 684` at rest fails on a frozen
   placement and passes on a re-measured one. Task 5 additionally proves the
   listener by removing it and observing 704.
+
+  **Asserted on BOTH motion branches**, because §7 shows they are served by
+  different signals and a single-branch assertion would pass while the other
+  branch stays frozen: once with motion enabled (the `transitionend` path) and
+  once under `prefers-reduced-motion: reduce` via Playwright's
+  `reducedMotion: "reduce"` context option (the `entered` path). Both must read
+  684. A run that covers only the animated branch does not satisfy AC-6.
 - **AC-7.** No `useFitWithinClip` import remains in the tree, and no
   `100vw`-derived width remains on a clipped, non-portaled overlay (§5).
 
