@@ -1,6 +1,13 @@
 export const SOURCE_LINK_ALLOWLIST = ["INFO", "AGENDA", "GEAR", "TRAVEL", "PULL SHEET"] as const;
 export type AllowedTabTitle = (typeof SOURCE_LINK_ALLOWLIST)[number];
-export type SourceAnchor = { title: string; gid: number; a1?: string };
+/**
+ * `scope` is set by the raw-workbook anchor scanner and by nothing else: "cell" when it
+ * located the exact cell by content, "tab" when the cell was not unique but the block
+ * kind named one tab (spec 2026-08-27-wizard-warning-row-links-copy §2.4/§2.5). Absent on
+ * every other producer - region anchors, legacy persisted rows, crew-role and show-day
+ * cells - which is what keeps the read-time allowlist guard below unchanged for them.
+ */
+export type SourceAnchor = { title: string; gid: number; a1?: string; scope?: "cell" | "tab" };
 
 function isAllowed(title: string): boolean {
   return (SOURCE_LINK_ALLOWLIST as readonly string[]).includes(title);
@@ -19,7 +26,13 @@ export function buildSheetDeepLink(
   // silently land on the wrong tab. `#gid=0` is the deterministic first sheet
   // (INFO in the FXAV templates); if a sheet happens to have no gid 0, Google
   // Sheets ignores the fragment and opens its default — never worse than before.
-  if (!anchor || !isAllowed(anchor.title) || typeof anchor.gid !== "number") return `${base}#gid=0`;
+  if (!anchor || typeof anchor.gid !== "number") return `${base}#gid=0`;
+  // A SCOPED anchor was located by content on its own tab, so the wrong-tab hazard this
+  // guard defends against - a region header regex matching inside a master-library tab -
+  // cannot arise for it, and it is trusted on any tab with a numeric gid (spec §2.5). No
+  // tab joins SOURCE_LINK_ALLOWLIST: every UNSCOPED anchor keeps this guard byte for byte.
+  const scoped = anchor.scope === "cell" || anchor.scope === "tab";
+  if (!scoped && !isAllowed(anchor.title)) return `${base}#gid=0`;
   let url = `${base}#gid=${anchor.gid}`; // gid===0 emitted literally
   if (anchor.a1) url += `&range=${encodeURIComponent(anchor.a1)}`;
   return url;

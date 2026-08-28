@@ -185,12 +185,19 @@ export function AnchoredPortal({
     });
   }, [anchorRef, align, preferredSide, commit]);
 
-  // Pre-paint placement on open, then re-place from every source that can move
-  // the anchor under the panel. The open-gate stays at the CALL SITE: a
-  // listener firing from a stale capture after a close must not schedule.
+  // Subscriptions only. This effect does NOT place on the open commit: the
+  // every-commit effect below is the sole measurer THERE, and it covers that
+  // commit by being a `useLayoutEffect`, which runs before paint wherever it is
+  // declared (spec §3). Its ABSENT DEPENDENCY ARRAY is a different guarantee —
+  // it is what makes that effect fire on a position-only re-render — and a
+  // complete dependency array would still cover opening, since `open` changes.
+  // It is not the only caller of `measureAndApply` in general either: the
+  // coalescer below invokes it on every scroll, resize and ResizeObserver frame.
+  //
+  // The open-gate stays at the CALL SITE: a listener firing from a stale capture
+  // after a close must not schedule.
   useLayoutEffect(() => {
     if (!open || !mounted) return;
-    measureAndApply();
     const coalescer = createRafCoalescer(measureAndApply);
     const schedule = () => {
       if (!open) return;

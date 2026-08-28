@@ -1,11 +1,17 @@
 import * as XLSX from "xlsx";
-import { buildAbsGrid, type AbsGrid } from "@/lib/drive/sourceAnchors";
-import { clean } from "@/lib/parser/blocks/_helpers";
+import { clean, splitRow } from "@/lib/parser/blocks/_helpers";
+import { scanBlockCells } from "@/lib/parser/blocks/_rowScan";
+import { anchorNamespace } from "@/lib/parser/fieldNearMiss";
+import {
+  renderRow,
+  synthesizeBlocksFromXlsx,
+  type GridBlock,
+} from "@/lib/drive/exportSheetToMarkdown";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 
-/** An anchor to a venue/details row's LABEL cell, keyed by (kind, normalized
- *  label, normalized value). value participates in the key so resolution
- *  identifies the specific row (provenance), not merely a unique label. */
+/** An anchor to a block row's LABEL cell, keyed by (kind, normalized label,
+ *  normalized value). value participates in the key so resolution identifies the
+ *  specific row (provenance), not merely a unique label. */
 export type UnknownFieldAnchor = {
   kind: string;
   label: string;
@@ -13,96 +19,26 @@ export type UnknownFieldAnchor = {
   anchor: SourceAnchor;
 };
 
-// The two anchor NAMESPACES a warning's `blockRef.kind` can join on. `UNKNOWN_FIELD` now
-// comes from a single emitter — the content-keyed near-miss detector
-// (lib/parser/fieldNearMiss.ts), called once at the lib/parser/index.ts document seam —
-// and its anchor-namespace mapping (field-near-miss spec §2.2) emits exactly these two
-// kinds for venue and DETAILS-family blocks, plus each other block's own normalized
-// opener label. Those other kinds match no entry here and resolve null, which is the
-// documented-safe outcome: they were never anchorable, since this scan only ever built
-// anchors inside VENUE / DETAILS-family blocks.
+// Spec 2026-08-27-wizard-warning-row-links-copy §2.
 //
-// The two sides are deliberately NOT the same set, and the asymmetry is safe in one
-// direction only. The detector's DETAILS family is the five spellings in event.ts's
-// SECTION_HEADER_TOKENS (it also carries "DETAILS/ROOM DIAGRAM" and "GS DETAILS (FOR
-// BOTH)"); the header regexes below stay narrower for the reason that follows. A block
-// this scan does not recognize yields no anchors and the warning degrades to null; a
-// detector kind narrower than these would strand rows this scan DID anchor.
+// Anchors are derived from the SAME block pipeline the detector reads
+// (synthesizeBlocksFromXlsx -> renderRow -> splitRow -> scanBlockCells), keyed on the
+// SAME kind function (anchorNamespace), so a row the detector flags always has an anchor
+// candidate under its own kind. The scanner this replaces re-derived block structure from
+// the raw grid with its own header regexes, its own terminator set and its own label/value
+// rule, and reached exactly two families on exactly one tab. Two implementations of "which
+// block is this row in, and what is its label", written to agree on two header families
+// and agreeing nowhere else, is why the rows that dispatched this arc were link-less.
 //
-// Headers mirror REGION_ANCHOR_SPEC (lib/sheet-links/buildSheetDeepLink.ts) but are
-// anchored EXACT at both ends ($). REGION_ANCHOR_SPEC's details header is prefix-only,
-// which is fine for a whole-block region rect; here a FALSE-EARLY header match (e.g. a
-// field row "Details Notes") would start the scan at the wrong row and could, under a
-// (kind,label,value) coincidence, yield a wrong-cell link. For the never-wrong-cell
-// guarantee (spec §5.1.1) a MISSED header degrades to null (safe) while a false-early
-// one does not — so exact matching is strictly safer. The real headers are standalone
-// "DETAILS" / "EVENT DETAILS" / "GS DETAILS" cells, which all match exactly.
+// Never-wrong-cell is kept by the JOIN, not by the scan: resolveUnknownFieldCell returns
+// a cell only on exactly one (kind,label,value) match. Widening the scanned input can only
+// turn a null into a uniquely-matched cell; it cannot manufacture a wrong one.
 //
-// The VENUE header admits `VENUE NAME` as well as `VENUE`, because the v4 template opens its
-// venue table on `VENUE NAME` and such a sheet produced NO venue anchors at all before — a
-// near-miss row in one resolved to null and its card carried no "Open in Sheet" link.
-// UNKNOWN_FIELD is in OPERATOR_ACTIONABLE_ANCHORED, so that is a working link gained, not
-// bookkeeping. Spec: docs/superpowers/specs/parser/2026-08-27-venue-block-predicate-design.md §4.
-//
-// It does NOT reintroduce the false-early hazard above. The scan takes the FIRST matching row
-// and breaks; a v2 header row's first non-blank cell is `VENUE` (its `VENUE NAME` sits in
-// column 1); and no corpus fixture carries a `VENUE NAME` row above its bare `VENUE` one — the
-// only fixture with both has them 219 rows apart in that order. The alternation stays
-// END-ANCHORED: a prefix form would open the scan at a `VENUE NOTES` field row, which
-// tests/drive/unknownFieldAnchors.test.ts pins by asserting the anchor SET.
-//
-// TERMINATORS deliberately still carries `VENUE` and not `VENUE NAME`, so a v4 scan runs past
-// the four-row table until the next real terminator. That over-inclusion is bounded by the
-// resolution rule rather than by the scan: extra anchors can only produce a two-or-more
-// collision, and a collision resolves to null, never to another row's cell.
-const BLOCKS: { kind: string; header: RegExp }[] = [
-  { kind: "venue", header: /^VENUE(\s+NAME)?$/i },
-  { kind: "details", header: /^(EVENT\s+DETAILS|DETAILS|GS\s+DETAILS)$/i },
-];
-
-// A row whose first non-blank cell (upper-cased) is one of these ENDS the block.
-// Mirror of the crew TERMINATORS / region BLOCK_TERMINATORS. Over-inclusion is
-// safe (spec §5.1.1), so this only needs to catch real section openers.
-const TERMINATORS = new Set([
-  "CREW",
-  "TECH",
-  "VENUE",
-  "DATES",
-  "HOTEL",
-  "HOTELS",
-  "ROOMS",
-  "TRANSPORTATION",
-  "CONTACTS",
-  "SCHEDULE",
-  "PULL SHEET",
-  "PULL",
-  "DIAGRAMS",
-  "EVENT DETAILS",
-  "DETAILS",
-  "GS DETAILS",
-  "DRESS",
-  "GENERAL SESSION",
-  "CONTACT OFFICE",
-  "CLIENT",
-  "DOCUMENT FOLDER LINK",
-  "AGENDA LINK",
-  "AGENDA",
-  "FORM",
-  "GEAR",
-  "TO DO",
-]);
-
-// TERMINATORS entries that are ALSO known EVENT DETAILS field labels
-// (lib/parser/blocks/event.ts CANONICAL_KEY_MAP: `diagrams`, `dress`; event.ts
-// documents diagrams as a field, NOT a terminator). Inside a 'details' block these
-// are FIELD rows, not section openers, so they must not terminate the scan. v4
-// template EVENT DETAILS blocks OPEN with a 'DIagrams' row (fixtures/shows/
-// exporter-xlsx/{fintech,fixed-income,rpas}.md), so treating DIAGRAMS as a
-// terminator broke the scan at headerRow+1 and yielded ZERO details anchors (#217).
-// They stay terminators for 'venue'. Over-inclusion past a real DIAGRAMS/DRESS
-// section is safe by the module's exactly-one-match guard, so excluding them for
-// 'details' can never produce a wrong cell.
-const DETAILS_NON_TERMINATOR_FIELDS = new Set(["DIAGRAMS", "DRESS"]);
+// Every exporter-included tab is scanned - the dispatching rows live on FORM and
+// `3rd Level`, so a scan limited to INFO could never reach them. The anchors carry
+// scope "cell" / "tab", which is what lets buildSheetDeepLink trust them past the REGION
+// allowlist; that allowlist, and its read-time guard, are untouched for every other
+// producer.
 
 /** Normalize a sheet cell for matching. canonicalize-exempt: sheet field text,
  *  not an email (AGENTS.md invariant 3 N/A). Applied identically to grid cells
@@ -111,95 +47,66 @@ export function normalizeCellKey(s: string): string {
   return clean(s).replace(/\s+/g, " ").trim().toLowerCase(); // canonicalize-exempt: sheet label, not an email
 }
 
-function firstNonBlank(grid: AbsGrid, r: number): { col: number; text: string } | null {
-  for (let c = grid.minCol; c <= grid.maxCol; c++) {
-    const v = clean(grid.cell(r, c));
-    if (v) return { col: c, text: v };
-  }
-  return null;
-}
-
-function nextNonBlankAfter(grid: AbsGrid, r: number, afterCol: number): string {
-  for (let c = afterCol + 1; c <= grid.maxCol; c++) {
-    const v = clean(grid.cell(r, c));
-    if (v) return v;
-  }
-  return "";
-}
-
 /**
- * Re-scan the RAW workbook to locate each venue/details row's LABEL cell, keyed by
- * (kind, normalized label, normalized value). The parser runs on synthesized
- * markdown (which loses A1 coordinates), so we reconstruct from the raw grid,
- * mirroring extractCrewRoleAnchors. OVER-INCLUSIVE by design: the scan continues
- * past internal blank rows to the next section terminator, so it is a superset of
- * the parser's emitting rows (under-inclusion is the only wrong-cell risk;
- * over-inclusion degrades to null via the exactly-one guard). Any edge → fewer/no
- * anchors, never a wrong one.
+ * The ONE conversion from a grid block to the cell arrays the detector sees: each row
+ * padded to the block's width, escaped, joined and split exactly as `tableMarkdown` and
+ * `splitRow` do on the markdown path. Same padding, same escape, same split, so a one-cell
+ * row in a three-column block yields `["x", "", ""]` on both paths.
+ *
+ * Exported so the equivalence suite binds THIS path rather than a re-derivation of it -
+ * a test that reimplemented the conversion would agree with itself while the shipped
+ * scanner drifted.
  */
+export function blockRowsForScan(block: GridBlock): string[][] {
+  const width = block.rows.reduce((m, r) => Math.max(m, r.cells.length), 0);
+  return block.rows.map((r) => splitRow(renderRow(r.cells, width)));
+}
+
 export function extractUnknownFieldAnchors(
   buffer: ArrayBuffer,
   titleToGid: Map<string, number>,
 ): UnknownFieldAnchor[] {
-  const workbook = XLSX.read(buffer, { type: "array", cellText: true, cellDates: false });
   const out: UnknownFieldAnchor[] = [];
-
-  const sheetName = workbook.SheetNames.find(
-    (n) => n.toUpperCase() === "INFO" && !/\bOLD\b/i.test(n),
-  );
-  if (!sheetName) return out;
-  const sheet = workbook.Sheets[sheetName];
-  if (!sheet || !sheet["!ref"]) return out;
-  const gid = titleToGid.get(sheetName);
-  if (typeof gid !== "number") return out;
-
-  const grid = buildAbsGrid(sheet);
-
-  for (const { kind, header } of BLOCKS) {
-    let headerRow = -1;
-    for (let r = grid.minRow; r <= grid.maxRow; r++) {
-      const first = firstNonBlank(grid, r);
-      if (first && header.test(first.text)) {
-        headerRow = r;
-        break;
-      }
-    }
-    if (headerRow === -1) continue;
-
-    for (let r = headerRow + 1; r <= grid.maxRow; r++) {
-      const first = firstNonBlank(grid, r);
-      if (!first) continue; // internal blank row — over-inclusive: keep scanning
-      // Terminate on the FIRST LINE of the raw cell: section headers like
-      // "GENERAL SESSION\nGRAND BALLROOM A/B\n8th Floor" are merged multi-line title
-      // cells, so the collapsed text never exact-matches. First-line-exact-match
-      // catches them without prefix false-positives (a "VENUE NAME" field row's
-      // first line is "VENUE NAME", not "VENUE"). (live-sheet fidelity, 2026-07-01)
-      const rawHeaderLine = grid.cell(r, first.col).split(/\r?\n/)[0] ?? "";
-      const firstLine = rawHeaderLine.trim().toUpperCase(); // canonicalize-exempt: sheet section header, not an email
-      // DIAGRAMS/DRESS open sections for 'venue' but are field rows for 'details'.
-      if (
-        TERMINATORS.has(firstLine) &&
-        !(kind === "details" && DETAILS_NON_TERMINATOR_FIELDS.has(firstLine))
-      )
-        break; // next section
-      const value = nextNonBlankAfter(grid, r, first.col);
+  const { blocks } = synthesizeBlocksFromXlsx(buffer);
+  for (const block of blocks) {
+    // Opaque blocks are included OLD-tab pull-sheet regions: archived content, collected
+    // from rendered markdown, with no grid behind it. Not a place to send Doug to edit.
+    if (block.kind !== "grid") continue;
+    const gid = titleToGid.get(block.sheetName);
+    if (typeof gid !== "number") continue; // a tab with no gid cannot be linked to
+    for (const row of scanBlockCells(blockRowsForScan(block))) {
+      const src = block.rows[row.index];
+      if (!src || src.absRow === null) continue; // a synthesized row has no source cell
+      const label = clean(row.cells[0] ?? "");
+      if (!label) continue; // the detector never flags a blank label
       out.push({
-        kind,
-        label: normalizeCellKey(first.text),
-        value: normalizeCellKey(value),
-        anchor: { title: sheetName, gid, a1: XLSX.utils.encode_cell({ r, c: first.col }) },
+        kind: anchorNamespace(row.opener),
+        label: normalizeCellKey(label),
+        value: normalizeCellKey(row.cells[1] ?? ""),
+        anchor: {
+          title: block.sheetName,
+          gid,
+          a1: XLSX.utils.encode_cell({ r: src.absRow, c: block.absCol0 }),
+          scope: "cell",
+        },
       });
     }
   }
-
   return out;
 }
 
 /**
- * Pick the single anchor whose (kind, normalized label, normalized value) equals
- * the warning's. EXACTLY ONE match → its anchor; zero or ≥2 → null, so a wrong-cell
- * link is never produced (mirror resolveCrewRoleCell). value gives provenance: a
- * same-label impostor with a different value cannot become the single match.
+ * Pick the single anchor whose (kind, normalized label, normalized value) equals the
+ * warning's. EXACTLY ONE match gives its cell, so a wrong-cell link is never produced
+ * (mirror `resolveCrewRoleCell`). value gives provenance: a same-label impostor with a
+ * different value cannot become the single match.
+ *
+ * Zero or several matches fall back to the TAB (spec §2.4). The warning still knows its
+ * block kind, and when every anchor of that kind sits on one tab, that tab is where the
+ * row is, even though which cell is not decidable. Deliberately carries no `a1`: the
+ * follow-up copy ("Edit the cell") and the autofix summary both gate on `a1`, and the
+ * dedup in `operatorActionableWarnings` keys on it, so a range here would collapse two
+ * tab-level cards into one. A kind spanning several tabs, or matching no anchor, is null.
  */
 export function resolveUnknownFieldCell(
   anchors: UnknownFieldAnchor[],
@@ -210,6 +117,11 @@ export function resolveUnknownFieldCell(
   if (!kind || !label) return null;
   const lk = normalizeCellKey(label);
   const vk = normalizeCellKey(value ?? "");
-  const matches = anchors.filter((a) => a.kind === kind && a.label === lk && a.value === vk);
-  return matches.length === 1 ? matches[0]!.anchor : null;
+  const sameKind = anchors.filter((a) => a.kind === kind);
+  const matches = sameKind.filter((a) => a.label === lk && a.value === vk);
+  if (matches.length === 1) return matches[0]!.anchor;
+  const tabs = new Set(sameKind.map((a) => `${a.anchor.gid}\u0000${a.anchor.title}`));
+  if (tabs.size !== 1) return null;
+  const { title, gid } = sameKind[0]!.anchor;
+  return { title, gid, scope: "tab" };
 }

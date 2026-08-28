@@ -1,0 +1,180 @@
+/**
+ * tests/drive/synthesizeBlocksEquivalence.test.ts
+ *
+ * Spec 2026-08-27-wizard-warning-row-links-copy §2.3, guard T1. The whole design rests
+ * on one claim: the anchor scanner's COORDINATE path and the detector's MARKDOWN path see
+ * the same blocks and the same cells. Two implementations of "which block is this row in,
+ * and what is its label" were the defect this arc replaces, so the claim is pinned
+ * executably over the whole committed workbook corpus rather than trusted.
+ *
+ * Three halves, each on every corpus workbook:
+ *   (a) the (opener, cells) sequence agrees, in order;
+ *   (b) every anchor's (kind, label, value) is a triple the detector's own view contains;
+ *   (c) every anchor's a1 binds ALL FOUR join components (tab, block kind, label, value)
+ *       against an INDEPENDENT xlsx read - the four are all `resolveUnknownFieldCell`
+ *       reads, and there is no fifth.
+ */
+import { describe, expect, it } from "vitest";
+import * as XLSX from "xlsx";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import {
+  renderRow,
+  synthesizeBlocksFromXlsx,
+  synthesizeMarkdownFromXlsx,
+  type GridBlock,
+} from "@/lib/drive/exportSheetToMarkdown";
+import {
+  blockRowsForScan,
+  extractUnknownFieldAnchors,
+  normalizeCellKey,
+} from "@/lib/drive/unknownFieldAnchors";
+import { scanBlockCells, scanRowsWithOpener } from "@/lib/parser/blocks/_rowScan";
+import { splitRow } from "@/lib/parser/blocks/_helpers";
+import { anchorNamespace } from "@/lib/parser/fieldNearMiss";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
+
+const DIR = join(process.cwd(), "fixtures/shows/exporter-xlsx");
+const WORKBOOKS = readdirSync(DIR).filter((f) => f.endsWith(".xlsx"));
+
+/** `readFileSync(...).buffer` can be a pooled allocation carrying a byteOffset. */
+function bufferOf(file: string): ArrayBuffer {
+  const b = readFileSync(join(DIR, file));
+  return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+}
+
+/**
+ * One cell as the SHEET presents it, merges included: a merged range shows its top-left
+ * value in every covered cell, which is what a person editing the sheet sees and what the
+ * exporter reproduces. Written here from `!merges` directly rather than imported, so this
+ * read stays independent of the pipeline under test - but it must model the same sheet,
+ * and a read that returned "" for a covered cell would be modelling a different one.
+ */
+function cellAt(ws: XLSX.WorkSheet, r: number, c: number): string {
+  const own = ws[XLSX.utils.encode_cell({ r, c })]?.v;
+  if (own !== undefined && own !== null && String(own) !== "") return String(own);
+  for (const m of (ws["!merges"] ?? []) as XLSX.Range[]) {
+    if (r >= m.s.r && r <= m.e.r && c >= m.s.c && c <= m.e.c) {
+      const src = ws[XLSX.utils.encode_cell({ r: m.s.r, c: m.s.c })]?.v;
+      return src === undefined || src === null ? "" : String(src);
+    }
+  }
+  return "";
+}
+
+const gridsOf = (buffer: ArrayBuffer): GridBlock[] =>
+  synthesizeBlocksFromXlsx(buffer).blocks.filter((b): b is GridBlock => b.kind === "grid");
+
+describe("the anchor scanner reads the blocks the detector reads (spec §2.3)", () => {
+  premise("the corpus has workbooks", WORKBOOKS.length, 0);
+
+  // The escape premise is corpus-wide, not per-workbook: only some sheets carry a label
+  // `escapeCell` rewrites. `ria.xlsx` has `# of Technicians Needed`.
+  it("at least one corpus anchor's label contains a character escapeCell rewrites", () => {
+    const hit = WORKBOOKS.some((file) => {
+      const buffer = bufferOf(file);
+      const wb = XLSX.read(buffer, { type: "array" });
+      const gids = new Map(wb.SheetNames.map((n, i) => [n, i] as const));
+      return extractUnknownFieldAnchors(buffer, gids).some((a) => /[#|\\]/.test(a.label));
+    });
+    // Without this, an extraction path that skipped escaping or padding would pass (b) on
+    // a corpus of plain cells alone.
+    expect(hit).toBe(true);
+  });
+
+  for (const file of WORKBOOKS) {
+    const buffer = bufferOf(file);
+    const markdownRows = scanRowsWithOpener(synthesizeMarkdownFromXlsx(buffer).markdown);
+
+    it(`${file} (a): coordinate path is the markdown path, in order`, () => {
+      const grids = gridsOf(buffer);
+      premise(`${file} yields more than one grid block`, grids.length, 1);
+      premiseHolds(
+        `${file} has a block with more than two rows`,
+        grids.some((b) => b.rows.length > 2),
+      );
+      const fromCoords = grids.flatMap((b) =>
+        scanBlockCells(blockRowsForScan(b)).map((r) => ({ opener: r.opener, cells: r.cells })),
+      );
+      expect(fromCoords).toEqual(markdownRows.map((r) => ({ opener: r.opener, cells: r.cells })));
+    });
+
+    it(`${file} (b): every anchor's (kind,label,value) is a triple the detector's view contains`, () => {
+      const wb = XLSX.read(buffer, { type: "array" });
+      const gids = new Map(wb.SheetNames.map((n, i) => [n, i] as const));
+      const anchors = extractUnknownFieldAnchors(buffer, gids);
+      premise(`${file} has anchors`, anchors.length, 0);
+      premise(
+        `${file} anchors span more than one kind`,
+        new Set(anchors.map((a) => a.kind)).size,
+        1,
+      );
+      const seen = new Set(
+        markdownRows.map(
+          (r) =>
+            `${anchorNamespace(r.opener)}\u0000${normalizeCellKey(r.cells[0] ?? "")}\u0000${normalizeCellKey(r.cells[1] ?? "")}`,
+        ),
+      );
+      for (const a of anchors) {
+        expect(
+          seen.has(`${a.kind}\u0000${a.label}\u0000${a.value}`),
+          `${file}: ${a.kind}/${a.label}/${a.value}`,
+        ).toBe(true);
+      }
+    });
+
+    it(`${file} (c): every anchor's a1 binds all four join components (tab, block kind, label, value)`, () => {
+      const wb = XLSX.read(buffer, { type: "array" });
+      const gids = new Map(wb.SheetNames.map((n, i) => [n, i] as const));
+      const anchors = extractUnknownFieldAnchors(buffer, gids);
+      premise(`${file} has anchors`, anchors.length, 0);
+      const grids = gridsOf(buffer);
+      for (const a of anchors) {
+        const ws = wb.Sheets[a.anchor.title]!;
+        const { r, c } = XLSX.utils.decode_cell(a.anchor.a1!);
+        const range = XLSX.utils.decode_range(ws["!ref"]!);
+        // Independent row read from a1's column rightward, then the SHIPPED conversion
+        // (renderRow + splitRow). A literal pipe inside a cell fractures the row for the
+        // parser (escapeCell writes \|, splitRow splits on it anyway; ria.xlsx INFO!A47),
+        // and the anchor's label is the parser's first fragment, by design (spec §9).
+        // A merge may extend PAST the declared `!ref` - ria.xlsx DIAGRAMS declares
+        // `A1:C4` and merges `C4:I4` - and the exporter's expandMerges writes into those
+        // columns, lengthening the row. A read bounded by `!ref` alone would see one cell
+        // where the sheet has seven.
+        const lastCol = ((ws["!merges"] ?? []) as XLSX.Range[]).reduce(
+          (m, g) => (r >= g.s.r && r <= g.e.r ? Math.max(m, g.e.c) : m),
+          range.e.c,
+        );
+        const rowCells: string[] = [];
+        for (let col = c; col <= lastCol; col++) {
+          rowCells.push(cellAt(ws, r, col));
+        }
+        const conv = splitRow(renderRow(rowCells, rowCells.length));
+
+        // Spec §2.3's derivation: the key has FOUR components and the anchor names a tab
+        // and a cell. A reviewer wanting a fifth predicate must first name a fifth join
+        // input, and `resolveUnknownFieldCell` reads none.
+        expect(a.anchor.gid, `${file} ${a.anchor.title} gid`).toBe(gids.get(a.anchor.title));
+        expect(
+          normalizeCellKey(conv[0] ?? ""),
+          `${file} ${a.anchor.title}!${a.anchor.a1} label`,
+        ).toBe(a.label);
+        expect(
+          normalizeCellKey(conv[1] ?? ""),
+          `${file} ${a.anchor.title}!${a.anchor.a1} value`,
+        ).toBe(a.value);
+        const block = grids.find(
+          (b) => b.sheetName === a.anchor.title && b.rows.some((row) => row.absRow === r),
+        );
+        premiseHolds(
+          `${file} ${a.anchor.title}!${a.anchor.a1} sits in a grid block`,
+          block !== undefined,
+        );
+        const opener = scanBlockCells(blockRowsForScan(block!))[0]?.opener ?? "";
+        expect(anchorNamespace(opener), `${file} ${a.anchor.title}!${a.anchor.a1} block kind`).toBe(
+          a.kind,
+        );
+      }
+    });
+  }
+});

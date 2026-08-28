@@ -24,6 +24,31 @@ import { clean, splitRow } from "./_helpers";
 /** One scanned table row plus the first-cell text of the row that opened its table. */
 export type ScannedRow = { cells: string[]; opener: string };
 
+/** A scanned row plus its position in the INPUT array the core was handed. */
+export type ScannedBlockRow = { cells: string[]; opener: string; index: number };
+
+const ALIGNMENT_SEGMENT = /^[\s:|*-]*$/;
+
+/**
+ * The opener/alignment core shared by the markdown shell below and the raw-workbook
+ * anchor scanner (`lib/drive/unknownFieldAnchors.ts`). Opener = row 0 cell 0, cleaned;
+ * every alignment-shaped row is dropped; `index` is the row's position in the INPUT so
+ * a caller holding coordinates can map back. One definition, two callers, so the
+ * detector and the scanner cannot disagree about which block a row belongs to
+ * (spec 2026-08-27-wizard-warning-row-links-copy §2.3).
+ */
+export function scanBlockCells(rowsOfCells: readonly (readonly string[])[]): ScannedBlockRow[] {
+  const first = rowsOfCells[0];
+  if (!first) return [];
+  const opener = clean(first[0] ?? "");
+  const out: ScannedBlockRow[] = [];
+  rowsOfCells.forEach((cells, index) => {
+    if (cells.every((seg) => ALIGNMENT_SEGMENT.test(seg))) return; // alignment row
+    if (cells.length > 0) out.push({ cells: [...cells], opener, index });
+  });
+  return out;
+}
+
 /**
  * `parseTableRows`, but each row is also tagged with its physical block's opening
  * first-cell text.
@@ -34,28 +59,33 @@ export type ScannedRow = { cells: string[]; opener: string };
  * construction. The emitted rows are exactly `parseTableRows`' rows, in order (pinned in
  * `tests/parser/fieldNearMiss.test.ts`).
  *
- * A table whose first `|` line is an alignment row takes `:---` as its opener, which
- * normalizes to the empty string; callers deriving a namespace from it fall back to a
- * generic label. No corpus fixture has that shape.
+ * A table whose first `|` line is an alignment row takes `:---` as its opener; callers
+ * deriving a namespace from it fall back to a generic label. No corpus fixture has that
+ * shape.
+ *
+ * This is the line-grouping SHELL over `scanBlockCells`: group pipe lines into runs,
+ * `splitRow` each, run the core per run.
  */
 export function scanRowsWithOpener(markdown: string): ScannedRow[] {
   const rows: ScannedRow[] = [];
-  let inTable = false;
-  let opener = "";
+  let run: string[][] = [];
+  // `flush` is unguarded on purpose: `scanBlockCells([])` is `[]` and the reset is a
+  // no-op, so a length check before each call would add two branches that no input can
+  // distinguish (the source-mutation gate reported exactly those four sites as
+  // survivors, and an unreachable branch is a bigger guard, not a safer one).
+  const flush = () => {
+    for (const r of scanBlockCells(run)) rows.push({ cells: r.cells, opener: r.opener });
+    run = [];
+  };
   for (const line of markdown.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("|")) {
-      inTable = false;
+      flush();
       continue;
     }
-    const cells = splitRow(trimmed);
-    if (!inTable) {
-      inTable = true;
-      opener = clean(cells[0] ?? "");
-    }
-    if (cells.every((seg) => /^[\s:|*-]*$/.test(seg))) continue; // alignment row
-    if (cells.length > 0) rows.push({ cells, opener });
+    run.push(splitRow(trimmed));
   }
+  flush();
   return rows;
 }
 

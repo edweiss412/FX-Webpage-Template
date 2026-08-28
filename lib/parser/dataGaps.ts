@@ -408,9 +408,10 @@ export function formatDataGapBreakdown(summary: DataGapsSummary, cap = 4): strin
  * source-sheet "Open in Sheet" deep link on the review surfaces. DISJOINT in
  * meaning from DATA_GAP_CODES (the count-only digest) — though FIELD_UNREADABLE
  * is intentionally in BOTH (keeps its data-gap count AND gains a region link).
- * lib/drive/showDayTimeAnchors.ts uses this SAME object as the anchor-population
- * gate (CELL_ANCHORED_CODES), so the render gate and the population gate cannot
- * drift.
+ * lib/drive/showDayTimeAnchors.ts builds its anchor-population gate
+ * (CELL_ANCHORED_CODES) as this set PLUS HOTEL_REGION_ANCHORED; the render gate stays
+ * this set alone. The difference between the two is pinned exactly by
+ * tests/parser/parseWarningDeepLinkRender.test.tsx, so they cannot drift.
  */
 export const OPERATOR_ACTIONABLE_ANCHORED: ReadonlySet<string> = new Set([
   "REF_ERROR_LITERAL",

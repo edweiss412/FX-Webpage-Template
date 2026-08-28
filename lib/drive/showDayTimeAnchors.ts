@@ -8,13 +8,31 @@ import { resolveCrewRoleCell, type CrewRoleAnchor } from "@/lib/drive/crewRoleAn
 import { resolveUnknownFieldCell, type UnknownFieldAnchor } from "@/lib/drive/unknownFieldAnchors";
 import { valueFromRawSnippet } from "@/lib/parser/rawSnippet";
 
-/** The codes that carry a source-cell/region anchor. SAME OBJECT the render
- *  surfaces gate on (OPERATOR_ACTIONABLE_ANCHORED) so population ↔ render cannot
- *  drift. FIELD_UNREADABLE now resolves to a per-row crew cell (region fallback).
- *  Exported so a structural test can pin the reference identity. The shared object
- *  is typed `ReadonlySet<string>`, so tsc rejects any `.add`/`.delete` at compile
- *  time (whole-diff R1 — there is no runtime mutation site for either export). */
-export const CELL_ANCHORED_CODES = OPERATOR_ACTIONABLE_ANCHORED;
+/** The five HOTEL ambiguity codes link to the HOTEL BLOCK, never a cell (spec
+ *  2026-08-27-wizard-warning-row-links-copy §3). Deliberately NOT members of
+ *  OPERATOR_ACTIONABLE_ANCHORED: they are spot-check ambiguities, refused as
+ *  anchored-actionable by the 2026-07-25 hotel-ambiguity spec (row cc) and again by the
+ *  2026-07-27 inline-later-group spec (row w), and only their LINK is widened here. A
+ *  reviewer reading this as a membership change is reading a change that is not made. */
+export const HOTEL_REGION_ANCHORED: ReadonlySet<string> = new Set([
+  "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+  "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+  "HOTEL_CARDINALITY_EXCEEDED",
+  "HOTEL_INLINE_GROUP_OWN_HOTEL",
+  "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+]);
+
+/** The codes that carry a source-cell/region anchor: the render gate
+ *  (OPERATOR_ACTIONABLE_ANCHORED) plus HOTEL_REGION_ANCHORED, and nothing else.
+ *  tests/parser/parseWarningDeepLinkRender.test.tsx pins the difference EXACTLY, so
+ *  population and render cannot drift by accident and a third set cannot be smuggled in.
+ *  FIELD_UNREADABLE resolves to a per-row crew cell (region fallback). Both sets are
+ *  `ReadonlySet<string>`, so tsc rejects any `.add`/`.delete` at compile time (whole-diff
+ *  R1 — there is no runtime mutation site for either export). */
+export const CELL_ANCHORED_CODES: ReadonlySet<string> = new Set([
+  ...OPERATOR_ACTIONABLE_ANCHORED,
+  ...HOTEL_REGION_ANCHORED,
+]);
 
 // blockRef.kind → RegionId for warnings whose `kind` is a tab-level concept that is
 // not itself a RegionId (AGENDA grid → schedule tab; PULL SHEET → gear_packlist tab).
@@ -159,6 +177,11 @@ export function attachSourceCellAnchors(
       // link, never a wrong-cell link. Null (link-less card) when no crew region
       // source exists.
       cell = w.blockRef?.kind ? (sources.region[w.blockRef.kind] ?? null) : null;
+    } else if (HOTEL_REGION_ANCHORED.has(w.code)) {
+      // Region grain only (spec 2026-08-27 §3): the ambiguity describes how ONE cell was
+      // read, and blockRef carries a hotel NAME, not a coordinate. A missing region
+      // degrades to null (a link-less card), never to another section's range.
+      cell = sources.region["hotels"] ?? null;
     } else if (w.blockRef?.kind && KIND_TO_REGION[w.blockRef.kind]) {
       // AGENDA / PULL SHEET warnings: alias kind → tab region. Reached only for
       // in-set codes (the CELL_ANCHORED_CODES gate above). Any future code added to

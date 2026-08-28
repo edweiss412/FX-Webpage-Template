@@ -131,6 +131,9 @@ describe("attachWarningAnchors — UNKNOWN_FIELD end-to-end", () => {
       },
     ] as ParseWarning[];
     await attachWarningAnchors(warnings, bytes, async () => new Map([["INFO", 0]]));
-    expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A2" });
+    // `scope: "cell"` (spec 2026-08-27 §2.5): scanner-produced anchors declare how far
+    // they resolved, which is what lets buildSheetDeepLink trust them past the REGION
+    // allowlist. Every other producer here is unscoped and unchanged.
+    expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A2", scope: "cell" });
   });
 });

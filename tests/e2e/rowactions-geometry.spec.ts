@@ -34,6 +34,8 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
+import { GAP } from "@/lib/popover/position";
+import { readFileSync } from "node:fs";
 
 const TOL = 0.5;
 /** Enough rows that the document scrolls at the viewport below, with margin. */
@@ -413,4 +415,395 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
     await expect(menu).toHaveCount(0);
     await expect(page.locator('[data-testid^="row-actions-portal-"]')).toHaveCount(0);
   });
+
+  /**
+   * TASK 1 PROBE (BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN). The jsdom probe
+   * establishes the COUNT (`measureRunsOnOpenCommit=3`); it cannot establish
+   * whether those runs AGREE, because jsdom computes no layout and every rect
+   * is a stub. This case asserts that ONE settled placement is applied and that
+   * it is geometrically correct. It does NOT establish whether the third measure
+   * agreed with the second: the per-callback batch grain cannot separate two
+   * commits flushed in one task (spec §5.1), so a disagreeing third measure would
+   * be absorbed into the same batch. INV-3 owns the cost of that invisible case.
+   *
+   * It reads the panel's applied placement history rather than counting rect
+   * reads. Counting reads here would be contaminated — Playwright's own
+   * actionability checks call `getBoundingClientRect` on the trigger.
+   *
+   * The history is sampled per CALLBACK BATCH and compares the WHOLE placement
+   * tuple (left, top, max-height, max-width). Per batch because React assigns
+   * each style property separately, so one placement emits a record for `left`
+   * and another for `top` and a per-write reading reports it as two; a batch
+   * ends at a microtask checkpoint, so its end state is a settled commit. The
+   * whole tuple because a wrong side, a changed cap or a transient extra
+   * placement must not survive this case.
+   */
+  test("PROBE: a closed → open transition applies exactly one settled placement", async ({
+    page,
+  }) => {
+    test.setTimeout(CASE_TIMEOUT_MS);
+    const trigger = await lastSeededTrigger(page);
+    await trigger.scrollIntoViewIfNeeded();
+
+    // Installed BEFORE the click, and as a SUBTREE observer on the body rather
+    // than a per-node one. A node-scoped observer can only be attached once the
+    // node exists, and by then its childList callback is a microtask late:
+    // React has already written the style. A subtree observer registered first
+    // covers descendants added afterwards, so the first write it reports
+    // carries the unplaced origin as its `oldValue`.
+    //
+    // It also counts animation frames, which is what makes the pre-paint claim
+    // testable. Microtasks run before the rendering update, so a placement
+    // applied in the same commit that mounts the panel is observed at the SAME
+    // frame count as the mount; one applied after paint cannot be.
+    await page.evaluate(() => {
+      const state = {
+        writes: [] as { old: string; now: string }[],
+        batches: [] as { start: string; end: string; side: string }[],
+        frames: 0,
+        framesAtMount: null as number | null,
+        framesAtPlacement: null as number | null,
+        sideAtMount: null as string | null,
+      };
+      (window as unknown as { __portalProbe: typeof state }).__portalProbe = state;
+      const tick = () => {
+        state.frames += 1;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+      new MutationObserver((recs) => {
+        // Sampled per CALLBACK BATCH, never per attribute write. React assigns
+        // each changed style property separately, so one placement emits a
+        // record for `left` and another for `top`, and the intermediate
+        // `left: 695px; top: 0px` is a half-applied write rather than a
+        // placement the panel was ever laid out at. A batch runs at a microtask
+        // checkpoint, so its end state is a settled commit.
+        let batchStart: string | null = null;
+        let target: HTMLElement | null = null;
+        for (const r of recs) {
+          if (r.type === "childList") {
+            for (const n of Array.from(r.addedNodes)) {
+              if (!(n instanceof HTMLElement)) continue;
+              if (!n.matches('[data-testid^="row-actions-portal-"]')) continue;
+              if (state.framesAtMount === null) {
+                state.framesAtMount = state.frames;
+                state.sideAtMount = n.getAttribute("data-portal-side");
+              }
+            }
+            continue;
+          }
+          const t = r.target;
+          if (!(t instanceof HTMLElement)) continue;
+          if (!t.matches('[data-testid^="row-actions-portal-"]')) continue;
+          // `attributeFilter` carries TWO attributes, so `oldValue` is a style
+          // string on some records and a side token on others. Treating every
+          // record's oldValue as a style makes the reconstructed origin garbage
+          // the moment `side` changes — found by the M-side mutant, which red on
+          // the origin premise reading "||||top" instead of on the adjacency
+          // assertion it was aimed at.
+          if (r.attributeName !== "style") continue;
+          const old = r.oldValue ?? "";
+          if (batchStart === null) batchStart = old;
+          target = t;
+          state.writes.push({ old, now: t.getAttribute("style") ?? "" });
+          if (state.framesAtPlacement === null && /left:\s*0px/.test(old)) {
+            // The first write leaving the unplaced origin IS the placement.
+            state.framesAtPlacement = state.frames;
+          }
+        }
+        if (target !== null) {
+          state.batches.push({
+            start: batchStart ?? "",
+            end: target.getAttribute("style") ?? "",
+            // `side` is a sibling attribute, not a style property, so it is
+            // read at batch end alongside the style rather than parsed out of
+            // it. Without it a flip that preserved left/top would be invisible.
+            side: target.getAttribute("data-portal-side") ?? "",
+          });
+        }
+      }).observe(document.body, {
+        childList: true,
+        attributes: true,
+        subtree: true,
+        attributeFilter: ["style", "data-portal-side"],
+        attributeOldValue: true,
+      });
+    });
+
+    await trigger.click();
+    await expect(page.locator('[data-testid^="row-actions-panel-"]')).toBeVisible();
+    // Two frames past the commit: any scheduled re-measure has run, so the
+    // history below is the DURABLE one rather than a race.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+
+    const probe = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __portalProbe: {
+              writes: { old: string; now: string }[];
+              sideAtMount: string | null;
+              batches: { start: string; end: string; side: string }[];
+              frames: number;
+              framesAtMount: number | null;
+              framesAtPlacement: number | null;
+            };
+          }
+        ).__portalProbe,
+    );
+
+    // PREMISE (own inputs), executed before anything it guards: the observer
+    // must actually have seen the portal. A silent zero here would satisfy
+    // "the placement settled once" without observing a placement at all, which
+    // is how the first cut of this probe passed its own premise vacuously.
+    expect(
+      probe.batches.length,
+      "premise not met: the observer recorded no style batch on the portal, so it proves nothing",
+    ).toBeGreaterThan(0);
+
+    // `left`/`top` are written ONLY by React from `applied`; withNaturalSize
+    // touches only the max-* caps. So the distinct left/top values the
+    // attribute holds are exactly the placement commits.
+    // The four style-borne members of `Applied`: left, top, maxHeight, maxWidth.
+    // `side` is NOT style-borne — it renders as the `data-portal-side`
+    // attribute — so it is pinned by the geometric oracle below rather than by
+    // this key, which is a claim about what this key covers, not a claim that
+    // side is unchecked.
+    const coord = (style: string) => {
+      const prop = (name: string) =>
+        new RegExp(`(?:^|;)\\s*${name}:\\s*([^;]+)`).exec(style)?.[1]?.trim() ?? "";
+      return [prop("left"), prop("top"), prop("max-height"), prop("max-width")].join("|");
+    };
+    // The placement sequence is the state each BATCH settled at, preceded by the
+    // state the first batch started from.
+    //
+    // Reconstructing it from per-write `now` values instead loses intermediates,
+    // because every `now` is read during the eventual callback and so reports
+    // the final value: a synchronous A -> B -> C reads back A, C, C. Doing it
+    // per WRITE has the opposite fault and reports React's half-applied
+    // `left` -> `top` pair as two placements. Per batch is the grain that
+    // matches a commit.
+    const held: { style: string; side: string }[] = [
+      { style: probe.batches[0]!.start, side: probe.sideAtMount ?? "" },
+      ...probe.batches.map((b) => ({ style: b.end, side: b.side })),
+    ];
+    const placements: string[] = [];
+    for (const h of held) {
+      const c = `${coord(h.style)}|${h.side}`;
+      if (placements[placements.length - 1] !== c) placements.push(c);
+    }
+
+    console.log(
+      `PROBE-LIVE styleWrites=${probe.writes.length} placements=${placements.length} ` +
+        `sequence=${JSON.stringify(placements)} ` +
+        `held=${JSON.stringify(held)}`,
+    );
+
+    // PREMISE (own inputs): the first observed state must BE the unplaced
+    // origin, and the last must differ from it. Comparing the last against a
+    // literal "0px|0px" was vacuous once the key grew to four members — the
+    // literal can no longer equal any key this function produces, so the check
+    // passed for every input including an origin final value.
+    const origin = placements[0] ?? "";
+    expect(
+      origin.startsWith("0px|0px"),
+      `premise not met: the first observed state must be the unplaced origin, got ${JSON.stringify(origin)}`,
+    ).toBe(true);
+    const last = placements[placements.length - 1] ?? "";
+    expect(
+      last,
+      "premise not met: the panel never left its unplaced origin, so this case would pass vacuously",
+    ).not.toBe(origin);
+
+    // INV-4's deciding assertion. The round-2 repair rewrote this tail and
+    // dropped it, which left the case checking only that the first and last
+    // states differ — so any number of intermediate placements passed as long
+    // as the final geometry was right. Restored, and stated as the count it is.
+    expect(
+      placements.length,
+      `the open transition must apply exactly one placement (origin → placed); ` +
+        `got ${JSON.stringify(placements)}`,
+    ).toBe(2);
+
+    // ── The placement is CORRECT, not merely singular ──────────────────────
+    // Counting placements says nothing about where the panel went. Without an
+    // oracle a one-line `left + 1` still produces exactly one non-origin
+    // placement and passes everything above, which makes the count a shape
+    // check rather than a placement check.
+    //
+    // The oracle is the panel's geometry against its anchor's, not a
+    // re-implementation of the placement algebra: re-deriving the expected
+    // coordinates here would pass whenever the test and the code share a
+    // mistake. `align="right"` holds on both sides of a flip, so the
+    // right-edge alignment is asserted unconditionally, and adjacency is
+    // asserted on the side the panel REPORTS, which is what makes a wrong
+    // `data-portal-side` a failure rather than a relabelling.
+    const panel = page.locator('[data-testid^="row-actions-portal-"]');
+    const panelRect = await rectOf(panel);
+    const triggerRect = await rectOf(trigger);
+    const side = await panel.getAttribute("data-portal-side");
+
+    expect(
+      Math.abs(panelRect.right - triggerRect.right),
+      `right-aligned: the panel's right edge must meet the trigger's (panel ${panelRect.right}, trigger ${triggerRect.right})`,
+    ).toBeLessThanOrEqual(TOL);
+
+    expect(side, "the panel must report which side it took").not.toBeNull();
+    if (side === "bottom") {
+      expect(
+        Math.abs(panelRect.top - (triggerRect.bottom + GAP)),
+        `side=bottom: the panel's top must sit GAP below the trigger's bottom`,
+      ).toBeLessThanOrEqual(TOL);
+    } else {
+      expect(
+        Math.abs(panelRect.bottom - (triggerRect.top - GAP)),
+        `side=top: the panel's bottom must sit GAP above the trigger's top`,
+      ).toBeLessThanOrEqual(TOL);
+    }
+
+    // Caps, asserted rather than only deduplicated on. Membership in the
+    // placement key catches a cap that CHANGES mid-sequence and nothing else: a
+    // wrong-but-constant `maxHeight` preserves the geometry above, produces one
+    // settled placement, and escapes every other assertion here.
+    //
+    // The oracle is that a panel which FITS takes no cap at all. That is a
+    // property of the placement contract rather than a re-derivation of its
+    // algebra, so it does not pass when the test and the code share a mistake.
+    const vp = await viewportSize(page);
+    const room = side === "bottom" ? vp.height - (triggerRect.bottom + GAP) : triggerRect.top - GAP;
+
+    // PREMISE (own inputs): this fixture must be one where the panel FITS, or
+    // "no cap" is the wrong expectation and the assertion below would be
+    // asserting the contract is violated.
+    expect(
+      room,
+      `premise not met: the panel (${panelRect.height}px) must fit its side's room (${room}px) ` +
+        "for an uncapped placement to be the correct expectation",
+    ).toBeGreaterThanOrEqual(panelRect.height - TOL);
+
+    const caps = await panel.evaluate((el) => ({
+      maxHeight: (el as HTMLElement).style.maxHeight,
+      maxWidth: (el as HTMLElement).style.maxWidth,
+    }));
+    expect(
+      [caps.maxHeight, caps.maxWidth],
+      "a panel that fits must carry no cap; a non-binding wrong cap preserves geometry and would " +
+        "otherwise escape every assertion in this case",
+    ).toEqual(["", ""]);
+
+    // ── INV-1: the placement is applied BEFORE paint ───────────────────────
+    // This cannot be pinned in jsdom. Under Testing Library's `act`, passive
+    // effects flush synchronously before `render()` returns, so a jsdom
+    // assertion reads the same placed value whether the effect is
+    // `useLayoutEffect` or `useEffect` — measured, not assumed. Such a pin is
+    // green for the wrong reason forever, which is worse than no pin because it
+    // reads as covered.
+    //
+    // Here the discriminator is frame ordering. Microtasks run before the
+    // rendering update, so a placement applied in the commit that mounts the
+    // panel is observed at the SAME frame count as the mount. One applied after
+    // paint has a rendering update between it and the mount, so it cannot be.
+
+    // PREMISE (own inputs), on the instrument itself: a counter that never
+    // advanced makes `placement === mount` true for every implementation, which
+    // is the tautology this whole case exists to avoid.
+    expect(
+      probe.frames,
+      "premise not met: the animation-frame counter never advanced, so equal frame " +
+        "counts would prove nothing about ordering",
+    ).toBeGreaterThan(0);
+    expect(
+      probe.framesAtMount,
+      "premise not met: the observer never saw the portal mount",
+    ).not.toBeNull();
+    expect(
+      probe.framesAtPlacement,
+      "premise not met: the observer never saw a write leaving the unplaced origin",
+    ).not.toBeNull();
+
+    expect(
+      probe.framesAtPlacement,
+      `the placement must land in the commit that mounts the panel, before paint; ` +
+        `mount was at frame ${probe.framesAtMount} and the placement at ` +
+        `${probe.framesAtPlacement}, so a rendering update ran in between`,
+    ).toBe(probe.framesAtMount);
+  });
+});
+
+/**
+ * The PREMISE of every live pin in this file, stated executably.
+ *
+ * `PROBE:` below asserts that the panel is placed before paint and that one
+ * settled placement is applied. Both claims are about
+ * `components/admin/AnchoredPortal.tsx`, and both are worth nothing if the
+ * workflow carrying this spec stops firing when that file changes: the pin
+ * would then pass BY NOT RUNNING, which is the dark-gate shape rather than a
+ * failure anyone would see.
+ *
+ * Nothing else pins this. `tests/ci/_metaE2eWorkflowCoverage.test.ts:260`
+ * asserts that every e2e SPEC is PR-covered or allowlisted; it makes no claim
+ * about which SOURCE paths a workflow's filter names.
+ *
+ * Deliberately scoped to THIS spec's own premise — the two paths it actually
+ * depends on — rather than being a repo-wide walker over workflows, which
+ * would be a guard-on-guard surface for someone else to maintain.
+ */
+test("admin-layout-e2e names this component and this spec", () => {
+  // WHAT THIS PROVES, and nothing more: the workflow FILE still contains a
+  // list-item line bearing this component's path, and a `run:` line naming both
+  // `playwright test` and this spec. It matches LINE SHAPE, not the parent key —
+  // a list item under `sparse-checkout` or a matrix satisfies the first, and an
+  // `echo`-prefixed command satisfies the second. Verified: both pass.
+  //
+  // It catches the realistic failure — somebody deletes one of them while
+  // refactoring — and that is the whole of its claim.
+  //
+  // WHAT IT DOES NOT PROVE, named rather than implied. Deciding "GitHub will run
+  // this spec when this file changes" needs a YAML parser, GitHub's path-matching
+  // semantics, and a shell parser. Whole-diff review defeated two successive
+  // attempts to approximate that, each time with one more grammar feature:
+  //
+  //   - an ordered NEGATIVE pattern repeating the path with a `!` prefix after
+  //     the positive entry, which GitHub honours and this does not read;
+  //   - `paths-ignore` excluding the component;
+  //   - the same path as a list item under ANY other key;
+  //   - `run: echo pnpm exec playwright test …`, which exits 0 without launching
+  //     anything;
+  //   - a `run` key nested under `env` rather than a step.
+  //
+  // Those are DOCUMENTED LIMITS, not gaps to close. They are adversarial
+  // constructions rather than ordinary authoring mistakes, which puts them
+  // outside this arc's declared threat fence, and growing a recognizer to catch
+  // them is the ratchet AGENTS.md's repair-direction rule exists to decline.
+  // The spec records them in §9.2.
+  const wf = readFileSync(".github/workflows/admin-layout-e2e.yml", "utf8");
+  const lines = wf.split("\n");
+
+  // PREMISE (own inputs): the file must have been read, or both checks below
+  // would fail identically on a missing file and a deleted entry.
+  expect(lines.length, "premise not met: admin-layout-e2e.yml read as empty").toBeGreaterThan(10);
+
+  expect(
+    lines.some((l) => /^\s*-\s*"?components\/admin\/AnchoredPortal\.tsx"?\s*$/.test(l)),
+    "admin-layout-e2e.yml must still contain a list-item line bearing " +
+      "components/admin/AnchoredPortal.tsx — if it is deleted, a PR changing that component never runs the pins in this " +
+      "file and they pass by not running",
+  ).toBe(true);
+
+  expect(
+    lines.some(
+      (l) =>
+        /^\s*(-\s*)?run:/.test(l) &&
+        l.includes("playwright test") &&
+        l.includes("tests/e2e/rowactions-geometry.spec.ts"),
+    ),
+    "admin-layout-e2e.yml must still name tests/e2e/rowactions-geometry.spec.ts in a run: " +
+      "line alongside `playwright test` — if it is dropped from the step, the workflow fires " +
+      "and never executes these assertions",
+  ).toBe(true);
 });

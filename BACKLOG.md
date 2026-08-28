@@ -16,6 +16,24 @@ Index entry: `LIM-LINE-KEYED-SITEID` in `docs/review-rounds/LIMITS.md`. Its own 
 
 **Done condition, as a number outside the process:** re-keys per arc. Content-keyed ids (`file` + a stable element token: the `data-testid`, or `operator + from-text + to-text` for mutation survivors) replace line keys in the registries named above, so a line move above a row changes nothing; measured by the next two arcs that touch any of those files reporting zero re-key edits in their registry commits, and by `pnpm review:economy` showing no "did not name a registry" finding on those files. Not a guard-on-guard: the registries keep pinning what they pin today; only the key changes.
 
+## BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS - the near-miss detector flags rows in blocks that are not field lists, and the card's advice is wrong there
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`fix/wizard-warning-row-links-copy`, owner-directed from the RIA wizard screenshot) · **Facing:** product · **Severity:** LOW-MEDIUM (a wrong instruction on a shipped admin card; nothing is corrupted) · **Class:** detector candidacy scope · **Effort:** M · **Class-sweep exception:** (a): which block shapes are legitimate near-miss homes is a product decision the link arc could not settle. · **Reachability:** PROBED: the parser run recorded in spec 2026-08-27-wizard-warning-row-links-copy §1, `parseSheet` on `fixtures/shows/raw/2025-06-ria-investment-forum.md` at `66c9857f5`.
+
+`detectFieldNearMisses` (`lib/parser/fieldNearMiss.ts`) treats every pipe-run block as a candidate home for a near-miss row. Two block shapes in the corpus are not field lists at all: a Google-Form response dump whose opener is `Timestamp`, on the RIA workbook's `FORM` tab (`FORM!A1`; the flagged rows are `FORM!A29` `Room Diagram` and `FORM!A30` `Backdrop`), and an inventory matrix whose opener is `Console`, on its `3rd Level` tab (`3rd Level!A2` `Speaker`). The markdown fixture concatenates tabs, which is how an earlier draft placed these on `INFO` and `GEAR`; the workbook has no `GEAR` tab. The detector reports `Room Diagram` in the form dump as a near-miss of the `DETAILS/ROOM DIAGRAM` section header and `Speaker` in the inventory matrix as a near-miss of `Virtual Speaker`:
+
+```
+UNKNOWN_FIELD  blockRef {kind:"timestamp", name:"Room Diagram"}  candidate "DETAILS/ROOM DIAGRAM"
+UNKNOWN_FIELD  blockRef {kind:"timestamp", name:"Backdrop"}      candidate "Backdrop / Scenic"
+UNKNOWN_FIELD  blockRef {kind:"console",   name:"Speaker"}       candidate "Virtual Speaker"
+```
+
+The card then tells Doug to "rename this row in your sheet so it matches the row we show", which is wrong in both blocks: neither row was ever going to show. The link arc gave these rows a working "Open in Sheet" (they were link-less before), which makes the wrong advice easier to follow, not less wrong.
+
+**Two candidate repairs, neither chosen here.** (1) Exclude blocks whose opener is not a known section family or a field-list opener (a `Timestamp` opener is a form dump; a row whose value cells number more than two is a matrix). (2) Require the candidate vocabulary entry's own block family to match the row's block (a `DETAILS` vocabulary entry should not fire in a `timestamp` block). Either moves the 65-row measured baseline (`tests/parser/fieldNearMissBaseline.test.ts`), so the repair is a calibrated detector arc with its own hit/miss table, not a patch on this one.
+
+**Done condition (outside the process):** on the RIA sheet, the wizard's Sheet warnings panel lists no near-miss row for `Room Diagram`, `Backdrop`, or `Speaker`, and the baseline suite's corpus multiset is re-measured and re-ratified.
+
 ## BL-SPECLINT-EXPECT-N-EXIT-STATUS — a plan command's stated expectation is not enforced by its exit status
 
 **Status:** OPEN · **Filed:** 2026-08-27 (`docs/ledger-lim-mechanization-rows`; owner-directed 2026-08-27 from the `docs/lim-slug-convention` session, which is the scheduling decision) · **Facing:** process · **Mint-exception:** product-blocked · **Severity:** MEDIUM (a declared gate that collects nothing reads as green) · **Class:** spec-lint mechanization · **Effort:** S · **Incident:** `fix/fitwithinclip-stale-clip-subscription` (product-facing, `BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION`), plan round 2 P1, 2026-08-27: a declared Playwright regression gate collected `0 tests in 0 files` because the command omitted `--config tests/e2e/standalone.config.ts`, and nothing in the plan's command enforced its expectation; caught by the reviewer at round 2, not at authoring time (filing `docs/review-rounds/fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md`, plan section, second note). · **Reachability:** PROBED — the filing quotes the command and its collection count.
@@ -108,26 +126,6 @@ Run it, confirm with `gh api repos/edweiss412/FX-Webpage-Template/branches/main/
 then archive this entry. Nothing else is owed.
 
 ---
-
-## BL-TELEMETRY-FALLBACK-RETRY — the scheduled-job health fallback states the cause but offers no retry
-
-**Status:** OPEN · **Severity:** low (developer-tier surface) · **Surfaced:** #601 impeccable critique (2026-07-25), P1 partially addressed · **Effort:** S
-
-`app/admin/dev/telemetry/page.tsx:84` now reads "Couldn't load scheduled-job health right now. The jobs are probably still running." — the second sentence landed in the #601 follow-up because the critique was right that the old one-liner named neither a cause nor a recourse at the moment Doug's stress is highest. What it still lacks is the recourse half: there is no retry control, so the only way to re-read is a full page reload.
-
-**Fix (when prioritized):** a retry affordance on the fallback, consistent with `AutoRefreshControl`'s manual-refresh icon-button already on this page (spec §7.1) rather than a new idiom. **Trigger:** the next telemetry pass, or a report of the readout failing in practice.
-
----
-
-screen-disposition 2026-08-04: PREREQ-FENCED, stays open, NOT closed by `chore/sweep-guards-tests`.
-Two independent reasons, and either alone would be enough. First, the entry's own trigger is quoted
-and unmet: "the next telemetry pass, or a report of the readout failing in practice" — neither has
-happened, so closing now would violate the entry rather than honor it. Second, the fix is a retry
-control on `app/admin/dev/telemetry/page.tsx`, which is an invariant-8 UI surface; the plan scopes
-the dual gate to the UI branch and marks this one `impeccable-gate: N/A — no UI surface`, so the
-work cannot land here without either violating that scoping or dragging a UI change through a guards
-review. Unlike `BL-CANONICAL-CLASS-ARRAY-BLINDSPOT`, there is no guard half to ship in the meantime:
-the fix IS the control. Claim released; it was marked at Stage 0 before the fence was read.
 
 ### BL-AGENDA-PROSE-SECOND-DAY — a day label can name a second day in free prose
 
@@ -275,7 +273,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK — a leg with no displayable content beyond its date renders as an unlabeled raw line
 
-**Status:** OPEN
+**Status:** PARKED 2026-08-27, on a probed zero. Not withdrawn and not resolved: the defect is real and the raw branch is still reachable, but the row's own promotion prerequisite ran and found nothing to build for. The ruling is in "Why nothing was built" below, the measurement behind it is in the "Reachability" field, and the two conditions that reopen the row are in the "Re-file trigger" field. Read those three before scheduling this.
 **Effort:** M
 
 **Filed:** 2026-08-10, whole-diff review R2 F3 on `feat/crew-field-enrichment`, which refuted the claim that the unlabeled-leg render "no longer exists" while `BL-FLIGHT-LEG-ORIENTATION` was being archived. This row is that entry's successor: the archived one closed because the structured card became the DEFAULT render, and this one carries the residual it did not cover.
@@ -380,41 +378,78 @@ lib/parser/dataGaps.ts:465:    if (w.severity !== "warn") continue;
 
 ---
 
-## BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN — the portal measures three times on every open, and its placement loop is why
+## BL-ROWACTIONS-SUBMENU-STALE-ON-ROW-MENU-REPLACE — the submenu is anchored inside the row menu, and does not follow when the row menu re-places
 
-**Status:** OPEN · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, class sweep §4.2) · **Facing:** product · **Severity:** LOW-MEDIUM (three forced synchronous reflows per menu open on a shipped admin surface; correct output, redundant cost) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — unpicking the convergence loop is a redesign of a placement surface the fitWithinClip arc does not otherwise touch, with its own e2e geometry suite and viewport-source registry. · **Reachability:** PROBED — the run below, against `origin/main` at `449f29fab`.
+**Status:** OPEN · **Filed:** 2026-08-27 (`perf/anchoredportal-measure-convergence`, blast-radius pass) · **Facing:** product · **Severity:** LOW-MEDIUM (a visibly mis-anchored submenu on the shipped admin dashboard; narrow trigger, correct output everywhere else) · **Class:** cross-instance placement subscription · **Effort:** M · **Class-sweep exception:** (c) — the repair is a redesign of the placement subscription model across two `AnchoredPortal` instances, which is the SAME scope already fenced when `MutationObserver` was declined for that arc (`docs/superpowers/specs/admin/2026-08-27-anchoredportal-measure-convergence.md` §2.4), not a fresh or unexplained deferral. · **Reachability:** INFERRED, NOT PROBED.
 
-`components/admin/AnchoredPortal.tsx` runs `measureAndApply` three times for one closed → open
-transition. Counting anchor-rect reads, one per `measureAndApply`
-(`components/admin/AnchoredPortal.tsx:141`), in a jsdom harness that renders the portal closed and
-then re-renders it open:
+`components/admin/ShowRowActions.tsx` renders two `AnchoredPortal` instances: the
+row menu (`components/admin/ShowRowActions.tsx:661`) and the preview submenu
+(`components/admin/ShowRowActions.tsx:961`). The submenu's anchor is
+`previewItemRef`, a button that lives INSIDE the row menu's portal panel. So the
+submenu is a portal whose anchor sits inside another portal.
 
-```
-PROBE closedReads=0 measureRunsOnOpenCommit=3
-```
+When the row menu re-places, its panel moves and the submenu's anchor moves with
+it, without changing size. The row menu's `applied` placement is state internal
+to its own `AnchoredPortal` instance, so React re-renders that instance and its
+children — `ShowRowActions` does not re-render, so the SUBMENU's instance does
+not re-render either, and its ungated every-commit effect
+(`components/admin/AnchoredPortal.tsx:261`, the ungated every-commit effect) never runs. The submenu's own
+`ResizeObserver` watches its anchor and its panel for SIZE, and the anchor only
+moved. Nothing re-places it.
 
-Two layout effects both cover the open commit: the gated one
-(`components/admin/AnchoredPortal.tsx:191`) and the deliberately ungated every-commit one
-(`components/admin/AnchoredPortal.tsx:254`). The `setApplied` they produce re-renders, which fires
-the ungated effect a third time; `commit` then drops the unchanged placement and the loop settles.
-So the third run is a convergence step of the design, not a stray call, and the second is the only
-plainly redundant one.
+**Most triggers are already covered, which is what makes this narrow rather than
+broad.** A window resize and an ancestor scroll both reach the gated effect's own
+listeners on BOTH instances (`components/admin/AnchoredPortal.tsx:222-223`), so
+each re-places independently. The uncovered trigger is specifically the row menu
+panel's own `ResizeObserver` firing on a content-size change — a busy state, an
+error region appearing — which re-places the row menu alone.
 
-**Why it is not a one-line deletion.** `components/admin/AnchoredPortal.tsx:245-253` documents at
-length why the every-commit effect is unconditional: it is the only subscription that catches a
-POSITION-ONLY anchor move, which `ResizeObserver` explicitly does not report — a background
-`router.refresh()` that reorders rows without changing any dimension moves the anchor under a panel
-that is a body child with absolute coordinates. Deleting the gated effect's own `measureAndApply`
-instead would leave the pre-paint guarantee resting on the ungated effect being declared after it,
-which is a silent coupling rather than a repair. Either direction is a design decision on the
-placement loop, so it wants its own arc and its own review.
+**Reachability is INFERRED from React's re-render scope, not observed.** The
+first scheduled step is therefore the probe, not the repair: open the submenu,
+force a row-menu content-size change while it is open, and compare the submenu's
+applied placement against its anchor's live rect. `tests/e2e/rowactions-geometry.spec.ts`
+already drives both surfaces and is the natural home for it.
 
-This row does not assert what the converged number should be. Deciding that is the work.
+**Predates `perf/anchoredportal-measure-convergence` and is unchanged by it.**
+That arc removes a duplicate measure inside a single commit; it does not touch
+the cross-instance path, in either direction.
 
-**Trigger:** an arc that already restructures `AnchoredPortal`'s placement effects, or profiling
-that shows open-time reflow cost is material on the shows dashboard.
+---
 
-**First scheduled step:** re-run the probe against the live surface (not only jsdom) via
-`tests/e2e/rowactions-geometry.spec.ts`, to establish whether the third run's placement is ever
-DIFFERENT from the second's — if it never is, the convergence step is dead weight and the repair
-narrows to the gated effect.
+## BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES — the placement path measures twice per gesture frame, and twice more on two smaller sites
+
+**Status:** OPEN · **Filed:** 2026-08-27 (`perf/anchoredportal-measure-convergence`, invariant-8 impeccable audit) · **Facing:** product · **Severity:** LOW-MEDIUM (redundant forced reflows at gesture frame rate on a shipped admin surface; correct output, wasted work) · **Class:** measure-path redundancy · **Effort:** M · **Class-sweep exception:** (c) — the repair is a memoisation of the placement path's measure cadence, a surface the measure-convergence arc does not otherwise touch: that arc's subject is the OPEN COMMIT, and the gesture path needs its own probe and its own review. · **Reachability:** INFERRED, NOT PROBED.
+
+**This is the same shape as the defect `BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN` addresses, differing only in trigger** — open commit there, scroll or pinch frame here.
+
+Three sites, filed as one row because they are one class rather than three defects:
+
+1. **Every placement-CHANGING frame during a scroll or pinch costs TWO measures.**
+   The coalescer's rAF calls `measureAndApply`
+   (`components/admin/AnchoredPortal.tsx:199`); the placement it commits produces
+   a React commit; the ungated every-commit effect
+   (`components/admin/AnchoredPortal.tsx:261`) then measures again. At gesture
+   frame rate that is the open-time waste this arc removed, repeating. Candidate
+   repair: memoise the last trigger rect and skip `withNaturalSize` when it is
+   unchanged — safe, because a capped panel's `maxHeight` is a function of the
+   space on its side rather than of natural height, and `ResizeObserver` covers
+   uncapped size changes.
+2. **`lib/popover/naturalSize.ts:70-71` reads `el.scrollTop` AFTER the
+   cap-restore writes**, forcing a reflow on every measurement including the
+   common unscrolled case. A `heldScrollTop !== 0` short-circuit removes the read
+   entirely on that path.
+3. **`lib/popover/place.ts:120-122` can run `computePopoverPlacement` twice** on
+   the zoom-hidden fallback path, each call potentially invoking
+   `wrappedHeightAt`, so up to two extra write-read reflow pairs on that path.
+
+**Reachability is INFERRED from reading the code, not measured.** An audit
+reading source is not a measurement. **The first scheduled step is therefore the
+probe, not the memoisation** — and the instrument already exists: the
+measure-counting probe this arc built for the open commit
+(`tests/e2e/rowactions-geometry.spec.ts`, the `PROBE:` case) pointed at a scroll
+or pinch interaction instead of an open transition counts measures per
+placement-changing frame directly. It either shows two or it does not.
+
+**Predates `perf/anchoredportal-measure-convergence` and is unchanged by it.**
+That arc removed a duplicate measure inside the open commit; it does not touch
+the gesture path, `naturalSize.ts` or `place.ts` in either direction.

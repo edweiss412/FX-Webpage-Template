@@ -1,3 +1,21 @@
+## BL-TELEMETRY-FALLBACK-RETRY — the scheduled-job health fallback states the cause but offers no retry — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 · **Effort (as shipped):** S for the row's own site, M with the two peers the sweep found · **Shipped by:** `feat/telemetry-fallback-retry` (PR #924) · **Plan:** `docs/superpowers/plans/2026-08-27-telemetry-fallback-retry.md` · **Closeout:** the stem-named sibling beside it
+
+The entry named one fallback. `app/admin/dev/telemetry/page.tsx` stated a cause and offered no recourse, so the only way to re-read scheduled-job health was a full page reload. The #601 critique had been right that the old one-liner named neither a cause nor a recourse at the moment Doug's stress is highest; the cause half landed in that follow-up and this closes the recourse half.
+
+**What shipped.** `components/admin/telemetry/TelemetryRetryButton.tsx`, one client component taking `{ what, testId }`, mounted in all three of this page's infra fallbacks. It is the manual-refresh idiom the page header already carried, same `RotateCw` and same `router.refresh()`, wearing the shared `SECONDARY_ACTION_ON_TINTED_CLASS` treatment. Its visible label, accessible name and live-region announcement all derive from the one noun phrase, so no call site can spell them apart.
+
+**The row named one instance; the page had three.** A class sweep at plan time found `EventTimeline.tsx` and `HealthAlertsPanel.tsx` carrying the identical shape on the identical plate, the third with copy that read "Refresh in a moment." and so instructed the reader to do by hand what the button now does. All three were repaired in-branch under the class-sweep default: none of the three deferral exceptions applied, and the cost was checked before the decision rather than asserted after it (no screenshot baseline moves, no test asserted either peer's copy, the render-fault instrument reads the attribute rather than the subtree).
+
+**The outline token is `control-outline-tinted`, not `text-faint`, and that distinction is the arc's one real trap.** Copying the page header's control verbatim would have been wrong: that button stands on `bg-surface`, all three fallbacks stand on `bg-warning-bg`, where `text-faint` measures 2.79:1 in dark and misses the 3:1 non-text floor. The plan's first draft asserted no guard would catch this, citing the control-outline census's own threat fence. That was false: `tests/styles/tintedPlateOutline.test.ts` derives its subject list from the ring-offset token and enrols the control on arrival, which was verified by planting the wrong token and watching it red by name rather than by trusting the pass.
+
+**What is deliberately still open.** `DEFERRED.md` → `TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1`: the control announces intent and never outcome, because it has no completion signal to announce. `router.refresh()` returns void, `bfcacheId`'s own doc says it does not change on refresh, and a probe showed a sync `useTransition` never exposes a pending state in this harness while the async form needs something real to await. The entry carries all three probes and names the one honest mechanism, so the next arc re-derives none of it.
+
+**Rounds.** Four plan rounds, ten findings, filed at `docs/review-rounds/feat/telemetry-fallback-retry/66c9857f56a5.md`. The axis that took two of them: jsdom swallows navigation, so `location.reload()` and `history.go(0)` are both invisible to behavioural assertions. The repair was a narrowing rather than the list's next entry, banning four namespaces from a seventy-line file outright.
+
+---
+
 ## BL-AVATAR-MENU-SWITCH-PENDING-WATCHDOG — a hung switch-person clear dims the menu row for good — CLOSED 2026-08-27
 
 **Status:** CLOSED 2026-08-27 · **Effort (as shipped):** S · **Shipped by:** `fix/avatar-menu-switch-pending-watchdog` (PR #915) · **Spec:** `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4.6 (amended by this arc) · **Plan:** `docs/superpowers/plans/2026-08-27-avatar-menu-switch-watchdog/plan.md` · **Filed:** 2026-08-25 (`feat/switch-person-google-signout`, impeccable critique P1 at the invariant-8 gate) · **Facing:** product · **Severity:** LOW · **Class:** UX resilience · **Effort:** S · **Reachability:** PROBED 2026-08-27 — the probe the row named was run FIRST, against the unmodified component: a `clearIdentity` held unresolved past 60,000 ms under fake timers left the row `aria-disabled="true"` and `aria-busy="true"`, the announcer still reading `Switching person`, and a second tap never reaching the action. The row shipped INFERRED, NOT PROBED; this is what settled it.
@@ -13390,3 +13408,27 @@ The cap now equals the expected cap and the new clip ancestor's own resize is de
 - **No live row, no repair.** With no prior-crew entry for the member the held snapshot is still retained. It is the pre-arc behaviour at four sites and an improvement on retaining nothing at the fifth.
 - **Sheet edits under a suppressed replacement never reach the retained row.** When a rename is undone or a folded rename rejected, the sheet keeps listing the member under the replacement name; that row is suppressed by name and email, so an edit to it does not reach them. True before this arc; the arc neither creates nor closes it. A `nonIdentityOverride` that would have preferred those fields was specced and then DROPPED by ruling, on two grounds: the writer-set argument makes live-wins already correct there, and spec round 4 found a mixed-liveness defect in the mechanism itself — its guard tested the stored `suppressed_added.name` for prior liveness while its lookup matched by canonical email under ANY name.
 - **The class guard pins what each retain is GIVEN and how many there are, not the lexical scope the call sits in.** Two rounds of trying to pin scope each drew the next mutant, and the survivor is behaviour-preserving.
+
+---
+
+## BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN — the portal measures three times on every open, and its placement loop is why — CLOSED 2026-08-27
+
+**Status:** CLOSED 2026-08-27 by `perf/anchoredportal-measure-convergence` · **Filed:** 2026-08-25 (`feat/fitwithinclip-measure-class`, class sweep §4.2) · **Facing:** product · **Severity (as filed):** LOW-MEDIUM · **Class:** measure-path redundancy · **Effort (as shipped):** M · **Reachability:** PROBED at filing against `449f29fab`, and RE-PROBED at the shipping base before anything was repaired.
+
+**The row did not assert what the converged number should be. Deciding that was the work.** The answer is 2, and the spec is `docs/superpowers/specs/admin/2026-08-27-anchoredportal-measure-convergence.md`.
+
+**The done condition, as the row asked for it.** The row's own first scheduled step was to re-run the probe against the LIVE surface, not only jsdom, to establish whether the third run's placement is ever different from the second's.
+
+```
+PROBE      closedReads=0 measureRunsOnOpenCommit=3 panelReads=3      (before)
+PROBE-LIVE styleWrites=2 placements=2 sequence=["0px|0px|||bottom","695px|1251.47px|||bottom"]
+```
+
+One settled placement is applied, and the count is now 2. The three measures are named A, B and C in the spec: A and B are the same computation on the same DOM in one commit, so exactly one was always redundant, and A is the one deleted.
+
+**What the arc found that the row did not name.**
+
+- **2 is not a floor over all mechanisms.** An earlier draft claimed it was FORCED. Review refuted that with `MutationObserver`, whose callbacks are microtasks and so can carry a pre-paint correction unlike `IntersectionObserver`. It is fenced in the spec as plausible-but-not-taken, with a re-file trigger, not as refuted.
+- **The count is scoped.** It counts measures React commits drive, in the jsdom harness whose `ResizeObserver` is a no-op stub. A browser adds an observer-delivery measure.
+- **Pre-paint is not pinnable in jsdom at all.** Testing Library's `act` flushes passive effects before `render()` returns, so no mutant discriminates there. That pin lives in the browser on frame ordering, and was proved by its own plant before it was trusted.
+- **Two peers, both filed:** `BL-ROWACTIONS-SUBMENU-STALE-ON-ROW-MENU-REPLACE` and `BL-POPOVER-PLACEMENT-PATH-REDUNDANT-MEASURES`. The second is the same shape as this row, differing only in trigger — gesture frame rather than open commit.

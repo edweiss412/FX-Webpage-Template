@@ -295,6 +295,15 @@ describe("the scanner's population is pinned against resolver drift", () => {
           .join("\n"),
       )
       .digest("hex");
+    // Regenerated 2026-08-27 for feat/telemetry-fallback-retry, delta READ before it was
+    // replaced, same as the 2026-08-26 regeneration below it. Membership unchanged at 35
+    // both sides; exactly TWO rows moved, EventTimeline.tsx 14 -> 15 and
+    // HealthAlertsPanel.tsx 279 -> 280, each same file, same form (literal-comparison),
+    // same marked state, each +1 from the single import line that arc added to each file.
+    // Verified by scanning a detached checkout of origin/main through the identical code
+    // path: that scan reproduced the PREVIOUS digest exactly, which is what makes the
+    // two-row diff a measurement rather than an assumption.
+    //
     // Regenerated 2026-08-26 for feat/nearmiss-surface, and the delta was READ before
     // it was replaced, which is what "deliberately" means here: membership is unchanged
     // at 35 both sides, and exactly ONE row moved, step3ReviewSections.tsx 3755 -> 3800,
@@ -313,7 +322,15 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // membership unchanged at 35, exactly ONE row moved, step3ReviewSections.tsx
     // 3801 -> 3805, the §3.4 data-attention-anchor lines added to the warning
     // <li> above it. Same file, same form, same marked state.
-    expect(digest).toBe("7fb87321a5909f5b215ef9ec25b7f6fa34c427c88487fb7c7baa6c2325aa72e4");
+    //
+    // Regenerated a third time on the MERGE of origin/main (98a800ebe) into this
+    // branch. Neither parent's literal is right for the merged tree, so it was
+    // recomputed rather than picked: membership unchanged at 35, and the two rows
+    // that moved are both in files MAIN touched, not this branch's —
+    // EventTimeline.tsx 14 -> 15 and HealthAlertsPanel.tsx 279 -> 280, same file,
+    // same form, same marked state each. This branch's own row
+    // (step3ReviewSections.tsx:3805) is unchanged by the merge.
+    expect(digest).toBe("ed2c13fac523d3582c382b789833134d1896541bd9ac84235a347a6f7e54a655");
   });
 });
 

@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
+import {
+  PerShowActionableWarnings,
+  withControlsNote,
+} from "@/components/admin/PerShowActionableWarnings";
 import type { ParseWarning } from "@/lib/parser/types";
+import { EXPECTED_CONTROLS_NOTE } from "@/tests/messages/warningCardCopyRegistry";
 
 // admin-show-modal Task 11: ShowsTable/StagedReviewCard are client islands that
 // read the current search params (param-preserving modal hrefs) — stub the
@@ -161,5 +165,116 @@ describe("inline guidance line + trigger-context popover (spec §3.3)", () => {
     expect(screen.queryByTestId("per-show-actionable-guidance")).toBeNull();
     expect(screen.queryByTestId(/per-show-actionable-help-.*-trigger/)).toBeNull();
     expect(screen.getByTestId("per-show-actionable-title").textContent).toBe("human text");
+  });
+});
+
+describe("controlsNote renders only beside the controls (spec 2026-08-27 §4.3)", () => {
+  const w: ParseWarning = {
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "m",
+    rawSnippet: "Backdrop | ",
+    blockRef: { kind: "timestamp", name: "Backdrop" },
+  };
+  const NOTE = EXPECTED_CONTROLS_NOTE.UNKNOWN_FIELD!;
+
+  /** Anti-tautology: strip the controls node FIRST, so the Report button's own label
+   *  cannot satisfy an assertion about the guidance line. Proved load-bearing by a
+   *  pre-dispatch mutant that moved the note INTO the button label: the assertion goes
+   *  red, as it must. */
+  function guidanceText(container: HTMLElement): string {
+    const clone = container.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('[data-testid="dq-controls"]').forEach((n) => n.remove());
+    return clone.querySelector('[data-testid="per-show-actionable-guidance"]')?.textContent ?? "";
+  }
+
+  test("active list (showControlsNote): the guidance line ends with the note", () => {
+    expect(typeof NOTE).toBe("string");
+    const { container } = render(
+      <PerShowActionableWarnings
+        items={[w]}
+        driveFileId="df"
+        showControlsNote
+        renderItemControls={() => <span data-testid="dq-controls">Report Ignore</span>}
+      />,
+    );
+    expect(guidanceText(container).endsWith(NOTE)).toBe(true);
+  });
+
+  test("the PROP is the gate, not the render-prop's return: undefined / false / '' change nothing", () => {
+    // React renders undefined, false and "" as NOTHING, so "returned a non-null node" is
+    // not evidence a control is on the card. The mount's promise is the prop.
+    expect(typeof NOTE).toBe("string");
+    for (const ret of [undefined, false, ""] as const) {
+      const { container, unmount } = render(
+        <PerShowActionableWarnings
+          items={[w]}
+          driveFileId="df"
+          showControlsNote
+          renderItemControls={() => ret}
+        />,
+      );
+      expect(guidanceText(container).endsWith(NOTE)).toBe(true);
+      unmount();
+    }
+  });
+
+  test("ignored list (item controls, no showControlsNote): no note, so Ignore is never named beside Un-ignore", () => {
+    expect(typeof NOTE).toBe("string");
+    const { container } = render(
+      <PerShowActionableWarnings
+        items={[w]}
+        driveFileId="df"
+        renderItemControls={() => <span data-testid="dq-controls">Report Un-ignore</span>}
+      />,
+    );
+    expect(/\b(Report|Ignore)\b/.test(guidanceText(container))).toBe(false);
+  });
+
+  test("without the prop (staged card, gallery, any mount that promises no controls), the note is absent", () => {
+    expect(typeof NOTE).toBe("string");
+    const { container } = render(<PerShowActionableWarnings items={[w]} driveFileId="df" />);
+    const text = guidanceText(container);
+    expect(text.length).toBeGreaterThan(0);
+    expect(text.includes(NOTE)).toBe(false);
+    expect(/\b(Report|Ignore)\b/.test(text)).toBe(false);
+  });
+});
+
+describe("withControlsNote: spec §4.3's guard table, without a render", () => {
+  // The export exists FOR this - it was exported and then only ever called internally,
+  // which the impeccable audit caught: a docstring promising unit-testability with no
+  // unit test. Each row is one line of the §4.3 table.
+  test("catalog guidance + note composes; the note is last", () => {
+    expect(withControlsNote({ kind: "catalog", markup: "Guidance." }, "Note.")).toEqual({
+      kind: "catalog",
+      markup: "Guidance. Note.",
+    });
+  });
+
+  test("a null note leaves the guidance untouched, object and all", () => {
+    const g = { kind: "catalog", markup: "Guidance." } as const;
+    expect(withControlsNote(g, null)).toBe(g);
+  });
+
+  test("an INSTANCE line is returned unchanged: the note is a catalog-guidance affordance", () => {
+    const g = { kind: "instance", text: "We read Stage in place of Stge." } as const;
+    expect(withControlsNote(g, "Note.")).toBe(g);
+  });
+
+  test("null catalog guidance + a note renders the note alone", () => {
+    expect(withControlsNote({ kind: "catalog", markup: null }, "Note.")).toEqual({
+      kind: "catalog",
+      markup: "Note.",
+    });
+  });
+
+  test("null guidance and a blank note collapse to null, never an empty string", () => {
+    // The fallback the audit flagged as unreachable from the component (which pre-trims):
+    // reachable HERE, which is what makes stating it worthwhile.
+    expect(withControlsNote({ kind: "catalog", markup: null }, "   ")).toEqual({
+      kind: "catalog",
+      markup: null,
+    });
   });
 });

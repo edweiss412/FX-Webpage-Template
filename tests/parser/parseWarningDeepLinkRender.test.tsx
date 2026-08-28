@@ -18,10 +18,27 @@ const HUMAN_MESSAGE: Record<string, string> = {
 };
 
 describe("parse-warning deep-link render invariants", () => {
-  it("population gate IS the render gate — same object reference (no drift)", () => {
-    // Pins the ratified 'one set' contract structurally: a future duplicate set
-    // with the same members would FAIL this identity assertion.
-    expect(CELL_ANCHORED_CODES).toBe(OPERATOR_ACTIONABLE_ANCHORED);
+  it("population gate = render gate + the hotel region set, exactly (spec 2026-08-27 §3)", () => {
+    // The ratified 'one set' contract was an IDENTITY assertion, whose purpose was that
+    // population and render cannot drift apart. That purpose is kept with a wider
+    // statement, because the hotel codes now carry a REGION anchor without joining the
+    // render gate: population is a superset, and the difference is declared, never
+    // smuggled. A third set has to be named here to exist.
+    for (const code of OPERATOR_ACTIONABLE_ANCHORED) {
+      expect(CELL_ANCHORED_CODES.has(code), code).toBe(true);
+    }
+    const extra = [...CELL_ANCHORED_CODES]
+      .filter((c) => !OPERATOR_ACTIONABLE_ANCHORED.has(c))
+      .sort();
+    // Literal, not derived from HOTEL_REGION_ANCHORED: the showDayTimeAnchors suite pins
+    // that set to these same five, so two literal sites state one truth.
+    expect(extra).toEqual([
+      "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+      "HOTEL_CARDINALITY_EXCEEDED",
+      "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+      "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+      "HOTEL_INLINE_GROUP_OWN_HOTEL",
+    ]);
   });
 
   it("hasCellAnchoredWarning is true for every anchored code, false otherwise", () => {

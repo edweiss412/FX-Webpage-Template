@@ -98,6 +98,10 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // perf/anchoredportal-measure-convergence (2026-08-27, PR #923): the portal's
+  // three measures per open converge to two. The row deliberately did not assert
+  // what the number should be; deciding it was the work.
+  { id: "BL-ANCHOREDPORTAL-TRIPLE-MEASURE-PER-OPEN", provenance: "perf/anchoredportal-measure-convergence" },
   // feat/speclint-dispatch-gates (2026-08-26, PR #904): two bookkeeping rows,
   // neither of which shipped code. A graduation is leaving the open queue, not
   // necessarily an implementation — the BL-TEST-PG-CLIENT-TEARDOWN precedent.
