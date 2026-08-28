@@ -17,7 +17,7 @@
 - `ignored_by` is the canonicalized admin email (invariant 3; the durable table CHECK `supabase/migrations/20260702120000_ignored_warnings.sql:8-9`).
 - No raw error codes in UI (invariant 5): the client maps every failure arm to the existing failCopy strings in `DataQualityWarningControls`.
 - Supabase call-boundary discipline (invariant 9) on every new read/write; new helpers follow the registered-helper pattern or carry `// not-subject-to-meta: <reason>`.
-- Invariant 10: the staged action gets an `AUDITABLE_MUTATIONS` row + sink-spy success-branch proof (Task 6). Emits post-commit, outside the lock tx.
+- Invariant 10: the staged action gets its TWO `AUDITABLE_MUTATIONS` rows + success-branch behavioral proof IN THE SAME COMMIT as the action (Task 5 — a commit must never leave the discovery meta-test red). Emits post-commit, outside the lock tx.
 - Invariant 8: this diff touches `components/` and `app/` UI — the impeccable v3 dual gate (both halves) runs before the whole-diff review (closeout §12). The two halves are deliberately not NAMED in this document until the closeout commit: the invariant-8 closeout meta-test (`tests/docs/_metaInvariant8Closeout.test.ts`) reds any plan unit naming both halves without a machine-valid `impeccable-gate:` marker, and the truthful marker can only be written once the gates have RUN (the crew-wifi plan's "no placeholder until then" precedent). The closeout commit adds the full naming AND the valid marker together.
 - Heavy phases under `pnpm heavy` (full vitest suite, builds); DB slot from bl-orch before any full local suite / e2e; scoped file-list vitest runs stay unwrapped.
 - The arc NEVER merges: closeout ends at READY (CI green at the shipping head + APPROVE), reported to bl-orch.
@@ -87,15 +87,15 @@ Other anchors (all read this session): `useRawStaged` result union `app/admin/on
 - [ ] **Step 4: green.** Same command, PASS.
 - [ ] **Step 5: commit** `feat(admin): wizard warning model + staged ignore normalizer`.
 
-### Task 2: (dissolved into Task 5 — R1 F1)
+### Task 2: (dissolved — R1 F1, resequenced by R3 F3)
 
-The migration has no independent failing test, so it cannot be its own TDD task: it lands as Task 5's implementation step, AFTER Task 5's suite is observed red (the red includes the column being absent). The migration content, apply sequence, and parity steps are specified inside Task 5.
+The migration has no independent failing test, so it cannot be its own TDD task. It lands inside Task 7, the first task whose REAL-DB suite observes the column's absence as a chronological red (Task 5's mocked harness never consults the schema). The migration content, apply sequence, and parity steps are specified inside Task 7.
 
 ### Task 3: Phase A identity capture
 
 **Files:**
 - Modify: `components/admin/OnboardingWizard.tsx` (shows select `components/admin/OnboardingWizard.tsx:425-433` gains `slug`; pending select `components/admin/OnboardingWizard.tsx:380` gains `ignored_warnings`; `stagedByDfid` `components/admin/OnboardingWizard.tsx:478-489` gains `ignoredWarnings: unknown`), `lib/admin/assembleStep3Row.ts` (`ShowCandidate` gains `slug`; `StagedPreviewForRow` gains `ignoredWarnings: unknown`; row assembly emits the two new fields), `components/admin/wizard/Step3Review.tsx` (Step3Row fields).
-- Test: the suite found by `rg -l "assembleStep3Row" tests` for the derivation cases, PLUS `tests/components/onboardingWizard.fetchStep3.test.ts` (the existing `fetchStep3Data` data-wiring harness) for live select/projection coverage: the shows select returns `slug` and the pending select returns `ignored_warnings`, and both reach the assembled rows (omit either column from the select and the wiring case goes red — the wiring half's production-observable RED).
+- Test: the suite found by `rg -l "assembleStep3Row" tests` for the derivation cases, PLUS `tests/components/onboardingWizard.fetchStep3.test.ts` (the existing `fetchStep3Data` data-wiring harness) for live select/projection coverage: the shows select returns `slug` and the pending select returns `ignored_warnings`, and both reach the assembled rows (the wiring case is authored BEFORE the select gains the columns, observed red, green when they land — chronological red on the production select).
 
 **Interfaces — Produces:**
 ```ts
@@ -120,7 +120,7 @@ stagedIgnoredWarnings?: unknown; // raw column value; normalized in enrichment
 **Files:**
 - Create: lib/admin/enrichStep3WarningModels.ts (new)
 - Modify: `components/admin/OnboardingWizard.tsx` (the live declaration is `const rows: Step3Row[] = manifestRows.map(...)` at `components/admin/OnboardingWizard.tsx:545`; wiring is `const enriched = await enrichStep3WarningModels(rows, loadIgnoredWarnings)` with `enriched` used downstream), `components/admin/wizard/Step3Review.tsx` (the `warningModel?` Step3Row field)
-- Test: tests/lib/admin/enrichStep3WarningModels.test.ts (new) for the helper matrix, PLUS a wiring case in `tests/components/onboardingWizard.fetchStep3.test.ts` asserting enriched rows carry `warningModel` (delete the enrichment call and this case goes red)
+- Test: tests/lib/admin/enrichStep3WarningModels.test.ts (new) for the helper matrix, PLUS a wiring case in `tests/components/onboardingWizard.fetchStep3.test.ts` asserting enriched rows carry `warningModel` (authored before the wiring lands: observed red, green when the enrichment call lands)
 
 **Interfaces — Produces:**
 ```ts
@@ -152,6 +152,7 @@ export async function enrichStep3WarningModels(
 
 **Files:**
 - Create: app/admin/onboarding/_actions/stagedWarningIgnore.ts (new)
+- Modify: `tests/log/_auditableMutations.ts` (+2 rows), `tests/log/adminOutcomeBehavior.test.ts` (+1 proof per code)
 - Test: tests/admin/stagedWarningIgnore.test.ts (new)
 
 **Interfaces — Produces:** exactly the spec §2.6 export:
@@ -176,26 +177,22 @@ export async function setStagedWarningIgnore(args: {
   - happy ignore's `ignored_by`: feed a NONCANONICAL admin email fixture (`"  Doug.W@Example.COM "`) and assert the STORED value is the canonicalized form — a raw pass-through cannot satisfy this (invariant 3, discriminating fixture).
   - fault matrix, one case each, all resolving `{ok:false, code:"infra_error"}` and never throwing over the caller: supabase client CONSTRUCTION throw; query await REJECTION; returned `{error}`; locked SQL throw inside the callback; the lock WRAPPER itself throwing.
   - Lock topology assertion: the mutation executes INSIDE the `withShowLockMock(driveFileId, …)` callback (the mock records callback entry/exit; assert the upsert ran within), and the callback body performs NO `.rpc(` call (static arm in Task 6 pins it too).
-- [ ] **Step 2: red** — observed red includes BOTH the absent module AND the absent column (the locked re-read selects `ignored_warnings`).
-- [ ] **Step 3: migration (the column half of minimal implementation).** Create supabase/migrations/<UTCstamp>_pending_syncs_ignored_warnings.sql (new):
-  ```sql
-  alter table public.pending_syncs
-    add column if not exists ignored_warnings jsonb not null default '[]'::jsonb;
-  ```
-  No CHECK (spec §2.7 matrix: single writer + read-side coercion); apply-twice safe via `if not exists`. Apply locally (`psql "$DATABASE_URL" -f <file>` or `supabase db query`), run `pnpm gen:schema-manifest` and stage the regenerated manifest for THIS task's commit, and apply surgically to the validation project (`supabase db query --linked "<the ALTER>"` then `notify pgrst, 'reload schema';` — validation-schema-parity steps 1-3 in one commit).
-- [ ] **Step 4: implement the action** clause-for-clause per `useRawStaged.ts` (same-origin assert, `requireAdmin` + `requireAdminIdentity`, pre-lock pairing verify, locked re-read of `parse_result` + `ignored_warnings`, `warningsOf`-style coercion, `canonicalize(admin.email)` for `ignored_by`, jsonb update, post-commit `logAdminOutcome({ code: "STAGED_WARNING_IGNORED" | "STAGED_WARNING_UNIGNORED", … })` outside the lock, only when mutated).
-- [ ] **Step 5: green.**  **Step 6: commit** `feat(admin): staged warning ignore action + pending_syncs.ignored_warnings column`.
+- [ ] **Step 2: red** — the observed red is the ABSENT MODULE (collection/import failure). The mocked harness never consults the real schema, so the column proves itself in Task 7's real-DB suite (R3 F3); the migration moves there.
+- [ ] **Step 3: implement the action** clause-for-clause per `useRawStaged.ts` (same-origin assert, `requireAdmin` + `requireAdminIdentity`, pre-lock pairing verify, locked re-read of `parse_result` + `ignored_warnings`, `warningsOf`-style coercion, `canonicalize(admin.email)` for `ignored_by`, jsonb update, post-commit `logAdminOutcome({ code: "STAGED_WARNING_IGNORED" | "STAGED_WARNING_UNIGNORED", … })` outside the lock, only when mutated).
+- [ ] **Step 4: register the mutation IN THIS TASK (R3 F1 — a commit must not leave the fail-by-default discovery meta-test red on an unregistered admin action):** run `tests/log/_metaMutationSurfaceObservability.test.ts` and OBSERVE it red on the new action (this is a second live red of this task); add the TWO `AUDITABLE_MUTATIONS` rows (per-code precedent `tests/log/_auditableMutations.ts:387-410`: `{ file: "app/admin/onboarding/_actions/stagedWarningIgnore.ts", fn: "setStagedWarningIgnore", code: "STAGED_WARNING_IGNORED" }` and the `"STAGED_WARNING_UNIGNORED"` twin) and the behavioral proof in `tests/log/adminOutcomeBehavior.test.ts` via `observeSuccessCodes` (`tests/log/adminOutcomeBehavior.test.ts:675`) + `recordAdminOutcomeBehavior` (`tests/log/adminOutcomeBehavior.test.ts:639`) — one success-branch proof per code.
+- [ ] **Step 5: green** — the action suite, the discovery meta-test, and the behavioral suite all pass in this task's tree.  **Step 6: commit** `feat(admin): staged warning ignore action, registered + behaviorally proven`.
 
-### Task 6: mutation + lock registries for the action
+### Task 6: advisory-lock topology arm
+
+(The mutation-registry rows and behavioral proof moved INTO Task 5 — R3 F1: they must land in the same commit as the action.)
 
 **Files:**
-- Modify: `tests/log/_auditableMutations.ts` (TWO rows — one per code, the live multi-code precedent at `tests/log/_auditableMutations.ts:387-390` and the staged use-raw pair at `tests/log/_auditableMutations.ts:401-410`: `{ file: "app/admin/onboarding/_actions/stagedWarningIgnore.ts", fn: "setStagedWarningIgnore", code: "STAGED_WARNING_IGNORED" }` and the same with `"STAGED_WARNING_UNIGNORED"`), `tests/log/adminOutcomeBehavior.test.ts` (behavioral proof via the SERVER-ACTION precedent — `observeSuccessCodes` at `tests/log/adminOutcomeBehavior.test.ts:675` plus direct `recordAdminOutcomeBehavior` at `tests/log/adminOutcomeBehavior.test.ts:639` — NOT `proveAdminOutcomeBehavior`, whose failure drive asserts `result instanceof Response` and cannot accept the action's result union; one success-branch proof per code), `tests/auth/advisoryLockRpcDeadlock.test.ts` (NEW parallel arm: scan the source of every direct `withShowLock` acquirer — seed list from the Pre-verified holder sweep above — and assert the `withShowLock` callback body of the new action module contains no `.rpc(`; the existing `withShowAdvisoryLock` arm at `tests/auth/advisoryLockRpcDeadlock.test.ts:135-214` is untouched).
+- Modify: `tests/auth/advisoryLockRpcDeadlock.test.ts` (NEW parallel arm: scan the source of every direct `withShowLock` acquirer — seed list from the Pre-verified holder sweep above — and assert each `withShowLock` callback body, the new action module's included, contains no `.rpc(`; the existing `withShowAdvisoryLock` arm at `tests/auth/advisoryLockRpcDeadlock.test.ts:135-214` is untouched).
 
-- [ ] **Step 1: red first** — the discovery meta-test `tests/log/_metaMutationSurfaceObservability.test.ts` fails-by-default on the new unregistered action (run it BEFORE adding the registry row to OBSERVE the red; this is the live-red form).
-- [ ] **Step 2:** add registry row(s) + behavioral proof + the deadlock arm; scoped runs green.
-- [ ] **Step 3: commit** `test(log): register staged ignore action; pin withShowLock topology arm`.
+- [ ] **Step 1:** author the arm; its authored-red target (`red-target` sense): the arm's SCAN LIST assertion — the arm asserts it scanned every file in the holder sweep, so before the arm exists nothing pins the topology (the production gap is the unpinned topology itself). Validation: hand-probe by inserting an `.rpc("x")` call into the new action's callback in the working tree, observe the arm flag it, revert uncommitted, record both observations in the commit message (the MEMORY-guards planted-mutant discipline — validation, not the RED).
+- [ ] **Step 2:** green on the real tree.  **Step 3: commit** `test(auth): withShowLock topology arm pins the staged ignore action`.
 
-### Task 7: finalize carry, both apply paths
+### Task 7: finalize carry, both apply paths (owns the column migration — its real-DB suite is the one place the column's absence is observable, R3 F3; Task 5's mocked suite never consults the schema, so the intervening commits stay green)
 
 **Files:**
 - Modify: `lib/onboarding/shadowPayload.ts` (the parsed-output TYPE field beside `useRawDecisions` at `lib/onboarding/shadowPayload.ts:76` and the parser at `lib/onboarding/shadowPayload.ts:294`, parsed through `normalizeStagedIgnoredWarnings`; the production WRITER edit is the route's `jsonb_build_object` at `app/api/admin/onboarding/finalize/route.ts:668-697`), `app/api/admin/onboarding/finalize/route.ts` (locked select `app/api/admin/onboarding/finalize/route.ts:1039-1049`, forward `app/api/admin/onboarding/finalize/route.ts:1338`, shadow hand-off input `app/api/admin/onboarding/finalize/route.ts:1201`), `app/api/admin/onboarding/finalize-cas/route.ts` (parse `app/api/admin/onboarding/finalize-cas/route.ts:433`, args `app/api/admin/onboarding/finalize-cas/route.ts:560`), `lib/sync/applyStagedCore.ts` (`ApplyStagedCoreArgs` beside `lib/sync/applyStagedCore.ts:458-460`, forward `lib/sync/applyStagedCore.ts:614`), `lib/sync/phase2.ts` (insert at the `lib/sync/phase2.ts:538-552` tail using `snapshot.showId`).
@@ -208,8 +205,15 @@ export async function setStagedWarningIgnore(args: {
   - carry-write FAULT posture (R2 F4): inject a failure into the carry insert (the harness's existing fault-injection precedent for phase-2 writes) and assert the apply surfaces the SAME typed fault behavior the neighboring use-raw re-persist failure produces — never a silent success that dropped the carry (spec §2.7 fault-posture clause).
   - a PARSER-ONLY unit case (R2 F5 — the writer is private SQL and cannot be invoked from a unit): feed `parseShadowPayloadForApply` a payload object shaped like the route writer's output (the `jsonb_build_object` key set at `app/api/admin/onboarding/finalize/route.ts:668-697` plus the new key) and assert the parsed field beside `useRawDecisions`; it supplements, never replaces, the two pipeline proofs (which are what actually prove the writer).
   - RED validity: the production lines are the finalize select/forward/writer edits and the phase-2 insert, none of which exist yet; both pipeline proofs fail on the missing column ride-along before implementation.
-- [ ] **Step 2: red.**  **Step 3: implement** hop by hop.  **Step 4: green** (these suites may be DB-bound — if env-bound, follow the existing suites' project tags; run under `pnpm heavy` if a full suite is needed, with the bl-orch DB slot).
-- [ ] **Step 5: commit** `feat(sync): carry staged warning ignores to ignored_warnings at finalize`.
+- [ ] **Step 2: red** — the real-DB suite reds on the ABSENT `pending_syncs.ignored_warnings` column (the staging step cannot write it): this is the migration's chronological failing test (R3 F3).
+- [ ] **Step 3: migration.** Create supabase/migrations/<UTCstamp>_pending_syncs_ignored_warnings.sql (new):
+  ```sql
+  alter table public.pending_syncs
+    add column if not exists ignored_warnings jsonb not null default '[]'::jsonb;
+  ```
+  No CHECK (spec §2.7 matrix: single writer + read-side coercion); apply-twice safe via `if not exists`. Apply locally (`psql "$DATABASE_URL" -f <file>` or `supabase db query`), run `pnpm gen:schema-manifest` and stage the regenerated manifest for THIS task's commit, and apply surgically to the validation project (`supabase db query --linked "<the ALTER>"` then `notify pgrst, 'reload schema';` — validation-schema-parity steps 1-3 in one commit).
+- [ ] **Step 4: implement the carry** hop by hop.  **Step 5: green** (these suites may be DB-bound — if env-bound, follow the existing suites' project tags; run under `pnpm heavy` if a full suite is needed, with the bl-orch DB slot).
+- [ ] **Step 6: commit** `feat(sync): staged-ignore column + finalize carry to ignored_warnings`.
 
 ### Task 8: `DataQualityWarningControls` target generalization + report identity
 
@@ -245,7 +249,7 @@ export type WizardDqTarget =
 - [ ] **Step 1: failing tests.**
   - `dq` absent → byte-identical render (existing suite must pass UNTOUCHED — run it first and record).
   - `dq` CONSTRUCTION, against the production builder (R2 F1): `buildStagedSectionData` with a FIRST-SEEN fixture row → `dq.target` deep-equals `{ kind: "staged", wizardSessionId, driveFileId }` (values from the fixture); with a LINKED fixture row → `{ kind: "show", slug, showId }` from `linkedShowRef`; with a NO-PREVIEW row (or absent `warningModel`) → NO `dq` key at all.
-  - registry FORWARDING, production wiring: render the warnings section through `step3Sections(...)` (the registry) with a staged `dq`-bearing fixture and assert the panel renders `dq-controls` — delete the registry's `dq` pass-through and this case goes red (the wiring RED).
+  - registry FORWARDING, production wiring: render the warnings section through `step3Sections(...)` (the registry) with a staged `dq`-bearing fixture and assert the panel renders `dq-controls` (authored before the registry pass-through lands: observed red, green when it lands — the wiring's chronological red).
   - `dq` present: active rows only in the list; each rendered active row carries ORIGINAL `data-warning-index` and `data-attention-anchor="warning:<originalIndex>"` and testid `warning-<originalIndex>` (fixture: index 0 ignored, 1 active → the single rendered row asserts all three attributes equal 1).
   - warn rows get `dq-controls`; info rows none; snippet-less warn row: Report only.
   - `controlsNote` renders on control-bearing rows only.
@@ -305,7 +309,7 @@ export type WizardDqTarget =
 - Create: tests/admin/wizardWarningChrome.structural.test.ts (new)
 
 - [ ] **Step 1:** walk, from the filesystem, `components/admin/wizard/**`, `components/admin/review/ShowReviewSurface.tsx`, AND the lib choke modules `lib/admin/step3Buckets.ts` plus the new files lib/admin/activeWarningEntries.ts, lib/admin/wizardWarningModel.ts, lib/admin/enrichStep3WarningModels.ts (un-backticked: created by earlier tasks) (R1 F8: every registered site must live INSIDE the walked tree, or the premise below can never hold); flag any line matching `warningsBySection\(|\.parseResult\??\.warnings|data\.warnings|summarizeDataGaps\(` whose `file:symbol` is NOT in the registered-site list (exactly: the two choke-point modules, `activeWarningEntries` call sites, `WarningsBreakdown` + registry closures, enrichment/stamping helpers, the attention memo's wrapper call). Include a premise: the walk SAW every registered site (a registry row whose site is missing fails — the guard-on-itself rule).
-- [ ] **Step 2 (invariant-1 RED, production-anchored):** author the test with the registry INITIALLY containing one row for a site that does not exist yet in the walked tree (the `activeWarningEntries` call in `Step3ReviewModal` lands in Task 11; if Task 13 executes after Task 11 as ordered, use a temporary fake row instead) — observe the premise arm red, then complete the registry to the real sites and observe green. SEPARATELY, as guard validation (not the RED): hand-probe a planted bypass in the working tree, observe the walk flag it, revert the plant uncommitted, and record both observations in the commit message (the MEMORY-guards planted-mutant discipline).
+- [ ] **Step 2 (RED declaration — the guard-authoring shape, stated honestly, R3 F2):** a structural guard over an already-compliant tree has NO live red, and manufacturing one with a fake registry row is the test-local RED shape the RED-validity rule forbids — so this task deliberately claims no chronological red. Its validity evidence is instead: (a) the premise arm is production-anchored (it asserts the walk SAW every registered site in the real tree — misconfigure the walk roots and it fails on real files); (b) two uncommitted hand-probes recorded verbatim in the commit message: a planted bypass (`data.warnings.some(...)` added to a walked file) that the guard flags, and a registered site temporarily removed from its module that the premise flags. Both probes reverted before commit (the MEMORY-guards planted-mutant discipline).
 - [ ] **Step 3: commit** `test(admin): structural guard for wizard warning chrome choke points`.
 
 ---
@@ -314,7 +318,7 @@ export type WizardDqTarget =
 
 - [ ] Full verification battery, in order: `pnpm typecheck` (vitest AND playwright configs), `pnpm exec eslint .`, `pnpm format:check`, then `pnpm heavy pnpm test` (DB slot from bl-orch FIRST).
 - [ ] Invariant 8 dual-gate on the diff: run the impeccable v3 skill's critique half, then its audit half (canonical setup: context.mjs load of PRODUCT.md + DESIGN.md → register reference read). P0/P1 fixed or `DEFERRED.md`-deferred BEFORE the whole-diff review. Findings + dispositions recorded below, and IN THIS SAME COMMIT: rewrite this section to name both halves explicitly and append the machine-valid marker line per the parser grammar in `tests/docs/_invariant8Closeout.ts` (`critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>`; cross-check rule: p0+p1>0 requires `recorded`, zero requires `none`).
-- [ ] Whole-diff cross-model review via codex-guard (`--stage diff --round 1`; round-1 diff brief needs the GUARD SURFACE line ONLY if a surface enrolled in the SOURCE-MUTATION SCORE registry (`tests/mutation/source/registry.ts`) is touched — none is (the `AUDITABLE_MUTATIONS` extension in Task 6 is a different registry and does not trigger that line); state that in the brief). 4-round cap; filing + bl-orch past it.
+- [ ] Whole-diff cross-model review via codex-guard (`--stage diff --round 1`; round-1 diff brief needs the GUARD SURFACE line ONLY if a surface enrolled in the SOURCE-MUTATION SCORE registry (`tests/mutation/source/registry.ts`) is touched — none is (the `AUDITABLE_MUTATIONS` extension in Task 5 is a different registry and does not trigger that line); state that in the brief). 4-round cap; filing + bl-orch past it.
 - [ ] Push; CI green at the shipping 40-char head (all twelve required contexts, seen>=12 — ABSENT is not green); then report READY to bl-orch pane `w15:p2`. THE ARC NEVER MERGES.
 - [ ] Ledger: no `BL-`/`DEF-` rows are closed by this arc; nothing to mark or clear.
 - [ ] §7 documented-limit dispositions (R1 F10 — each is a LIMIT, deliberately untested as behavior, with one absence probe where cheap): no bulk ignore in the wizard mount (Task 9 asserts NO `BulkIgnoreControls` render in the panel — one absence assertion); no prune on wizard re-scan (disposition: documented limit, spec §1.1.6 — no test; the rescan path is untouched by this diff, verified by the diff itself); one unbatched read per LINKED row (disposition: documented limit, spec §7 — no test); abandoned-session cleanup disposing staged ignores (disposition: rides the existing `pending_syncs` row-deletion behavior, already covered by the session-lifecycle suites — no new test).
