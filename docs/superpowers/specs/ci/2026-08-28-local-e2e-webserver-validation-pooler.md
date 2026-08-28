@@ -187,8 +187,11 @@ the variable from the parent environment is a no-op: Next re-reads `.env.local` 
 **The inline `VAR=value` command prefixes stay on their command strings.** Migrating them into
 `env:` blocks is a larger diff with no bearing on this defect.
 
-**`playwright.screenshots.config.ts` is out of the class, not deferred from it** — it declares one
-webServer and that one is already pinned (lines 177-180).
+**`playwright.screenshots.config.ts` needs no pin ADDED, but it IS inside the guard's walk.**
+Its single webServer is already pinned (lines 177-180), so this PR changes nothing in that file —
+that much stays ratified. What is NOT ratified, and was corrected after spec review round 1, is the
+guard's scope: T1 walks that file too, so a future unpinned entry there fails rather than passing on
+the strength of the existing entry. Do not read "no change needed" as "out of scope for T1".
 
 **Invariant 8 (impeccable dual gate) is N/A**, per §9.
 
@@ -196,10 +199,19 @@ webServer and that one is already pinned (lines 177-180).
 
 Three, all real reds on the pre-change tree.
 
-**T1 — every local webServer entry pins both DB keys.** Derived cover, not enumeration: the test
-imports `playwright.config.ts` and walks `config.webServer`, so an entry added later is covered by
-default rather than silently exempt. For each entry, assert `env.TEST_DATABASE_URL` and
-`env.DATABASE_URL` are present and loopback-hosted.
+**T1 — every local webServer entry pins both DB keys, in every Playwright config.** Derived cover
+on two axes, neither of them an enumeration: the test DISCOVERS config files from disk
+(`playwright*.config.ts` at the repo root) and, within each, walks `config.webServer`. So both a new
+entry AND a new config file are covered by default rather than silently exempt. For each entry,
+assert `env.TEST_DATABASE_URL` and `env.DATABASE_URL` are present and loopback-hosted.
+
+**Both files, because one file was the hole.** Round 1 of spec review raised this as BLOCKING and it
+is accepted in full: a walk of `playwright.config.ts` alone leaves `playwright.screenshots.config.ts`
+guarded by nothing but the file-wide substring oracle in `tests/help/playwright-config.test.ts`,
+which its one correctly-pinned entry satisfies for the whole file. The reviewer's probe added a plain
+unpinned entry to that config and every specified guard stayed green. That is the same
+satisfied-by-one-occurrence defect this spec already identified in that test, and the first draft
+applied the critique to one file while leaving it open in the other.
 
 The oracle was probed on this branch before this spec was written, and the red is exactly as claimed:
 
@@ -213,16 +225,35 @@ isArray: true len: 5
   url: http://localhost:3004 | has env: true  | TDU: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 ```
 
-**The premise T1 must state executably is the config's own filter, not a count.** `config.webServer`
-is `[...].filter(...)` (`playwright.config.ts:425-467`), and five environment variables can shrink it:
+**T1 needs two executable premises, and both were found by probing rather than reasoning.**
+
+*Premise 1 — the config's own filter.* `config.webServer` is `[...].filter(...)`
+(`playwright.config.ts:425-467`), and five environment variables shrink it:
 `HELP_DOCS_WALKER_ONLY`, `CREW_E2E_ONLY`, `BASELINE_SERVER_ONLY`, `DEV_GATE_ONLY`,
-`STEP3_LIVE_BUNDLE_ONLY`. With any of them set the walked array is a subset, and a per-entry assertion
-over a one-element subset passes while saying nothing — `STEP3_LIVE_BUNDLE_ONLY` empties it entirely
-and the test would then assert over nothing at all. So T1 asserts, before walking, that none of those
-five is set in the test environment, and that the array holds more than one entry. Both arms fail loud
-rather than passing vacuously. A count assertion (`length === 5`) is deliberately NOT used: it would
-have to be edited every time an entry is added, which is the enumeration shape this project's
-class-sweep rule rejects.
+`STEP3_LIVE_BUNDLE_ONLY`. With any set the walked array is a subset, and `STEP3_LIVE_BUNDLE_ONLY`
+empties it outright — a per-entry assertion over an empty array passes while proving nothing. T1
+asserts all five are unset before walking.
+
+*Premise 2 — every discovered file actually yielded entries.* Discovery introduces a failure mode a
+single static import does not have: a config that is found but read as empty. Probed on this branch,
+and it is real rather than theoretical. Under a static `import`, the config's `webServer` is at
+`mod.default.webServer`; under the dynamic `import()` that disk discovery requires, tsx's interop
+double-wraps it and the same expression is `undefined`:
+
+```
+module keys        : [ 'default' ]
+default keys       : [ 'default' ]
+default.webServer  : undefined
+dd.webServer       : 5
+```
+
+A test that unwrapped only one level would discover two config files, walk zero entries, and pass
+green having measured nothing. So T1 unwraps defensively (descend through `default` until `webServer`
+is present) and then asserts **each discovered file contributed at least one entry**, plus more than
+one entry in total. A file read as empty fails loud.
+
+A count assertion (`length === 6`) is deliberately NOT used: it would need editing whenever an entry
+is added, which is the enumeration shape this project's class-sweep rule rejects.
 
 *Failure mode caught:* a new webServer entry, or a future edit dropping a pin, silently handing the
 app server a remote database. This is the exact defect that sent nine emails on 2026-08-26.
@@ -267,11 +298,12 @@ refactor that stops printing it cannot pass by absence.
 *Failure mode caught:* the message drifting back to advice that cannot work — the state this row was
 filed against.
 
-**Anti-tautology.** T1 reads the config's own `webServer` array rather than grepping the file for a
+**Anti-tautology.** T1 reads each config's own `webServer` array rather than grepping the file for a
 substring, so a pin written in a comment or in an unrelated entry cannot satisfy it — which is
 precisely the hole in today's `tests/help/playwright-config.test.ts:33-54`, whose
-`expect(config).toMatch(...)` is satisfied by the single port 3004 occurrence and has been passing
-green over four unpinned servers since it was written. T2's negative-control arm precedes its positive
+`expect(config).toMatch(...)` is satisfied by a single occurrence anywhere in the file and has been
+passing green over four unpinned servers since it was written. T1 covers BOTH config files for that
+same reason; scoping it to one would have reproduced the defect it exists to close. T2's negative-control arm precedes its positive
 one for the same reason. T3 asserts on the child process's real stdout, not on the source text.
 
 ## 8. Documented limits
@@ -284,7 +316,11 @@ one for the same reason. T3 asserts on the child process's real stdout, not on t
   being written without an `env:` block; T1 fails it. That is the guard, and its own completeness is
   bounded by `config.webServer` being the array Playwright actually boots.
 - **`playwright.screenshots.config.ts` is already correct** — one webServer, pinned at lines 177-180 —
-  so it is out of the class rather than deferred from it.
+  so it needs no repair, but it is inside T1's walk so a later entry cannot escape.
+- **T1's discovery is rooted at the repo root.** A Playwright config placed in a subdirectory would
+  not be found. No such file exists today (`ls playwright*.config.ts` returns exactly two), and the
+  root is where both live and where Playwright's own conventions put them.
+  *Re-file trigger:* the first config committed outside the repo root.
 
 ## 9. Invariants
 
