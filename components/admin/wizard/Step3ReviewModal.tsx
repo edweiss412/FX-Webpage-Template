@@ -374,7 +374,31 @@ export function Step3ReviewModal({
     }
     if (n === 0) return;
     const raf = requestAnimationFrame(() => {
+      // BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE, wizard mirror. P-1
+      // measured this modal at 375x667, 375x844 and 390x560 and found the
+      // auto-opened panel intercepting five controls at every viewport --
+      // the header sheet link, the first three navigation chips, and the venue
+      // section's sheet link, every interceptor inside the panel. An operator
+      // arriving on a phone cannot navigate at all until they dismiss a menu
+      // they never opened. Identical predicate, identical position, identical
+      // spelling as the published surface (PublishedReviewModal.tsx).
+      //
+      // Positive evidence: negating a min-width query would invert the
+      // fallback, and where matchMedia is absent or answers false for
+      // everything the menu would stop auto-opening where it should.
+      const suppressedByWidth =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(max-width: 639.98px)").matches;
+      // Consumed either way, as on the published surface: suppression is a
+      // decision about this mount.
       autoOpenFiredRef.current = true;
+      if (suppressedByWidth) return;
+      // NOT set on the suppressed path, and that is load-bearing rather than an
+      // omission. `menuAutoOpened` becomes `escTransparentUntilEngaged`
+      // (WizardAttentionMenu.tsx:102), which makes Escape pass THROUGH to the
+      // modal for a panel the operator did not open. A menu they opened by
+      // tapping must own its own Escape, so this stays false when no auto-open
+      // happened.
       setMenuAutoOpened(true);
       setMenuOpen(true);
     });

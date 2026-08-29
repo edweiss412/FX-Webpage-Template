@@ -140,7 +140,20 @@ async function openModal(page: Page, width: number, height: number) {
   await page.goto(`${baseUrl}?attention=1`);
   const chip = page.locator(CHIP);
   await chip.waitFor();
-  await expect(chip).toHaveAttribute("aria-expanded", "true");
+  // WIDTH-AWARE since BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE. Below
+  // `sm` the auto-open is suppressed, because the panel covers the modal's
+  // navigation chips and both routes to the spreadsheet at phone widths
+  // (measured, spec 2026-08-29-attention-auto-open-phone-suppression §5.1). At
+  // those widths the panel is reached by TAPPING the chip, which is the same
+  // tolerant shape popover-clip-fit.spec.ts's openMenu already uses.
+  //
+  // The assertion is kept in BOTH branches rather than dropped: at ≥`sm` the
+  // arrival must still auto-open, and below it the arrival must NOT, so this
+  // helper pins the boundary behaviour every case downstream depends on instead
+  // of quietly tolerating either.
+  const autoOpens = width >= 640;
+  await expect(chip).toHaveAttribute("aria-expanded", autoOpens ? "true" : "false");
+  if (!autoOpens) await chip.click();
   await page.locator(MENU).waitFor({ state: "visible" });
   // Dismissed by PRESSING the pill, not by Escape. Since the §3.5 scoping
   // amendment an auto-opened panel is Escape-transparent until engaged, so
