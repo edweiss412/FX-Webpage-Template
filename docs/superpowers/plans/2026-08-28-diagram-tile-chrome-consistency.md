@@ -170,9 +170,15 @@ Executable discharge, per row:
 
 ## Task 1 — the lockstep: one RED run, one GREEN run, one commit
 
-<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx tests/styles/controlOutlineTransitions.test.ts && pnpm heavy pnpm test:e2e:standalone tests/e2e/step3-review-modal.layout.spec.ts` ac=AC-1,AC-3,AC-4,AC-8 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx tests/styles/controlOutlineTransitions.test.ts ; pnpm heavy pnpm test:e2e:standalone tests/e2e/step3-review-modal.layout.spec.ts` ac=AC-1,AC-3,AC-4,AC-5,AC-8 -->
 
 Everything the spec requires to land together lands here.
+
+**The two halves of the RED command are sequenced with `;`, never `&&`, and that is load-bearing.** At
+the RED point the vitest half FAILS by design, so `&&` would short-circuit and the browser half would
+never run — which is precisely the unobserved-red defect this repair exists to close, reintroduced by an
+operator. `;` runs both unconditionally. Read the two exit statuses separately: both must be non-zero at
+RED, and both must be zero at GREEN, so the compound's own status is not the signal.
 
 **The browser run is part of THIS task's RED, not Task 2's.** An earlier draft authored the inverted
 assertion here and first ran it in Task 2, after the implementation had already landed — so the
@@ -264,7 +270,12 @@ none.** The invariant-8 closeout guard is that red, and the mechanism is the gua
 - Add the marker line with the run's real `p0`/`p1`. The guard goes GREEN.
 
 That is a true red-then-green on this task's own deliverable, rather than re-running a command Task 1
-already made pass. It also forces the correct ORDER: the gate runs, its results are written down, and
+already made pass. **The red is verified in the guard's source rather than assumed**, because asserting
+a red without observing one is exactly the defect this repair answers:
+`tests/docs/_metaInvariant8Closeout.test.ts:67-78` pushes a violation for every unit whose `declares` is
+true and whose verdict is not `conforms`, and `tests/docs/_invariant8Closeout.ts:188` returns
+`no-marker` when no valid marker parsed. The only escape is a `PRE_GUARD_DEBT` row, which that
+violation's own message scopes to pre-guard history and which a plan written today cannot claim. It also forces the correct ORDER: the gate runs, its results are written down, and
 only then is the marker allowed to exist — R2 was right that the first draft ran every verification
 before writing the file it was supposed to be verifying.
 
@@ -272,12 +283,32 @@ The real-browser suite is NOT this task's red; it is Task 1's, where the inverte
 failing. It is re-run here as a regression check, and the ACTUAL test count is reported from the run — do
 NOT carry the filing arc's 44 forward.
 
+**Reconcile the AC sets before committing**, by derivation rather than by reading:
+
+    comm -23 <(grep -oE '^\| AC-[0-9]+' <plan> | tr -d '| ' | sort -u) \
+             <(grep -oE 'ac=[A-Z0-9,-]+' <plan> | sed 's/ac=//' | tr ',' '\n' | sort -u)
+
+must print nothing. `spec:lint` reports an `ac=` id that appears nowhere else in the plan; the OPPOSITE
+direction — an AC declared in the table and claimed by no task — needs the opt-in `ac-declared` region
+this plan does not use, so it is checked here by hand. That direction is not hypothetical: AC-5 was
+orphaned by this very plan's round-2 repair, when the browser run moved into Task 1 and Task 2's marker
+was rewritten around it.
+
 Then, in order:
 
 1. `pnpm heavy pnpm vitest run tests/styles` — the fill census, the residue census, the tinted-plate
    registry and the transitions suite, all re-run rather than reasoned about (AC-6, AC-7, AC-9's census
    half).
-2. `git diff --name-only origin/main...HEAD` must not list `components/diagrams/Gallery.tsx` (AC-2).
+2. **AC-2, as a command that can FAIL.** `git diff --name-only` exits 0 whether the file is listed or
+   not, so "must not list it" was prose, not a verdict — R3 was right. Written so each step's status is
+   its own, rather than reading a verdict off a pipe whose first stage could have died:
+
+       git diff --name-only origin/main...HEAD > /tmp/tilechrome-changed.txt
+       grep -qx 'components/diagrams/Gallery.tsx' /tmp/tilechrome-changed.txt \
+         && { echo 'AC-2 VIOLATED: Gallery.tsx is in the diff'; exit 1; }
+
+   The redirect fails loudly if `git diff` itself errors; piping straight into `grep` would turn a dead
+   git into an empty match and read as a pass.
 3. **AC-4's same-commit half, as a history check rather than a claim:** the commit that last touched
    `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` must be the same commit that last touched `components/admin/wizard/step3ReviewSections.tsx`.
 
@@ -286,8 +317,19 @@ Then, in order:
 
    A count-parity test compares two sides of the FINAL tree and passes just as happily on a history that
    landed them in separate commits, which is exactly the gap R2 named. This reads the history.
-3. `grep -n "lives on the" tests/styles/tapTargetCensus.ts` to confirm the prose reads ANCHOR, and
-   confirm that row's `line`, `tag` and `category` are untouched in the diff (AC-9's prose half).
+3. **AC-9's prose half, DISCRIMINATING.** The first draft grepped `lives on the`, which matches the
+   stale sentence as happily as the repaired one and therefore passes on an unrepaired tree — R3 caught
+   it. Both directions are required:
+
+       grep -q 'lives on the ANCHOR' tests/styles/tapTargetCensus.ts \
+         || { echo 'AC-9: census prose not repaired'; exit 1; }
+       grep -q 'lives on the IMAGE'  tests/styles/tapTargetCensus.ts \
+         && { echo 'AC-9: stale census prose survives'; exit 1; }
+
+4. **AC-9's `line`/`tag`/`category` half is already covered executably**, and this is cited rather than
+   claimed: `tests/styles/_metaTapTargetFloor.test.ts:59` asserts every census row's `file:line` key
+   exists in the LIVE scan, so a row whose `line` drifted reds the styles suite. That run is step 1
+   above, so this half needs no extra command — only the citation, which the first draft omitted.
 4. The full suite, typecheck, lint and format, per the ledger.
 5. The invariant-8 UI quality gate on the affected diff.
 
