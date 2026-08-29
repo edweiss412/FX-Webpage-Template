@@ -340,9 +340,9 @@ Current `per-item` rows:
 The lightbox control lives only on the ACTIVE slide (§2), so the active-to-inactive
 transition has to say what happens to a retry in flight and to focus.
 
-- **`retrying` is cleared and the id returns to `failedKeys`.** The hidden `<Image>`
-  unmounts with the active branch, so its request is abandoned and no `onLoad` or `onError`
-  will arrive. Leaving the id in `retrying` would strand the slide showing a disabled
+- **`retrying` is cleared and the id returns to `failedKeys`.** The retry `<Image>` unmounts
+  with the active branch, so its request is abandoned and no `onLoad` or `onError` will
+  arrive. Leaving the id in `retrying` would strand the slide showing a disabled
   `Retrying…` with nothing behind it, which is the state the reviewer named.
 - **Focus moves to the Close button** if it was on the retry control, matching the
   destination the existing error path already uses when a focused lightbox element is about
@@ -600,7 +600,7 @@ nothing, so session state survives a props flip and every pair below is reachabl
 | pair | treatment |
 |---|---|
 | idle → failed | instant swap, no animation. Matches the existing instant swap. |
-| failed → retrying | instant label swap within the same button node. The hidden `<Image>` MOUNTS in this same commit, which is the point of the transition. |
+| failed → retrying | instant. The control keeps its node and re-labels; the `<Image>` MOUNTS in its FINAL position beneath the overlay in the same commit (§4.0.5), which is the point of the transition. |
 | retrying → idle | instant. The `<Image>` becomes visible on `onLoad` and the control unmounts in the same commit. |
 | retrying → failed | instant label swap back, same node. |
 | idle → retrying | unreachable by construction: `retrying` is entered only from `failed`, and only by a tap on a control that exists only in `failed`. |
@@ -611,7 +611,7 @@ nothing, so session state survives a props flip and every pair below is reachabl
 **The clear happens when the item goes unavailable, not when it comes back.** An earlier
 draft did the opposite, and the ordering was the whole defect: an effect that runs AFTER
 `item.available` becomes true leaves the first render observing a retained `retrying` id,
-which mounts the hidden `<Image>` and starts a request nobody asked for. This spec excludes
+which mounts the retry `<Image>` and starts a request nobody asked for. This spec excludes
 automatic retry (§12), so that render is a contract violation, not a cosmetic race.
 
 Clearing on the way in has no such window. All three session states require
