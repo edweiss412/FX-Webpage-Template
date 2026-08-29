@@ -46,9 +46,11 @@ The repair landed on one file and the class was never swept. This spec sweeps it
 | --- | --- |
 | **Add a Settings card** rather than soften the intro copy. The "Once per environment" group becomes a two-card group and the page's rhythm changes. Accepted. | Eric, relayed by bl-orch 2026-08-29. The `DEFERRED.md` HELPTOUR-SETTINGS-CARD-MISSING-1 entry names this as the product decision the fix required, and it has now been made. |
 | **Lift both grids out of the cap** rather than the cheap alternative of dropping the second grid to `md:grid-cols-2`. | `DEFERRED.md` HELPTOUR-CARD-GRID-MEASURE-1, "Un-defer trigger": "The second is the better answer and the larger change." The arc file names it as the repair to ship. |
-| **The cap moves to the direct children of `.help-prose`, it is not removed.** Every current direct child was already bounded by the parent's 70ch, so this renders identically for every existing block on all fourteen pages; it only creates a place for an element to opt out. | §3.1 below. This is deliberately the smallest change that makes a bleed possible, not a re-architecture of the prose layer. |
-| **`tests/e2e/help-typography.spec.ts`'s measure assertion is retargeted from the wrapper to a paragraph.** This is not a test weakened to accommodate the change: the wrapper stops being the thing that carries the measure, and a paragraph is the element whose measure the contract is actually about. The retargeted assertion is strictly stronger, because it measures rendered text rather than a container. | §3.4. Flagged explicitly because "the diff changed a test" is a predictable finding and the reasoning belongs in the record, not in a review round. |
-| **Uncapping tables, screenshots and the custom prose components is out of scope.** Only the two tour grids opt in. | §5 Documented limits. |
+| **The cap moves to the direct children of `.help-prose`, carried by an `@property`-registered length.** The registration is not decoration: `ch` is font-relative, so a plain per-child `max-width: 70ch` resolves in each child's own font and the headings escape the column. | §2.1 measured exactly that, and §3.1 is the mechanism that survives it. |
+| **Container units (`100cqi` against `main`) were considered and rejected**, although they are the least invasive option on paper and passed the same probe. `container-type: inline-size` applies `contain: layout`, which makes `main` a containing block for absolutely positioned descendants, and `app/help/errors/page.tsx` renders a `focus:absolute` skip link inside it. Adopting them would move that skip link's focused position from the page corner into `main`, which is a WCAG 2.4.1 regression traded for a CSS convenience. | §2.1. Recorded so the cheaper-looking option is not proposed again without its cost. |
+| **`@property` is not a new primitive here.** Tailwind 4.2.4 emits `@property` itself, so the generated stylesheet already carries these registrations and the project already assumes browsers that honour them. | Verified against the installed `tailwindcss` build, §2.1. |
+| **Two existing guards are retargeted, not weakened** — `tests/e2e/help-typography.spec.ts`'s measure assertion moves from the wrapper to a paragraph, and `tests/help/help-prose-layer.test.ts`'s `max-width: <n>ch` pattern moves to whatever declaration then carries the measure. Neither is weakened to accommodate the change: the wrapper stops being the element that carries the measure, and a paragraph is what the contract was always about, so the retargeted assertion is the stronger of the two because it measures rendered text rather than a container. Both still fail if the measure disappears. | §3.4. Flagged explicitly because "the diff changed a test" is a predictable finding and the reasoning belongs in the record, not in a review round. |
+| **Uncapping tables, screenshots and the custom prose components is out of scope.** Only the three grids named in §3.2 and §3.3 opt in. | §6 Documented limits. |
 | Both findings are pre-existing on `origin/main`, not regressions introduced by any recent arc. | `DEFERRED.md`, both entries, "Why deferred rather than repaired in-branch". |
 
 ---
@@ -56,9 +58,40 @@ The repair landed on one file and the class was never swept. This spec sweeps it
 ## 2. Probe
 
 Numbers in this section are measured, never argued. Per the probe-before-argue rule, no design
-decision below rests on a predicted measurement.
+decision below rests on a predicted measurement. §2.1 is complete; §2.2 is pending the fleet's DB
+quiet period.
 
-**Status: PENDING.** The probe spec is written as a throwaway under `tests/e2e/` (deleted before
+### 2.1 Which cap mechanism actually preserves the page (complete)
+
+This is a pure CSS box question, so it needs no app, no server, no auth and no database: a
+headless Chromium over a static document that reproduces the cascade (an `@layer base` block, a
+900px `main`, and one child of every kind that exists under `.help-prose` across the fourteen
+pages). Baseline is today's rule. A candidate passes only if **every** existing child keeps its
+exact x and width and the bleed child reaches the full container.
+
+| candidate | existing children that moved | grid width | card width | verdict |
+| --- | --- | --- | --- | --- |
+| today (`.help-prose { max-width: 70ch }`) | baseline | 705.47 | 224.48 | baseline |
+| per-child `max-width: 70ch` | **h1 and h2, 705.47 to 900** | 900 | 289.33 | **fails** |
+| per-child cap via an `@property`-registered length | none | 900 | 289.33 | **passes** |
+| wrapper untouched, bleed at `width: 100cqi` | none | 900 | 289.33 | passes, then rejected |
+
+**The first candidate was this spec's original draft, and the probe refuted it.** `ch` is the
+advance of the "0" glyph in the element's OWN font, so a per-child `70ch` is a different pixel
+width per child: at `--text-2xl` it is far wider than the column, and both headings would have
+run full width on all fourteen help pages. Registering the property with `syntax: "<length>"`
+makes `70ch` compute once, in the wrapper's font context, and inherit as an absolute length.
+
+The fourth candidate passed the geometry test and was still rejected, on a cost the geometry
+cannot show: `container-type: inline-size` applies `contain: layout`, which makes `main` a
+containing block for absolutely positioned descendants, and `app/help/errors/page.tsx` renders a
+`focus:absolute` skip link inside `main`. Its focused position would move from the page corner
+into the content column. A keyboard affordance is not worth a shorter diff.
+
+`@property` needs no support argument: `tailwindcss` 4.2.4 emits it, so every build of this app
+already ships registrations of this kind.
+
+### 2.2 The live measure — **Status: PENDING.** The probe spec is written as a throwaway under `tests/e2e/` (deleted before
 the first commit, so it is deliberately not a tracked path this spec can cite) and is parked: it needs `signInAs`, which writes an `auth.users` row, and the help layout runs
 `requireAdmin()` per request, so it is DB-backed and a fleet-wide DB quiet period is in effect.
 **This section is filled before any review dispatch; a review must not be dispatched against a
@@ -99,15 +132,33 @@ around what it actually finds.
 .help-prose { max-width: 70ch; }
 
 /* becomes */
-.help-prose > * { max-width: 70ch; }
-.help-prose > .help-bleed { max-width: none; }
+@property --help-measure {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+.help-prose {
+  /* Resolved HERE, in the wrapper's font context, and inherited as an absolute
+     length. An unregistered custom property would substitute the tokens "70ch"
+     into each child and re-resolve them against that child's font — which is
+     what §2.1 measured the headings escaping through. */
+  --help-measure: 70ch;
+}
+.help-prose > * {
+  max-width: var(--help-measure);
+}
+.help-prose > .help-bleed {
+  max-width: none;
+}
 ```
 
 **Why this is behaviour-preserving.** The wrapper is not centred, so every direct child today is
-laid out inside a 70ch box that starts at the same left edge. Capping each child at 70ch instead
-of capping their shared parent puts every one of them at the same width and the same origin. The
-one observable difference is the width of the wrapper element itself, which no page renders a
-background or border on.
+laid out inside a 70ch box that starts at the same left edge. Capping each child at the same
+absolute length instead of capping their shared parent puts every one of them at the same width
+and the same origin — measured, not assumed (§2.1: zero drift across h1, h2, p, ul, table and a
+component block). The one observable difference is the width of the wrapper element itself, which
+no page paints a background or border on.
 
 **Why an opt-out class and not a wider rule.** A rule that capped only text elements would
 silently uncap tables, screenshots and the custom prose components on all fourteen pages, which
@@ -150,6 +201,15 @@ an assertion derived from the data source:
   with no edit to it, which is the property the hardcoded list did not have.
 
 Held to the same bar, `tests/e2e/help-pages.spec.ts` already derives correctly and needs no change.
+
+Two guards move with the mechanism rather than with the guard defect. `tests/e2e/help-typography.spec.ts`
+measures the wrapper's width to prove the reading measure; under §3.1 the wrapper is no longer the
+element that carries it, so the assertion retargets to a paragraph, which is the element the
+contract was always about. `tests/help/help-prose-layer.test.ts` pins the measure by matching
+`max-width: <n>ch` in the stylesheet; that literal becomes `--help-measure: 70ch`, so the pattern
+follows it. Neither is loosened: both still fail if the measure disappears. This is checked, not
+assumed — that `max-width: 70ch` at `app/globals.css` is the only match of its shape in the file,
+so the guard is load-bearing today and would have broken silently if left alone.
 
 ### 3.5 Real-browser layout assertions
 
@@ -209,9 +269,11 @@ Recorded here rather than filed as ledger rows, per the process mint freeze.
   read better bled too. Nothing here probes that, so nothing here changes it. Re-file trigger: a
   report that a specific help table or screenshot is cramped, with the surface named.
 - **`tests/help/help-prose-layer.test.ts` isolates its "region" as everything from the first
-  `.help-prose` occurrence to end of file**, so its `max-width: \d+ch` assertion is satisfied by
-  a match anywhere below that point. It passes before and after this change and is not weakened by
-  it, but it is looser than its comment claims. Process-facing, and the freeze applies.
+  `.help-prose` occurrence to end of file**, so its measure assertion would be satisfied by a match
+  anywhere below that point. It happens to be load-bearing today because that shape appears exactly
+  once in the whole stylesheet, but the isolation is looser than the comment above it claims, and a
+  future unrelated rule could make it vacuous without anyone noticing. Process-facing, so the freeze
+  applies; recorded here rather than filed. Process-facing, and the freeze applies.
 - **The peer grid at `app/help/errors/page.tsx`** is dispositioned in §7 once the probe runs.
 
 ---
