@@ -8,18 +8,6 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
-## BL-DIAGRAM-TILE-CHROME-CONSISTENCY — the admin diagram tile and the crew gallery put the tile border on different elements
-
-**Status:** OPEN · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`; owner-directed by bl-orch after that arc reverted the change as out of scope, which is the scheduling decision) · **Facing:** product · **Severity:** LOW (cosmetically identical today; it is a consistency and maintenance question, not a rendering defect) · **Class:** design consistency · **Effort:** S · **Reachability:** PROBED — see the mutant below.
-
-The crew gallery puts the tile's box chrome on the grid CELL and leaves `object-cover` on the image (`components/diagrams/Gallery.tsx:351`). The admin wizard tile puts `rounded-md border border-text-faint bg-surface-sunken` on the `<img>` and leaves the anchor carrying only `relative` and its aspect box (`components/admin/wizard/step3ReviewSections.tsx`). Two arrangements for one visual idiom across the two diagram surfaces.
-
-**It is cosmetic, and that is measured rather than assumed.** `perf/admin-diagram-next-image` tried the move and ran it as a mutant: with the border on the anchor instead of the image, the whole real-browser layout suite passed, 44 of 44, including the geometry row. With no border on the anchor its padding box IS its border box, so a `fill` image insets to the same rectangle either way. An earlier justification claiming the move was required by that insetting is disproved and must not be revived.
-
-**Why it is a row and not a rider.** That arc is a `next/image` adoption, and the image change demonstrably does not require the move. Taking it would also move the tile's `<img>` out of the painted-child family counted by `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` §15 table 3 — spending a ratified design claim on a preference a perf arc picked up in passing. The honest home is the UI polish class sweep, where the same question can be asked of every surface that has a bordered thumbnail rather than of one.
-
-**Done condition:** one arrangement across both diagram surfaces, with §15 table 3's family membership re-derived and the count updated in the same change rather than left to drift.
-
 ## BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS - the near-miss detector flags rows in blocks that are not field lists, and the card's advice is wrong there
 
 **Status:** OPEN · **Filed:** 2026-08-27 (`fix/wizard-warning-row-links-copy`, owner-directed from the RIA wizard screenshot) · **Facing:** product · **Severity:** LOW-MEDIUM (a wrong instruction on a shipped admin card; nothing is corrupted) · **Class:** detector candidacy scope · **Effort:** M · **Class-sweep exception:** (a): which block shapes are legitimate near-miss homes is a product decision the link arc could not settle. · **Reachability:** PROBED: the parser run recorded in spec 2026-08-27-wizard-warning-row-links-copy §1, `parseSheet` on `fixtures/shows/raw/2025-06-ria-investment-forum.md` at `66c9857f5`.

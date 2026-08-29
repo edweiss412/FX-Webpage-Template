@@ -1,3 +1,32 @@
+## BL-DIAGRAM-TILE-CHROME-CONSISTENCY — the admin diagram tile and the crew gallery put the tile border on different elements — ✅ RESOLVED (2026-08-28, `fix/diagram-tile-chrome-consistency`)
+
+**Status:** RESOLVED 2026-08-28 (`fix/diagram-tile-chrome-consistency`) · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`; owner-directed by bl-orch after that arc reverted the change as out of scope, which is the scheduling decision) · **Facing:** product · **Severity:** LOW (cosmetically identical today; it is a consistency and maintenance question, not a rendering defect) · **Class:** design consistency · **Effort:** S · **Reachability:** PROBED — see the mutant below.
+
+The crew gallery puts the tile's box chrome on the grid CELL and leaves `object-cover` on the image (`components/diagrams/Gallery.tsx:351`). The admin wizard tile puts `rounded-md border border-text-faint bg-surface-sunken` on the `<img>` and leaves the anchor carrying only `relative` and its aspect box (`components/admin/wizard/step3ReviewSections.tsx`). Two arrangements for one visual idiom across the two diagram surfaces.
+
+**It is cosmetic, and that is measured rather than assumed.** `perf/admin-diagram-next-image` tried the move and ran it as a mutant: with the border on the anchor instead of the image, the whole real-browser layout suite passed, 44 of 44, including the geometry row. With no border on the anchor its padding box IS its border box, so a `fill` image insets to the same rectangle either way. An earlier justification claiming the move was required by that insetting is disproved and must not be revived.
+
+**Why it is a row and not a rider.** That arc is a `next/image` adoption, and the image change demonstrably does not require the move. Taking it would also move the tile's `<img>` out of the painted-child family counted by `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` §15 table 3 — spending a ratified design claim on a preference a perf arc picked up in passing. The honest home is the UI polish class sweep, where the same question can be asked of every surface that has a bordered thumbnail rather than of one.
+
+**Done condition:** one arrangement across both diagram surfaces, with §15 table 3's family membership re-derived and the count updated in the same change rather than left to drift.
+
+### What shipped
+
+The chrome moved to the WRAPPER on the admin tile: `rounded-md border border-text-faint
+bg-surface-sunken` now sits on the anchor that forms the tile box, and the image carries only
+`object-cover`. The crew gallery was already this arrangement and was not edited.
+
+The done condition's second half landed in the same commit: `§15 table 3`'s painted-child count is
+re-derived from four to three, in the assertion, its comment, and the docblock that quotes it, plus a
+new assertion that reads the 2026-08-26 spec's own prose and requires it to state the count the
+derivation returns. Three further consumers moved in that one commit — the real-browser placement pin
+inverted, the tap-target census prose, and the tinted-plate comment's raw/comment split.
+
+Spec: `docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md`. Plan and closeout:
+`docs/superpowers/plans/2026-08-28-diagram-tile-chrome-consistency.md` and its `-closeout.md` sibling.
+Four documented limits are carried forward there with re-file triggers, and two P1 findings from the
+invariant-8 gate are deferred in `DEFERRED.md` under class-sweep exception (a).
+
 ## BL-LINE-KEYED-REGISTRY-ROWS — registries keyed by `file:line` are invalidated wholesale by any edit above the row — CLOSED 2026-08-28, DEMOTED ON A MEASURED REFUTATION
 
 **Status:** CLOSED 2026-08-28 (`feat/line-keyed-registry-durable-keys`), demoted to a documented limit rather than built · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`; owner-directed by bl-orch under the recurrence exception) · **Facing:** process · **Mint-exception:** recurrence (`LIM-LINE-KEYED-SITEID`) · **Severity:** MEDIUM as filed · **Class:** structural-registry keying · **Effort:** M as filed
