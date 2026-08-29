@@ -126,9 +126,29 @@ export function buildWizardWarningModel(args: {
    *  linked row, and a union cannot say whether a staged fingerprint is ALSO durable —
    *  which is the whole difference between clearing one store and clearing both. */
   durableFingerprints?: ReadonlySet<string>;
+  /**
+   * Whether the durable read actually RESOLVED, as opposed to failing open to empty.
+   *
+   * Whole-diff R3 P0. The loader degrades an `infra_error` to an empty set by design
+   * (§1.1.7, fail toward VISIBLE), which is correct for rendering — over-showing a
+   * warning is the safe error. It is the wrong default the moment the same value routes
+   * a MUTATION: an unresolved read then looks exactly like "this fingerprint is not
+   * durable", the durable arm is skipped, and Un-ignore reports a success the store
+   * contradicts. Emptiness cannot carry this, so resolvedness is passed explicitly.
+   *
+   * Defaults to true, which keeps every caller that has no loader (published mounts,
+   * fixtures, first-seen rows) on the exact behaviour it had.
+   */
+  durableResolved?: boolean;
 }): WizardWarningModel {
-  const { reportScope, warnings, ignoredFingerprints, stagedFingerprints, durableFingerprints } =
-    args;
+  const {
+    reportScope,
+    warnings,
+    ignoredFingerprints,
+    stagedFingerprints,
+    durableFingerprints,
+    durableResolved = true,
+  } = args;
   const active: WizardWarningItem[] = [];
   const ignored: WizardWarningItem[] = [];
   for (let index = 0; index < warnings.length; index += 1) {
@@ -154,7 +174,11 @@ export function buildWizardWarningModel(args: {
       // standalone mounts, which have no staged store at all) the staged set is the
       // whole answer and the old two-way split is exactly right.
       const inStaged = stagedFingerprints?.has(fp) === true;
-      const inDurable = durableFingerprints?.has(fp) === true;
+      // R3 P0: an UNRESOLVED durable read cannot rule the durable store out, so a
+      // staged fingerprint routes to `both` and the caller clears both. Deleting from
+      // a store that holds nothing is a harmless no-op; skipping one that holds a copy
+      // is the false success. Conservative in the direction the operator can see.
+      const inDurable = durableFingerprints?.has(fp) === true || !durableResolved;
       ignored.push({
         ...item,
         ignoreOrigin: inStaged ? (inDurable ? "both" : "staged") : "show",

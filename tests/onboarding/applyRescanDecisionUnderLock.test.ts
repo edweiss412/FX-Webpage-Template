@@ -707,3 +707,107 @@ describe("Flow-B shadow decisions survive the blocker heal", () => {
     expect(carriedValue(calls, /use_raw_decisions/i)).toContainEqual(USE_RAW);
   });
 });
+
+/**
+ * Whole-diff R3 P0: the hard-fail exit destroyed the only copy.
+ *
+ * The Flow-B carry landed after the restage readback, which is right for the path that
+ * restages — and the `hard_failed` branch deletes the shadow and RETURNS before ever
+ * reaching it. On an existing show whose `pending_syncs` row was consumed at finalize,
+ * an ordinary sheet edit takes that branch while the shadow holds the only copy of
+ * Doug's dismissals. He corrects the sheet, rescans, and they are simply gone.
+ *
+ * The sweep behind this test is mechanical, not a hunch: of the five exits between the
+ * shadow read and the carry-restore, `schema_missing` and `superseded` precede every
+ * delete (shadow intact), the two `not_staged` exits are unreachable once the hard-fail
+ * block runs, and `hard_failed` is the only one that returns after a delete on its own
+ * path. One unsafe exit, and this is it.
+ */
+describe("Flow-B decisions survive the hard-fail exit", () => {
+  const IGNORED2 = [
+    { fingerprint: "fp-hardfail", code: "W_TBD_ROLE", ignored_by: "ada@x.example" },
+  ];
+
+  function makeHardFailTx(opts: { pendingRowExists: boolean }): {
+    tx: PostgresTransaction;
+    calls: Captured[];
+  } {
+    const calls: Captured[] = [];
+    const tx: PostgresTransaction = {
+      async unsafe(sql: string, params: unknown[] = []) {
+        calls.push({ sql, params });
+        // Flow B: no surviving pending_syncs row for prior state.
+        if (/select\s+wizard_approved/i.test(sql) && /pending_syncs/i.test(sql)) return [];
+        if (/select\s+payload,\s*applied_by_email/i.test(sql)) {
+          return [
+            {
+              payload: {
+                ...shadowPayload({ parse_result: PRIOR_PARSE }),
+                ignored_warnings: IGNORED2,
+              },
+              applied_by_email: "ada@x.example",
+            },
+          ];
+        }
+        // The carry-restore probes whether a row received it. `pendingRowExists:false`
+        // is the reviewer's case: the row was consumed, so nothing can take the write.
+        if (/update\s+public\.pending_syncs/i.test(sql) && /returning/i.test(sql)) {
+          return opts.pendingRowExists ? [{ ok: 1 }] : [];
+        }
+        if (/select\s+last_error_code/i.test(sql))
+          return [{ last_error_code: "STAGED_PARSE_FAILED" }];
+        return [];
+      },
+    };
+    return { tx, calls };
+  }
+
+  const hardFailScan: (typeof import("@/lib/sync/runOnboardingScan"))["scanOnboardingPreparedFiles"] =
+    (async () =>
+      ({
+        outcome: "completed",
+        processed: [{ driveFileId: DRIVE, name: "rescan-file.xlsx", outcome: "hard_failed" }],
+      }) satisfies OnboardingScanResult) as never;
+
+  async function runHardFail(tx: PostgresTransaction) {
+    return applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(PRIOR_PARSE),
+        refreshedParse: PRIOR_PARSE,
+        isBlockerHeal: true,
+      },
+      { scanOnboardingPreparedFiles: hardFailScan },
+    );
+  }
+
+  test("the shadow is RETAINED when no pending row can receive the decisions", async () => {
+    const { tx, calls } = makeHardFailTx({ pendingRowExists: false });
+    const out = await runHardFail(tx);
+    expect(out.kind).toBe("hard_failed");
+    // Deleting here is the data loss: the shadow is the only copy and nothing took the
+    // carry, so the row must survive for the next rescan to find.
+    const deletes = calls.filter((c) =>
+      /delete\s+from\s+public\.shows_pending_changes/i.test(c.sql),
+    );
+    expect(deletes).toHaveLength(0);
+  });
+
+  test("the shadow is deleted once a pending row HAS taken the decisions", async () => {
+    // The other half, so the repair cannot degenerate into "never delete": once the
+    // decisions are safely on a row, the orphan shadow is superseded as before.
+    const { tx, calls } = makeHardFailTx({ pendingRowExists: true });
+    await runHardFail(tx);
+    const deletes = calls.filter((c) =>
+      /delete\s+from\s+public\.shows_pending_changes/i.test(c.sql),
+    );
+    expect(deletes.length).toBeGreaterThan(0);
+    const carried = calls.filter(
+      (c) => /update\s+public\.pending_syncs/i.test(c.sql) && /ignored_warnings/i.test(c.sql),
+    );
+    expect(carried.length).toBeGreaterThan(0);
+  });
+});

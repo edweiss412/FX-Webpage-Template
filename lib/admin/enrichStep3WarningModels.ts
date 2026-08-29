@@ -45,12 +45,23 @@ export async function enrichStep3WarningModels(
   loader: (showId: string) => Promise<LoadIgnoredWarningsResult>,
 ): Promise<Step3Row[]> {
   const linkedFingerprints = new Map<number, ReadonlySet<string>>();
+  // Whole-diff R3 P0: keep the READ's resolvedness, not just its contents.
+  //
+  // The line below degrades an infra_error to an empty set, which is the ratified
+  // fail-toward-VISIBLE posture and stays. What was lost is the DIFFERENCE between
+  // "the durable store holds none of these" and "we could not find out", and the
+  // ignore routing needs that difference: without it a faulted read silently routes a
+  // dual-store dismissal to the staged arm alone and Un-ignore reports a success the
+  // durable store contradicts. Rendering is unaffected either way — the union is empty
+  // in both cases and every warning shows ACTIVE, which is the safe error for a render.
+  const durableResolved = new Map<number, boolean>();
   await Promise.all(
     rows.map(async (row, i) => {
       const ref = row.linkedShowRef;
       if (!ref || !hasReviewablePreview(row)) return;
       const result = await loader(ref.id);
       linkedFingerprints.set(i, result.kind === "ok" ? result.fingerprints : new Set<string>());
+      durableResolved.set(i, result.kind === "ok");
     }),
   );
 
@@ -92,6 +103,10 @@ export async function enrichStep3WarningModels(
         // above cannot answer "is this staged one ALSO durable?" — and a dismissal in
         // both stores needs both cleared, not whichever one we happened to name.
         durableFingerprints: linkedFingerprints.get(i) ?? new Set<string>(),
+        // R3 P0: an unresolved durable read routes to `both` so the Un-ignore clears
+        // both stores. A row with no loader call at all (unlinked) is `true` by
+        // default — there is no durable store to be uncertain about.
+        durableResolved: durableResolved.get(i) ?? true,
       }),
     };
   });

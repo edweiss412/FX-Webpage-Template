@@ -188,6 +188,45 @@ async function capturePriorState(
 }
 
 /**
+ * Write the Flow-B shadow's staged decisions onto this row's `pending_syncs`, and say
+ * whether anything took them.
+ *
+ * Whole-diff R3 P0. This was inline at the restage site, which is the path that HAS a
+ * row — and the `hard_failed` branch deletes the shadow and returns long before it. The
+ * hazard is the DELETE, not the restage, so the restore lives next to every delete now
+ * and the two callers cannot drift.
+ *
+ * The boolean is the whole point at the hard-fail site: in Flow B the row was consumed
+ * at finalize, so there may be nothing to receive the decisions, and the caller must
+ * know that before it destroys the only remaining copy.
+ *
+ * Returns true when a row took the write OR there was nothing to carry (null means Flow
+ * A, where the live column is authoritative and must not be clobbered).
+ */
+async function restoreStagedDecisions(
+  tx: PostgresTransaction,
+  wizardSessionId: string,
+  driveFileId: string,
+  prior: PriorState,
+): Promise<boolean> {
+  if (prior.priorIgnoredWarnings === null && prior.priorUseRawDecisions === null) return true;
+  const rows = (await tx.unsafe(
+    `update public.pending_syncs
+        set ignored_warnings = coalesce($3::jsonb, ignored_warnings),
+            use_raw_decisions = coalesce($4::jsonb, use_raw_decisions)
+      where wizard_session_id = $1::uuid and drive_file_id = $2
+      returning 1 as ok`,
+    [
+      wizardSessionId,
+      driveFileId,
+      prior.priorIgnoredWarnings === null ? null : JSON.stringify(prior.priorIgnoredWarnings),
+      prior.priorUseRawDecisions === null ? null : JSON.stringify(prior.priorUseRawDecisions),
+    ],
+  )) as unknown[];
+  return rows.length > 0;
+}
+
+/**
  * The lock-free per-row-surface core of a Re-scan (spec §4.2). It CAPTURES prior state
  * itself under the passed (already-locked) `tx`, re-stages the single sheet via
  * `scanOnboardingPreparedFiles` (pass-through `withShowLock` that adopts, never acquires),
@@ -233,14 +272,33 @@ export async function applyRescanDecisionUnderLock(
   }
   const processed = scan.processed.find((p) => p.driveFileId === driveFileId);
   if (processed?.outcome === "hard_failed") {
-    // The orphan shadow is superseded by this re-scan; the hard_failed manifest keeps
-    // final CAS blocked via unresolvedManifestCount (spec §5.3 Flow-B postcondition).
-    await tx.unsafe(
-      `delete from public.shows_pending_changes
-        where wizard_session_id = $1::uuid and drive_file_id = $2`,
-      [wizardSessionId, driveFileId],
-    );
-    if (deps.onShadowDeleted) await deps.onShadowDeleted(tx);
+    // Whole-diff R3 P0: restore BEFORE the delete, and only delete if the restore
+    // landed somewhere.
+    //
+    // The shadow is superseded by this re-scan — but "superseded" and "the only copy of
+    // the operator's dismissals" can be the same row. In Flow B the `pending_syncs` row
+    // was consumed at finalize, so on a hard fail there may be nothing to carry the
+    // decisions into; deleting anyway is silent data loss, and the warnings Doug
+    // dismissed come back after he fixes the sheet with nothing said.
+    //
+    // So the shadow is RETAINED exactly when it still holds decisions nothing else took.
+    // Retention is safe here: the hard_failed manifest keeps final CAS blocked via
+    // unresolvedManifestCount (spec §5.3 Flow-B postcondition), so a retained shadow
+    // cannot publish anything — and the next re-scan reads it as prior state and carries
+    // the decisions forward, which is the outcome this branch was destroying.
+    const carried = await restoreStagedDecisions(tx, wizardSessionId, driveFileId, prior);
+    if (carried) {
+      await tx.unsafe(
+        `delete from public.shows_pending_changes
+          where wizard_session_id = $1::uuid and drive_file_id = $2`,
+        [wizardSessionId, driveFileId],
+      );
+      // Inside the guard by contract, not by accident: `onShadowDeleted` is documented
+      // to fire after EACH delete and never on a shadow-RETAINING outcome, and
+      // retention is now one of those outcomes. Firing it here would double-consume a
+      // rebuild cap for a shadow that still exists.
+      if (deps.onShadowDeleted) await deps.onShadowDeleted(tx);
+    }
     // Demote any retained Flow-A approval: a hard-failing re-scan writes only the manifest +
     // pending_ingestions, so an approved pending_syncs row survives with choices keyed to the OLD
     // staged item ids. A later Step-3 Retry re-stages fresh sentinel ids while upsertLivePendingSync
@@ -290,38 +348,8 @@ export async function applyRescanDecisionUnderLock(
 
   // Restore the Flow-B shadow's staged decisions onto the row the restage just created.
   //
-  // Whole-diff R1 P0. In Flow B the `pending_syncs` row was consumed in Phase B, so the
-  // restage above INSERTS a fresh one and both of these columns take their `'[]'`
-  // defaults. The shadow that held the operator's real decisions is deleted a few lines
-  // below. Without this write the dismissals are gone with nothing said, and the warning
-  // the operator dismissed comes back — the one failure §1.1.7's fail-toward-visible
-  // posture must never produce by accident.
-  //
-  // Placed HERE, after the readback proves the row exists and before the dirty/clean
-  // fork, so BOTH outcomes restore it: a demoted row is re-reviewed and re-finalized
-  // later, and it must carry the same decisions a clean one does.
-  //
-  // Null-guarded, not empty-guarded: null means Flow A (or first-seen), where the live
-  // column is authoritative and must not be clobbered with `[]`. An empty array from a
-  // shadow that genuinely held no decisions is written as `[]`, which is what it means.
-  //
-  // `use_raw_decisions` rides the shadow for the same Flow-B reason and was lost to the
-  // same omission. Repaired together: this is one defect shape, and fixing only the
-  // column this arc introduced would leave the identical hole one line away.
-  if (prior.priorIgnoredWarnings !== null || prior.priorUseRawDecisions !== null) {
-    await tx.unsafe(
-      `update public.pending_syncs
-          set ignored_warnings = coalesce($3::jsonb, ignored_warnings),
-              use_raw_decisions = coalesce($4::jsonb, use_raw_decisions)
-        where wizard_session_id = $1::uuid and drive_file_id = $2`,
-      [
-        wizardSessionId,
-        driveFileId,
-        prior.priorIgnoredWarnings === null ? null : JSON.stringify(prior.priorIgnoredWarnings),
-        prior.priorUseRawDecisions === null ? null : JSON.stringify(prior.priorUseRawDecisions),
-      ],
-    );
-  }
+  // Same helper the hard-fail exit uses, so the two restore sites cannot drift.
+  await restoreStagedDecisions(tx, wizardSessionId, driveFileId, prior);
 
   // (b) heal finalize state (idempotent — no-op for a fresh Flow-A row, the blocker fix for Flow B).
   await tx.unsafe(

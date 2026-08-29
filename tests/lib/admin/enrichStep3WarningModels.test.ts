@@ -375,3 +375,37 @@ describe("enrichStep3WarningModels — ignoreOrigin (whole-diff P0)", () => {
     expect(row?.warningModel?.ignored[0]?.ignoreOrigin).toBe("staged");
   });
 });
+
+/**
+ * Whole-diff R3 P0, at the seam that actually loses the information: the loader's
+ * `kind` must reach the model, not just its fingerprints.
+ */
+describe("durable read faults route conservatively", () => {
+  it("a faulted durable read makes a staged fingerprint route to BOTH", async () => {
+    const [row] = await enrichStep3WarningModels(
+      [
+        reviewableRow({
+          linkedShowRef: { id: "show-1", slug: SLUG },
+          stagedIgnoredWarnings: [{ fingerprint: FP_A, code: warnA.code, ignored_by: "d@e.co" }],
+        }),
+      ],
+      // The fail-open shape: an infra_error, which the enrichment degrades to an empty
+      // durable set. Empty-because-faulted must not read as empty-because-absent.
+      async () => ({ kind: "infra_error" }) as never,
+    );
+    expect(row?.warningModel?.ignored[0]?.ignoreOrigin).toBe("both");
+  });
+
+  it("a resolved-but-empty durable read still says staged", async () => {
+    const [row] = await enrichStep3WarningModels(
+      [
+        reviewableRow({
+          linkedShowRef: { id: "show-1", slug: SLUG },
+          stagedIgnoredWarnings: [{ fingerprint: FP_A, code: warnA.code, ignored_by: "d@e.co" }],
+        }),
+      ],
+      okLoader([]),
+    );
+    expect(row?.warningModel?.ignored[0]?.ignoreOrigin).toBe("staged");
+  });
+});

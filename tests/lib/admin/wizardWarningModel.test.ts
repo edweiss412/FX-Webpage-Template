@@ -316,3 +316,72 @@ describe("dual-store ignore attribution", () => {
     expect(showOnly.ignored[0]!.ignoreOrigin).toBe("show");
   });
 });
+
+/**
+ * Whole-diff R3 P0: an UNRESOLVED durable read must not read as "not durable".
+ *
+ * The durable loader fails open to an empty set by design (§1.1.7, fail toward
+ * VISIBLE), which is right for rendering: over-showing a warning is the safe error.
+ * It is the wrong default the moment that same value ROUTES A MUTATION. With the
+ * durable set empty because the read FAULTED, a genuine dual-store dismissal reads as
+ * `staged`, the durable arm is never issued, and Un-ignore announces "Warning restored"
+ * while the durable copy survives — so the warning comes back once the read recovers,
+ * with no failure signal anywhere.
+ *
+ * So resolvedness is threaded, not inferred from emptiness, and an unresolved read
+ * routes to `both`: issuing a delete against a store that holds nothing is a harmless
+ * no-op, while skipping one that does is the data-visible bug.
+ */
+describe("unresolved durable read routes conservatively", () => {
+  const warn2: ParseWarning = {
+    severity: "warn",
+    code: "ROLE_TBD",
+    message: "TBD role",
+    rawSnippet: "A1 — TBD",
+  };
+
+  it("treats a staged fingerprint as BOTH when the durable read did not resolve", () => {
+    const fp = warningFingerprint(warn2);
+    premiseHolds("the fixture warning must fingerprint", fp !== null);
+    const model = buildWizardWarningModel({
+      reportScope: SCOPE,
+      warnings: [warn2],
+      ignoredFingerprints: new Set([fp as string]),
+      stagedFingerprints: new Set([fp as string]),
+      // Empty AND unresolved — the exact shape a faulted loader produces.
+      durableFingerprints: new Set<string>(),
+      durableResolved: false,
+    });
+    expect(model.ignored[0]!.ignoreOrigin).toBe("both");
+  });
+
+  it("still says staged when the durable read RESOLVED and held nothing", () => {
+    // The discrimination that makes the fix meaningful: same empty set, opposite
+    // answer, decided by whether the read is trustworthy rather than by its size.
+    const fp = warningFingerprint(warn2) as string;
+    const model = buildWizardWarningModel({
+      reportScope: SCOPE,
+      warnings: [warn2],
+      ignoredFingerprints: new Set([fp]),
+      stagedFingerprints: new Set([fp]),
+      durableFingerprints: new Set<string>(),
+      durableResolved: true,
+    });
+    expect(model.ignored[0]!.ignoreOrigin).toBe("staged");
+  });
+
+  it("an unresolved read does not invent an origin for a show-only ignore", () => {
+    // Nothing staged: there is no staged store to pair with, so the answer stays
+    // `show` and the conservative widening cannot leak into unrelated rows.
+    const fp = warningFingerprint(warn2) as string;
+    const model = buildWizardWarningModel({
+      reportScope: SCOPE,
+      warnings: [warn2],
+      ignoredFingerprints: new Set([fp]),
+      stagedFingerprints: new Set<string>(),
+      durableFingerprints: new Set<string>(),
+      durableResolved: false,
+    });
+    expect(model.ignored[0]!.ignoreOrigin).toBe("show");
+  });
+});
