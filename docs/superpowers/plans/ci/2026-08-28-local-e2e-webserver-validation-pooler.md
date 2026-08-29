@@ -112,10 +112,38 @@ const SKIP = new Set(["node_modules", ".git", ".next", "dist", "coverage"]);
  * new throwing config fails this test until someone dispositions it here.
  */
 const IMPORT_THROWS: Record<string, string> = {
-  "tests/e2e/visual.config.ts": "guards on its pinned-image env var and refuses to load without it",
-  "tests/mutation/source/mutantOverlay.config.ts": "requires MUTATION_TARGET",
+  "tests/e2e/visual.config.ts": "guards on SECTION_HEADER_VISUAL_CONTAINER and refuses to load without it",
+  "tests/mutation/source/mutantOverlay.config.ts": "requires MUTATION_TARGET and its siblings",
   "vitest.config.ts": "self-import under vitest cannot resolve its own exports entry",
 };
+
+/**
+ * The configs that HOLD webServer entries, asserted as a set. An aggregate floor is not
+ * enough: "some config yielded entries, and more than one in total" is satisfied by ONE
+ * config, so a second could resolve to `[]` here while Playwright boots an unpinned entry
+ * from it, and the per-entry assertions would pass over nothing for that file.
+ *
+ * Fail-closed in both directions, the same way IMPORT_THROWS is: a config that starts
+ * holding entries fails until it is listed, and a listed one that stops holding them fails
+ * until it is delisted. Neither drifts silently.
+ */
+const WEBSERVER_BEARING = ["playwright.config.ts", "playwright.screenshots.config.ts"];
+
+/**
+ * Both lists above are environment-dependent, and that is a defect unless the test pins the
+ * environment. `SECTION_HEADER_VISUAL_CONTAINER=1` makes visual.config.ts import CLEANLY, and
+ * the MUTATION_* set does the same for mutantOverlay.config.ts -- so under the workflows that
+ * set them, an exact throw-set assertion fails on entirely correct code. Delete them before
+ * walking, and assert they are gone, so the walk is deterministic wherever it runs.
+ */
+const CONTROLLING_ENV = [
+  "SECTION_HEADER_VISUAL_CONTAINER",
+  "MUTATION_ROOT",
+  "MUTATION_TARGET",
+  "MUTATION_MUTANT",
+  "MUTATION_SUITE",
+];
+for (const v of CONTROLLING_ENV) delete process.env[v];
 
 function configFiles(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -160,34 +188,33 @@ async function entriesOf(file: string): Promise<{ entries: WebServer[]; threw: b
 }
 
 describe("every Playwright webServer pins a loopback database", () => {
-  it("every config imports, or is a listed thrower (premise)", async () => {
+  it("walks a deterministic config set (premise)", async () => {
     for (const v of FILTER_VARS) {
       expect(process.env[v], `${v} is set, so webServer arrays are subsets`).toBeFalsy();
     }
+    for (const v of CONTROLLING_ENV) {
+      expect(process.env[v], `${v} is set, so the throw set is not deterministic`).toBeUndefined();
+    }
     expect(ALL_CONFIGS.length, "*.config.ts in the repo").toBeGreaterThan(1);
+  });
 
+  it("every config imports, or is a listed thrower (premise)", async () => {
     const threw: string[] = [];
     for (const file of ALL_CONFIGS) {
       if ((await entriesOf(file)).threw) threw.push(file);
     }
-    // Set equality BOTH ways: a new thrower is a hole and fails here, and a listed one that
-    // starts importing cleanly must be delisted rather than left as a stale excuse.
+    // A thrower is INVISIBLE to the walk, so an unlisted one is a hole.
     expect(threw.sort()).toEqual(Object.keys(IMPORT_THROWS).sort());
   });
 
-  it("reads entries from the configs that hold them (premise)", async () => {
-    let bearing = 0;
-    let total = 0;
+  it("every config holding entries is a listed bearer, and every bearer holds some (premise)", async () => {
+    const bearing: string[] = [];
     for (const file of ALL_CONFIGS) {
-      const { entries } = await entriesOf(file);
-      if (entries.length === 0) continue;
-      bearing += 1;
-      total += entries.length;
+      if ((await entriesOf(file)).entries.length > 0) bearing.push(file);
     }
-    // Guards the unwrap. If the interop descent stops early, every config reads as holding
-    // zero entries and the per-entry assertions below range over nothing at all.
-    expect(bearing, "configs holding webServer entries").toBeGreaterThan(0);
-    expect(total, "webServer entries across all configs").toBeGreaterThan(1);
+    // Set equality, not a count. A count is satisfied by one config while another silently
+    // resolves to [] and its entries go unchecked -- which is the whole failure this guards.
+    expect(bearing.sort()).toEqual([...WEBSERVER_BEARING].sort());
   });
 
   it.each(ALL_CONFIGS)("%s pins both DB keys on every entry it declares", async (file) => {
@@ -239,43 +266,52 @@ wrong way round reds it. A real interaction, not a formality.
 
 ### What this does to CI, derived rather than assumed
 
-The spec's CI-safety argument was stated as "every e2e workflow supplies `DATABASE_URL`". That is
-false, and it was reached the wrong way: by grepping for workflows that MENTION the variable and
-generalising from the ones that turned up. The set that matters is workflows that boot a server this
-change touches, which is derived from three things a grep of one variable cannot see -- the
-`webServer` filter env var each job sets, which config it passes to Playwright, and whether the
-config it uses declares a `webServer` at all.
+**The unit is the Playwright INVOCATION, not the workflow.** `DATABASE_URL` is set with step-level
+`env:`, so a workflow can carry it on some invocations and not others.
+`lifecycle-layout-e2e.yml` does exactly that: five invocations boot the newly-pinned :3000 server
+and only the last two (`lifecycle-layout-e2e.yml:222`, `lifecycle-layout-e2e.yml:257`) supply the key. Classifying by workflow put it in the wrong
+group. `app-e2e.yml` and `published-modal-e2e.yml` each have exactly one invocation, and it carries
+the key, so they are unaffected by this correction.
 
 Playwright merges `webServer.env` over `process.env` (`{...DEFAULT_ENVIRONMENT_VARIABLES,
 ...process.env, ...this._options.env}`), so the new `env` blocks do not disturb the inline
-`VAR=value` prefixes already on those command strings, and a job's own `DATABASE_URL` still reaches
-the server. Four groups:
+`VAR=value` prefixes on those command strings, and a job's own `DATABASE_URL` still reaches the
+server.
 
-- **Resolves from the job's own DSN, byte-identical (3):** `app-e2e.yml`,
-  `lifecycle-layout-e2e.yml`, `published-modal-e2e.yml` set `DATABASE_URL` to loopback, so
-  `process.env.DATABASE_URL ?? <literal>` yields exactly the value the resolver reaches today.
-- **Boots only an already-pinned server, or none (4):** `help-affordances.yml`
-  (`HELP_DOCS_WALKER_ONLY`, so only the already-pinned :3004), `screenshots-drift.yml` and
-  `screenshots-regen.yml` (the screenshots config, whose one entry is already pinned),
-  `step3-live-bundle.yml` (`STEP3_LIVE_BUNDLE_ONLY`, which boots zero servers).
-- **Boots no Playwright `webServer` at all (5+):** `unit-suite.yml`, `mutation-harness.yml` and
+- **Byte-identical (4 invocations).** `app-e2e.yml:188`, `published-modal-e2e.yml:178`, and
+  `lifecycle-layout-e2e.yml:223` and `lifecycle-layout-e2e.yml:258` supply loopback `DATABASE_URL`, so
+  `process.env.DATABASE_URL ?? <literal>` yields exactly what the resolver reaches today.
+- **Changed, and strictly better (7 invocations).** `admin-layout-e2e.yml` and
+  `phantom-gap-e2e.yml` (`BASELINE_SERVER_ONLY`, so :3000), `crew-e2e.yml` (`CREW_E2E_ONLY`, :3000),
+  `dev-gate-e2e.yml` (`DEV_GATE_ONLY`, :3001-:3003), and `lifecycle-layout-e2e.yml:141`,
+  `lifecycle-layout-e2e.yml:171` and `lifecycle-layout-e2e.yml:195`. None supplies a DB key, so today the resolver THROWS under CI's production posture on any
+  route reaching a raw-`postgres` path. After the pin it resolves the loopback DSN on port 54322 — **which those
+  jobs already run**: every one of them calls `scripts/ci/supabase-local-bootstrap.sh`, whose
+  `supabase start` (`scripts/ci/supabase-local-bootstrap.sh:90`) brings up Postgres on that port. So the pin points at a live database
+  rather than at a closed port, and the change is a throw becoming a working connection.
+- **Boots only an already-pinned server, or none (4 workflows).** `help-affordances.yml`
+  (`HELP_DOCS_WALKER_ONLY`, the already-pinned :3004), `screenshots-drift.yml` and
+  `screenshots-regen.yml` (the screenshots config, already pinned), `step3-live-bundle.yml`
+  (`STEP3_LIVE_BUNDLE_ONLY`, zero servers).
+- **Boots no Playwright `webServer` (6 workflows).** `unit-suite.yml`, `mutation-harness.yml`,
   `mutation-browser.yml` run vitest; `section-header-visual{,-regen}.yml` use
-  `tests/e2e/visual.config.ts` and `standalone-e2e.yml` uses `tests/e2e/standalone.config.ts`, and
-  neither of those configs declares a `webServer` (`grep -c webServer` returns 0 for both).
-- **Genuinely changed (4):** `admin-layout-e2e.yml` and `phantom-gap-e2e.yml`
-  (`BASELINE_SERVER_ONLY`, so :3000), `crew-e2e.yml` (`CREW_E2E_ONLY`, so :3000), and
-  `dev-gate-e2e.yml` (`DEV_GATE_ONLY`, so :3001-:3003). None sets a DB key and none starts a local
-  Supabase. Today a route reaching a raw-`postgres` path in those jobs THROWS, because CI selects
-  production posture and the resolver throws when both variables are absent. After the pin it
-  instead attempts loopback, where nothing is listening.
+  `tests/e2e/visual.config.ts` and `standalone-e2e.yml` uses `tests/e2e/standalone.config.ts`,
+  neither of which declares a `webServer`.
 
-**On that last group, stated as the inference it is.** Neither shape works; the pin trades a clean
-throw for a refused connection. It is unreachable in all four, and the evidence is that they are
-green: under production posture any spec reaching such a route would already be failing on the
-throw. That is an inference from CI's current state rather than from a local probe, and it is the one
-claim in this plan resting on it. If any of those four ever adds a spec that reaches a raw-`postgres`
-route, the correct fix is the `DATABASE_URL` line `app-e2e.yml:187` already carries, not removing the
-pin.
+**An earlier draft of this section reached for a reachability inference, and it is no longer
+needed.** It argued those jobs must not reach a raw-`postgres` route, since CI is green and the
+throw would already be failing them. That is true but weaker than the facts: the jobs run their own
+Postgres, so the pin is correct for them whether or not any route reaches it.
+
+**The methodological note, because this section was wrong three times and each time the same way.**
+Every error came from enumerating by grepping for a token and generalising from what turned up:
+grepping `DATABASE_URL` and concluding every e2e workflow supplies it (missing those that mention
+neither); grepping `webServer` at the repo root (missing configs elsewhere); grepping
+`supabase start` and concluding these jobs have no database (missing the bootstrap script that runs
+it). The set that matters is never the set that mentions the token. Where this plan now quantifies
+over a population, it derives that population from an authority — the config object itself, the
+filter env var, the bootstrap script the job actually calls — and where it cannot, it names the
+population explicitly and asserts the naming, as `IMPORT_THROWS` and `WEBSERVER_BEARING` do.
 
 The one workflow that sets the validation DSN, `x-audits.yml`, runs no Playwright at all, so no job
 both wants that DSN and boots a server this change touches.
@@ -424,16 +460,19 @@ in stdout: 0
 in stderr: 1
 ```
 
-**Substring assertions are the wrong oracle here, and three ordinary edits walk straight
-through them.** A check for `TEST_DATABASE_URL=...` is satisfied by `NOT_TEST_DATABASE_URL=...`,
-which assigns the wrong variable; a suffix typo in the DSN (`/postgres-wrong`) leaves the
-substring intact; and flipping "does not work" to "does work" reverses the message's meaning
-while every substring still matches. All three probed against the proposed copy, and all three
-passed every assertion the first draft listed.
+**The oracle is the WHOLE warning, compared for equality.** Two rounds of review each found an
+ordinary copy edit that walked through a partial oracle, and the second set was found after the
+first repair: substring checks admitted `NOT_TEST_DATABASE_URL=`, a `-wrong` DSN suffix and a
+`does not work` -> `does work` inversion; anchoring the remedy line then still admitted `Set
+DATABASE_URL` (the same broken advice, reworded past a regex keyed to `Export`) and a
+contradictory clause appended after an unanchored polarity line.
 
-So the oracle is the LINE, anchored at both ends, not a substring of the blob. That is a
-narrowing rather than a longer list of checks: one assertion that the emitted remedy IS the
-expected remedy replaces three that each admit a different mutant.
+Adding a pattern per escape is the ratchet this project forbids, and the escapes were not
+running out. So the oracle is total: the emitted warning block must EQUAL an expected block.
+There is no "one more phrasing" to chase, because every edit to the copy fails until the
+expected block is updated with it, which is exactly the review moment this guard exists to
+force. The cost is that an intentional copy change is a two-line diff instead of one; that is
+the correct price for a message whose precise wording IS the deliverable.
 
 ```ts
 import { spawnSync } from "node:child_process";
@@ -442,7 +481,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * The preflight warning must give advice that WORKS.
+ * The preflight warning must give advice that WORKS, and must not carry advice that does not.
  *
  * TEST_DATABASE_URL is the LEFT operand of the `??` at every site that resolves a database
  * from it, so setting DATABASE_URL -- what the message used to advise -- changes nothing a
@@ -451,16 +490,21 @@ import { describe, expect, it } from "vitest";
  * honours the variable is what makes a reader stop reading, and it is false: the app server
  * honours it.
  *
- * `--no-db` keeps this hermetic and fast. The deferred warnings flush from an `on("exit")`
+ * The assertion is EQUALITY against the expected block, not a set of substring or line
+ * checks. Partial oracles were tried across two review rounds and each one admitted a
+ * different ordinary edit that restored broken or self-contradicting advice.
+ *
+ * `--no-db` keeps this hermetic and fast: the deferred warnings flush from an `on("exit")`
  * handler, so they print on that early-exit path too, and the test opens no connection.
  */
 const ROOT = join(__dirname, "..", "..");
-const REMOTE = "postgresql://u:p@remote.sentinel.invalid:5432/postgres";
+const REMOTE_HOST = "remote.sentinel.invalid";
+const REMOTE = `postgresql://u:p@${REMOTE_HOST}:5432/postgres`;
 const LOOPBACK = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 // Every var preflight hard-requires, with values its validators accept. CI has no tracked
 // `.env.local`, so without these preflight exits during its env checks -- which run BEFORE
-// the warning -- and every assertion below would be reading an empty string.
+// the warning -- and the comparison below would be against an empty string.
 const REQUIRED_ENV: Record<string, string> = {
   HASH_FOR_LOG_PEPPER: "x".repeat(48),
   PICKER_COOKIE_SIGNING_KEY: "test-signing-key",
@@ -472,83 +516,89 @@ const REQUIRED_ENV: Record<string, string> = {
   GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({ client_email: "x@y.z", private_key: "k" }),
 };
 
+/** The warning, verbatim. Update this WITH any deliberate copy change, never around one. */
+const EXPECTED_WARNING = [
+  `WARN: TEST_DATABASE_URL is NON-LOOPBACK (${REMOTE_HOST}). This is the VALIDATION deployment, and it`,
+  "      is set that way on purpose for the schema-parity gates.",
+  "      Anything that honours this variable writes to validation, where the notify cron sends",
+  "      REAL email to Doug.",
+  "      Test helpers no longer honour it (only the two rows in",
+  "      tests/db/_validationEnvAllowlist.ts do), but the APP SERVER does: route handlers",
+  "      resolve TEST_DATABASE_URL ?? DATABASE_URL, so a locally booted server reads validation.",
+  "      Playwright pins a loopback value on every webServer, so `pnpm test:e2e` is safe; a",
+  "      hand-started `pnpm dev` is not.",
+  "      To point a local run at local Postgres, override the variable itself:",
+  `        TEST_DATABASE_URL=${LOOPBACK} <cmd>`,
+  "      Setting DATABASE_URL does not work, because TEST_DATABASE_URL is the left `??` operand.",
+].join("\n");
+
 function runPreflight(testDatabaseUrl: string) {
   const r = spawnSync(process.execPath, [join(ROOT, "scripts", "preflight-env.mjs"), "--no-db"], {
     cwd: ROOT,
     encoding: "utf8",
     env: { ...process.env, ...REQUIRED_ENV, TEST_DATABASE_URL: testDatabaseUrl },
   });
-  // The warning is written by console.warn, i.e. STDERR. Keep the streams apart so which
-  // stream carries it is itself pinned.
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
-/**
- * The remedy line, whole and anchored. `^\s*` and `$` under /m are what reject
- * `NOT_TEST_DATABASE_URL=` on the left and a `-wrong` DSN suffix on the right; a substring
- * check accepts both.
- */
-const REMEDY_LINE = new RegExp(
-  `^\\s*TEST_DATABASE_URL=${LOOPBACK.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} <cmd>\\s*$`,
-  "m",
-);
-
-// Polarity is load-bearing: "does work" is one edit from "does not work" and inverts the
-// advice while leaving every keyword in place.
-const POLARITY_LINE = /^\s*Setting DATABASE_URL does not work, because TEST_DATABASE_URL is the left/m;
+/** The TEST_DATABASE_URL warning block, from its first line to the blank line or end. */
+function warningBlock(stderr: string): string {
+  const lines = stderr.split("\n");
+  const start = lines.findIndex((l) => l.startsWith("WARN: TEST_DATABASE_URL is NON-LOOPBACK"));
+  if (start === -1) return "";
+  let end = start + 1;
+  while (end < lines.length && /^\s{2,}\S/.test(lines[end])) end += 1;
+  return lines.slice(start, end).join("\n");
+}
 
 describe("preflight's non-loopback TEST_DATABASE_URL warning", () => {
   it("fires at all, on stderr (premise)", () => {
     const { stderr, stdout } = runPreflight(REMOTE);
     expect(stderr, "the warning did not fire").toContain("TEST_DATABASE_URL is NON-LOOPBACK");
+    // The warning is written by console.warn. Which stream carries it is part of the contract:
+    // a test reading stdout would stay red after a correct copy change.
     expect(stdout, "the warning moved to stdout").not.toContain("NON-LOOPBACK");
   });
 
-  it("does not fire for a loopback value (premise: the branch is discriminating)", () => {
-    const { stderr } = runPreflight(LOOPBACK);
-    expect(stderr).not.toContain("TEST_DATABASE_URL is NON-LOOPBACK");
+  it("does not fire for a loopback value (premise: the branch discriminates)", () => {
+    expect(runPreflight(LOOPBACK).stderr).not.toContain("TEST_DATABASE_URL is NON-LOOPBACK");
   });
 
-  it("prints the working override as a whole anchored line", () => {
-    expect(runPreflight(REMOTE).stderr).toMatch(REMEDY_LINE);
-  });
-
-  it("keeps the polarity of the DATABASE_URL note", () => {
-    expect(runPreflight(REMOTE).stderr).toMatch(POLARITY_LINE);
-  });
-
-  it("no longer prints the remedy that cannot work", () => {
-    // A message can carry the new assignment AND the old instruction at once, so presence of
-    // the first does not establish absence of the second.
-    expect(runPreflight(REMOTE).stderr).not.toMatch(/Export DATABASE_URL/i);
-  });
-
-  it("no longer claims that nothing but the allowlist honours the variable", () => {
-    const { stderr } = runPreflight(REMOTE);
-    expect(stderr).not.toContain("no test helper or suite honours it");
-    expect(stderr).not.toContain("so this line is");
+  it("emits exactly the expected warning", () => {
+    // Equality, so ANY edit fails: a reworded broken remedy, an inverted polarity, a
+    // contradictory appended clause, a corrupted DSN, or a wrong variable name.
+    expect(warningBlock(runPreflight(REMOTE).stderr)).toBe(EXPECTED_WARNING);
   });
 });
 ```
 
+The block extractor is the one soft edge, so it carries its own arm: mutant (a) below deletes a
+line from the middle of the warning, which the extractor must still capture and the equality must
+still reject. An extractor that stopped early would make the comparison pass over a truncated
+block.
+
 **Four pre-dispatch mutants, per `docs/agents/writing-plans.md`, run and recorded in the commit.**
 This is a string-presence guard, so all four are obligatory rather than optional:
 
-(a) **Value emptied.** Delete the remedy line from the warning; the anchored-line assertion fails.
-(b) **Expected content plus a suffix.** Append `-wrong` to the DSN. This mutant must **FAIL**, and
-    the first draft of this plan expected it to PASS on the reasoning that the guard should not be
-    pinned to end-of-line. That reasoning was backwards: end-of-line anchoring is exactly what
-    rejects a corrupted DSN, and a suffix-tolerant guard green-lights a remedy nobody can run.
-(c) **Present but not live.** Put the new remedy inside a `//` comment in `preflight-env.mjs` and
-    restore `Export DATABASE_URL` in the emitted string; the remedy and the absence assertions must
-    BOTH fail. This catches a guard reading source rather than output.
-(d) **Discriminating parameter varied.** Run with a LOOPBACK `TEST_DATABASE_URL`; the warning must
-    not fire, which the second premise asserts directly. This proves the test measures the
+(a) **Value emptied.** Delete a line from the MIDDLE of the warning. Equality fails, and this
+    also exercises the block extractor: it must still capture to the end of the block rather
+    than stopping at the hole.
+(b) **Expected content plus a suffix.** Append `-wrong` to the DSN, and separately append a
+    clause to the final sentence. Both must **FAIL**. The first draft of this plan expected the
+    suffix to PASS so the guard would not be "pinned to end-of-line"; that reasoning was
+    backwards, and the appended-clause case is the one that walked through the anchored-line
+    oracle that replaced it.
+(c) **Present but not live.** Put the new copy inside a `//` comment in `preflight-env.mjs` and
+    leave the old text in the emitted string; equality fails. This catches a guard reading
+    source rather than output.
+(d) **Discriminating parameter varied.** Run with a LOOPBACK `TEST_DATABASE_URL`; the warning
+    must not fire, which the second premise asserts directly. This proves the test measures the
     non-loopback branch rather than something printed unconditionally.
 
-Plus the three mutants that walked through the first draft, each of which must now fail:
-`NOT_TEST_DATABASE_URL=` on the remedy line, the `-wrong` DSN suffix from (b), and flipping
-"does not work" to "does work".
+Plus every mutant that walked through an earlier oracle, each of which equality now rejects by
+construction rather than by a rule of its own: `NOT_TEST_DATABASE_URL=` on the remedy line, the
+`-wrong` DSN suffix, `does not work` inverted to `does work`, `Export DATABASE_URL` reworded to
+`Set DATABASE_URL`, and a contradictory clause appended after the polarity sentence.
 
 **Green:** replace the closing two sentences of the warning at `scripts/preflight-env.mjs:181-190`.
 The replacement keeps the allowlist fact, which is true of *helpers*, stops generalising it to the

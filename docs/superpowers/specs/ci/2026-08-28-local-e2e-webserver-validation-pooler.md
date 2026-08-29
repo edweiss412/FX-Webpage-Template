@@ -177,12 +177,14 @@ by falling through — so their behavior is identical.
 
 **They are not the whole set, and an earlier draft of this section said they were.** That claim was
 reached by grepping for workflows that MENTION the variable and generalising from the ones that
-turned up, which cannot see the workflows that mention neither. Four workflows boot a newly-pinned
-server while setting no DB key, and for them the pin is a real change rather than a no-op. The full
-derivation — by `webServer` filter env var, by which config each job passes to Playwright, and by
-whether that config declares a `webServer` at all — plus the reachability argument for those four,
-lives in the plan's Task 1 under "What this does to CI, derived rather than assumed". It is kept in
-one place rather than restated here, because two copies of a four-group derivation drift.
+turned up, which cannot see the workflows that mention neither. Seven Playwright INVOCATIONS across five
+workflows boot a newly-pinned server while setting no DB key, and for them the pin is a real change
+rather than a no-op — a beneficial one, since those jobs run their own local Postgres and the pin
+replaces a production throw with a working connection. The unit is the invocation, not the
+workflow: `DATABASE_URL` is set with step-level `env:`, so `lifecycle-layout-e2e.yml` carries it on
+two of its five invocations and not the other three. The full derivation lives in the plan's Task 1
+under "What this does to CI, derived rather than assumed", and is kept in one place rather than
+restated here, because two copies of a four-group derivation drift.
 
 The only workflow that sets `TEST_DATABASE_URL` to the validation secret is `x-audits.yml` (lines
 325, 363, 411, 484), and it runs **no** Playwright at all (`rg -c playwright .github/workflows/x-audits.yml`
