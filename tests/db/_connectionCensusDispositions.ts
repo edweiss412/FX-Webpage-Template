@@ -83,6 +83,13 @@ export const CONNECTION_CENSUS_DISPOSITIONS: readonly DispositionRow[] = [
       "non-literal dynamic import of a parser block by a computed path under lib/parser; opens no connection",
   },
   {
+    file: "tests/ci/webserverDatabasePin.test.ts",
+    site: "resolve(ROOT, file)",
+    kind: "unclassifiable",
+    reason:
+      "non-literal dynamic import of a Playwright config by a computed path, which is what the guard IS: it discovers every *.config.ts from disk and asks the resolved object whether it holds webServer entries, so a literal specifier would defeat the coverage the guard exists for. A Playwright config declares servers and opens no connection of its own",
+  },
+  {
     file: "tests/cross-cutting/fixtures/no-global-cursor/bad-aliased.ts",
     site: "./state",
     kind: "unclassifiable",
