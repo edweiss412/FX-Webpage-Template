@@ -8,24 +8,6 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
-## BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS - the near-miss detector flags rows in blocks that are not field lists, and the card's advice is wrong there
-
-**Status:** OPEN · **Filed:** 2026-08-27 (`fix/wizard-warning-row-links-copy`, owner-directed from the RIA wizard screenshot) · **Facing:** product · **Severity:** LOW-MEDIUM (a wrong instruction on a shipped admin card; nothing is corrupted) · **Class:** detector candidacy scope · **Effort:** M · **Class-sweep exception:** (a): which block shapes are legitimate near-miss homes is a product decision the link arc could not settle. · **Reachability:** PROBED: the parser run recorded in spec 2026-08-27-wizard-warning-row-links-copy §1, `parseSheet` on `fixtures/shows/raw/2025-06-ria-investment-forum.md` at `66c9857f5`.
-
-`detectFieldNearMisses` (`lib/parser/fieldNearMiss.ts`) treats every pipe-run block as a candidate home for a near-miss row. Two block shapes in the corpus are not field lists at all: a Google-Form response dump whose opener is `Timestamp`, on the RIA workbook's `FORM` tab (`FORM!A1`; the flagged rows are `FORM!A29` `Room Diagram` and `FORM!A30` `Backdrop`), and an inventory matrix whose opener is `Console`, on its `3rd Level` tab (`3rd Level!A2` `Speaker`). The markdown fixture concatenates tabs, which is how an earlier draft placed these on `INFO` and `GEAR`; the workbook has no `GEAR` tab. The detector reports `Room Diagram` in the form dump as a near-miss of the `DETAILS/ROOM DIAGRAM` section header and `Speaker` in the inventory matrix as a near-miss of `Virtual Speaker`:
-
-```
-UNKNOWN_FIELD  blockRef {kind:"timestamp", name:"Room Diagram"}  candidate "DETAILS/ROOM DIAGRAM"
-UNKNOWN_FIELD  blockRef {kind:"timestamp", name:"Backdrop"}      candidate "Backdrop / Scenic"
-UNKNOWN_FIELD  blockRef {kind:"console",   name:"Speaker"}       candidate "Virtual Speaker"
-```
-
-The card then tells Doug to "rename this row in your sheet so it matches the row we show", which is wrong in both blocks: neither row was ever going to show. The link arc gave these rows a working "Open in Sheet" (they were link-less before), which makes the wrong advice easier to follow, not less wrong.
-
-**Two candidate repairs, neither chosen here.** (1) Exclude blocks whose opener is not a known section family or a field-list opener (a `Timestamp` opener is a form dump; a row whose value cells number more than two is a matrix). (2) Require the candidate vocabulary entry's own block family to match the row's block (a `DETAILS` vocabulary entry should not fire in a `timestamp` block). Either moves the 65-row measured baseline (`tests/parser/fieldNearMissBaseline.test.ts`), so the repair is a calibrated detector arc with its own hit/miss table, not a patch on this one.
-
-**Done condition (outside the process):** on the RIA sheet, the wizard's Sheet warnings panel lists no near-miss row for `Room Diagram`, `Backdrop`, or `Speaker`, and the baseline suite's corpus multiset is re-measured and re-ratified.
-
 ## BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE — a stated numeric table with no command that produces it, named by four arcs and still unmechanized
 
 **Status:** OPEN · **Filed:** 2026-08-28 (`fix/severityless-warning-filters`, diff R3 finding 2) · **Facing:** process · **Mint-exception:** recurrence · **Severity:** LOW-MEDIUM (a spec table drifts from the tree with nothing able to compare them) · **Class:** evidence provenance · **Effort:** M

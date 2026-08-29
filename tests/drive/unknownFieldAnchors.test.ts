@@ -6,7 +6,7 @@ import {
   normalizeCellKey,
 } from "@/lib/drive/unknownFieldAnchors";
 import { parseSheet } from "@/lib/parser";
-import { premiseHolds } from "@/tests/_shared/premise";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
@@ -327,7 +327,15 @@ describe("extractUnknownFieldAnchors", () => {
 });
 
 describe("spec 2026-08-27 §2: anchors follow the exporter's blocks, every kind, every tab the exporter includes", () => {
-  it("the dispatching show's workbook (ria.xlsx): the three near-miss rows resolve to their own cells", async () => {
+  it("the dispatching show's workbook (ria.xlsx): no near-miss row survives to be anchored", async () => {
+    // INVERTED by the block-candidacy narrowing (spec
+    // docs/superpowers/specs/parser/2026-08-28-nearmiss-candidacy-field-lists-design.md).
+    // Unlike its siblings below, this case's SUBJECT was the three rows themselves, not a
+    // carrier, so re-pointing it would change what it is about. It becomes the ledger
+    // row's done condition at the workbook seam: `Room Diagram` and `Backdrop` sit in the
+    // FORM tab's Timestamp form dump and `Speaker` in the `3rd Level` console matrix, and
+    // none of those is a field list. Kept rather than deleted so this file still covers
+    // the dispatching show's own workbook.
     const buffer = fixtureBuffer("fixtures/shows/exporter-xlsx/ria.xlsx");
     const wb = XLSX.read(buffer, { type: "array" });
     const gids = new Map(wb.SheetNames.map((n, i) => [n, i] as const));
@@ -351,46 +359,39 @@ describe("spec 2026-08-27 §2: anchors follow the exporter's blocks, every kind,
       return hits[0]!;
     };
 
-    const byName = new Map(
+    // Premise, and the reason `cellOf` survives the inversion: the three rows are still
+    // PHYSICALLY IN the workbook, each exactly once, on the tab it always sat on. Without
+    // this the silence below would also pass against a fixture that lost the rows, which
+    // is the failure this case is least able to notice on its own.
+    premiseHolds("Room Diagram is still on FORM", cellOf("FORM", "Room Diagram").length > 0);
+    premiseHolds("Backdrop is still on FORM", cellOf("FORM", "Backdrop").length > 0);
+    premiseHolds("Speaker is still on 3rd Level", cellOf("3rd Level", "Speaker").length > 0);
+    // And the parse is alive: it still emits warnings and still anchors them, so the
+    // silence is the candidacy rule rather than a dead pipeline.
+    premise("the workbook still emits warnings", parsed.warnings.length, 0);
+    premise(
+      "and anchoring still runs over them",
+      parsed.warnings.filter((w) => w.sourceCell !== undefined).length,
+      0,
+    );
+
+    expect(
       parsed.warnings
         .filter((w) => w.code === "UNKNOWN_FIELD")
-        .map((w) => [w.blockRef?.name, w.sourceCell ?? null]),
-    );
-    premiseHolds(
-      "the three RIA near-miss rows are emitted",
-      ["Room Diagram", "Backdrop", "Speaker"].every((n) => byName.has(n)),
-    );
-    // The rows live on FORM and `3rd Level` (spec §1); this workbook has no GEAR tab.
-    expect(byName.get("Room Diagram")).toEqual({
-      title: "FORM",
-      gid: gids.get("FORM"),
-      a1: cellOf("FORM", "Room Diagram"),
-      scope: "cell",
-    });
-    expect(byName.get("Backdrop")).toEqual({
-      title: "FORM",
-      gid: gids.get("FORM"),
-      a1: cellOf("FORM", "Backdrop"),
-      scope: "cell",
-    });
-    expect(byName.get("Speaker")).toEqual({
-      title: "3rd Level",
-      gid: gids.get("3rd Level"),
-      a1: cellOf("3rd Level", "Speaker"),
-      scope: "cell",
-    });
-    for (const name of ["Room Diagram", "Backdrop", "Speaker"]) {
-      const c = byName.get(name)!;
-      expect(buildSheetDeepLink("dfid", c)).toBe(
-        `https://docs.google.com/spreadsheets/d/dfid/edit#gid=${c.gid}&range=${c.a1}`,
-      );
-    }
+        .map((w) => `${w.blockRef?.kind}|${w.blockRef?.name}`),
+    ).toEqual([]);
   });
 
-  it("a Timestamp-opened INFO block and a Console-opened GEAR block both anchor to the row's own label cell", async () => {
+  it("an INFO block and a Console-opened GEAR block both anchor to the row's own label cell", async () => {
+    // The INFO block's opener was `Timestamp` until the block-candidacy narrowing (spec
+    // docs/superpowers/specs/parser/2026-08-28-nearmiss-candidacy-field-lists-design.md)
+    // made form dumps non-candidate homes. These cases are about ANCHOR RESOLUTION, a
+    // mechanism this arc does not touch; only their CARRIER was dead, so each is
+    // re-pointed to a block family the rule admits rather than retired. Retiring them
+    // would silently shrink anchor coverage.
     const warnings = await anchoredUnknownFields({
       INFO: [
-        ["Timestamp", "6/1/2025"],
+        ["Intake Log", "6/1/2025"],
         ["Room Diagram", ""],
         ["Backdrop", ""],
       ],
@@ -410,7 +411,7 @@ describe("spec 2026-08-27 §2: anchors follow the exporter's blocks, every kind,
     const warnings = await anchoredUnknownFields({
       INFO: [["CLIENT", "x"]],
       FORM: [
-        ["Timestamp", "t"],
+        ["Intake Log", "t"],
         ["Backdrop", ""],
       ],
     });
@@ -427,7 +428,7 @@ describe("spec 2026-08-27 §2: anchors follow the exporter's blocks, every kind,
     XLSX.utils.sheet_add_aoa(
       ws,
       [
-        ["Timestamp", "t"],
+        ["Intake Log", "t"],
         ["Backdrop", ""],
       ],
       { origin: "B2" },
@@ -460,7 +461,7 @@ describe("spec 2026-08-27 §2: anchors follow the exporter's blocks, every kind,
   it("duplicate (kind,label,value) on one tab → the tab, not either cell; the same kind on two tabs → null", async () => {
     const dup = await anchoredUnknownFields({
       INFO: [
-        ["Timestamp", "t"],
+        ["Intake Log", "t"],
         ["Backdrop", ""],
         ["Backdrop", ""],
       ],
@@ -473,11 +474,11 @@ describe("spec 2026-08-27 §2: anchors follow the exporter's blocks, every kind,
 
     const split = await anchoredUnknownFields({
       INFO: [
-        ["Timestamp", "t"],
+        ["Intake Log", "t"],
         ["Backdrop", ""],
       ],
       GEAR: [
-        ["Timestamp", "t"],
+        ["Intake Log", "t"],
         ["Backdrop", ""],
       ],
     });

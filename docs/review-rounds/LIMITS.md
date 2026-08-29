@@ -193,7 +193,7 @@ Reproduce the populations with `python3 scripts/probe/red-truth-census.py`.
 
 **Shape:** An assertion whose extraction is narrower than the property in its own test name, so it passes for a reason unrelated to the behaviour: eight instances across two rounds, three proven by mutant. The general repair is to give the assertion a contest it can lose, a negative control, a premise on the fixture, or a bound derived from the same quantity the implementation uses; the sketched guard fails any case whose fixture cannot discriminate.
 
-**Named by:** 2 arcs — feat/review-modal-strip-dock/75b8f7a3ec76.md (diff), fix/published-attention-escape-race/60dece4d5722.md (diff: four findings across three consecutive rounds, every one an assertion aimed at a branch reachable only in a state jsdom cannot stage. Its repair is the one to copy and it is not a test change: the decision moved into a pure function so the branch became reachable, after three rounds spent writing better proxies for it. The re-file trigger does NOT fire on this naming — that arc authored every instance itself and was blocked by none)
+**Named by:** 3 arcs — feat/review-modal-strip-dock/75b8f7a3ec76.md (diff); fix/nearmiss-non-field-blocks/31beee5de40e.md (spec; an emission check reading a field the emitter does not set, so every case read "not emitted", and an injected label that was itself a corpus label and so ambiguous in nine blocks); fix/published-attention-escape-race/60dece4d5722.md (diff: four findings across three consecutive rounds, every one an assertion aimed at a branch reachable only in a state jsdom cannot stage. Its repair is the one to copy and it is not a test change: the decision moved into a pure function so the branch became reachable, after three rounds spent writing better proxies for it). The last two arcs each bumped this count from 1 to 2 on the same day without seeing the other, and their edits conflicted on this line; whichever an auto-merge had taken, the number would have read 2 with three arcs listed underneath it. Recorded because this index's counts are hand-maintained and that is the shape in which they go wrong.
 
 **Owning record:** none — this index is the record (the filing notes the done condition ranges over an open space of test shapes, so it is refutable once per round forever)
 
@@ -311,3 +311,13 @@ Reproduce the populations with `python3 scripts/probe/red-truth-census.py`.
 **Owning record:** none — this index is the record. The mechanizable form would relate a workflow's server-start posture to the env-gated paths its named specs can reach, which needs a reachability model no lint here has.
 
 **Re-file trigger:** a second arc charged a review finding, or a red CI run, for a test that passes locally and fails in CI on an `NODE_ENV`-gated branch
+
+## LIM-PROBE-PERTURBS-SUBJECT
+
+**Shape:** A probe or guard whose own CONSTRUCTION changes the property it is measuring, so it decides against a subject the rule would classify differently from the one it computed its expectation against. Distinct from `LIM-NONDISCRIMINATING-FIXTURE`, where the assertion's extraction is too narrow: here the assertion is right and the subject moved under it, and the repair is an invariance assertion rather than a negative control. Measured instance: a binding probe appended a one-value-cell row to every corpus block to establish "does this block emit", which dropped each block's minimum value-cell count below the rule's threshold — 151 of 514 blocks perturbed, 18 across the decision boundary, making the criterion unsatisfiable without violating the rule it tested. The repair pads the injected row to the block's own minimum and re-derives the classification inputs FROM the constructed input, asserting they match the originals.
+
+**Named by:** 1 arc — fix/nearmiss-non-field-blocks/31beee5de40e.md (spec)
+
+**Owning record:** the filing is the documented limit; the shipped invariance assertion lives in docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-candidacy-probe.ts (TABLE-L's third control) for reuse
+
+**Re-file trigger:** a 3rd distinct arc naming it, or a product-facing arc blocked by a probe that moved its own subject
