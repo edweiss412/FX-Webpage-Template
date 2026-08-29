@@ -143,6 +143,26 @@ The red is genuine and mechanical: this task's commit is the one that names both
 
 Round 1 was right that `_metaLedgerInProgress` accepts both the in-progress and the graduated state and so cannot carry this. `_metaDeferralLedgerGraduation` can: adding this row's id to `BACKLOG_GRADUATED` with its branch as provenance makes the guard FAIL until the row is actually archived with that provenance, and pass once it is. The marker comes off and the row is archived in the PR's LAST commit, per invariant 12.
 
+### Task 7 — the stale fitted cap that flaps popover-clip-fit on CI
+
+<!-- task: red=`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts -g "re-fits when the viewport shrinks under an open menu"` ac=AC-REFIT-AWAIT,AC-REFIT-COVER -->
+
+**In-arc repair of a defect this arc's investigation attributed** (bl-orch disposition, 2026-08-29). Not scope creep: `tests/e2e/popover-clip-fit.spec.ts` is a surface Task 3 already runs, and the defect was diagnosed here.
+
+**What it is.** `popover-clip-fit.spec.ts` was flapping on CI across branches whose diffs touch nothing in this path, at a constant 20px ("scroller 384 vs available 364"). Measured at `origin/main` HEAD, one run, all cells passing: the scroller's healthy `clientHeight` is 273 at 390x560, **364 at 375x667**, **384 at 375x844**, 384 at 1280x800. So the CI failure is the 375x844 cap measured against 375x667 room. Not a scrollbar (band measures 0 on both axes under overlay scrollbars, and it would move width, not height) and not a row (rows are 45.3 and 64.8).
+
+**Why it flaps rather than failing outright.** `page.setViewportSize` returns before the renderer has necessarily applied the new size, so the freshly navigated document can run its first placement against the PREVIOUS cell's viewport; the `ResizeObserver` re-fit then lands after the assertion has already sampled. That is why the delta is a CONSTANT 20 (the difference between two fixed cells) rather than a varying magnitude, and why it flaps in both directions per runner. Local evidence: 3 failures in 7 full-file runs, 0 in 6 runs of the same cells in isolation, and 3 passes under deliberate 8-core load, so the trigger is cell ADJACENCY and not load.
+
+**The repair settles EVERY cell boundary, not the two observed pairs** (bl-orch, 2026-08-29), and putting the await in `openMenu` alone would NOT have been that. Counted in the file: 33 `setViewportSize` sites and 5 `page.goto` sites, of which only two sit inside a shared helper (`openMenu`, `openToggleBanner`). Three navigations are bare, so a helper-only fix leaves the toggle-banner containment cases and three other entry points on the old path — the same defect, one level over.
+
+So: one `settleAtViewport` entry point that owns setting the viewport, navigating, awaiting hydration, waiting until `window.innerWidth`/`innerHeight` actually equal the intended size, and polling the fitted geometry to two agreeing samples. Every test in the file routes through it. The file already carries `settledGeometry` for exactly this purpose; these assertions were the ones not using it.
+
+**Derived cover, not a longer list.** Routing today's five sites is an enumeration that reopens the moment someone adds a sixth, so the task also adds a narrow structural assertion over this one file: no bare `page.goto(` or `page.setViewportSize(` outside the helper. A new entry point then fails by default instead of silently inheriting the race.
+
+A tolerance widening is explicitly NOT the repair. The numbers are correct at every cell, and loosening the bound would hide a real cap regression.
+
+**The regression case, which fails under a simulated stale cap.** Open the menu at 375x844 so the cap is 384, then shrink to 375x667 WITHOUT re-navigating, and assert the scroller settles to 364. Remove the await and it reads 384 and fails; keep it and it re-fits. The stale cap is staged rather than mocked, so the case exercises the real `ResizeObserver` path.
+
 <!-- tasks: end -->
 
 ### 3.1 Both new reds are probed, not asserted
@@ -182,9 +202,13 @@ Every row of §2 that names an implementable assertion has an id here, and every
 - **AC-ANCHOR-WRAPPER** (REGRESSION, green on arrival) — the panel's top edge sits below the pill WRAPPER's bottom edge, which differs from the pill's own because the wrapper carries the title block. Exists because re-anchoring to `pillRef` reintroduces this arc's defect through an otherwise-green suite.
 - **AC-WIZARD-MIRROR** — on a positive Task 0 only: the wizard satisfies the same predicate obligations as the published surface, not a chosen subset.
 - **AC-IMPECCABLE** — both gate halves run on the diff, every P0 and P1 fixed or carrying a `DEFERRED.md` entry, and the marker line written with real counts.
+- **AC-REFIT-AWAIT** — with the menu opened at 375x844 and the viewport then shrunk to 375x667 without re-navigation, the scroller settles to the 375x667 cap (364) rather than holding the 375x844 cap (384). Fails if the re-fit await is removed. Derived from measured per-cell values, not hardcoded.
+- **AC-REFIT-COVER** — no bare `page.goto(` or `page.setViewportSize(` survives outside the single settle helper in `popover-clip-fit.spec.ts`. Fails by default when a new entry point is added, which is what makes this a derived cover rather than a list of the five sites that exist today.
 - **AC-GRADUATION** — the in-progress marker is off and the row archived with its branch as provenance, in the PR's last commit.
 
 ## 12. Close-out
+
+**For the PR body:** this branch carries an in-arc repair of a defect it did not introduce. `popover-clip-fit.spec.ts` was flapping fleet-wide on CI at a constant 20px; this arc's investigation attributed it to a stale fitted cap leaking across parameterized viewport cells in the single worker, and bl-orch dispositioned the repair in-arc (2026-08-29) because this arc already touches that surface. It is a test defect, process-facing, and files no ledger row under the mint freeze. Task 7 and AC-REFIT-AWAIT.
 
 UI surface: `components/admin/showpage/PublishedReviewModal.tsx`, and `components/admin/wizard/Step3ReviewModal.tsx` if Task 4's probe comes back positive. The dual gate is owed before READY.
 
