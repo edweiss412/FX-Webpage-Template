@@ -225,7 +225,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-WIZARD-REPORT-DRAFT-LOST-ON-ESCAPE — Escape closes the wizard review modal and discards a typed report draft
 
-**Status:** OPEN · **Filed:** 2026-08-29 (`feat/wizard-warning-ignore-controls`, closeout seam check after absorbing #940) · **Facing:** product · **Severity:** LOW (one un-sent report message; the warning itself is untouched and the operator can retype) · **Class:** unsaved-input dismissal · **Effort:** S · **Class-sweep exception:** (a) — whether a dirty field should trap Escape is a product decision, and it now interacts with a consumed-key design that landed on the published side in the same week.
+**Status:** IN PROGRESS · **Branch:** fix/wizard-report-draft-escape · **Filed:** 2026-08-29 (`feat/wizard-warning-ignore-controls`, closeout seam check after absorbing #940) · **Facing:** product · **Severity:** LOW (one un-sent report message; the warning itself is untouched and the operator can retype) · **Class:** unsaved-input dismissal · **Effort:** S · **Class-sweep exception:** (a) — whether a dirty field should trap Escape is a product decision, and it now interacts with a consumed-key design that landed on the published side in the same week.
 
 **What is wrong.** `Step3ReviewModal` renders through `ReviewModalShell` (`components/admin/wizard/Step3ReviewModal.tsx:480`) and passes no `onEscapeCapture`, so the shell's key handler falls through to `requestClose()` unconditionally (`components/admin/review/ReviewModalShell.tsx:261-262`). A half-typed report message in the wizard warnings panel textarea (`components/admin/wizard/step3ReviewSections.tsx:4723`) goes with the modal, with no prompt.
 
