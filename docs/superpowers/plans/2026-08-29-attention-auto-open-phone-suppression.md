@@ -32,6 +32,7 @@ Every named file, symbol, testid and harness API below was checked against the l
 | `tests/e2e/wizard-attention-menu.spec.ts` | 375x667, 375x844, 390x560 | HARD. `openModal` (`tests/e2e/wizard-attention-menu.spec.ts:136-150`) asserts `aria-expanded="true"` and waits for the panel on arrival. Only touched if P-1 is positive; then it becomes width-aware. |
 | `tests/e2e/popover-clip-fit.spec.ts` | same three | NONE. `openMenu` (`tests/e2e/popover-clip-fit.spec.ts:171-181`) already clicks the pill when auto-open did not fire. This is the tolerant shape the wizard helper would adopt. |
 | `tests/e2e/published-review-modal.layout.spec.ts` | 375x812 | NONE, checked rather than assumed: its three pill references measure the pill's rect, hit band and text cap and never open or await the menu. **Task 2 still runs it**, because "a closed menu does not move the pill" is a layout claim and this repo settles those in a real engine. |
+| `tests/e2e/_p1WizardOcclusionProbe.spec.ts` | 375x667, 375x844, 390x560 | HARD, and MISSED by the first two versions of this table. It asserts `aria-expanded="true"` on arrival (`tests/e2e/_p1WizardOcclusionProbe.spec.ts:114`) at exactly the widths Task 3 suppresses. It is this arc's own temporary probe, its result is recorded in spec §5.1, and Task 3 DELETES it rather than repairing it. It is also absent from the standalone baseline, so it reds that gate today. |
 | Every jsdom suite that renders an auto-opened menu | n/a | NONE by construction: the global stub answers `matches: false`, so the suppression query reads false. This is why §2 of the spec spells the predicate as positive evidence. **Task 2 proves it**, with the six suites named and the command written out, rather than asserting it here. |
 
 ## 2. Obligations: every claim in the spec, and the assertion that settles it
@@ -88,11 +89,19 @@ node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/
 
 Its output selects the branch Task 3 takes. It runs FIRST because that branch decides how much of the work exists.
 
-<!-- tasks: depth=3 -->
+**Two pieces of CI wiring that every task below touches, stated once here rather than forgotten in each.** Round 3 found both, and one of them is live on this branch right now.
+
+**The standalone baseline.** `.github/workflows/standalone-e2e.yml:70` runs the whole standalone config and compares the report against `tests/e2e/standalone-baseline.json`, and the comparator rejects extra FILES and extra test IDENTITIES alike (`scripts/check-standalone-baseline.mjs:180`). So every task that registers a new spec, or adds a named case to a registered one, regenerates the baseline with `node scripts/check-standalone-baseline.mjs --write` and commits it in the SAME commit. That is Task 1 (new occlusion spec), Task 2 (new suppression spec), Task 3 (the P-1 removal below), and Task 5 (a new named case in a registered file).
+
+**The P-1 probe is unbaselined TODAY, so this gate is already red on this branch.** `tests/e2e/_p1WizardOcclusionProbe.spec.ts` was registered in `tests/e2e/standalone.config.ts:86` when the measurement ran, and `tests/e2e/standalone-baseline.json` was never regenerated — grep it for `_p1Wizard` and there is nothing. That is my defect from commit `787acdef3`, not a consequence of this plan, and it would have surfaced as a red gate on the first PR run.
+
+It also cannot simply be baselined and left: the probe asserts `aria-expanded="true"` on arrival at the three phone widths (`tests/e2e/_p1WizardOcclusionProbe.spec.ts:114`), which is exactly what Task 3 makes false. Its own header says it is temporary and deleted once the result lands, and the result HAS landed, in spec §5.1. **Task 3 deletes the file, removes its `testMatch` entry, and regenerates the baseline.** Round 3 was right that the blast-radius table claimed an enumeration while missing a suite its own arc had added.
+
+<!-- tasks: depth=3 red-contract -->
 
 ### Task 1 — the shared occlusion helper
 
-<!-- task: red=`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/occlusion-probe.spec.ts` ac=AC-OCCLUSION-DISCRIMINATES,AC-OCCLUSION-NONVACUOUS,AC-OCCLUSION-PARTIAL -->
+<!-- task: red=`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/occlusion-probe.spec.ts` red-state=authored red-target=`tests/e2e/helpers/occlusionProbe.ts` why=`probeOcclusion does not exist; the task lands a stub returning empty results so the new cases fail on their CONTENTS rather than on an unresolved import` ac=AC-OCCLUSION-DISCRIMINATES,AC-OCCLUSION-NONVACUOUS,AC-OCCLUSION-PARTIAL -->
 
 New files: tests/e2e/helpers/occlusionProbe.ts, tests/e2e/occlusion-probe.spec.ts, and its static fixture page. Registered in tests/e2e/standalone.config.ts testMatch in the same commit.
 
@@ -106,9 +115,17 @@ Fixture stages four cases on one page, absolutely positioned so the geometry is 
 
 ### Task 2 — the predicate: author the failing assertions, then implement
 
-<!-- task: red=`sh -c 'node_modules/.bin/vitest run tests/components/admin/showpage/autoOpenWidthSuppression.test.tsx && node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-autoopen-suppress.spec.ts'` ac=AC-SUPPRESS-PHONE,AC-OPEN-DESKTOP,AC-REVEAL-TIME-READ,AC-CANCELLED-FRAME,AC-EMPTY-NO-CONSUME,AC-FOCUS-IDENTITY,AC-ARIA-EXPANDED,AC-BOUNDARY-640,AC-TOGGLE-OPERABLE,AC-PILL-TAP,AC-PILL-COUNT,AC-ANCHOR-WRAPPER,AC-RESIZE-SHRINK-STAYS-OPEN,AC-RESIZE-WIDEN-STAYS-CLOSED,AC-OPERATOR-OPENED-SURVIVES -->
+<!-- task: red=`sh -c 'node_modules/.bin/vitest run tests/components/admin/showpage/autoOpenWidthSuppression.test.tsx; j=$?; node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-autoopen-suppress.spec.ts; b=$?; exit $((j|b))'` red-state=authored red-target=`components/admin/showpage/PublishedReviewModal.tsx:780` why=`the auto-open callback sets the one-shot and opens with no width guard at all, so every suppression case fails on behaviour in BOTH vehicles` ac=AC-SUPPRESS-PHONE,AC-OPEN-DESKTOP,AC-REVEAL-TIME-READ,AC-CANCELLED-FRAME,AC-EMPTY-NO-CONSUME,AC-FOCUS-IDENTITY,AC-ARIA-EXPANDED,AC-BOUNDARY-640,AC-TOGGLE-OPERABLE,AC-PILL-TAP,AC-PILL-COUNT,AC-ANCHOR-WRAPPER,AC-RESIZE-SHRINK-STAYS-OPEN,AC-RESIZE-WIDEN-STAYS-CLOSED,AC-OPERATOR-OPENED-SURVIVES -->
 
-**One red command, both vehicles, conjoined under `sh -c`.** The marker grammar takes exactly one `red=`, and both vehicles must pass, so the conjunction is the honest single verdict rather than a way to smuggle in two. The `sh -c '…'` wrapping is this repo's established form for a compound red (`docs/superpowers/plans/2026-08-26-nearmiss-candidate-render.md:138`). Round 2 was right that the earlier split marked only the Vitest command while claiming browser-only ids (AC-TOGGLE-OPERABLE, AC-PILL-TAP, AC-ANCHOR-WRAPPER) on the same task: a jsdom command cannot fail for a geometry reason, so those ids had no named pre-implementation execution at all. jsdom computes no layout; a real engine does not let you sample a width inside an animation frame you control. Neither vehicle is optional and neither covers the other.
+**One red command, both vehicles, and NOT joined by `&&`.** Round 3 caught the version that was, and `docs/agents/writing-plans.md` already rejects that shape by name: a conjunct behind `&&` whose earlier expected failure short-circuits it is "asserted red, never observed", because the conjunction is the GREEN criterion, not the red one. Under `&&` the jsdom command fails, which is the point, and the browser command then never runs at all — so the browser-only ids would be claimed on a vehicle that was never executed. I walked into a trap this repo had already documented.
+
+The marker grammar takes exactly one `red=`, so both run unconditionally and their statuses are OR-ed:
+
+```
+sh -c 'CMD_A; a=$?; CMD_B; b=$?; exit $((a|b))'
+```
+
+Both are observed on every invocation, the exit is non-zero if either failed, and it is a single honest verdict rather than two smuggled in. Parse-checked with `sh -nc`, which is what the red-contract arm does on dispatch. Round 2 was right that the earlier split marked only the Vitest command while claiming browser-only ids (AC-TOGGLE-OPERABLE, AC-PILL-TAP, AC-ANCHOR-WRAPPER) on the same task: a jsdom command cannot fail for a geometry reason, so those ids had no named pre-implementation execution at all. jsdom computes no layout; a real engine does not let you sample a width inside an animation frame you control. Neither vehicle is optional and neither covers the other.
 
 **Steps, in order, one commit at the end.**
 
@@ -136,11 +153,13 @@ The regression assertions in the browser spec (AC-ANCHOR-WRAPPER, the pill hit-b
 
 ### Task 3 — the wizard repair (Task 0 came back POSITIVE, so this runs)
 
-<!-- task: red=`sh -c 'node_modules/.bin/vitest run tests/components/admin/wizard/wizardAutoOpenWidthSuppression.test.tsx && node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/wizard-attention-menu.spec.ts'` ac=AC-WIZARD-MIRROR,AC-WIZARD-ESC-OWNERSHIP -->
+<!-- task: red=`sh -c 'node_modules/.bin/vitest run tests/components/admin/wizard/wizardAutoOpenWidthSuppression.test.tsx; j=$?; node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/wizard-attention-menu.spec.ts; b=$?; exit $((j|b))'` red-state=authored red-target=`components/admin/wizard/Step3ReviewModal.tsx:375` why=`the wizard's rAF opens unconditionally, so the mirrored suppression cases fail in jsdom AND the width-aware openModal fails in the browser` ac=AC-WIZARD-MIRROR,AC-WIZARD-ESC-OWNERSHIP -->
 
 Task 0 measured POSITIVE at 375x667, 375x844 and 390x560 (spec §5.1), so this task runs. The wizard gets the identical predicate at the identical position and inherits the WHOLE obligation set, not a subset. `openModal` becomes width-aware, expecting auto-open at ≥`sm` and opening by tapping the chip below it, which is the tolerant shape `popover-clip-fit.spec.ts`'s `openMenu` already uses.
 
 The red is real: the mirrored suppression cases are authored first and fail against the wizard's unguarded effect (`components/admin/wizard/Step3ReviewModal.tsx:364-383`). Same step order as Task 2 — author, observe both reds, implement, green, one commit.
+
+**This task also retires the P-1 probe**, in the same commit: delete `tests/e2e/_p1WizardOcclusionProbe.spec.ts`, drop `_p1WizardOcclusionProbe` from the `testMatch` alternation at `tests/e2e/standalone.config.ts:86`, and regenerate the baseline. Its arrival assertion is false under this task's own change, and its purpose is discharged — the measurement it produced is in spec §5.1. Deleting it is the plan's only correct move: repairing it would keep a temporary probe alive as a permanent suite asserting a superseded behaviour.
 
 **Both vehicles, for the same reason Task 2 needs both.** Round 2 was right that naming only the Playwright suite cannot establish AC-WIZARD-MIRROR: the inherited obligation set includes the reveal-time read, and §2 of the table says in writing that this case CANNOT be a browser case, because `page.setViewportSize` crosses CDP asynchronously and races the very frame the assertion must land inside. So a wizard implementation that samples width before `requestAnimationFrame` would satisfy a Playwright-only Task 3 while violating the obligation it claims to inherit. The mirrored jsdom cases go in a new tests/components/admin/wizard/wizardAutoOpenWidthSuppression.test.tsx, against the wizard's own harness, with the same query-aware `matchMedia` Task 2 installs — the ambient stub at `tests/setup.ts:84-95` is as much a hazard here as there.
 
@@ -150,27 +169,13 @@ AC-WIZARD-MIRROR quantifies over the published surface's obligations, which is e
 
 ### Task 4 — invariant 8, the UI gate
 
-<!-- task: red=`node_modules/.bin/vitest run tests/docs/_metaInvariant8Closeout.test.ts` ac=AC-IMPECCABLE -->
+<!-- task: red=`node_modules/.bin/vitest run tests/docs/_metaInvariant8Closeout.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-29-attention-auto-open-phone-suppression.md:279` why=`this task's edit is the one that names both gate halves in section 12, which attaches the obligation; the guard then fails until the marker line lands with real counts` ac=AC-IMPECCABLE -->
 
 The red is genuine and mechanical: this task's commit is the one that names both gate halves in §12, and naming them attaches the obligation, so the closeout guard fails until the marker line lands with real counts. It passes once the marker is written. That is exactly the red-then-green shape, using the repo's own guard rather than a lint that cannot see the gate.
 
-### Task 5 — graduation
+### Task 5 — the stale fitted cap that flaps popover-clip-fit on CI
 
-<!-- task: red=`node_modules/.bin/vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` ac=AC-GRADUATION -->
-
-Round 1 was right that `_metaLedgerInProgress` accepts both the in-progress and the graduated state and so cannot carry this. `_metaDeferralLedgerGraduation` can: adding this row's id to `BACKLOG_GRADUATED` with its branch as provenance makes the guard FAIL until the row is actually archived with that provenance, and pass once it is.
-
-**This task IS the PR's last commit, and both halves of the cycle are inside it.** The earlier version created the red in this task's commit and cleared it in a later one, which is the same defect round 2 found in Tasks 1 and 2 — the round did not name this third instance; the sweep for the shape did. Invariant 12 requires the marker off and the row archived in the PR's LAST commit, so the resolution is not to move the green earlier but to make this task that commit:
-
-1. Add the row's id to `BACKLOG_GRADUATED` with the branch as provenance. Run the guard, observe the RED.
-2. Archive the row into `BACKLOG-archive.md` with that provenance and take the in-progress marker off `BACKLOG.md`. Run again, green.
-3. Commit once. That commit is the PR's last, and the tree is green in it.
-
-A committed red here would be worse than elsewhere: it is the commit CI judges before the merge.
-
-### Task 6 — the stale fitted cap that flaps popover-clip-fit on CI
-
-<!-- task: red=`sh -c 'node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts -g "re-fits when the viewport shrinks under an open menu" && node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts'` ac=AC-REFIT-AWAIT,AC-REFIT-COVER -->
+<!-- task: red=`sh -c 'node_modules/.bin/vitest run tests/e2e/settleAtViewport.contract.test.ts; u=$?; node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts; f=$?; exit $((u|f))'` red-state=authored red-target=`tests/e2e/popover-clip-fit.spec.ts:172` why=`no settleAtViewport exists: the contract suite fails on an unresolved import, and the full-file run fails the new structural cover because five call sites are still unrouted` ac=AC-REFIT-AWAIT,AC-REFIT-COVER,AC-REFIT-CONTRACT -->
 
 **In-arc repair of a defect this arc's investigation attributed** (bl-orch disposition, 2026-08-29). Not scope creep: `tests/e2e/popover-clip-fit.spec.ts` is a surface Task 2 already runs, and the defect was diagnosed here.
 
@@ -192,11 +197,33 @@ So: one `settleAtViewport` entry point that owns setting the viewport, navigatin
 
 **Derived cover, not a longer list.** Routing today's sites is an enumeration that reopens the moment someone adds one, so the task also adds a narrow structural assertion over this one file: no `page.goto(` or `page.setViewportSize(` outside the two marked helper call sites. A new entry point then fails by default instead of silently inheriting the race. The assertion builds its needles by concatenation so its own source does not match them, and asserts the two marked sites EXIST, so an empty offender list cannot be satisfied by a file that deleted the helper.
 
-**The filtered command is not sufficient on its own, so the marker runs the whole file too.** Round 2 was right: this task rewrites every viewport and navigation site in the file and then proves only the shrink case, while Task 2's full-file run happens BEFORE this refactor and cannot judge its result. A helper that passes the regression and the structural scan can still break a caller the `-g` filter never selects — the toggle-page callers have no attention-menu geometry at all. So the red is the filtered case AND the unfiltered file, conjoined, and this task's commit is green on both.
+**The marker runs the UNFILTERED file, never a `-g` slice.** Round 2 was right that proving only the shrink case cannot judge a refactor of every site in the file — Task 2's full-file run happens before this refactor. Round 3 was right about the sharper version: a `-g` filter runs the new case in ISOLATION, which is precisely the condition under which the defect never reproduced (0 failures in 6 isolated runs). So the filter is gone entirely. The red is the helper's contract suite plus the whole file, both run unconditionally, and this task's commit is green on both.
 
 A tolerance widening is explicitly NOT the repair. The numbers are correct at every cell, and loosening the bound would hide a real cap regression.
 
-**The regression case, which fails under a simulated stale cap.** Open the menu at 375x844 so the cap is 384, then shrink to 375x667 WITHOUT re-navigating, and assert the scroller settles to 364. Remove the await and it reads 384 and fails; keep it and it re-fits. The stale cap is staged rather than mocked, so the case exercises the real `ResizeObserver` path.
+**The RED cannot be a race, and round 3 was right to reject the version that was.** My own evidence says the flap is 3 failures in 7 full-file runs and ZERO in 6 isolated runs, and a `-g` filter runs the new case in isolation — the condition under which it never failed. A red that depends on losing a race is a red that reports green most of the time, and "remove the await and it reads 384" was an assertion I had not earned: without a settle, the read is whatever the renderer happens to have applied, which on a fast machine is usually the NEW value. So the timing case was proving the opposite of what it claimed.
+
+**What IS deterministic is the helper's contract, so that is what the red targets.** Three assertions, none of which can be won by a lucky schedule:
+
+1. **AC-REFIT-CONTRACT**, a scoped unit suite over `settleAtViewport` itself. Drive it against a fake page whose reported `innerWidth`/`innerHeight` lag the requested size by a controlled number of polls, and assert the helper does not return until they match, and that it throws rather than returning on a size that never arrives. The lag is a parameter, not a race, so the case is red before the helper exists (unresolvable import) and green after, every run, on every machine. This is the assertion that actually pins "it waits."
+2. **AC-REFIT-COVER**, the structural scan, which is red the moment it is authored because five call sites are unrouted, and green when they are routed. Pure text, zero timing.
+3. **AC-REFIT-AWAIT**, the settled-value case, kept but demoted to what it can honestly claim: after `settleAtViewport` to 375x844 with the menu open and then to 375x667 in place, the scroller settles to the 375x667 room and not to `CSS_CAP`. It runs in the FULL file, not under `-g`, because cell adjacency is the condition under which the defect was ever observed. It is a REGRESSION assertion in this plan's own vocabulary — green on arrival once the helper exists — and it is excluded from the red claim. Its job is to fail if a later edit removes the settle, which it does deterministically, because by then the helper's absence breaks the contract suite too.
+
+The three together are the closure: one pins the waiting, one pins the routing, one pins the value. None asks a reviewer or a runner to lose a race on cue.
+
+### Task 6 — graduation, and the PR's last commit
+
+<!-- task: red=`node_modules/.bin/vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:100` why=`adding this row's id to BACKLOG_GRADUATED while the row is still active in BACKLOG.md fails the archive-only, heading and provenance assertions` ac=AC-GRADUATION -->
+
+Round 1 was right that `_metaLedgerInProgress` accepts both the in-progress and the graduated state and so cannot carry this. `_metaDeferralLedgerGraduation` can: adding this row's id to `BACKLOG_GRADUATED` with its branch as provenance makes the guard FAIL until the row is actually archived with that provenance, and pass once it is.
+
+**This task is LAST, it IS the PR's last commit, and both halves of the cycle are inside it.** Round 3 was right that the earlier version said this while a further task followed it, which would have removed the ledger claim before the work was done and breached invariant 12. Graduation now sits at the end of the numbered order, where the claim it clears is actually finished. The earlier version created the red in this task's commit and cleared it in a later one, which is the same defect round 2 found in Tasks 1 and 2 — the round did not name this third instance; the sweep for the shape did. Invariant 12 requires the marker off and the row archived in the PR's LAST commit, so the resolution is not to move the green earlier but to make this task that commit:
+
+1. Add the row's id to `BACKLOG_GRADUATED` with the branch as provenance. Run the guard, observe the RED.
+2. Archive the row into `BACKLOG-archive.md` with that provenance and take the in-progress marker off `BACKLOG.md`. Run again, green.
+3. Commit once. That commit is the PR's last, and the tree is green in it.
+
+A committed red here would be worse than elsewhere: it is the commit CI judges before the merge.
 
 <!-- tasks: end -->
 
@@ -208,8 +235,8 @@ Round 1's repair replaced two markers that could not fail with two that use the 
 | --- | --- | --- |
 | Task 4 RED | name both gate halves verbatim in Task 4, no marker line | `_metaInvariant8Closeout` FAILS: "declares the invariant-8 dual gate but carries no valid impeccable-gate marker line" |
 | Task 4 GREEN | same, plus `impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none` | 14 passed |
-| Task 5 RED | add this row's id to `BACKLOG_GRADUATED` with the branch as provenance, leave the row unarchived | `_metaDeferralLedgerGraduation` FAILS on three assertions, including "missing from BACKLOG-archive.md" and "has no heading in the archive" |
-| Task 5 GREEN | registry row PRESENT, row archived with `fix/attention-autoopen-suppress-phone` provenance and a `## ` heading, in-progress marker off, absent from `BACKLOG.md` | **143 passed** — one MORE than the 142 baseline, because the registry row adds its own `it.each` case. `_metaLedgerInProgress` passes too (17) on the same staged state. |
+| Task 6 RED | add this row's id to `BACKLOG_GRADUATED` with the branch as provenance, leave the row unarchived | `_metaDeferralLedgerGraduation` FAILS on three assertions, including "missing from BACKLOG-archive.md" and "has no heading in the archive" |
+| Task 6 GREEN | registry row PRESENT, row archived with `fix/attention-autoopen-suppress-phone` provenance and a `## ` heading, in-progress marker off, absent from `BACKLOG.md` | **143 passed** — one MORE than the 142 baseline, because the registry row adds its own `it.each` case. `_metaLedgerInProgress` passes too (17) on the same staged state. |
 
 **The GREEN leg was re-probed after round 2, because the first one tested the wrong state.** Round 2 was right: the original green reverted the registry row and ran the BASELINE, which says nothing about the state Task 5 produces. Archive-only, heading present, and branch provenance are distinct assertions in that guard (`tests/docs/_metaDeferralLedgerGraduation.test.ts:845`, `tests/docs/_metaDeferralLedgerGraduation.test.ts:854`), and a baseline run exercised none of them. "Both directions were probed" was false as written.
 
@@ -221,7 +248,15 @@ The re-probe stages the real final state — registry row present, the row cut f
 
 Every row of §2 that names an implementable assertion has an id here, and every id maps to a §2 row — with one stated exception, below. The §2 rows with no id say why in the table itself: the hydration property is NOT ASSERTED and holds by construction, the negative wizard branch asserts nothing by design, the panel-clamp and menu-row-floor rows are covered by suites this arc does not modify, and the wizard-occlusion row is discharged by spec §5.1 rather than by a test, because a measurement already taken cannot be given a red.
 
-**The exception: AC-REFIT-AWAIT and AC-REFIT-COVER have no §2 row, deliberately.** §2 maps the SPEC's claims, and Task 7 does not implement a spec claim; it repairs a pre-existing test defect this arc's investigation attributed, dispositioned in-arc by bl-orch. Giving it a §2 row would assert a spec obligation that does not exist. Its obligation is stated where the work is, in Task 6, and it carries the same anti-vacuity structure the rest of §4 does: a regression case that fails under a simulated stale cap, plus a derived cover rather than a list of today's sites. So the closure check over §2 and §4 is two-sided everywhere except these two ids, which are one-sided by construction.
+**The closure rule, stated as a rule because the name-list form has now failed three rounds running.** Round 1 found seven §2 rows with no id, round 2 found the eighth, and round 3 found that my "the exception is these two ids" sentence was itself wrong by three. Each time the repair extended a list, and each time the list went stale the moment an id was added. So it is not a list any more.
+
+**§2 maps the SPEC's claims. §4 holds every acceptance id, and not all of them come from the spec.** The rule, checkable per bullet and immune to additions:
+
+> Every §2 row names an AC or states why it has none. Every §4 id either maps to a §2 row, or its own bullet names the obligation source that is not the spec.
+
+The second half is the part that kept breaking, and it is now local: an id that does not come from the spec says so in the same sentence that defines it, so adding one cannot invalidate a claim made somewhere else. Three non-spec sources appear here — a plan-wide invariant (AGENTS.md invariants 8 and 12), an in-arc repair of a pre-existing defect (Task 5), and a coupling that exists on one surface only (the wizard's Escape ownership, which AC-WIZARD-MIRROR is structurally blind to because the published surface has no counterpart to mirror).
+
+Reconciled mechanically at authoring time rather than described: extracting declared ids from §4 and claimed ids from every task marker gives **25 and 25, with an empty difference in both directions.** Round 3 counted 24 against my stated 23; the count is now derived rather than asserted, and AC-REFIT-CONTRACT is the id this round added.
 
 - **AC-OCCLUSION-DISCRIMINATES** — the helper reports a known covering node as interceptor, and reports none when it is absent. Fails against an oracle positive by construction (the panel's own rows) or negative by construction (demanding the panel element itself).
 - **AC-OCCLUSION-PARTIAL** — a control covered over its top-left quadrant only is reported intercepted at `tl` and clean at `centre`. Fails against centre-only sampling.
@@ -242,11 +277,12 @@ Every row of §2 that names an implementable assertion has an id here, and every
 - **AC-PILL-TAP** — the pill's band is hit-tested 21px above and below centre and returns the pill both times, and tapping opens the menu. Fails against a `pointer-events: none` pseudo-element that keeps the geometry and takes no taps.
 - **AC-ANCHOR-WRAPPER** (REGRESSION, green on arrival) — the panel's top edge sits below the pill WRAPPER's bottom edge, which differs from the pill's own because the wrapper carries the title block. Exists because re-anchoring to `pillRef` reintroduces this arc's defect through an otherwise-green suite.
 - **AC-WIZARD-MIRROR** — on a positive Task 0 only: the wizard satisfies the same predicate obligations as the published surface, not a chosen subset — including the reveal-time read, which is why Task 3 names a wizard JSDOM command alongside the browser one.
-- **AC-WIZARD-ESC-OWNERSHIP** — on a suppressed wizard arrival, a menu opened by tapping the pill claims Escape: Escape closes the MENU and the modal stays open. Fails against an implementation that sets `menuAutoOpened` on the suppression path, which no other id here can see.
-- **AC-IMPECCABLE** — both gate halves run on the diff, every P0 and P1 fixed or carrying a `DEFERRED.md` entry, and the marker line written with real counts.
-- **AC-REFIT-AWAIT** — with the menu opened at 375x844 and the viewport then shrunk to 375x667 without re-navigation, the scroller settles to the 375x667 cap (364) rather than holding the 375x844 cap (384). Fails if the re-fit await is removed. Derived from measured per-cell values, not hardcoded.
-- **AC-REFIT-COVER** — no bare `page.goto(` or `page.setViewportSize(` survives outside the single settle helper in `popover-clip-fit.spec.ts`. Fails by default when a new entry point is added, which is what makes this a derived cover rather than a list of the five sites that exist today.
-- **AC-GRADUATION** — the in-progress marker is off and the row archived with its branch as provenance, in the PR's last commit.
+- **AC-WIZARD-ESC-OWNERSHIP** (source: a wizard-only coupling with no published counterpart, so no §2 row — §2 maps claims both surfaces share) — on a suppressed wizard arrival, a menu opened by tapping the pill claims Escape: Escape closes the MENU and the modal stays open. Fails against an implementation that sets `menuAutoOpened` on the suppression path, which no other id here can see.
+- **AC-IMPECCABLE** (source: plan-wide invariant 8, not a spec claim, so no §2 row) — both gate halves run on the diff, every P0 and P1 fixed or carrying a `DEFERRED.md` entry, and the marker line written with real counts.
+- **AC-REFIT-CONTRACT** (source: Task 5's in-arc repair of a pre-existing test defect, so no §2 row) — `settleAtViewport` does not return while the page reports a size other than the one requested, and throws rather than returning when the size never arrives. Driven against a fake page with a controlled poll lag, so it is deterministic on every machine; the lag is a parameter, not a race.
+- **AC-REFIT-AWAIT** (source: Task 5's in-arc repair, so no §2 row) — with the menu opened at 375x844 and the viewport then shrunk to 375x667 without re-navigation, the scroller settles to the 375x667 cap (364) rather than holding the 375x844 cap (384). Fails if the re-fit await is removed. Derived from measured per-cell values, not hardcoded.
+- **AC-REFIT-COVER** (source: Task 5's in-arc repair, so no §2 row) — no bare `page.goto(` or `page.setViewportSize(` survives outside the single settle helper in `popover-clip-fit.spec.ts`. Fails by default when a new entry point is added, which is what makes this a derived cover rather than a list of the five sites that exist today.
+- **AC-GRADUATION** (source: plan-wide invariant 12, not a spec claim, so no §2 row) — the in-progress marker is off and the row archived with its branch as provenance, in the PR's last commit.
 
 ## 12. Close-out
 
