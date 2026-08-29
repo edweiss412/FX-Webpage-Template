@@ -145,6 +145,19 @@ Round 1 was right that `_metaLedgerInProgress` accepts both the in-progress and 
 
 <!-- tasks: end -->
 
+### 3.1 Both new reds are probed, not asserted
+
+Round 1's repair replaced two markers that could not fail with two that use the repo's own meta-guards. That repair is only as good as the claim that those guards actually move, so both were run in both directions on 2026-08-29 and reverted. This is the evidence the round-2 brief asks for, supplied rather than promised.
+
+| probe | setup | result |
+| --- | --- | --- |
+| Task 5 RED | name both gate halves verbatim in Task 5, no marker line | `_metaInvariant8Closeout` FAILS: "declares the invariant-8 dual gate but carries no valid impeccable-gate marker line" |
+| Task 5 GREEN | same, plus `impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none` | 14 passed |
+| Task 6 RED | add this row's id to `BACKLOG_GRADUATED` with the branch as provenance, leave the row unarchived | `_metaDeferralLedgerGraduation` FAILS on three assertions, including "missing from BACKLOG-archive.md" and "has no heading in the archive" |
+| Task 6 GREEN | registry row reverted, baseline | 142 passed |
+
+**One methodological note, because it nearly produced a false result.** The first run of the Task 5 probe reported GREEN, which would have read as "the red does not fire" and condemned the repair. The edit had silently not applied: it targeted wording that the §3 rewrite had already replaced, so the guard was never given a plan naming both halves. A probe that did not apply is not evidence of anything, and the only reason it was caught is that the next step checked the literal strings were present before trusting the run. Same shape as Task 0's harness fault, where a static page served in place of the live one failed an arrival assertion in a way indistinguishable from a product finding.
+
 ## 4. Acceptance criteria
 
 Every row of §2 that names an implementable assertion has an id here, and every id maps to a §2 row. The three §2 rows with no id say why in the table itself: the hydration property is NOT ASSERTED and holds by construction, the negative wizard branch asserts nothing by design, and the panel-clamp and menu-row-floor rows are covered by suites this arc does not modify.
