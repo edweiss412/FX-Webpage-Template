@@ -40,7 +40,10 @@ Auto-open fires only when the viewport is NOT positively known to be below `sm`.
 // Phone-width suppression (2026-08-29). Auto-open is a first-arrival reveal;
 // at <sm the contained panel covers the published toggle, so the pill is the
 // whole affordance and the operator opens the menu by tapping it.
-const suppressedByWidth =
+//
+// A FUNCTION, not a value: it is called inside the reveal's animation frame
+// (§2.1), so the width it reads is the width the panel would have appeared at.
+const suppressedByWidth = () =>
   typeof window.matchMedia === "function" &&
   window.matchMedia("(max-width: 639.98px)").matches;
 ```
@@ -55,21 +58,30 @@ Three properties, each deliberate:
 
 ### 2.1 Where it goes
 
-Inside the existing auto-open effect in `components/admin/showpage/PublishedReviewModal.tsx` (the `autoOpenFiredRef` effect), as the LAST guard, immediately before `requestAnimationFrame`:
+Inside the existing auto-open effect in `components/admin/showpage/PublishedReviewModal.tsx` (the `autoOpenFiredRef` effect), INSIDE the `requestAnimationFrame` callback, as the last thing before `setMenuOpen(true)`:
 
 ```ts
-if (actionable.length === 0) return;              // unchanged, does NOT consume
-if (suppressedByWidth) {
-  autoOpenFiredRef.current = true;               // a DECISION, so it consumes
-  return;
-}
-const raf = requestAnimationFrame(() => { ... }); // unchanged
+if (actionable.length === 0) return;             // unchanged, does NOT consume
+const raf = requestAnimationFrame(() => {
+  if (suppressedByWidth()) {
+    autoOpenFiredRef.current = true;             // a DECISION, so it consumes
+    return;
+  }
+  autoOpenFiredRef.current = true;               // unchanged
+  setMenuOpen(true);                             // unchanged
+});
+return () => cancelAnimationFrame(raf);          // unchanged
 ```
+
+`suppressedByWidth` is therefore a function called at reveal time, not a value computed at effect time.
 
 Placement is load-bearing in both directions:
 
 - **After the `actionable.length === 0` return**, because that return deliberately does not consume the one-shot: the revalidate-on-open `router.refresh()` can stream actionable items in after a prefetched empty first paint, and consuming early would cancel the desktop reveal. Suppression must not change when that guard fires.
-- **Before the rAF**, and consuming synchronously, because the rAF's own contract is that a CANCELLED frame leaves the one-shot unconsumed so a re-run can reschedule. A suppression scheduled into a frame that then gets cancelled would be re-decided on every dependency change, which is a subscription by accident. Suppression is a decision, and it joins the two branches above it that already consume when they decide: the deep-link branch (`alertId != null`) and the already-open branch.
+- **Inside the frame, not before it.** The first draft of this spec sampled the width before scheduling and consumed synchronously, reasoning that a decision should not sit inside a cancellable frame. That was wrong, and adversarial review round 1 produced the trace: the effect samples a desktop width, schedules the frame, the viewport crosses below `sm`, and the callback then opens the panel at a width the guard was supposed to forbid. The gap is the whole point of the rAF, which exists precisely because the open is deferred to paint time. Reading the width where the open happens closes it by construction, and there is no window left in which the two can disagree.
+- **A cancelled frame leaves the one-shot unconsumed**, which is the existing contract for the open path and is now also the contract for the suppression path. That is correct rather than a leak: a cancelled frame means the effect is about to re-run, and a re-run re-decides at the width that is current then. The decision is still taken exactly once, at the one moment a panel would have appeared.
+
+The consuming branches above are untouched: the deep-link branch (`alertId != null`) and the already-open branch both still consume synchronously, because neither defers anything to a frame.
 
 The effect's dependency array is unchanged: `[alertId, actionable.length, menuOpen]`. Width is deliberately not a dependency; see §4.
 
@@ -89,9 +101,16 @@ Two directions, one rule each, and the rule is the same in both: **auto-open dec
 | --- | --- | --- |
 | Menu auto-opened at ≥`sm`, viewport then shrinks below `sm` (window drag, or a rotate from landscape to portrait) | The menu STAYS OPEN. Nothing force-closes it. | It is on screen; taking it away mid-glance is a second uninvited interruption. Dismissal is already one tap on the pill, the scrim, or Escape. |
 | Menu suppressed at <`sm`, viewport then grows to ≥`sm` (rotate to landscape at 667px, or a desktop window widening) | The menu STAYS CLOSED. Auto-open does not fire retroactively. | The one-shot was consumed by the suppression (§2.1). A resize is not an arrival, and popping a panel open under the operator's hands because they turned the phone sideways is the same defect this arc is closing. |
+| Mount at <`sm` with NO actionable items, viewport then grows to ≥`sm`, and only THEN do actionable items stream in | The menu auto-opens, at the desktop width, exactly as it does for any desktop arrival. | Raised by adversarial review round 1 against an earlier blanket claim, and it is a real trace: `actionable.length === 0` returns WITHOUT consuming the one-shot (deliberately, so a post-paint refresh can still reveal), so the later dependency change re-runs the effect with nothing suppressed. It is also correct. Suppression never fired on this mount, because there was never a panel to suppress; when the items finally arrive the operator is on a desktop-width viewport, where auto-open is the ratified behavior and nothing is occluded. The row above governs mounts where suppression ACTUALLY FIRED, which is the case the consumed one-shot exists for. |
 | Operator OPENED the menu by tapping the pill at <`sm`, then resizes either way | Untouched. This spec never closes a menu, and the pill toggle is not gated by width. | Suppression governs the automatic reveal only. |
 
-The mechanism is the dependency array, and it is a code fact rather than a design intention: the effect's deps are `[alertId, actionable.length, menuOpen]`, none of which a resize changes, so a resize alone does not re-run the effect at all. Consuming the one-shot on suppression closes the remaining path, where a LATER dependency change (an item resolving, say) re-runs the effect at a width that has since crossed the boundary. This is why width is not in the dependency array and why there is no `matchMedia` change listener anywhere in the change. The single existing `(min-width: 640px)` listener, `mql` at `components/admin/review/ReviewModalShell.tsx:571`, is drag hygiene and is not extended.
+Three mechanisms carry the table, and none of them is a design intention:
+
+1. The effect's deps are `[alertId, actionable.length, menuOpen]`. A resize changes none of them, so a resize ALONE never re-runs the effect.
+2. Suppression consumes the one-shot, so a LATER dependency change (an item resolving, say) cannot re-open a mount that already decided.
+3. The width is read inside the reveal's animation frame (§2.1), so no gap exists between the width the guard saw and the width the panel would have appeared at.
+
+Mechanism 3 is what closes the case adversarial review found, which the first two did not reach on their own. Sampling before the frame let a boundary crossing land in between. This is also why width is not in the dependency array and why there is no `matchMedia` change listener anywhere in the change. The single existing `(min-width: 640px)` listener, `mql` at `components/admin/review/ReviewModalShell.tsx:571`, is drag hygiene and is not extended.
 
 The consequence worth naming: an operator who loads the modal at 375, rotates to landscape, and wants the index taps the pill. That is one tap, on a control the spec keeps deliberately prominent, and it is the same tap they would use at 375.
 
@@ -110,11 +129,11 @@ They do NOT share a rationale. The published auto-open is ratified as a user req
 
 **Disposition is decided by probe, not by symmetry.** The class-sweep default is that every instance of one shape is repaired in the same PR, and the wizard is an instance of the shape. What it is not yet known to be is an instance of the DEFECT: the published row's evidence is a measured occlusion of the publish toggle, and no equivalent measurement exists for the wizard modal at 375. So:
 
-- **Probe P-1 (§9) measures the wizard modal at 375x667** with its menu auto-opened: does the panel's rect intersect any interactive control, and does `elementFromPoint` at each control's centre return the panel?
-- **If it occludes an interactive control** the wizard is repaired in this same PR, with the identical predicate at the identical position in its effect.
-- **If it occludes nothing**, suppressing it anyway would be reversing a product decision ratified two days earlier on grounds this arc has no evidence against. That is class-sweep exception (a), a decision this PR cannot settle, and it files as a `BL-` row naming the probe result and the ratification it would overturn. It does not silently ride along.
+- **Probe P-1 (§9) measures the wizard modal at 375x667** with its menu auto-opened, over the control set §9 defines. The question it answers is the published defect's exact shape: is a control that the operator needs now being hit-tested to something inside the panel?
+- **If it occludes such a control** the wizard IS an instance of this defect, and it is repaired in this same PR with the identical predicate at the identical position in its effect.
+- **If it occludes nothing, nothing is filed.** The wizard then shares the one-shot CODE shape but not the BUG shape, and class-sweep governs peers that share the bug (`AGENTS.md`, the class-sweep-before-patching rule). Exception (a) does not apply either: an exception explains why a real instance is deferred, and there is no instance to defer. Its auto-open stays exactly as ratified on 2026-08-27, and the measured negative is recorded in §10 as a documented limit with the viewport it was measured at, so the next arc reads a number instead of re-deriving the question.
 
-Either outcome is recorded here before the implementation lands, so neither is a judgment call made under review pressure.
+This branch was corrected after adversarial review round 1, which was right that the earlier version mandated a `BL-` row in the no-occlusion case and so would have filed a row against a surface with no demonstrated defect. Both outcomes are still fixed here before the implementation lands, so neither is a judgment call made under review pressure.
 
 No other surface consumes this shape. `components/admin/showpage/AttentionMenu.tsx` and `components/admin/wizard/WizardAttentionMenu.tsx` are presentational: they take `open` as a prop and mount nothing on their own.
 
@@ -135,7 +154,12 @@ The tone dot is `aria-hidden` and carries no meaning the text does not (`compone
 
 Two consequences of suppression, both acceptable and both stated so they are not rediscovered in review:
 
-1. A screen-reader user at <`sm` no longer has focus or a live region announcing the panel on arrival. They did not before either: the auto-open moves no focus (`setMenuOpen(true)` inside a rAF, with the focus-rescue effect only pulling focus back INTO the dialog when data changes strand it), and the panel is not a live region. So the announcement they get on arrival is the modal's, and the pill is in the tab order immediately after it. Nothing regresses.
+1. A screen-reader user at <`sm` no longer has focus or a live region announcing the panel on arrival. They did not before either, and the chain is worth showing, because the focus-rescue effect is dep-less and reads at a glance as though it might grab focus on every commit:
+   - It runs after every commit and DOES call `pillRef.current?.focus()` while the menu is effectively open, but only under `active === document.body || (dialog && !dialog.contains(active))` (`components/admin/showpage/PublishedReviewModal.tsx:465-479`).
+   - On arrival that condition is false. The shell puts initial focus on the CLOSE button, `initialFocusRef={closeRef}` (`components/admin/showpage/PublishedReviewModal.tsx:998`), consumed by `useDialogFocus(panelRef, initialFocusRef, mounted)` (`components/admin/review/ReviewModalShell.tsx:216`; the target resolves at `components/admin/review/ReviewModalShell.tsx:234`). The close button is inside the dialog, so the rescue does not fire.
+   - Under suppression the same effect takes its `if (!was || interactive) return;` path (`components/admin/showpage/PublishedReviewModal.tsx:482`) and moves nothing either.
+
+   So arrival focus is IDENTICAL with and without suppression, at every width, and the panel was never a live region. The announcement on arrival is the modal's, and the pill is in the tab order. Nothing regresses, and §9's test plan asserts the identity rather than arguing it.
 2. `aria-expanded` reads `false` on arrival at <`sm` instead of `true`. That is now accurate, which it was not the moment the pill was rendered before the rAF fired.
 
 ## 7. Transition inventory
@@ -173,9 +197,27 @@ Tailwind v4 does not default `.flex` to `align-items: stretch` in this project, 
 
 ## 9. Probes
 
-**P-1, the wizard sweep (§5).** Real Chromium at 375x667, wizard review modal with needs-look items, menu auto-opened. Record the panel rect, the rect of every interactive control in the modal, whether they intersect, and `document.elementFromPoint` at each control's centre. Blocks the §5 disposition and nothing else.
+### 9.1 The occlusion test both probes use
 
-**P-2, the fix itself.** Real Chromium at 375x667, published review modal, seeded with actionable items: the modal opens, the menu is CLOSED, the pill is visible and carries its count, and `elementFromPoint` at the toggle's centre returns the toggle (or a descendant of it), not a panel row. This is the assertion that the shipped defect is gone, and it is written as a failing test first.
+Adversarial review round 1 killed the first version of P-1 for being unable to answer its own question. The reason generalises, so the test is defined once here and both probes use it.
+
+"Does the panel intersect any interactive control" cannot discriminate, because the panel's own rows are interactive controls (a full-width `<button>` per row, `components/admin/showpage/AttentionMenu.tsx:304`), the scroller is focusable, and the modal's scrim is itself a `<button>` (`components/admin/review/ReviewModalShell.tsx:609`).
+
+All of those necessarily intersect the panel. A test that counts them is positive by construction. A test that demands the hit-test return the panel ELEMENT itself is negative by construction, because what actually intercepts is a row. The published defect's own measurement says so in as many words: "pointer events intercepted by an attention monitoring row".
+
+So:
+
+**The control set.** Every element matching `a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])` inside the modal dialog, MINUS: any node inside the attention panel subtree; the scrim (`[data-testid$="-backdrop"]`); the pill itself (it owns the panel, and a panel overlapping its own trigger is not an occlusion); and any element whose rect has zero width or height. What remains is the set of controls an operator could want while the panel is up.
+
+**The hit test.** For each control `c`, sample its rect centre plus its four quarter points. `c` is OCCLUDED when `document.elementFromPoint` at any sampled point returns a node that is neither `c` nor a descendant of `c`. Record WHICH node intercepted, not just the boolean, so a positive result is diagnosable and a negative one is auditable.
+
+**Non-vacuity.** The probe fails loudly if the control set is empty or if the panel is not actually open, so "no occlusion" can never be produced by a harness that rendered nothing.
+
+### 9.2 The probes
+
+**P-1, the wizard sweep (§5).** Real Chromium at 375x667, wizard review modal with needs-look items, menu auto-opened (the existing harness confirms it opens on arrival at that width: `tests/e2e/wizard-attention-menu.spec.ts:136-150` asserts `aria-expanded="true"` and waits for the panel). Run §9.1 and record the full result. Blocks the §5 disposition and nothing else.
+
+**P-2, the fix itself.** Real Chromium at 375x667, published review modal, driven with actionable items: the modal opens, the menu is CLOSED, the pill is visible and carries its count, and the published toggle (`strip-publish-toggle`, `components/admin/showpage/StatusStrip.tsx:281`) is NOT occluded by §9.1's test. Stating it through the same test matters: the pre-fix measurement was an interception by a row, so an assertion that only compared the toggle's rect against the panel's would have passed on a variant that still stole the taps. This is the assertion that the shipped defect is gone, and it is written as a failing test first.
 
 **P-3, the desktop control.** Same fixture at a desktop width: auto-open still fires. Without it P-2 passes on a component that never auto-opens at all, which is the tautology this repo's anti-tautology rule exists to catch.
 
@@ -185,4 +227,5 @@ The two published-surface probes are real-browser assertions. jsdom computes no 
 
 - **A viewport between 639.98 and 640 CSS pixels** is desktop by this predicate and phone by nothing. Fractional viewport widths at exactly this boundary are not reachable on any device the product targets, and the consequence is a menu that opens on a 639.99px-wide window. Not defended.
 - **A browser without `matchMedia`** gets today's behavior, including the occlusion. Every target browser has implemented it for over a decade; the guard exists for jsdom, not for a real client.
+- **The wizard modal's occlusion status at <`sm`**, if probe P-1 comes back negative, is recorded here with the viewport it was measured at, so the next arc to touch that surface reads a measurement instead of re-deriving the question. Filled in when P-1 runs (§5, §9.2).
 - **Zoom and text scaling** change the CSS viewport width, so a heavily zoomed desktop window can cross below `sm` and suppress the reveal. That is correct rather than a limit: at that point the layout IS the phone layout, and the toggle IS covered.
