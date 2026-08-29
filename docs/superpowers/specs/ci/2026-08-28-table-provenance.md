@@ -70,8 +70,12 @@ Tables come from the shipped parser, `remark` + `remark-gfm` + `blocksFrom`
 built later cannot disagree about what a table is. Fences come from the shipped `parseDoc`
 (`lib/specLint/parse.ts:65`).
 
-**Five corrections this arc made to its own numbers, all of them this row's own defect class arriving
-in its own paperwork.**
+**The corrections this arc made to its own numbers, all of them this row's own defect class arriving
+in its own paperwork.** Deliberately unnumbered: an earlier draft said "three", a later one said "five",
+and whole-diff review round 4 finding 2 caught the count stale again because each review round adds to
+the list. A running total of one's own errors is itself a number that goes stale, which is the joke the
+rest of this document is about. The list below is the ones this section owns; the arc's review-round
+filing records the ones found after it, and neither claims to be a total.
 
 1. **The census read the working tree while claiming a sha.** Its first version listed files with
    `git ls-files`, which reads the index, so the figures it printed included this arc's own
@@ -96,11 +100,11 @@ in its own paperwork.**
    that sha as though it had been requested. It now exits 2. A bad rev already failed loud; a MISSING
    one did not, which is the worse of the two failures and the one this document is about.
 
-**Five corrections is a lot for one document, and the reason is worth stating.** Four of the five are
+**That is a lot of corrections for one document, and the reason is worth stating.** Most of them are
 this row's own defect class: a figure whose binding was wrong, a recognizer disagreeing with the shipped
 one, a population counted by enumeration instead of derivation, and an instrument that answered about a
-tree nobody named. The class is not rare and it is not other people's; it caught the spec written to
-analyse it, five times.
+tree nobody named. The class is not rare and it is not other people's; it kept catching the spec written to
+analyse it, round after round.
 
 ## 2. The namings, produced and then classified
 
@@ -433,7 +437,7 @@ file.
 commands (`scripts/spec-lint.ts:562`, `scripts/spec-lint.ts:781`), and `BL-SPECLINT-RED-TRUTH-PROBE` measured six days ago
 that it reaches 20 of the 329 markers declaring a state, 6.1% (`BACKLOG-archive.md:18`, that row's
 archived census table; quoted here, not printed by this arc's census). That row was demoted on the measurement
-rather than built. A table-executing arm reaches 8 of 3425, 0.2%.
+rather than built. A table-executing arm reaches at most 7 of 3425, 0.2%, by the chain in the table above.
 
 ## 7. What ships
 
@@ -453,7 +457,8 @@ No source file under `lib/` or `scripts/` changes. No `Check` is added to `lib/s
   both published the command; the defect was that the numbers disagreed with it. Neither arm proposed
   here catches that, and §6 is why the executing one cannot. **Re-file trigger:** a single document
   accumulating four or more tables whose producing commands are pure, repo-local and inside the repo,
-  which would take the executable population from 8 to a figure where a scoped arm has a subject.
+  which would take the executable population off the at-most-seven of §6 and give a scoped arm a
+  subject.
 - **Adoption is a prediction, not a measurement of this marker.** §4 measures two other markers. A
   future marker shipped with a mandatory-for-new-tables rule rather than pure opt-in would have a
   different curve. **Re-file trigger:** `ac-coverage` reaching 15 live uses without a lint requiring
