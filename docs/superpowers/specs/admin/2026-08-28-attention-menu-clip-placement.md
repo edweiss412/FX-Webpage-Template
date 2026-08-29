@@ -64,7 +64,7 @@ the standalone harness (`tests/e2e/standalone.config.ts` — no app boot, no
 database, so this needed no local stack). Temporary probe added, read, reverted;
 the working tree is clean.
 
-**Settled geometry, after the entrance transition completes (`transform: none`):**
+**Settled geometry, after the entrance settles (`scale` reads `1`):**
 
 | Viewport | `menu.left` | `menu.right` | `menu.width` | `clip.left` | `clip.right` |
 | --- | --- | --- | --- | --- | --- |
@@ -415,9 +415,13 @@ about the deletion only; the migration in §3.1-3.3 stands either way.
 ### 4.1 Source and executable contracts
 
 The derivation is exactly
-`grep -rln 'useFitWithinClip\|fit-within-clip' components app lib tests`, and the
-table below is exactly its 15 hits — every one dispositioned, none added from
-memory. An earlier draft claimed this derivation while omitting two hits and
+`grep -rln 'useFitWithinClip\|fit-within-clip' components app lib tests`, which
+returns 15 files. **All 15 are dispositioned across §4.1 and §4.3** — 12 rows
+here, and the three prose-only files (`lib/popover/place.ts`,
+`tests/components/ReSyncButton.test.tsx`,
+`tests/lib/popover/placeWarning.test.ts`) in §4.3. An earlier draft said "the
+table below is exactly its 15 hits", which was false of the table even though the
+scope was complete; the count spans the two sections. An earlier draft claimed this derivation while omitting two hits and
 listing one file the command does not produce, which is the failure the phrase
 "derived, not remembered" exists to prevent.
 
@@ -442,7 +446,7 @@ Rows are grouped by what the edit is, but the SET is the command's output.
 
 | File | Change | Why it is here anyway |
 | --- | --- | --- |
-| `tests/components/admin/transitionAudit.test.tsx` | Covers the new `entered` + `transitionend` re-place pair (§7). | `rg 'useFitWithinClip\|fit-within-clip'` over it exits 1 — it never named the hook. It is in scope because §7 ADDS transition-adjacent behavior, which is that audit's subject, not because it referenced the hook. |
+| `tests/components/admin/transitionAudit.test.tsx` | Covers the `entered` re-place (§7) — one signal, not a pair; the `transitionend` half was withdrawn once §7 showed the geometry property never transitions. | `rg 'useFitWithinClip\|fit-within-clip'` over it exits 1 — it never named the hook. It is in scope because §7 changes transition-adjacent behavior, which is that audit's subject, not because it referenced the hook. |
 
 ### 4.2 Baselines — three move, not one
 
@@ -508,16 +512,28 @@ discriminator is three conditions that must all hold:
 
 1. right-anchored (or otherwise clip-relative) positioning,
 2. NOT portaled out of the clipping ancestor,
-3. sized against the viewport.
+3. sized against the viewport, AND
+4. **the panel's width can exceed the distance from its anchor's RIGHT edge to
+   the clip's LEFT edge.**
+
+Condition 4 is the one that does the work, and an earlier draft omitted it —
+which made the discriminator wrong rather than merely incomplete, because
+`AvatarMenu` satisfies 1, 2 and 3 and was nonetheless excluded by prose. The
+overhang is `anchor.right - panelWidth < clip.left`; a viewport-derived cap
+bounds `panelWidth` against the wrong quantity, so whether a given overlay
+overflows depends on where its anchor sits. Note this is NOT "the clip is inset
+from the viewport": at 375 the wizard clip IS the full viewport and the defect
+still occurs, because the ANCHOR is inset (307 of 375).
 
 Every hit, with its disposition:
 
 | Site | Verdict |
 | --- | --- |
 | `components/admin/showpage/AttentionMenu.tsx:405` | **The defect.** All three conditions hold. Repaired here. |
-| `components/auth/AvatarMenu.tsx:388` | Not in class — condition 1 holds, but its clip IS the viewport (header chip, no modal ancestor), so `100vw` is the correct bound. |
+| `components/auth/AvatarMenu.tsx:388` | **LATENT, not excluded.** It satisfies 1, 2 and 3. It escapes on condition 4 only: its anchor is the header's far-right identity chip, so the distance from the anchor's right edge to the clip's left edge is very nearly the full viewport, and `max-w-[calc(100vw-2rem)]` happens to bound it. That is a property of where the anchor sits, not of the cap being the right quantity — the same cap on an inset anchor would overflow. Its own docblock records hitting the left-overflow symptom and fixing it with that cap (`components/auth/AvatarMenu.tsx:383-387`). Recorded as L-5 with a trigger rather than repaired: it is outside any review-modal clip, it is not on the placement stack, and moving it there is a different surface. |
 | `components/admin/FinalizeButton.tsx:1092` | Not in class — condition 2 fails; it is portaled (`createPortal`, `components/admin/FinalizeButton.tsx:773`), so the viewport is again the correct bound. |
 | `components/admin/CleanupAbandonedFinalizeButton.tsx:169` | Not in class — condition 1 fails; a centered `role="dialog"` panel, not anchored to anything. |
+| `components/admin/showpage/ShareHub.tsx:39` | Not a match — a docblock recording that ShareHub *"used to be `absolute top-full right-0` … with `max-w-[calc(100vw-2rem)]`"*, and that this anchoring is what broke it. Historical prose about the migration this arc follows. An earlier draft's table omitted this hit while claiming to disposition every one. |
 | `components/admin/showpage/ShareHub.tsx:906` | **Not a match — the grep hit a COMMENT.** Line 906 is prose recording that the old `right-0 … max-w-[calc(100vw-2rem)]` anchoring *"is gone"*; the live class at `components/admin/showpage/ShareHub.tsx:908` is `w-[308px]` and carries no viewport unit. An earlier draft read that comment as executable CSS and called it a redundant belt. Corrected, and recorded rather than silently deleted, because it is why the cover above is no longer a raw grep. |
 | `components/diagrams/GalleryLightbox.tsx:999`, `components/diagrams/GalleryLightbox.tsx:1161` | N/A — `sizes="100vw"` is a Next `Image` srcset hint, not layout. |
 
@@ -526,9 +542,16 @@ before the class is declared closed. The two that matter are AvatarMenu and
 ShareHub, since "its clip is the viewport" and "the CSS belt is redundant" are both
 claims about runtime geometry.
 
-**After this change the class is empty by construction**, not by enumeration:
-every anchored overlay in the tree is on a stack that measures against
+**After this change the class is empty among overlays inside a review-modal
+clip** — every one of those is on a stack that measures against
 `hostRect ?? viewport`, and the one hook that measured otherwise is gone.
+
+**The stronger claim, that the class is empty in the whole tree, is NOT made.**
+`AvatarMenu` is not on the placement stack and is bounded only by where its
+anchor happens to sit (L-5), and L-3 records that neither guard scans CSS, so
+nothing mechanically prevents a new `100vw`-sized anchored overlay from being
+written tomorrow. An earlier draft claimed emptiness by construction across the
+tree; that claim outran its evidence and is withdrawn.
 
 **No peers are deferred, so no `BL-` rows are filed for this class.** Under the
 class-sweep disposition rule the default is repair-in-branch; here there is
@@ -567,8 +590,9 @@ the assertion without fixing the timing would leave a containment test that pass
 on a transient frame — it would still catch this defect, since 8 > 0 either way,
 but it would keep asserting the wrong quantity and would not catch a regression
 that only appears once the transform settles. The repair is therefore two changes
-in one case: wait for `transform: none`, then assert containment at both
-horizontal edges. This is the instrument bug named in §1.4, fixed where it lives.
+in one case: wait for the entrance to settle (`scale` reads `1` — NOT
+`transform: none`, which §7 shows is always true here), then assert containment
+at both horizontal edges. This is the instrument bug named in §1.4, fixed where it lives.
 
 ### 6.2 The horizontal edge the clip-fit suite never had
 
@@ -639,82 +663,65 @@ under-read of `naturalSize.width`. Feed that to `computePopoverPlacement` and
 sized from a stale natural width, and nothing re-places it when the transform
 settles unless a re-measure is wired.
 
-**The stack does not have a transition-settle path, and the hook does.** Stated
-precisely, because an earlier draft of this section asserted the opposite:
+**The geometry-affecting property is never transitioned, in either motion mode.**
+This section said the opposite twice, and both drafts were wrong. Probed at this
+branch's head:
 
-- `rg -n 'transitionend' lib/popover components/admin/HoverHelp.tsx
-  components/admin/PublishedToggle.tsx components/admin/ReSyncButton.tsx
-  components/admin/AnchoredPortal.tsx components/admin/showpage/ShareHub.tsx
-  components/admin/showpage/AttentionMenu.tsx` exits 1. **No consumer of the
-  shared stack, and no module inside it, listens for a transition.**
-- `useFitWithinClip` does, on the positioned ancestor, filtered to the
-  `transform` property (`components/admin/useFitWithinClip.ts:253`,
-  `components/admin/useFitWithinClip.ts:300-304`). The panel is `absolute`, so it
-  IS the scroller's positioned ancestor — the hook is listening for this exact
-  panel's own scale settling.
-- The stack's re-place triggers are scroll, window resize, visual-viewport
-  scroll/resize, and a `ResizeObserver`
-  (`components/admin/AnchoredPortal.tsx:229-236`). **A CSS `transform` does not
-  change an element's border box, so `ResizeObserver` does not fire when the
-  scale settles.** Nothing in the stack observes it.
+```
+motion-safe:     transitionProperty "opacity, transform"   duration 0.12s
+                 scale "1"   transform "none"
+reduced-motion:  transitionProperty "none"                 duration 0s
+                 scale "1"   transform "none"
+```
 
-**Therefore a naive migration silently DELETES a signal.** Placement computed
-mid-entrance from a 325.85px natural width is never recomputed, because no
-subscribed source ever reports the change. The repair must ADD a `transitionend`
-re-place to the migrated component, filtered to `propertyName === "transform"`
-and scoped to the panel, porting `components/admin/useFitWithinClip.ts:300-304`
-rather than inheriting something that does not exist.
+Tailwind v4 compiles `scale-95` / `scale-100` to the INDIVIDUAL `scale` property,
+not to `transform`. The repository already records this independently, with its
+own verification: *"the INDIVIDUAL `scale` / `rotate` / `translate` properties are
+distinct inputs to the current transformation matrix and never appear in
+`transform` (verified: a `scale: 0` element reports `transform: "none"`, and
+Tailwind v4's `scale-*` utilities compile to exactly that property)"*
+(`tests/e2e/helpers/phantomGap.ts:306-310`).
 
-**BOTH signals are required, and an earlier draft of this section wrongly kept
-only one.** It dismissed `entered` as insufficient because it flips at the START
-of the transition. That is true under animation and false under reduced motion,
-where it is the only signal there is:
+Three consequences, each of which killed a claim this spec previously made:
 
-- The panel carries `motion-reduce:transition-none`
-  (`components/admin/showpage/AttentionMenu.tsx:405`). With no transition, **no
-  `transitionend` event is ever dispatched.** A design subscribing only to
-  `transitionend` freezes the mount-time measurement permanently for every
-  operator who has reduced motion on — an ordinary accessibility setting, not an
-  excluded host.
-- The error is the same 5% and is silent: at 1280x800 a frozen placement writes
-  `1084 - 380 = 704` where the correct value is `684`. The placement is still
-  `kind: "placed"` with a cap above the floor, so neither inherited diagnostic
-  fires.
+1. **`transform: none` is not a settled-state oracle.** It reads `none` while the
+   panel is scaled to 95%, so a wait on it returns immediately. §1.3's probe
+   reached settled geometry through a fixed delay, not through that check; the
+   numbers are sound and the stated oracle was not. §1.3, §6.1 and §9 now wait on
+   `scale` reading `1` (equivalently `none`), which is the property that actually
+   moves.
+2. **A `transitionend` filtered to `propertyName === "transform"` never fires
+   here.** `transform` is listed in `transition-property` but is permanently
+   `none`, so it never transitions. The only property that does transition is
+   `opacity`, which changes no geometry.
+3. **Therefore the scale change is INSTANT in both motion modes** — it is not in
+   the transition list at all — and it lands in the same commit as the `entered`
+   flip.
 
-So the migrated component subscribes to both, which is exactly the pair the hook
-already had — `useFitWithinClip(entered)` takes `entered` as its re-apply key
-(`components/admin/showpage/AttentionMenu.tsx:338`) AND wires `transitionend`
-(`components/admin/useFitWithinClip.ts:253`):
+**So there is ONE signal, not two: `entered`.** It covers both motion preferences
+for the same reason — the geometry is not animated on either. The two-signal
+design of the previous draft is withdrawn, and so is the reduced-motion split that
+motivated it: reduced motion is not a distinct branch for GEOMETRY, only for
+opacity.
 
-| Signal | Covers | Without it |
+| Signal | Covers | Why nothing else is needed |
 | --- | --- | --- |
-| `entered` re-place | The reduced-motion path, where the transform reaches its final value in the same commit and no event follows | Reduced-motion operators get a permanently frozen, 5%-wrong placement |
-| `transitionend`, `propertyName === "transform"` | The animated path, where the transform settles one duration after `entered` flips | Motion-enabled operators get the same frozen placement |
+| `entered` re-place | The scale-95 → scale-100 change, in both motion modes | The change is instant and synchronous with the class flip, so a re-place keyed to it observes the final geometry |
+| ~~`transitionend`, `propertyName === "transform"`~~ | Nothing | The property never transitions; the listener would never fire |
 
-Neither is redundant: they cover disjoint branches of one conditional, and the
-branch is chosen by an OS setting rather than by anything the code controls.
+**The hook's `transitionend` listener is not being dropped carelessly** — it is
+being dropped because on THIS consumer it is already dead. It remains meaningful
+in general, for a positioned ancestor that genuinely transitions `transform`,
+which is the case `components/admin/useFitWithinClip.ts:300-304` was written for.
+Retiring the hook removes it from a consumer where it never fired.
 
-Verified by a test that opens the menu and asserts containment **after** the
-transition settles, mirroring the existing animated-path case at
-`tests/e2e/popover-clip-fit.spec.ts:308` — and, per §6.1, by fixing the wizard case that
-currently asserts before it.
-
-### 7.2 Guard conditions
-
-Every input, and what renders when it is absent or degenerate. The stack already
-decides most of these; the rows record which behavior is inherited rather than
-authored here.
-
-| Input | Degenerate value | Behavior |
-| --- | --- | --- |
-| `hostRect` (from `PopoverHostContext`) | `null` — no provider, e.g. a future unclipped mount | Bounds degenerate to the viewport (`lib/popover/place.ts:101-102`, `components/admin/AnchoredPortal.tsx:147` precedent). The panel is placed against the viewport, which is correct when nothing clips it. |
-| `hostRect` | zero-area (host `display:none` mid-toggle) | `bounds.width <= 0` → `HIDDEN` (`lib/popover/position.ts:110`); panel is `visibility: hidden`, recovers next frame. |
-| `pillRef.current` | `null` (pill unmounted while menu open) | No trigger rect; placement is skipped and the prior placement is cleared rather than left stale — the `resetPlacement` posture at `components/admin/PublishedToggle.tsx:277-281`. |
-| trigger rect | zero-area | `HIDDEN` (`lib/popover/position.ts:111`), explicitly guarded on width **and** height — a lesson already paid for on `components/admin/PublishedToggle.tsx:261-266`. |
-| `naturalSize` | 0 or non-finite (measured while detached) | `HIDDEN` (`lib/popover/position.ts:105`, `lib/popover/position.ts:109`), recovers on the next frame. |
-| `items` | empty array | Out of scope: the menu does not open with zero items, and the pill is not rendered. Unchanged by this spec. |
-| `warningIndex` | `undefined` | Unchanged (`components/admin/showpage/AttentionMenu.tsx:58-65`) — the panel is byte-identical to the alerts-only menu. Placement is indifferent to it. |
-| viewport | narrower than the panel's minimum usable width | Panel is clamped to `bounds.left` and capped to `bounds.width`; if the resulting height falls under the floor, the stack's dev diagnostic fires (`lib/popover/place.ts:75-99`). Conservative and signaled — §10. |
+**Ratified, and load-bearing for the implementer: this change does NOT add `scale`
+to the transition list.** Doing so would make the geometry animate and would
+immediately require the settle signal this section just showed does not exist.
+The entrance's visual behavior is out of scope and unchanged. Recorded as L-6,
+because the component's docblock describes a "fade+scale" entrance
+(`components/admin/showpage/AttentionMenu.tsx:27-29`) whose scale half is in fact
+instant — a pre-existing cosmetic gap this arc deliberately does not close.
 
 ### 7.1 Dimensional Invariants
 
@@ -780,9 +787,11 @@ documented failure this rule exists for.
 Measured in a real browser, on both review modals, at every viewport in the probe
 domain, with `TOL = 0.5px`:
 
-**Every AC is measured at rest** — after the entrance transition reports
-`transform: none` — because §1.3 showed a mid-entrance measurement understates the
-overhang by 5%. AC-6 is the one that additionally checks the transient.
+**Every AC is measured at rest** — after the entrance settles, detected by
+`scale` reading `1`, never by `transform: none`, which §7 shows is permanently
+true on this element and so waits for nothing. §1.3 showed a pre-settle
+measurement understates the overhang by 5%. AC-6 is the one that additionally
+checks the transient.
 
 - **AC-1.** `menu.left >= clip.left - TOL` on both surfaces. The measured settled
   failure (`menu.left = -36` against `clip.left = 0`, §1.3) is gone. Expected
@@ -810,6 +819,17 @@ overhang by 5%. AC-6 is the one that additionally checks the transient.
      the only one behaving differently.
 
   The alternative is recorded in §11 as L-4 with its trigger, not discarded.
+
+  **AC-2b — the choice is ENFORCED, not merely stated.** At 375x667 the settled
+  `menu.width` is `343` and `menu.right` is `343 + menu.left`, i.e. the natural
+  width is preserved and the panel is NOT narrowed to fit flush.
+
+  Without this the acceptance criteria do not discriminate the ratified design
+  from the rejected one: a 299px panel at `left = 8, right = 307` satisfies AC-1
+  (`8 >= -0.5`), AC-2 (`307 <= 375.5`), AC-3, AC-4 (`299 > 0`) and AC-7, and an
+  implementation that narrowed only on phones would still satisfy AC-5 and AC-6
+  at 1280. The rejected outcome passed every written AC. That is a silent wrong
+  auto-correct, not a documented limit, and AC-2b closes it.
 - **AC-3.** `menu.bottom <= clip.bottom + TOL` — the existing height contract
   survives the hook's removal. **The regression that matters most**, since the
   height cap changes hands from `useFitWithinClip` to `placement.maxHeight`.
@@ -819,7 +839,7 @@ overhang by 5%. AC-6 is the one that additionally checks the transient.
 - **AC-5.** At 1280x800 the settled geometry is **identical** to today's measured
   values: `menu.left = 684`, `menu.width = 400`. Derived as an identity in §2.1,
   not an approximation, so any drift is a real defect rather than tolerance.
-- **AC-6.** Placement is RE-COMPUTED when the transform settles, and the assertion
+- **AC-6.** Placement is RE-COMPUTED when the entrance settles, and the assertion
   discriminates that from a frozen placement.
 
   **A settled width of 343 does NOT prove this** and must not be used: the rect
@@ -833,15 +853,18 @@ overhang by 5%. AC-6 is the one that additionally checks the transient.
   when the natural size is re-read. At 1280x800: frozen gives
   `1084 - 380 = 704`; re-measured gives `1084 - 400 = 684`, the measured settled
   value in §1.3. Asserting `menu.left === 684` at rest fails on a frozen
-  placement and passes on a re-measured one. Task 5 additionally proves the
-  listener by removing it and observing 704.
+  placement and passes on a re-measured one. The mutant that proves the
+  assertion discriminates is **removing the `entered` re-place** and observing
+  704 — not removing a `transitionend` listener, which §7 shows never fires and
+  whose removal would therefore change nothing.
 
-  **Asserted on BOTH motion branches**, because §7 shows they are served by
-  different signals and a single-branch assertion would pass while the other
-  branch stays frozen: once with motion enabled (the `transitionend` path) and
-  once under `prefers-reduced-motion: reduce` via Playwright's
-  `reducedMotion: "reduce"` context option (the `entered` path). Both must read
-  684. A run that covers only the animated branch does not satisfy AC-6.
+  **Asserted under BOTH motion settings**, not because the geometry differs —
+  §7 shows the scale is instant either way — but because the harness's default
+  is `reducedMotion: true` (probed), so a suite that never sets it has silently
+  tested only one of the two settings an operator can be in. The motion-safe
+  case is obtained with `page.emulateMedia({ reducedMotion: "no-preference" })`.
+  Both must read 684. Equal results are the expected outcome and are the point:
+  they confirm the geometry does not depend on the setting.
 - **AC-7.** No `useFitWithinClip` import remains in the tree, and no
   `100vw`-derived width remains on a clipped, non-portaled overlay (§5).
 
@@ -884,6 +907,14 @@ degrade to the signaled outcomes above and file to documented limits.
   regression returning on the published surface, but only because the pixels move;
   it makes no assertion about `menu.left`. The e2e assertions in §6.2 are the real
   guard. Recorded so nobody reads a green baseline as containment evidence.
+- **L-3. `tests/components/admin/_metaPopoverViewportSource.test.ts` still does not scan CSS.** This
+  change empties the class, but the guard that would keep it empty reads JS only —
+  a future `100vw` width on a new clipped overlay would not fail it. Extending the
+  guard to CSS is process-facing work with no incident behind it, so under the
+  2026-08-25 process mint freeze it is recorded here rather than filed.
+  **Trigger:** a second instance of this shape reaching main, which would make it a
+  recurrence with two independent arcs and admissible under `Mint-exception:
+  recurrence`.
 - **L-4. Containment is bought with alignment, not with width.** AC-2 ratifies the
   shift; the alternative that narrows the panel to `trigger.right - bounds.left`
   (299px at 375x667) keeps it flush with the pill and is equally contained. It is
@@ -892,14 +923,27 @@ degrade to the signaled outcomes above and file to documented limits.
   pill, or a design decision making flushness a contract — at which point the
   repair is a new cap quantity in the shared core, affecting all six consumers,
   never a local override.
-- **L-3. `_metaPopoverViewportSource.test.ts` still does not scan CSS.** This
-  change empties the class, but the guard that would keep it empty reads JS only —
-  a future `100vw` width on a new clipped overlay would not fail it. Extending the
-  guard to CSS is process-facing work with no incident behind it, so under the
-  2026-08-25 process mint freeze it is recorded here rather than filed.
-  **Trigger:** a second instance of this shape reaching main, which would make it a
-  recurrence with two independent arcs and admissible under `Mint-exception:
-  recurrence`.
+- **L-5. `AvatarMenu` is a latent instance of this class, bounded by luck of
+  anchor placement.** It meets conditions 1-3 of §5 and escapes only on condition
+  4, because its anchor sits at the header's far-right edge. Its cap
+  (`max-w-[calc(100vw-2rem)]`) bounds the wrong quantity — the viewport rather
+  than the anchor-to-clip-edge distance — so the bound is incidental. Not
+  repaired here: it sits outside any review-modal clip, is not on the placement
+  stack, and migrating it is a different surface with its own review.
+  **Trigger:** the identity chip moving off the far-right edge, a container that
+  insets the header, or any report of the avatar menu clipping on a narrow
+  screen.
+- **L-6. The entrance's scale half does not animate, and this arc does not fix
+  it.** The component's docblock describes a "motion-safe fade+scale" entrance
+  (`components/admin/showpage/AttentionMenu.tsx:27-29`), but Tailwind v4 compiles
+  `scale-*` to the individual `scale` property while `transition-property` lists
+  `opacity, transform` (probed, §7). `scale` is therefore not in the transition
+  list and the scale change is instant; only the fade animates. Cosmetic,
+  pre-existing, and deliberately untouched — adding `scale` to the list would
+  make the geometry animate and would require a settle signal that §7 shows does
+  not currently exist, which is a strictly larger change than this row.
+  **Trigger:** a design decision to restore the scale entrance, which must land
+  together with a settle signal for placement.
 
 ---
 
