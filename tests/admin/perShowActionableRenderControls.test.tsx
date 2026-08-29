@@ -318,6 +318,22 @@ describe("PerShowActionableWarnings — the Sheet cell line (spec §3)", () => {
     expect(screen.getByTestId("per-show-actionable-cell-value").textContent).toBe("VENUE!A1");
   });
 
+  // bl-orch ruling 2026-08-29 (impeccable audit P2): same paste-able-reference rule as the
+  // wizard twin, so one coordinate is never spelled two ways across the two surfaces.
+  test.each([
+    ["a spaced tab is quoted", "PULL SHEET", "'PULL SHEET'!A1"],
+    ["an apostrophe is doubled inside the quotes", "Doug's Tab", "'Doug''s Tab'!A1"],
+    ["an ordinary tab stays bare", "VENUE", "VENUE!A1"],
+  ])("%s", (_label, title, expected) => {
+    render(
+      <PerShowActionableWarnings
+        items={[refWarning({ title, gid: 5, a1: "A1", scope: "cell" })]}
+        driveFileId="df"
+      />,
+    );
+    expect(screen.getByTestId("per-show-actionable-cell-value").textContent).toBe(expected);
+  });
+
   test.each([
     ["scope tab", { title: "VENUE", gid: 5, scope: "tab" as const }],
     ["null", null],

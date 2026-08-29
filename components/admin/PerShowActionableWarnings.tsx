@@ -1,6 +1,7 @@
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
+import { sheetCellReference } from "@/lib/sheet-links/sheetCellReference";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
@@ -336,7 +337,7 @@ export function PerShowActionableWarnings({
           !w.sourceCell.a1.includes(":") &&
           typeof w.sourceCell.title === "string" &&
           w.sourceCell.title.trim().length > 0
-            ? `${w.sourceCell.title.trim()}!${w.sourceCell.a1.trim()}`
+            ? sheetCellReference(w.sourceCell.title.trim(), w.sourceCell.a1.trim())
             : null;
 
         // Renders in BOTH modes: a condensed card sits under its crew row, where two #REF!

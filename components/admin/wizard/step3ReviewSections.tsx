@@ -136,6 +136,7 @@ import { avatarColor } from "@/lib/crew/avatarColor";
 import { deriveInitials } from "@/components/atoms/Avatar";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink, type SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+import { sheetCellReference } from "@/lib/sheet-links/sheetCellReference";
 import { CorrectionLoopCallout } from "@/components/admin/CorrectionLoopCallout";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
@@ -3251,7 +3252,7 @@ export function WarningsBreakdown({
                           !w.sourceCell.a1.includes(":") &&
                           typeof w.sourceCell.title === "string" &&
                           w.sourceCell.title.trim().length > 0
-                            ? `${w.sourceCell.title.trim()}!${w.sourceCell.a1.trim()}`
+                            ? sheetCellReference(w.sourceCell.title.trim(), w.sourceCell.a1.trim())
                             : null;
                         // The lead-in is not decoration: with the candidate line below
                         // carrying one, this was the only unlabeled line on the row, and it is

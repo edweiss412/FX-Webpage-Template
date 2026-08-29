@@ -691,6 +691,21 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     ).toContain("range=A1");
   });
 
+  // bl-orch ruling 2026-08-29 (impeccable audit P2): the value is a PASTE-ABLE reference,
+  // so a tab name that A1 notation would need quoted is rendered quoted. `PULL SHEET` is
+  // in SOURCE_LINK_ALLOWLIST, so this is reachable, not hypothetical.
+  test.each([
+    ["a spaced tab is quoted", "PULL SHEET", "'PULL SHEET'!A1"],
+    ["an apostrophe is doubled inside the quotes", "Doug's Tab", "'Doug''s Tab'!A1"],
+    ["an ordinary tab stays bare", "VENUE", "VENUE!A1"],
+  ])("%s", (_label, title, expected) => {
+    const region = renderExpanded([refWarning({ title, gid: 5, a1: "A1", scope: "cell" })]);
+    expect(cellLineText(region, 0)).toBe(`Sheet cell ${expected}`);
+    expect(region.getByTestId(`wizard-step3-card-${DFID}-warning-0-cell-value`).textContent).toBe(
+      expected,
+    );
+  });
+
   test.each([
     ["scope tab", { title: "VENUE", gid: 5, scope: "tab" as const }],
     ["null", null],
