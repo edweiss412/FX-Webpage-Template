@@ -19,7 +19,7 @@ and a permanently single-column page reds plausibly for almost any criterion.
 | AC-1 | minimum lowered to 16rem | measure at | RED OBSERVED |
 | AC-1a | minimum lowered to 10rem, which fits two tracks in the 358px mobile container | at 390px | RED OBSERVED |
 | AC-1b | errors jump list restored to sm:grid-cols-2 | at 768px | RED OBSERVED |
-| AC-1c | min(...,100%) dropped, leaving a bare 22rem | grid 1 track within its container at 320px: expected <= 288.5, received 352 | RED OBSERVED |
+| AC-1c | min(...,100%) dropped, leaving a bare 22rem | grid 1 track 1 within its container at 320px: expected <= 288.5, received 352 | RED OBSERVED |
 | AC-2 | the > * scoping removed, so the cap lifts entirely | reading measure too wide | RED OBSERVED |
 | AC-3 | Settings card deleted | /help/admin/settings | RED OBSERVED |
 | AC-4 | a ninth admin-surface NAV entry added with no card | expected 8 to be 9 | RED OBSERVED |
@@ -44,3 +44,31 @@ corrected in this arc's own scratch probe earlier the same day, and then reprodu
 the shipped assertion. Knowing a lesson did not transfer it between two artifacts — the
 same observation this arc's plan-stage round-economy filing makes about the spec and the
 plan. Staging the violation is what caught it; nothing else would have.
+
+---
+
+## Post-review additions
+
+Diff review rounds 1 and 2 added assertions this table predates. Their labels were
+re-checked against the shipped source afterwards, which is how the AC-1c row's observed
+string came to read `track 1` rather than `track` — the assertion moved from the first
+track to every track, and a transcript that quotes a label the code no longer emits is
+the same stale-citation defect the reviews kept finding, one artifact over.
+
+**One post-review assertion has been staged and observed. The rest have not, and saying
+so is the point of this section.**
+
+| assertion | staged violation | observed | result |
+| --- | --- | --- | --- |
+| §4 rows 2/4, the bleed | `help-bleed` stripped from all three grids | grid 1 width at 1024px: expected 728, received **704.4** | RED OBSERVED |
+
+704.4px is the capped width — the exact scenario round 1's first finding described, where
+a grid that never escapes the measure satisfies every column count and every measure
+bound. The assertion discriminates, and that is measured rather than asserted.
+
+**Not yet staged:** the guard bridge (marked anchors inside measured grids), §4 row 7's
+shared-height half, §4 row 4's 1440 sample, and §4 row 7's body-versus-`--help-measure`
+arm. Each is scheduled for the next window in which this arc holds the DB slot, since
+every one of them needs a signed-in real-browser run. Until then they are assertions
+believed correct rather than assertions proven discriminating, and that distinction is
+exactly what this document exists to keep visible.
