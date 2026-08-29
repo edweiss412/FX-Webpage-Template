@@ -281,7 +281,7 @@ The 43% is not meaningfully better than the 39% the JSX side was descoped FOR.
    was wrong, and it is the same class of error as the rest of this list: BOTH apply
    `contextKeys` and `scope`. They differ in POLICY. `--collisions` finds 5 colliding groups,
    resolves 1 by content, and declines every row of the 4 it cannot fully separate (2+2+3+2 =
-   **9**). The shipped resolver (§3.3) asks per row whether that row's anchor matches exactly
+   **9**). The resolver in §3.3 asks per row whether that row's anchor matches exactly
    one site, so the third `ASSET_RECOVERY_REVISION_DRIFT` row binds alone and only 2 of its
    group decline (**8**). **Per-row resolution governs, because §3.3 specifies it**; 9 is the
    more conservative policy `--collisions` implements, reported as such.
@@ -344,7 +344,7 @@ Adding the content-derived discriminators the row already carries (`contextKeys`
 resolves **1 of 5** collision groups. In each of the other four, at least two rows remain
 identical in every field the registry holds.
 
-**`--collisions` reports nine declining rows, and the shipped resolver declines eight.** That is
+**`--collisions` reports nine declining rows; per-row resolution declines eight.** That is
 a policy difference, not a measurement disagreement (§4.4 item 3). `--collisions` refuses a whole
 group it cannot fully separate, so all three `ASSET_RECOVERY_REVISION_DRIFT` rows are counted;
 §3.3 resolves per row, and the third of those at line 656 has different context keys, so its anchor
@@ -362,7 +362,7 @@ lib/sync/assetRecovery.ts::ASSET_RECOVERY_REVISION_DRIFT
 app/api/drive/webhook/route.ts::WEBHOOK_TOKEN_INVALID     lines 332, 348     ctx=[channel_id,reason] scope=global
 ```
 
-Nine rows are genuinely indistinguishable by content. Under §3.4 they DECLINE and stay line-keyed. The alternative, an ordinal to separate them, is the rejected trade from §2, and this measurement is why the grammar is closed rather than one anchor kind longer.
+The alternative, an ordinal to separate colliding rows, is the rejected trade from §2, and this measurement is why the grammar is closed rather than one anchor kind longer. §4.4 item 3 owns the decline count.
 
 ## 6. What ships
 
@@ -405,8 +405,8 @@ about nothing, and any future attempt starts with live site extraction, not with
 
 ### 6.4 Dimensional Invariants
 
-N/A — no UI surface. Nothing renders. The arc ships one Node script and documentation; the
-`.tsx` paths named throughout are TARGETS the registries key on, never files this arc modifies.
+N/A — no UI surface. Nothing renders. §6.1 lists what the arc ships; the `.tsx` paths named
+throughout are TARGETS the registries key on, never files this arc modifies.
 
 ### 6.5 Transition Inventory
 
