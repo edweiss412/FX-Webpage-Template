@@ -112,7 +112,7 @@ import {
   DataQualityWarningControls,
   type WizardDqTarget,
 } from "@/components/admin/DataQualityWarningControls";
-import type { WizardWarningModel } from "@/lib/admin/wizardWarningModel";
+import type { WizardWarningItem, WizardWarningModel } from "@/lib/admin/wizardWarningModel";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
@@ -2960,17 +2960,8 @@ export function WarningsBreakdown({
   // staged-only — so the two happened to be the same array. A mismatch would not have
   // been caught by the range filter below; it would have picked the WRONG warnings.
   const pick = (
-    partition: readonly {
-      index: number;
-      reportSurfaceId: string;
-      ignoreOrigin?: "show" | "staged";
-    }[],
-  ): Array<{
-    w: ParseWarning;
-    index: number;
-    reportSurfaceId: string;
-    ignoreOrigin?: "show" | "staged";
-  }> =>
+    partition: readonly WizardWarningItem[],
+  ): Array<WizardWarningItem & { w: ParseWarning }> =>
     partition
       .filter((item) => item.index >= 0 && item.index < warnings.length)
       .map((item) => ({ w: warnings[item.index] as ParseWarning, ...item }));

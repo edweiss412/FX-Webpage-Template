@@ -591,11 +591,18 @@ async function carryStagedIgnoresToLiveShow(
     );
   }
   for (const entry of entries) {
+    // Invariant 3 at the boundary that WRITES. `carryableIgnoreEntries` has already
+    // dropped everything that cannot canonicalize, so this is total — but the
+    // canonicalization has to be visible HERE, where the row enters the table whose
+    // CHECK requires it, both for the reader and for the X.5 audit, which follows the
+    // written expression and cannot see through a helper two calls back.
+    const ignoredBy = canonicalize(entry.ignored_by);
+    if (ignoredBy === null) continue;
     await tx.query(
       `insert into public.ignored_warnings (show_id, fingerprint, code, ignored_by)
        values ($1, $2, $3, $4)
        on conflict (show_id, fingerprint) do nothing`,
-      [showId, entry.fingerprint, entry.code, entry.ignored_by],
+      [showId, entry.fingerprint, entry.code, ignoredBy],
     );
   }
 }

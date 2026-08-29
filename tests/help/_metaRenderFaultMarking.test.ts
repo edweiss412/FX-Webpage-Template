@@ -43,7 +43,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:4070":
+  "components/admin/wizard/step3ReviewSections.tsx:4085":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -385,7 +385,12 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Regenerated once more for that arc's whole-diff R1 repairs, which added the
     // catalog controlsNote line and widened the ignored-row discriminator: same single
     // `unknown:false` row, 4026 -> 4070, membership still 35. Located by the scanner.
-    expect(digest).toBe("e7f34b85cb1365f0dbcfcaee3fe0a70b864804269ee202bb86006a42f6d36459");
+    //
+    // And again for its two whole-diff P0 repairs (Un-ignore routing by ignore ORIGIN,
+    // and the D10-no-op carry) plus the absorb of merge 67: same single `unknown:false`
+    // row, 4070 -> 4085, membership still 35. Located by the scanner, as every entry in
+    // this list has been.
+    expect(digest).toBe("7147dfe0f698a60454b1b17c68e477d17a190bb00806659f0915647daf52e0d6");
   });
 });
 

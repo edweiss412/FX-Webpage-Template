@@ -88,7 +88,7 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // live tree: 1633 is that same `<summary>`.
     // Then 1633 -> 1638 when the wizard-ignore arc added its imports and the panel's
     // partition block. Located on the live tree again: 1638 is that same `<summary>`.
-    line: 1639,
+    line: 1642,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -97,7 +97,7 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    line: 3365,
+    line: 3359,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
