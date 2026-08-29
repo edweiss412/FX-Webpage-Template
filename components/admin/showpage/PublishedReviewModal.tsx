@@ -67,6 +67,7 @@ import {
   resolveEffectiveSection,
 } from "@/lib/admin/sectionAttention";
 import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
+import { consumesKey, decideEscape } from "@/lib/admin/escapeClaim";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import {
@@ -442,28 +443,32 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   const clearEscapeClaim = () => {
     escapeClaimRef.current = false;
   };
-  /** The shell's consumed-key handler. Returns true when the MODAL took the key.
-   *  In state P the panel is mounted but cannot defend itself, so the modal
-   *  dismisses the PANEL rather than merely vetoing the close: a veto there spends
-   *  the key with nothing dismissed. */
+  /** The shell's consumed-key handler. The DECISION is a pure function
+   *  (`lib/admin/escapeClaim.ts`) so it can be tested over its whole input space;
+   *  this only applies the action. Whole-diff review round 2 is why: inline, the
+   *  branch is reachable only in state P, jsdom cannot stage state P, and a
+   *  textual guard over the branch's body was green against an early return
+   *  inserted above it. */
   const handleEscapeCapture = (): boolean => {
-    if (menuEffectivelyOpen) {
-      setMenuOpen(false);
-      clearEscapeClaim();
-      // Focus goes back to the pill, matching what the panel's OWN Escape handler
-      // does (AttentionMenu.tsx:361-362). Without this the key strands focus on
-      // <body>, outside the dialog's trap: the rescue effect below returns early
-      // on `!was || interactive` because a close with interactivity intact is
-      // assumed to manage its own focus, and this path is exactly such a close.
-      // Impeccable critique P1, 2026-08-28.
-      pillRef.current?.focus();
-      return true;
+    const decision = decideEscape({
+      panelOpen: menuEffectivelyOpen,
+      claimPending: escapeClaimRef.current,
+    });
+    switch (decision.kind) {
+      case "dismiss-panel":
+        setMenuOpen(false);
+        clearEscapeClaim();
+        // Focus goes back to the pill, matching what the panel's OWN Escape
+        // handler does (AttentionMenu.tsx:361-362). Impeccable critique P1.
+        pillRef.current?.focus();
+        break;
+      case "consume-claim":
+        clearEscapeClaim();
+        break;
+      case "let-dialog-close":
+        break;
     }
-    if (escapeClaimRef.current) {
-      escapeClaimRef.current = false;
-      return true;
-    }
-    return false;
+    return consumesKey(decision);
   };
 
   const menuWasEffectivelyOpenRef = useRef(false);

@@ -45,6 +45,7 @@ import { cloneElement } from "react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { premiseHolds } from "@/tests/_shared/premise";
+import { consumesKey, decideEscape } from "@/lib/admin/escapeClaim";
 
 const routerPush = vi.fn();
 const routerRefresh = vi.fn();
@@ -240,76 +241,42 @@ describe("published modal: an Escape claim that outlives the panel", () => {
   });
 
   /**
-   * Case 1b: the host path's focus contract, asserted structurally, and the reason
-   * is the same limit as case 11 rather than a preference.
+   * Cases 1b and 11, BEHAVIOURAL at last.
    *
-   * A behavioural version was written first and its MUTANT SURVIVED: deleting the
-   * focus restoration left it green. The cause is worth recording, because the case
-   * looked correct. `handleEscapeCapture` only runs when the shell SEES the Escape,
-   * and the shell only sees it when the panel's own capture listener did not stop
-   * it. With the panel mounted and its listener live, the frame claims the key and
-   * restores focus itself, so the behavioural case was exercising the FRAME's
-   * pre-existing contract and never reached the host path at all.
+   * These pin the state-P branch, which is reachable only when the panel is mounted
+   * and its own capture listener is not yet installed. jsdom cannot stage that, so
+   * earlier versions asserted the branch's SOURCE TEXT, and whole-diff review round
+   * 2 showed exactly what a textual guard is worth: inserting `if (pillRef.current)
+   * return true;` above the branch body swallows state P's Escape while every
+   * asserted string is still present, and all sixteen cases stayed green.
    *
-   * The branch under test is therefore reachable only in state P, panel mounted with
-   * its listener not yet installed, which three probed routes showed jsdom cannot
-   * stage (see case 11). So the contract is pinned where it can be: the branch that
-   * dismisses the panel must restore focus, and the branch that dismisses nothing
-   * must not touch focus. Both halves matter. Restoring focus in the claim-consumed
-   * branch would move it for a key that changed nothing visible.
+   * The decision is now a pure function, so it is tested over its WHOLE input space
+   * rather than through a state the environment cannot produce. Four inputs, and
+   * every one of them is a behaviour a user would notice.
    */
-  it("case 1b (order): the panel-dismissing branch restores focus; the deferring branch does not", () => {
-    const src = readFileSync(
-      join(__dirname, "..", "..", "..", "..", "components/admin/showpage/PublishedReviewModal.tsx"),
-      "utf8",
-    );
-    const handler = src.slice(
-      src.indexOf("const handleEscapeCapture"),
-      src.indexOf("const menuWasEffectivelyOpenRef"),
-    );
-    premiseHolds("the handler this assertion is about was found in the source", handler.length > 0);
-    premiseHolds(
-      "the handler still has the two branches the assertion distinguishes",
-      handler.includes("if (menuEffectivelyOpen)") && handler.includes("escapeClaimRef.current"),
-    );
+  describe("the consumed-key decision (lib/admin/escapeClaim)", () => {
+    it("state P, panel up: dismisses the PANEL and keeps the dialog", () => {
+      const d = decideEscape({ panelOpen: true, claimPending: false });
+      expect(d.kind, "a mounted panel is what the key was aimed at").toBe("dismiss-panel");
+      expect(consumesKey(d), "the shell must not also close the dialog").toBe(true);
+    });
 
-    const dismissing = handler.slice(0, handler.indexOf("if (escapeClaimRef.current)"));
-    const deferring = handler.slice(handler.indexOf("if (escapeClaimRef.current)"));
+    it("state P holds even with a claim pending: the panel still wins", () => {
+      const d = decideEscape({ panelOpen: true, claimPending: true });
+      expect(d.kind, "a visible panel outranks a stale claim").toBe("dismiss-panel");
+    });
 
-    // The branch is reachable only in state P, so these pin its WHOLE behaviour and
-    // not one attribute of it. Whole-diff review round 1 found the earlier version
-    // vacuous in three directions at once: deleting the dismissal, the clear, or the
-    // return each left it green while respectively swallowing every Escape,
-    // requiring a third key, or closing panel AND dialog together.
-    for (const [fragment, why] of [
-      [
-        "setMenuOpen(false)",
-        "state P must DISMISS the panel; without it the key is swallowed and nothing happens",
-      ],
-      [
-        "clearEscapeClaim()",
-        "the dismissal must spend the claim, or the next key is deferred again and a third is needed to close",
-      ],
-      [
-        "pillRef.current?.focus()",
-        "focus returns to the pill, as the panel's own handler does, or the key strands focus outside the dialog's trap",
-      ],
-      [
-        "return true",
-        "the shell must be told the host took the key, or it closes the dialog as well and one key dismisses two things",
-      ],
-    ] as const) {
-      expect(dismissing.includes(fragment), why).toBe(true);
-    }
+    it("state N, panel gone with a claim: consumes the claim, dialog stays", () => {
+      const d = decideEscape({ panelOpen: false, claimPending: true });
+      expect(d.kind).toBe("consume-claim");
+      expect(consumesKey(d), "this is the one deliberate defer").toBe(true);
+    });
 
-    expect(
-      deferring.includes("focus()"),
-      "the branch that dismisses nothing must not move focus: that key changed nothing visible",
-    ).toBe(false);
-    expect(
-      deferring.includes("setMenuOpen"),
-      "the deferring branch must not touch the panel: there is no panel to dismiss",
-    ).toBe(false);
+    it("state O, nothing pending: the dialog closes", () => {
+      const d = decideEscape({ panelOpen: false, claimPending: false });
+      expect(d.kind).toBe("let-dialog-close");
+      expect(consumesKey(d), "nothing claimed the key, so the shell must close").toBe(false);
+    });
   });
 
   it("case 9: with no panel at any point, Escape closes the modal", async () => {
