@@ -43,7 +43,11 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
-  "components/admin/wizard/step3ReviewSections.tsx:4085":
+  // 4085 -> 4101 (2026-08-29, wizard-warning-ignore-controls). Located by identity on
+  // the live tree — still the bare `if (failed)` this reason describes — never by
+  // adding a delta. This registry is line-keyed like the tests/styles censuses and
+  // moves for the same reason: edits above it in the same component.
+  "components/admin/wizard/step3ReviewSections.tsx:4101":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -390,7 +394,15 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // and the D10-no-op carry) plus the absorb of merge 67: same single `unknown:false`
     // row, 4070 -> 4085, membership still 35. Located by the scanner, as every entry in
     // this list has been.
-    expect(digest).toBe("7147dfe0f698a60454b1b17c68e477d17a190bb00806659f0915647daf52e0d6");
+    // Regenerated 2026-08-29 (wizard-warning-ignore-controls), deliberately and with
+    // the delta accounted for, which is the bar this digest's own comment sets.
+    // EXACTLY TWO inputs changed, both line numbers, both in files this arc edited:
+    //   components/admin/OnboardingWizard.tsx           594 -> 611 (net +17 above it)
+    //   components/admin/wizard/step3ReviewSections.tsx 4085 -> 4101
+    // Nothing joined or left: the count assertion above still reads 35, the file set is
+    // unchanged, and every `form` and `marked` value is unchanged. A membership change
+    // would have shown up as a differing file or form, not a moved line.
+    expect(digest).toBe("62a1c86bfcc709c8ea46c8c307f4dcfcabb5005228456aae05839f138d6f2d8a");
   });
 });
 
