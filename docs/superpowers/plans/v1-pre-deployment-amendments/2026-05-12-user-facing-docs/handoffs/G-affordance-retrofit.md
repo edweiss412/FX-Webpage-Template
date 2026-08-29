@@ -141,11 +141,58 @@ ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture \
   --project=help-docs tests/e2e/deep-link-walker.spec.ts < /dev/null
 
 # Local pinned-image capture (for baseline regen; MUST be followed by git restore)
+#
+# The in-container `pnpm install` is REQUIRED on an arm64 host, not tidying. This
+# command bind-mounts the checkout, and on a CI runner that checkout's node_modules
+# was already installed for linux-x64, so the container just uses it. A macOS/arm64
+# host installed for darwin-arm64 instead, and esbuild and swc ship native binaries.
+# Without the reinstall the webServer build dies before any page renders:
+# "@esbuild/darwin-arm64 is present but this platform needs @esbuild/linux-x64".
+# Installing inside the container reproduces what the runner would have had, so it
+# moves the tree toward the CI environment rather than away from it. The
+# --store-dir keeps the linux-x64 store out of the host's own pnpm store and makes
+# a second capture cheap.
+#
+# Cost: the host's arm64 node_modules is overwritten. Re-run `pnpm install` on the
+# host after the last capture, before any host-side build or test.
+#
+# Holding `.env.local` aside is the second requirement, and it applies to any
+# capture run out of a git worktree. `pnpm worktree:link-env` leaves it an ABSOLUTE
+# symlink into the main checkout, which this command does not mount, so inside the
+# container it is a dangling link: existence checks pass, `stat` throws, and the
+# build dies on "ENOENT: no such file or directory, stat '/work/.env.local'". A CI
+# checkout carries no `.env.local`, so removing it is what makes the run match CI.
+# It is gitignored, so the tree is unaffected. Do NOT mount the real file in
+# instead: it points TEST_DATABASE_URL at the validation project, and validation is
+# never a test target.
+#
+# The Docker VM must be shaped like a CI runner on BOTH axes, memory and CPUs.
+# ubuntu-latest is 4 vCPU / ~16 GB. Docker Desktop shipped this machine 12 vCPU /
+# 4096 MiB, which is wrong in both directions at once, and only the memory half is
+# visible in the first failure.
+#
+# Memory: the config builds under --max-old-space-size=8192, sized for the runner.
+# Against a 4096 MiB VM the build outgrew the VM and was SIGKILLed -- exit 137, no
+# stack, nothing but "Killed". Capping the heap does NOT rescue it, because that
+# bounds one process; 3072 died identically. Raise MemoryMiB (Docker Desktop
+# settings, then restart). 8192 is what the capture below was produced under.
+# Check with `docker info --format '{{.MemTotal}}'`.
+#
+# CPUs: raising memory alone still SIGKILLed, now a "Next.js build worker". Next
+# sizes its pool as max(1, (CIRCLE_NODE_TOTAL || os.cpus().length) - 1)
+# (node_modules/next/dist/server/config-shared.js:218), so 12 CPUs means 11 workers
+# each holding its own heap, against a runner's 3. Pin `-e CIRCLE_NODE_TOTAL=4` on
+# the docker run: it makes the pool CI-shaped with no next.config edit and no
+# further VM change. This is the fix that actually landed the capture.
+[ -L .env.local ] && ENV_TARGET="$(readlink .env.local)" && rm .env.local
 docker run --rm --platform linux/amd64 --network host \
-  -v "$PWD:/work" -w /work -e CI=true \
+  -v "$PWD:/work" -v "/tmp/pnpm-store-linux:/pnpm-store" -w /work \
+  -e CI=true -e CIRCLE_NODE_TOTAL=4 \
   mcr.microsoft.com/playwright:v1.59.1-jammy \
-  bash -lc "apt-get update -qq && apt-get install -y -qq postgresql-client && corepack enable && pnpm screenshot:help"
+  bash -lc "apt-get update -qq && apt-get install -y -qq postgresql-client && corepack enable && pnpm install --frozen-lockfile --store-dir /pnpm-store && pnpm screenshot:help"
+[ -n "${ENV_TARGET:-}" ] && ln -s "$ENV_TARGET" .env.local
 git restore public/help/screenshots/  # if not actually regenerating baseline
+pnpm install                          # restore the host's arm64 binaries
 
 # CI drift gate (manual trigger; --platform pinned via workflow per ce7cfa0)
 gh workflow run screenshots-drift.yml --ref main
@@ -186,6 +233,23 @@ Regeneration sequence (per Phase F's byte-comparison-discipline now in AGENTS.md
 5. Run `26309766066` → **completed:success**.
 
 Validates retroactively: `--platform linux/amd64` on arm64 macOS produces byte-identical output to native-x64 CI runners when seed state matches. The R2 Finding 2 fix wasn't defense-in-depth — it was a working reproducibility tool.
+
+**Addendum, 2026-08-29 (`fix/screenshots-baseline-rebaseline`).** The sequence above is incomplete, in three ways that share one shape: it assumes the container is a CI runner, and it is not. Step 2 bind-mounts the checkout, so the container inherits host state a runner never had, and the VM around it is sized by Docker Desktop rather than by GitHub. Each fault kills the build before a single page renders, each was invisible until someone ran the procedure as written, and none leaves a useful error behind.
+
+1. **`node_modules` is the host's architecture.** On the runner that tree is already linux-x64; on a macOS arm64 host it is darwin-arm64, and esbuild and swc ship native binaries, so the build fails at `@esbuild/darwin-arm64 is present but this platform needs @esbuild/linux-x64`. Add `pnpm install --frozen-lockfile` inside the container, ahead of `pnpm screenshot:help`.
+2. **`.env.local` is a dangling symlink in any worktree.** `pnpm worktree:link-env` points it at the main checkout, which is not mounted, so existence checks pass while `stat` throws: `ENOENT: no such file or directory, stat '/work/.env.local'`. Hold it aside for the run. A CI checkout has none, so its absence is the CI-faithful state. Do not mount the real file instead, because it points `TEST_DATABASE_URL` at the validation project.
+
+3. **The Docker VM is not shaped like a runner, on either axis.** ubuntu-latest is 4 vCPU / ~16 GB. Docker Desktop shipped this machine 12 vCPU / 4096 MiB, wrong in both directions, and only one direction is visible at a time.
+
+   *Memory.* `playwright.screenshots.config.ts` builds under `--max-old-space-size=8192`, sized for the runner. Against a 4096 MiB VM the build outgrew the VM and was SIGKILLed: exit 137, no stack, nothing but `Killed`. Capping the heap does not rescue it, because that bounds a single process; 3072 died identically. Raise `MemoryMiB` in Docker Desktop settings and restart. 8192 is what these baselines were captured under, and `docker info --format '{{.MemTotal}}'` is worth checking first, because the failure costs a full build to discover.
+
+   *CPUs.* Raising memory alone still SIGKILLed, now naming a `Next.js build worker`. Next sizes its pool as `max(1, (CIRCLE_NODE_TOTAL || os.cpus().length) - 1)` (`node_modules/next/dist/server/config-shared.js:218`), so 12 CPUs means 11 workers each holding a heap, against a runner's 3. Pin `-e CIRCLE_NODE_TOTAL=4` on the docker run. That is the change that actually landed the capture, and it costs no `next.config` edit and no further VM restart.
+
+   The order matters for anyone retracing this: the memory raise was necessary and not sufficient, so a reader who stops at "raise the VM" will conclude the procedure is broken when the second SIGKILL arrives.
+
+   When restoring local Supabase after that restart, use `docker start` on the exited containers. Do not reach for `supabase stop --no-backup` first, which the CLI will suggest: it deletes the local volume, and with it the `supabase db reset --no-seed` state the capture depends on.
+
+The §7 command block carries all three fixes. None of them qualifies the byte-determinism claim. The first two are what make the container's tree match the runner's, and the third only decides whether the build finishes at all, never what it emits, so together they strengthen the platform-pin result rather than weakening it.
 
 ### §8.4 Structural defenses landed during Phase G
 
