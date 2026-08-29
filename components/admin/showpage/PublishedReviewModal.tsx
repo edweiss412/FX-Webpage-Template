@@ -33,7 +33,16 @@
  * the URL up in the background.
  */
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { ChevronDown, History, LayoutDashboard } from "lucide-react";
 
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
@@ -390,6 +399,46 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     // effect, so the set-state-in-effect lint contract does not apply.
     setMenuOpen(false);
   }
+  // ── Escape claim (2026-08-28-published-escape-consumed-claim §3) ───────────
+  // The shell closes the dialog on any Escape unless a host handles the key. The
+  // panel's own capture listener can only claim a key while the panel is mounted
+  // AND that listener is live, so every window in which the panel is down, or up
+  // but not yet listening, would otherwise spend the operator's Escape on the
+  // modal. This ref outlives the panel and CLASSIFIES those windows: a transient
+  // unmount keeps the claim and the next key is deferred, an intentional dismissal
+  // clears it and the next key closes the dialog.
+  //
+  // ACQUISITION IS A LAYOUT EFFECT, deliberately. A passive acquisition would leave
+  // an ordinary post-commit window in which the panel is painted and neither the
+  // claim nor the frame's own passive listener is live, which is this repair's own
+  // defect reintroduced by the repair (spec §3.4). Layout runs before paint, so the
+  // panel is never visible without a claim behind it.
+  const escapeClaimRef = useRef(false);
+  useLayoutEffect(() => {
+    if (menuEffectivelyOpen) escapeClaimRef.current = true;
+  }, [menuEffectivelyOpen]);
+  /** Intentional dismissal: the operator asked for it, so the next Escape is the
+   *  dialog's (spec §4's matrix, every row classified `intentional`). */
+  const clearEscapeClaim = () => {
+    escapeClaimRef.current = false;
+  };
+  /** The shell's consumed-key handler. Returns true when the MODAL took the key.
+   *  In state P the panel is mounted but cannot defend itself, so the modal
+   *  dismisses the PANEL rather than merely vetoing the close: a veto there spends
+   *  the key with nothing dismissed. */
+  const handleEscapeCapture = (): boolean => {
+    if (menuEffectivelyOpen) {
+      setMenuOpen(false);
+      escapeClaimRef.current = false;
+      return true;
+    }
+    if (escapeClaimRef.current) {
+      escapeClaimRef.current = false;
+      return true;
+    }
+    return false;
+  };
+
   const menuWasEffectivelyOpenRef = useRef(false);
   useEffect(() => {
     const was = menuWasEffectivelyOpenRef.current;
@@ -672,7 +721,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     doneIdsRef.current = next;
     setDoneIds(next);
     const remaining = attentionItems.filter((i) => i.actionable && !next.has(i.id));
-    if (remaining.length === 0) setMenuOpen(false);
+    if (remaining.length === 0) {
+      clearEscapeClaim(); // W2, intentional
+      setMenuOpen(false);
+    }
   };
 
   // Auto-open once per mount (§5.2); the guard consumes only when it DECIDES
@@ -912,6 +964,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     <ReviewModalShell
       open={!closing}
       onClose={handleClose}
+      onEscapeCapture={handleEscapeCapture}
       // §6.5: this frame always streams in REPLACING the settled Suspense
       // skeleton (which owns the closed→open entrance) — an animated mount
       // here replays the pop-in over an already-opaque modal.
@@ -1010,7 +1063,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   data-testid={`${TESTID_BASE}-alert-pill`}
                   aria-expanded={menuOpen}
                   aria-controls={menuId}
-                  onClick={() => setMenuOpen((v) => !v)}
+                  onClick={() => {
+                    clearEscapeClaim(); // W3, intentional
+                    setMenuOpen((v) => !v);
+                  }}
                   {...(monitoringOnly
                     ? {
                         title: `${selfHeal.length} monitoring, clearing on their own, no action needed`,
@@ -1170,7 +1226,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   <AttentionMenu
                     items={live}
                     open={menuEffectivelyOpen}
-                    onClose={() => setMenuOpen(false)}
+                    onClose={() => {
+                      clearEscapeClaim(); // W4, all five sources, intentional
+                      setMenuOpen(false);
+                    }}
                     onNavigate={navigateTo}
                     pillRef={pillRef}
                     {...(k > 0
