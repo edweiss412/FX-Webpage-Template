@@ -5,7 +5,7 @@
  *
  * `ReviewModalShell` closes the review dialog from a document BUBBLE listener that
  * fires on any Escape with no test of whether anything consumed the key
- * (ReviewModalShell.tsx:245-250). So every window in which the attention panel is
+ * (ReviewModalShell.tsx:248-262). So every window in which the attention panel is
  * down while the modal is up spends the operator's Escape on the modal. The repair
  * holds a claim in `PublishedReviewModal` that outlives the panel and CLASSIFIES a
  * transient unmount apart from an intentional dismissal.
@@ -18,7 +18,7 @@
  * TWO MECHANISMS MAKE OR BREAK EVERY ASSERTION HERE, both found by review.
  *
  * 1. A close is DEFERRED, so a naive negative assertion passes mid-close. The shell
- *    reads `matchMedia("(prefers-reduced-motion: reduce)")` (ReviewModalShell.tsx:360);
+ *    reads `matchMedia("(prefers-reduced-motion: reduce)")` (ReviewModalShell.tsx:374);
  *    jsdom ships no `matchMedia` at all and `tests/setup.ts:84` installs a global stub
  *    answering `matches: false`, so the ANIMATED path is taken and the close rides a
  *    `transitionend` fallback timer. `beginDismiss` is one-shot via an idempotence
