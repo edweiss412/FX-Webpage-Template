@@ -396,11 +396,20 @@ one for the same reason. T3 asserts on the child process's real stdout, not on t
   was false: `tests/e2e/visual.config.ts` and `tests/e2e/standalone.config.ts` are both Playwright
   configs outside the root. Neither declares a `webServer` today, so there was no live gap, but the
   limit's stated reason was wrong and the scope was one commit from being wrong too. Discovery now
-  walks the repo for `*.config.ts` whose source declares a `webServer`, which finds exactly the two
-  that do (out of eleven `*.config.ts` files) and would find a third the day one appears.
-  What remains a limit is narrower: a config that builds its `webServer` key dynamically, so the
-  source-level `webServer:` grep does not see it. Nothing in the repo does this.
-  *Re-file trigger:* a config assembling its `webServer` key programmatically.
+  IMPORTS every `*.config.ts` in the repo and asks the resolved object whether it holds
+  `webServer` entries, so property shorthand, quoted keys and dynamic construction are covered
+  rather than parsed. A lexical detector was tried first and is not recoverable by widening:
+  `{ webServer }` shorthand and `{ "webServer": [] }` are ordinary static forms it misses, and the
+  same scan fires on the word in a comment, a type, or a string in an unrelated config, which would
+  make correct code fail loudly.
+  What remains is bounded and fails closed rather than silently. Three configs THROW on import
+  (`tests/e2e/visual.config.ts` guards on an env var, `tests/mutation/source/mutantOverlay.config.ts`
+  requires `MUTATION_TARGET`, and `vitest.config.ts` cannot resolve its own exports entry under
+  vitest). A thrower is invisible to the walk, so the three are listed and the guard asserts set
+  equality both ways: a new thrower fails until dispositioned, and a listed one that starts
+  importing cleanly must be delisted rather than left standing as a stale excuse.
+  *Re-file trigger:* a config that must throw on import AND declares a `webServer`, which no listed
+  thrower does today.
 
 ## 9. Invariants
 
