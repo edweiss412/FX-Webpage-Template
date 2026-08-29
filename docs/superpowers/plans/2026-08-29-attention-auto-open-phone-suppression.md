@@ -180,7 +180,9 @@ Round 1's repair replaced two markers that could not fail with two that use the 
 
 ## 4. Acceptance criteria
 
-Every row of §2 that names an implementable assertion has an id here, and every id maps to a §2 row. The three §2 rows with no id say why in the table itself: the hydration property is NOT ASSERTED and holds by construction, the negative wizard branch asserts nothing by design, and the panel-clamp and menu-row-floor rows are covered by suites this arc does not modify.
+Every row of §2 that names an implementable assertion has an id here, and every id maps to a §2 row — with one stated exception, below. The three §2 rows with no id say why in the table itself: the hydration property is NOT ASSERTED and holds by construction, the negative wizard branch asserts nothing by design, and the panel-clamp and menu-row-floor rows are covered by suites this arc does not modify.
+
+**The exception: AC-REFIT-AWAIT and AC-REFIT-COVER have no §2 row, deliberately.** §2 maps the SPEC's claims, and Task 7 does not implement a spec claim; it repairs a pre-existing test defect this arc's investigation attributed, dispositioned in-arc by bl-orch. Giving it a §2 row would assert a spec obligation that does not exist. Its obligation is stated where the work is, in Task 7, and it carries the same anti-vacuity structure the rest of §4 does: a regression case that fails under a simulated stale cap, plus a derived cover rather than a list of today's sites. So the closure check over §2 and §4 is two-sided everywhere except these two ids, which are one-sided by construction.
 
 - **AC-OCCLUSION-DISCRIMINATES** — the helper reports a known covering node as interceptor, and reports none when it is absent. Fails against an oracle positive by construction (the panel's own rows) or negative by construction (demanding the panel element itself).
 - **AC-OCCLUSION-PARTIAL** — a control covered over its top-left quadrant only is reported intercepted at `tl` and clean at `centre`. Fails against centre-only sampling.
