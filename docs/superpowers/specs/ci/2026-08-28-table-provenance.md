@@ -1,4 +1,4 @@
-# Table provenance: eleven arcs, six repairs, and why the marker is not one of them
+# Table provenance: eleven arcs, three repair shapes, and why the marker is not one of them
 
 **Row:** `BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE` (`BACKLOG.md`), archived by this arc.
 **Branch:** `feat/speclint-table-provenance`. **Facing:** process. **Mint-exception:** recurrence.
@@ -278,16 +278,32 @@ than rest on that generalisation, the table below names the repair for each of t
 quotes it, so the row count is checkable rather than inferred. What differs is the SHAPE of
 the repair, and the shapes partition cleanly:
 
-| repair shape | arcs |
-| --- | --- |
-| make the table an OUTPUT — generate, derive, or replace the number with the command | `fix/shell-brace-cross-construct` (`weaker-walks.mts`), `fix/severityless-warning-filters` (one query produces every number), `fix/mutation-shard-budget-six` ("Every figure below is printed by commands"), `fix/mutation-shard-weight-seconds` ("Each repair replaced the number with the COMMAND"), `feat/speclint-ac-unclaimed-arm` (prints the producing command beside the corrected 108, `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md:38` and `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md:43`), `docs/quick-wins-2-specs` (the truncated sweep table corrected and re-run, "authored AND run, 2026-08-09; corrected per R1 F3", `docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md:103`), `fix/supabase-upstream-fault-class` ("Reusing a ratified extraction rule instead of inventing one", `docs/review-rounds/fix/supabase-upstream-fault-class/d04d6370985f.md:15`) |
-| DELETE the table | `feat/review-modal-strip-dock`, `feat/speclint-red-reason-verification` ("both movement tables were DELETED instead of annotated") |
-| keep the table, COMMIT the command's raw output beside it | `fix/sync-log-show-id-duration`, `docs/sync-log-emit-guard-spec` |
-| **declare the table's provenance with a pointer to a command** | **none** |
+| arc | repair shipped | shape | cited at |
+| --- | --- | --- | --- |
+| `fix/shell-brace-cross-construct` | wrote `weaker-walks.mts`; "The table is no longer written down; it is produced" | output | `docs/superpowers/specs/ci/2026-08-22-shell-brace-cross-construct-design.md:288` |
+| `fix/severityless-warning-filters` | "one query that produces every number in its table from a single transaction" | output | `BACKLOG.md:89` |
+| `fix/mutation-shard-budget-six` | "Every figure below is printed by commands, not retyped from a transcript" | output | `docs/superpowers/specs/ci/2026-08-26-mutation-shard-budget-fit.md:4` |
+| `fix/mutation-shard-weight-seconds` | "Each repair replaced the number with the COMMAND" | output | `docs/review-rounds/fix/mutation-shard-weight-seconds/300a9f937b8a.md:125` |
+| `feat/speclint-ac-unclaimed-arm` | prints the producing command beside the corrected 108 | output | `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md:38`, `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md:43` |
+| `docs/quick-wins-2-specs` | the truncated sweep table corrected and re-run, "authored AND run, 2026-08-09; corrected per R1 F3" | output | `docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md:103` |
+| `fix/supabase-upstream-fault-class` | "Reusing a ratified extraction rule instead of inventing one" | output | `docs/review-rounds/fix/supabase-upstream-fault-class/d04d6370985f.md:15` |
+| `feat/review-modal-strip-dock` | "§9 REWRITTEN so there is no table of the command's output"; states the discovery command and the CHANGED set instead | delete | `docs/superpowers/specs/2026-08-25-review-modal-strip-dock.md:1210` |
+| `feat/speclint-red-reason-verification` | "DELETED instead of annotated" | delete | `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.md:21` |
+| `fix/sync-log-show-id-duration` | "a table of hits is authored by running the command and pasting its output, never the reverse" | commit the output | `docs/review-rounds/fix/sync-log-show-id-duration/d2a31e4aa021.md:159` |
+| `docs/sync-log-emit-guard-spec` | "raw output COMMITTED at ... `sink-sweep-2026-08-15.txt`", regenerated after the first artifact was corrupt | commit the output | `docs/superpowers/plans/2026-08-15-sync-log-emit-guard/plan.md:25` |
+| **any arc** | **declare the table's provenance with a pointer to a command** | **none** | |
+
+Eleven rows, seven making the table an output, two deleting it, two committing the command's output
+beside it, and zero declaring provenance.
 
 **How the negative claim was checked, since a negative universal is only as good as its method.**
-Each of the eleven arcs in §2 was read for what it SHIPPED, not only for what its round found, and the
-repair is quoted or cited per row above. "Zero declared provenance" is therefore a claim over the
+Each of the eleven arcs in §2 was read for what it SHIPPED, not only for what its round found, and
+every row above carries a `file:line` for the repair, so each is checkable individually rather than on
+this document's word. Diff review round 3 finding 2 is why: an earlier version made this same claim
+while eight of the eleven rows carried a quotation and no location, which is the claim outrunning the
+page. Note also what the census does NOT do — §5 of its output produces the candidate FINDING
+locations, not the shipped repairs; the repair column is hand-verified, and it says so here rather
+than borrowing the census's authority. "Zero declared provenance" is therefore a claim over the
 eleven rows of that table and nothing wider: it does not say no author anywhere has ever wanted such a
 marker, and it does not survey arcs outside §2's boundary. Any arc the boundary excludes is excluded in
 public, in §2, with a reason.
@@ -314,7 +330,7 @@ even the record-level presence check for it: its producer red once, and that one
 advisories by construction, since it fires only on tables that opted in. That is a genuine difference
 from the sibling's mandatory gate and it is why §4's adoption number matters rather than §5's
 precision argument alone. It does not rescue the arm: an arm that is precise, cheap, and whose
-satisfaction implies nothing is not worth 14 rounds.
+satisfaction implies nothing is not worth the roughly 7 transferable rounds §3 prices it at.
 
 **Mandatory is not on the table.** 3054 of 3425 tables carry a number. A mandatory rule opens with
 roughly three thousand advisories against a corpus nobody will retrofit, and the row itself records
@@ -394,25 +410,25 @@ No source file under `lib/` or `scripts/` changes. No `Check` is added to `lib/s
   future marker shipped with a mandatory-for-new-tables rule rather than pure opt-in would have a
   different curve. **Re-file trigger:** `ac-coverage` reaching 15 live uses without a lint requiring
   it, which would refute the adoption argument on this corpus's own evidence.
-- **A narrower arm exists, and its population is two.** `docs/review-rounds/docs/quick-wins-2-specs/97e179d831aa.md:9`
+- **A narrower arm exists, and its population is one.** `docs/review-rounds/docs/quick-wins-2-specs/97e179d831aa.md:9`
   proposes something this spec's two arguments do not reach: "a spec-lint advisory that flags a
   disposition table whose stated command's live hit count differs from the table's ROW COUNT". One
   integer against one integer. It reproduces no values, so §6's execution cost does not apply, and it
   does compare the table to the tree, so §5's structural objection does not either. **Produced** by §6 of the census (an earlier draft measured this with a scratch script and stated the
   result with nothing producing it — the same defect this document is about, in its own paperwork, for
   the third time; diff review round 2 finding 2). At `8b4d521cac00` four tables sit within 20 lines of a
-  LIST-producing sweep command, and the census prints all four with their header rows so this
-  classification is checkable by reading. Two are excluded because their column is not the same kind of
-  quantity as a hit count:
-  `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:11`
-  (`Stale claim | Live corrected value`, 7 rows) and
-  `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md:676`
-  (`Test | Failure mode it catches`, 3 rows, beside a grep for API call sites). **That leaves two:**
-  `docs/superpowers/plans/2026-08-22-mutation-score-jurisdiction-gap.md:85` (12 rows,
-  `copy | kind | disposition`) and
-  `docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/01-write-site-registry.md:44`
-  (10 rows, `File | siteCount | Disposition | Reason`). Two instances is the same disposition the
-  sibling arc reached for its record-level presence check, whose producer red once and was wrong.
+  LIST-producing sweep command, and the census prints all four with their header rows so the
+  classification below is checkable by reading. **Three are excluded and the population is one.**
+
+  | table | rows | why it is or is not comparable |
+  | --- | ---: | --- |
+  | `docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/01-write-site-registry.md:44` | 10 | **COMPARABLE.** One row per file, beside an `rg -ln` that lists files. |
+  | `docs/superpowers/plans/2026-08-22-mutation-score-jurisdiction-gap.md:85` | 12 | **NOT.** Its rows are per-COPY dispositions, and one row stands for 35 files; the plan's own text records the command returning `files=45 lines=119` (`docs/superpowers/plans/2026-08-22-mutation-score-jurisdiction-gap.md:83`). Twelve grouped rows match neither count. Diff review round 3 finding 3; an earlier draft counted this one in. |
+  | `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:11` | 7 | **NOT.** `Stale claim \| Live corrected value`, not the command's output. |
+  | `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md:676` | 3 | **NOT.** `Test \| Failure mode it catches`, beside a grep for API call sites. |
+
+  **One instance, corpus-wide.** The sibling arc reached the same disposition for its record-level
+  presence check on a producer that red once and was wrong; this one has a single comparable table.
   **Re-file trigger:** the disposition-table-over-a-sweep shape reaching six live instances, or one
   arc burning two or more rounds on it after this date.
 - **The class cost is a lower bound, and the bias runs toward this spec's own conclusion.** It counts
