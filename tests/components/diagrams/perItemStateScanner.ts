@@ -25,6 +25,13 @@ export type StateDecl = {
   line: number;
 };
 
+/**
+ * Ceiling on wrapper unwrapping. Chosen far above any nesting a person
+ * writes, so it never fires on real source; it exists so the loop
+ * TERMINATES under mutation. See the comment at the loop itself.
+ */
+export const MAX_UNWRAP_DEPTH = 32;
+
 /** Every `useState`/`useRef` declaration in `source`, in source order. */
 export function scanStateDeclarations(source: string, fileName = "component.tsx"): StateDecl[] {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -40,7 +47,15 @@ export function scanStateDeclarations(source: string, fileName = "component.tsx"
    */
   const unwrap = (e: ts.Expression): ts.Expression => {
     let cur: ts.Expression = e;
-    for (;;) {
+    // BOUNDED deliberately, and the bound is load-bearing for the guard's own
+    // score rather than for any real source. `for (;;)` made the mutant that
+    // removes the advance below NON-TERMINATING: it spun on `continue` until the
+    // harness wall clock killed it at 180s, scoring KILLED without the suite ever
+    // rejecting anything. A clock kill is not an assertion kill. With a bound the
+    // same mutant returns the still-wrapped node, the scanner declines to
+    // enumerate it, and a case rejects it on an assertion. Wrapper nesting is
+    // finite in parseable source, so no real input reaches this ceiling.
+    for (let depth = 0; depth < MAX_UNWRAP_DEPTH; depth += 1) {
       if (
         ts.isParenthesizedExpression(cur) ||
         ts.isAsExpression(cur) ||
@@ -53,6 +68,7 @@ export function scanStateDeclarations(source: string, fileName = "component.tsx"
       }
       return cur;
     }
+    return cur;
   };
 
   const visit = (node: ts.Node): void => {

@@ -282,7 +282,27 @@ export const GUARD_SURFACES: GuardSurface[] = [
       from: 'hookName === "useState" || hookName === "useRef"',
       to: 'hookName === "NEVERMATCHES"',
     },
-    accepted: [],
+    accepted: [
+      {
+        // Keyed by the mutated EXPRESSION and its 1-based column, not by the line
+        // alone, per the precedent above: prettier and any later edit move lines.
+        siteId: "integer-literal:33:33:32>33",
+        kind: "equivalent",
+        reason:
+          "The ceiling's exact VALUE has no observable consequence, and that is the contract: " +
+          "the bound exists so a broken advance TERMINATES and is rejected by an assertion " +
+          "instead of by the harness wall clock, and it is specified as sitting far above any " +
+          "nesting a person writes. 32 and 33 differ only for source nested exactly 33 wrappers " +
+          "deep, which no parseable input inside this surface's threat fence -- ordinary " +
+          "authoring mistakes, corpus-shaped input -- reaches. The boundary itself IS pinned from " +
+          "both sides: a call nested exactly MAX_UNWRAP_DEPTH deep still resolves, one layer past " +
+          "it declines, and both cases DERIVE their depth from the exported constant. That " +
+          "derivation is what leaves this mutant alive, and deliberately so -- hardcoding 32 in " +
+          "the fixtures would kill it while breaking both cases the moment anyone legitimately " +
+          "retunes the ceiling, trading a real regression signal for a scoreboard point. The two " +
+          "sites that DO carry behaviour, the comparison and the step, are both killed.",
+      },
+    ],
   },
   {
     id: "premiseScan",

@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { scanStateDeclarations } from "./perItemStateScanner";
+import { MAX_UNWRAP_DEPTH, scanStateDeclarations } from "./perItemStateScanner";
 import { DELIBERATELY_NONE, PER_ITEM_STATE_REGISTRY } from "./perItemStateRegistry";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 
@@ -111,6 +111,115 @@ describe("per-item state lifetime — the live tree", () => {
   });
 });
 
+describe("per-item state lifetime — what the scanner must REFUSE to enumerate", () => {
+  // The positive plants above prove the recognizer is wide enough. These prove it
+  // is not TOO wide, which is the direction the first score found unpinned: the
+  // narrowing conjunctions in the callee and binding-pattern guards could all be
+  // widened to `||` with no case objecting.
+  function scanPlanted(decl: string): ReturnType<typeof scanStateDeclarations> {
+    const base = sourceOf("Gallery.tsx");
+    const anchorAt = base.indexOf("const [failedKeys, setFailedKeys]");
+    premiseHolds("the anchor declaration exists to plant beside", anchorAt > 0);
+    const cut = base.indexOf("\n", anchorAt) + 1;
+    return scanStateDeclarations(base.slice(0, cut) + decl + "\n" + base.slice(cut), "Gallery.tsx");
+  }
+
+  it("a computed access keyed by a VARIABLE is not a hook call, even when the variable is named `useState`", () => {
+    // The key is an Identifier whose `.text` is the string "useState", so a guard
+    // that stops checking `isStringLiteralLike` reads the variable's NAME as the
+    // hook's name and enumerates a declaration that calls no hook at all.
+    const seen = scanPlanted("  const [plantedDynKey] = React[useState](0);").map((d) => d.name);
+    expect(
+      seen,
+      "a variable key is not a string literal, so the callee names no hook",
+    ).not.toContain("plantedDynKey");
+  });
+
+  it("never enumerates a declaration whose name it could not resolve", () => {
+    // `const [{ inner }] = useState()` binds an object pattern in the first slot.
+    // The name is unresolvable, and the guard that says so is a conjunction: widen
+    // it and `first.name.text` is `undefined`, which then passes the `!== null`
+    // check and pushes a nameless row.
+    const decl =
+      "  const [{ plantedNested }] = useState<{ plantedNested: number }>({ plantedNested: 0 });";
+    for (const d of scanPlanted(decl)) {
+      expect(d.name, "every enumerated declaration carries a resolved name").toBeTruthy();
+      expect(typeof d.name, "a name is a string, never an undefined read off a pattern").toBe(
+        "string",
+      );
+    }
+  });
+
+  it("an array-binding HOLE resolves no name and is not enumerated", () => {
+    const seen = scanPlanted("  const [, plantedSetterOnly] = useState(0);").map((d) => d.name);
+    expect(
+      seen,
+      "the first slot is omitted, so there is no value binding to enumerate",
+    ).not.toContain("plantedSetterOnly");
+  });
+});
+
+describe("per-item state lifetime — the unwrap bound sits exactly where it claims", () => {
+  // The bound exists so a broken advance TERMINATES and can be rejected by an
+  // assertion. That mechanism introduces its own sites -- the comparison, the
+  // step, the literal -- and left unpinned every one of them is an equivalent
+  // mutant: nothing a person writes nests deep enough to notice. Pinning the
+  // boundary from BOTH sides makes all three observable instead, so they are
+  // killable rather than accepted.
+  function scanWrapped(depth: number, name: string) {
+    const base = sourceOf("Gallery.tsx");
+    const anchorAt = base.indexOf("const [failedKeys, setFailedKeys]");
+    premiseHolds("the anchor declaration exists to plant beside", anchorAt > 0);
+    const cut = base.indexOf("\n", anchorAt) + 1;
+    // Derived from the exported ceiling, never hardcoded: a literal here would
+    // stop tracking the constant the moment anyone retuned it.
+    const decl = `  const ${name} = ${"(".repeat(depth)}useRef(null)${")".repeat(depth)};`;
+    return scanStateDeclarations(
+      base.slice(0, cut) + decl + "\n" + base.slice(cut),
+      "Gallery.tsx",
+    ).map((d) => d.name);
+  }
+
+  it(`unwraps a call nested exactly MAX_UNWRAP_DEPTH (${MAX_UNWRAP_DEPTH}) deep`, () => {
+    expect(
+      scanWrapped(MAX_UNWRAP_DEPTH, "plantedAtBound"),
+      "the last depth inside the ceiling still resolves to the hook call",
+    ).toContain("plantedAtBound");
+  });
+
+  it("declines one layer PAST the ceiling rather than looping", () => {
+    // Refusing here is the documented limit, and it is what makes the ceiling
+    // observable at all. No parseable source a person writes reaches it.
+    expect(
+      scanWrapped(MAX_UNWRAP_DEPTH + 1, "plantedPastBound"),
+      "past the ceiling the scanner returns the still-wrapped node and enumerates nothing",
+    ).not.toContain("plantedPastBound");
+  });
+});
+
+describe("per-item state lifetime — the reported line locates the declaration", () => {
+  it("reports the 1-based line the declaration actually sits on", () => {
+    // Nothing asserted `line` before, so the off-by-one in its computation was
+    // free to move. Derived from the planted source rather than hardcoded: a
+    // literal expectation would pass at the wrong offset just as happily.
+    const base = sourceOf("Gallery.tsx");
+    const anchorAt = base.indexOf("const [failedKeys, setFailedKeys]");
+    premiseHolds("the anchor declaration exists to plant beside", anchorAt > 0);
+    const cut = base.indexOf("\n", anchorAt) + 1;
+    const decl = "  const plantedLineProbe = useRef(null);";
+    const planted = base.slice(0, cut) + decl + "\n" + base.slice(cut);
+
+    const expectedLine = planted.slice(0, planted.indexOf(decl)).split("\n").length;
+    const found = scanStateDeclarations(planted, "Gallery.tsx").find(
+      (d) => d.name === "plantedLineProbe",
+    );
+    premiseHolds("the line probe was enumerated at all", found !== undefined);
+    expect(found?.line, "the reported line is the declaration's own 1-based line").toBe(
+      expectedLine,
+    );
+  });
+});
+
 describe("per-item state lifetime — the gate REDS on a planted member", () => {
   const PLANTS: Array<{ label: string; decl: string; name: string }> = [
     {
@@ -155,6 +264,45 @@ describe("per-item state lifetime — the gate REDS on a planted member", () => 
       label: "R4 mutant: a computed-property hook access",
       decl: '  const [plantedComputed] = React["useState"](0);',
       name: "plantedComputed",
+    },
+    // ── Survivors of the FIRST mutation score of this surface. Each names an
+    // unwrap arm or a traversal step that no case exercised, so the mutation
+    // that broke it changed nothing any assertion could see.
+    {
+      // Kills the `||` joining the satisfies arm to the one after it. I added
+      // `satisfies` and the type-assertion arm myself after R4 and never wrote a
+      // case for either, so the operator flipped them with no consequence.
+      label: "survivor: a `satisfies` wrapper around the call",
+      decl: "  const plantedSatisfies = useRef(null) satisfies { current: unknown };",
+      name: "plantedSatisfies",
+    },
+    {
+      // Kills the removal of `continue`. Without it the loop unwraps exactly ONE
+      // layer and returns, so only a doubly-wrapped call can tell the difference.
+      // Every earlier fixture was wrapped exactly once.
+      label: "survivor: a DOUBLY wrapped call, which single-level unwrap misses",
+      decl: "  const plantedDouble = ((useRef(null) as { current: unknown }));",
+      name: "plantedDouble",
+    },
+    {
+      // Kills the removal of the recursive descent in the non-call branch. An
+      // arrow-function initializer is not a call, so a hook inside it is
+      // reachable only by recursing through that branch.
+      label: "survivor: a hook nested inside a non-call initializer",
+      decl:
+        "  const plantedFactory = () => {\n" +
+        "    const [plantedInner, setPlantedInner] = useState(0);\n" +
+        "    return [plantedInner, setPlantedInner];\n" +
+        "  };",
+      name: "plantedInner",
+    },
+    {
+      // The bound's OWN case, required alongside the mechanism change: ordinary
+      // nesting must still unwrap completely, so the ceiling is proven not to
+      // fire on input a person would actually write.
+      label: "the unwrap bound does not fire on ordinary nesting",
+      decl: "  const plantedDeepNest = ((((useRef(null)))));",
+      name: "plantedDeepNest",
     },
   ];
 
