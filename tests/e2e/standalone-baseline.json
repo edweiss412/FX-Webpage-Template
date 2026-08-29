@@ -168,6 +168,13 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"2b63b6d01fa9765a06cf-f67e916bc00ad4eb3efe\",[\"hoverhelp-geometry.spec.ts\",\"caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)\",\"T-E1: tracking caret centers on a wide trigger and fills the gap\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"2b63b6d01fa9765a06cf-fbc8c02ff8acd702c870\",[\"hoverhelp-geometry.spec.ts\",\"T8 keyboard (body host)\",\"Tab bridges trigger→link with a staged pending close; link survives past CLOSE_DELAY\"]]"
     ],
+    "tests/e2e/occlusion-probe.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"f0a0831b978b54fdc8a1-00602c5b6cda6ee27c02\",[\"occlusion-probe.spec.ts\",\"AC-OCCLUSION-DISCRIMINATES: insidePanel separates this arc's defect from pre-existing overlap\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"f0a0831b978b54fdc8a1-4dcc539e6aae974dc5db\",[\"occlusion-probe.spec.ts\",\"AC-OCCLUSION-PARTIAL: a top-left-quadrant cover is caught at tl and clean at centre\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"f0a0831b978b54fdc8a1-70c5a14b20c72fb825c4\",[\"occlusion-probe.spec.ts\",\"AC-OCCLUSION-DISCRIMINATES: reports a covering node, and reports none when absent\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"f0a0831b978b54fdc8a1-9cbce37fe5bd25c8c09b\",[\"occlusion-probe.spec.ts\",\"AC-OCCLUSION-NONVACUOUS: throws when a named control is missing from the set\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"f0a0831b978b54fdc8a1-d77fa6c43fdb0ad940e0\",[\"occlusion-probe.spec.ts\",\"AC-OCCLUSION-NONVACUOUS: throws on an empty control set\"]]"
+    ],
     "tests/e2e/packlist-rescan-recovery.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"361cd724423d9c5e8dae-7a718e022182f3604829\",[\"packlist-rescan-recovery.spec.ts\",\"PackListBreakdown S5 re-scan recovery (real browser)\",\"renders the recovery note + a focusable Re-scan button, no raw code, no em dash\"]]"
     ],
@@ -710,5 +717,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 625
+  "totalTests": 630
 }
