@@ -36,10 +36,10 @@ const PNG = Buffer.from(
  * off-screen images, so an in-viewport lazy image loads immediately and the arm
  * would measure nothing. The spacer is what puts the case in reach.
  */
-function fixture(loading: "lazy" | "eager", covered: boolean): string {
+function fixture(loading: "lazy" | "eager", covered: boolean, offScreen = true): string {
   return `<!doctype html>
 <html><body style="margin:0">
-  <div style="height:4000px"></div>
+  ${offScreen ? `<div style="height:4000px"></div>` : ""}
   <div id="host" style="position:relative;width:64px;height:64px">
     <img id="live" src="http://probe.test/probe-asset.png" loading="${loading}"
          style="width:64px;height:64px">
@@ -52,10 +52,15 @@ async function run(
   page: import("@playwright/test").Page,
   loading: "lazy" | "eager",
   covered: boolean,
+  offScreen = true,
 ): Promise<number> {
   let count = 0;
   await page.route("http://probe.test/index.html", (route) =>
-    route.fulfill({ status: 200, contentType: "text/html", body: fixture(loading, covered) }),
+    route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: fixture(loading, covered, offScreen),
+    }),
   );
   await page.route("http://probe.test/probe-asset.png", async (route) => {
     count += 1;
@@ -90,4 +95,26 @@ test("lazy + UNCOVERED + off-screen: still deferred, so the overlay is not the c
   // what defers; it does not, so OFF-SCREEN-ness is, and `eager` is the repair
   // for both.
   expect(await run(page, "lazy", false)).toBe(0);
+});
+
+test("THE CASE THAT ACTUALLY SHIPS: lazy + covered + IN VIEW issues the request", async ({
+  page,
+}) => {
+  // Plan review round 2 finding 1, and it was right. The three arms above are
+  // ALL off-screen: together they show the overlay does not cause off-screen
+  // deferral, and say nothing about the configuration the retry actually
+  // creates — a covered, lazy image mounted IN VIEW, because the user just
+  // tapped the cell it lives in.
+  //
+  // The design rests on this arm and only this arm. If a covered in-view lazy
+  // image were deferred, neither `onLoad` nor `onError` would ever fire, the
+  // control would sit on `Retrying…` forever, and that is a consequence-bound
+  // violation rather than a cosmetic gap.
+  expect(await run(page, "lazy", true, false)).toBe(1);
+});
+
+test("control: lazy + UNCOVERED + in view also issues it, so covering changes nothing in view", async ({
+  page,
+}) => {
+  expect(await run(page, "lazy", false, false)).toBe(1);
 });

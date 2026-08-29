@@ -95,7 +95,7 @@ it is feature behaviour, so it is settled by the task that implements it.
 |---|---|---|---|
 | U-1 | **RATIFIED 2026-08-29.** Setting native `disabled` on the focused retry control ejects focus to `<body>`; `aria-disabled` does not | §7.1 | **Task P1, run.** `tests/e2e/focus-disabled-eject.probe.spec.ts`, 2 passed in Chromium: the native arm reported `body`, the `aria-disabled` arm reported the button. Each arm carries a premise asserting focus was ON the button first, or "focus is on body afterwards" would be trivially true. Firefox is not independently probed; one engine ejecting is sufficient to reject the attribute |
 | U-2 | **RATIFIED 2026-08-29.** A separate element on `retrying → idle` costs a second unconditional GET; the surviving element costs none | §4.0.5 | **Task P2, run.** `tests/e2e/image-remount-request-count.probe.spec.ts`, 2 passed in Chromium: the remount arm issued exactly one further request, the same-node arm zero. Only node reuse varies — same URL, same headers, same interception, `loading="eager"` on every element, explicit load awaits — and the count window opens after the first load is asserted served |
-| U-3 | **REFUTED 2026-08-29, and the design changed.** Covering is NOT what defers a lazy image; being off-screen is. The retry is reached by a TAP, which implies the cell is in the viewport, so no `loading` override is needed | §4.0.5 | **Task P3, run.** `tests/e2e/covered-image-load-eligibility.probe.spec.ts`, 3 passed in Chromium. Lazy+covered+off-screen deferred; eager+covered+off-screen requested; lazy+UNCOVERED+off-screen ALSO deferred — which is the arm that refutes the covering mechanism |
+| U-3 | **REFUTED 2026-08-29, and the design changed.** Covering is NOT what defers a lazy image; being off-screen is. The retry is reached by a TAP, so the cell is in the viewport and a covered in-view lazy image loads | §4.0.5 | **Task P3, run.** `tests/e2e/covered-image-load-eligibility.probe.spec.ts`, **5** passed in Chromium. Three off-screen arms refute the covering mechanism; **the two IN-VIEW arms are what the design actually rests on** and both issue the request. Plan review R2 finding 1 was right that the off-screen arms alone could not carry the conclusion |
 | U-4 | **RATIFIED 2026-08-29.** The candidate SET is stable; the browser's PICK within it moves with device scale; every pick is a ladder tier and never the original | §3 | **Task P4, run.** `tests/e2e/srcset-candidate-stability.probe.spec.ts`, 2 passed in Chromium. The rendered `srcset` was byte-identical at DPR 1 and DPR 3 while the requested tier changed between them, which both confirms the bound and proves the fixture discriminates rather than being insensitive |
 | U-5 | **RATIFIED 2026-08-29, and it proved itself on first contact.** A parser enumerating every `useState`/`useRef` is a cover where the grep was not | §4.0.3 | **Task P5, run.** `tests/components/diagrams/perItemStateLifetime.probe.test.ts`, 7 passed. Four planted shapes are each SEEN and each RED while unclassified. Its first run against the live tree found `prefersReducedMotion` (`GalleryLightbox.tsx:257`), a member every hand-derivation had missed |
 | U-6 | Clearing session state when an item goes unavailable, keyed on the rendered id set, leaves no render able to observe retained state | §9.1 | **Plan Task 8**, not a probe: this is feature behaviour, so it is settled where its implementation lands. Each retained-state shape is planted and the FIRST frame after the flip asserted |
@@ -420,7 +420,15 @@ one is, so the OVERLAY is not what defers — being off-screen is.
 
 That distinction removes the requirement rather than restating it. The retry is reached by a
 tap on the control, and a tap implies the cell is in the viewport, so the image `next/image`
-mounts is intersecting at the moment it mounts and loads without help. No `loading` prop is
+mounts is intersecting at the moment it mounts and loads without help — **measured directly,
+not inferred**: a lazy image mounted in view UNDER an opaque overlay issues its request
+(`tests/e2e/covered-image-load-eligibility.probe.spec.ts`, the in-view arms). An earlier draft
+rested this on three off-screen arms, which show only that covering is not what defers, and
+plan review R2 correctly refused the inference. The load-bearing arm is now the shipped one.
+
+The stake in getting it right: if a covered in-view lazy image WERE deferred, neither `onLoad`
+nor `onError` would fire, the control would sit on `Retrying…` indefinitely, and that is a
+consequence-bound violation rather than a cosmetic gap. No `loading` prop is
 set, which leaves `next/image` emitting its own `loading="lazy"` (`get-img-props`, lines 271
 and 553) — correct here, and one less attribute than the rejected design.
 
