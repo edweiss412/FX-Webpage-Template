@@ -34,3 +34,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-27-fitwithinclip-clip-subscription.md`](./2026-08-27-fitwithinclip-clip-subscription.md) | 2026-08-27 |
 | [`2026-08-27-anchoredportal-measure-convergence.md`](./2026-08-27-anchoredportal-measure-convergence.md) | 2026-08-27 |
 | [`2026-08-28-placement-path-redundant-measures.md`](./2026-08-28-placement-path-redundant-measures.md) | 2026-08-28 |
+| [`2026-08-28-attention-menu-clip-placement.md`](./2026-08-28-attention-menu-clip-placement.md) | 2026-08-28 |

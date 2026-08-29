@@ -88,7 +88,10 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // live tree: 1633 is that same `<summary>`.
     // Then 1633 -> 1638 when the wizard-ignore arc added its imports and the panel's
     // partition block. Located on the live tree again: 1638 is that same `<summary>`.
-    line: 1642,
+    // Then 1642 -> 1639 on the 2026-08-29 three-way absorb of #940/#941/#942. Located by
+    // running the scanner on the merged tree, which reports the live hit; 1639 is the
+    // `{hidden.length} more` disclosure, this row's own `<summary>`.
+    line: 1639,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -97,7 +100,10 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    line: 3359,
+    // 3359 -> 3356 on the 2026-08-29 three-way absorb of #940/#941/#942. Located on the
+    // merged tree by its own `data-testid={`wizard-step3-card-${dfid}-ignored-summary`}`,
+    // which is unique, never by adding a delta.
+    line: 3356,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

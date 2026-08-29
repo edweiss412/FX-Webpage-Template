@@ -1,3 +1,217 @@
+## BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW — the attention menu overflows its clipping panel on the LEFT at phone widths, on both review modals — ✅ RESOLVED
+
+**Status:** RESOLVED 2026-08-29 (`fix/attention-panel-left-overflow`, PR #941) · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9's new clip pin) · **Facing:** product · **Severity:** MEDIUM (part of an operator-facing dropdown is cut off at the most common phone width; the published surface is the worse of the two) · **Class:** anchored-overlay sizing · **Effort:** M · **Class-sweep exception:** (c) — the repair is a sizing redesign of a SHARED frame with its own hook spec (`admin/2026-08-27-fitwithinclip-clip-subscription`) and its own e2e suite (`popover-clip-fit.spec.ts`), on a shipped surface the filing branch does not otherwise change. Ruled (B) by bl-orch 2026-08-27, on the further ground that fixing published geometry in-arc would force regenerating the very byte baseline that arc built to prove published bytes UNCHANGED.
+
+**What is wrong.** The attention menu panel is `w-[min(400px,calc(100vw-32px))]` with `right-0`, i.e. sized against the VIEWPORT while anchored to a wrapper that is inset from the viewport's right edge. At phone widths the width it takes exceeds the room available to the LEFT of that anchor, so the panel's left edge lands outside the clipping `ReviewModalShell` panel and the leading edge of every row is cut off. `useFitWithinClip` does not catch it: that hook caps `max-height` only, by design and by its own documented contract.
+
+**Reachability:** PROBED 2026-08-27 at 375x667, in real Chromium, both surfaces:
+
+```
+wizard    menu.left = -18.85   clip.left = 0   (this branch)
+published menu.left = -36.00   clip.left = 0   menu.width 343, wrapper right edge 307
+```
+
+The published number was taken against UNMODIFIED code — a temporary probe added to `popover-clip-fit.spec.ts` and removed after reading — so the defect is pre-existing on main and is WORSE on the shipped surface than on the new one. Nothing had looked before: `popover-clip-fit.spec.ts` asserts `menu.bottom <= panel.bottom` and has never asserted a horizontal edge.
+
+**Where it is pinned today.** `tests/e2e/wizard-attention-menu.spec.ts` keeps the clip assertion at 1280x800 and registers the 375x667 case as `test.fixme` naming this row, so the gap is visible in the report rather than absent from it. Re-enable that case as the fix's own red.
+
+**Direction, not yet decided.** The panel cannot express "no wider than the distance from the clip's left edge to my anchor's right edge" in CSS, because that distance is a runtime measurement. So the candidates are: extend `useFitWithinClip` (or a sibling) to cap width the way it caps height; or re-anchor the panel to the modal panel rather than the pill wrapper. The first keeps the anchoring idiom and is where the existing measurement machinery already lives; the second is a bigger change. Whichever wins, it lands on the SHARED frame and both modals get it at once.
+
+**How it was resolved.** Migrated onto the shared `lib/popover` placement stack. The clamp at `lib/popover/position.ts:138-139` is the repair; a width cap is the wrong mechanism at EVERY width, because narrowing a right-anchored panel moves its left edge further left (capped to the clip bounds at 375 the panel would start at -52, worse than the -36 it began at). The attention menu was the LAST `useFitWithinClip` consumer, so that hook and its 1768-line suite retired with it.
+
+**The row's own numbers were corrected in passing.** It recorded -18.85 on the wizard and -36.00 on the published menu and read the difference as the shipped surface being worse. They are ONE defect measured at two animation phases: `343 × 0.95 = 325.85` against a right edge pinned at 307 by `origin-top-right`. At rest both surfaces overhang by 36px. The wizard figure had been measured mid-entrance, and `transform` is a useless settle oracle here because Tailwind v4 compiles `scale-*` to the individual `scale` property.
+
+**Three spec decisions were reversed by implementation evidence**, recorded in `docs/superpowers/specs/admin/2026-08-28-attention-menu-clip-placement.md` §3.1a: no portal (portaling preserves the focus trap but appends the panel late in the modal, breaking sequential focus ORDER from the pill), the placement anchor is the panel's offset parent rather than the pill (the wrapper carries the title block and is taller, so anchoring to the pill lifted the panel over the status strip), and the CSS `top`/`right` fallback is load-bearing rather than vestigial.
+
+**One consequence is filed, not fixed.** Containment necessarily places the open menu over the published toggle at 375 — the old menu sat beside it only because it was overflowing — which is an auto-open product decision for the owner, filed as `BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE`. Review: 12 Codex rounds across three stages, 47 findings, all accepted; filings in `docs/review-rounds/fix/attention-panel-left-overflow/`.
+
+## BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE — a stated numeric table with no command that produces it — CLOSED 2026-08-28, DEMOTED ON A MEASURED REFUTATION
+
+**Status:** CLOSED 2026-08-28 (`feat/speclint-table-provenance`), demoted to a documented limit rather than built · **Filed:** 2026-08-28 (`fix/severityless-warning-filters`, diff R3 finding 2) · **Facing:** process · **Mint-exception:** recurrence · **Severity:** LOW-MEDIUM (a spec table drifts from the tree with nothing able to compare them) · **Class:** evidence provenance · **Effort:** M
+
+**Incident** (four independent arcs, each naming the shape in its own filing before a slug existed):
+
+- `docs/review-rounds/fix/mutation-shard-budget-six/9a621a5792ea.md:32-35` (spec) — round 2's highest-value finding was §1.3's table carrying no command producing it.
+- `docs/review-rounds/feat/review-modal-strip-dock/ae8e9544b55a.md:38-39` (spec) — a hand-maintained blast-radius transcript, three rounds finding three defects in three different directions.
+- `docs/review-rounds/feat/speclint-ac-unclaimed-arm/44b0d74b1107.md:32-33` (plan) — the plan claimed 106 enrolled plans where the quoted command returns 108.
+- `docs/review-rounds/fix/severityless-warning-filters/b608e71b32b5.md` (diff, R3 finding 2) — the published SQL could not produce the published table, and a bare `group by` silently dropped an empty population rather than showing it as zero.
+
+Indexed as `LIM-NUMERIC-TABLE-PROVENANCE` in `docs/review-rounds/LIMITS.md`, whose stated re-file trigger is "a spec whose stated table cannot be reproduced from its own commands reaching a review round again". That fired on the fourth arc.
+
+**Why this is admissible under the 2026-08-25 process freeze.** Not on an incident alone, which the freeze stopped admitting. On recurrence: four independent arcs paid for the same shape, which is retrospective and countable and could not be manufactured by this arc. The freeze's admission test is also met, because the done condition names a number outside the tooling: rounds burned per arc on table-versus-tree drift, which is 1 here, 3 on review-modal-strip-dock, and 1 each on the other two.
+
+**Shape.** `spec:lint` parses numerics and parses fenced commands, and relates them to nothing. A table stated with no command producing it cannot be compared to the tree; a table stated WITH one drifts silently the moment the tree moves. The narrowing that would close it is a `<!-- table: cmd=`…` -->` marker binding a table to a command, checked the way `gate:` markers already are.
+
+**Not in scope for the arc that filed it.** `fix/severityless-warning-filters` is a docs-only demotion under an explicit no-code-change ruling; it repaired its own instance by publishing one query that produces every number in its table from a single transaction, and files the class here rather than widening.
+
+### Closed on measurement, and the count in this row's own title was wrong
+
+`feat/speclint-table-provenance` probed the done condition before building, as the row scheduled. **Neither arm ships.** Full record: `docs/superpowers/specs/ci/2026-08-28-table-provenance.md`; disposition and re-file triggers in `docs/review-rounds/LIMITS.md` under `LIM-NUMERIC-TABLE-PROVENANCE`; round economy in `docs/review-rounds/feat/speclint-table-provenance/60dece4d5722.md`.
+
+**The title says four arcs. It is eleven.** The original count came from grepping citations of the slug, which counts arcs that knew the slug existed rather than arcs that paid. Deriving by SHAPE, and taking the union with the slug derivation because each misses arcs the other finds, gives eleven arcs and about twenty rounds. The census produces the candidate population and the spec classifies every candidate with a reason. That correction moved the economics AGAINST this closure, and the spec reports it: against ~20 class-rounds and the ~7 transferable rounds of the 14-round precedent, building the marker would have been worth it on cost alone.
+
+**It closes anyway, on a ratified structural fact.** Six days before this arc, `BL-DERIVED-NUMBERS-IN-DOCS-ROT` established in `docs/superpowers/specs/ci/probes/README.md` that naming a producing command is not a binding: a command run against a moving tree answers differently tomorrow. So a table can carry the marker this row asked for, satisfy the check on every line, and be exactly as drifted. Demonstrated live at `docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/00-plan.md:394`, which prints its producing command directly above its table and states 53 where that command's own comment says 56 and where it returns 55 today. The practice was followed; the drift happened regardless.
+
+**What the arc proved against itself.** Its own census carried four wrong adjacency figures for four review rounds — 0-based fence indexes compared against 1-based mdast line numbers — inside the probe whose subject is unverifiable numbers. Those figures were PRODUCED, not retyped, and were wrong anyway because the producer was. And the acceptance checker written to bind one document's numbers to a command turned out narrower than its own claims in five ways, and was deleted rather than widened a fourth time. A pointer records where a figure came from; it cannot record that the figure is right, and neither can a producer that is wrong.
+
+## BL-PUBLISHED-ATTENTION-ESCAPE-CLOSES-MODAL-RACE — Escape can close the whole published modal instead of just the attention menu, about one time in seven — ✅ RESOLVED
+
+**Status:** RESOLVED 2026-08-28 (`fix/published-attention-escape-race`, PR #940) · **Filed:** 2026-08-28 (`fix/published-attention-resolve-red`, Task 1 attribution) · **Facing:** product · **Severity:** MEDIUM-LOW (an operator who presses Escape to dismiss the auto-opened attention menu occasionally loses the entire review modal, and any scroll position and section they had reached goes with it; nothing is corrupted and reopening restores the state) · **Class:** listener-lifecycle race · **Effort:** S to attribute the losing interleaving, unknown to fix · **Class-sweep exception:** (a) — the repair direction cannot be chosen before the interleaving is known, and that attribution is this row's first task.
+
+**What happens.** The attention menu auto-opens on arrival. Pressing Escape should close the menu and leave the modal open: `ReviewModalShell` closes the dialog from a document-level BUBBLE-phase Escape listener (`components/admin/review/ReviewModalShell.tsx:244-252`), and while the menu is open `AttentionMenuFrame` claims the key first from a document-level CAPTURE-phase listener that calls `stopPropagation` (`components/admin/showpage/AttentionMenu.tsx:353-388`). About one time in seven the modal closes too.
+
+**Reachability:** PROBED 2026-08-28, on unmodified `origin/main`, by 7 runs of
+
+```
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test tests/e2e/published-show-attention.spec.ts --project=desktop-chromium --reporter=list
+```
+
+Observed once, at `tests/e2e/published-show-attention.spec.ts` line 318 as it then stood: after `expect(MENU).toHaveCount(0)` passed, `expect(MODAL).toBeVisible()` failed for the full 5s window. Playwright's own message:
+
+```
+Locator: locator('[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])')
+Expected: visible
+Timeout: 5000ms
+Error: element(s) not found
+```
+
+A temporary snapshot probe at that point reported `{"modalAny":0,"title":0,"menu":0,"url":"http://127.0.0.1:3000/admin"}` — no modal element at all and the `?show=` parameter gone from the URL, so a real dialog close rather than a title-less skeleton. Rate: 1 of those 7 runs. The probe was removed before commit; it is reproduced in this row because the run artifacts are not durable.
+
+**What an 8-run instrumented hunt established, and what it did not.** A temporary recorder was added to the case (removed before commit) capturing, at the instant Escape is delivered, whether the menu element is in the DOM — read from a document capture-phase listener the recorder registers itself — and whether the key survives to a document bubble-phase listener. It was validated against a deliberate mutant that closes the menu before pressing Escape, which reported
+
+```
+PROBE-ESC {"esc":{"captureSawMenu":false,"bubbleSaw":true},"menuTimeline":["37:out"]}
+```
+
+with the modal closed, so the recorder does register the bubble-phase arrival when it happens. Across 8 further runs of the command above the flake did not reproduce, and all 8 reported the same signature, e.g.
+
+```
+PROBE-ESC {"esc":{"captureSawMenu":false},"menuTimeline":["12:out"]}
+```
+
+**What that supports, stated no wider than the evidence.** In all 8 passing runs the menu's testid was already out of the DOM when Escape was delivered, and the recorder's own bubble-phase listener did not run, so SOMETHING stopped propagation before it. The recorder does not identify which listener did so, and it does not establish its own registration order against the other document listeners, so "the menu's capture handler claimed it" is the likely reading and not a measured one. The one observed red was never instrumented — the recorder was written after it — so nothing here connects these 8 passing signatures to that failure beyond both involving the same keypress. Treat this paragraph as a characterization of the passing path, not as a cause of the red.
+
+**Two corrections to that hunt, from this arc's DB-free probes (2026-08-28, `fix/published-attention-escape-race`, before any e2e run).**
+
+First, the recorder's menu-presence reading is SUSPECT, not merely unexplained, and the paragraph above should be read that way. The spec file's `MENU` constant is compound: it requires the modal to carry its TITLE before it will match the panel at all (`tests/e2e/published-show-attention.spec.ts:28-31`). A recorder written inside that file reads most naturally by reusing that constant, and under it a frame that momentarily lacks its title reports the menu ABSENT while the panel is still mounted. The recorder was removed before commit, so which selector it actually used cannot be recovered, and that is the point: `captureSawMenu:false` is not safe to read as "the panel was out of the DOM". This arc's replacement reads the bare `[data-testid="published-show-review-attention-menu"]` and registers its document capture listener from `page.addInitScript`, which runs before any page script and so before React, which makes its position in document-capture order established rather than assumed.
+
+Second, candidate 1's window does not exist in jsdom, by four independent methods. A temporary probe rendered `AttentionMenuFrame` under a real `createRoot`, unmounted it, and dispatched Escape on `document`, varying only HOW the unmount was committed:
+
+```
+ESCPROBE-JSDOM arm1 elementGone=true  handlerRan=false   # flushSync(root.render(null))
+ESCPROBE-JSDOM arm2 elementGone=true  handlerRan=false   # act(root.render(null)) — baseline
+ESCPROBE-JSDOM arm3 handlerRan=true                      # positive control: frame still MOUNTED
+ESCPROBE-JSDOM arm4 calls=1                              # StrictMode setup/cleanup/setup: one live listener
+ESCPROBE-JSDOM arm5 elementGone=false handlerRan=true    # discrete click, read immediately: not yet committed
+ESCPROBE-JSDOM arm6 ticks=1 elementGone=true handlerRan=false  # discrete click, microtask-stepped to the removal
+```
+
+Arm 6 is the load-bearing one: it steps microtasks one at a time after a real discrete event and fires Escape on the first tick where the element is gone, which is the narrowest window a passive cleanup could survive into. It does not survive. Arm 3 proves the instrument can see a live handler, so the four `handlerRan=false` readings are a measurement and not a dead probe. React runs the passive cleanup for a DELETED subtree with the deletion commit rather than after it, which is exactly what the structural reading could not tell anyone.
+
+**Limit, stated so the next reader does not over-read it.** This is jsdom under React's development build. The deletion path is the same React code, but the scheduler is not the browser's, and the probe dispatches its own `KeyboardEvent` on `document` rather than having one arrive from the platform at a focused element inside React's root container. So it NARROWS candidate 1 to browser-only-if-at-all; it does not close it. The browser trace is what closes it, and it is instrumented for exactly this: `frame:listeners:setup`, `frame:listeners:cleanup` (carrying whether the panel was still in the document), `frame:onKeyDown` (carrying the same), `shell:onKeyDown`, and an init-script capture and bubble pair, all on one timeline.
+
+**The losing interleaving is NOT established, and naming it is this row's first task.** Two candidates, neither settled:
+
+1. **The listener outliving its own element.** The probe evidence points AT this one rather than away from it: in all 8 runs a capture handler stopped Escape while the menu's testid was already out of the DOM. It cannot be settled from the render path. `AttentionMenu` returns null when closed (`AttentionMenu.tsx:119`) and `AttentionMenuFrame`, which owns the listeners, renders only while open (`AttentionMenu.tsx:315`) — but those listeners are installed and removed by a passive `useEffect` (`AttentionMenu.tsx:353-388`), and conditional rendering says nothing about when that cleanup runs relative to the DOM removal and the next key event. Settling this needs a probe on the cleanup's timing, not a reading of the structure. (An earlier draft of this row called the candidate DISPROVED on exactly that structural reading. It was not; adversarial review round 1 caught it.)
+2. **The actionable-count blip**, untested, that `PublishedReviewModal`'s auto-open effect already documents in its own comment (`components/admin/showpage/PublishedReviewModal.tsx:693`): a 1 to 0 to 1 rebound during the revalidate-on-open `router.refresh()`, which would unmount and remount the menu around the keypress.
+
+**A THIRD candidate, and it fits the observed failure better than either of the two above (2026-08-28, `fix/published-attention-escape-race`).** The modal loader is wrapped in a Suspense boundary whose fallback is `ShowReviewModalSkeleton` (`app/admin/page.tsx:169-171`), and that skeleton renders its OWN `ReviewModalShell` with the same `testIdBase="published-show-review"` (`components/admin/showpage/ShowReviewModalSkeleton.tsx:44-53`). So across a fallback swap the shell's document Escape listener stays live while the attention menu and its capture-phase claim do not. `PublishedReviewModal` also fires exactly one `router.refresh()` on mount, the revalidate-on-open (`PublishedReviewModal.tsx:186-190`), whose own comment records that a reopen "streams through the Suspense fallback". That refresh lands within a few frames of the auto-open, which is where the keypress is.
+
+**What the DB-free arms measured.** A probe rendered the REAL `PublishedReviewModal` through the committed jsdom harness (`tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx`), read the same instrumentation the browser trace uses, and dispatched Escape:
+
+```
+armA baseline, menu up            frameHandler=true  shellHandler=false
+armB actionable 1-0-1, no warning goneAtZero=true  menuAfterRebound=false  shellHandler=true
+armD actionable 1-0-1, WITH warn  goneAtZero=false menuAfterRebound=true   shellHandler=false
+armE items AND warnings blip      goneAtZero=true  menuAfterRebound=false  shellHandler=true
+armF loaded modal -> skeleton     menuGone=true modalStillThere=true titleGone=true shellHandler=true
+armG modal REMOUNT, no rAF yet    menuGone=true  remounted=true          shellHandler=true
+armC control, no items at all     shellHandler=true
+```
+
+Arm C is the positive control and arm A the no-defect baseline, so the `shellHandler` column is a measurement rather than a dead probe.
+
+**Arm D refutes candidate 2 as this row writes it, on this fixture.** `interactive` is `needsYou.length > 0 || k > 0 || selfHeal.length > 0` (`PublishedReviewModal.tsx:358`), not the actionable count, and the e2e fixture seeds one crew-scoped parse warning (`tests/e2e/published-show-attention.spec.ts:37-46`), so `k` stays 1 across an attention-items blip and the menu survives it. An actionable-count blip alone therefore cannot be the trigger there. Arm E shows the WHOLE-data form does close it, which is a different and larger claim about what the loader would have to return.
+
+**Arm F needs no data blip at all**, and it reproduces the row's exact Playwright text. The assertion locator is compound and requires the modal to carry its title, so a title-less skeleton frame reads as `element(s) not found` for `MODAL` while `MENU` legitimately reads 0. That is precisely the pair the observed red reported.
+
+**A FOURTH candidate falls out of the bundled Next 16.3 documentation, and the same instrument already separates it.** `router.refresh()` "will merge the updated React Server Component payload without losing unaffected client-side React (e.g. `useState`) or browser state" (`node_modules/next/dist/docs/01-app/03-api-reference/04-functions/use-router.md:46`). A merge that preserves client state should not re-enter an already-resolved Suspense boundary, which weakens the revalidate-on-open as F's trigger while leaving F live for any real fallback drop. What the same sentence does NOT rule out is a fresh `PublishedReviewModal` INSTANCE: `menuOpen` resets to false, `autoOpenFiredRef` resets with it, and the gap between the remount and the auto-open's `requestAnimationFrame` is a menu-less window with the shell's listener live. Arm G measures exactly that gap and the shell claims the key.
+
+**What is left for the browser, stated as a decision procedure rather than a hunt.** Three mechanisms are now sufficient DB-free, and each writes a signature the others cannot:
+
+| candidate                  | signature in the trace                                                                                                 |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| E — whole-data blip        | a `modal:state` record with `needsYou`, `k` and `selfHeal` all zero, then `modal:setMenuOpen(false):render-reconcile`  |
+| F — Suspense fallback swap | `modal:unmount` paired with `skeleton:mount`, and a `doc:capture` carrying `modalInDom: true` with `titleInDom: false` |
+| G — modal remount          | `modal:unmount` then a second `modal:mount`, with NO `skeleton:mount`                                                  |
+
+Whichever appears in a losing iteration is the attribution, and a losing iteration with none of the three refutes all of them at once. The one thing no jsdom arm can settle is which of these the runtime actually produces, because `router.refresh()` runs inside a transition and the choice between dropping a boundary to its fallback, remounting a subtree, and merging in place is made there.
+
+**One candidate IS ruled out, for this surface only.** `escTransparentUntilEngaged` (`AttentionMenu.tsx:94`, on `AttentionMenuFrameProps`) is the 2026-08-28 amendment that makes an auto-opened panel Escape-transparent until the user engages. Its only opt-in is the WIZARD menu (`components/admin/wizard/WizardAttentionMenu.tsx:102`). The published modal renders `AttentionMenu`, whose props do not include the flag (`AttentionMenuProps`, `AttentionMenu.tsx:52-65`) and which does not pass it to the `AttentionMenuFrame` it renders (`AttentionMenu.tsx:138-146`), so it defaults false there (`AttentionMenu.tsx:327`) and `engagedRef` starts true (`AttentionMenu.tsx:333`, `useRef(!escTransparentUntilEngaged)`), which makes the early return at `:358` unreachable on this surface. An earlier draft claimed the prop had no opt-in call site ANYWHERE, which is false: it came from a `grep -v "AttentionMenu.tsx"` exclusion that also swallowed `WizardAttentionMenu.tsx`. The conclusion for the published surface survives the correction; the repo-wide claim does not.
+
+**THE LIVE TRACE (2026-08-28, `fix/published-attention-escape-race`), and what it retires.** 19 instrumented arrivals in one run, each a fresh `goto` plus auto-open plus one Escape:
+
+```
+BASELINE_SERVER_ONLY=1 ESCPROBE_N=20 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+  pnpm heavy pnpm exec playwright test tests/e2e/published-show-attention.spec.ts \
+  --project=desktop-chromium --reporter=list
+```
+
+Zero losses, and all 19 produced ONE event sequence, identical across every iteration:
+
+```
+modal:mount → modal:state → modal:unmount → modal:mount → modal:state
+→ modal:setMenuOpen(true):auto-open → frame:listeners:setup → modal:state
+→ frame:listeners:cleanup → frame:listeners:setup
+→ frame:onKeyDown (panelInDoc: TRUE) → modal:setMenuOpen(false):frame-onClose
+→ frame:listeners:cleanup → modal:state
+```
+
+`shell:onKeyDown` ran in 0 of 19. `skeletonMounts`, `allZeroStates` and `reconciles` were 0 in every iteration, so none of E, F or G occurred. The `modal:unmount` in the middle is React's StrictMode double-invoke, which is dev-only; CI builds for production, so nothing about it belongs in a conclusion. Durable per-iteration records were written as the run went, so this survives the run's own ending.
+
+**Candidate 1 is RETIRED, and the evidence that pointed at it was instrument error.** `frame:onKeyDown` reports `panelInDoc: true` in 19 of 19: the panel is in the document at the moment the frame's handler claims the key. Together with the four jsdom methods above, nothing supports a listener outliving its element on this surface, and the `captureSawMenu: false` that made the candidate attractive is now positively explained rather than merely doubted.
+
+**Candidate 2 as this row writes it is RETIRED too**, by arm D, and survives only in the whole-data form (E) that requires `needsYou`, `k` and `selfHeal` to be zero together.
+
+**What the non-reproduction does and does not license.** P(0 losses in 19 | p = 1/7) = 0.054, which is suggestive and not decisive. It is also worth being plain about the baseline: the row's "about one time in seven" is ONE observation in seven runs, whose 95% interval runs from roughly 0.4% to 58%. So this run neither confirms nor damns any candidate; it establishes that the passing path is deterministic and that the losing path is rarer than a 20-sample probe reaches. Two deviations from the original conditions are recorded rather than argued: `BASELINE_SERVER_ONLY` skipped the :3001-3003 dev-gate servers that the row's own 13 runs booted (their cold builds are machine load, and the first attempt at this trace died when one of them overran its 300s budget), and the machine was under heavy concurrent load throughout, with `/admin` reaching 75s on the final iteration.
+
+**Disposition, with the repair direction still bl-orch's call.** The three surviving candidates differ only in TRIGGER and share one mechanism: the shell's Escape listener and the menu's capture claim live on different lifecycles, so any window in which the menu is down and the shell is up spends the operator's Escape on the modal. `ReviewModalShell`'s handler closes on any Escape without consulting `defaultPrevented`, which `ShareHub`'s own safety-net comment already records (`components/admin/showpage/ShareHub.tsx:684-690`). That asymmetry is proven; only its trigger rate is unmeasured. Two things follow. First, a mechanism-level repair does not need the trigger named, which is what makes this row actionable despite the non-reproduction. Second, the six DB-free arms are worth keeping as a permanent contract suite rather than deleted with the instrumentation: arms A and D pin that the frame claims Escape and that the menu survives an actionable-only blip, and C, E, F and G pin that each remaining window hands the key to the shell. They run against the real component through the committed harness, need no instrumentation, and would fail the moment any of the three windows became reachable.
+
+**Where it is no longer pinned, and the expansion trigger.** The resolve-lifecycle case used to dismiss the auto-opened menu with Escape; it now uses the pill toggle, because overlap clearance was all it wanted from the dismissal and the coupling bought it a foreign flake. The Escape contract stays pinned by that spec's "Esc closes the MENU first (modal stays), second Esc closes the modal" case. Its prelude is byte-identical to the one that was removed — `expect(MENU).toBeVisible()`, `keyboard.press("Escape")`, `expect(MENU).toHaveCount(0)`, `expect(MODAL).toBeVisible()` — so its exposure is the same by inspection, not by argument. It was not observed failing in any of the 13 full-file runs of the command above (the 8 hunt runs were scoped with `-g "resolve lifecycle"` and never executed it), which is weak evidence at a 1-in-7 rate and is recorded as such rather than as a clean bill. If it ever flakes, this row stops being a tail and becomes a gating defect: re-file it as such rather than adding a retry.
+
+### What shipped
+
+The row's own evidence above is left exactly as it was written, including the two candidates it named. What follows is what became of them.
+
+#### Attribution
+
+The row's first task was naming the losing interleaving, and it named two candidates. Both are retired on measured evidence rather than argument.
+
+**Candidate 1, a capture listener outliving its element: RETIRED.** Four independent jsdom methods found no window in which the frame's handler runs after its panel leaves the DOM, with a mounted-frame positive control proving the instrument discriminated. Nineteen instrumented live arrivals then reported `panelInDoc: true` in 19 of 19 at the moment the key was claimed.
+
+**Candidate 2, the actionable-count blip: RETIRED for this fixture.** `interactive` reads `needsYou || k || selfHeal`, not the actionable count, and the e2e fixture seeds a parse warning that pins `k` at 1, so an actionable-only blip cannot take the panel down there.
+
+**The row's own supporting evidence was instrument error.** Its 8-run recorder reported the menu absent at key time, which pointed at candidate 1. The spec file's `MENU` constant is compound and requires the modal to carry its title, so a title-less frame reads as menu-absent while the panel is mounted. The live trace, reading the bare testid, found the panel present in every arrival.
+
+### What was actually repaired
+
+Three mechanisms were each shown sufficient DB-free: a whole-data blip, a Suspense fallback swap, and a remount. They differ only in trigger and share one mechanism, which is what the repair closes: the shell's Escape listener and the panel's capture claim live on different lifecycles, so any window with the panel down and the shell up spends the key on the modal.
+
+The shell now takes an optional handler and closes only when the host declines the key; absent the prop its behaviour is byte-identical, so the wizard modal and the streaming skeleton are untouched. `PublishedReviewModal` holds a claim, acquired in a layout effect so a painted panel always has one behind it, that classifies a transient unmount (kept, next key deferred exactly once) from an intentional dismissal (cleared, next key closes the dialog).
+
+### Documented limits, with their re-file signatures
+
+- **The Suspense fallback swap is not closed.** A claim held inside the component dies when the skeleton replaces it. Re-file on a losing trace carrying `modal:unmount` paired with `skeleton:mount`, and a capture record with the modal present and its title absent.
+- **The remount window is not closed**, for the same reason. Re-file on a losing trace carrying `modal:unmount` followed by a second `modal:mount` with no `skeleton:mount`.
+- Closing either means holding the claim above the Suspense boundary. That was considered and rejected: a stale claim then leaks into the next modal and swallows that operator's first Escape, which is a worse defect on a path every operator takes, traded against a window unobserved in 19 live arrivals.
+- **The pre-listener window is unobservable in jsdom**, by construction rather than accident: three staging routes were probed and each refuted by a premise, because whenever the DOM shows the panel its passive listener is already live. Its guards are structural assertions on the acquisition phase, which is the mechanism that closes the window.
+
+### Rate, stated honestly
+
+Not reproduced in 19 instrumented arrivals. P(0 in 19 | p = 1/7) = 0.054. The row's own "about one time in seven" rested on ONE observation in seven runs, whose 95% interval runs from roughly 0.4% to 58%, so the rate was never well determined in either direction. The repair is justified by a proven mechanism, not by a measured frequency.
+
+Filed by `fix/published-attention-resolve-red`; the sibling row it was filed beside is `BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED`.
+
 ## BL-DIAGRAM-TILE-CHROME-CONSISTENCY — the admin diagram tile and the crew gallery put the tile border on different elements — ✅ RESOLVED (2026-08-28, `fix/diagram-tile-chrome-consistency`)
 
 **Status:** RESOLVED 2026-08-28 (`fix/diagram-tile-chrome-consistency`) · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`; owner-directed by bl-orch after that arc reverted the change as out of scope, which is the scheduling decision) · **Facing:** product · **Severity:** LOW (cosmetically identical today; it is a consistency and maintenance question, not a rendering defect) · **Class:** design consistency · **Effort:** S · **Reachability:** PROBED — see the mutant below.

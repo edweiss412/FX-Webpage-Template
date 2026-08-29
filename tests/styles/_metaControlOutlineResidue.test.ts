@@ -1539,15 +1539,20 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       "components/admin/RecentAutoAppliedStrip.tsx:474",
       "components/admin/ShowsTable.tsx:288",
       "components/admin/nav/AdminNav.tsx:154",
-      "components/admin/showpage/AttentionMenu.tsx:290",
+      "components/admin/showpage/AttentionMenu.tsx:304",
       "components/admin/telemetry/EventFilters.tsx:97",
       // Moved on the merge of origin/main (6441d5e4c). Located on the merged tree, not
       // bumped: 2436 is the `PackCountPill` <span> carrying `border-border`.
       // Then 2436 -> 2441 with the announce-log import block; located again, 2441 is the
       // same `PackCountPill` <span>.
-      // Then 2441 -> 2446 when the wizard-ignore arc added its imports above this span.
-      // Located on the live tree: 2446 is that same border-border pill.
-      "components/admin/wizard/step3ReviewSections.tsx:2450",
+      // Then 2441 -> 2450 when the wizard-ignore arc added its imports above this span.
+      // Located on the live tree: 2450 is that same border-border pill. (This note read
+      // 2446 until 2026-08-29 while the literal was 2450 and the guard was green on it —
+      // the third comment-trail drift found in one sweep, all prose-only. The guards read
+      // the VALUE and never the sentence beside it, so nothing could have caught these.)
+      // Then 2450 -> 2447 on the 2026-08-29 three-way absorb of #940/#941/#942. Located on
+      // the merged tree: 2447 is that same `rounded-pill border border-border` <span>.
+      "components/admin/wizard/step3ReviewSections.tsx:2447",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

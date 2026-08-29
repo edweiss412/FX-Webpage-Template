@@ -314,10 +314,16 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // the live unclassified site is 3904, and 3904 is that same `<a>`.
     // Then 3904 -> 3909 when the announce-log import block landed. Located again: 3909 is
     // that same `<a>`.
-    // Then 3909 -> 3998 when the wizard-ignore arc added the panel's active/ignored
+    // Then 3909 -> 4124 when the wizard-ignore arc added the panel's active/ignored
     // partition and its Ignored (N) disclosure above this component. Located on the live
-    // tree by running the scanner, not by adding a delta: 4002 is that same `<a>`.
-    line: 4124,
+    // tree by running the scanner, not by adding a delta: 4124 is that same `<a>`. (This
+    // note read 3998 -> 4002 until 2026-08-29 while the ROW was 4124 and the guard was
+    // green on it, so the stale pair was in the prose only — same drift as controlOutlineScan
+    // row 19, and recorded for the same reason.)
+    // Then 4124 -> 4121 on the 2026-08-29 three-way absorb of #940/#941/#942. The scanner
+    // on the merged tree reports exactly one unclassified site in this file, 4121, and it
+    // is that same `<a>`.
+    line: 4121,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -459,9 +465,13 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/DataQualityWarningControls.tsx",
-    // 110 -> 149 when the wizard-ignore arc added the discriminated `target` type and
+    // 110 -> 189 when the wizard-ignore arc added the discriminated `target` type and
     // split the run path into its two backend arms above this button. Same `<button>`,
-    // same computed-member className, same reason.
+    // same computed-member className, same reason — confirmed by its own
+    // `data-testid={`dq-${action}-${reportSurfaceId}`}` on the live tree. (This note read
+    // 149 while the row was 189; fourth and last of the comment-trail drifts the
+    // 2026-08-29 sweep found. This one is in a file the merge never touched, which is how
+    // we know the class predates the absorb rather than being caused by it.)
     line: 189,
     tag: "button",
     category: "unresolvable-dynamic",
@@ -522,7 +532,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/review/ReviewModalShell.tsx",
-    line: 595,
+    line: 609,
     tag: "button",
     category: "unresolvable-dynamic",
     reason:

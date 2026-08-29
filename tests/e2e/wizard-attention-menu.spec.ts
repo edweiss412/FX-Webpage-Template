@@ -24,6 +24,7 @@
 // (tests/e2e/_metaFontFidelityWiring.test.ts).
 import { expect, test } from "./helpers/fontFidelityFixture";
 import type { Page } from "@playwright/test";
+import { VIEWPORT_INSET } from "@/lib/popover/position";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -201,6 +202,11 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
   for (const [w, h] of [
     [1280, 800],
     [375, 667],
+    // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW: the declared probe domain is four
+    // viewports on both review modals (spec 2026-08-28-attention-menu-clip-placement
+    // §10). These two were the wizard half's missing cells.
+    [375, 844],
+    [390, 560],
   ] as const) {
     test(`every menu row clears the 44px floor at ${w}x${h}`, async ({ page }) => {
       await openModal(page, w, h);
@@ -217,60 +223,93 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
       for (const height of heights) expect(height).toBeGreaterThanOrEqual(TAP_FLOOR);
     });
 
-    // 1280 ONLY, and the omission is the finding rather than a gap. At 375 the
-    // panel overflows its clip on the LEFT — measured -18.85 here, and -36 on
-    // the PUBLISHED menu against unmodified code, so the defect is pre-existing
-    // and worse on the shipped surface. Cause: the panel is
-    // w-[min(400px,calc(100vw-32px))] + right-0, sized against the VIEWPORT
-    // while anchored to a wrapper inset from the right, and useFitWithinClip
-    // caps height only, by design. The repair is a shared-frame sizing redesign
-    // with its own hook spec and e2e suite (class-sweep exception (c)), and
-    // fixing published geometry here would force regenerating the very byte
-    // baseline this arc built to prove published bytes UNCHANGED. Filed as
-    // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW; ruled (B) by bl-orch 2026-08-27.
+    // Containment on EVERY viewport in the list above, on both horizontal edges
+    // and the bottom. This case used to run at 1280 only, with 375 carrying a
+    // deliberate CHARACTERIZATION of the overhang
+    // (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW) and a note to flip it when the
+    // row was fixed. That row is fixed here, so the characterization is gone and
+    // both edges are asserted at all four viewports.
+    //
+    // Two things it now does that the old case could not. It measures AT REST,
+    // where the old one measured mid-entrance and so recorded 0.95x the real
+    // overhang. And it asserts the natural width is PRESERVED, which is what
+    // makes the ratified choice — containment bought with alignment, not with
+    // width — falsifiable rather than merely stated.
     test(`the panel stays inside the modal clip at ${w}x${h}`, async ({ page }) => {
       await openModal(page, w, h);
       await page.locator(CHIP).click();
       await page.locator(MENU).waitFor({ state: "visible" });
+      // MEASURE AT REST, and settle on `scale` rather than `transform`.
+      // Tailwind v4 compiles `scale-*` to the INDIVIDUAL `scale` property, so
+      // `transform` reads "none" the whole time the panel is scaled to 95% — a
+      // wait on it returns immediately and measures a 0.95x box. That is how
+      // this case previously recorded the overhang as -18.85 when at rest it is
+      // -36: 343 * 0.95 = 325.85, and `origin-top-right` pins the right edge.
+      await page.waitForFunction(
+        (sel) => {
+          const el = document.querySelector(sel);
+          if (el === null) return false;
+          const settled = getComputedStyle(el).scale;
+          return settled === "1" || settled === "none";
+        },
+        MENU,
+        { timeout: 5_000 },
+      );
       const box = await page.evaluate(
-        ({ menuSel, panelSel }) => {
+        ({ menuSel, panelSel, chipSel }) => {
           const menu = document.querySelector(menuSel)!.getBoundingClientRect();
           const clip = document.querySelector(panelSel)!.getBoundingClientRect();
+          const chip = document.querySelector(chipSel)!.getBoundingClientRect();
           return {
             menu: { left: menu.left, right: menu.right, bottom: menu.bottom, width: menu.width },
             clip: { left: clip.left, right: clip.right, bottom: clip.bottom, width: clip.width },
+            chip: { right: chip.right },
           };
         },
-        { menuSel: MENU, panelSel: PANEL },
+        { menuSel: MENU, panelSel: PANEL, chipSel: CHIP },
       );
       const TOL = 0.5;
-      if (w === 375) {
-        // CHARACTERIZATION, not an endorsement. At 375 the panel overflows the
-        // clip's LEFT edge — BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW, filed with
-        // both measurements (-18.85 here, -36.00 on the PUBLISHED menu against
-        // unmodified code) and ruled out of this arc because the repair is a
-        // shared-frame redesign that would force regenerating this arc's own
-        // byte baseline.
-        //
-        // Recorded as a RUNNING assertion rather than a `test.fixme` for two
-        // reasons: a fixme is listed but never reported, which breaks the
-        // standalone baseline gate (baseline is `--list`, report is executed);
-        // and a number on disk is a better record of a known defect than an
-        // absence. The right and bottom edges below are asserted normally, so
-        // the case still guards everything that is NOT the filed defect.
-        //
-        // WHEN THE ROW IS FIXED THIS FAILS. That is intended: flip it to the
-        // `toBeGreaterThanOrEqual` form the other viewport uses and delete this
-        // branch.
-        expect(box.menu.left).toBeLessThan(box.clip.left);
-      } else {
-        // LEFT is the discriminating edge: the panel is right-anchored, so an
-        // over-wide panel overflows leftwards and useFitWithinClip caps only
-        // max-height.
-        expect(box.menu.left).toBeGreaterThanOrEqual(box.clip.left - TOL);
-      }
+      // Asserted FIRST: a menu that failed to open has a zero-width rect, which
+      // satisfies every containment comparison below by rendering nothing.
+      expect(box.menu.width).toBeGreaterThan(0);
+      // LEFT is the discriminating edge: the panel is right-anchored, so an
+      // over-wide panel overflows leftwards.
+      expect(box.menu.left).toBeGreaterThanOrEqual(box.clip.left - TOL);
       expect(box.menu.right).toBeLessThanOrEqual(box.clip.right + TOL);
       expect(box.menu.bottom).toBeLessThanOrEqual(box.clip.bottom + TOL);
+
+      // The width is the DECLARED 400px natural, capped by the clip's inset
+      // bounds and by nothing else. This is what makes the ratified
+      // width-over-alignment choice falsifiable: the declined alternative
+      // narrows the panel to the anchor-to-clip-edge distance to stay flush, and
+      // would fail here. Derived from the measured clip and the core's own
+      // VIEWPORT_INSET, never a pixel constant.
+      expect(box.menu.width).toBeCloseTo(Math.min(400, box.clip.width - 2 * VIEWPORT_INSET), 0);
+
+      // Where the clip does NOT bind, the panel stays flush with its trigger, so
+      // the placement clamp is proved to fire only when it must. Derived from the
+      // measured chip rect rather than a pixel constant.
+      // BOTH edges: the core clamps x into `[bounds.left, bounds.right - width]`,
+      // so flushness also requires the anchor's right edge to sit inside the inset
+      // bounds. The one-sided form passed here by luck of geometry and FAILED on
+      // the published twin in CI, where the pill extends past `bounds.right`
+      // (menu.right 1068.16 against pill.right 1084).
+      const boundsLeft = box.clip.left + VIEWPORT_INSET;
+      const boundsRight = box.clip.right - VIEWPORT_INSET;
+      if (box.chip.right - box.menu.width >= boundsLeft && box.chip.right <= boundsRight) {
+        expect(box.menu.right).toBeCloseTo(box.chip.right, 0);
+      }
+
+      // AC-5 pins the MEASURED desktop geometry, not a self-consistent relation.
+      // `menu.right === pill.right` above is satisfied by ANY anchor position, so
+      // a desktop layout shift moving the wrapper would keep every other assertion
+      // green while the panel is no longer where it was before this arc. These two
+      // literals are the pre-fix measurement, and pinning them is the whole point
+      // of a criterion that says "identical to today".
+      if (w === 1280) {
+        expect(box.menu.left).toBeCloseTo(684, 0);
+        expect(box.menu.width).toBeCloseTo(400, 0);
+      }
     });
   }
 

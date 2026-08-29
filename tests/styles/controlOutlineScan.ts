@@ -133,7 +133,13 @@ export const CENSUS: readonly CensusRow[] = [
   // which is the third time this row has hit that exact situation. Resolved the way the two notes
   // above prescribe and the way the 6441d5e4c merge did: by locating the `<button>` opener on the
   // MERGED file, never by adding the two sides' deltas.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4687 },
+  //
+  // Then 4687 -> 4684 on the 2026-08-29 three-way absorb of #940/#941/#942. Same method, and this
+  // time with a second discriminator, because the file now holds TWO elements carrying
+  // `aria-expanded={expanded}` — the agenda `show-all` toggle at 3600 and this one. The anchor text
+  // alone would have been ambiguous; the row was resolved by running the scanner and matching
+  // `data-testid={`wizard-step3-card-${dfid}-report-toggle`}`, which is unique.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4684 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -146,9 +152,15 @@ export const CENSUS: readonly CensusRow[] = [
   // `<button>` openers themselves (4438 and 4495), then confirmed by the scanner —
   // not by adding the two sides' deltas, which is what put them 5 lines short.
   // Then 4512 -> 4528, then 4528 -> 4529 on 2026-08-28, same causes and same method as the row
-  // above. Then 4529 -> 4729 on the wizard-ignore merge, both parents having moved it, located on
-  // the merged file by its own `<button>` opener — same cause and same method as row 18.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4744 },
+  // above. Then 4529 -> 4744 on the wizard-ignore merge, both parents having moved it, located on
+  // the merged file by its own `<button>` opener — same cause and same method as row 18. (This
+  // note read 4729 until 2026-08-29; the ROW was always 4744 and the guards were green on it, so
+  // the stale number was in the prose only. Recorded rather than quietly overwritten, because a
+  // comment trail that can drift from its own row is worth knowing about.)
+  //
+  // Then 4744 -> 4741 on the 2026-08-29 three-way absorb of #940/#941/#942, located by the
+  // `disabled={draft.trim()...}` opener on the merged file.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4741 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21
@@ -217,7 +229,7 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/review/ShowReviewSurface.tsx", line: 1019 },
   // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
   // above the pill button (spec §4.1/§4.4).
-  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1007 },
+  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1083 },
   { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 119 },
   { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
   { file: "components/agenda/AgendaEmbed.tsx", line: 83 },
@@ -249,7 +261,7 @@ export const DIVIDERS: readonly CensusRow[] = [
   // :189 until 2026-08-27. The needs-you row moved into the exported
   // AttentionMenuRow (spec §5) so the wizard index renders the same row; the
   // divider recipe itself is byte-identical, pinned by the committed baseline.
-  { file: "components/admin/showpage/AttentionMenu.tsx", line: 290 },
+  { file: "components/admin/showpage/AttentionMenu.tsx", line: 304 },
   // :85 until 2026-08-26. The control-outline-cover sweep gave `FilterTextInput`
   // its own outline recipe and a `cn` import, which moved every element below
   // it. The divider itself is untouched; what moved is where it sits.

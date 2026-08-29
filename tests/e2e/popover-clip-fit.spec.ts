@@ -180,6 +180,31 @@ async function openMenu(page: Page, a: number, n: number, s: number) {
   await expect(page.locator(MENU)).toBeVisible();
 }
 
+/**
+ * Close the attention menu by pressing its PILL, before interacting with
+ * anything the open panel covers.
+ *
+ * WHY THIS EXISTS (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW). The menu is
+ * right-anchored inside the review-modal clip. It used to overflow that clip's
+ * LEFT edge by 36px at 375, and the 36px it lost off-screen is the only reason
+ * its right edge stopped at 307 — exactly where the published toggle begins. Now
+ * that the panel is CONTAINED it spans 8..367 and covers the toggle, which is
+ * ordinary dismissible-overlay behaviour and not a defect: containment and
+ * sitting beside the toggle are not simultaneously satisfiable at that width,
+ * since even the old 343px width clamps to 8..351.
+ *
+ * The cases below are about the refusal banner and the docked anchor's room.
+ * Clicking THROUGH an open menu was never their subject — it was incidental
+ * clearance they got for free from a bug. The pill, not Escape: Escape is
+ * claimed by the menu only once the user has engaged with it, so it is the
+ * conditional path, while the pill always toggles.
+ */
+async function dismissMenu(page: Page) {
+  if ((await page.locator(MENU).count()) === 0) return;
+  await page.locator(PILL).click();
+  await expect(page.locator(MENU)).toHaveCount(0);
+}
+
 // ---------------------------------------------------------------------------
 // Case blocks land with their OWNING tasks (plan T2b split): T3 restores the
 // AttentionMenu block, T4 the PublishedToggle block, T7 the mutual-exclusion
@@ -233,7 +258,16 @@ async function fittedGeometry(page: Page) {
       const p = panel.getBoundingClientRect();
       const m = menu.getBoundingClientRect();
       const sc = scroller.getBoundingClientRect();
-      const available = Math.floor(p.bottom - sc.top - (gutter as number));
+      // The menu panel's own bottom border sits BETWEEN the scroller and the
+      // clip edge, so the room the scroller can occupy is one border short of
+      // the raw gap. Before the placement migration the fitted cap was written
+      // straight onto the scroller and the border was outside the arithmetic;
+      // now the cap lands on the bordered panel and the scroller fills its
+      // CONTENT box. Derived from the live computed style, never assumed to be
+      // 1px, and it is a completion of the arithmetic rather than a loosened
+      // tolerance — the 0.5px bound below is unchanged.
+      const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
+      const available = Math.floor(p.bottom - sc.top - (gutter as number) - menuBorderBottom);
       return {
         contained: m.bottom <= p.bottom + 0.5,
         fitted: Math.abs(sc.height - available) <= 0.5,
@@ -276,12 +310,17 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
       await openMenu(page, 10, 10, 10);
 
       const m = await page.evaluate(
-        ([panelSel, scrollerSel, gutter, cap]) => {
+        ([panelSel, menuSel, scrollerSel, gutter, cap]) => {
           const panel = document.querySelector(panelSel as string)!;
+          const menu = document.querySelector(menuSel as string)!;
           const scroller = document.querySelector(scrollerSel as string)!;
           const p = panel.getBoundingClientRect();
           const s = scroller.getBoundingClientRect();
-          const available = Math.floor(p.bottom - s.top - (gutter as number));
+          // See fittedGeometry: the menu panel's bottom border is between the
+          // scroller and the clip edge now that the fitted cap lands on the
+          // panel. Same completion, same 0.5px bound.
+          const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
+          const available = Math.floor(p.bottom - s.top - (gutter as number) - menuBorderBottom);
           return {
             height: s.height,
             available,
@@ -290,7 +329,7 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
             clientHeight: scroller.clientHeight,
           };
         },
-        [PANEL, SCROLLER, GUTTER, CSS_CAP] as const,
+        [PANEL, MENU, SCROLLER, GUTTER, CSS_CAP] as const,
       );
 
       expect(m.scrollHeight, "fixture must overflow the scroller").toBeGreaterThan(m.clientHeight);
@@ -319,31 +358,299 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     );
 
     const m = await page.evaluate(
-      ([panelSel, scrollerSel, gutter]) => {
+      ([panelSel, menuSel, scrollerSel, gutter]) => {
+        const menu = document.querySelector(menuSel as string)!;
         const p = document.querySelector(panelSel as string)!.getBoundingClientRect();
         const s = document.querySelector(scrollerSel as string)!.getBoundingClientRect();
-        return { height: s.height, available: Math.floor(p.bottom - s.top - (gutter as number)) };
+        // Third site of the same arithmetic, kept in step with fittedGeometry and
+        // the per-height loop: the menu panel's bottom border sits between the
+        // scroller and the clip edge now that the fitted cap lands on the panel.
+        const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
+        return {
+          height: s.height,
+          available: Math.floor(p.bottom - s.top - (gutter as number) - menuBorderBottom),
+        };
       },
-      [PANEL, SCROLLER, GUTTER] as const,
+      [PANEL, MENU, SCROLLER, GUTTER] as const,
     );
     expect(Math.abs(m.height - m.available)).toBeLessThanOrEqual(0.5);
   });
 
-  test("containment at 390x560: the menu never crosses the panel's clip edge", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 560 });
+  // Containment on BOTH horizontal edges and the bottom, at every viewport in the
+  // declared probe domain (spec 2026-08-28-attention-menu-clip-placement §10).
+  //
+  // This case used to read `panelBottom` and `menuBottom` and nothing else,
+  // under the name "the menu never crosses the panel's clip edge". The name
+  // promised containment; the body asserted one dimension of it, and a 36px LEFT
+  // overhang lived on this shipped surface underneath it
+  // (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW). The horizontal edges are the
+  // repair.
+  for (const [vw, vh] of [
+    [390, 560],
+    [375, 667],
+    [375, 844],
+    [1280, 800],
+  ] as const) {
+    test(`containment at ${vw}x${vh}: the menu never crosses the panel's clip edge`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: vw, height: vh });
+      await openMenu(page, 10, 10, 10);
+      // Settle on `scale`, NOT on `transform`. Tailwind v4 compiles `scale-*` to
+      // the individual `scale` property, so `transform` reads "none" for the
+      // whole entrance and a wait on it measures a 0.95x box.
+      await page.waitForFunction(
+        (sel) => {
+          const el = document.querySelector(sel);
+          if (el === null) return false;
+          const settled = getComputedStyle(el).scale;
+          return settled === "1" || settled === "none";
+        },
+        MENU,
+        { timeout: 5_000 },
+      );
+      const m = await page.evaluate(
+        ([panelSel, menuSel, pillSel]) => {
+          const p = document.querySelector(panelSel as string)!.getBoundingClientRect();
+          const menu = document.querySelector(menuSel as string)!.getBoundingClientRect();
+          const pill = document.querySelector(pillSel as string)!.getBoundingClientRect();
+          return {
+            panel: { left: p.left, right: p.right, bottom: p.bottom },
+            menu: { left: menu.left, right: menu.right, bottom: menu.bottom, width: menu.width },
+            pill: { right: pill.right },
+          };
+        },
+        [PANEL, MENU, PILL] as const,
+      );
+      const TOL = 0.5;
+      // First: a menu that failed to open reports a zero rect, which satisfies
+      // every containment comparison below without rendering anything.
+      expect(m.menu.width).toBeGreaterThan(0);
+      expect(
+        m.menu.left,
+        `menu.left ${m.menu.left} < panel.left ${m.panel.left}`,
+      ).toBeGreaterThanOrEqual(m.panel.left - TOL);
+      expect(
+        m.menu.right,
+        `menu.right ${m.menu.right} > panel.right ${m.panel.right}`,
+      ).toBeLessThanOrEqual(m.panel.right + TOL);
+      expect(
+        m.menu.bottom,
+        `menu.bottom ${m.menu.bottom} > panel.bottom ${m.panel.bottom}`,
+      ).toBeLessThanOrEqual(m.panel.bottom + TOL);
+      // The width is the DECLARED 400px natural, capped by the clip's inset
+      // bounds and by nothing else. Derived from the measured clip and the core's
+      // own VIEWPORT_INSET, never a pixel constant. The declined alternative
+      // narrows the panel to buy flushness and fails here.
+      expect(m.menu.width).toBeCloseTo(
+        Math.min(400, m.panel.right - m.panel.left - 2 * VIEWPORT_INSET),
+        0,
+      );
+      // Where NEITHER clamp binds, the panel stays flush with its trigger, so the
+      // clamp is proved to fire only when it must.
+      //
+      // BOTH edges are guarded, and an earlier draft guarded only the left. The
+      // core clamps x into `[bounds.left, bounds.right - width]`, so flushness
+      // also requires the anchor's own right edge to sit INSIDE the inset bounds.
+      // On the published surface at 1280 the pill extends past `bounds.right`, so
+      // a flush panel would overhang the inset and the core correctly pulls it
+      // left — CI measured menu.right 1068.16 against pill.right 1084. Guarding
+      // one edge asserted flushness in a case where the contract does not promise
+      // it.
+      const boundsLeft = m.panel.left + VIEWPORT_INSET;
+      const boundsRight = m.panel.right - VIEWPORT_INSET;
+      if (m.pill.right - m.menu.width >= boundsLeft && m.pill.right <= boundsRight) {
+        expect(m.menu.right).toBeCloseTo(m.pill.right, 0);
+      }
+      // NO unconditional "never past the anchor's right edge" assertion here. It
+      // was written and removed the same minute: at 375 the panel is clamped to
+      // `bounds.left` and extends to 367 while the pill ends at 307, which is
+      // precisely the AC-2 trade-off — containment is bought with alignment, and
+      // the panel shifting past its anchor is the ratified behaviour, not a
+      // violation. The suite caught it immediately, which is the assertion
+      // contradicting a settled decision rather than guarding one.
+
+      // AC-5 pins the MEASURED desktop geometry rather than a self-consistent
+      // relation: `menu.right === pill.right` above is satisfied by ANY anchor
+      // position, so a layout shift moving the wrapper keeps it green while the
+      // panel is no longer where it was before this arc.
+      //
+      // The WIDTH is pinned here; the LEFT is not, and the asymmetry is
+      // deliberate. The wizard surface's pre-fix desktop left was measured (684)
+      // and is pinned in its own suite. THIS surface's pre-fix left was never
+      // measured, so a literal here would be a number invented to look rigorous.
+      // Its left is held by the flush-to-pill relation above, which at 1280 IS
+      // the pre-fix behaviour because no clamp fires. DOCUMENTED LIMIT: a desktop
+      // layout shift moving this surface's pill and panel together satisfies
+      // both, and closing it needs a pre-fix measurement that no longer exists
+      // to take.
+      if (vw === 1280) {
+        expect(m.menu.width).toBeCloseTo(400, 0);
+      }
+
+      // NO ANCHOR-REFLOW CASE here, and the absence is deliberate and probed.
+      // Placement is computed against the panel's offset parent, so observing
+      // that anchor is right in principle. A case for it was written and REMOVED
+      // because its premise could not be satisfied on this surface: changing the
+      // attention load from (2,2,2) to (30,30,30) does not move the wrapper's
+      // RIGHT edge — the only edge `align: "right"` placement reads — because the
+      // wrapper is right-pinned inside the modal header. The anchor subscription
+      // therefore ships as DEFENSIVE, with no reachable failing case on either
+      // review modal today. Recorded so the next author reads the missing case as
+      // a probed absence rather than an oversight, and does not delete the
+      // subscription as unused.
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW: the placement migration's own pins.
+  // -------------------------------------------------------------------------
+
+  // NAMED FOR WHAT IT ASSERTS. An earlier title said "and keyboard order reaches
+  // it", which this body does not check — it checks DOM descendancy only. Keyboard
+  // order IS covered, by the pill-to-scroller tab case further down, and it was
+  // that case which caught the portal regression. But a title claiming coverage
+  // its body does not carry is worse than no title: the standalone --list baseline
+  // records test names, so the overstatement would have been committed as the
+  // suite's public contract.
+  test("the panel is a DESCENDANT of the clip host", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
     await openMenu(page, 10, 10, 10);
-    const m = await page.evaluate(
+    // Descendancy is what the shell's focus trap, aria-modal subtree and inert
+    // handling all rest on, so it is the property worth pinning — not that the
+    // context is merely non-null.
+    //
+    // This panel is a descendant because it renders IN PLACE, not because it is
+    // portaled. Portaling it into the host was tried during this migration and
+    // reverted: it preserves the trap but appends the panel late in the modal,
+    // which breaks sequential focus ORDER — Tab from the pill reached the modal's
+    // close button instead of the menu. The trap and the order within it are
+    // different properties, and the suite pins both.
+    const contained = await page.evaluate(
       ([panelSel, menuSel]) => {
-        const p = document.querySelector(panelSel as string)!.getBoundingClientRect();
-        const menu = document.querySelector(menuSel as string)!.getBoundingClientRect();
-        return { panelBottom: p.bottom, menuBottom: menu.bottom };
+        const host = document.querySelector(panelSel as string);
+        const menu = document.querySelector(menuSel as string);
+        if (host === null || menu === null) return null;
+        return { inside: host.contains(menu), sameNode: host === menu };
       },
       [PANEL, MENU] as const,
     );
+    expect(contained).not.toBeNull();
+    expect(contained!.sameNode).toBe(false);
+    expect(contained!.inside).toBe(true);
+  });
+
+  test("dimensional invariants: the scroller shrinks inside the panel's fitted cap", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 560 });
+    // A LOAD large enough that the cap BINDS. These assertions discriminate only
+    // when the content is taller than the fitted height — with a short list the
+    // scroller is smaller than the cap and every comparison below passes
+    // vacuously. The premise is asserted on this case's own inputs, below.
+    await openMenu(page, 30, 30, 30);
+    await page.waitForFunction(
+      (sel) => {
+        const el = document.querySelector(sel);
+        if (el === null) return false;
+        const settled = getComputedStyle(el).scale;
+        return settled === "1" || settled === "none";
+      },
+      MENU,
+      { timeout: 5_000 },
+    );
+    const d = await page.evaluate(
+      ([menuSel, scrollerSel]) => {
+        const panel = document.querySelector(menuSel as string)!;
+        const scroller = document.querySelector(scrollerSel as string)!;
+        const pr = panel.getBoundingClientRect();
+        const sr = scroller.getBoundingClientRect();
+        return {
+          panelRect: pr.height,
+          panelClient: (panel as HTMLElement).clientHeight,
+          scrollerRect: sr.height,
+          scrollerBottom: sr.bottom,
+          panelBottom: pr.bottom,
+          scrollHeight: scroller.scrollHeight,
+          childSum: [...panel.children].reduce((n, c) => n + c.getBoundingClientRect().height, 0),
+        };
+      },
+      [MENU, SCROLLER] as const,
+    );
+    const TOL = 0.5;
+    // PREMISE: the cap binds. Without this the case is vacuous, and a vacuous
+    // pass is indistinguishable from a real one.
     expect(
-      m.menuBottom,
-      `menu.bottom ${m.menuBottom} > panel.bottom ${m.panelBottom}`,
-    ).toBeLessThanOrEqual(m.panelBottom + 0.5);
+      d.scrollHeight,
+      "premise: the content must overflow the fitted cap, or these assertions are vacuous",
+    ).toBeGreaterThan(d.scrollerRect + 1);
+    // The children fill the panel's CONTENT box. Compared against clientHeight,
+    // never the border-box rect: the panel carries `border` and no padding, so a
+    // border-box comparison is off by exactly the 2px of border and can never
+    // pass.
+    expect(d.childSum).toBeCloseTo(d.panelClient, 0);
+    // The one that catches a dropped `min-h-0`: without it the scroller keeps its
+    // content height and paints straight through the capped panel.
+    expect(d.scrollerBottom).toBeLessThanOrEqual(d.panelBottom + TOL);
+  });
+
+  for (const motion of ["reduce", "no-preference"] as const) {
+    test(`placement is RE-COMPUTED once the entrance settles (${motion})`, async ({ page }) => {
+      // BOTH settings are set explicitly. Neither case relies on the harness
+      // default, which is itself contested: this harness was probed reporting
+      // `reduce`, while the pinned playwright-core resolves an unset value to
+      // `no-preference`. Depending on the default at all is the defect.
+      await page.emulateMedia({ reducedMotion: motion });
+      // 1280x800 is the ONLY viewport where this discriminates. At 375 a frozen
+      // and a re-measured placement both clamp x to the clip's left edge and are
+      // indistinguishable; here the clamp does not fire, so x tracks
+      // `trigger.right - width` and moves by the full 5% the entrance scale
+      // distorts. Asserting the settled WIDTH would prove nothing either: the
+      // rect reaches its natural width when the scale reaches 1 whether or not
+      // any code re-ran.
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await openMenu(page, 10, 10, 10);
+      await page.waitForFunction(
+        (sel) => {
+          const el = document.querySelector(sel);
+          if (el === null) return false;
+          const settled = getComputedStyle(el).scale;
+          return settled === "1" || settled === "none";
+        },
+        MENU,
+        { timeout: 5_000 },
+      );
+      const g = await page.evaluate(
+        ([menuSel, pillSel]) => {
+          const menu = document.querySelector(menuSel as string)!.getBoundingClientRect();
+          const pill = document.querySelector(pillSel as string)!.getBoundingClientRect();
+          return { left: menu.left, width: menu.width, pillRight: pill.right };
+        },
+        [MENU, PILL] as const,
+      );
+      // A placement frozen at the scale-95 measurement sits 5% of the panel's
+      // width to the RIGHT of the settled answer. Derived, not hardcoded.
+      expect(g.left).toBeCloseTo(g.pillRight - g.width, 0);
+      expect(g.width).toBeCloseTo(400, 0);
+    });
+  }
+
+  test("every menu row clears the 44px floor at 375x667", async ({ page }) => {
+    // The wizard suite has carried this since its own arc; the published surface
+    // had no twin, so a narrowed or shifted panel could reflow rows under the
+    // floor here and nothing would say so.
+    await page.setViewportSize({ width: 375, height: 667 });
+    await openMenu(page, 3, 3, 3);
+    const heights = await page.evaluate(
+      (menuSel) =>
+        [...document.querySelectorAll(`${menuSel} button`)].map(
+          (r) => r.getBoundingClientRect().height,
+        ),
+      MENU,
+    );
+    // A zero-row menu would otherwise satisfy `every` by vacuity.
+    expect(heights.length).toBeGreaterThan(0);
+    for (const h of heights) expect(h).toBeGreaterThanOrEqual(44);
   });
 
   test("every interactive row is reachable, and the monitoring tail is readable", async ({
@@ -1634,6 +1941,7 @@ test.describe("the row's obligation — real-surface anchor room (spec §7)", ()
         "FINALIZE_OWNED_SHOW",
       );
     });
+    await dismissMenu(page);
     await page.locator('[data-testid="published-toggle"]').click();
     await expect(page.locator(TOGGLE_BANNER)).toBeVisible();
 
@@ -1736,6 +2044,7 @@ test.describe("the shared harness can drive a refusal", () => {
         "FINALIZE_OWNED_SHOW",
       );
     });
+    await dismissMenu(page);
     await page.locator('[data-testid="published-toggle"]').click();
     const banner = page.locator(TOGGLE_BANNER);
     await expect(banner).toBeVisible();
@@ -1764,6 +2073,7 @@ test.describe("the shared harness can drive a refusal", () => {
     // sheetIconLinkContainment.test.ts see — asserted here rather than assumed,
     // because "byte-identical when omitted" is the whole contract that lets the
     // field exist without re-baselining the other two consumers.
+    await dismissMenu(page);
     await page.locator('[data-testid="published-toggle"]').click();
     await expect(page.locator(TOGGLE_BANNER)).toHaveCount(0);
   });

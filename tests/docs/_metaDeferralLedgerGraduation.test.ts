@@ -98,6 +98,52 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/attention-panel-left-overflow (2026-08-29, PR #941): the attention menu
+  // panel was sized against the VIEWPORT while right-anchored inside the review
+  // modal's clip, so its left edge landed 36px outside that clip on BOTH review
+  // modals at phone widths. It migrates onto the shared lib/popover placement
+  // stack, whose x-clamp is the actual repair — a width cap is the wrong
+  // mechanism at every width, since narrowing a right-anchored panel moves its
+  // left edge further left. It was the LAST useFitWithinClip consumer, so that
+  // hook and its suite retire with it.
+  //
+  // The row's own account of the defect was corrected in passing: it recorded
+  // -18.85 on the wizard and -36.00 on the published menu and read the gap as the
+  // shipped surface being worse. They are ONE defect measured at two animation
+  // phases (343 * 0.95 = 325.85 against a right edge pinned by origin-top-right),
+  // and at rest both surfaces overhang by 36px.
+  //
+  // Three spec decisions were reversed by implementation evidence and are
+  // recorded in that spec's §3.1a rather than left for a reader to find by
+  // diffing code against spec: no portal (it preserves the focus trap but breaks
+  // sequential focus ORDER from the pill), the anchor is the panel's offset
+  // parent and not the pill, and the CSS top/right fallback is load-bearing.
+  //
+  // One consequence is filed rather than fixed: containment necessarily places
+  // the open menu over the published toggle at 375, which is an auto-open product
+  // decision (BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE) and not geometry.
+  {
+    id: "BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW",
+    provenance: "fix/attention-panel-left-overflow",
+  },
+  // feat/speclint-table-provenance (2026-08-28): the row asked for a
+  // `<!-- table: cmd=`…` -->` marker binding a stated table to a producing
+  // command, and scheduled the measurement first. The measurement said not to
+  // build it: the corpus had already ratified that a producing command is not a
+  // binding, so a marked table can satisfy the check and be exactly as drifted.
+  // A graduation is leaving the open queue, not necessarily an implementation.
+  { id: "BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE", provenance: "feat/speclint-table-provenance" },
+  // fix/published-attention-escape-race (2026-08-28, PR #940): Escape could close the
+  // whole published review modal whenever the attention panel was down for a frame,
+  // losing the operator's scroll position and section. Both candidates the row named
+  // were retired on measured evidence and its own supporting reading turned out to be
+  // instrument error; the repair is a claim that outlives the panel and classifies a
+  // transient unmount from an intentional dismissal. Two windows stay documented limits
+  // with disjoint re-file signatures.
+  {
+    id: "BL-PUBLISHED-ATTENTION-ESCAPE-CLOSES-MODAL-RACE",
+    provenance: "fix/published-attention-escape-race",
+  },
   // fix/nearmiss-non-field-blocks (2026-08-28): the near-miss detector now fires only in
   // blocks shaped like field lists. Owner-ratified scope; the row's second candidate repair
   // (family matching) was declined for this arc and fenced in the spec rather than left
@@ -416,8 +462,11 @@ const BACKLOG_GRADUATED = [
   { id: "BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS", provenance: "fix/admin-popover-overlay-cluster" },
   // Filed as unverified-gap by the popover-overlay registry, then MEASURED: at
   // 390x560 the menu overhung the clipping panel by 55px with a 54px stranded
-  // tail. The scroller now takes the shared useFitWithinClip and gains a named,
-  // tabbable scrollable-region role.
+  // tail. The scroller took the shared useFitWithinClip and gained a named,
+  // tabbable scrollable-region role. That hook was retired 2026-08-28
+  // (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW) when this same overlay migrated to
+  // placeWithinVisibleViewport; the height cap now reaches the scroller through
+  // the panel's fitted max-height. The role is unchanged.
   { id: "BL-ATTENTION-MENU-PANEL-CLIP", provenance: "fix/admin-popover-overlay-cluster" },
   // Same class on the anchored refusal banner (measured overhang 43.7px past a
   // 220px clip): capped against the clip edge, made a real scroll container,

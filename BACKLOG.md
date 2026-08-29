@@ -8,25 +8,6 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
-## BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE — a stated numeric table with no command that produces it, named by four arcs and still unmechanized
-
-**Status:** OPEN · **Filed:** 2026-08-28 (`fix/severityless-warning-filters`, diff R3 finding 2) · **Facing:** process · **Mint-exception:** recurrence · **Severity:** LOW-MEDIUM (a spec table drifts from the tree with nothing able to compare them) · **Class:** evidence provenance · **Effort:** M
-
-**Incident** (four independent arcs, each naming the shape in its own filing before a slug existed):
-
-- `docs/review-rounds/fix/mutation-shard-budget-six/9a621a5792ea.md:32-35` (spec) — round 2's highest-value finding was §1.3's table carrying no command producing it.
-- `docs/review-rounds/feat/review-modal-strip-dock/ae8e9544b55a.md:38-39` (spec) — a hand-maintained blast-radius transcript, three rounds finding three defects in three different directions.
-- `docs/review-rounds/feat/speclint-ac-unclaimed-arm/44b0d74b1107.md:32-33` (plan) — the plan claimed 106 enrolled plans where the quoted command returns 108.
-- `docs/review-rounds/fix/severityless-warning-filters/b608e71b32b5.md` (diff, R3 finding 2) — the published SQL could not produce the published table, and a bare `group by` silently dropped an empty population rather than showing it as zero.
-
-Indexed as `LIM-NUMERIC-TABLE-PROVENANCE` in `docs/review-rounds/LIMITS.md`, whose stated re-file trigger is "a spec whose stated table cannot be reproduced from its own commands reaching a review round again". That fired on the fourth arc.
-
-**Why this is admissible under the 2026-08-25 process freeze.** Not on an incident alone, which the freeze stopped admitting. On recurrence: four independent arcs paid for the same shape, which is retrospective and countable and could not be manufactured by this arc. The freeze's admission test is also met, because the done condition names a number outside the tooling: rounds burned per arc on table-versus-tree drift, which is 1 here, 3 on review-modal-strip-dock, and 1 each on the other two.
-
-**Shape.** `spec:lint` parses numerics and parses fenced commands, and relates them to nothing. A table stated with no command producing it cannot be compared to the tree; a table stated WITH one drifts silently the moment the tree moves. The narrowing that would close it is a `<!-- table: cmd=`…` -->` marker binding a table to a command, checked the way `gate:` markers already are.
-
-**Not in scope for the arc that filed it.** `fix/severityless-warning-filters` is a docs-only demotion under an explicit no-code-change ruling; it repaired its own instance by publishing one query that produces every number in its table from a single transaction, and files the class here rather than widening.
-
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
 **Status:** OPEN · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS
@@ -242,70 +223,28 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation, in a case that turns out not to arise. **Promotion prerequisite (RUN 2026-08-27, returned zero):** a corpus probe over live `flight_info` values counting how often a segment parses but carries no displayable field beyond its date — see `**Reachability:**` above. Should it ever return non-zero, the direction is a renderer question, because the segments ARE structured: give the date-only segment a labeled treatment of its own, rather than the parser widening an earlier draft implied.
 
-### BL-PUBLISHED-ATTENTION-ESCAPE-CLOSES-MODAL-RACE — Escape can close the whole published modal instead of just the attention menu, about one time in seven
+### BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE — the auto-opened attention menu covers the published toggle at phone widths
 
-**Status:** OPEN · **Filed:** 2026-08-28 (`fix/published-attention-resolve-red`, Task 1 attribution) · **Facing:** product · **Severity:** MEDIUM-LOW (an operator who presses Escape to dismiss the auto-opened attention menu occasionally loses the entire review modal, and any scroll position and section they had reached goes with it; nothing is corrupted and reopening restores the state) · **Class:** listener-lifecycle race · **Effort:** S to attribute the losing interleaving, unknown to fix · **Class-sweep exception:** (a) — the repair direction cannot be chosen before the interleaving is known, and that attribution is this row's first task.
+**Status:** OPEN · **Filed:** 2026-08-28 (`fix/attention-panel-left-overflow`, during the containment migration) · **Facing:** product · **Severity:** MEDIUM (the primary publish control is unreachable until the operator dismisses a menu they did not open, on the most common phone width) · **Class:** anchored-overlay occlusion · **Effort:** M · **Class-sweep exception:** (a) — the repair is a product decision about auto-open behaviour, which this arc's geometry patch cannot settle.
 
-**What happens.** The attention menu auto-opens on arrival. Pressing Escape should close the menu and leave the modal open: `ReviewModalShell` closes the dialog from a document-level BUBBLE-phase Escape listener (`components/admin/review/ReviewModalShell.tsx:244-252`), and while the menu is open `AttentionMenuFrame` claims the key first from a document-level CAPTURE-phase listener that calls `stopPropagation` (`components/admin/showpage/AttentionMenu.tsx:353-388`). About one time in seven the modal closes too.
+**What is wrong.** The attention menu auto-opens when actionable items exist (published-show-alerts §5.2). Now that it is CONTAINED inside the review-modal clip, it occupies the horizontal band its anchor sits in, and at 375 that band includes the published toggle. An operator arriving at the modal on a phone finds the toggle covered until they dismiss a menu they never opened.
 
-**Reachability:** PROBED 2026-08-28, on unmodified `origin/main`, by 7 runs of
-
-```
-TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test tests/e2e/published-show-attention.spec.ts --project=desktop-chromium --reporter=list
-```
-
-Observed once, at `tests/e2e/published-show-attention.spec.ts` line 318 as it then stood: after `expect(MENU).toHaveCount(0)` passed, `expect(MODAL).toBeVisible()` failed for the full 5s window. Playwright's own message:
+**Reachability:** PROBED 2026-08-28 at 375x667, real Chromium, published review modal, measured in-page:
 
 ```
-Locator: locator('[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])')
-Expected: visible
-Timeout: 5000ms
-Error: element(s) not found
+menu   left 8       right 367     width 359    (contained: clip is 0..375)
+clip   left 0       right 375
+toggle left 307     right 355     top 497      bottom 525
+overlaps: true      pointer events intercepted by an attention monitoring row
 ```
 
-A temporary snapshot probe at that point reported `{"modalAny":0,"title":0,"menu":0,"url":"http://127.0.0.1:3000/admin"}` — no modal element at all and the `?show=` parameter gone from the URL, so a real dialog close rather than a title-less skeleton. Rate: 1 of those 7 runs. The probe was removed before commit; it is reproduced in this row because the run artifacts are not durable.
+**This is a CONSEQUENCE of the containment fix, not a defect in it, and the two are not simultaneously satisfiable at this width.** Before containment the panel overflowed the clip's left edge by 36px, and that overflow is the only reason its right edge stopped at 307 — exactly where the toggle begins. A contained panel must extend right: even at the pre-fix 343px width the clamp lands it at 8..351, still over the toggle. Sitting beside the toggle was never a designed property; it was a side effect of being broken.
 
-**What an 8-run instrumented hunt established, and what it did not.** A temporary recorder was added to the case (removed before commit) capturing, at the instant Escape is delivered, whether the menu element is in the DOM — read from a document capture-phase listener the recorder registers itself — and whether the key survives to a document bubble-phase listener. It was validated against a deliberate mutant that closes the menu before pressing Escape, which reported
+**Why this is a product decision and not a geometry patch.** The candidate repairs are all product choices, not placement arithmetic: suppress auto-open below some width; flip the menu above its anchor at phone widths so it covers the header rather than the strip; or accept the overlap as ordinary dismissible-overlay behaviour and change nothing. The third is what ships today, ruled by bl-orch 2026-08-28 on the ground that a dismissible overlay covering content until dismissed is standard menu semantics.
 
-```
-PROBE-ESC {"esc":{"captureSawMenu":false,"bubbleSaw":true},"menuTimeline":["37:out"]}
-```
+**Design review's recommendation, added 2026-08-29** (impeccable Assessment A, this arc's closeout): **suppress auto-open below `sm`; do not move the panel.** Its reasoning is worth carrying because it reframes the row: the geometry is not the defect. A dismissible overlay covering the publish control would be defensible if the operator had asked for it, because dismissal is then a step in a flow they started. Nothing was asked here. The panel is an INDEX — a navigation aid — and the surface auto-opens it on top of the modal's primary action to tell Doug something the pill already tells him: there are N issues. Repositioning just relocates the interruption. The pill is already a legible, accented, tappable count; on a desk the reveal is cheap and probably earns itself, and at 375px it costs the primary control.
 
-with the modal closed, so the recorder does register the bubble-phase arrival when it happens. Across 8 further runs of the command above the flake did not reproduce, and all 8 reported the same signature, e.g.
-
-```
-PROBE-ESC {"esc":{"captureSawMenu":false},"menuTimeline":["12:out"]}
-```
-
-**What that supports, stated no wider than the evidence.** In all 8 passing runs the menu's testid was already out of the DOM when Escape was delivered, and the recorder's own bubble-phase listener did not run, so SOMETHING stopped propagation before it. The recorder does not identify which listener did so, and it does not establish its own registration order against the other document listeners, so "the menu's capture handler claimed it" is the likely reading and not a measured one. The one observed red was never instrumented — the recorder was written after it — so nothing here connects these 8 passing signatures to that failure beyond both involving the same keypress. Treat this paragraph as a characterization of the passing path, not as a cause of the red.
-
-**The losing interleaving is NOT established, and naming it is this row's first task.** Two candidates, neither settled:
-
-1. **The listener outliving its own element.** The probe evidence points AT this one rather than away from it: in all 8 runs a capture handler stopped Escape while the menu's testid was already out of the DOM. It cannot be settled from the render path. `AttentionMenu` returns null when closed (`AttentionMenu.tsx:119`) and `AttentionMenuFrame`, which owns the listeners, renders only while open (`AttentionMenu.tsx:315`) — but those listeners are installed and removed by a passive `useEffect` (`AttentionMenu.tsx:353-388`), and conditional rendering says nothing about when that cleanup runs relative to the DOM removal and the next key event. Settling this needs a probe on the cleanup's timing, not a reading of the structure. (An earlier draft of this row called the candidate DISPROVED on exactly that structural reading. It was not; adversarial review round 1 caught it.)
-2. **The actionable-count blip**, untested, that `PublishedReviewModal`'s auto-open effect already documents in its own comment (`components/admin/showpage/PublishedReviewModal.tsx:693`): a 1 to 0 to 1 rebound during the revalidate-on-open `router.refresh()`, which would unmount and remount the menu around the keypress.
-
-**One candidate IS ruled out, for this surface only.** `escTransparentUntilEngaged` (`AttentionMenu.tsx:94`, on `AttentionMenuFrameProps`) is the 2026-08-28 amendment that makes an auto-opened panel Escape-transparent until the user engages. Its only opt-in is the WIZARD menu (`components/admin/wizard/WizardAttentionMenu.tsx:102`). The published modal renders `AttentionMenu`, whose props do not include the flag (`AttentionMenuProps`, `AttentionMenu.tsx:52-65`) and which does not pass it to the `AttentionMenuFrame` it renders (`AttentionMenu.tsx:138-146`), so it defaults false there (`AttentionMenu.tsx:327`) and `engagedRef` starts true (`AttentionMenu.tsx:333`, `useRef(!escTransparentUntilEngaged)`), which makes the early return at `:358` unreachable on this surface. An earlier draft claimed the prop had no opt-in call site ANYWHERE, which is false: it came from a `grep -v "AttentionMenu.tsx"` exclusion that also swallowed `WizardAttentionMenu.tsx`. The conclusion for the published surface survives the correction; the repo-wide claim does not.
-
-**Where it is no longer pinned, and the expansion trigger.** The resolve-lifecycle case used to dismiss the auto-opened menu with Escape; it now uses the pill toggle, because overlap clearance was all it wanted from the dismissal and the coupling bought it a foreign flake. The Escape contract stays pinned by that spec's "Esc closes the MENU first (modal stays), second Esc closes the modal" case. Its prelude is byte-identical to the one that was removed — `expect(MENU).toBeVisible()`, `keyboard.press("Escape")`, `expect(MENU).toHaveCount(0)`, `expect(MODAL).toBeVisible()` — so its exposure is the same by inspection, not by argument. It was not observed failing in any of the 13 full-file runs of the command above (the 8 hunt runs were scoped with `-g "resolve lifecycle"` and never executed it), which is weak evidence at a 1-in-7 rate and is recorded as such rather than as a clean bill. If it ever flakes, this row stops being a tail and becomes a gating defect: re-file it as such rather than adding a retry.
-
-### BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW — the attention menu overflows its clipping panel on the LEFT at phone widths, on both review modals
-
-**Status:** OPEN · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9's new clip pin) · **Facing:** product · **Severity:** MEDIUM (part of an operator-facing dropdown is cut off at the most common phone width; the published surface is the worse of the two) · **Class:** anchored-overlay sizing · **Effort:** M · **Class-sweep exception:** (c) — the repair is a sizing redesign of a SHARED frame with its own hook spec (`admin/2026-08-27-fitwithinclip-clip-subscription`) and its own e2e suite (`popover-clip-fit.spec.ts`), on a shipped surface the filing branch does not otherwise change. Ruled (B) by bl-orch 2026-08-27, on the further ground that fixing published geometry in-arc would force regenerating the very byte baseline that arc built to prove published bytes UNCHANGED.
-
-**What is wrong.** The attention menu panel is `w-[min(400px,calc(100vw-32px))]` with `right-0`, i.e. sized against the VIEWPORT while anchored to a wrapper that is inset from the viewport's right edge. At phone widths the width it takes exceeds the room available to the LEFT of that anchor, so the panel's left edge lands outside the clipping `ReviewModalShell` panel and the leading edge of every row is cut off. `useFitWithinClip` does not catch it: that hook caps `max-height` only, by design and by its own documented contract.
-
-**Reachability:** PROBED 2026-08-27 at 375x667, in real Chromium, both surfaces:
-
-```
-wizard    menu.left = -18.85   clip.left = 0   (this branch)
-published menu.left = -36.00   clip.left = 0   menu.width 343, wrapper right edge 307
-```
-
-The published number was taken against UNMODIFIED code — a temporary probe added to `popover-clip-fit.spec.ts` and removed after reading — so the defect is pre-existing on main and is WORSE on the shipped surface than on the new one. Nothing had looked before: `popover-clip-fit.spec.ts` asserts `menu.bottom <= panel.bottom` and has never asserted a horizontal edge.
-
-**Where it is pinned today.** `tests/e2e/wizard-attention-menu.spec.ts` keeps the clip assertion at 1280x800 and registers the 375x667 case as `test.fixme` naming this row, so the gap is visible in the report rather than absent from it. Re-enable that case as the fix's own red.
-
-**Direction, not yet decided.** The panel cannot express "no wider than the distance from the clip's left edge to my anchor's right edge" in CSS, because that distance is a runtime measurement. So the candidates are: extend `useFitWithinClip` (or a sibling) to cap width the way it caps height; or re-anchor the panel to the modal panel rather than the pill wrapper. The first keeps the anchoring idiom and is where the existing measurement machinery already lives; the second is a bigger change. Whichever wins, it lands on the SHARED frame and both modals get it at once.
+**Prerequisite:** an owner decision from Eric on whether auto-open should be suppressed or repositioned at phone widths. The geometry to implement any of the three already exists — `lib/popover/position.ts` selects and flips sides — so this is gated on the call, not on the mechanism.
 
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
