@@ -42,6 +42,46 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
     clearedBy: "entering `retrying`; the item going unavailable or leaving `items` (spec §9.1)",
     sweep: { swept: true },
   },
+  "Gallery.tsx:retrying": {
+    kind: "per-item",
+    clearedBy:
+      "`onLoad` (retrying -> idle) and `onError` (retrying -> failed), both per item; and the availability sweep, since a slide that goes unavailable mid-flight must not return holding an overlay (spec §4, §9.1)",
+    sweep: { swept: true },
+  },
+  "Gallery.tsx:attempts": {
+    kind: "per-item",
+    clearedBy:
+      "nothing, DELIBERATELY: the counter only ever increments, because resetting it on a failed retry would hand the next tap a key React has already seen and no remount would happen. It is a monotonic remount token, not retained UI state, so a stale entry for a departed item costs one map slot and can never render anything (spec §4)",
+    sweep: {
+      swept: false,
+      why: "monotonic remount token, never read as UI state; sweeping it would break the third tap by reusing a spent key",
+    },
+  },
+  "Gallery.tsx:retryingRefs": {
+    kind: "per-item",
+    clearedBy: "React, on unmount of each in-flight overlay (the ref callback stores null)",
+    sweep: {
+      swept: false,
+      why: "a DOM ref map, not session state: React nulls each entry as its control unmounts, so a sweep would duplicate what the ref callback already does",
+    },
+  },
+  "Gallery.tsx:retryControlRefs": {
+    kind: "per-item",
+    clearedBy: "React, on unmount of each failed control (the ref callback stores null)",
+    sweep: {
+      swept: false,
+      why: "same shape as retryingRefs: React owns the lifetime, and the map is read only to ask whether the element it points at currently holds focus",
+    },
+  },
+  "Gallery.tsx:focusRetryingRef": {
+    kind: "per-item",
+    clearedBy:
+      "the hand-off effect itself, which nulls it the moment it consumes the id -- so it holds a value for exactly one commit",
+    sweep: {
+      swept: false,
+      why: "single-shot and self-clearing: it names the item whose focus is mid-hand-off and is nulled on read, so there is no window in which a sweep could find a stale id",
+    },
+  },
   "Gallery.tsx:listRef": { kind: "not-per-item", why: "the grid container" },
   "Gallery.tsx:showMoreRef": { kind: "not-per-item", why: "the single toggle control" },
   "Gallery.tsx:thumbRefs": {
