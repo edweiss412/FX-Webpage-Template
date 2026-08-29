@@ -31,8 +31,8 @@ Every named file, symbol, testid and harness API below was checked against the l
 | --- | --- | --- |
 | `tests/e2e/wizard-attention-menu.spec.ts` | 375x667, 375x844, 390x560 | HARD. `openModal` (`tests/e2e/wizard-attention-menu.spec.ts:136-150`) asserts `aria-expanded="true"` and waits for the panel on arrival. Only touched if P-1 is positive; then it becomes width-aware. |
 | `tests/e2e/popover-clip-fit.spec.ts` | same three | NONE. `openMenu` (`tests/e2e/popover-clip-fit.spec.ts:171-181`) already clicks the pill when auto-open did not fire. This is the tolerant shape the wizard helper would adopt. |
-| `tests/e2e/published-review-modal.layout.spec.ts` | 375x812 | NONE, checked rather than assumed: its three pill references measure the pill's rect, hit band and text cap and never open or await the menu. Task 2 still runs it, because "a closed menu does not move the pill" is a layout claim and this repo settles those in a real engine. |
-| Every jsdom suite that renders an auto-opened menu | n/a | NONE by construction: the global stub answers `matches: false`, so the suppression query reads false. This is why §2 of the spec spells the predicate as positive evidence, and Task 1 proves it by running those suites unchanged. |
+| `tests/e2e/published-review-modal.layout.spec.ts` | 375x812 | NONE, checked rather than assumed: its three pill references measure the pill's rect, hit band and text cap and never open or await the menu. **Task 3 still runs it**, because "a closed menu does not move the pill" is a layout claim and this repo settles those in a real engine. |
+| Every jsdom suite that renders an auto-opened menu | n/a | NONE by construction: the global stub answers `matches: false`, so the suppression query reads false. This is why §2 of the spec spells the predicate as positive evidence. **Task 3 proves it**, with the six suites named and the command written out, rather than asserting it here. |
 
 ## 2. Obligations: every claim in the spec, and the assertion that settles it
 
@@ -53,13 +53,14 @@ Spec review round 2's finding 4 was that §9 had drifted from what the rest of t
 | Pill accessible name carries the count | §6 | P-2.2 |
 | Arrival focus identical with and without suppression | §6 | jsdom: `document.activeElement` is the close button in both |
 | `aria-expanded` reads false on a suppressed arrival | §6 | jsdom phone case |
-| Panel width/x clamped inside the clip | §8 | Unchanged and already covered by `popover-clip-fit.spec.ts` |
+| Panel width/x clamped inside the clip | §8 | Unchanged, covered by `tests/e2e/popover-clip-fit.spec.ts`, which **Task 3 runs** rather than merely citing |
 | The panel's VERTICAL anchor stays the pill's wrapper, never the pill | §8 | **P-2.8: with the menu opened by tap at 375, the panel's top edge sits below the WRAPPER's bottom edge, not the pill's.** Round 4's finding, and the most valuable one of the stage: §8 called this load-bearing and nothing asserted it, yet swapping `panel.offsetParent` for `pillRef.current` passes every suppression, tap, containment and desktop row here while moving the panel up onto the status strip. That is this arc's own defect reached by a different route, and the source already records the attempt and its measured result (`components/admin/showpage/AttentionMenu.tsx:378-382`). The two edges differ because the wrapper carries the title block, so the assertion discriminates. |
 | Pill tap band ≥44px, and the band actually TAKES taps | §8 | P-2.3, hit-tested above and below centre rather than measured. A `pointer-events: none` pseudo-element keeps the computed band and loses the taps. |
-| Menu rows ≥44px | §8 | Unchanged, `popover-clip-fit.spec.ts` |
+| Menu rows ≥44px | §8 | Unchanged, `tests/e2e/popover-clip-fit.spec.ts`, run by Task 3 |
 | Toggle receives its own pointer events | §8 | P-2.4 |
 | Pill tap opens the menu at <`sm` | consequence bound | P-2.5 |
-| Wizard occlusion status | §5, §10 | P-1, three viewports |
+| The occlusion test discriminates, and is non-vacuous | spec §9.1 | AC-OCCLUSION-DISCRIMINATES, AC-OCCLUSION-PARTIAL, AC-OCCLUSION-NONVACUOUS. Added after plan review round 1: §9.1 is a spec claim and the table carried no row for it, so the helper both probes depend on was itself unobligated. |
+| Wizard occlusion status | §5, §10 | Task 0, P-1 at three viewports |
 | **If P-1 is positive:** the wizard gets the IDENTICAL predicate at the IDENTICAL position, so it inherits the IDENTICAL obligations | §5 | **The wizard mirrors EVERY row in this table that concerns the predicate, not a chosen three.** Round 4 was right that naming three (suppression, tap-to-open, desktop) discriminates none of the five ways the predicate can be built wrong, and the wizard effect exposes every one of those ordering points (`components/admin/wizard/Step3ReviewModal.tsx:364-383`). Since the claim is that the two effects are the same code in the same position, the honest obligation is the whole set rather than a subset of it: the boundary pair, the reveal-time read, the cancelled-frame non-consumption, the `n === 0` non-consumption, the consumed-on-suppression row, and the operator-opened resize, each mirrored against the wizard's own harness. Stating it as "the same set" rather than enumerating it twice is deliberate: a second enumeration is a second thing to drift. Round 3's finding: the positive branch changed the wizard's behavior and specified no oracle for the changed state. It also requires editing that file's `openModal` helper (`tests/e2e/wizard-attention-menu.spec.ts:136-150`), which today ASSERTS `aria-expanded="true"` on arrival before dismissing the panel, at 375x667, 375x844 and 390x560. Under suppression that assertion is false at exactly those three viewports, so the helper becomes width-aware: expect auto-open at ≥`sm`, and open by tapping the chip below it. This is the same tolerant shape `popover-clip-fit.spec.ts`'s `openMenu` already uses. |
 | **If P-1 is negative:** the wizard is untouched | §5, §10 | No new assertion, by design. The existing wizard suite continues to pass unchanged, which is itself the evidence that nothing moved. |
 
@@ -67,79 +68,108 @@ The two published-surface probes are real-browser assertions. jsdom computes no 
 
 ## 3. Tasks
 
+Ordered so that every production change is preceded by a test that fails against the tree as it stands. Round 1 was right that the first draft did not do this: it changed production in Task 2 and authored the browser assertions in Task 3, where they arrive green.
+
+**Two kinds of assertion, named apart, because conflating them is what produced that defect.** A RED-carrying assertion fails against current production and passes after the change. A REGRESSION assertion is green on arrival by construction and exists to fail if a LATER edit breaks it. AC-ANCHOR-WRAPPER and the pill hit-band are regression assertions and are marked as such; claiming a red for them would be a false claim.
+
+### Task 0 — the wizard measurement (no RED, deliberately)
+
+Outside the enrolled region below, because it changes no production code and therefore has no red. Round 1 was right that an enrolled marker here would be green on arrival and stay green under the negative disposition.
+
+Run P-1 at 375x667, 375x844 and 390x560 against the existing wizard harness and record the full result in spec §10:
+
+```
+node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/wizard-attention-menu.spec.ts
+```
+
+Its output selects the branch Task 5 takes. It runs FIRST because that branch decides how much of the work exists.
+
 <!-- tasks: depth=3 -->
 
 ### Task 1 — the shared occlusion helper
 
-<!-- task: red=`node_modules/.bin/vitest run tests/e2e/helpers/__tests__/occlusionProbe.test.ts` ac=AC-OCCLUSION-DISCRIMINATES,AC-OCCLUSION-NONVACUOUS -->
+<!-- task: red=`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/occlusion-probe.spec.ts` ac=AC-OCCLUSION-DISCRIMINATES,AC-OCCLUSION-NONVACUOUS,AC-OCCLUSION-PARTIAL -->
 
-New helper tests/e2e/helpers/occlusionProbe.ts (planned), implementing spec §9.1. Two probes consume it, so it is built and proved first.
+New files: tests/e2e/helpers/occlusionProbe.ts, tests/e2e/occlusion-probe.spec.ts, and its static fixture page. Registered in tests/e2e/standalone.config.ts testMatch in the same commit.
 
-RED: a fixture where a known overlay covers a known button reports that overlay as interceptor, AND the same fixture without the overlay reports none. **The failure this catches** is the one that cost two review rounds: an oracle positive by construction (counting the panel's own rows, which are `<button>`s) or negative by construction (demanding `elementFromPoint` return the panel element when what intercepts is a row).
+**A real browser, not vitest.** The helper's whole body is `getBoundingClientRect` and `document.elementFromPoint` inside `page.evaluate`. The suite defaults to the `node` environment and a file opts into jsdom with a `// @vitest-environment jsdom` pragma (`tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx:1`). Neither runs this helper usefully: node has no DOM at all, and jsdom computes no layout, so every rect is zero, every control is dropped by the zero-area rule, and the helper throws "control set is empty" — a test asserting that throw passes while proving nothing about occlusion. That is this arc's own recurring class (LIM-NONDISCRIMINATING-FIXTURE), and it survived my first draft.
 
-Non-vacuity is per-probe, not inside the helper, because the helper is shared by a probe that needs the panel OPEN and one that needs it ABSENT. The helper guards only the universal: a non-empty control set, and the presence of every control the caller names.
+**The RED is behavioural, not a collection failure.** The commit lands the fixture, the spec, AND a stub `probeOcclusion` returning `{ controls: [], interceptions: [] }`. Imports resolve, the suite collects, and the assertions fail on their contents. An absent module would give an unresolved-import red, which `docs/agents/writing-plans.md` rejects, and "No tests found" is not an observed red.
 
-### Task 2 — published suppression, jsdom
+Fixture stages four cases on one page, absolutely positioned so the geometry is exact: a control covered by a node INSIDE the panel (one interception, `insidePanel: true`); a control covered by an unrelated node (one interception, `insidePanel: false`); an uncovered control (none); and a control covered over its top-left quadrant ONLY (interception at `tl`, none at `centre`). The fourth is what makes the five sample points earn their place — with centre-only sampling it reports clean.
 
-<!-- task: red=`node_modules/.bin/vitest run tests/components/admin/showpage/autoOpenWidthSuppression.test.tsx` ac=AC-SUPPRESS-PHONE,AC-OPEN-DESKTOP,AC-REVEAL-TIME-READ,AC-CANCELLED-FRAME,AC-FOCUS-IDENTITY -->
+### Task 2 — author every failing assertion, change no production code
 
-Implements spec §2 and §2.1 in `PublishedReviewModal.tsx`: `suppressedByWidth` is a FUNCTION called inside the reveal's `requestAnimationFrame`, never a value sampled before scheduling.
+<!-- task: red=`node_modules/.bin/vitest run tests/components/admin/showpage/autoOpenWidthSuppression.test.tsx` ac=AC-SUPPRESS-PHONE,AC-OPEN-DESKTOP,AC-REVEAL-TIME-READ,AC-CANCELLED-FRAME,AC-EMPTY-NO-CONSUME,AC-FOCUS-IDENTITY,AC-ARIA-EXPANDED -->
 
-Six cases, each named with the failure it catches, and two of them exist purely as anti-vacuity partners: the desktop control stops the phone case passing on a component that stopped auto-opening at all, and the suppressed-then-widened case stops it passing while the menu silently reopens on the next data change. The reveal-time case lives in jsdom rather than the browser because `page.setViewportSize` crosses CDP asynchronously and would race the very frame it must land inside.
+Two new suites, both RED against the tree as it stands: the jsdom cases, and the browser spec tests/e2e/attention-autoopen-suppress.spec.ts with its testMatch entry.
 
-GREEN also requires every jsdom suite in §1.2 to pass UNCHANGED. That is the anti-regression half and it is not optional.
+They fail for the right reason. The live callback sets the ref and opens with no width guard at all (`components/admin/showpage/PublishedReviewModal.tsx:780`), so every suppression case fails on behaviour rather than on collection.
 
-### Task 3 — the browser proof
+The regression assertions in the browser spec (AC-ANCHOR-WRAPPER, the pill hit-band) are green on arrival, are labelled REGRESSION in the file, and are excluded from this task's red claim.
 
-<!-- task: red=`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-autoopen-suppress.spec.ts` ac=AC-TOGGLE-OPERABLE,AC-BOUNDARY-640,AC-PILL-TAP,AC-ANCHOR-WRAPPER -->
+### Task 3 — implement the predicate
 
-New spec file tests/e2e/attention-autoopen-suppress.spec.ts (planned), registered in `tests/e2e/standalone.config.ts` testMatch in the same commit. Without the registration it proves nothing, by that file's own contract.
+<!-- task: red=`node_modules/.bin/vitest run tests/components/admin/showpage/autoOpenWidthSuppression.test.tsx` ac=AC-BOUNDARY-640,AC-TOGGLE-OPERABLE,AC-PILL-TAP,AC-PILL-COUNT,AC-ANCHOR-WRAPPER,AC-RESIZE-SHRINK-STAYS-OPEN,AC-RESIZE-WIDEN-STAYS-CLOSED,AC-OPERATOR-OPENED-SURVIVES -->
 
-Ten cases: suppression at 375, the desktop control, the boundary pair at 639 and 640, the pill's hit-tested band, zero interceptions on the toggle, tap-to-open, the resize pair in both directions, and P-2.8's anchor assertion.
+Spec §2 and §2.1 in `PublishedReviewModal.tsx`. Turns Task 2's two suites green.
 
-The RED for the toggle case is run against the PRE-FIX build and its interceptor recorded in the commit message. Without that record the case proves the toggle is clear and NOT that it was ever blocked.
+Also runs, because §1.2 and §2 cite them as dispositive and round 1 was right that nothing invoked them:
 
-### Task 4 — the wizard probe, and exactly one disposition
+```
+node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-autoopen-suppress.spec.ts tests/e2e/popover-clip-fit.spec.ts tests/e2e/published-review-modal.layout.spec.ts
+node_modules/.bin/vitest run tests/components/admin/showpage/publishedReviewModal.test.tsx tests/components/admin/showpage/pillFocusReconcile.test.tsx tests/components/admin/showpage/publishedEscapeClaim.test.tsx tests/components/admin/wizard/Step3ReviewModal.test.tsx tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx tests/dev/fullSplitCompositeRender.test.tsx
+```
 
-<!-- task: red=`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/wizard-attention-menu.spec.ts` ac=AC-WIZARD-DISPOSITION -->
+The second command is §1.2's "every jsdom suite passes unchanged" claim, enumerated rather than gestured at. The pre-fix RED of AC-TOGGLE-OPERABLE is captured before this task's implementation commit and its interceptor recorded in that commit's message.
 
-Run P-1 at all three phone viewports and record the full result in spec §10. Then take one branch, both of which are already fixed in writing so neither is decided under review pressure:
+### Task 4 — the wizard repair, only if Task 0 came back positive
 
-- **Positive at any viewport:** the wizard gets the identical predicate at the identical position, inherits the WHOLE obligation set from §2 rather than a subset, and `openModal` becomes width-aware.
-- **Negative at all three:** nothing is filed. The wizard shares the code shape, not the bug shape, and class-sweep governs the bug shape. The measurement lands in spec §10.
+<!-- task: red=`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/wizard-attention-menu.spec.ts` ac=AC-WIZARD-MIRROR -->
+
+Conditional. On a positive Task 0 the wizard gets the identical predicate at the identical position and inherits the WHOLE obligation set, and `openModal` becomes width-aware. The red is real in that branch: the mirrored suppression cases are authored first and fail against the wizard's unguarded effect.
+
+On a negative Task 0 this task does not run, nothing is filed, and the measurement lands in spec §10. The task is skipped rather than passed, and the close-out says which branch was taken.
 
 ### Task 5 — invariant 8, the UI gate
 
-<!-- task: red=`pnpm exec eslint . && pnpm typecheck` ac=AC-IMPECCABLE -->
+<!-- task: red=`node_modules/.bin/vitest run tests/docs/_metaInvariant8Closeout.test.ts` ac=AC-IMPECCABLE -->
 
-The invariant-8 dual gate on the diff, both halves, run with the canonical v3 setup (context load of PRODUCT.md and DESIGN.md, then the register reference read). P0 and P1 findings fixed or deferred with a `DEFERRED.md` entry; findings and dispositions into §12.
+The red is genuine and mechanical: this task's commit is the one that names both gate halves in §12, and naming them attaches the obligation, so the closeout guard fails until the marker line lands with real counts. It passes once the marker is written. That is exactly the red-then-green shape, using the repo's own guard rather than a lint that cannot see the gate.
 
 ### Task 6 — graduation
 
-<!-- task: red=`node_modules/.bin/vitest run tests/docs/_metaLedgerInProgress.test.ts` ac=AC-GRADUATION -->
+<!-- task: red=`node_modules/.bin/vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` ac=AC-GRADUATION -->
 
-Marker off and the row archived in the PR's LAST commit, per invariant 12, so it never reaches main.
+Round 1 was right that `_metaLedgerInProgress` accepts both the in-progress and the graduated state and so cannot carry this. `_metaDeferralLedgerGraduation` can: adding this row's id to `BACKLOG_GRADUATED` with its branch as provenance makes the guard FAIL until the row is actually archived with that provenance, and pass once it is. The marker comes off and the row is archived in the PR's LAST commit, per invariant 12.
 
 <!-- tasks: end -->
 
 ## 4. Acceptance criteria
 
-Each id is referenced by the task marker that owns it.
+Every row of §2 that names an implementable assertion has an id here, and every id maps to a §2 row. The three §2 rows with no id say why in the table itself: the hydration property is NOT ASSERTED and holds by construction, the negative wizard branch asserts nothing by design, and the panel-clamp and menu-row-floor rows are covered by suites this arc does not modify.
 
-- **AC-OCCLUSION-DISCRIMINATES** — the shared helper reports a known covering overlay as the interceptor of a known control, and reports none for the same control when the overlay is absent. Fails against an oracle that is positive by construction (the panel's own rows) or negative by construction (demanding the panel element itself).
-- **AC-OCCLUSION-NONVACUOUS** — the helper throws when the control set is empty, and when a caller names a control that is not in the set. A result can never be produced by a harness that rendered nothing, or by a probe that lost the control it is about.
-- **AC-SUPPRESS-PHONE** — with `matchMedia` answering phone, actionable items present, and frames flushed, the menu never mounts.
-- **AC-OPEN-DESKTOP** — with `matchMedia` answering desktop, the same fixture DOES mount the menu. The anti-vacuity partner of AC-SUPPRESS-PHONE.
-- **AC-REVEAL-TIME-READ** — answering desktop while the effect runs and phone inside the frame leaves the menu closed. Fails against a predicate sampled before `requestAnimationFrame`.
-- **AC-CANCELLED-FRAME** — a dependency change that cancels a pending frame leaves the one-shot unconsumed, and the reveal still happens on the next frame. Fails against an implementation that consumes the ref before scheduling.
-- **AC-FOCUS-IDENTITY** — `document.activeElement` after arrival is the close button, identically with and without suppression.
-- **AC-TOGGLE-OPERABLE** — at 375, the published toggle has zero interceptions at all five sample points, and the pre-fix run of the same assertion reports an interceptor by name.
-- **AC-BOUNDARY-640** — 639x667 suppresses and 640x667 auto-opens. Fails against any cutoff between 400 and 640, which the 375-plus-desktop pair alone does not.
-- **AC-PILL-TAP** — at 375 the pill's band is hit-tested 21px above and below centre and returns the pill both times, and tapping it opens the menu. Fails against a `pointer-events: none` pseudo-element that keeps the geometry and takes no taps.
-- **AC-ANCHOR-WRAPPER** — the panel's top edge sits below the pill WRAPPER's bottom edge, which differs from the pill's own because the wrapper carries the title block. Fails against re-anchoring to `pillRef`, which this arc's spec §8 forbids and which reintroduces the defect by another route.
-- **AC-WIZARD-DISPOSITION** — P-1 has run at all three phone viewports, its full result is recorded in spec §10, and exactly one of the two pre-committed branches has been taken.
-- **AC-IMPECCABLE** — critique and audit both run on the diff, with every P0 and P1 fixed or carrying a `DEFERRED.md` entry.
-- **AC-GRADUATION** — the in-progress marker is off and the row archived, in the PR's last commit.
+- **AC-OCCLUSION-DISCRIMINATES** — the helper reports a known covering node as interceptor, and reports none when it is absent. Fails against an oracle positive by construction (the panel's own rows) or negative by construction (demanding the panel element itself).
+- **AC-OCCLUSION-PARTIAL** — a control covered over its top-left quadrant only is reported intercepted at `tl` and clean at `centre`. Fails against centre-only sampling.
+- **AC-OCCLUSION-NONVACUOUS** — the helper throws on an empty control set, and when a caller names a control absent from it.
+- **AC-SUPPRESS-PHONE** — phone answer, actionable items, frames flushed: the menu never mounts.
+- **AC-OPEN-DESKTOP** — desktop answer, same fixture: it does mount. Anti-vacuity partner of AC-SUPPRESS-PHONE.
+- **AC-BOUNDARY-640** — 639x667 suppresses, 640x667 opens. Fails against any cutoff between 400 and 640, which 375-plus-desktop alone does not.
+- **AC-REVEAL-TIME-READ** — desktop while the effect runs, phone inside the frame: stays closed. Fails against a predicate sampled before `requestAnimationFrame`.
+- **AC-CANCELLED-FRAME** — a dependency change cancelling a pending frame leaves the one-shot unconsumed and the reveal still happens. Fails against consuming before scheduling.
+- **AC-EMPTY-NO-CONSUME** — a phone arrival with zero actionable items does not consume the one-shot; widening and then receiving items opens the menu. Fails against consuming on the empty-arrival return.
+- **AC-RESIZE-SHRINK-STAYS-OPEN** — auto-opened at desktop, shrunk below `sm`: still open. Nothing force-closes.
+- **AC-RESIZE-WIDEN-STAYS-CLOSED** — suppressed at 375, widened, effect re-run by an item change: still closed. Fails against returning on suppression without consuming.
+- **AC-OPERATOR-OPENED-SURVIVES** — a menu opened by tapping the pill survives a resize in BOTH directions. This is the fence the design rests on: the change never closes a menu.
+- **AC-PILL-COUNT** — the pill's ACCESSIBLE NAME carries the count at 375 with the menu suppressed. Asserted against the accessible name, not the text of a container that also renders menu rows.
+- **AC-FOCUS-IDENTITY** — `document.activeElement` after arrival is the close button, identically with and without suppression. Fails against a change that lets the focus-rescue effect fire on a suppressed arrival.
+- **AC-ARIA-EXPANDED** — a suppressed arrival reports `aria-expanded="false"` on the pill.
+- **AC-TOGGLE-OPERABLE** — at 375 the published toggle has zero interceptions at all five sample points, and the pre-fix run of the same assertion names an interceptor.
+- **AC-PILL-TAP** — the pill's band is hit-tested 21px above and below centre and returns the pill both times, and tapping opens the menu. Fails against a `pointer-events: none` pseudo-element that keeps the geometry and takes no taps.
+- **AC-ANCHOR-WRAPPER** (REGRESSION, green on arrival) — the panel's top edge sits below the pill WRAPPER's bottom edge, which differs from the pill's own because the wrapper carries the title block. Exists because re-anchoring to `pillRef` reintroduces this arc's defect through an otherwise-green suite.
+- **AC-WIZARD-MIRROR** — on a positive Task 0 only: the wizard satisfies the same predicate obligations as the published surface, not a chosen subset.
+- **AC-IMPECCABLE** — both gate halves run on the diff, every P0 and P1 fixed or carrying a `DEFERRED.md` entry, and the marker line written with real counts.
+- **AC-GRADUATION** — the in-progress marker is off and the row archived with its branch as provenance, in the PR's last commit.
 
 ## 12. Close-out
 
