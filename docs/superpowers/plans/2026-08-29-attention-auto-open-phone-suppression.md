@@ -208,6 +208,8 @@ Every row of §2 that names an implementable assertion has an id here, and every
 
 ## 12. Close-out
 
+**Reading CI on this branch, recorded before it can be misread.** This branch holds an invariant-12 ledger claim, and `_metaLedgerClaimCollision` resolves identity from `ev.pull_request.head.repo`, which a `workflow_dispatch` payload does not carry. On a dispatch run identity falls back to `ci-unknown` with `selfBranch` null, so the branch's OWN claim reads as a collision and one shard reds. That is a self-collision artifact of the conservative fallback, pinned by the guard's own test, and it is impossible on a `pull_request` run. So: judge this branch by PR-run CI, and if a dispatch run is needed for signal, use quality or standalone-e2e only. Do not chase that red, and do not remove the claim to make it go away. (bl-orch fleet note, 2026-08-29, from diagrec's find.)
+
 **For the PR body:** this branch carries an in-arc repair of a defect it did not introduce. `popover-clip-fit.spec.ts` was flapping fleet-wide on CI at a constant 20px; this arc's investigation attributed it to a stale fitted cap leaking across parameterized viewport cells in the single worker, and bl-orch dispositioned the repair in-arc (2026-08-29) because this arc already touches that surface. It is a test defect, process-facing, and files no ledger row under the mint freeze. Task 7 and AC-REFIT-AWAIT.
 
 UI surface: `components/admin/showpage/PublishedReviewModal.tsx`, and `components/admin/wizard/Step3ReviewModal.tsx` if Task 4's probe comes back positive. The dual gate is owed before READY.
