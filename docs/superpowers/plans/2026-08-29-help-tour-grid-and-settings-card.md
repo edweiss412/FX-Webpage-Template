@@ -254,9 +254,15 @@ recipe exists to avoid, one directory over from the stash.
 `git checkout -- <file>` is also safe here, since every violation is staged against a committed
 baseline, and it needs no backup file at all. Neither the stage nor the restore may touch the stash.
 
-**Verify the restore before recording the row.** After each violation, confirm the tree is clean
-(`git status --porcelain` empty) BEFORE staging the next one. A row recorded against a contaminated
-tree is a row that measured something other than what it names.
+**Prove the restore RAN, at the first violation, before any row is recorded.** Orchestrator
+condition, 2026-08-29. AC-1d's stage runs first; after it, the touched file must be byte-identical
+to HEAD (`git diff --exit-code -- <file>`, and `git status --porcelain` empty). **A failed restore
+aborts the whole inventory — it is not a footnote on a row.** The reason is that the failure is
+silent and self-confirming: every subsequent row would record RED OBSERVED against a tree still
+carrying AC-1d's violation, and a permanently-single-column page reds plausibly for almost any
+criterion, so the transcript would look exactly like a successful run.
+
+Re-verify the same way after each later violation before staging the next.
 
 <!-- tasks: end -->
 
