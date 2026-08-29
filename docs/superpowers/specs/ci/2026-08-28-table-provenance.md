@@ -31,7 +31,7 @@ weak three and stops will misjudge how this case is built, so the ledger is stat
 | argument | drafted as | after measurement |
 | --- | --- | --- |
 | cost (§3) | decisive | **inverted** — the economics favour building |
-| population (§6) | 8 tables reachable | **an upper bound**, at most 6 producing — and the screen itself under-reported by two (§6) |
+| population (§6) | 8 tables reachable | **an upper bound**, at most 7 producing — and the screen itself under-reported by two, so the printed 8 was wrong in both directions (§6) |
 | adoption (§4) | a demonstration | **thin** — the marker it leads with is 3 days old |
 | structural (§5) | decisive | **holds**, and gained a live in-domain instance |
 | repair shape (§5) | 3 arcs converging on a non-pointer repair | **cut to one instance.** R4 withdrew it as tautological; R5 withdrew the prevalence claim that replaced it. What is left is a single arc that placed its producing command beside its table and drifted anyway, which supports and does not carry |
@@ -51,7 +51,11 @@ printed by
 pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-28-table-provenance-census.mts --at 8b4d521cac00
 ```
 
-and by nothing else. **Figures quoted FROM another record are not printed by it** and carry a
+and by nothing else, **with one stated exception**: the corrected purity chain in §6 (13 / 10 / 7) is
+HAND-DERIVED from figures the census prints (11 / 3) plus a classification a screen cannot make. Every
+step of that arithmetic is shown at the point it is used, and the inputs to each step are printed by
+the census. Whole-diff review round 3 finding 1 caught this paragraph claiming otherwise.
+**Figures quoted FROM another record are not printed by it** and carry a
 `file:line` instead: the sibling census's 39/23/15, the 53/56/55 live instance in §5, the 20/329 reach
 of `--exec-red` in §6, and each arc's round count in §2. An earlier draft claimed every figure was
 printed by the census, which was false and is diff review round 1 finding 1; the same finding caught
@@ -368,7 +372,28 @@ again. Two are adjacent to a table they do not produce:
 advice beside a file-map table, and
 `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:11`,
 where the command sits inside a task instruction beside a stale-claim comparison table. The producing
-population is at most six.
+population is at most seven, and the whole chain is worth showing because two rounds moved it:
+
+| step | pure | CI-runnable | basis |
+| --- | ---: | ---: | --- |
+| what the census prints | 11 | 8 | 11 pure, minus 3 reading a machine-local path |
+| restore two wrongly excluded | 13 | 10 | the two `nav-perf` `rg` searches the impurity regex read as mutating (round 2 finding 1) |
+| remove commands that produce no table | — | **at most 7** | three of the ten, named below |
+
+The three removed, each checked by reading rather than screened:
+`docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/README.md:13`, where the `grep -r` is prose
+advice beside a file-map table;
+`docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:11`,
+where the command sits in a task instruction beside a stale-claim comparison; and
+`docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/01-write-site-registry.md:63`, whose
+own document says at
+`docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/01-write-site-registry.md:56` that
+those rows are "NOT raw-SQL discovery hits, so they do not appear in the discovery scan" — the table is
+an exempt-sites list, not that command's output. Its sibling at `docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/01-write-site-registry.md:44` IS produced by the command and is
+the one comparable candidate §8 keeps.
+
+An earlier draft said six, carried over from before round 2 restored the two excluded entries; round 3
+finding 2 caught the stale arithmetic surviving the correction that invalidated it.
 
 **The screen under-reports by two, and the correction runs against this document's own conclusion.**
 The impurity regex reads a command's SEARCH TEXT as if it were shell, so
