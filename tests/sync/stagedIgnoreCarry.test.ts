@@ -453,6 +453,55 @@ describe("staged ignore decisions become durable at finalize (real DB)", () => {
   );
 
   test.skipIf(!dbUp)(
+    "LINKED + UNCHECKED (the §7.4 D10 no-op) still carries the dismissals before deleting the row",
+    async () => {
+      // Whole-diff P0. This path stages no shadow and runs no apply — it resolves the
+      // manifest and consumes the pending row, which is correct for everything on the row
+      // EXCEPT this field. A row that was FIRST-SEEN when Doug dismissed a warning and
+      // became LINKED before finalize held that dismissal ONLY in the staged column, and
+      // deleting the row destroyed it: the warning came back on the published surface
+      // with nothing said.
+      const showId = await seedLiveShow(DRIVE_UPDATE);
+      await stage(DRIVE_UPDATE, [
+        { fingerprint: FP_IGNORED, code: WARN_IGNORED.code, ignored_by: STAGING_ADMIN },
+      ]);
+      // UNCHECKED is the discriminator for this branch: undo the approval the shared
+      // staging helper sets, so finalize takes the D10 no-op rather than the shadow path.
+      // `pending_syncs_approved_requires_full_payload` moves the whole approval payload
+      // as one unit, so unchecking clears every field with it rather than just the flag.
+      await sql!.unsafe(
+        `update public.pending_syncs
+            set wizard_approved = false,
+                wizard_approved_by_email = null,
+                wizard_approved_at = null,
+                wizard_reviewer_choices = null,
+                wizard_reviewer_choices_version = null
+          where drive_file_id = $1 and wizard_session_id = $2::uuid`,
+        [DRIVE_UPDATE, SESSION],
+      );
+
+      await runPhaseB(DRIVE_UPDATE);
+
+      // The pending row is gone, which is what makes the carry load-bearing rather than
+      // merely early.
+      expect(
+        (
+          await sql!.unsafe(
+            `select 1 from public.pending_syncs where drive_file_id = $1 and wizard_session_id = $2::uuid`,
+            [DRIVE_UPDATE, SESSION],
+          )
+        ).length,
+      ).toBe(0);
+      // And the dismissal is durable on the show that already existed.
+      expect(await readIgnored(DRIVE_UPDATE)).toEqual([
+        { fingerprint: FP_IGNORED, code: WARN_IGNORED.code, ignored_by: STAGING_ADMIN },
+      ]);
+      expect(showId).toBeTruthy();
+    },
+    30000,
+  );
+
+  test.skipIf(!dbUp)(
     "an orphaned fingerprint carries without error, and re-applying adds no duplicate",
     async () => {
       await stage(DRIVE_CREATE, [

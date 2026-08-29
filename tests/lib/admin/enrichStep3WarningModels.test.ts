@@ -298,3 +298,61 @@ describe("enrichStep3WarningModels — the staged-to-linked transition (R1)", ()
     expect(row?.warningModel?.ignored.map((i) => i.index)).toEqual([0]);
   });
 });
+
+// ── Whole-diff P0: the ignore's ORIGIN, so the write follows the read ──────────
+describe("enrichStep3WarningModels — ignoreOrigin (whole-diff P0)", () => {
+  it("stamps a staged-column ignore on a LINKED row as staged, not show", async () => {
+    // The union made this row's staged dismissal visible; without the stamp the panel
+    // would target Un-ignore at the slug route, which deletes nothing from the staged
+    // column and still answers `unignored` — a false success on a dead control.
+    const [row] = await enrichStep3WarningModels(
+      [
+        reviewableRow({
+          linkedShowRef: { id: "show-1", slug: SLUG },
+          stagedIgnoredWarnings: [{ fingerprint: FP_A, code: warnA.code, ignored_by: "d@e.co" }],
+        }),
+      ],
+      okLoader([]),
+    );
+    expect(row?.warningModel?.ignored).toEqual([
+      expect.objectContaining({ index: 0, ignoreOrigin: "staged" }),
+    ]);
+  });
+
+  it("stamps a durable ignore on a LINKED row as show", async () => {
+    const [row] = await enrichStep3WarningModels(
+      [reviewableRow({ linkedShowRef: { id: "show-1", slug: SLUG } })],
+      okLoader([FP_A]),
+    );
+    expect(row?.warningModel?.ignored).toEqual([
+      expect.objectContaining({ index: 0, ignoreOrigin: "show" }),
+    ]);
+  });
+
+  it("prefers staged when a fingerprint sits in BOTH stores", async () => {
+    // The durable route would delete its own copy, report success, and leave the staged
+    // copy still hiding the row on the next read. Staged has to win.
+    const [row] = await enrichStep3WarningModels(
+      [
+        reviewableRow({
+          linkedShowRef: { id: "show-1", slug: SLUG },
+          stagedIgnoredWarnings: [{ fingerprint: FP_A, code: warnA.code, ignored_by: "d@e.co" }],
+        }),
+      ],
+      okLoader([FP_A]),
+    );
+    expect(row?.warningModel?.ignored[0]?.ignoreOrigin).toBe("staged");
+  });
+
+  it("a FIRST-SEEN row's ignores are staged by construction", async () => {
+    const [row] = await enrichStep3WarningModels(
+      [
+        reviewableRow({
+          stagedIgnoredWarnings: [{ fingerprint: FP_A, code: warnA.code, ignored_by: "d@e.co" }],
+        }),
+      ],
+      okLoader([]),
+    );
+    expect(row?.warningModel?.ignored[0]?.ignoreOrigin).toBe("staged");
+  });
+});

@@ -85,6 +85,9 @@ export async function enrichStep3WarningModels(
         reportScope: linked ? ref.slug : `staged-${row.driveFileId}`,
         warnings: arr((row.parseResult as ParseResult | null | undefined)?.warnings),
         ignoredFingerprints,
+        // Whole-diff P0: tell the model WHICH of these came from the staged column, so a
+        // LINKED row's Un-ignore reaches the store its Ignore actually wrote to.
+        stagedFingerprints: staged,
       }),
     };
   });

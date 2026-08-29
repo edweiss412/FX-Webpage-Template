@@ -15,6 +15,18 @@ export type WizardWarningItem = {
    *  content-derived via `stableWarningKeys` (`lib/dataQuality/warningIdentity.ts:46`). */
   index: number;
   reportSurfaceId: string;
+  /**
+   * Which store this row's ignore actually lives in — set on IGNORED items only.
+   *
+   * Whole-diff P0: linkage alone does not determine the backend. A row that was
+   * FIRST-SEEN when the operator dismissed a warning, and became LINKED before finalize,
+   * holds that dismissal in the STAGED column while the row now reads as a show row.
+   * Targeting Un-ignore by linkage sent it to the slug route, which deletes nothing and
+   * still answers `unignored`, so the client announced "Warning restored", refreshed, and
+   * the warning stayed hidden. A false success on a control that cannot work is worse
+   * than an error; the write has to follow the store the read used.
+   */
+  ignoreOrigin?: "show" | "staged";
 };
 
 export type WizardWarningModel = {
@@ -76,8 +88,13 @@ export function buildWizardWarningModel(args: {
   reportScope: string;
   warnings: readonly ParseWarning[];
   ignoredFingerprints: ReadonlySet<string>;
+  /** The subset of `ignoredFingerprints` that came from the row's STAGED column. Every
+   *  ignored item is stamped with the store it was found in, so the control writes back
+   *  to the one the read came from. Omitted or empty means every ignore is durable,
+   *  which is every published and LINKED-only row. */
+  stagedFingerprints?: ReadonlySet<string>;
 }): WizardWarningModel {
-  const { reportScope, warnings, ignoredFingerprints } = args;
+  const { reportScope, warnings, ignoredFingerprints, stagedFingerprints } = args;
   const active: WizardWarningItem[] = [];
   const ignored: WizardWarningItem[] = [];
   for (let index = 0; index < warnings.length; index += 1) {
@@ -87,8 +104,13 @@ export function buildWizardWarningModel(args: {
       reportSurfaceId: buildReportSurfaceId(reportScope, w),
     };
     const fp = warningFingerprint(w);
-    if (fp !== null && ignoredFingerprints.has(fp)) ignored.push(item);
-    else active.push(item);
+    if (fp !== null && ignoredFingerprints.has(fp)) {
+      // Staged WINS the attribution when a fingerprint sits in both stores: the staged
+      // copy is the one an Un-ignore must remove, because the durable route would delete
+      // its own copy, answer success, and leave the staged one still hiding the row on
+      // the very next read.
+      ignored.push({ ...item, ignoreOrigin: stagedFingerprints?.has(fp) ? "staged" : "show" });
+    } else active.push(item);
   }
   return { active, ignored };
 }

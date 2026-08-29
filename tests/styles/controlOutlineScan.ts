@@ -133,7 +133,7 @@ export const CENSUS: readonly CensusRow[] = [
   // which is the third time this row has hit that exact situation. Resolved the way the two notes
   // above prescribe and the way the 6441d5e4c merge did: by locating the `<button>` opener on the
   // MERGED file, never by adding the two sides' deltas.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4672 },
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4693 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -148,7 +148,7 @@ export const CENSUS: readonly CensusRow[] = [
   // Then 4512 -> 4528, then 4528 -> 4529 on 2026-08-28, same causes and same method as the row
   // above. Then 4529 -> 4729 on the wizard-ignore merge, both parents having moved it, located on
   // the merged file by its own `<button>` opener — same cause and same method as row 18.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4729 },
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4750 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21

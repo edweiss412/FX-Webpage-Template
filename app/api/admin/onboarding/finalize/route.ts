@@ -38,6 +38,7 @@ import {
   normalizeStagedIgnoredWarnings,
   type StagedIgnoreEntry,
 } from "@/lib/admin/wizardWarningModel";
+import { carryableIgnoreEntries } from "@/lib/sync/carryStagedIgnoredWarnings";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { hashForLog } from "@/lib/email/hashForLog";
 import { revalidateShow } from "@/lib/data/showCacheTag";
@@ -552,6 +553,51 @@ async function showExists(tx: FinalizeRouteTx, driveFileId: string): Promise<boo
     [driveFileId],
   );
   return rows[0]?.exists === true;
+}
+
+/**
+ * Carry a row's staged ignore decisions onto an ALREADY-LIVE show, then let the caller
+ * delete the pending row (wizard-warning-ignore-controls §2.7, whole-diff P0).
+ *
+ * The §7.4 D10 no-op path below stages no shadow and runs no apply — it simply resolves
+ * the manifest and consumes the pending row. That is correct for everything else on the
+ * row, and it was silent data loss for this one field: a row that was FIRST-SEEN when
+ * Doug dismissed a warning, and became LINKED before finalize, held its dismissal ONLY
+ * in `pending_syncs.ignored_warnings`, and deleting the row dropped it. The warning then
+ * reappeared on the published surface with nothing said.
+ *
+ * The show exists on this path by definition, so the carry is available here — no shadow
+ * and no apply needed, just the same insert the phase-2 tail performs.
+ */
+async function carryStagedIgnoresToLiveShow(
+  tx: FinalizeRouteTx,
+  driveFileId: string,
+  rawIgnoredWarnings: unknown,
+): Promise<void> {
+  const entries = carryableIgnoreEntries(normalizeStagedIgnoredWarnings(rawIgnoredWarnings));
+  if (entries.length === 0) return;
+  const { rows } = await tx.query<{ id: string }>(
+    `select id from public.shows where drive_file_id = $1`,
+    [driveFileId],
+  );
+  const showId = rows[0]?.id;
+  // No show means no carry target. Unreachable on this path (it is gated on showExists),
+  // and a silent return is still wrong here — the caller is about to delete the only
+  // copy, so a missing target has to be loud.
+  if (showId === undefined) {
+    throw new Error(
+      `staged ignore carry: no shows row for ${driveFileId}, refusing to delete the ` +
+        "pending row and lose the operator's dismissals",
+    );
+  }
+  for (const entry of entries) {
+    await tx.query(
+      `insert into public.ignored_warnings (show_id, fingerprint, code, ignored_by)
+       values ($1, $2, $3, $4)
+       on conflict (show_id, fingerprint) do nothing`,
+      [showId, entry.fingerprint, entry.code, entry.ignored_by],
+    );
+  }
 }
 
 async function readPendingFolderId(tx: FinalizeRouteTx): Promise<string | null> {
@@ -1265,6 +1311,10 @@ async function processApprovedRow(
       `,
       [row.drive_file_id, wizardSessionId],
     );
+    // §2.7 (whole-diff P0): the dismissals ride onto the live show BEFORE the pending row
+    // that holds them is consumed. Everything else on this path is a deliberate no-op;
+    // this field is the one thing that would be destroyed rather than left alone.
+    await carryStagedIgnoresToLiveShow(tx, row.drive_file_id, locked.ignored_warnings);
     await deleteApprovedPending(tx, wizardSessionId, row);
     return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
   }

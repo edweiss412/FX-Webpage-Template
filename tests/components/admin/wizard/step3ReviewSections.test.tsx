@@ -1947,3 +1947,95 @@ describe("whole-diff R1 repairs", () => {
     expect(text.length).toBeLessThan(long.length);
   });
 });
+
+describe("whole-diff P0: the ignored control targets the store its ignore lives in", () => {
+  const W: ParseWarning = {
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized field.",
+    rawSnippet: "Hotel notes | double occupancy",
+  };
+
+  test("a LINKED row's STAGED ignore routes Un-ignore to the staged action, not the slug route", async () => {
+    // The row reads as a show row (it gained one via a concurrent finalize), but this
+    // dismissal lives in the staged column. Routing by linkage sent it to the slug
+    // route, which deletes nothing and still answers `unignored`, so the operator got
+    // "Warning restored" and the warning stayed hidden.
+    const d = sectionData(
+      { warnings: [W] },
+      {
+        row: stagedRow(buildParseResult({ warnings: [W] }), {
+          linkedShowRef: { id: "show-1", slug: "east-coast-2026" },
+        }),
+        dq: {
+          target: { kind: "show" as const, slug: "east-coast-2026", showId: "show-1" },
+          model: {
+            active: [],
+            ignored: [{ index: 0, reportSurfaceId: "sid-0", ignoreOrigin: "staged" as const }],
+          },
+        },
+      },
+    );
+    const calls: Array<{ action: string }> = [];
+    stagedIgnoreImpl.current = async () => {
+      calls.push({ action: "staged" });
+      return { ok: true, state: "unignored" };
+    };
+    const fetchMock = vi.fn(async () => {
+      calls.push({ action: "fetch" });
+      return { ok: true, json: async () => ({ status: "unignored" }) } as unknown as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const q = renderBody(d, "warnings");
+    const list = q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`);
+    fireEvent.click(within(list).getByRole("button", { name: /un-ignore/i }));
+    await waitFor(() => expect(calls.length).toBe(1));
+
+    // THE assertion: the staged action, not the slug route. The slug route would delete
+    // nothing from the staged column and still answer `unignored`.
+    expect(calls[0]?.action).toBe("staged");
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+    stagedIgnoreImpl.current = async () => ({ ok: true, state: "ignored" });
+  });
+
+  test("a LINKED row's DURABLE ignore keeps the show target", async () => {
+    const d = sectionData(
+      { warnings: [W] },
+      {
+        row: stagedRow(buildParseResult({ warnings: [W] }), {
+          linkedShowRef: { id: "show-1", slug: "east-coast-2026" },
+        }),
+        dq: {
+          target: { kind: "show" as const, slug: "east-coast-2026", showId: "show-1" },
+          model: {
+            active: [],
+            ignored: [{ index: 0, reportSurfaceId: "sid-0", ignoreOrigin: "show" as const }],
+          },
+        },
+      },
+    );
+    const calls: string[] = [];
+    stagedIgnoreImpl.current = async () => {
+      calls.push("staged");
+      return { ok: true, state: "unignored" };
+    };
+    const fetchMock = vi.fn(async (url: unknown) => {
+      calls.push(String(url));
+      return { ok: true, json: async () => ({ status: "unignored" }) } as unknown as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const q = renderBody(d, "warnings");
+    fireEvent.click(
+      within(q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`)).getByRole("button", {
+        name: /un-ignore/i,
+      }),
+    );
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0]).toBe("/api/admin/show/east-coast-2026/data-quality/unignore");
+    vi.unstubAllGlobals();
+    stagedIgnoreImpl.current = async () => ({ ok: true, state: "ignored" });
+  });
+});

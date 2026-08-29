@@ -2960,8 +2960,17 @@ export function WarningsBreakdown({
   // staged-only — so the two happened to be the same array. A mismatch would not have
   // been caught by the range filter below; it would have picked the WRONG warnings.
   const pick = (
-    partition: readonly { index: number; reportSurfaceId: string }[],
-  ): Array<{ w: ParseWarning; index: number; reportSurfaceId: string }> =>
+    partition: readonly {
+      index: number;
+      reportSurfaceId: string;
+      ignoreOrigin?: "show" | "staged";
+    }[],
+  ): Array<{
+    w: ParseWarning;
+    index: number;
+    reportSurfaceId: string;
+    ignoreOrigin?: "show" | "staged";
+  }> =>
     partition
       .filter((item) => item.index >= 0 && item.index < warnings.length)
       .map((item) => ({ w: warnings[item.index] as ParseWarning, ...item }));
@@ -3367,7 +3376,7 @@ export function WarningsBreakdown({
             data-testid={`wizard-step3-card-${dfid}-ignored-list`}
             className="mt-3 flex flex-col gap-3"
           >
-            {ignoredItems.map(({ w, reportSurfaceId }, pos) => {
+            {ignoredItems.map(({ w, reportSurfaceId, ignoreOrigin }, pos) => {
               // Impeccable critique P1 (2026-08-28): the catalog title names the CLASS
               // ("Row we couldn't match"), never the row — the same fact the active
               // row's own comment records above. The title alone gave three ignored
@@ -3404,7 +3413,19 @@ export function WarningsBreakdown({
                     /* no-newtab-announcement: `target` is the discriminated ignore
                        BACKEND (spec §2.3), not a browser window target. No anchor. */
                     <DataQualityWarningControls
-                      target={dq.target}
+                      // Whole-diff P0: route by where this ignore LIVES, not by the row's
+                      // linkage. A LINKED row can hold a staged dismissal from before it
+                      // gained its show, and the slug route would delete nothing while
+                      // still reporting success.
+                      target={
+                        ignoreOrigin === "staged" && dq.target.kind !== "staged"
+                          ? {
+                              kind: "staged",
+                              wizardSessionId: wizardSessionId ?? "",
+                              driveFileId: dfid,
+                            }
+                          : dq.target
+                      }
                       warning={w}
                       driveFileId={dfid}
                       mode="ignored"

@@ -317,7 +317,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // Then 3909 -> 3998 when the wizard-ignore arc added the panel's active/ignored
     // partition and its Ignored (N) disclosure above this component. Located on the live
     // tree by running the scanner, not by adding a delta: 4002 is that same `<a>`.
-    line: 4109,
+    line: 4130,
     tag: "a",
     category: "full-bleed",
     reason:
