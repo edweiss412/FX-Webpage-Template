@@ -106,3 +106,32 @@ pinned to its authored site at its exact value, in one block that states why.
 | assertion | staged violation | observed | result |
 | --- | --- | --- | --- |
 | AC-2, the measure's VALUE | `--help-measure: 70ch` changed to `69ch` | must cap the reading measure at exactly 70ch: expected `--help-measure: 69…` to match `/--help-measure:\s*70ch\b/`, in BOTH the prose-layer guard and the constant pin | RED OBSERVED |
+
+---
+
+## Round 4, and why two guards were needed rather than one
+
+Round 4 returned one finding, on round 3's own repair. The token pin guards the
+DECLARATION, and CSS is not decided by declarations — it is decided by the cascade. A
+later, more specific `.help-prose > p { max-width: 69ch }` is an ordinary prose-layer edit,
+squarely inside the threat fence, and it shrinks every paragraph on every help page while
+both token pins stay green and the typography ceiling (76ch) is still satisfied.
+
+**The bleed assertion gets EASIER under that edit, not harder.** It asserts the grid
+exceeds a capped sibling, so a shrinking sibling widens the gap it measures. A guard
+written to prove the bleed happened would have quietly certified the regression.
+
+Repaired at the EFFECT: a capped child renders at exactly the resolved measure wherever
+the container exceeds it, which is cascade-proof because it does not care which rule set
+the width.
+
+| assertion | staged violation | observed | result |
+| --- | --- | --- | --- |
+| AC-2, the measure's EFFECT | `.help-prose > p { max-width: 69ch }` injected after the generic rule | capped prose child renders at exactly the measure at 1024px: expected 704.4, received **694.3** | RED OBSERVED |
+| AC-2's token pins, under the SAME violation | (unchanged) | 19 passed | **GREEN, as designed** |
+
+That second row is the point. The token pins CANNOT see a cascade override, and the effect
+assertion CANNOT see the declaration itself change, because the resolved custom property
+moves with it. Neither is sufficient; together they close both directions. Running the
+same staged violation against both is what turned that from an argument into a
+measurement.
