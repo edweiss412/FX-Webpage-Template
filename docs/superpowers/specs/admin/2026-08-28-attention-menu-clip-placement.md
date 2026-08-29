@@ -508,7 +508,7 @@ A text sweep, `rg '100vw|100vh|100dvh|100dvw|100svh|100lvh' components app`, is
 run only to enumerate CANDIDATES for the table below, never to decide one. Each
 hit is then read as source, because two of them are not layout CSS at all: a
 comment in ShareHub and an `Image` `sizes` attribute in GalleryLightbox. The
-discriminator is three conditions that must all hold:
+discriminator is four conditions that must all hold:
 
 1. right-anchored (or otherwise clip-relative) positioning,
 2. NOT portaled out of the clipping ancestor,
@@ -529,18 +529,22 @@ Every hit, with its disposition:
 
 | Site | Verdict |
 | --- | --- |
-| `components/admin/showpage/AttentionMenu.tsx:405` | **The defect.** All three conditions hold. Repaired here. |
+| `components/admin/showpage/AttentionMenu.tsx:405` | **The defect.** All four conditions hold. Repaired here. |
 | `components/auth/AvatarMenu.tsx:388` | **LATENT, not excluded.** It satisfies 1, 2 and 3. It escapes on condition 4 only: its anchor is the header's far-right identity chip, so the distance from the anchor's right edge to the clip's left edge is very nearly the full viewport, and `max-w-[calc(100vw-2rem)]` happens to bound it. That is a property of where the anchor sits, not of the cap being the right quantity — the same cap on an inset anchor would overflow. Its own docblock records hitting the left-overflow symptom and fixing it with that cap (`components/auth/AvatarMenu.tsx:383-387`). Recorded as L-5 with a trigger rather than repaired: it is outside any review-modal clip, it is not on the placement stack, and moving it there is a different surface. |
-| `components/admin/FinalizeButton.tsx:1092` | Not in class — condition 2 fails; it is portaled (`createPortal`, `components/admin/FinalizeButton.tsx:773`), so the viewport is again the correct bound. |
-| `components/admin/CleanupAbandonedFinalizeButton.tsx:169` | Not in class — condition 1 fails; a centered `role="dialog"` panel, not anchored to anything. |
+| `components/admin/FinalizeButton.tsx:1092` | Not in class on condition 4. **Both facts an earlier draft gave for this row were wrong**: `components/admin/FinalizeButton.tsx:773` portals the `role="dialog" aria-modal` blocker modal, NOT this soft-confirm panel, so citing it as this element's portal was a mis-attachment. The real mechanism is transitive: this control renders inside the wizard footer, which `components/admin/wizard/WizardFooter.tsx:62-63` portals into a `fixed inset-x-0 bottom-0` root. Its containing block is therefore viewport-width, the anchor-to-edge distance is ~the viewport, and a `100vw`-derived cap bounds the right quantity by accident of that geometry. **Scheduled for Task 1 runtime confirmation.** |
+| `components/admin/CleanupAbandonedFinalizeButton.tsx:169` | Not in class on condition 1, **but not for the reason an earlier draft gave.** It is NOT a centered unanchored dialog: `components/admin/CleanupAbandonedFinalizeButton.tsx:93` is `absolute bottom-full left-0`, an anchored popover floating above its trigger, and its own comment says so. It escapes condition 1 because it is LEFT-aligned, so it grows rightward and cannot overflow the clip's left edge; the mirror-image hazard (`anchor.left + width > clip.right`) is bounded for the same transitive reason as the row above — it lives in the same `fixed inset-x-0` footer portal. **Scheduled for Task 1 runtime confirmation.** |
 | `components/admin/showpage/ShareHub.tsx:39` | Not a match — a docblock recording that ShareHub *"used to be `absolute top-full right-0` … with `max-w-[calc(100vw-2rem)]`"*, and that this anchoring is what broke it. Historical prose about the migration this arc follows. An earlier draft's table omitted this hit while claiming to disposition every one. |
 | `components/admin/showpage/ShareHub.tsx:906` | **Not a match — the grep hit a COMMENT.** Line 906 is prose recording that the old `right-0 … max-w-[calc(100vw-2rem)]` anchoring *"is gone"*; the live class at `components/admin/showpage/ShareHub.tsx:908` is `w-[308px]` and carries no viewport unit. An earlier draft read that comment as executable CSS and called it a redundant belt. Corrected, and recorded rather than silently deleted, because it is why the cover above is no longer a raw grep. |
 | `components/diagrams/GalleryLightbox.tsx:999`, `components/diagrams/GalleryLightbox.tsx:1161` | N/A — `sizes="100vw"` is a Next `Image` srcset hint, not layout. |
 
-**These dispositions are static reads and Task 1 confirms them in a browser**
-before the class is declared closed. The two that matter are AvatarMenu and
-ShareHub, since "its clip is the viewport" and "the CSS belt is redundant" are both
-claims about runtime geometry.
+**These dispositions are static reads, and Task 1 confirms EVERY non-defect row in
+a browser** before the class is declared closed. An earlier draft scheduled only
+AvatarMenu and ShareHub for confirmation, and the two rows it left unscheduled are
+exactly the two whose stated facts turned out to be wrong — a static read that
+excuses itself from verification is how a wrong exclusion survives. Task 1
+measures, for each row, the panel's rect against its own containing block and
+reports the anchor-to-edge distance, so condition 4 is decided by a number rather
+than by a reading of the source.
 
 **After this change the class is empty among overlays inside a review-modal
 clip** — every one of those is on a stack that measures against
