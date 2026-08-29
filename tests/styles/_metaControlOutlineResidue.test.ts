@@ -1553,7 +1553,11 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // Then 2450 -> 2447 on the 2026-08-29 three-way absorb of #940/#941/#942. Located on
       // the merged tree: 2447 is that same `rounded-pill border border-border` <span>.
       // 2447 -> 2448 on the R1 repair commit; same rounded-pill border-border <span>.
-      "components/admin/wizard/step3ReviewSections.tsx:2448",
+      // Then 2448 -> 2455 when the draft-storage helpers moved to
+      // lib/admin/reportDraftStore.ts and the component gained a seven-line import
+      // for them near the top. Located on the live tree by the same rounded-pill
+      // border-border <span>, not by applying the delta.
+      "components/admin/wizard/step3ReviewSections.tsx:2455",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 
